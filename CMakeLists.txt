@@ -17,6 +17,16 @@ endif()
 # Native Windows builds use MSVC as the C/C++ compiler and as nvcc's host compiler (docs/WINDOWS.md).  Everything
 # guarded by MSVC here, so the Linux build is unchanged.
 if(MSVC)
+  # CL and _CL_ add options to EVERY cl.exe call, behind CMake's back: a user-wide _CL_=/std:c++20 breaks the C
+  # sources, and in Strata it made ggml's SIMD probes fail so ggml-cpu was silently built as scalar code.  The same
+  # environment reaches the build, so a configure that sees them stops (tools/windows/vsenv.ps1 clears them).
+  foreach(_v CL _CL_)
+    if(NOT "$ENV{${_v}}" STREQUAL "")
+      message(FATAL_ERROR "the environment variable ${_v}='$ENV{${_v}}' adds options to every MSVC compile (and to the "
+                          "C sources, and to any feature probe): clear it for the configure and the build, e.g. "
+                          "`Remove-Item env:${_v}` or dot-source tools/windows/vsenv.ps1, then configure again")
+    endif()
+  endforeach()
   # windows.h's min/max macros would break std::min/std::max in every file that includes it; M_PI and friends;
   # the CRT's "use the _s variant" warnings for fopen/getenv/sscanf, which the portable code uses deliberately
   add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS
@@ -340,6 +350,10 @@ target_include_directories(basalt PRIVATE ${_gpu_include_directories})
 target_link_libraries(basalt PRIVATE engine prefill spec ${_gpu_runtime_target})
 # `basalt serve` runs the Python server from the source tree
 target_compile_definitions(basalt PRIVATE BASALT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+# Windows: the manifest makes argv and the narrow file APIs UTF-8 (non-ASCII model paths) and allows long paths
+if(MSVC)
+  target_sources(basalt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools/windows/basalt.manifest)
+endif()
 
 # The standard benchmark: a host-only program that drives the engine over its stdin/stdout protocol.
 # The commit stamp is refreshed on every build (not only at configure time), by a target that rewrites the header
@@ -352,6 +366,9 @@ add_custom_target(git_stamp
 execute_process(COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_CURRENT_SOURCE_DIR} -DOUT=${_git_stamp}
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/git_stamp.cmake)
 add_executable(basalt-bench src/program/bench_main.cpp)
+if(MSVC)
+  target_sources(basalt-bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools/windows/basalt.manifest)
+endif()
 set_target_properties(basalt-bench PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 # the image encoder sidecar, bin/basalt-vision (its own project, built with this one)
 add_subdirectory(tools/vision)
@@ -827,6 +844,11 @@ if(BUILD_TESTING)
     add_executable(pool_affinity_test src/kernels/cpu/pool_affinity_linux_test.cpp)
     target_link_libraries(pool_affinity_test PRIVATE kernels_cpu)
     add_test(NAME pool_affinity_test COMMAND pool_affinity_test)
+  elseif(WIN32)
+    # worker hard pins, the host's CPU Set and its restoration
+    add_executable(pool_affinity_test src/kernels/cpu/pool_affinity_win_test.cpp)
+    target_link_libraries(pool_affinity_test PRIVATE kernels_cpu)
+    add_test(NAME pool_affinity_test COMMAND pool_affinity_test)
   endif()
   # one expert applied to several tokens, bitwise vs the single-token kernel (synthetic, CPU only).
   # the device dequantizers vs the artifact's CPU dequantizers on the real shards (not a ctest: needs
@@ -853,7 +875,7 @@ if(BUILD_TESTING)
   target_link_libraries(pool_stress PRIVATE kernels_cpu)
   add_test(NAME pool_stress COMMAND pool_stress 20)
 
-  if(UNIX AND NOT APPLE)
+  if((UNIX AND NOT APPLE) OR WIN32)
     add_executable(direct_file_async_test tests/platform/direct_file_async.cpp src/platform/direct_file.cpp)
     target_include_directories(direct_file_async_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     target_link_libraries(direct_file_async_test PRIVATE Threads::Threads)

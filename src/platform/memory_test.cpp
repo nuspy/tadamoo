@@ -4,6 +4,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#if defined(_WIN32)
+#include <windows.h>
+#include <psapi.h>
+#endif
 
 
 namespace {
@@ -52,6 +56,21 @@ int main() {
     std::printf("lock_resident: ok=%d locked=%llu MiB (%s)\n", (int) r.ok, (unsigned long long) (r.locked_bytes >> 20),
                 r.note.c_str());
     int fail = !(r.ok && r.locked_bytes == bytes) | fail_keeps;
+#if defined(_WIN32)
+    // the locked region is in the working set, and the readings the budgets use are sane: the available memory is
+    // known, within the RAM and within the commit left; the margin is 15% of the RAM
+    PROCESS_MEMORY_COUNTERS pmc{};
+    K32GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof pmc);
+    const uint64_t total = basalt::platform::total_physical_memory(), avail = basalt::platform::available_memory();
+    const uint64_t commit = basalt::platform::available_commit(), margin = basalt::platform::ram_margin();
+    std::printf("working set %llu MiB; RAM %llu MiB, available %llu MiB, commit left %llu MiB, margin %llu MiB\n",
+                (unsigned long long) (pmc.WorkingSetSize >> 20), (unsigned long long) (total >> 20),
+                (unsigned long long) (avail >> 20), (unsigned long long) (commit >> 20),
+                (unsigned long long) (margin >> 20));
+    fail |= pmc.WorkingSetSize < bytes;
+    fail |= total == 0 || avail == 0 || avail > total || avail > commit;
+    fail |= margin < total / 100 * 15 || margin > total / 100 * 15 + (2ull << 30);
+#endif
     basalt::platform::unlock_resident(p, bytes);
     std::free(p);
     std::printf("platform_memory_test: %s\n", fail ? "FAILED" : "OK");

@@ -34,12 +34,18 @@ cmake --build build-win --parallel 4
 The engine is `bin\basalt.exe`, the benchmark `bin\basalt-bench.exe` and the image encoder sidecar
 `bin\basalt-vision.exe`.  `-DBUILD_TESTING=ON` adds the tests (see Tests below).
 
-`vsenv.ps1` clears `CL` and `_CL_` for the session: they add options to every `cl` call, and a user-wide
-`_CL_=/std:c++20` breaks the C sources (ggml) with "`/std:c11` and `/std:c++20` are incompatible".
+**`CL` and `_CL_` must not be set.**  They add options to every `cl` call behind CMake's back.  A user-wide
+`_CL_=/std:c++20` breaks the C sources (ggml: "`/std:c11` and `/std:c++20` are incompatible"); in Strata the same
+variable made ggml's SIMD feature probes fail, CMake cached "no AVX2", and ggml-cpu was silently built as scalar
+code.  `vsenv.ps1` clears both for the session, the configure stops with an error when it sees either, and every
+AVX2 / AVX-512 source checks at compile time that its `/arch` flag reached it (`#error` otherwise).  If a build
+directory was ever configured with them set, configure it again from a clean shell (basalt itself runs no SIMD
+feature probes: its instruction sets are the explicit per-file flags below).
 
 On a machine that runs other heavy work, build at low priority and low parallelism, e.g.
 `(Get-Process -Id $PID).PriorityClass = 'BelowNormal'` before `cmake --build ... --parallel 4`; nvcc uses 1-3 GB of
-memory per job.
+memory per job.  Check the committed memory (`Get-Counter '\Memory\% Committed Bytes In Use'`) and that no other
+build runs (`Get-Process nvcc,cicc,ptxas,cl`) first.
 
 ## What the Windows build does differently
 
@@ -81,6 +87,25 @@ The Linux code paths are unchanged; the Windows ones sit behind `_WIN32` / `MSVC
 * **hc_fused**: MSVC cannot pass a 128-byte-aligned kernel parameter by value (C2719), and CUDA 13 declares
   `CUtensorMap` `alignas(128)`; the launch struct holds the same bytes at 64-byte alignment, which is what the TMA
   unit requires.
+* **Expert arena load** (`load_experts_direct`, `experts_unbuffered`): when a timed probe says the expert file is not
+  in the file cache and the RAM left could not keep it there, the arena is read with `FILE_FLAG_NO_BUFFERING`
+  straight into the (pinned) arena by 16 readers; otherwise through the file cache as on Linux.
+* **Positional reads** (`pread_at`): the descriptors the loaders open wrap handles opened for overlapped reads, so
+  the prompt path's expert stager and the other multi-threaded readers really read in parallel (a synchronous
+  Windows handle runs its reads one at a time).
+
+## GPU behaviour under WDDM
+
+* **Programmatic dependent launch** works under WDDM on the RTX 5090 (the parity tests that capture PDL chains pass).
+  `basalt --no-pdl` launches every kernel the plain way (same results) if a driver misbehaves; it is also the A/B arm.
+* **Legacy-stream copies.**  WDDM batches command submission, which makes a known CUDA hazard much more likely: a
+  pageable `cudaMemcpy` (or `cudaMemset`) runs on the legacy stream and can return before it lands, and kernels on a
+  `cudaStreamNonBlocking` stream do not wait for it.  Two parity tests read stale data this way on Windows (fixed with a
+  device synchronization); the engine's mid-run uploads that kernels on non-blocking streams read wait for the legacy
+  stream (`cudaStreamSynchronize(cudaStreamLegacy)`, as `generate.cpp`'s residency table already did).
+* **TDR.**  Windows resets a GPU that does not answer a preemption request within `TdrDelay` (2 s).  The decode path's
+  kernels spin on flags the CPU pool writes; with compute preemption a spinning kernel is preemptible, so this is not
+  expected to trigger, but it is not verified with a model yet.  Basalt changes no Windows setting.
 
 ## Not supported on Windows (yet)
 

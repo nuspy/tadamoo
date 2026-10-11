@@ -13,6 +13,7 @@
 //      mode the park protocol exists to prevent, so `run()` is called many times in a row.
 //   4. A BATCH BIGGER AND SMALLER THAN THE WORKER COUNT, because `n < workers` leaves most workers claiming
 //      nothing and `n > workers` is the real case (10 experts, 5 workers).
+#include "basalt/platform/compat.hpp"
 #include "basalt/kernels/cpu/pool.hpp"
 #include "basalt/kernels/cpu/expert.hpp"
 
@@ -34,7 +35,7 @@ bool read_blob(const char* path, long long index, std::vector<uint8_t>& out) {
     out.assign(cpu::BLOB, 0);
     std::FILE* f = std::fopen(path, "rb");
     if (!f) return false;
-    if (fseeko(f, (off_t) index * (off_t) cpu::BLOB, SEEK_SET) != 0) { std::fclose(f); return false; }
+    if (basalt::platform::fseek64(f, (long long) index * (long long) cpu::BLOB, SEEK_SET) != 0) { std::fclose(f); return false; }
     const size_t got = std::fread(out.data(), 1, out.size(), f);
     std::fclose(f);
     return got == out.size();

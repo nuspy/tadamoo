@@ -7,15 +7,28 @@
 #include <string>
 #include <thread>
 #include <vector>
+#if defined(_WIN32)
+#include <cstdio>
+#include <filesystem>
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 using basalt::platform::DirectFile;
 using basalt::platform::Completion;
 static void check(bool ok, const char* why) { if (!ok) throw std::runtime_error(why); }
 int main() {
+#if defined(_WIN32)
+    const std::string name_s =
+        (std::filesystem::temp_directory_path() / ("basalt-direct-test-" + std::to_string(_getpid()))).string();
+    const char* name = name_s.c_str();
+    auto unlink = [](const char* p) { return std::remove(p); };
+#else
     char name[] = "/tmp/basalt-direct-test-XXXXXX";
     int fd = mkstemp(name);
     if (fd < 0) return 1;
     close(fd);
+#endif
     void* memory = DirectFile::alloc_aligned(4096 * 18);
     try {
         check(memory != nullptr, "buffer allocation");

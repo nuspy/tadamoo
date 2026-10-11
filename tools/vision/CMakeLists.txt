@@ -54,6 +54,9 @@ target_include_directories(vision_cuda PUBLIC ${VISION_ROOT}/include ${VISION_RO
 target_link_libraries(vision_cuda PUBLIC vision_core CUDA::cudart CUDA::cublas)
 
 add_executable(basalt-vision vision.cpp)
+if(MSVC)   # UTF-8 argv and file APIs, long paths (tools/windows/basalt.manifest)
+  target_sources(basalt-vision PRIVATE ${VISION_ROOT}/tools/windows/basalt.manifest)
+endif()
 target_compile_definitions(basalt-vision PRIVATE BASALT_VISION_CUDA)
 target_link_libraries(basalt-vision PRIVATE vision_cuda)
 set_target_properties(basalt-vision PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${VISION_ROOT}/bin)

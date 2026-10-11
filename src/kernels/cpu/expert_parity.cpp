@@ -16,6 +16,7 @@
 // wrong expert would still agree perfectly.  What is checked instead is structural: the blob must decode to
 // finite, non-zero scales, and the blob at a DIFFERENT layer must be different data - which is what a wrong
 // stride would break.
+#include "basalt/platform/compat.hpp"
 #include "basalt/kernels/cpu/expert.hpp"
 
 #include <cmath>
@@ -45,7 +46,7 @@ bool read_blob(const char* path, long long index, std::vector<uint8_t>& out) {
     out.assign(cpu::BLOB, 0);
     std::FILE* f = std::fopen(path, "rb");
     if (!f) return false;
-    if (fseeko(f, (off_t) index * (off_t) cpu::BLOB, SEEK_SET) != 0) { std::fclose(f); return false; }
+    if (basalt::platform::fseek64(f, (long long) index * (long long) cpu::BLOB, SEEK_SET) != 0) { std::fclose(f); return false; }
     const size_t got = std::fread(out.data(), 1, out.size(), f);
     std::fclose(f);
     return got == out.size();

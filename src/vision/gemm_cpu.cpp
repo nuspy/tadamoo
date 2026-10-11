@@ -1,5 +1,8 @@
 // src/vision/gemm_cpu.cpp - see gemm_cpu.hpp.  AVX2 + FMA: a 4 x 4 register tile, bf16 widened by a shift.
 #include "gemm_cpu.hpp"
+#if !defined(__AVX2__)
+#error "gemm_cpu.cpp must be compiled with AVX2 enabled (the per-source flags in CMakeLists.txt, BASALT_ISA_*)"
+#endif
 
 #include <algorithm>
 #include <cstring>

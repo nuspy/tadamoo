@@ -9,6 +9,7 @@
 //   C. THE BLOCK against ggml's own graph, captured in two binary files (`--in` / `--out`).  The capture
 //      records EVERY intermediate (key, value, gate, gated, normalized, conv_out, result), so a mismatch can be
 //      attributed to a stage instead of guessed at.
+#include "basalt/platform/compat.hpp"
 #include "basalt/kernels/ple.hpp"
 #include "basalt/kernels/ngram.hpp"
 #include "basalt/kernels/f16_bits.hpp"
@@ -84,8 +85,8 @@ double rel_l1(const float* a, const float* b, size_t n, double* mag_out = nullpt
 long long file_size(const char* path) {
     std::FILE* f = std::fopen(path, "rb");
     if (!f) return -1;
-    std::fseek(f, 0, SEEK_END);
-    const long long n = std::ftell(f);
+    basalt::platform::fseek64(f, 0, SEEK_END);
+    const long long n = basalt::platform::ftell64(f);
     std::fclose(f);
     return n;
 }
@@ -95,7 +96,7 @@ std::vector<uint8_t> read_at(const char* path, long long off, size_t n) {
     std::vector<uint8_t> v(n);
     std::FILE* f = std::fopen(path, "rb");
     if (!f) return {};
-    if (std::fseek(f, (long) off, SEEK_SET) != 0) { std::fclose(f); return {}; }
+    if (basalt::platform::fseek64(f, off, SEEK_SET) != 0) { std::fclose(f); return {}; }
     const size_t got = std::fread(v.data(), 1, n, f);
     std::fclose(f);
     if (got != n) return {};

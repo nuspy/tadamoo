@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- tools/windows/basalt.manifest - embedded in the Windows executables (CMakeLists.txt).
+     activeCodePage UTF-8: argv, fopen and every narrow ("A") Win32 call take UTF-8, so a model path with non-ASCII
+     characters reaches the engine as the server sent it (Windows 10 1903+; older versions keep the ANSI code page).
+     longPathAware: paths past MAX_PATH when the system allows them. -->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </windowsSettings>
+  </application>
+</assembly>

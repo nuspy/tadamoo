@@ -4,6 +4,9 @@
 #include <cstdlib>
 #include <limits>
 #include <sstream>
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 
 using namespace basalt::core;
@@ -46,5 +49,14 @@ int main() {
     // Test the real provider without assuming any particular amount of free RAM.
     const auto available = conversation_available_memory();
     check(!available || conversation_memory_admit(available, 0, 0), "provider returns bytes or unknown");
+#if defined(_WIN32)
+    // Unknown must fail closed in production, but must not let a broken Windows provider pass this test: compare with
+    // the total physical memory (not a second reading - other processes allocate in between).
+    MEMORYSTATUSEX physical{};
+    physical.dwLength = sizeof physical;
+    check(GlobalMemoryStatusEx(&physical) != 0, "Windows physical-memory API is available");
+    check(available.has_value() && *available <= physical.ullTotalPhys,
+          "Windows provider returns a known, physically bounded sample");
+#endif
     std::printf("conversation_memory_test: %d checks passed\n", checks);
 }

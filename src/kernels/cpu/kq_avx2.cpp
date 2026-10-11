@@ -12,6 +12,9 @@
 //
 // The gain is the weight-side work and the weight bytes, read once per verify window instead of once per token.
 #include "basalt/kernels/cpu/kq_avx2.hpp"
+#if !defined(__AVX2__)
+#error "kq_avx2.cpp must be compiled with AVX2 enabled (the per-source flags in CMakeLists.txt, BASALT_ISA_*)"
+#endif
 
 #define GGML_COMMON_DECL_CPP
 #define GGML_COMMON_IMPL_CPP

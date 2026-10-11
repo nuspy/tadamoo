@@ -5,6 +5,9 @@
 // codes 0..3 against the int8 activation per 32-value chunk, times the weight scale and the chunk scale, minus
 // the weight scale times the chunk's `hx` (the -1 code offset); the quantizer is the scalar rule, bit for bit.
 #include "basalt/kernels/cpu/expert.hpp"
+#if !defined(__AVX2__)
+#error "q2_avx2.cpp must be compiled with AVX2 enabled (the per-source flags in CMakeLists.txt, BASALT_ISA_*)"
+#endif
 
 #include <immintrin.h>
 

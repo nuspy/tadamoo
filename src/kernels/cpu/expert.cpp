@@ -2,6 +2,9 @@
 //
 // See include/basalt/kernels/cpu/expert.hpp first; it says why each piece is shaped this way.
 #include "basalt/kernels/cpu/expert.hpp"
+#if !defined(__AVX512F__) || !defined(__AVX512BW__)
+#error "expert.cpp must be compiled with AVX-512 enabled (the per-source flags in CMakeLists.txt, BASALT_ISA_*)"
+#endif
 
 #include <immintrin.h>
 #include "basalt/platform/compat.hpp"

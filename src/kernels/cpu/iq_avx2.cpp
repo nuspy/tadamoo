@@ -10,6 +10,9 @@
 //
 // Formats: IQ2_XXS (16), IQ2_XS (17), IQ3_XXS (18), IQ3_S (21), IQ2_S (22), IQ4_XS (23).  IQ1_M stays on ggml-cpu.
 #include "basalt/kernels/cpu/iq_avx2.hpp"
+#if !defined(__AVX2__)
+#error "iq_avx2.cpp must be compiled with AVX2 enabled (the per-source flags in CMakeLists.txt, BASALT_ISA_*)"
+#endif
 
 #define GGML_COMMON_DECL_CPP
 #define GGML_COMMON_IMPL_CPP
