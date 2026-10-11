@@ -107,8 +107,9 @@ def make_handler(svc: Service):
                 if self.rfile.read(2) != b"\r\n":
                     raise BadBody(400, "malformed chunked request body")
 
-        def _body(self, limit: int = BODY_MAX) -> bytes:
-            """The request body, chunked or by Content-Length, at most `limit` bytes."""
+        def _body(self, limit: int | None = None) -> bytes:
+            """The request body, chunked or by Content-Length, at most `limit` bytes (default BODY_MAX)."""
+            limit = BODY_MAX if limit is None else limit     # read at call time: tests lower BODY_MAX
             if self._chunked():
                 return self._read_chunked(limit)
             try:
