@@ -138,11 +138,17 @@ inline int replace_file(const char* from, const char* to) {
 
 // ------------------------------------------------------------------------------------------------ file descriptors
 /// A read-only file descriptor (binary on Windows, where the CRT's default text mode would rewrite the bytes), or -1.
+///
+/// On Windows the descriptor wraps a handle opened for OVERLAPPED reads: a synchronous handle runs its reads one at
+/// a time, while the loaders read one file from many threads at once (pread_at always passes an offset and waits for
+/// its own read).  Such a descriptor is only for pread_at, fd_size, map_file_readonly and close_fd - never _read.
 inline int open_read(const char* path) {
 #if defined(_WIN32)
-    int fd = -1;
-    const std::wstring w = widen(path);
-    if (_wsopen_s(&fd, w.c_str(), _O_RDONLY | _O_BINARY | _O_NOINHERIT, _SH_DENYNO, _S_IREAD) != 0) return -1;
+    HANDLE h = CreateFileW(widen(path).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return -1;
+    const int fd = _open_osfhandle((intptr_t) h, _O_RDONLY | _O_BINARY);
+    if (fd < 0) CloseHandle(h);
     return fd;
 #else
     return ::open(path, O_RDONLY);
@@ -176,9 +182,10 @@ inline bool path_file_size(const char* path, uint64_t& bytes) {
 /// The size of the open file `fd`, false when it cannot be read.
 inline bool fd_size(int fd, uint64_t& bytes) {
 #if defined(_WIN32)
-    const __int64 n = _filelengthi64(fd);
-    if (n < 0) return false;
-    bytes = (uint64_t) n;
+    LARGE_INTEGER n{};
+    const HANDLE h = (HANDLE) _get_osfhandle(fd);
+    if (h == INVALID_HANDLE_VALUE || !GetFileSizeEx(h, &n) || n.QuadPart < 0) return false;
+    bytes = (uint64_t) n.QuadPart;
     return true;
 #else
     struct stat st{};
@@ -194,13 +201,27 @@ inline long long pread_at(int fd, void* dst, size_t bytes, uint64_t offset) {
 #if defined(_WIN32)
     HANDLE h = (HANDLE) _get_osfhandle(fd);
     if (h == INVALID_HANDLE_VALUE) return -1;
+    // this thread's event: the handle itself is signalled by every read on it, so a wait on it would race
+    struct Event {
+        HANDLE e = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        ~Event() { if (e != nullptr) CloseHandle(e); }
+    };
+    thread_local Event ev;
+    if (ev.e == nullptr) return -1;
     // ReadFile takes a 32-bit length: the caller's loop asks again for the rest
     const DWORD want = (DWORD) (bytes > (1u << 30) ? (1u << 30) : bytes);
     OVERLAPPED ov{};
     ov.Offset = (DWORD) (offset & 0xFFFFFFFFull);
     ov.OffsetHigh = (DWORD) (offset >> 32);
+    ov.hEvent = ev.e;
+    // works on an overlapped handle (open_read) and on a synchronous one alike: either way the read is at `offset`
+    if (!ReadFile(h, dst, want, nullptr, &ov)) {
+        const DWORD e = GetLastError();
+        if (e == ERROR_HANDLE_EOF) return 0;
+        if (e != ERROR_IO_PENDING) return -1;
+    }
     DWORD got = 0;
-    if (!ReadFile(h, dst, want, &got, &ov)) return GetLastError() == ERROR_HANDLE_EOF ? 0 : -1;
+    if (!GetOverlappedResult(h, &ov, &got, TRUE)) return GetLastError() == ERROR_HANDLE_EOF ? 0 : -1;
     return (long long) got;
 #else
     ssize_t n;

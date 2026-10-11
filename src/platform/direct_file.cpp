@@ -83,6 +83,7 @@ struct DirectFile::Impl {
     std::deque<Completion> immediate;   // requests that completed without a port packet (EOF) or failed to issue
     std::deque<Pending> queue;          // submitted, not yet issued
     int wakes = 0;                      // wake() calls not yet delivered as a WAKE_TAG completion
+    int64_t inflight = 0;               // reads issued whose port packet has not been taken yet
     std::condition_variable cv;
     bool stop = false;
     std::vector<std::thread> pool;
@@ -108,14 +109,44 @@ struct DirectFile::Impl {
         r->ov.Offset = (DWORD) (p.offset & 0xFFFFFFFFull);
         r->ov.OffsetHigh = (DWORD) (p.offset >> 32);
         r->tag = p.tag;
+        {
+            std::lock_guard<std::mutex> lk(mu);
+            ++inflight;   // before the read: its packet may be taken before ReadFile returns
+        }
         if (!ReadFile(file, p.buffer, p.length, nullptr, &r->ov)) {
             const DWORD e = GetLastError();
             if (e != ERROR_IO_PENDING) {
                 std::lock_guard<std::mutex> lk(mu);
+                --inflight;   // no packet will come for it
                 free_reqs.push_back(r);
                 // at or past end of file: a zero-byte completion; anything else: a failed one
                 immediate.push_back(Completion{p.tag, 0, e == ERROR_HANDLE_EOF});
                 PostQueuedCompletionStatus(port, 0, 0, nullptr);   // wake a waiter to collect it
+            }
+        }
+    }
+
+    // After the issuing threads stopped: cancel what is in flight and take every read's packet, so no read writes
+    // into a caller's buffer after close() returned (the caller frees it next).
+    void drain() {
+        if (file == INVALID_HANDLE_VALUE || port == nullptr) return;
+        (void) CancelIoEx(file, nullptr);
+        for (;;) {
+            {
+                std::lock_guard<std::mutex> lk(mu);
+                if (inflight <= 0) return;
+            }
+            OVERLAPPED_ENTRY e[64];
+            ULONG got = 0;
+            if (!GetQueuedCompletionStatusEx(port, e, 64, &got, 5000, FALSE)) {
+                if (GetLastError() == WAIT_TIMEOUT) continue;   // a read the drive still holds
+                return;
+            }
+            std::lock_guard<std::mutex> lk(mu);
+            for (ULONG i = 0; i < got; ++i) {
+                if (e[i].lpOverlapped == nullptr) continue;
+                free_reqs.push_back((Req*) e[i].lpOverlapped);
+                --inflight;
             }
         }
     }
@@ -193,6 +224,7 @@ bool DirectFile::open(const std::string& path, std::string& err) {
 
 void DirectFile::close() {
     impl_->stop_pool();
+    impl_->drain();
     if (impl_->port != nullptr) CloseHandle(impl_->port);
     if (impl_->file != INVALID_HANDLE_VALUE) CloseHandle(impl_->file);
     impl_->port = nullptr;
@@ -201,6 +233,7 @@ void DirectFile::close() {
     impl_->immediate.clear();
     impl_->queue.clear();
     impl_->wakes = 0;
+    impl_->inflight = 0;
 }
 
 bool DirectFile::is_open() const { return impl_->file != INVALID_HANDLE_VALUE; }
@@ -245,6 +278,7 @@ int DirectFile::wait(Completion* out, int max, int timeout_ms) {
                 continue;
             }
             Req* r = (Req*) entries[i].lpOverlapped;
+            --impl_->inflight;
             const uint32_t status = (uint32_t) r->ov.Internal;   // an NTSTATUS
             Completion c;
             c.tag = r->tag;

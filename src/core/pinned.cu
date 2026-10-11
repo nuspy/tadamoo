@@ -412,6 +412,153 @@ LoadStats load_experts(const std::string& path, uint8_t* dst, uint64_t blob_byte
     return load_experts_ranges(path, dst, off, n, threads, chunk);
 }
 
+#if defined(_WIN32)
+// Windows: FILE_FLAG_NO_BUFFERING reads straight into the arena, each reader on its own handle with positional
+// synchronous reads.  The ranges must be one contiguous run that starts 4 KiB aligned in the file and in `dst` (the
+// arena layout's are); its last partial page goes through a small aligned buffer, so nothing past the run is written.
+LoadStats load_experts_direct(const std::string& path, uint8_t* dst, const std::vector<uint64_t>& layer_off,
+                              const std::vector<uint64_t>& layer_bytes, int threads, uint64_t chunk, uint64_t base) {
+    LoadStats st;
+    st.ok = false;
+    constexpr uint64_t kAlign = 4096;
+    if (layer_off.empty() || layer_off.size() != layer_bytes.size() || chunk == 0 || chunk % kAlign != 0) return st;
+    const uint64_t start = layer_off[0];
+    uint64_t total = 0;
+    for (size_t L = 0; L < layer_off.size(); ++L) {
+        if (layer_off[L] != start + total) return st;   // not one run: the buffered reader
+        total += layer_bytes[L];
+    }
+    if (((uintptr_t) (dst + start)) % kAlign != 0 || (base + start) % kAlign != 0 || total == 0) return st;
+    const uint64_t body = total / kAlign * kAlign, tail = total - body;
+    struct Piece { uint64_t off, n; };
+    std::vector<Piece> pieces;
+    for (uint64_t p = 0; p < body; p += chunk) pieces.push_back({p, std::min<uint64_t>(chunk, body - p)});
+    if (threads < 1) threads = 1;
+    const auto t0 = std::chrono::steady_clock::now();
+    LoadProgress progress("ram", total);
+    std::atomic<size_t> next{0};
+    std::atomic<uint64_t> read_ns_sum{0};
+    std::mutex err_mu;
+    std::string err;
+    const std::wstring wpath = basalt::platform::widen(path);
+    auto fail = [&](const std::string& what) {
+        std::lock_guard<std::mutex> g(err_mu);
+        if (err.empty()) err = what;
+        next = pieces.size() + 1;
+    };
+    auto read_at = [](HANDLE h, uint8_t* to, uint64_t off, DWORD n, DWORD& got) {
+        OVERLAPPED ov{};
+        ov.Offset = (DWORD) (off & 0xFFFFFFFFull);
+        ov.OffsetHigh = (DWORD) (off >> 32);
+        got = 0;
+        return ReadFile(h, to, n, &got, &ov) != 0;
+    };
+    auto worker = [&](bool does_tail) {
+        HANDLE h = CreateFileW(wpath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                               FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+        if (h == INVALID_HANDLE_VALUE) {
+            fail("cannot open " + path + " unbuffered (error " + std::to_string((unsigned long long) GetLastError()) + ")");
+            return;
+        }
+        uint64_t read_ns = 0;
+        for (;;) {
+            const size_t i = next.fetch_add(1);
+            if (i >= pieces.size()) break;
+            DWORD got = 0;
+            const auto tr = std::chrono::steady_clock::now();
+            const bool ok = read_at(h, dst + start + pieces[i].off, base + start + pieces[i].off, (DWORD) pieces[i].n, got);
+            read_ns += (uint64_t) std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - tr).count();
+            if (!ok || got != pieces[i].n) {
+                fail("short unbuffered read at offset " + std::to_string(base + start + pieces[i].off) + ": got " +
+                     std::to_string(got) + " of " + std::to_string(pieces[i].n) + " B (error " +
+                     std::to_string((unsigned long long) GetLastError()) + ")");
+                break;
+            }
+            progress.add(pieces[i].n);
+        }
+        if (does_tail && tail > 0 && err.empty()) {   // the last partial page, through an aligned buffer
+            uint8_t* page = (uint8_t*) VirtualAlloc(nullptr, kAlign, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+            DWORD got = 0;
+            if (page == nullptr || !read_at(h, page, base + start + body, (DWORD) kAlign, got) || got < tail) {
+                fail("short unbuffered read of the last " + std::to_string(tail) + " B (error " +
+                     std::to_string((unsigned long long) GetLastError()) + ")");
+            } else {
+                std::memcpy(dst + start + body, page, (size_t) tail);
+                progress.add(tail);
+            }
+            if (page != nullptr) VirtualFree(page, 0, MEM_RELEASE);
+        }
+        read_ns_sum.fetch_add(read_ns);
+        CloseHandle(h);
+    };
+    std::vector<std::thread> pool;
+    for (int i = 1; i < threads; ++i) pool.emplace_back(worker, false);
+    worker(true);
+    for (auto& t : pool) t.join();
+    st.layers = layer_off.size();
+    if (!err.empty()) {
+        st.seconds = -1.0;
+        st.error = err;
+        return st;
+    }
+    progress.finish();
+    st.ok = true;
+    st.bytes = total;
+    st.read_seconds = (double) read_ns_sum.load() / 1e9;
+    st.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    return st;
+}
+
+// A timed probe of random 64 KiB reads says whether the files are in the file cache; the RAM left beside the arena
+// says whether the cache could keep them for the next start.  Unbuffered only when neither holds: a warm restart then
+// never gets slower, and a start that reads the drive anyway skips the cache's copy (on Windows a buffered load of
+// tens of GB also pushes the rest of the machine's cached files out).
+bool experts_unbuffered(const std::vector<std::string>& files, uint64_t arena_bytes, std::string& why,
+                        bool cache_counts, uint64_t read_bytes) {
+    LARGE_INTEGER freq{}, a{}, b{};
+    QueryPerformanceFrequency(&freq);
+    constexpr DWORD kRead = 64 << 10;
+    constexpr int kSamples = 16;
+    std::vector<uint8_t> buf(kRead);
+    uint64_t total_bytes = 0;
+    int fast = 0, n = 0;
+    uint64_t seed = (uint64_t) GetTickCount64() * 6364136223846793005ull + 1442695040888963407ull;
+    for (const std::string& f : files) {
+        HANDLE h = CreateFileW(basalt::platform::widen(f).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                               FILE_FLAG_RANDOM_ACCESS, nullptr);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        LARGE_INTEGER size{};
+        GetFileSizeEx(h, &size);
+        total_bytes += (uint64_t) size.QuadPart;
+        // random offsets: a probe must not find the blocks an earlier probe put into the cache
+        for (int i = 0; i < kSamples && (uint64_t) size.QuadPart > 2ull * kRead; ++i) {
+            seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+            const uint64_t off = ((seed >> 17) % ((uint64_t) size.QuadPart - kRead)) / kRead * kRead;
+            OVERLAPPED ov{};
+            ov.Offset = (DWORD) off;
+            ov.OffsetHigh = (DWORD) (off >> 32);
+            DWORD got = 0;
+            QueryPerformanceCounter(&a);
+            const BOOL ok = ReadFile(h, buf.data(), kRead, &got, &ov);
+            QueryPerformanceCounter(&b);
+            if (!ok) continue;
+            ++n;
+            fast += (double) (b.QuadPart - a.QuadPart) * 1e6 / (double) freq.QuadPart < 30.0;
+        }
+        CloseHandle(h);
+    }
+    const bool cached = n > 0 && fast * 4 >= n * 3;
+    const uint64_t avail = basalt::platform::available_memory();
+    const uint64_t need = read_bytes == kAllFileBytes ? total_bytes : read_bytes;
+    const bool keepable = basalt::platform::file_cache_keeps(avail, arena_bytes, need);
+    char msg[256];
+    std::snprintf(msg, sizeof msg, "%d of %d probe reads from the file cache; %.1f GiB available, %.1f GiB of files: the "
+                  "file cache %s keep them", fast, n, (double) avail / (1ull << 30), (double) need / (1ull << 30),
+                  keepable ? "can" : "cannot");
+    why = msg;
+    return (!cached || !cache_counts) && !keepable;
+}
+#else
 LoadStats load_experts_direct(const std::string& path, uint8_t* dst, const std::vector<uint64_t>& layer_off,
                               const std::vector<uint64_t>& layer_bytes, int threads, uint64_t chunk, uint64_t base) {
     LoadStats st;
@@ -426,6 +573,7 @@ bool experts_unbuffered(const std::vector<std::string>& files, uint64_t arena_by
     why = "buffered";
     return false;
 }
+#endif
 
 LoadStats load_experts_ranges(const std::string& path, uint8_t* dst, const std::vector<uint64_t>& layer_off,
                               const std::vector<uint64_t>& layer_bytes, int threads, uint64_t chunk, uint64_t base) {
