@@ -15,8 +15,8 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <fcntl.h>
-#include <unistd.h>
+
+#include "basalt/platform/compat.hpp"
 
 namespace basalt::program {
 
@@ -68,7 +68,9 @@ public:
     bool finish(std::string& err) {
         const bool ok = wait(err);
         std::fflush(out_);
+#if !defined(_WIN32)
         posix_fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);
+#endif
         return ok;
     }
 
@@ -81,7 +83,7 @@ private:
         const char* base = paths().first.c_str();
         const char* out = paths().second.c_str();
         if (paths().first.empty() || paths().second.empty()) return;
-        fd_ = ::open(base, O_RDONLY);
+        fd_ = basalt::platform::open_read(base);
         char magic[8];
         uint32_t n_ctx = 0;
         int32_t nv[2] = {0, 0};
@@ -106,19 +108,11 @@ private:
         close_fd();
     }
     void close_fd() {
-        if (fd_ >= 0) ::close(fd_);
+        if (fd_ >= 0) basalt::platform::close_fd(fd_);
         fd_ = -1;
     }
     bool read_at(void* dst, size_t bytes, uint64_t off) const {
-        uint8_t* p = (uint8_t*) dst;
-        while (bytes > 0) {
-            const ssize_t r = ::pread(fd_, p, bytes, (off_t) off);
-            if (r <= 0) return false;
-            p += r;
-            off += (uint64_t) r;
-            bytes -= (size_t) r;
-        }
-        return true;
+        return basalt::platform::pread_full(fd_, dst, bytes, off);
     }
 
     // the same arithmetic as llama-perplexity's KL-divergence pass

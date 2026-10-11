@@ -3,10 +3,13 @@
 
 #include <cstring>
 
+#include "basalt/platform/compat.hpp"
+#if !defined(_WIN32)
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
 namespace basalt::vision {
 
@@ -84,7 +87,11 @@ Value read_value(Cursor& c, uint32_t t) {
 }  // namespace
 
 void Mmproj::release() {
+#if defined(_WIN32)
+    if (map_) basalt::platform::unmap_file(map_);
+#else
     if (map_) munmap(map_, size_);
+#endif
     map_ = nullptr;
     tensors_.clear();
 }
@@ -92,6 +99,16 @@ void Mmproj::release() {
 Mmproj::~Mmproj() { release(); }
 
 bool Mmproj::open(const std::string& path, std::string& err) {
+#if defined(_WIN32)
+    const int fd = basalt::platform::open_read(path.c_str());
+    if (fd < 0) { err = "cannot open " + path; return false; }
+    uint64_t bytes = 0;
+    if (!basalt::platform::fd_size(fd, bytes) || bytes < 32) { basalt::platform::close_fd(fd); err = "cannot read " + path; return false; }
+    size_ = (size_t) bytes;
+    map_ = basalt::platform::map_file_readonly(fd, 0, bytes);   // the view keeps the file open
+    basalt::platform::close_fd(fd);
+    if (map_ == nullptr) { err = "cannot map " + path; return false; }
+#else
     const int fd = ::open(path.c_str(), O_RDONLY);
     if (fd < 0) { err = "cannot open " + path; return false; }
     struct stat st{};
@@ -100,6 +117,7 @@ bool Mmproj::open(const std::string& path, std::string& err) {
     map_ = mmap(nullptr, size_, PROT_READ, MAP_PRIVATE, fd, 0);
     ::close(fd);
     if (map_ == MAP_FAILED) { map_ = nullptr; err = "cannot map " + path; return false; }
+#endif
     const uint8_t* base = (const uint8_t*) map_;
     Cursor c{base, base + size_};
     if (c.get<uint32_t>() != 0x46554747u) { err = path + " is not a GGUF file"; return false; }

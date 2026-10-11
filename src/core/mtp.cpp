@@ -9,6 +9,7 @@
 
 #include "basalt/core/native_head.hpp"
 #include "basalt/core/peer_experts.hpp"
+#include "basalt/platform/compat.hpp"
 #include "basalt/platform/memory.hpp"
 #include "basalt/kernels/bf16_gemv.hpp"
 #include "basalt/kernels/cpu/expert.hpp"
@@ -51,7 +52,7 @@
 #include <optional>
 #include <sstream>
 #include <vector>
-#if   defined(__x86_64__)
+#if defined(__x86_64__) || defined(_M_X64)
 #include <immintrin.h>
 #endif
 
@@ -122,7 +123,7 @@ bool read_file(const FileRange& r, std::vector<uint8_t>& out) {
         ~Closer() { if (f != nullptr) std::fclose(f); }
     } closer{f};
     const uint64_t n = r.size();
-    if (fseeko(f, (off_t) r.offset, SEEK_SET) != 0) return false;
+    if (basalt::platform::fseek64(f, (long long) r.offset, SEEK_SET) != 0) return false;
     basalt::platform::advise_willneed(fileno(f), r.offset, n);
     out.resize((size_t) n);
     return n == 0 || std::fread(out.data(), 1, (size_t) n, f) == (size_t) n;
@@ -301,7 +302,7 @@ bool MtpDrafter::load(const MtpFiles& files, const ModelGeometry& g, SessionStat
             return false;
         }
         FILE* f = std::fopen(files.experts.path.c_str(), "rb");
-        if (f == nullptr || fseeko(f, (off_t) files.experts.offset, SEEK_SET) != 0) {
+        if (f == nullptr || basalt::platform::fseek64(f, (long long) files.experts.offset, SEEK_SET) != 0) {
             if (f != nullptr) std::fclose(f);
             err = "mtp: cannot open " + files.experts.path;
             return false;
@@ -1512,7 +1513,7 @@ bool MtpDrafter::draft(int T, const int32_t* tokens, int64_t p, int a, int32_t* 
         for (int j = 0; j + 1 < max_steps; ++j) {
             uint32_t spins = 0;
             while (((volatile int32_t*) h_out_)[j] < 0) {
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(_M_X64)
                 _mm_pause();
 #endif
                 if ((++spins & 1023u) == 0 && cudaStreamQuery(cs_) != cudaErrorNotReady) break;
@@ -1546,7 +1547,7 @@ bool MtpDrafter::draft(int T, const int32_t* tokens, int64_t p, int a, int32_t* 
         auto wait_step = [&](int j) {
             uint32_t spins = 0;
             while (((volatile int32_t*) h_out_)[j] < 0) {
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(_M_X64)
                 _mm_pause();
 #endif
                 if ((++spins & 1023u) == 0 && cudaStreamQuery(cs_) != cudaErrorNotReady) break;

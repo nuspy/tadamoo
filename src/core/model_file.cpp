@@ -4,9 +4,7 @@
 
 #include "basalt/artifact/gguf_reader.hpp"
 
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#include "basalt/platform/compat.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -22,18 +20,14 @@ namespace basalt::core {
 namespace {
 
 bool file_size_of(const std::string& path, uint64_t& size) {
-    struct stat st{};
-    if (::stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0) return false;
-    size = (uint64_t) st.st_size;
-    return true;
+    return basalt::platform::path_file_size(path.c_str(), size);
 }
 
 bool pread_all(int fd, void* dst, uint64_t n, uint64_t off) {
     uint8_t* p = (uint8_t*) dst;
     while (n > 0) {
         const size_t want = (size_t) std::min<uint64_t>(n, 1ull << 30);
-        const ssize_t got = ::pread(fd, p, want, (off_t) off);
-        if (got < 0 && errno == EINTR) continue;
+        const long long got = basalt::platform::pread_at(fd, p, want, off);   // retries EINTR
         if (got <= 0) return false;
         p += got;
         off += (uint64_t) got;
@@ -58,10 +52,10 @@ uint64_t FileRange::size() const {
 
 bool read_range_at(const FileRange& r, uint64_t off, void* dst, uint64_t n, std::string& err) {
     if (r.bytes != 0 && (off > r.bytes || n > r.bytes - off)) { err = "read past the end of a section of " + r.path; return false; }
-    const int fd = ::open(r.path.c_str(), O_RDONLY);
+    const int fd = basalt::platform::open_read(r.path.c_str());
     if (fd < 0) { err = "cannot open " + r.path; return false; }
     const bool ok = pread_all(fd, dst, n, r.offset + off);
-    ::close(fd);
+    basalt::platform::close_fd(fd);
     if (!ok) err = "short read from " + r.path;
     return ok;
 }
@@ -270,10 +264,10 @@ bool ModelFile::open(const std::string& path, std::string& err) {
     if (actual < kHeaderBytes) { err = path + ": not a .basalt model file (too short)"; return false; }
     std::vector<uint8_t> head((size_t) kHeaderBytes);
     {
-        const int fd = ::open(path.c_str(), O_RDONLY);
+        const int fd = basalt::platform::open_read(path.c_str());
         if (fd < 0) { err = "cannot open " + path; return false; }
         const bool ok = pread_all(fd, head.data(), kHeaderBytes, 0);
-        ::close(fd);
+        basalt::platform::close_fd(fd);
         if (!ok) { err = "cannot read the header of " + path; return false; }
     }
     FileHeader h;
@@ -476,7 +470,7 @@ bool hc8_write(const std::string& path, const std::vector<Hc8Copy>& copies, std:
         pos += copies[i].data.size();
     }
     ok = (std::fclose(f) == 0) && ok;
-    if (!ok || std::rename(tmp.c_str(), path.c_str()) != 0) {
+    if (!ok || basalt::platform::replace_file(tmp.c_str(), path.c_str()) != 0) {
         std::remove(tmp.c_str());
         err = "hc8: could not write " + path;
         return false;

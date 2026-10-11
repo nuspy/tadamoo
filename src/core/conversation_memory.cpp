@@ -5,7 +5,12 @@
 #include <limits>
 #include <sstream>
 #include <string>
-
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace basalt::core {
 
@@ -28,9 +33,17 @@ std::optional<uint64_t> conversation_mem_available(std::istream& meminfo) {
 }
 
 std::optional<uint64_t> conversation_available_memory() {
+#if defined(_WIN32)
+    // the free physical RAM, but never more than the commit left: an allocation past that would grow the page file
+    MEMORYSTATUSEX status{};
+    status.dwLength = sizeof status;
+    if (!GlobalMemoryStatusEx(&status)) return {};
+    return (uint64_t) (status.ullAvailPhys < status.ullAvailPageFile ? status.ullAvailPhys : status.ullAvailPageFile);
+#else
     std::ifstream meminfo("/proc/meminfo");
     if (!meminfo) return {};
     return conversation_mem_available(meminfo);
+#endif
 }
 
 } // namespace basalt::core

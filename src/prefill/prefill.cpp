@@ -31,8 +31,9 @@
 #include "basalt/platform/memory.hpp"
 #include "basalt/prefill/kernels.hpp"
 
+#include "basalt/platform/compat.hpp"
+
 #include <cuda_runtime.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
@@ -212,14 +213,7 @@ struct Stager {
         }
     }
     static bool read_file(const Job& jb, uint8_t* dst) {
-        size_t done = 0;
-        while (done < jb.bytes) {
-            const ssize_t n = pread(jb.fd, dst + done, jb.bytes - done, (off_t) (jb.off + done));
-            if (n < 0 && errno == EINTR) continue;
-            if (n <= 0) return false;
-            done += (size_t) n;
-        }
-        return true;
+        return basalt::platform::pread_full(jb.fd, dst, jb.bytes, jb.off);   // retries EINTR, loops short reads
     }
     int claim(uint32_t g) {
         uint64_t cur = head.load(std::memory_order_acquire);

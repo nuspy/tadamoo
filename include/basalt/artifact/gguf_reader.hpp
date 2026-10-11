@@ -32,11 +32,14 @@
 #include <algorithm>
 
 #include "basalt/artifact/gguf_split.hpp"
+#include "basalt/platform/compat.hpp"
 
+#if !defined(_WIN32)
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
 namespace basalt {
 
@@ -383,6 +386,15 @@ public:
 
 private:
     void open() {
+#if defined(_WIN32)
+        int fd = platform::open_read(path_.c_str());
+        if (fd < 0) throw std::runtime_error("cannot open " + path_);
+        fd_ = fd;
+        if (!platform::fd_size(fd, size_)) throw std::runtime_error("cannot size " + path_);
+        void* p = platform::map_file_readonly(fd, 0, size_);
+        if (p == nullptr) throw std::runtime_error("cannot map " + path_ + " (error " + std::to_string(GetLastError()) + ")");
+        base_ = (const uint8_t*)p;
+#else
         int fd = ::open(path_.c_str(), O_RDONLY);
         if (fd < 0) throw std::runtime_error("cannot open " + path_);
         fd_ = fd;
@@ -392,6 +404,7 @@ private:
         void* p = mmap(nullptr, size_, PROT_READ, MAP_PRIVATE, fd, 0);
         if (p == MAP_FAILED) throw std::runtime_error("mmap failed");
         base_ = (const uint8_t*)p;
+#endif
         const auto& reg = gguf_virtual_registry();
         const auto it = reg.find(path_);
         if (it != reg.end()) {
@@ -406,8 +419,13 @@ private:
         parse();
     }
     void close() {
+#if defined(_WIN32)
+        if (base_) platform::unmap_file(base_);
+        if (fd_ >= 0) platform::close_fd(fd_);
+#else
         if (base_) munmap((void*)base_, size_);
         if (fd_ >= 0) ::close(fd_);
+#endif
     }
 
     void parse() {

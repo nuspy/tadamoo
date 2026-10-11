@@ -30,10 +30,13 @@
 #include <utility>
 #include <vector>
 
+#include "basalt/platform/compat.hpp"
+#if !defined(_WIN32)
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
 namespace basalt::core {
 
@@ -210,6 +213,13 @@ namespace detail {
 bool host_available_memory(HostMemory& m, const std::string& meminfo, const std::string& self_cgroup,
                            const std::string& cgroup_root) {
     m = HostMemory{};
+#if defined(_WIN32)
+    // No cgroups: the free physical RAM, never more than the commit left (RAM + page file - committed), which
+    // Windows charges for every allocation; a budget past it could only be granted by growing the page file.
+    (void) meminfo; (void) self_cgroup; (void) cgroup_root;
+    m.available = basalt::platform::available_memory();
+    return m.available > 0;
+#else
     // MemAvailable includes reclaimable page cache, unlike _SC_AVPHYS_PAGES.
     std::ifstream info(meminfo);
     std::string line;
@@ -286,6 +296,7 @@ bool host_available_memory(HostMemory& m, const std::string& meminfo, const std:
     }
     m.available = bytes;
     return true;
+#endif
 }
 
 }  // namespace detail
@@ -377,10 +388,20 @@ bool FileExpertSource::open(const FileRange& experts, int64_t n_layers, int64_t 
         }
     }
     const std::string& path = experts.path;
+#if defined(_WIN32)
+    // UTF-16 path, binary mode.  No FILE_FLAG_RANDOM_ACCESS: it disables read-ahead AND lets the cache manager drop
+    // the pages again quickly, while every expert byte read here is read again on a later token.
+    const int fd = basalt::platform::open_read(path.c_str());
+    if (fd < 0) { err = "FileExpertSource: cannot open " + path; return false; }
+    struct { int64_t st_size = -1; } st;
+    if (uint64_t sz = 0; basalt::platform::fd_size(fd, sz)) st.st_size = (int64_t) sz;
+    else { basalt::platform::close_fd(fd); err = "FileExpertSource: cannot stat " + path; return false; }
+#else
     const int fd = ::open(path.c_str(), O_RDONLY);
     if (fd < 0) { err = "FileExpertSource: cannot open " + path; return false; }
     struct stat st{};
     if (fstat(fd, &st) != 0) { ::close(fd); err = "FileExpertSource: cannot stat " + path; return false; }
+#endif
     // a whole file is exactly the experts; a section must be, and lie inside the file
     const uint64_t have = experts.bytes != 0 ? experts.bytes : (st.st_size < 0 ? 0 : (uint64_t) st.st_size);
     if (st.st_size < 0 || have != want || experts.offset > (uint64_t) st.st_size ||
@@ -391,12 +412,21 @@ bool FileExpertSource::open(const FileRange& experts, int64_t n_layers, int64_t 
                       "the pack this geometry came from",
                       path.c_str(), (unsigned long long) have,
                       (unsigned long long) want);
-        ::close(fd);
+        basalt::platform::close_fd(fd);
         err = buf;
         return false;
     }
+#if defined(_WIN32)
+    void* view = basalt::platform::map_file_readonly(fd, experts.offset, want);
+    if (view == nullptr) {
+        err = "FileExpertSource: MapViewOfFile failed on " + path + " (error " + std::to_string(GetLastError()) + ")";
+        basalt::platform::close_fd(fd);
+        return false;
+    }
+#else
     void* view = mmap(nullptr, (size_t) want, PROT_READ, MAP_SHARED, fd, (off_t) experts.offset);
     if (view == MAP_FAILED) { ::close(fd); err = "FileExpertSource: mmap failed on " + path; return false; }
+#endif
     fd_ = fd;
     file_off_ = experts.offset;
     base_ = (const uint8_t*) view;
@@ -458,8 +488,13 @@ void FileExpertSource::close() {
     ram_reads_.store(0);
     file_read_bytes_.store(0);
     file_us_.store(0);
+#if defined(_WIN32)
+    if (base_ != nullptr) basalt::platform::unmap_file(base_);
+    if (fd_ >= 0) basalt::platform::close_fd(fd_);
+#else
     if (base_ != nullptr) munmap((void*) base_, (size_t) mapped_bytes_);
     if (fd_ >= 0) ::close(fd_);
+#endif
     fd_ = -1;
     base_ = nullptr;
     blobs_ = 0;
@@ -786,7 +821,11 @@ bool FileExpertSource::pin_cache_complement(
     }
 
     // Copied layer by layer on a few threads: the page faults of the mapped file are the cost, and they overlap.
+#if defined(_WIN32)
+    const long page_size = 4096;
+#else
     const long page_size = sysconf(_SC_PAGESIZE);
+#endif
     if (page_size <= 0) {
         err = "FileExpertSource: cannot determine page size for mapped-page release";
         release();
@@ -856,6 +895,13 @@ bool FileExpertSource::pin_cache_complement(
             const uint64_t end_remainder = layer_end % page;
             const uint64_t extra = end_remainder == 0 ? 0 : page - end_remainder;
             const uint64_t advice_end = extra > mapped_bytes_ - layer_end ? mapped_bytes_ : layer_end + extra;
+#if defined(_WIN32)
+            // the mapped pages this copy touched leave the working set for the standby list (still cached, counted as
+            // available): VirtualUnlock on pages that are not locked does exactly that, then reports ERROR_NOT_LOCKED.
+            // A hint, so nothing here can fail the copy.
+            if (advice_end > advice_start)
+                (void) VirtualUnlock((LPVOID) (base_ + (size_t) advice_start), (SIZE_T) (advice_end - advice_start));
+#else
             if (advice_end > advice_start &&
                 madvise((void*) (base_ + (size_t) advice_start), (size_t) (advice_end - advice_start), MADV_DONTNEED) != 0) {
                 fail("FileExpertSource: madvise could not release mapped expert layer " + std::to_string(layer));
@@ -865,6 +911,7 @@ bool FileExpertSource::pin_cache_complement(
                 fail("FileExpertSource: posix_fadvise could not release expert layer " + std::to_string(layer));
                 return;
             }
+#endif
             }
             const int64_t done = layers_done.fetch_add(1) + 1;
             if (done % 8 == 0 || done == n_layers_)
@@ -1889,7 +1936,11 @@ bool ArenaExpertSource::open(const ExpertFiles& files_in, int64_t n_layers, int6
 }
 
 void ArenaExpertSource::close() {
+#if defined(_WIN32)
+    if (map_ != nullptr) basalt::platform::unmap_file(map_);   // never set on Windows: no file-backed arena there
+#else
     if (map_ != nullptr) munmap(map_, (size_t) map_bytes_);
+#endif
     map_ = nullptr;
     map_bytes_ = 0;
     if (arena_ != nullptr) {
@@ -1906,7 +1957,11 @@ void ArenaExpertSource::prefetch(int64_t layer, int64_t expert) {
     const auto& lay = basalt::kernels::cpu::expert_layout();
     const uint64_t off = lay.blob_offset(layer, expert) & ~(uint64_t) 4095;
     const uint64_t end = lay.blob_offset(layer, expert) + lay.blob_bytes(layer);
+#if defined(_WIN32)
+    basalt::platform::advise_willneed((uint8_t*) map_ + off, end - off);
+#else
     madvise((uint8_t*) map_ + off, (size_t) (end - off), MADV_WILLNEED);
+#endif
 }
 
 // Only the pages wholly inside the blob: a page shared with a neighbour the CPU may still read stays.  MADV_DONTNEED
@@ -1919,7 +1974,12 @@ uint64_t ArenaExpertSource::release(int64_t layer, int64_t expert) {
     const uint64_t off = (lay.blob_offset(layer, expert) + 4095) & ~(uint64_t) 4095;
     const uint64_t end = (lay.blob_offset(layer, expert) + lay.blob_bytes(layer)) & ~(uint64_t) 4095;
     if (end <= off) return 0;
+#if defined(_WIN32)
+    // out of the working set, kept on the standby list (VirtualUnlock on unlocked pages; it reports ERROR_NOT_LOCKED)
+    (void) VirtualUnlock((uint8_t*) map_ + off, (SIZE_T) (end - off));
+#else
     if (madvise((uint8_t*) map_ + off, (size_t) (end - off), MADV_DONTNEED) != 0) return 0;
+#endif
     return end - off;
 }
 

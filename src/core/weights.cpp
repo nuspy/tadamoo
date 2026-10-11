@@ -14,7 +14,7 @@
 #include <cstring>
 #include <optional>
 
-#include <unistd.h>
+#include "basalt/platform/compat.hpp"
 
 namespace basalt::core {
 namespace {
@@ -62,7 +62,7 @@ struct Seg {
 
 /// Read `n` bytes at `off`; a failure names what was being read.
 bool read_at(std::FILE* f, uint64_t off, void* dst, size_t n, std::string& err, const char* what) {
-    if (fseeko(f, (off_t) off, SEEK_SET) != 0) { err = std::string(what) + ": seek failed"; return false; }
+    if (basalt::platform::fseek64(f, (long long) off, SEEK_SET) != 0) { err = std::string(what) + ": seek failed"; return false; }
     if (std::fread(dst, 1, n, f) != n) { err = std::string(what) + ": short read"; return false; }
     return true;
 }
