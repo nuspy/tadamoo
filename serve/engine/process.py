@@ -26,6 +26,7 @@ from pathlib import Path
 from serve.engine.errors import EngineDied, EngineSilent, EngineStartError, EngineStuck
 from serve.engine.slots import AdmissionQueue
 from serve.engine.progress import narrate_start, start_errors, start_failure_hint, start_last_line
+from serve.util.winjob import contain
 
 
 # A running request whose engine prints nothing for this long is out of step: the engine is ended and the request
@@ -152,6 +153,7 @@ class ProcessEngine:
         self.proc = subprocess.Popen([engine_bin, "--serve", *args], cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE if sink else self.log, text=True, encoding="utf-8",
                                      bufsize=1, env=env)
+        contain(self.proc)                              # ends with the server, however it ends (Windows)
         if sink:
             threading.Thread(target=pump_lines, args=(self.proc.stderr, sink), daemon=True).start()
         # the lines come from a thread up to READY, so the read can time out and the rest of the stream stays for _pump
