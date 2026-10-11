@@ -525,14 +525,27 @@ bool FileExpertSource::copy_from_files(int64_t layer, int64_t expert, uint8_t* d
 
 bool FileExpertSource::advise_pairs(const std::pair<int32_t, int32_t>* pairs, int64_t n) const {
     if (base_ == nullptr || !basalt::platform::read_ahead_enabled()) return false;
+#if defined(_WIN32)
+    // one PrefetchVirtualMemory call for every blob: the memory manager reads them in large requests, all queued at
+    // once, where a call per blob (or the copies' page faults) would read a few clusters at a time
+    std::vector<WIN32_MEMORY_RANGE_ENTRY> ranges;
+    ranges.reserve(pairs != nullptr && n > 0 ? (size_t) n : 0);
+#endif
     for (int64_t i = 0; pairs != nullptr && i < n; ++i) {
         const int64_t l = pairs[i].first, e = pairs[i].second;
         if (l < 0 || e < 0 || l >= n_layers_ || e >= n_expert_) continue;
         // an expert held in RAM is not read from the file
         if (complement_ready_ && complement_offsets_[(size_t) l * (size_t) n_expert_ + (size_t) e] != kNoComplement)
             continue;
+#if defined(_WIN32)
+        if (const uint8_t* b = mapped_blob(l, e)) ranges.push_back({(PVOID) b, (SIZE_T) layer_blob_bytes_[(size_t) l]});
+#else
         if (const uint8_t* b = mapped_blob(l, e)) basalt::platform::advise_willneed(b, layer_blob_bytes_[(size_t) l]);
+#endif
     }
+#if defined(_WIN32)
+    if (!ranges.empty()) (void) PrefetchVirtualMemory(GetCurrentProcess(), (ULONG_PTR) ranges.size(), ranges.data(), 0);
+#endif
     return true;
 }
 
