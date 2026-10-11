@@ -10,6 +10,15 @@
 
 #include "gemm_cpu.hpp"
 
+#if defined(_MSC_VER)
+// MSVC: the bf16 vector types are not GCC vector types (no (__m512bh) casts), so this build has no AVX-512 BF16
+// product; cpu_has_bf16() says so and the callers take the fp32 path.
+#include <cstdlib>
+namespace basalt::vision {
+bool cpu_has_bf16() { return false; }
+void gemm_bf16_avx512(const float*, const uint16_t*, float*, int, int, int, int) { std::abort(); }
+}  // namespace basalt::vision
+#else
 namespace basalt::vision {
 
 namespace {
@@ -86,3 +95,4 @@ void gemm_bf16_avx512(const float* X, const uint16_t* W, float* Y, int M, int N,
 }
 
 }  // namespace basalt::vision
+#endif
