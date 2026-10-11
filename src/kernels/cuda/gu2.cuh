@@ -400,6 +400,6 @@ void launch_dependent(void (*kernel)(KArgs...), dim3 grid, cudaStream_t s, Args.
     cfg.dynamicSmemBytes = 0;
     cfg.stream = s;
     cfg.attrs = at;
-    cfg.numAttrs = 1;
+    cfg.numAttrs = ::basalt::kernels::pdl_requested() ? 1 : 0;   // off: the plain launch (pdl.hpp)
     (void) cudaLaunchKernelEx(&cfg, kernel, args...);   // an error stays for the caller's check
 }

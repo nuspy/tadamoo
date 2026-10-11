@@ -64,6 +64,7 @@
 #include "basalt/vision/encoder_cuda.hpp"
 #include "basalt/vision/mmproj.hpp"
 #include "basalt/vision/preprocess.hpp"
+#include "basalt/kernels/pdl.hpp"
 #include "basalt/platform/compat.hpp"
 #include "basalt/platform/memory.hpp"
 #include <cerrno>
@@ -751,7 +752,8 @@ void usage() {
                  "basalt serve MODEL.basalt [--python PY] [server args...]\n"
                  "    runs the Python server (serve/) over this binary: the server reads its options and the engine flags\n"
                  "    from the config file and the command line (the model is the config's or MODEL.basalt, which stands\n"
-                 "    for --model); --python defaults to .venv/bin/python in the source tree, else python3; the other\n"
+                 "    for --model); --python defaults to .venv/bin/python in the source tree, else python3 (Windows:\n"
+                 "    .venv\\Scripts\\python.exe, else python); the other\n"
                  "    arguments go to the server.  It runs in the source tree; --model and --config paths are made absolute.\n"
                  "basalt generate --model FILE.basalt --tokens \"1,2,3\" [options]\n"
                  "\n"
@@ -916,6 +918,8 @@ void usage() {
                  "  --no-host-worker     the A/B arm.  By default the HOST THREAD joins the drain, so the\n"
                  "                       pool is six threads on six cores instead of five plus an idle core;\n"
                  "                       this flag restores the five-worker form for comparison on `pool phases`.\n"
+                 "  --no-pdl             launch every kernel the plain way, without programmatic dependent launch\n"
+                 "                       (same results; the A/B arm, and for a driver where PDL misbehaves)\n"
                  "  --pool-workers N     CPU expert pool worker count.  Default 0 = every physical core\n"
                  "                       except the one the host loop spins on (with --pool-affinity auto or\n"
                  "                       p-cores on a hybrid CPU: P-cores minus 1).  \n"
@@ -1530,6 +1534,7 @@ int main(int argc, char** argv) {
             }
         }
         else if (a == "--no-host-worker") o.no_host_worker = true;
+        else if (a == "--no-pdl") basalt::kernels::set_pdl(false);   // before the first launch: options come first
         else if (a == "--no-ple-prefetch") o.no_ple_prefetch = true;
         else if (a == "--coupled-draft") o.coupled_draft = true;
         else if (a == "--no-coupled-draft") o.coupled_draft = false;

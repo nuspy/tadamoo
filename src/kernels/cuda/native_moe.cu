@@ -214,7 +214,7 @@ void dec_moe_combine(const float* parts, const float* peer_rows_m, const float* 
         cfg.blockDim = dim3(128);
         cfg.stream = static_cast<cudaStream_t>(stream);
         cfg.attrs = at;
-        cfg.numAttrs = dep ? 1 : 0;
+        cfg.numAttrs = dep && pdl_requested() ? 1 : 0;   // off: the plain launch (pdl.hpp)
         const int ki = int(k);
         if (dep && tag_done != nullptr)
             (void) cudaLaunchKernelEx(&cfg, dm_combine4_kernel<10, true, true>, parts, peer_rows_m, cpu_rows_m, plan, weights,

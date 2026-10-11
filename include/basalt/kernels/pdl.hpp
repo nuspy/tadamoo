@@ -9,15 +9,29 @@
 // launch_pdl is the plain <<<>>> launch outside a PdlScope, before CUDA 12.3, and on a device or a kernel build below
 // compute capability 9.0 (where pdl_wait() compiles to nothing).  pdl_wait() in a
 // kernel launched the plain way returns at once.
+//
+// It is also the plain launch everywhere when the engine turns programmatic dependent launch off (set_pdl(false),
+// `basalt --no-pdl`): every launch that would carry the attribute - launch_pdl, launch_dependent, the combine's -
+// is then made without it, and griddepcontrol in a kernel launched the plain way does nothing, so the results are
+// the same.  The switch is for a driver where PDL is not verified (Windows' WDDM) and is the A/B arm.
 #pragma once
 
 namespace basalt::kernels {
 
-inline constexpr bool pdl_requested() { return true; }
+namespace detail {
+inline bool& pdl_on() {
+    static bool on = true;
+    return on;
+}
+}  // namespace detail
+
+/// Whether launches may use programmatic dependent launch at all (default on).  Set before the first launch.
+inline bool pdl_requested() { return detail::pdl_on(); }
+inline void set_pdl(bool on) { detail::pdl_on() = on; }
 
 /// The decode chain's kernels start their dependents early (pdl_launch_dependents) and stage their first weights
 /// before pdl_wait, so each stage's weight reads begin during the previous stage's tail.
-inline constexpr bool pdl2_requested() { return true; }
+inline bool pdl2_requested() { return pdl_requested(); }
 struct PdlState {
     bool on = false;
     int plain = 0;   // launches still to go the plain way
