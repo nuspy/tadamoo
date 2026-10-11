@@ -9,6 +9,8 @@
 <link rel="preload" href="fonts/geist-mono-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="web/app.css">
 <script defer src="web/app.js"></script>
+<script defer src="web/chat.js"></script>
+<script defer src="web/settings.js"></script>
 </head>
 <body>
 
@@ -16,8 +18,10 @@
   <div class="brand"><img src="web/mark.svg" alt=""><span class="wordmark">Basalt</span></div>
   <span class="model" id="model"></span>
   <nav class="tabs" role="tablist" aria-label="Views">
-    <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-selected="true">Stats</button>
-    <button class="tab" role="tab" id="tab-hardware" data-view="hardware" aria-selected="false">Hardware</button>
+    <button class="tab" role="tab" id="tab-chat" data-view="chat" aria-controls="view-chat" aria-selected="false" tabindex="-1">Chat</button>
+    <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats" aria-selected="true">Monitor</button>
+    <button class="tab" role="tab" id="tab-hardware" data-view="hardware" aria-controls="view-hardware" aria-selected="false" tabindex="-1">Hardware</button>
+    <button class="tab" role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1">Settings</button>
   </nav>
   <span class="grow"></span>
   <span class="state" id="state" data-s="offline">Connecting</span>
@@ -54,6 +58,44 @@
 </div>
 
 <main>
+  <div class="view chat" id="view-chat" role="tabpanel" aria-labelledby="tab-chat" hidden>
+    <section class="sec chatbox" aria-label="Chat">
+      <div class="sh chathead">
+        <b>Chat</b><span class="chatmodel" id="chat-model"></span>
+        <span class="grow"></span>
+        <label class="effort" for="effort"><span>Thinking</span>
+          <select id="effort">
+            <option value="">High (default)</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+            <option value="none">Off</option>
+          </select>
+        </label>
+        <button type="button" class="btn" id="new-chat">New chat</button>
+      </div>
+      <div class="msgs" id="msgs" role="log" aria-label="Messages" aria-live="polite" aria-busy="false" tabindex="0">
+        <div class="chat-empty" id="chat-empty">
+          <b>Ask the model anything.</b>
+          <span>Answers stream from this server's own <code>/v1/chat/completions</code>. The conversation stays in this browser.</span>
+        </div>
+      </div>
+      <form class="composer" id="composer">
+        <div class="attachments" id="attachments" aria-label="Attached images" hidden></div>
+        <label class="sr" for="prompt">Message</label>
+        <textarea id="prompt" rows="2" placeholder="Message the model" autocomplete="off"></textarea>
+        <div class="crow">
+          <input type="file" id="file" accept="image/*" multiple hidden>
+          <button type="button" class="btn" id="attach" hidden>Attach image</button>
+          <span class="hint" id="chat-hint">Enter sends, Shift+Enter adds a line</span>
+          <span class="grow"></span>
+          <button type="button" class="btn" id="stop" hidden>Stop</button>
+          <button type="submit" class="btn primary" id="send">Send</button>
+        </div>
+        <div class="sr" id="chat-status" role="status"></div>
+      </form>
+    </section>
+  </div>
+
   <div class="view stats" id="view-stats" role="tabpanel" aria-labelledby="tab-stats">
     <aside class="col col-l">
       <section class="sec speed">
@@ -171,6 +213,90 @@
           <dt>Build</dt><dd id="h-build">—</dd>
         </dl>
       </section>
+    </div>
+  </div>
+
+  <div class="view settings" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <div class="setgrid">
+      <section class="sec setfile" aria-labelledby="set-file-h">
+        <div class="sh"><b id="set-file-h">Settings file</b></div>
+        <dl class="kv">
+          <dt>File</dt><dd id="set-path">—</dd>
+          <dt>Model</dt><dd id="set-model">—</dd>
+        </dl>
+        <p class="setnote" id="set-note"><b>Changes apply on restart.</b> Saving writes the config file; the running server keeps its settings until it is started again with <code>basalt serve --config FILE</code>.</p>
+        <p class="setnote warnnote" id="set-reason" hidden></p>
+      </section>
+
+      <form class="sec setform" id="set-form" novalidate>
+        <fieldset id="set-fields" disabled>
+          <legend class="sr">Server and engine settings</legend>
+          <div class="sh"><b>Server</b><span class="grow"></span><span>Empty = the default</span></div>
+          <div class="fields">
+            <div class="field" data-name="server.port">
+              <label for="f-port">Port</label>
+              <input id="f-port" type="number" inputmode="numeric" min="1" max="65535" step="1" placeholder="7232" aria-describedby="h-port">
+              <p class="help" id="h-port">1 to 65535. Default 7232.</p>
+            </div>
+            <div class="field" data-name="server.parallel">
+              <label for="f-parallel">Parallel requests</label>
+              <input id="f-parallel" type="number" inputmode="numeric" min="1" max="8" step="1" placeholder="1" aria-describedby="h-parallel">
+              <p class="help" id="h-parallel">1 to 8 slots; the max context is shared among them. Default 1.</p>
+            </div>
+            <div class="field" data-name="server.vision">
+              <label for="f-vision">Image input</label>
+              <select id="f-vision" aria-describedby="h-vision">
+                <option value="">Default (off)</option>
+                <option value="off">off</option><option value="on">on</option><option value="peer">peer</option>
+                <option value="dynamic">dynamic</option><option value="cpu">cpu</option>
+              </select>
+              <p class="help" id="h-vision">on: encoder on the main GPU (~2.2 GiB). peer: on the second GPU. dynamic: inside the engine, no standing VRAM. cpu: no VRAM, slow.</p>
+            </div>
+          </div>
+          <div class="sh"><b>Engine</b></div>
+          <div class="fields">
+            <div class="field" data-name="engine.max-context">
+              <label for="f-max-context">Max context (tokens)</label>
+              <input id="f-max-context" type="number" inputmode="numeric" min="1" step="1" placeholder="4096" aria-describedby="h-max-context">
+              <p class="help" id="h-max-context">The longest context the engine allows. Default 4096.</p>
+            </div>
+            <div class="field" data-name="engine.kv">
+              <label for="f-kv">KV cache</label>
+              <select id="f-kv" aria-describedby="h-kv">
+                <option value="">Default (fp16)</option>
+                <option value="fp16">fp16</option><option value="int8">int8</option>
+                <option value="q4_0">q4_0</option><option value="k8v4">k8v4</option>
+              </select>
+              <p class="help" id="h-kv">int8 halves the VRAM of fp16; q4_0 halves int8's; k8v4 is INT8 K with Q4_0 V.</p>
+            </div>
+            <div class="field" data-name="engine.spec">
+              <label for="f-spec">Speculation window</label>
+              <input id="f-spec" type="number" inputmode="numeric" min="0" max="8" step="1" placeholder="0" aria-describedby="h-spec">
+              <p class="help" id="h-spec">0 to 8 tokens per verify window; 0 or 1 = no speculation. Default 0 (7 is usual).</p>
+            </div>
+            <div class="field" data-name="engine.spec-min-p">
+              <label for="f-spec-min-p">Draft min probability</label>
+              <input id="f-spec-min-p" type="number" inputmode="decimal" min="0" max="1" step="0.05" placeholder="0" aria-describedby="h-spec-min-p">
+              <p class="help" id="h-spec-min-p">0 to 1. Stop drafting below this probability; 0 = always draft to the window.</p>
+            </div>
+            <div class="field" data-name="engine.expert-cache">
+              <label for="f-expert-cache">Expert cache</label>
+              <input id="f-expert-cache" type="text" autocapitalize="off" spellcheck="false" placeholder="0" aria-describedby="h-expert-cache">
+              <p class="help" id="h-expert-cache"><code>auto</code> or a number of expert slots kept in VRAM. Default 0.</p>
+            </div>
+            <div class="field" data-name="engine.prefill">
+              <label for="f-prefill">Prefill chunk</label>
+              <input id="f-prefill" type="text" autocapitalize="off" spellcheck="false" placeholder="off" aria-describedby="h-prefill">
+              <p class="help" id="h-prefill"><code>auto</code>, <code>auto:8192</code>, <code>auto:16384</code>, <code>auto:32768</code> or a chunk size in tokens.</p>
+            </div>
+          </div>
+          <div class="setactions">
+            <p class="setstatus" id="set-status" role="status" aria-live="polite"></p>
+            <button type="button" class="btn" id="set-revert">Revert</button>
+            <button type="submit" class="btn primary" id="set-save">Save to file</button>
+          </div>
+        </fieldset>
+      </form>
     </div>
   </div>
 </main>

@@ -213,8 +213,32 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(self.req("GET", "/api/settings")[0], 200)
 
     def test_oversized_body(self):
-        big = {"changes": {"engine.kv": "int8"}, "pad": "x" * (settings.BODY_MAX + 10)}
-        self.assertEqual(self.req("POST", "/api/settings", big, {"Content-Type": "application/json"})[0], 413)
+        # the size is refused from the header, before the body is read
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
+        try:
+            c.putrequest("POST", "/api/settings")
+            c.putheader("Content-Type", "application/json")
+            c.putheader("Content-Length", str(settings.BODY_MAX + 10))
+            c.endheaders()
+            self.assertEqual(c.getresponse().status, 413)
+        finally:
+            c.close()
+
+    def test_static_files(self):
+        code, body, ctype = self.req("GET", "/")
+        self.assertEqual(code, 200)
+        self.assertTrue(ctype.startswith("text/html"))
+        for marker in (b'id="view-chat"', b'id="view-stats"', b'id="view-settings"', b'role="tablist"'):
+            self.assertIn(marker, body)
+        for name, kind in (("app.js", "text/javascript"), ("app.css", "text/css"), ("chat.js", "text/javascript"),
+                           ("settings.js", "text/javascript"), ("mark.svg", "image/svg+xml")):
+            code, body, ctype = self.req("GET", f"/web/{name}")
+            self.assertEqual(code, 200, name)
+            self.assertTrue(ctype.startswith(kind), (name, ctype))
+            self.assertGreater(len(body), 100, name)
+        self.assertEqual(self.req("GET", "/web/../server.py")[0], 404)
+        self.assertEqual(self.req("GET", "/fonts/geist-latin-wght.woff2")[0], 200)
+
 
 if __name__ == "__main__":
     unittest.main()

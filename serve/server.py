@@ -230,7 +230,7 @@ def main() -> int:
         print(f"[server] parallel: {engine.batch} requests at once, the rest wait in order; each slot holds "
               f"{engine.max_context} tokens" + (f" ({engine.batch} x {engine.max_context} of KV cache: --slot-full-context)"
                                                 if a.slot_full_context else ""), flush=True)
-    print(f"[server] stats: http://{here}:{a.port}/ (Ctrl+C stops)", flush=True)
+    print(f"[server] web UI: http://{here}:{a.port}/ (chat, monitor, settings; Ctrl+C stops)", flush=True)
     if a.host not in LOOPBACK_NAMES:
         # reachable from other devices: print the addresses
         ips = lan_addresses()
