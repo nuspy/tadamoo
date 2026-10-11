@@ -301,7 +301,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--script", action="append",
                     help="the mock engine's answer (default: a short greeting); given more than once, requests get "
                          "them in turn and the last one repeats")
-    ap.add_argument("--port", type=int, default=8095)
+    ap.add_argument("--port", type=int, default=7232, help="the port to listen on (default 7232)")
     ap.add_argument("--gpu", help="the GPUs to use, as nvidia-smi numbers them: the first runs the model, a second is "
                                   "the peer expert tier (\"0,1\"; default: every visible GPU)")
     ap.add_argument("--tokenizer", default=str(ROOT / "pack/full/tokenizer"),

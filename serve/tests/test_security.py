@@ -28,7 +28,7 @@ class HostNames(unittest.TestCase):
     def test_host_name(self):
         self.assertEqual(host_name("Example.COM:8080"), "example.com")
         self.assertEqual(host_name("localhost"), "localhost")
-        self.assertEqual(host_name("[::1]:8095"), "::1")
+        self.assertEqual(host_name("[::1]:7232"), "::1")
         self.assertEqual(host_name("[::1]"), "::1")
         self.assertEqual(host_name("host.example.com."), "host.example.com")
         for bad in ("", "a:b", "[::1", "[::1]x", "a b", "evil.com/x"):
@@ -59,13 +59,13 @@ class HostNames(unittest.TestCase):
 
 class HostCheck(unittest.TestCase):
     def test_accepted(self):
-        for host in ("localhost:8095", "LOCALHOST", "127.0.0.1:1", "[::1]:8095", "192.168.1.20:8095", "[fe80::1]",
-                     "app.localhost:8095", None, "", "box:8095", "a.example.org", "example.org:443"):
+        for host in ("localhost:7232", "LOCALHOST", "127.0.0.1:1", "[::1]:7232", "192.168.1.20:7232", "[fe80::1]",
+                     "app.localhost:7232", None, "", "box:7232", "a.example.org", "example.org:443"):
             self.assertTrue(host_allowed(host, LOCAL | {"box", ".example.org"}), host)
 
     def test_refused(self):
         # a rebinding page sends its own name; lookalikes of allowed names stay out
-        for host in ("evil.example.com", "evil.example.com:8095", "localhost.evil.com", "127.0.0.1.nip.io",
+        for host in ("evil.example.com", "evil.example.com:7232", "localhost.evil.com", "127.0.0.1.nip.io",
                      "box.evil.com", "xexample.org", "bad host", "a:b:c:d:e:f:g:h:i"):
             self.assertFalse(host_allowed(host, LOCAL | {"box", ".example.org"}), host)
 
@@ -76,22 +76,22 @@ class HostCheck(unittest.TestCase):
 class OriginCheck(unittest.TestCase):
     def test_accepted(self):
         names = LOCAL | {"box"}
-        self.assertTrue(origin_allowed("http://127.0.0.1:8095", "127.0.0.1:8095", names))      # the server's own page
-        self.assertTrue(origin_allowed("http://192.168.1.20:8095", "192.168.1.20:8095", names))  # ... by LAN IP
-        self.assertTrue(origin_allowed("http://localhost:3000", "127.0.0.1:8095", names))      # a local app
-        self.assertTrue(origin_allowed("http://[::1]:3000/", "127.0.0.1:8095", names))
-        self.assertTrue(origin_allowed("https://box", "127.0.0.1:8095", names))
+        self.assertTrue(origin_allowed("http://127.0.0.1:7232", "127.0.0.1:7232", names))      # the server's own page
+        self.assertTrue(origin_allowed("http://192.168.1.20:7232", "192.168.1.20:7232", names))  # ... by LAN IP
+        self.assertTrue(origin_allowed("http://localhost:3000", "127.0.0.1:7232", names))      # a local app
+        self.assertTrue(origin_allowed("http://[::1]:3000/", "127.0.0.1:7232", names))
+        self.assertTrue(origin_allowed("https://box", "127.0.0.1:7232", names))
         self.assertTrue(origin_allowed("https://chat.example.com", "x", names, ["https://chat.example.com"]))
         self.assertTrue(origin_allowed("https://any.example.com", "x", names, ["*"]))           # cors_origins ["*"]
         # browser extensions and desktop apps: no web site can send another scheme than http(s) (or "null")
         for origin in ("chrome-extension://abcdef", "moz-extension://1234-5678", "app://."):
-            self.assertTrue(origin_allowed(origin, "127.0.0.1:8095", names), origin)
+            self.assertTrue(origin_allowed(origin, "127.0.0.1:7232", names), origin)
 
     def test_refused(self):
         names = LOCAL | {"box"}
-        for origin in ("http://evil.example.com", "http://1.2.3.4", "http://192.168.1.99:8095", "null", "",
+        for origin in ("http://evil.example.com", "http://1.2.3.4", "http://192.168.1.99:7232", "null", "",
                        "http://localhost.evil.com", "https://box.evil.com", "://x"):
-            self.assertFalse(origin_allowed(origin, "127.0.0.1:8095", names, ["https://chat.example.com"]), origin)
+            self.assertFalse(origin_allowed(origin, "127.0.0.1:7232", names, ["https://chat.example.com"]), origin)
 
 
 class OverHttp(unittest.TestCase):
@@ -165,7 +165,7 @@ class OverHttp(unittest.TestCase):
     def test_allowed_hosts_and_wildcard(self):
         self.start(allowed_hosts=["host.example.com", ".home.arpa"])
         self.assertEqual(self.req("GET", "/status", host="host.example.com")[0], 200)
-        self.assertEqual(self.req("GET", "/status", host="nas.home.arpa:8095")[0], 200)
+        self.assertEqual(self.req("GET", "/status", host="nas.home.arpa:7232")[0], 200)
         self.assertEqual(self.req("GET", "/status", host="evil.example.com")[0], 403)
         self.svc.allowed_hosts = ["*"]
         self.assertEqual(self.req("GET", "/status", host="evil.example.com")[0], 200)
