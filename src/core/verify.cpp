@@ -3,6 +3,9 @@
 #include "basalt/core/verify.hpp"
 #include "basalt/core/diag.hpp"
 #include "basalt/core/remote_expert_opt.hpp"
+#if defined(_MSC_VER)
+#include <intrin.h>   // _InterlockedCompareExchange
+#endif
 
 #include "basalt/core/native_head.hpp"
 #include "basalt/core/on_device.hpp"
@@ -2659,9 +2662,19 @@ void Verifier::set_plan_slot(int grp) {
 
 // Flag B only rises: a host function of an earlier layer may run after a later layer already raised it directly.
 void Verifier::raise_flag(uint32_t* flag, uint32_t value) {
+#if defined(_MSC_VER)
+    volatile long* f = (volatile long*) flag;
+    long cur = *f;
+    while ((uint32_t) cur < value) {
+        const long prev = _InterlockedCompareExchange(f, (long) value, cur);
+        if (prev == cur) break;
+        cur = prev;
+    }
+#else
     volatile long* f = (volatile long*) flag;
     uint32_t cur = __atomic_load_n((uint32_t*) flag, __ATOMIC_SEQ_CST);
     while (cur < value && !__atomic_compare_exchange_n((uint32_t*) flag, &cur, value, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {}
+#endif
 }
 
 // The PCIe share by DMA.  The copy engine moves the blobs while the CPU computes its own share and the GPU its VRAM

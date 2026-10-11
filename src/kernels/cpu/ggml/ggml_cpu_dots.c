@@ -19,8 +19,14 @@
 #error "ggml_cpu_dots.c needs AVX2 and F16C"
 #endif
 
+#if defined(_MSC_VER)
+// MSVC has no _cvtsh_ss/_cvtss_sh in C: the same F16C conversions on a vector lane (ggml-cpu-impl.h's MSVC branch)
+#define GGML_CPU_FP16_TO_FP32(x) _mm_cvtss_f32(_mm_cvtph_ps(_mm_cvtsi32_si128(x)))
+#define GGML_CPU_FP32_TO_FP16(x) _mm_extract_epi16(_mm_cvtps_ph(_mm_set_ss(x), 0), 0)
+#else
 #define GGML_CPU_FP16_TO_FP32(x) _cvtsh_ss(x)
 #define GGML_CPU_FP32_TO_FP16(x) _cvtss_sh(x, 0)
+#endif
 #define UNUSED GGML_UNUSED
 
 void quantize_row_q8_K_ref(const float * GGML_RESTRICT x, block_q8_K * GGML_RESTRICT y, int64_t k);

@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -149,6 +150,18 @@ constexpr int NSLOT = 4;
 __device__ HcSync g_hc_sync[NSLOT];
 static_assert(sizeof(g_hc_q8cnt) / sizeof(g_hc_q8cnt[0]) == NSLOT, "a q8_1 count set per counter set");
 
+// The tensor maps travel in the kernel's parameters (__grid_constant__).  CUDA 13 declares CUtensorMap alignas(128),
+// and MSVC cannot pass a parameter aligned past 64 bytes by value (C2719), so there the parameter holds the same 128
+// bytes at 64-byte alignment - what the TMA unit requires of a tensor map (CUDA 12 declared it so).
+#if defined(_MSC_VER)
+struct alignas(64) LaunchTmaMap {
+    cuuint64_t opaque[CU_TENSOR_MAP_NUM_QWORDS];
+};
+static_assert(sizeof(LaunchTmaMap) == sizeof(CUtensorMap), "a launch tensor map is a CUtensorMap's bytes");
+#else
+using LaunchTmaMap = CUtensorMap;
+#endif
+
 struct HcLaunch {
     HcFusedArgs a;
     int nb;          // CTAs (one per SM)
@@ -161,7 +174,7 @@ struct HcLaunch {
     float* t10_dummy;                      // [NE] fixed logits for the top-10's dry run
     float* t10_scratch;                    // [nb][2 * KT] its outputs
     unsigned long long* lg64;              // [MAXT][NE] logits tagged with the read's epoch (tag << 32 | f32 bits)
-    CUtensorMap tm[6];   // q_down, s_down, q_inject, s_inject by four rows; q_up, s_up
+    LaunchTmaMap tm[6];   // q_down, s_down, q_inject, s_inject by four rows; q_up, s_up
 };
 
 // ---------------------------------------------------------------- primitives
@@ -972,7 +985,7 @@ __global__ void __launch_bounds__(THREADS, 1) hc_fused_kernel(const __grid_const
     bool cn_bars = false;  // the staged item uses dbars
     unsigned qpeek = 0;    // an up item: the queue's claim count seen while it runs
     if (item < it.up) {    // the item's weights do not depend on the previous kernel
-        cn_bars = cn_issue(a, item, tid, smem, dbars, L.tm);
+        cn_bars = cn_issue(a, item, tid, smem, dbars, (const CUtensorMap*) L.tm);
         staged = true;
     }
     if (L.early) pdl_launch_dependents();
@@ -983,7 +996,7 @@ __global__ void __launch_bounds__(THREADS, 1) hc_fused_kernel(const __grid_const
         if (item < it.up) {
             const int d = item;
             if constexpr (DBG) if (tid == 0) dbg[b * 16 + 15] = 1;
-            if (!staged) cn_bars = cn_issue(a, d, tid, smem, dbars, L.tm);
+            if (!staged) cn_bars = cn_issue(a, d, tid, smem, dbars, (const CUtensorMap*) L.tm);
             const CnRows w = cn_rows(a, d);
             if (w.q != nullptr) {
                 cn_x<T>(a, w.hs, tid, smem, s_ssp, L.cns, d < CN_HS);
@@ -997,7 +1010,7 @@ __global__ void __launch_bounds__(THREADS, 1) hc_fused_kernel(const __grid_const
             const UpSlice sl = up_slice(item - it.up, it.nu);
             if constexpr (DBG) if (tid == 0) dbg[b * 16 + 15] = 2;
             uint16_t* const sc8 = up_smem(smem, sl.nc, T).sc;
-            if (tid == 0) hc_up_tma(sl, smem, sc8, &L.tm[4], &bars[0]);   // ahead of R'
+            if (tid == 0) hc_up_tma(sl, smem, sc8, (const CUtensorMap*) &L.tm[4], &bars[0]);   // ahead of R'
             hc_up_pre<T>(a, sl, tid, smem);
             // the down items' sums by two bulk copies once they are done (after the slice's shared memory)
             const int lst_off = (((up_smem_bytes<T>(sl.nc) + 15) & ~15) + 127) & ~127;
@@ -1380,7 +1393,7 @@ struct CnMaps {
     bool ok;
 };
 // The tensor maps of a read's 8-bit matrices; false when one failed.
-bool cn_maps(const HcFusedArgs& h, CUtensorMap* tm) {
+bool cn_maps(const HcFusedArgs& h, LaunchTmaMap* tm) {
     static std::mutex mu;
     static std::unordered_map<const void*, CnMaps> cache;
     std::lock_guard<std::mutex> lk(mu);
@@ -1400,7 +1413,7 @@ bool cn_maps(const HcFusedArgs& h, CUtensorMap* tm) {
         c.ok = c.ok && tmap(&c.tm[4], h.q_up, U64, 4, qd, qs, qb) && tmap(&c.tm[5], h.s_up, U16, 3, sd, ss, sb);
         it = cache.emplace(h.q_down, c).first;
     }
-    std::copy(it->second.tm, it->second.tm + 6, tm);
+    std::memcpy((void*) tm, it->second.tm, sizeof it->second.tm);
     return it->second.ok;
 }
 

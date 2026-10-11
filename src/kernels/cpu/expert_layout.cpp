@@ -5,7 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include <cpuid.h>
+#include "basalt/platform/compat.hpp"
 #include <sstream>
 
 namespace basalt::kernels::cpu {
@@ -22,15 +22,13 @@ bool cpu_avx512_ok() {
         if (cpu_isa_cap() < 3) return false;
         unsigned r[4] = {0, 0, 0, 0};
         auto cpuid = [&](unsigned leaf, unsigned sub) {
-            __cpuid_count(leaf, sub, r[0], r[1], r[2], r[3]);
+            basalt::platform::cpuid(leaf, sub, r);
         };
         cpuid(0, 0);
         if (r[0] < 7) return false;
         cpuid(1, 0);
         if (!((r[2] >> 27) & 1u)) return false;             // OSXSAVE
-        unsigned lo = 0, hi = 0;
-        __asm__ volatile("xgetbv" : "=a"(lo), "=d"(hi) : "c"(0));
-        const unsigned long long xcr0 = ((unsigned long long) hi << 32) | lo;
+        const unsigned long long xcr0 = basalt::platform::xgetbv0();
         if ((xcr0 & 0xE6) != 0xE6) return false;          // the OS saves the AVX-512 state
         cpuid(7, 0);
         const unsigned ebx = r[1], ecx = r[2];
@@ -43,15 +41,13 @@ bool cpu_avx512bw_ok() {
     static const bool ok = [] {
         unsigned r[4] = {0, 0, 0, 0};
         auto cpuid = [&](unsigned leaf, unsigned sub) {
-            __cpuid_count(leaf, sub, r[0], r[1], r[2], r[3]);
+            basalt::platform::cpuid(leaf, sub, r);
         };
         cpuid(0, 0);
         if (r[0] < 7) return false;
         cpuid(1, 0);
         if (!((r[2] >> 27) & 1u)) return false;             // OSXSAVE
-        unsigned lo = 0, hi = 0;
-        __asm__ volatile("xgetbv" : "=a"(lo), "=d"(hi) : "c"(0));
-        const unsigned long long xcr0 = ((unsigned long long) hi << 32) | lo;
+        const unsigned long long xcr0 = basalt::platform::xgetbv0();
         if ((xcr0 & 0xE6) != 0xE6) return false;          // the OS saves the AVX-512 state
         cpuid(7, 0);
         const unsigned ebx = r[1];
@@ -65,7 +61,7 @@ bool cpu_avx2_ok() {
         if (cpu_isa_cap() < 2) return false;
         unsigned r[4] = {0, 0, 0, 0};
         auto cpuid = [&](unsigned leaf, unsigned sub) {
-            __cpuid_count(leaf, sub, r[0], r[1], r[2], r[3]);
+            basalt::platform::cpuid(leaf, sub, r);
         };
         cpuid(0, 0);
         if (r[0] < 7) return false;
@@ -73,9 +69,7 @@ bool cpu_avx2_ok() {
         const unsigned ecx1 = r[2];
         // FMA (12), OSXSAVE (27), AVX (28), F16C (29)
         if (!((ecx1 >> 12) & 1u) || !((ecx1 >> 27) & 1u) || !((ecx1 >> 28) & 1u) || !((ecx1 >> 29) & 1u)) return false;
-        unsigned lo = 0, hi = 0;
-        __asm__ volatile("xgetbv" : "=a"(lo), "=d"(hi) : "c"(0));
-        const unsigned long long xcr0 = ((unsigned long long) hi << 32) | lo;
+        const unsigned long long xcr0 = basalt::platform::xgetbv0();
         if ((xcr0 & 0x6) != 0x6) return false;            // the OS saves the SSE and AVX state
         cpuid(7, 0);
         return ((r[1] >> 5) & 1u) != 0;                    // AVX2
@@ -89,11 +83,9 @@ bool cpu_avx1_ok() {
     static const bool ok = [] {
         if (cpu_isa_cap() < 1) return false;
         unsigned r[4] = {0, 0, 0, 0};
-        __cpuid_count(1, 0, r[0], r[1], r[2], r[3]);
+        basalt::platform::cpuid(1, 0, r);
         if (!((r[2] >> 27) & 1u) || !((r[2] >> 28) & 1u)) return false;   // OSXSAVE, AVX
-        unsigned lo = 0, hi = 0;
-        __asm__ volatile("xgetbv" : "=a"(lo), "=d"(hi) : "c"(0));
-        const unsigned long long xcr0 = ((unsigned long long) hi << 32) | lo;
+        const unsigned long long xcr0 = basalt::platform::xgetbv0();
         return (xcr0 & 0x6) == 0x6;
     }();
     return ok;
@@ -102,7 +94,7 @@ bool cpu_avx1_ok() {
 bool cpu_sse42_ok() {
     static const bool ok = [] {
         unsigned r[4] = {0, 0, 0, 0};
-        __cpuid_count(1, 0, r[0], r[1], r[2], r[3]);
+        basalt::platform::cpuid(1, 0, r);
         return ((r[2] >> 20) & 1u) && ((r[2] >> 23) & 1u);   // SSE4.2, POPCNT
     }();
     return ok;
@@ -110,10 +102,9 @@ bool cpu_sse42_ok() {
 
 std::string cpu_name() {
     unsigned r[12] = {};
-    unsigned a = 0, b = 0, c = 0, d = 0;
-    __cpuid(0x80000000u, a, b, c, d);
-    if (a < 0x80000004u) return "unknown";
-    for (unsigned i = 0; i < 3; ++i) __cpuid(0x80000002u + i, r[i * 4], r[i * 4 + 1], r[i * 4 + 2], r[i * 4 + 3]);
+    basalt::platform::cpuid(0x80000000u, 0, r);
+    if (r[0] < 0x80000004u) return "unknown";
+    for (unsigned i = 0; i < 3; ++i) basalt::platform::cpuid(0x80000002u + i, 0, r + i * 4);
     char s[49] = {};
     std::memcpy(s, r, 48);
     std::string name(s);

@@ -122,7 +122,11 @@ typedef half2 ggml_half2;
 
 #endif // GGML_COMMON_DECL_CUDA
 
+#if defined(_MSC_VER) && !defined(__clang__)
+#define GGML_EXTENSION
+#else
 #define GGML_EXTENSION __extension__
+#endif
 
 #define QK2_0 64
 typedef struct {

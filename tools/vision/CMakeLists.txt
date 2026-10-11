@@ -29,10 +29,21 @@ add_library(vision_core STATIC
   ${VISION_ROOT}/src/vision/gemm_cpu.cpp
   ${VISION_ROOT}/src/vision/gemm_cpu_avx512.cpp)
 target_include_directories(vision_core PUBLIC ${VISION_ROOT}/include PRIVATE ${VISION_ROOT}/src/vision)
-set_source_files_properties(${VISION_ROOT}/src/vision/gemm_cpu.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma")
+# the root project sets BASALT_ISA_*; built on its own, the same spellings are made here
+if(NOT DEFINED BASALT_ISA_AVX2_NOF16C)
+  if(MSVC)
+    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
+    set(BASALT_ISA_AVX2_NOF16C "/arch:AVX2;/D__FMA__")
+    set(BASALT_ISA_AVX512_BF16 "/arch:AVX512;/D__FMA__;/D__AVX512BF16__")
+  else()
+    set(BASALT_ISA_AVX2_NOF16C "-mavx2;-mfma")
+    set(BASALT_ISA_AVX512_BF16 "-mavx512f;-mavx512bw;-mavx512vl;-mavx512bf16;-mfma")
+  endif()
+endif()
+set_source_files_properties(${VISION_ROOT}/src/vision/gemm_cpu.cpp PROPERTIES COMPILE_OPTIONS "${BASALT_ISA_AVX2_NOF16C}")
 # the AVX-512 BF16 file is only called after a run-time CPU check
 set_source_files_properties(${VISION_ROOT}/src/vision/gemm_cpu_avx512.cpp
-                            PROPERTIES COMPILE_OPTIONS "-mavx512f;-mavx512bw;-mavx512vl;-mavx512bf16;-mfma")
+                            PROPERTIES COMPILE_OPTIONS "${BASALT_ISA_AVX512_BF16}")
 target_link_libraries(vision_core PUBLIC Threads::Threads)
 
 # device side

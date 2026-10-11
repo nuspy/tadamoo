@@ -286,7 +286,7 @@ __device__ __forceinline__ void attn_chunk_dev(const AttnArgs& a, int chunk, int
             v0 = f.x; v1 = f.y;
         } else {
             const float sc = __half2float(__ushort_as_half(sm.vs[c][t / (KV_Q8_GROUP / 2)]));
-            const ushort raw = *reinterpret_cast<const ushort*>(&sm.v[c][t * 2]);
+            const unsigned short raw = *reinterpret_cast<const unsigned short*>(&sm.v[c][t * 2]);
             v0 = (float) (int8_t) (raw & 0xff) * sc;
             v1 = (float) (int8_t) (raw >> 8) * sc;
         }
@@ -548,8 +548,8 @@ __global__ void __launch_bounds__(DTHREADS) draft_attn_chunk(AttnArgs a) {
 #pragma unroll
             for (int s = 0; s < HD / 16; ++s) {
                 const float scl = __half2float(__ushort_as_half(sm.ks[buf][cell][s / 4]));
-                const ushort w0 = *reinterpret_cast<const ushort*>(kr + 16 * s + 2 * c4);
-                const ushort w1 = *reinterpret_cast<const ushort*>(kr + 16 * s + 2 * c4 + 8);
+                const unsigned short w0 = *reinterpret_cast<const unsigned short*>(kr + 16 * s + 2 * c4);
+                const unsigned short w1 = *reinterpret_cast<const unsigned short*>(kr + 16 * s + 2 * c4 + 8);
                 const uint32_t b0 = pack_h2((float) (int8_t) (w0 & 0xff) * scl, (float) (int8_t) (w0 >> 8) * scl);
                 const uint32_t b1 = pack_h2((float) (int8_t) (w1 & 0xff) * scl, (float) (int8_t) (w1 >> 8) * scl);
                 mma_16816(sc, qa[s], b0, b1);

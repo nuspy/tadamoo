@@ -1114,9 +1114,12 @@ void dense_tc_pair(int t0, const void* w0, float* y0, int n_out0, int t1, const 
     int smem = 128 + 8 * 16 * kMaxCols * 4 + 2048 + 2 * 16 * (n_in / 256) * std::max(sb_bytes_lq(t0), sb_bytes_lq(t1));
     static bool attr = false;
     if (!attr) {
-        for (auto k : {dense_tc_pair_kernel<false, false, false>, dense_tc_pair_kernel<true, false, false>,
-                       dense_tc_pair_kernel<true, true, false>, dense_tc_pair_kernel<false, false, true>,
-                       dense_tc_pair_kernel<true, false, true>, dense_tc_pair_kernel<true, true, true>})
+        // the array's type is spelled out: MSVC's front end cannot deduce one from a list of template-ids
+        using Kernel = decltype(&dense_tc_pair_kernel<false, false, false>);
+        const Kernel kernels[] = {dense_tc_pair_kernel<false, false, false>, dense_tc_pair_kernel<true, false, false>,
+                                  dense_tc_pair_kernel<true, true, false>, dense_tc_pair_kernel<false, false, true>,
+                                  dense_tc_pair_kernel<true, false, true>, dense_tc_pair_kernel<true, true, true>};
+        for (Kernel k : kernels)
             cudaFuncSetAttribute(k, cudaFuncAttributeMaxDynamicSharedMemorySize, 99 * 1024);
         attr = true;
     }
