@@ -144,6 +144,8 @@ void cvec_set_enabled(bool on) {
         cudaSetDevice(d);
         cudaDeviceSynchronize();   // nothing in flight may still read the flag
         cudaMemcpy(g_dev[d].on, &v, sizeof(int), cudaMemcpyHostToDevice);
+        // a pageable copy can return before it lands, and the kernels that read the flag run on non-blocking streams
+        cudaStreamSynchronize(cudaStreamLegacy);
     }
     cudaSetDevice(prev);
     g_on_host = on;

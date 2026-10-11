@@ -451,6 +451,9 @@ bool parity_seg(cudaStream_t s) {
             void *yq_r, *yq_f;
             CK(cudaMalloc(&yq_r, (size_t) R * (ZV / 32) * 36 + 64)); CK(cudaMemset(yq_r, 0xff, (size_t) R * (ZV / 32) * 36));
             CK(cudaMalloc(&yq_f, (size_t) R * (ZV / 32) * 36 + 64)); CK(cudaMemset(yq_f, 0xff, (size_t) R * (ZV / 32) * 36));
+            // the uploads and the 0xff fills run on the legacy stream, which `s` (non-blocking) does not wait for: under
+            // WDDM's batched submission a fill landed after the kernels and left NaN where they had written
+            CK(cudaDeviceSynchronize());
             for (int k = 0; k < nseg; ++k) {
                 const size_t r0 = row0[k];
                 float* st = sbase[k] + layer * SF;
@@ -469,6 +472,7 @@ bool parity_seg(cudaStream_t s) {
             float *h_s = fbuf((size_t) R * C), *y_s = fbuf((size_t) R * ZV);
             float *h_f = fbuf((size_t) R * C), *g_f = fbuf((size_t) R * HV), *b_f = fbuf((size_t) R * HV),
                   *y_f = fbuf((size_t) R * ZV);
+            CK(cudaDeviceSynchronize());   // the fills before the segment kernels (above)
             gdn_conv_l2_seg(d_rows, layer * SF + (size_t) S * HV * S, d_qkv, L.conv_w, h_s, C, 2 * HK, EPS, R, s);
             gdn_step_norm_seg(d_rows, layer * SF, h_r, C, g_r, b_r, d_z, L.gamma, EPS, y_s, HK, HV, R, s);
             {
@@ -588,6 +592,7 @@ bool parity_ple_hist(cudaStream_t s) {
             rows[(size_t) t] = e;
         }
         CK(cudaMemcpy(d_rows, rows.data(), (size_t) S * sizeof(SegRow), cudaMemcpyHostToDevice));
+        CK(cudaDeviceSynchronize());   // the legacy-stream uploads land before `s` (non-blocking) reads them
         ple_hist_gather(d_work, d_tab, d_rows, n, S, s);
         CK(cudaStreamSynchronize(s));
         std::vector<float> got(hw.size());
@@ -596,6 +601,7 @@ bool parity_ple_hist(cudaStream_t s) {
             for (int64_t i = 0; i < n; ++i)
                 if (got[(size_t) t * n + i] != hs[(size_t) rows[(size_t) t].slot * n + i]) ok = false;
         CK(cudaMemcpy(d_work, hw.data(), hw.size() * 4, cudaMemcpyHostToDevice));
+        CK(cudaDeviceSynchronize());
         ple_hist_scatter(d_tab, d_work, d_rows, n, S, s);
         CK(cudaStreamSynchronize(s));
         std::vector<float> after(hs.size());

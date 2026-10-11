@@ -89,6 +89,9 @@ int main(int argc, char** argv) {
     auto reset = [&] {
         ck(cudaDeviceSynchronize(), "sync");
         up(R, h_R); up(hist, h_hist);
+        // a pageable cudaMemcpy may return before its DMA lands, on the legacy stream, which `st` (non-blocking) does
+        // not wait for: under WDDM's batched submission the window then read the previous T's values
+        ck(cudaDeviceSynchronize(), "sync");
         ck(cudaMemsetAsync(snap, 0, (size_t) MT * HS * 4, st), "memset");
         ck(cudaStreamSynchronize(st), "sync");
     };

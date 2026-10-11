@@ -2845,6 +2845,10 @@ bool Verifier::init_slots(const std::vector<SessionState*>& slots, std::string& 
             d_qslots_[(size_t) qi] = dev;
             dev += S;
         }
+        // the tables are read by kernels on non-blocking streams, which do not order against the legacy stream these
+        // pageable copies run on, and such a copy can return before its data lands (WDDM's batched submission makes
+        // that likely): wait for them here, as generate.cpp's res_put does
+        cudaStreamSynchronize(cudaStreamLegacy);
     }
     slots_ = slots;
     batch_dm_ = dm_ != nullptr;
