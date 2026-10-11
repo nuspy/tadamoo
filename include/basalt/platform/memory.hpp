@@ -24,11 +24,21 @@ void unlock_resident(void* p, uint64_t bytes);
 /// The machine's physical RAM in bytes (0 when unknown).
 uint64_t total_physical_memory();
 
-/// MemAvailable from /proc/meminfo in bytes (0 when unknown).
+/// MemAvailable from /proc/meminfo in bytes (0 when unknown).  On Windows the smaller of the available physical RAM
+/// and the commit left (RAM + page file - committed), from GlobalMemoryStatusEx.
 uint64_t available_memory();
 
-/// The RAM left alone by anything that locks or fills memory: the larger of 2 GiB and 5% of the machine's RAM.
+/// The RAM left alone by anything that locks or fills memory: the larger of 2 GiB and 5% of the machine's RAM
+/// (15% on Windows, which trims working sets and pages out long before RAM is exhausted).
 uint64_t ram_margin();
+
+#if defined(_WIN32)
+/// The commit the system can still grant (commit limit - commit charge), in bytes (0 when unknown).
+uint64_t available_commit();
+/// The WDDM shared (non-local, system-memory) segment budget and use of the GPU whose adapter LUID is `luid` (8
+/// bytes, cudaDeviceProp::luid), from DXGI.  Page-locked memory the GPU maps is charged to that segment.
+bool gpu_shared_memory_budget(const void* luid, uint64_t& budget, uint64_t& usage, std::string& why);
+#endif
 
 /// Host RAM the engine takes after the resident expert copy is sized and before it serves: the GPU libraries' own
 /// host memory, the prompt path's and the verifier's staging.  A resident copy leaves this much beside the margin.

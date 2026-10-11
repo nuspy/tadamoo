@@ -9,12 +9,161 @@
 #include <fstream>
 #include <string>
 #include <thread>
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <dxgi1_4.h>
+#include <cstring>
+#else
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#endif
 
 namespace basalt::platform {
 
+#if defined(_WIN32)
+// ------------------------------------------------------------------------------------------------ Windows
+LockResult lock_resident(void* p, uint64_t bytes) {
+    LockResult r;
+    if (p == nullptr || bytes == 0) { r.note = "nothing to lock"; return r; }
+    HANDLE self = GetCurrentProcess();
+    SIZE_T min_ws = 0, max_ws = 0;
+    DWORD flags = 0;
+    if (!GetProcessWorkingSetSizeEx(self, &min_ws, &max_ws, &flags)) {
+        r.note = "GetProcessWorkingSetSizeEx failed (error " + std::to_string(GetLastError()) + ")";
+        return r;
+    }
+    // Locked pages count against the minimum working set, so it must grow by the region plus headroom for the rest
+    // of the process.  Soft limits: the maximum is not enforced, only the minimum is raised.
+    const SIZE_T margin = (SIZE_T) 512 << 20;
+    const SIZE_T new_min = min_ws + (SIZE_T) bytes + margin;
+    const SIZE_T new_max = max_ws > new_min + margin ? max_ws : new_min + margin;
+    if (!SetProcessWorkingSetSizeEx(self, new_min, new_max,
+                                    QUOTA_LIMITS_HARDWS_MIN_DISABLE | QUOTA_LIMITS_HARDWS_MAX_DISABLE)) {
+        r.note = "SetProcessWorkingSetSizeEx(" + std::to_string((unsigned long long) (new_min >> 20)) +
+                 " MiB) failed (error " + std::to_string(GetLastError()) + ")";
+        return r;
+    }
+    const uint64_t chunk = 1ull << 30;
+    uint8_t* base = (uint8_t*) p;
+    for (uint64_t off = 0; off < bytes; off += chunk) {
+        const uint64_t n = bytes - off < chunk ? bytes - off : chunk;
+        if (!VirtualLock(base + off, (SIZE_T) n)) {
+            r.note = "VirtualLock stopped at " + std::to_string((unsigned long long) (off >> 20)) + " of " +
+                     std::to_string((unsigned long long) (bytes >> 20)) + " MiB (error " +
+                     std::to_string(GetLastError()) + ")";
+            r.ok = off > 0;
+            return r;
+        }
+        r.locked_bytes = off + n;
+    }
+    r.ok = true;
+    r.note = "locked " + std::to_string((unsigned long long) (bytes >> 20)) + " MiB via working-set minimum + VirtualLock";
+    return r;
+}
+
+void unlock_resident(void* p, uint64_t bytes) {
+    if (p == nullptr || bytes == 0) return;
+    const uint64_t chunk = 1ull << 30;
+    for (uint64_t off = 0; off < bytes; off += chunk)
+        VirtualUnlock((uint8_t*) p + off, (SIZE_T) (bytes - off < chunk ? bytes - off : chunk));
+}
+
+namespace {
+bool memory_status(MEMORYSTATUSEX& ms) {
+    ms = MEMORYSTATUSEX{};
+    ms.dwLength = sizeof ms;
+    return GlobalMemoryStatusEx(&ms) != 0;
+}
+}  // namespace
+
+uint64_t total_physical_memory() {
+    MEMORYSTATUSEX ms;
+    return memory_status(ms) ? (uint64_t) ms.ullTotalPhys : 0;
+}
+
+uint64_t available_commit() {
+    MEMORYSTATUSEX ms;
+    return memory_status(ms) ? (uint64_t) ms.ullAvailPageFile : 0;
+}
+
+// Windows charges every committed allocation (and the VRAM a WDDM driver backs with system memory) to the commit
+// limit, RAM + page file.  What the engine may still take is the smaller of the free physical RAM and the commit
+// left: a budget from the physical RAM alone could be granted only by growing into the page file.
+uint64_t available_memory() {
+    MEMORYSTATUSEX ms;
+    if (!memory_status(ms)) return 0;
+    return std::min<uint64_t>((uint64_t) ms.ullAvailPhys, (uint64_t) ms.ullAvailPageFile);
+}
+
+// 15% of the RAM stays free: Windows trims working sets and pages to the SSD well before RAM is exhausted, so the
+// Linux 5% would let a load push the rest of the machine into the page file.
+uint64_t ram_margin() {
+    return std::max<uint64_t>(2ull << 30, total_physical_memory() / 100 * 15);
+}
+
+bool read_ahead_enabled() { return true; }
+
+// PrefetchVirtualMemory (Windows 8+) queues the whole range at once, where the copies' page faults would read a few
+// clusters each.  A hint: a range it does not fetch is faulted in by the read that follows.
+void advise_willneed(const void* p, uint64_t bytes) {
+    if (p == nullptr || bytes == 0 || !read_ahead_enabled()) return;
+    WIN32_MEMORY_RANGE_ENTRY range{(PVOID) p, (SIZE_T) bytes};
+    (void) PrefetchVirtualMemory(GetCurrentProcess(), 1, &range, 0);
+}
+
+// No fadvise for a file descriptor: the reads that follow go through the cache manager's own read-ahead.
+void advise_willneed(int, uint64_t, uint64_t) {}
+
+bool gpu_shared_memory_budget(const void* luid, uint64_t& budget, uint64_t& usage, std::string& why) {
+    budget = usage = 0;
+    // dxgi.dll is loaded when asked, not linked: a start that never needs this keeps the imports it had
+    HMODULE dxgi = LoadLibraryA("dxgi.dll");
+    if (dxgi == nullptr) { why = "dxgi.dll not found"; return false; }
+    using CreateFactory = HRESULT(WINAPI*)(REFIID, void**);
+    const auto create = (CreateFactory) (void*) GetProcAddress(dxgi, "CreateDXGIFactory1");
+    IDXGIFactory1* factory = nullptr;
+    if (create == nullptr || FAILED(create(__uuidof(IDXGIFactory1), (void**) &factory)) || factory == nullptr) {
+        why = "CreateDXGIFactory1 failed";
+        FreeLibrary(dxgi);
+        return false;
+    }
+    bool ok = false;
+    why = "no DXGI adapter has the CUDA device's LUID";
+    for (UINT i = 0; !ok; ++i) {
+        IDXGIAdapter1* a = nullptr;
+        if (factory->EnumAdapters1(i, &a) == DXGI_ERROR_NOT_FOUND || a == nullptr) break;
+        DXGI_ADAPTER_DESC1 d{};
+        if (SUCCEEDED(a->GetDesc1(&d)) && std::memcmp(&d.AdapterLuid, luid, sizeof d.AdapterLuid) == 0) {
+            IDXGIAdapter3* a3 = nullptr;
+            DXGI_QUERY_VIDEO_MEMORY_INFO info{};
+            if (SUCCEEDED(a->QueryInterface(__uuidof(IDXGIAdapter3), (void**) &a3)) && a3 != nullptr &&
+                SUCCEEDED(a3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &info))) {
+                budget = info.Budget;
+                usage = info.CurrentUsage;
+                ok = budget > 0;
+                why = ok ? "" : "the adapter reports no shared-memory budget";
+            } else {
+                why = "QueryVideoMemoryInfo failed";
+            }
+            if (a3 != nullptr) a3->Release();
+            a->Release();
+            break;
+        }
+        a->Release();
+    }
+    factory->Release();
+    FreeLibrary(dxgi);
+    return ok;
+}
+#else
+// ------------------------------------------------------------------------------------------------ Linux
 LockResult lock_resident(void* p, uint64_t bytes) {
     LockResult r;
     if (p == nullptr || bytes == 0) { r.note = "nothing to lock"; return r; }
@@ -51,6 +200,7 @@ uint64_t available_memory() { return meminfo_bytes("MemAvailable"); }
 uint64_t ram_margin() {
     return std::max<uint64_t>(2ull << 30, meminfo_bytes("MemTotal") / 20);
 }
+#endif
 
 uint64_t ram_budget(bool* known) {
     const uint64_t avail = available_memory();
@@ -105,6 +255,7 @@ void stop_memory_watchdog() {
     g_watch_on = false;
 }
 
+#if !defined(_WIN32)
 namespace {
 constexpr uint64_t kAdviseStep = 128ull << 10;
 }
@@ -124,5 +275,6 @@ void advise_willneed(int fd, uint64_t offset, uint64_t bytes) {
     for (uint64_t at = 0; at < bytes; at += kAdviseStep)
         (void) posix_fadvise(fd, (off_t) (offset + at), (off_t) std::min(kAdviseStep, bytes - at), POSIX_FADV_WILLNEED);
 }
+#endif
 
 }  // namespace basalt::platform

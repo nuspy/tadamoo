@@ -14,6 +14,10 @@
 #include <mutex>
 #include <thread>
 
+#include "basalt/platform/compat.hpp"
+#if defined(_WIN32)
+#include <string>
+#else
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -21,6 +25,7 @@
 #include <linux/mman.h>
 #ifndef MAP_HUGE_2MB
 #define MAP_HUGE_2MB (21 << 26)
+#endif
 #endif
 
 namespace basalt::core {
@@ -48,6 +53,49 @@ void* reserve(uint64_t bytes, PageBacking& got, std::string& note, const std::st
               uint64_t shared_hash, void*& mapping_base, uint64_t& mapping_bytes) {
     mapping_base = nullptr;
     mapping_bytes = 0;
+#if defined(_WIN32)
+    (void) shared_hash;
+    if (!shared_file.empty()) {
+        note = "a shared-file arena (--shared-expert-arena) is not supported on Windows";
+        return nullptr;
+    }
+    // MEM_LARGE_PAGES needs SeLockMemoryPrivilege.  Having it assigned to the account is not enough: the PROCESS must
+    // enable it in its own token before VirtualAlloc.  An account without the assignment (the default on a desktop)
+    // makes the attempt below fail at once, and the 4 KB fallback runs.  Large pages are never paged out: they come
+    // from the RAM alone, as the rest of the arena does once it is pinned.
+    {
+        HANDLE tok = nullptr;
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &tok)) {
+            TOKEN_PRIVILEGES tp{};
+            tp.PrivilegeCount = 1;
+            if (LookupPrivilegeValueW(nullptr, L"SeLockMemoryPrivilege", &tp.Privileges[0].Luid)) {
+                tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+                (void) AdjustTokenPrivileges(tok, FALSE, &tp, 0, nullptr, nullptr);   // the attempt reports the outcome
+            }
+            CloseHandle(tok);
+        }
+    }
+    const SIZE_T large = GetLargePageMinimum();
+    if (large > 0) {
+        // the size must be an exact multiple of the large page (else ERROR_INVALID_PARAMETER, which reads like a
+        // privilege problem but is not): rounded up, the tail stays unused
+        const SIZE_T lbytes = (SIZE_T) (((SIZE_T) bytes + large - 1) / large * large);
+        void* p = VirtualAlloc(nullptr, lbytes, MEM_RESERVE | MEM_COMMIT | MEM_LARGE_PAGES, PAGE_READWRITE);
+        if (p != nullptr) {
+            got = PageBacking::LargePages;
+            note = "large pages (" + std::to_string((unsigned long long) large) + " B)";
+            return p;
+        }
+        // 1314 is the privilege, 1450 the large-page pool, 87 a size that is not a multiple: name the error
+        note = "large pages refused (VirtualAlloc error " + std::to_string((unsigned long long) GetLastError()) +
+               "; SeLockMemoryPrivilege is needed); using 4 KB pages";
+    } else {
+        note = "no large-page support; using 4 KB pages";
+    }
+    void* p = VirtualAlloc(nullptr, (SIZE_T) bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    got = PageBacking::NormalPages;
+    return p;
+#else
     if (!shared_file.empty()) {
         if (shared_hash == 0) {
             note = "shared arena requires a nonzero model hash";
@@ -178,11 +226,17 @@ void* reserve(uint64_t bytes, PageBacking& got, std::string& note, const std::st
         note += "; transparent huge pages requested (MADV_HUGEPAGE)";
     }
     return p;
+#endif
 }
 
 void release(void* p, uint64_t bytes) {
     if (!p) return;
+#if defined(_WIN32)
+    (void) bytes;
+    VirtualFree(p, 0, MEM_RELEASE);
+#else
     munmap(p, bytes);
+#endif
 }
 
 }  // namespace
@@ -203,6 +257,38 @@ bool clear_error() { (void) cudaGetLastError(); return true; }
 
 namespace {
 }  // namespace
+
+#if defined(_WIN32)
+namespace {
+// How much of an arena may be page-locked under WDDM.  Page-locked memory the GPU maps is charged to its shared
+// (non-local, system-memory) segment, whose budget is about half the RAM.  Pinned past it - slice by slice until the
+// driver refuses one - the segment is left full and every later cudaMalloc fails "out of memory" (Strata #243), so the
+// registration stops 4 GiB below the budget.  Without the DXGI numbers: RAM/2 - 8 GiB.  False: no limit is known.
+bool wddm_pin_limit(uint64_t& limit, std::string& why) {
+    constexpr uint64_t GiB = 1ull << 30;
+    char buf[200];
+    int dev = 0;
+    cudaDeviceProp p{};
+    uint64_t budget = 0, usage = 0;
+    std::string err = "no CUDA device properties";
+    if (cudaGetDevice(&dev) == cudaSuccess && cudaGetDeviceProperties(&p, dev) == cudaSuccess &&
+        basalt::platform::gpu_shared_memory_budget(p.luid, budget, usage, err)) {
+        limit = budget > usage + 4 * GiB ? budget - usage - 4 * GiB : 0;
+        std::snprintf(buf, sizeof buf, "shared-memory budget %.1f GiB - %.1f GiB in use - 4 GiB", (double) budget / GiB,
+                      (double) usage / GiB);
+        why = buf;
+        return true;
+    }
+    (void) cudaGetLastError();
+    const uint64_t ram = basalt::platform::total_physical_memory();
+    if (ram == 0) return false;
+    limit = ram / 2 > 8 * GiB ? ram / 2 - 8 * GiB : 0;
+    std::snprintf(buf, sizeof buf, "%s: RAM/2 - 8 GiB of %.1f GiB", err.c_str(), (double) ram / GiB);
+    why = buf;
+    return true;
+}
+}  // namespace
+#endif
 
 namespace {
 std::vector<uint64_t> uniform_bounds(uint64_t bytes, uint64_t slice) {
@@ -232,7 +318,17 @@ PinnedArena::PinnedArena(uint64_t bytes, const std::vector<uint64_t>& bounds,
     // that has already been faulted in page by page is far more expensive to register and may fail outright.
     if (base) {
         uint64_t cap = max_pinned_bytes;
-        const std::string cap_why = "by the engine (remote experts)";
+        std::string cap_why = "by the engine (remote experts)";
+#if defined(_WIN32)
+        if (bounds.size() >= 2) {
+            uint64_t wl = 0;
+            std::string why;
+            if (wddm_pin_limit(wl, why) && wl < bytes && (cap == 0 || wl < cap)) {
+                cap = wl > 0 ? wl : 1;   // nothing fits: no slice is pinned, the arena is locked in RAM instead
+                cap_why = "by the GPU's WDDM shared-memory budget (" + why + ")";
+            }
+        }
+#endif
         const bool capped = cap > 0 && cap < bytes && bounds.size() >= 2;
         const cudaError_t e = capped ? cudaSuccess :
             cudaHostRegister(base, (size_t) bytes, cudaHostRegisterPortable | cudaHostRegisterMapped);
@@ -376,7 +472,7 @@ LoadStats load_experts_ranges(const std::string& path, uint8_t* dst, const std::
             uint64_t pos = 0;
             uint64_t h = 1469598103934665603ull;
             // 64-bit seek: the file is far larger than 4 GiB, so a 32-bit `fseek` would wrap
-            if (fseeko(f, (off_t) (base + off), SEEK_SET) != 0) {
+            if (basalt::platform::fseek64(f, (long long) (base + off), SEEK_SET) != 0) {
                 std::lock_guard<std::mutex> g(err_mu);
                 err = "seek to " + std::to_string(off) + " B failed in layer " + std::to_string(L);
                 return;
