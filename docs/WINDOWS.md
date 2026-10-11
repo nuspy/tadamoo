@@ -107,6 +107,24 @@ The Linux code paths are unchanged; the Windows ones sit behind `_WIN32` / `MSVC
   kernels spin on flags the CPU pool writes; with compute preemption a spinning kernel is preemptible, so this is not
   expected to trigger, but it is not verified with a model yet.  Basalt changes no Windows setting.
 
+## Tests
+
+```powershell
+cmake -S . -B build-win -DBUILD_TESTING=ON     # in the same shell as the build
+cmake --build build-win --parallel 4
+cd build-win; ctest -j 1 --timeout 600 --output-on-failure
+```
+
+On an i9-14900K (AVX2, no AVX-512) + RTX 5090 (WDDM, driver with CUDA 13.1), Windows 11: **82 of 83 pass**, all
+synthetic (no model).  The one failure, `expert_multi_test`, needs AVX-512 (VNNI/VBMI) for the canonical Q2_0 expert
+kernel and fails the same way on a Linux machine without it; `pool_test`, `pool_stress` and `expert_parity` report
+SKIPPED inside a passing test for the same reason.  The serve tests (`python -m pytest serve/tests`) pass except three
+whose fixtures assume POSIX (an absolute `/x` path, `/`-joined expected paths, a shebang fake engine).
+
+The CPU topology the pool sees on the 14900K: hybrid, 8 P-cores (16 threads) + 16 E-cores; the host takes P-core 0
+and the default pool (`All`) is the other 7 P-cores, then the 16 E-cores (23 workers).  Strata measured 15 workers
+best on this CPU (`--pool-workers 15`: the 7 P-cores and the first 8 E-cores); not yet measured with Basalt.
+
 ## Not supported on Windows (yet)
 
 * `--shared-expert-arena` (refused at start).
