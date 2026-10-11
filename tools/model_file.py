@@ -24,6 +24,7 @@ HEADER = struct.Struct("<8sIIQ40s")           # 64 bytes
 ENTRY = struct.Struct("<64sQQ32s16s")         # 128 bytes
 MAX_SECTIONS = (HEADER_BYTES - HEADER.size) // ENTRY.size
 COPY_CHUNK = 64 << 20
+VERIFY_CHUNK = 16 << 20                        # verify(): one buffer, reused
 
 
 def _align(n: int) -> int:
@@ -159,15 +160,18 @@ class ModelFile:
             return f.read(size)
 
     def verify(self, name: str) -> bool:
+        """The section's SHA-256 against the table, read through one reused 16 MiB buffer (a new 64 MiB bytes object
+        per read could fail with MemoryError on a machine short of commit, and churned the allocator)."""
         off, size, digest = self.sections[name]
         h = hashlib.sha256()
-        with open(self.path, "rb") as f:
+        view = memoryview(bytearray(VERIFY_CHUNK))
+        with open(self.path, "rb", buffering=0) as f:
             f.seek(off)
             left = size
             while left > 0:
-                b = f.read(min(COPY_CHUNK, left))
-                if not b:
+                n = f.readinto(view[:min(VERIFY_CHUNK, left)])
+                if not n:
                     return False
-                h.update(b)
-                left -= len(b)
+                h.update(view[:n])
+                left -= n
         return h.digest() == digest
