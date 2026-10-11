@@ -21,11 +21,19 @@
 #include <string>
 #include <vector>
 
-#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#if defined(_WIN32)
+#include "basalt/platform/compat.hpp"   // windows.h, ssize_t, widen()
+#include <io.h>
+#include <process.h>
+#define popen _popen
+#define pclose _pclose
+#else
+#include <dlfcn.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 #ifndef BASALT_VERSION
 #define BASALT_VERSION "unknown"
@@ -129,7 +137,13 @@ public:
     };
 
     bool open() {
+#if defined(_WIN32)
+        // the driver installs nvml.dll in System32; older drivers only in NVSMI
+        h_ = (void*) LoadLibraryA("nvml.dll");
+        if (h_ == nullptr) h_ = (void*) LoadLibraryA("C:\\Program Files\\NVIDIA Corporation\\NVSMI\\nvml.dll");
+#else
         h_ = dlopen("libnvidia-ml.so.1", RTLD_NOW);
+#endif
         if (h_ == nullptr) return false;
         init_ = sym<int (*)()>("nvmlInit_v2");
         shut_ = sym<int (*)()>("nvmlShutdown");
@@ -182,7 +196,11 @@ public:
 
 private:
     template <class F>
+#if defined(_WIN32)
+    F sym(const char* n) const { return reinterpret_cast<F>((void*) GetProcAddress((HMODULE) h_, n)); }
+#else
     F sym(const char* n) const { return reinterpret_cast<F>(dlsym(h_, n)); }
+#endif
     void* h_ = nullptr;
     bool ok_ = false;
     std::vector<void*> dev_;
@@ -200,12 +218,36 @@ private:
 
 // ---------------------------------------------------------------------------------------------- engine child
 
+#if defined(_WIN32)
+void* volatile g_child = nullptr;   // the engine's process handle
+
+void on_signal(int) {
+    if (g_child != nullptr) TerminateProcess((HANDLE) g_child, 130);
+    _exit(130);
+}
+
+// one argument of a CreateProcess command line, quoted as the MSVC runtime splits it back
+std::wstring quote_arg(const std::wstring& a) {
+    if (!a.empty() && a.find_first_of(L" \t\n\v\"") == std::wstring::npos) return a;
+    std::wstring q = L"\"";
+    for (size_t i = 0;; ++i) {
+        size_t slashes = 0;
+        while (i < a.size() && a[i] == L'\\') { ++i; ++slashes; }
+        if (i == a.size()) { q.append(slashes * 2, L'\\'); break; }
+        if (a[i] == L'"') { q.append(slashes * 2 + 1, L'\\'); q.push_back(L'"'); }
+        else { q.append(slashes, L'\\'); q.push_back(a[i]); }
+    }
+    q.push_back(L'"');
+    return q;
+}
+#else
 volatile sig_atomic_t g_child = -1;
 
 void on_signal(int) {
     if (g_child > 0) kill((pid_t) g_child, SIGTERM);
     _exit(130);
 }
+#endif
 
 struct Done {
     bool ok = false;
@@ -223,6 +265,41 @@ public:
 
     bool start(const std::string& engine_bin, const std::vector<std::string>& args, const std::string& log_path,
                std::string& err) {
+#if defined(_WIN32)
+        // the engine's stdin and stdout are pipes, its stderr the log file; only those three handles are inherited
+        SECURITY_ATTRIBUTES sa{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+        HANDLE in_r = nullptr, in_w = nullptr, out_r = nullptr, out_w = nullptr;
+        if (!CreatePipe(&in_r, &in_w, &sa, 0)) { err = "pipe failed"; return false; }
+        if (!CreatePipe(&out_r, &out_w, &sa, 1 << 16)) { CloseHandle(in_r); CloseHandle(in_w); err = "pipe failed"; return false; }
+        SetHandleInformation(in_w, HANDLE_FLAG_INHERIT, 0);
+        SetHandleInformation(out_r, HANDLE_FLAG_INHERIT, 0);
+        HANDLE lf = CreateFileW(basalt::platform::widen(log_path).c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        STARTUPINFOW si{};
+        si.cb = sizeof si;
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdInput = in_r;
+        si.hStdOutput = out_w;
+        si.hStdError = lf != INVALID_HANDLE_VALUE ? lf : GetStdHandle(STD_ERROR_HANDLE);
+        std::wstring cmd = quote_arg(basalt::platform::widen(engine_bin)) + L" --serve";
+        for (const auto& a : args) cmd += L" " + quote_arg(basalt::platform::widen(a));
+        PROCESS_INFORMATION pi{};
+        const BOOL made = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE, 0, nullptr, nullptr, &si, &pi);
+        CloseHandle(in_r);
+        CloseHandle(out_w);
+        if (lf != INVALID_HANDLE_VALUE) CloseHandle(lf);
+        if (!made) {
+            CloseHandle(in_w);
+            CloseHandle(out_r);
+            err = "cannot start " + engine_bin + " (error " + std::to_string((unsigned long) GetLastError()) + ")";
+            return false;
+        }
+        CloseHandle(pi.hThread);
+        in_ = _open_osfhandle((intptr_t) in_w, _O_WRONLY | _O_BINARY);
+        out_ = _open_osfhandle((intptr_t) out_r, _O_RDONLY | _O_BINARY);
+        proc_ = pi.hProcess;
+        g_child = proc_;
+#else
         int in[2], out[2];
         if (pipe(in) != 0 || pipe(out) != 0) { err = "pipe failed"; return false; }
         const pid_t pid = fork();
@@ -249,6 +326,7 @@ public:
         out_ = out[0];
         pid_ = pid;
         g_child = pid;
+#endif
         log_path_ = log_path;
         std::string line;
         while (read_line(line)) {
@@ -313,6 +391,14 @@ public:
 
     // QUIT and wait: the engine flushes its logs on a normal exit.
     void stop() {
+#if defined(_WIN32)
+        if (proc_ == nullptr) return;
+        const std::string q = "QUIT\n";
+        if (in_ >= 0) { (void) !_write(in_, q.data(), (unsigned) q.size()); _close(in_); in_ = -1; }
+        if (WaitForSingleObject((HANDLE) proc_, 60000) == WAIT_OBJECT_0) { finish_reap(); return; }
+        TerminateProcess((HANDLE) proc_, 1);
+        reap();
+#else
         if (pid_ <= 0) return;
         const std::string q = "QUIT\n";
         if (in_ >= 0) { (void) !write(in_, q.data(), q.size()); close(in_); in_ = -1; }
@@ -323,6 +409,7 @@ public:
         }
         kill(pid_, SIGTERM);
         reap();
+#endif
     }
 
     std::map<std::string, std::string> info;
@@ -356,6 +443,21 @@ private:
             buf_.append(tmp, (size_t) n);
         }
     }
+#if defined(_WIN32)
+    void reap() {
+        if (proc_ != nullptr) WaitForSingleObject((HANDLE) proc_, INFINITE);
+        finish_reap();
+    }
+    void finish_reap() {
+        if (in_ >= 0) _close(in_);
+        if (out_ >= 0) _close(out_);
+        in_ = out_ = -1;
+        if (proc_ != nullptr) CloseHandle((HANDLE) proc_);
+        proc_ = nullptr;
+        g_child = nullptr;
+    }
+    void* proc_ = nullptr;
+#else
     void reap() {
         if (pid_ > 0) {
             int st = 0;
@@ -371,6 +473,7 @@ private:
         g_child = -1;
     }
     pid_t pid_ = -1;
+#endif
     int in_ = -1, out_ = -1;
     std::string buf_, log_path_;
     size_t rpos_ = 0;
@@ -456,7 +559,12 @@ void usage(const std::string& engine) {
     if (!bin.empty() && fs::exists(bin)) {
         std::printf("\nEngine flags (passed to basalt):\n");
         std::fflush(stdout);
+#if defined(_WIN32)
+        // cmd /c strips the outer quotes of the whole line: the program's own quotes survive inside them
+        if (FILE* pf = popen(("\"\"" + bin + "\" --help 2>&1\"").c_str(), "r")) {
+#else
         if (FILE* pf = popen(("'" + bin + "' --help 2>&1").c_str(), "r")) {
+#endif
             char buf[4096];
             while (std::fgets(buf, sizeof buf, pf) != nullptr) std::fputs(buf, stdout);
             pclose(pf);
@@ -834,7 +942,9 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "basalt-bench: %s\n", err.c_str());
         return 2;
     }
+#if !defined(_WIN32)
     std::signal(SIGPIPE, SIG_IGN);
+#endif
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
 
@@ -921,7 +1031,11 @@ int main(int argc, char** argv) {
     std::string work = o.logs;
     bool temp_work = false;
     if (work.empty()) {
+#if defined(_WIN32)
+        work = (fs::temp_directory_path() / fmt("basalt-bench-%d", (int) _getpid())).string();
+#else
         work = fmt("/tmp/basalt-bench-%d", (int) getpid());
+#endif
         temp_work = true;
     }
     std::error_code ec;
@@ -1121,7 +1235,11 @@ int main(int argc, char** argv) {
         if (all_digits(power)) power += " W";
     } else if (!gpus_start.empty() && gpus_start[0].power_limit_w > 0) {
         power = fmt("%.0f W", gpus_start[0].power_limit_w);
+#if defined(_WIN32)
+    } else if (FILE* pf = popen("nvidia-smi -i 0 --query-gpu=power.limit --format=csv,noheader,nounits 2>NUL", "r")) {
+#else
     } else if (FILE* pf = popen("nvidia-smi -i 0 --query-gpu=power.limit --format=csv,noheader,nounits 2>/dev/null", "r")) {
+#endif
         char b[64] = {0};
         if (std::fgets(b, sizeof b, pf) != nullptr && std::atof(b) > 0) power = fmt("%.0f W", std::atof(b));
         pclose(pf);

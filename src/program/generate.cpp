@@ -64,10 +64,18 @@
 #include "basalt/vision/encoder_cuda.hpp"
 #include "basalt/vision/mmproj.hpp"
 #include "basalt/vision/preprocess.hpp"
-#include <unistd.h>
+#include "basalt/platform/compat.hpp"
+#include "basalt/platform/memory.hpp"
 #include <cerrno>
+#if defined(_WIN32)
+#include <io.h>
+#include <process.h>
+#include <psapi.h>
+#else
+#include <unistd.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#endif
 
 #include <cuda_runtime.h>
 
@@ -77,9 +85,11 @@
 #include <iostream>
 #include <future>
 #include <thread>
+#if !defined(_WIN32)
 #include <pthread.h>
 #include <sched.h>
 #include <unistd.h>
+#endif
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -120,6 +130,10 @@ public:
         }
     }
     void run(std::function<void()> fn) {
+#if defined(_WIN32)
+        // a new thread does not inherit its creator's CPU Set: the host's is read here, on the host's thread
+        if (!th_.joinable()) host_cpu_set_ = single_cpu_set();
+#endif
         if (!th_.joinable()) th_ = std::thread([this] { loop(); });
         {
             std::lock_guard<std::mutex> lk(m_);
@@ -142,14 +156,47 @@ public:
         busy_ = false;
     }
 private:
-    static void cpu_relax() {
-#if defined(__x86_64__)
-        __builtin_ia32_pause();
-#endif
-    }
+    static void cpu_relax() { basalt::platform::cpu_pause(); }
     // The decode loop's thread is pinned to one core, which it spins on; a thread it starts inherits that pin and would
     // wait for the spinner to yield.  The worker takes the core's SMT sibling instead: the core is awake, so the
     // worker starts at once, and the loop's thread is not preempted.
+#if defined(_WIN32)
+    // The calling thread's one selected CPU Set (the host placement pin_current_thread makes), or -1.
+    static long long single_cpu_set() {
+        ULONG ids[2] = {0, 0}, count = 0;
+        if (!GetThreadSelectedCpuSets(GetCurrentThread(), ids, 2, &count) || count != 1) return -1;
+        return (long long) ids[0];
+    }
+    // The same rule as Linux: when the host is placed on one CPU, the worker takes that core's SMT sibling (a CPU Set
+    // on the same group and core index, another logical processor).  A core without a sibling leaves the worker free.
+    void leave_host_core() const {
+        if (host_cpu_set_ < 0) return;
+        ULONG bytes = 0;
+        if (!GetSystemCpuSetInformation(nullptr, 0, &bytes, GetCurrentProcess(), 0) &&
+            GetLastError() != ERROR_INSUFFICIENT_BUFFER) return;
+        std::vector<unsigned char> buf(bytes);
+        if (bytes == 0 || !GetSystemCpuSetInformation((PSYSTEM_CPU_SET_INFORMATION) buf.data(), bytes, &bytes,
+                                                      GetCurrentProcess(), 0)) return;
+        std::vector<const SYSTEM_CPU_SET_INFORMATION*> sets;
+        for (size_t off = 0; off < bytes;) {
+            const auto* s = (const SYSTEM_CPU_SET_INFORMATION*) (buf.data() + off);
+            if (s->Size == 0 || s->Size > bytes - off) break;
+            if (s->Type == CpuSetInformation) sets.push_back(s);
+            off += s->Size;
+        }
+        const SYSTEM_CPU_SET_INFORMATION* host = nullptr;
+        for (const auto* s : sets) if ((long long) s->CpuSet.Id == host_cpu_set_) host = s;
+        if (host == nullptr) return;
+        for (const auto* s : sets)
+            if (s->CpuSet.Group == host->CpuSet.Group && s->CpuSet.CoreIndex == host->CpuSet.CoreIndex &&
+                s->CpuSet.LogicalProcessorIndex != host->CpuSet.LogicalProcessorIndex) {
+                ULONG id = s->CpuSet.Id;
+                (void) SetThreadSelectedCpuSets(GetCurrentThread(), &id, 1);
+                return;
+            }
+    }
+    long long host_cpu_set_ = -1;
+#else
     static void leave_host_core() {
         const int n = (int) sysconf(_SC_NPROCESSORS_CONF);
         if (n <= 0) return;
@@ -186,6 +233,7 @@ private:
         if (own != nullptr) CPU_FREE(own);
         if (sib != nullptr) CPU_FREE(sib);
     }
+#endif
     void loop() {
         leave_host_core();
         std::unique_lock<std::mutex> lk(m_);
@@ -569,6 +617,24 @@ bool for_each_index_name(const basalt::core::FileRange& index, const std::functi
     return true;
 }
 
+#if defined(_WIN32)
+/// One argument for a CreateProcess command line, quoted the way the MSVC runtime (and Python) splits it back:
+/// backslashes are literal unless they precede a quote, where they are doubled and the quote escaped.
+std::wstring quote_arg(const std::wstring& a) {
+    if (!a.empty() && a.find_first_of(L" \t\n\v\"") == std::wstring::npos) return a;
+    std::wstring q = L"\"";
+    for (size_t i = 0;; ++i) {
+        size_t slashes = 0;
+        while (i < a.size() && a[i] == L'\\') { ++i; ++slashes; }
+        if (i == a.size()) { q.append(slashes * 2, L'\\'); break; }
+        if (a[i] == L'"') { q.append(slashes * 2 + 1, L'\\'); q.push_back(L'"'); }
+        else { q.append(slashes, L'\\'); q.push_back(a[i]); }
+    }
+    q.push_back(L'"');
+    return q;
+}
+#endif
+
 /// `basalt serve --config FILE` or `basalt serve MODEL.basalt [--python PY] [server args...]`: runs the Python server
 /// over this binary.  The server gets `--engine-bin` and what was typed; a MODEL.basalt argument stands for `--model MODEL.basalt`.
 /// Only returns on failure.
@@ -578,12 +644,22 @@ int serve_subcommand(int argc, char** argv) {
     bool have_model = false;
     // the working directory changes below: the paths the server reads must not depend on it
     auto absolute = [](const std::string& path) {
+#if defined(_WIN32)
+        std::error_code ec;
+        const std::filesystem::path real = std::filesystem::canonical(std::filesystem::path(path), ec);
+        if (ec) {
+            std::fprintf(stderr, "basalt serve: cannot open %s\n", path.c_str());
+            std::exit(1);
+        }
+        return real.string();
+#else
         char real[4096];
         if (::realpath(path.c_str(), real) == nullptr) {
             std::fprintf(stderr, "basalt serve: cannot open %s\n", path.c_str());
             std::exit(1);
         }
         return std::string(real);
+#endif
     };
     for (int i = 2; i < argc; ++i) {
         const std::string a = argv[i];
@@ -602,6 +678,49 @@ int serve_subcommand(int argc, char** argv) {
         std::fprintf(stderr, "usage: basalt serve --config FILE | MODEL.basalt [--python PY] [server args...]\n");
         return 2;
     }
+#if defined(_WIN32)
+    // No exec on Windows: the server runs as a child in a kill-on-close job (it ends with this process however this
+    // one ends), Ctrl+C is left to it, and its exit code is this process's.
+    std::wstring exe(32768, L'\0');
+    const DWORD en = GetModuleFileNameW(nullptr, exe.data(), (DWORD) exe.size());
+    if (en == 0 || en >= exe.size()) { std::fprintf(stderr, "basalt serve: cannot find this binary\n"); return 1; }
+    exe.resize(en);
+    const std::filesystem::path src_dir = std::filesystem::path(BASALT_SOURCE_DIR);
+    std::wstring wpython;
+    if (python.empty()) {
+        const std::filesystem::path venv = src_dir / ".venv" / "Scripts" / "python.exe";
+        std::error_code ec;
+        wpython = std::filesystem::exists(venv, ec) ? venv.wstring() : std::wstring(L"python");
+    } else {
+        wpython = std::filesystem::path(python).wstring();
+    }
+    std::wstring cmd = quote_arg(wpython) + L" -m serve.server --engine-bin " + quote_arg(exe);
+    for (const std::string& s : extra) cmd += L" " + quote_arg(std::filesystem::path(s).wstring());
+    HANDLE job = CreateJobObjectW(nullptr, nullptr);
+    if (job != nullptr) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION li{};
+        li.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        (void) SetInformationJobObject(job, JobObjectExtendedLimitInformation, &li, sizeof li);
+    }
+    STARTUPINFOW si{};
+    si.cb = sizeof si;
+    PROCESS_INFORMATION pi{};
+    const std::wstring cwd = src_dir.wstring();
+    if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_SUSPENDED, nullptr, cwd.c_str(), &si, &pi)) {
+        std::fprintf(stderr, "basalt serve: cannot run the server (error %lu): %ls\n", (unsigned long) GetLastError(),
+                     cmd.c_str());
+        return 1;
+    }
+    if (job != nullptr) (void) AssignProcessToJobObject(job, pi.hProcess);
+    (void) SetConsoleCtrlHandler(nullptr, TRUE);   // Ctrl+C reaches the server, which shuts down; this one waits
+    ResumeThread(pi.hThread);
+    CloseHandle(pi.hThread);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 1;
+    (void) GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    return (int) code;
+#else
     char exe[4096];
     const ssize_t n = ::readlink("/proc/self/exe", exe, sizeof exe - 1);
     if (n <= 0) { std::fprintf(stderr, "basalt serve: cannot find this binary (/proc/self/exe)\n"); return 1; }
@@ -623,6 +742,7 @@ int serve_subcommand(int argc, char** argv) {
     ::execvp(python.c_str(), cargs.data());
     std::fprintf(stderr, "basalt serve: cannot run %s: %s\n", python.c_str(), std::strerror(errno));
     return 1;
+#endif
 }
 
 void usage() {
@@ -962,6 +1082,17 @@ struct MemSample {
 };
 MemSample mem_sample() {
     MemSample m;
+#if defined(_WIN32)
+    // faults: all page faults (Windows does not count the hard ones apart); commit: this process's private commit
+    PROCESS_MEMORY_COUNTERS pmc{};
+    if (K32GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof pmc)) {
+        m.faults = pmc.PageFaultCount;
+        m.rss_mib = pmc.WorkingSetSize >> 20;
+        m.commit_mib = pmc.PagefileUsage >> 20;
+    }
+    m.avail_mib = basalt::platform::available_memory() >> 20;
+    return m;
+#else
     if (std::FILE* f = std::fopen("/proc/self/stat", "r")) {
         char buf[4096];
         const size_t n = std::fread(buf, 1, sizeof buf - 1, f);
@@ -986,6 +1117,7 @@ MemSample mem_sample() {
     m.commit_mib = kb("/proc/self/status", "VmSwap:") >> 10;
     m.avail_mib = kb("/proc/meminfo", "MemAvailable:") >> 10;
     return m;
+#endif
 }
 
 // the stage the watchdog names: "<where> <detail>", and the prompt chunk a batched read is in
@@ -998,6 +1130,12 @@ std::string stage_text() {
 
 // whether `path` is on a rotational disk (1), not (0) or unknown (-1), from sysfs; `dev` is the disk's name
 int on_rotational_disk(const std::string& path, std::string& dev) {
+#if defined(_WIN32)
+    // the volume's seek penalty: IOCTL_STORAGE_QUERY_PROPERTY(StorageDeviceSeekPenaltyProperty) needs a volume handle;
+    // not asked (an NVMe system is the target) - unknown
+    (void) path; (void) dev;
+    return -1;
+#else
     struct stat st{};
     if (::stat(path.c_str(), &st) != 0) return -1;
     char sys[64];
@@ -1013,11 +1151,15 @@ int on_rotational_disk(const std::string& path, std::string& dev) {
         }
     }
     return -1;
+#endif
 }
 
 // the engine's threads in uninterruptible sleep (state D - almost always waiting for the disk), and where
 // (wchan): many threads in blk_io_schedule is a disk that cannot keep up, not a deadlock in the engine
 void disk_wait_threads(std::FILE* f) {
+#if defined(_WIN32)
+    (void) f;   // no per-thread wait state without a debugger; the stall report's other lines still apply
+#else
     std::map<std::string, int> where;
     int waiting = 0, threads = 0;
     std::error_code ec;
@@ -1041,6 +1183,7 @@ void disk_wait_threads(std::FILE* f) {
     std::fprintf(f, "  threads waiting on the disk (state D): %d of %d%s%s\n", waiting, threads, list.c_str(),
                  waiting > 0 ? " - the engine is waiting for the drive: a rotational or failing disk with --ple-io "
                                "direct (--ple-io ram), or a drive too slow for the reads asked of it" : "");
+#endif
 }
 
 void stall_report(std::FILE* f, uint64_t layers_during) {
@@ -1060,7 +1203,11 @@ void stall_report(std::FILE* f, uint64_t layers_during) {
         const MemSample m = mem_sample();
         std::fprintf(f, "  memory: %llu MiB resident, %llu MiB %s, %llu MiB RAM available; %llu %s\n", m.rss_mib,
                      m.commit_mib,
+#if defined(_WIN32)
+                     "committed", m.avail_mib, m.faults, "page faults so far"
+#else
                      "in swap", m.avail_mib, m.faults, "major page faults so far"
+#endif
         );
         std::fflush(f);
     }
@@ -1266,13 +1413,20 @@ int main(int argc, char** argv) {
     // turns "it crashed at step 7" into "it crashed somewhere", and the difference is a debugging session.
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     if (argc >= 2 && std::strcmp(argv[1], "serve") == 0) return serve_subcommand(argc, argv);
+#if defined(_WIN32)
+    // the request protocol is lines of text, kept byte for byte as on Linux: stdin binary, so a 0x1A byte is not
+    // end-of-file and "\r\n" arrives as sent (the reader drops a trailing '\r'); stdout binary, so "\n" stays "\n"
+    (void) _setmode(0, _O_BINARY);
+    (void) _setmode(1, _O_BINARY);
+#else
     // if memory runs out the kernel ends this process first, not the rest of the machine
     if (std::FILE* f = std::fopen("/proc/self/oom_score_adj", "w")) { std::fputs("1000", f); std::fclose(f); }
+#endif
     // Load every CUDA kernel when the context is created, before the expert cache takes the free VRAM.  With lazy
     // loading, a kernel first used mid-prompt would find no VRAM left for its code and the engine would end ("out of
     // memory: cudaFuncSetAttribute").
     if (std::getenv("CUDA_MODULE_LOADING") == nullptr) {
-        setenv("CUDA_MODULE_LOADING", "EAGER", 0);
+        basalt::platform::set_env("CUDA_MODULE_LOADING", "EAGER", /*overwrite=*/false);
     }
     Options o;
     std::string ppl_base, ppl_out;
@@ -5596,8 +5750,12 @@ int main(int argc, char** argv) {
                         buf.erase(0, nlpos + 1);
                         return true;
                     }
+#if defined(_WIN32)
+                    const int n = _read(0, chunk, (unsigned) sizeof chunk);
+#else
                     const ssize_t n = ::read(0, chunk, sizeof chunk);
                     if (n < 0 && errno == EINTR) continue;
+#endif
                     if (n <= 0) {
                         if (buf.empty()) return false;
                         out.swap(buf);
