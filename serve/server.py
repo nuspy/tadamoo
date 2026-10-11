@@ -84,6 +84,7 @@ def main() -> int:
     logs = LogBuffer()                                  # this process's and the engine's output
     sys.stdout, sys.stderr = TeeStream(sys.stdout, logs, "srv"), TeeStream(sys.stderr, logs, "srv")
     cfg = {}                                            # what the model file implies
+    listen_first = False
     try:
         if a.gpu is not None:
             cfg["gpu"] = a.gpu
@@ -174,8 +175,10 @@ def main() -> int:
             threading.Thread(target=tail_file, args=(logs, cfg["log"], "eng"), daemon=True).start()
         else:
             ProcessEngine.stderr_sink = lambda line: logs.add("eng", line)
+        listen_first = bool(a.listen_first) and not lazy   # the engine starts after the HTTP server, on a thread
         try:
-            engine = ProcessEngine(cfg["engine_bin"], engine_args(cfg), log=cfg.get("log"), env=env, lazy=lazy)
+            engine = ProcessEngine(cfg["engine_bin"], engine_args(cfg), log=cfg.get("log"), env=env,
+                                   lazy=lazy or listen_first)
         except EngineStartError as e:
             print(f"[server] error: {e}", file=sys.stderr, flush=True)
             if e.log:
@@ -183,7 +186,8 @@ def main() -> int:
             return 1
         if isinstance(vision, EngineVision):
             vision.attach(engine)
-        warn_tight_ram(engine.info.get("arena_mib"))
+        if not listen_first:
+            warn_tight_ram(engine.info.get("arena_mib"))
     else:
         engine, vision, sampling_defaults = MockEngine(tok, a.script or [
             "Thinking about it.</think>\n\nHello from the mock engine."], batch=a.parallel or 0), None, {}
@@ -223,13 +227,42 @@ def main() -> int:
     httpd = serve(svc, host=a.host, port=a.port)
     svc.start_idle_unload()
     here = "127.0.0.1" if a.host in ("0.0.0.0", "", "::") else a.host
-    print(f"[server] ready: http://{here}:{a.port}/v1 (OpenAI /v1/chat/completions, Anthropic /v1/messages), "
-          f"context {engine.max_context} tokens{', images on' if vision else ''}"
-          f"{', API key required' if svc.api_key else ''}", flush=True)
-    if getattr(engine, "batch", 0):
-        print(f"[server] parallel: {engine.batch} requests at once, the rest wait in order; each slot holds "
-              f"{engine.max_context} tokens" + (f" ({engine.batch} x {engine.max_context} of KV cache: --slot-full-context)"
-                                                if a.slot_full_context else ""), flush=True)
+
+    def say_ready():
+        print(f"[server] ready: http://{here}:{a.port}/v1 (OpenAI /v1/chat/completions, Anthropic /v1/messages), "
+              f"context {engine.max_context} tokens{', images on' if vision else ''}"
+              f"{', API key required' if svc.api_key else ''}", flush=True)
+        if getattr(engine, "batch", 0):
+            print(f"[server] parallel: {engine.batch} requests at once, the rest wait in order; each slot holds "
+                  f"{engine.max_context} tokens" + (f" ({engine.batch} x {engine.max_context} of KV cache: "
+                                                    "--slot-full-context)" if a.slot_full_context else ""), flush=True)
+
+    failed = threading.Event()                          # --listen-first: the model did not load
+
+    def load_model():
+        """--listen-first: start the engine behind the running HTTP server; requests wait on the fifo meanwhile."""
+        try:
+            svc.load_at_start()
+        except EngineStartError as e:
+            print(f"[server] error: {e}", file=sys.stderr, flush=True)
+            if e.log:
+                print(f"[server] engine log: {e.log}", file=sys.stderr, flush=True)
+            failed.set()
+            return
+        except Exception as e:  # noqa: BLE001 - reported, and the server stops
+            print(f"[server] error: the model did not load: {e}", file=sys.stderr, flush=True)
+            failed.set()
+            return
+        warn_tight_ram(engine.info.get("arena_mib"))
+        say_ready()
+
+    if listen_first:
+        svc.loading = True
+        print(f"[server] listening on http://{here}:{a.port}/ while the model loads (the Monitor shows Loading)",
+              flush=True)
+        threading.Thread(target=load_model, name="load-model", daemon=True).start()
+    else:
+        say_ready()
     print(f"[server] web UI: http://{here}:{a.port}/ (chat, monitor, settings; Ctrl+C stops)", flush=True)
     if a.host not in LOOPBACK_NAMES:
         # reachable from other devices: print the addresses
@@ -251,19 +284,20 @@ def main() -> int:
     except (ValueError, OSError, AttributeError):         # not the main thread
         pass
     try:
-        while True:
+        while not failed.is_set():
             time.sleep(1)                               # a timed wait keeps Ctrl+C deliverable
+        print("[server] stopping: the model did not load", flush=True)
     except KeyboardInterrupt:
         print("[server] stopping (Ctrl+C again to force)", flush=True)
-        closers = [httpd.shutdown, getattr(engine, "close", None), vision.close if vision else None]
-        for close in filter(None, closers):
-            try:
-                close()
-            except KeyboardInterrupt:                   # second Ctrl+C: do not wait for the engine
-                if getattr(engine, "proc", None):
-                    engine.proc.kill()
-        print("[server] stopped", flush=True)
-    return 0
+    closers = [httpd.shutdown, getattr(engine, "close", None), vision.close if vision else None]
+    for close in filter(None, closers):
+        try:
+            close()
+        except KeyboardInterrupt:                       # second Ctrl+C: do not wait for the engine
+            if getattr(engine, "proc", None):
+                engine.proc.kill()
+    print("[server] stopped", flush=True)
+    return 1 if failed.is_set() else 0
 
 
 if __name__ == "__main__":

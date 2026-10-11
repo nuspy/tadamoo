@@ -32,7 +32,7 @@ class ResidentEngine(ProcessEngine):
     def exit_code(self):
         return None
 
-    def restart(self):
+    def restart(self, tries=3):
         self.loaded = True
         self.starts += 1
         self.unloaded = False
@@ -115,6 +115,37 @@ class Lifecycle(unittest.TestCase):
         with response:
             data = response.read().decode()
             return response.status, data if "event-stream" in response.headers.get("Content-Type", "") else json.loads(data)
+
+    def test_listen_first_shows_loading_and_requests_wait_for_the_load(self):
+        # --listen-first: the HTTP server answers while the engine starts; a chat waits for the load, no second start
+        import threading
+        gate, began = threading.Event(), threading.Event()
+        plain = self.engine.restart
+
+        def slow_restart(tries=3):
+            began.set()
+            gate.wait(10)
+            plain(tries)
+        self.engine.restart = slow_restart
+        loader = threading.Thread(target=self.svc.load_at_start)
+        loader.start()
+        self.assertTrue(began.wait(5))
+        self.assertTrue(self.request("/v1/status")[1]["loading"])
+        self.assertEqual(self.request("/metrics")[1]["live"]["state"], "loading")
+        chat = {"messages": [{"role": "user", "content": "Hello"}], "max_tokens": 32, "reasoning_effort": "none"}
+        out = {}
+        asker = threading.Thread(target=lambda: out.update(answer=self.request("/v1/chat/completions", chat)))
+        asker.start()
+        time.sleep(0.3)
+        self.assertNotIn("answer", out)                  # waiting for the load, not refused
+        gate.set()
+        loader.join(5)
+        asker.join(10)
+        self.assertEqual(out["answer"][0], 200)
+        self.assertEqual(out["answer"][1]["choices"][0]["message"]["content"], "Hello.")
+        self.assertEqual(self.engine.starts, 1)
+        self.assertFalse(self.request("/v1/status")[1]["loading"])
+        self.assertEqual(self.request("/metrics")[1]["live"]["state"], "idle")
 
     def test_discover_chat_unload_and_stream_reload(self):
         self.assertEqual(self.request("/api/health")[1]["service"], "basalt")

@@ -184,7 +184,11 @@
     const el = msgs.lastElementChild, controller = new AbortController();
     busy = { controller, msg: m, el };
     setBusy(true); status("The model is answering");
-    const body = { model: model || undefined, messages: apiMessages(), stream: true };
+    // a server started with --listen-first may still be loading the model: the request waits for it
+    fetch("v1/status", { cache: "no-store", headers: authHeaders() }).then(r => r.ok ? r.json() : null)
+      .then(s => { if (s && s.loading && busy && busy.msg === m && !first) status("The model is still loading; the answer starts when it is ready"); })
+      .catch(() => {});
+    const body ={ model: model || undefined, messages: apiMessages(), stream: true };
     if (effort.value) body.reasoning_effort = effort.value;
     let first = null, thinkStart = null, usage = null, frame = 0;
     const draw = () => { frame = 0; paint(el, m, true); scrollDown(); };

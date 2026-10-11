@@ -321,6 +321,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--request-lines", action="store_true",
                     help="echo the engine's per-request summary on stdout, for a supervisor that only sees this output")
     ap.add_argument("--lazy", action="store_true", help="start the text-only API unloaded; load on first request")
+    ap.add_argument("--listen-first", action="store_true",
+                    help="answer HTTP (web UI, /metrics, /api/logs) at once and load the model behind it; requests "
+                         "wait for the load, the Monitor shows Loading")
     ap.add_argument("--idle-unload", type=float, default=None, metavar="SECONDS",
                     help="unload the model after this many seconds without requests; the next request loads it again")
     ap.add_argument("--min-free-vram-mib", type=int, default=None,

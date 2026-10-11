@@ -53,7 +53,7 @@ td, th, .v, .k, .ln, .kv dd, .sub { font-family: var(--font-mono); font-variant-
 .tab[aria-selected="true"] { color: var(--fg); background: var(--panel); }
 .grow { flex: 1; }
 .state { font: 500 13.5px/1 var(--font-mono); color: var(--fg-2); white-space: nowrap; }
-.state[data-s="generating"], .state[data-s="reading"] { color: var(--accent); }
+.state[data-s="generating"], .state[data-s="reading"], .state[data-s="loading"] { color: var(--accent); }
 .state[data-s="offline"] { color: var(--err); }
 .where { font: 400 13px/1 var(--font-mono); color: var(--fg-3); white-space: nowrap; margin-left: -8px; }
 .state + .where::before, .where + .where::before { content: "·"; margin-right: 16px; color: var(--line); }

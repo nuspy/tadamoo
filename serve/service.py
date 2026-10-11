@@ -77,6 +77,7 @@ class Service:
         self.last_timings = None                         # last request's timings
         self.last_request_at = None                      # last request start or finish
         self.started_at = time.time()
+        self.loading = False                             # --listen-first: the model loads behind the HTTP server
         self.status_lock = threading.Lock()
         # GPU sharing, all off by default: idle unload seconds, min free VRAM to load, a command run before loading
         self.idle_unload_s = 0
@@ -208,6 +209,16 @@ class Service:
             return
         with self.fifo:
             self.ensure_loaded()
+
+    def load_at_start(self) -> None:
+        """--listen-first: start the engine while the HTTP server already answers. Requests wait on the fifo meanwhile
+        and /metrics says "loading"; one try, EngineStartError when it does not start."""
+        self.loading = True
+        try:
+            with self.fifo:
+                self.engine.restart(tries=1)
+        finally:
+            self.loading = False
 
     def unload(self, idle_for: float | None = None) -> str:
         """Stop the engine between requests: "unloaded", "not loaded", "busy" or "unsupported"."""
@@ -359,7 +370,7 @@ class Service:
         elif busy:
             state = "generating"
         elif not self.loaded():
-            state = "unloaded"
+            state = "loading" if self.loading else "unloaded"
         else:
             state = "idle"
         slots = self.slot_stats()
@@ -393,7 +404,7 @@ class Service:
         images = self.vision is not None
         return {
             "service": "basalt", "model": self.model,
-            "loaded": self.loaded(), "auto_load": hasattr(self.engine, "restart"),
+            "loaded": self.loaded(), "loading": self.loading, "auto_load": hasattr(self.engine, "restart"),
             "structured_output": {"formats": ["json_object", "json_schema"], "method": "prompt_and_validate",
                                   "constrained_decoding": False, "stream_buffered": True},
             "engine": (getattr(self.engine, "info", {}) or {}).get("version"),
