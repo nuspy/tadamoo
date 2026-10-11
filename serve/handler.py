@@ -13,7 +13,9 @@ from urllib.parse import parse_qs, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT
+from serve import ROOT, settings
+from serve.config import PARALLEL_MAX
+from serve.engine.vision import VISION_MODES
 from serve.api.anthropic import anthropic_collect, anthropic_events
 from serve.engine.errors import EngineDied, EngineStarting, EngineStuck, GpuBusy, ModelBusy
 from serve.frontend import anthropic_to_messages, openai_to_messages
@@ -105,9 +107,9 @@ def make_handler(svc: Service):
                 if self.rfile.read(2) != b"\r\n":
                     raise BadBody(400, "malformed chunked request body")
 
-        def _body(self) -> bytes:
-            """The request body, chunked or by Content-Length, at most BODY_MAX bytes."""
-            limit = BODY_MAX
+        def _body(self, limit: int | None = None) -> bytes:
+            """The request body, chunked or by Content-Length, at most `limit` bytes (default BODY_MAX)."""
+            limit = BODY_MAX if limit is None else limit     # read at call time: tests lower BODY_MAX
             if self._chunked():
                 return self._read_chunked(limit)
             try:
@@ -246,6 +248,9 @@ def make_handler(svc: Service):
             elif path == "/api/logs":
                 if self._authorized():
                     self._logs()
+            elif path == "/api/settings":
+                if self._authorized():
+                    self._settings_get()
             elif path == "":
                 body = (ROOT / "serve" / "web" / "index.html").read_bytes()
                 self.send_response(200)
@@ -299,6 +304,9 @@ def make_handler(svc: Service):
             if not self._authorized():
                 return
             path = self.path.split("?")[0].rstrip("/")   # clients post /v1/messages?beta=true
+            if path == "/api/settings":
+                self._settings_post()
+                return
             if path.startswith("/v1/") and self._foreign_page():
                 return
             if path in ("/unload", "/load") and not self._control_body():
@@ -470,6 +478,69 @@ def make_handler(svc: Service):
                 self._json(403, {"error": {"message": f"{what} only from the server's own page"}})
                 return False
             return True
+
+        def _settings_get(self):
+            """GET /api/settings: the config file's main fields, what the server runs with, and whether this client
+            may change them (only from this PC, only with a --config file)."""
+            info = getattr(svc, "settings_info", None) or {}
+            path = info.get("config")
+            out = {"config": path, "model": info.get("model"), "running": info.get("running") or {},
+                   "from_command_line": info.get("cli") or [], "values": {}, "editable": False, "reason": "",
+                   "fields": [f"{s}.{k}" for s, k in settings.FIELDS],
+                   "limits": {"parallel_max": PARALLEL_MAX, "spec_max": settings.SPEC_MAX, "kv": list(settings.KV_MODES),
+                              "vision": list(VISION_MODES), "context_max": settings.CONTEXT_MAX,
+                              "prefill_ceilings": list(settings.PREFILL_CEILINGS)},
+                   "note": settings.RESTART_NOTE}
+            if not path:
+                out["reason"] = "The server was started without --config, so there is no settings file to save to."
+            else:
+                try:
+                    out["values"] = settings.values_of(settings.read_file(path))
+                except (OSError, ValueError) as e:
+                    out["reason"] = f"Cannot read {path}: {getattr(e, 'strerror', None) or e}"
+                else:
+                    if not settings.is_loopback(self.client_address[0]):
+                        out["reason"] = "Settings can be changed only from the PC the server runs on."
+                    elif not os.access(path, os.W_OK):
+                        out["reason"] = f"{path} is read-only."
+                    else:
+                        out["editable"] = True
+            self._json(200, out)
+
+        def _settings_post(self):
+            """POST /api/settings {"changes": {"engine.spec": 7, "server.port": null, ...}}: validate and write them to
+            the --config file. Only from this PC, only as JSON from the server's own page (the API key too, if set)."""
+            if not settings.is_loopback(self.client_address[0]):
+                self._json(403, {"error": {"type": "forbidden",
+                                           "message": "settings can be changed only from the PC the server runs on"}})
+                return
+            if not self._own_page("settings can be changed"):
+                return
+            try:
+                req = json.loads(self._body(settings.BODY_MAX) or b"{}")
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                return
+            except ValueError:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": "the body is not valid JSON"}})
+                return
+            path = (getattr(svc, "settings_info", None) or {}).get("config")
+            if not path:
+                self._json(409, {"error": {"type": "invalid_request_error", "message":
+                                           "the server was started without --config: there is no settings file"}})
+                return
+            try:
+                result = settings.save(path, req.get("changes") if isinstance(req, dict) else None)
+            except ValueError as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                return
+            except OSError as e:
+                self._json(500, {"error": {"type": "server_error",
+                                           "message": f"cannot write {path}: {e.strerror or e}"}})
+                return
+            print(f"[server] settings saved to {path}: {', '.join(result['changed']) or 'nothing changed'}"
+                  f"{' (apply on restart)' if result['changed'] else ''}", flush=True)
+            self._json(200, {"saved": True, **result, "note": settings.RESTART_NOTE})
 
         def _logs(self):
             """GET /api/logs?after=<id>&limit=<n>: the newest lines after that id, and the newest id."""
@@ -703,7 +774,7 @@ class Server(ThreadingHTTPServer):
             super().handle_error(request, client_address)
 
 
-def serve(svc: Service, host="127.0.0.1", port=8095) -> ThreadingHTTPServer:
+def serve(svc: Service, host="127.0.0.1", port=7232) -> ThreadingHTTPServer:
     svc.host_names = host_names_for(host, svc.allowed_hosts, svc.trusted_origins)
     svc.start_telemetry()
     httpd = Server((host, port), make_handler(svc))

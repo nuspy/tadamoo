@@ -55,7 +55,7 @@ def lan_addresses() -> list[str]:
 
 
 def host_name(value) -> str:
-    """The lowercase name of a Host header or origin host[:port] ("[::1]:8095" -> "::1"); "" when malformed."""
+    """The lowercase name of a Host header or origin host[:port] ("[::1]:7232" -> "::1"); "" when malformed."""
     v = (value or "").strip().lower()
     if v.startswith("["):
         name, sep, rest = v[1:].partition("]")

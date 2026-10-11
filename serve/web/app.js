@@ -10,26 +10,49 @@ const gib = n => num(n) ? (n / 1024 ** 3).toFixed(1) : "—";
 const HIST = 60;
 let perStream = Array(HIST).fill(0);   // mean tok/s per decoding slot, one sample per poll
 
-let apiKey = sessionStorage.getItem("basalt.key") || "";
+let apiKey = "";
+try { apiKey = sessionStorage.getItem("basalt.key") || ""; } catch (e) { /* storage blocked: ask again */ }
 let M = null;          // the last /metrics reading
+const authHeaders = () => apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 
 async function get(path) {
-  const r = await fetch(path, { cache: "no-store", headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {} });
+  const r = await fetch(path, { cache: "no-store", headers: authHeaders() });
   if (r.status === 401) throw Object.assign(new Error("locked"), { locked: true });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
 
-/* ---- views ---- */
-function view(v) {
-  $("#view-stats").hidden = v !== "stats";
-  $("#view-hardware").hidden = v !== "hardware";
+/* ---- views: Chat, Monitor (stats), Hardware, Settings ---- */
+const VIEWS = ["chat", "stats", "hardware", "settings"];
+let viewOn = "";
+function view(v, focus) {
+  if (!VIEWS.includes(v)) v = "chat";
+  viewOn = v;
+  VIEWS.forEach(x => { $("#view-" + x).hidden = x !== v; });
   $("#top").hidden = v !== "stats";
-  $$(".tabs .tab").forEach(t => t.setAttribute("aria-selected", String(t.dataset.view === v)));
+  document.body.dataset.view = v;
+  $$(".tabs .tab").forEach(t => {
+    const on = t.dataset.view === v;
+    t.setAttribute("aria-selected", String(on));
+    t.tabIndex = on ? 0 : -1;
+    if (on && focus) t.focus();
+  });
   if (location.hash.slice(1) !== v) history.replaceState(null, "", "#" + v);
   if (v === "stats") scrollLog();
+  document.dispatchEvent(new CustomEvent("basalt:view", { detail: v }));
 }
 $$(".tabs .tab").forEach(t => t.onclick = () => view(t.dataset.view));
+// the tab list: arrow keys move between tabs, Home and End go to the ends (WAI-ARIA tabs pattern)
+$(".tabs").addEventListener("keydown", e => {
+  const tabs = $$(".tabs .tab"), i = tabs.indexOf(document.activeElement);
+  if (i < 0) return;
+  const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+  if (to === undefined) return;
+  e.preventDefault();
+  view(tabs[(to + tabs.length) % tabs.length].dataset.view, true);
+});
+window.addEventListener("hashchange", () => view(location.hash.slice(1)));
+const typing = el => el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
 
 /* ---- charts ---- */
 const CHARTS = [
@@ -279,8 +302,10 @@ $$("#lvl button").forEach(b => b.onclick = () => {
 });
 $("#q").oninput = e => { F.q = e.target.value.trim(); rebuild(); };
 document.addEventListener("keydown", e => {
-  if (e.target.tagName === "INPUT") { if (e.key === "Escape") e.target.blur(); return; }
-  if (e.key === "/") { e.preventDefault(); view("stats"); pane("log"); $("#q").focus(); }
+  if (e.target.id === "q") { if (e.key === "Escape") e.target.blur(); return; }
+  // the log's shortcuts belong to the Monitor view; anywhere a person types, keys are theirs
+  if (typing(e.target) || viewOn !== "stats" || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "/") { e.preventDefault(); pane("log"); $("#q").focus(); }
   else if (e.key === "f") setFollow(!F.follow);
 });
 
@@ -370,10 +395,16 @@ async function pollLog() {
   setTimeout(pollLog, 1000);
 }
 $("#auth").onsubmit = e => {
-  e.preventDefault(); apiKey = $("#key").value.trim(); sessionStorage.setItem("basalt.key", apiKey);
+  e.preventDefault(); apiKey = $("#key").value.trim();
+  try { sessionStorage.setItem("basalt.key", apiKey); } catch (err) { /* kept for this page only */ }
+  document.dispatchEvent(new CustomEvent("basalt:key"));
 };
+// a 401 from any view shows the key prompt
+function askKey() { $("#auth").hidden = false; $("#key").focus(); }
 
 $("#host").textContent = location.host;
-fetch("health").then(r => r.json()).then(h => { $("#keyed").hidden = !h.api_key; }).catch(() => {});
-view(location.hash === "#hardware" ? "hardware" : "stats");
+let HEALTH = null;
+const healthReady = fetch("health", { cache: "no-store" }).then(r => r.json()).then(h => { HEALTH = h; $("#keyed").hidden = !h.api_key; return h; })
+  .catch(() => null);
+view(location.hash.slice(1) || "chat");
 pollMetrics(); pollLog();

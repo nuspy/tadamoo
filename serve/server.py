@@ -3,7 +3,7 @@
     basalt serve --model FILE.basalt [--alias NAME] [--host H] [--port P] [--gpu 0,1] [--api-key KEY] ...
     python -m serve.server --model FILE.basalt --engine-bin bin/basalt ...
     python -m serve.server --config config.json
-    python -m serve.server --mock-engine --port 8095
+    python -m serve.server --mock-engine --port 7232
 
 The engine boundary is `Engine.generate(prompt_ids, max_new, sampling, cancel)` -> token ids. ProcessEngine keeps
 one `basalt --serve` process resident; MockEngine is a scripted stand-in for tests. Prompts that do not fit the
@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # also runnable as a script
-from serve import ROOT, service  # noqa: E402
+from serve import ROOT, service, settings  # noqa: E402
 from serve.config import (build_parser, check_engine_flags, engine_flags_of, engine_line, engine_settings,  # noqa: E402
                           parse_settings, sampling_defaults_from_config)
 from serve.engine import process as engine_process  # noqa: E402
@@ -59,6 +59,21 @@ def warn_tight_ram(arena_mib) -> None:
         print(f"[server] warning: low RAM, {left:.1f} of {total / 2**30:.0f} GB left after the experts", flush=True)
 
 
+def settings_info(a, flags: dict) -> dict:
+    """What the settings page shows: the --config file, the model, the values this run uses and the fields the
+    command line set (they win over the file)."""
+    cli = sys.argv[1:]
+    given = lambda name: any(w == f"--{name}" or w.startswith(f"--{name}=") for w in cli)   # noqa: E731
+    running = {"server.port": a.port, "server.parallel": a.parallel or 1, "server.vision": a.vision}
+    for name in ("max-context", "kv", "spec", "spec-min-p", "expert-cache", "prefill"):
+        value = flags.get(f"--{name}")
+        running[f"engine.{name}"] = None if value is False else value
+    if getattr(a, "shared_context", None):              # the total, before it was divided among the slots
+        running["engine.max-context"] = a.shared_context
+    return {"config": str(Path(a.config).resolve()) if a.config else None, "model": a.model, "running": running,
+            "cli": [f"{s}.{k}" for s, k in settings.FIELDS if given(k)]}
+
+
 def main() -> int:
     ap = build_parser()
     try:
@@ -79,6 +94,7 @@ def main() -> int:
         fail("the server needs --model and the engine binary: run it as basalt serve --config FILE (or --mock-engine)")
     if (file_engine or cli_engine) and not a.model:
         fail("engine flags need --model")
+    flags: dict = {}                                    # the engine flags in force (config file, then command line)
     if a.model:
         if not a.engine_bin:
             fail("--model needs --engine-bin BINARY")
@@ -177,6 +193,7 @@ def main() -> int:
                   model_name=cfg.get("model_name", "qwen3.8-flash-next"), vision=vision,
                   sampling_defaults=sampling_defaults, fit_max_tokens=a.fit_max_tokens)
     svc.logs = logs
+    svc.settings_info = settings_info(a, flags)
     if any(x == "--api-key" and i + 1 < len(used_argv) and not used_argv[i + 1].strip() or x.strip() == "--api-key="
            for i, x in enumerate(used_argv)):
         # an empty key would silently disable authentication
@@ -213,7 +230,7 @@ def main() -> int:
         print(f"[server] parallel: {engine.batch} requests at once, the rest wait in order; each slot holds "
               f"{engine.max_context} tokens" + (f" ({engine.batch} x {engine.max_context} of KV cache: --slot-full-context)"
                                                 if a.slot_full_context else ""), flush=True)
-    print(f"[server] stats: http://{here}:{a.port}/ (Ctrl+C stops)", flush=True)
+    print(f"[server] web UI: http://{here}:{a.port}/ (chat, monitor, settings; Ctrl+C stops)", flush=True)
     if a.host not in LOOPBACK_NAMES:
         # reachable from other devices: print the addresses
         ips = lan_addresses()
