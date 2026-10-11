@@ -1,0 +1,22 @@
+{
+  "server": {
+    "model": "E:/Modelli/basalt/Qwen3.8-Flash-Next-Uncensored-IQ3_XXS.basalt",
+    "alias": "Qwen3.8 Flash Next Uncensored",
+    "host": "127.0.0.1",
+    "port": 7232,
+    "vision": "dynamic",
+    "listen-first": true
+  },
+  "engine": {
+    "max-context": 32768,
+    "kv": "int8",
+    "spec": 7,
+    "spec-min-p": 0.5,
+    "expert-cache": "auto",
+    "prefill": "auto",
+    "resident-experts": true,
+    "vram-reserve-mib": 1200,
+    "pool-workers": 15,
+    "ple-io": "direct"
+  }
+}

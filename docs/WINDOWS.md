@@ -125,6 +125,42 @@ The CPU topology the pool sees on the 14900K: hybrid, 8 P-cores (16 threads) + 1
 and the default pool (`All`) is the other 7 P-cores, then the 16 E-cores (23 workers).  Strata measured 15 workers
 best on this CPU (`--pool-workers 15`: the 7 P-cores and the first 8 E-cores); not yet measured with Basalt.
 
+## Starting and stopping with the PowerShell scripts
+
+`Avvia-Basalt.ps1` and `Ferma-Basalt.ps1` (repository root, messages in Italian) start and stop the server with
+`basalt_config.json` beside them (machine-specific and not tracked; `tools/windows/basalt_config.example.json` is the
+one for the OrcaRouter IQ3_XXS file on an RTX 5090 + 128 GB machine). Paths are relative to the scripts' folder, so
+they work from any directory and from Explorer (right click, "Run with PowerShell"), with Windows PowerShell 5.1 or
+PowerShell 7.
+
+* `Avvia-Basalt.ps1` checks, before anything starts: that nothing serves the port yet (if Basalt does, it only opens
+  the browser); the free VRAM (`nvidia-smi`, a warning under 6 GiB); that the available RAM covers the expert section
+  of the `.basalt` file + 6 GiB of buffers + 15% of the RAM; and that the commit left (commit limit - committed, with
+  the page file at its current size) covers the experts + 6 GiB + the VRAM Basalt will take (free VRAM minus
+  `vram-reserve-mib`), because WDDM charges that VRAM to the commit. When either is short it says how much is missing
+  and exits with 1: nothing relies on the page file growing. It then clears `CL`/`_CL_`, puts the venv first on
+  `PATH`, starts `bin\basalt.exe serve --config basalt_config.json` at normal priority with its output in
+  `logs\basalt-serve.log`, shows that log live, and opens http://127.0.0.1:7232 as soon as the server answers.
+  `"listen-first": true` in the config makes the server answer while the model loads (the Monitor shows Loading).
+* By default the server is tied to the script's window: it shares the console (Ctrl+C reaches it and it stops the
+  engine cleanly) and it runs in a job object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` whose only handle belongs to
+  PowerShell (`tools/windows/BasaltLauncher.cs`, compiled by the script with `Add-Type`). However PowerShell ends -
+  Ctrl+C, the window's X, Task Manager - Windows closes that handle and the whole tree goes: `basalt.exe serve`, the
+  Python server (in `basalt.exe`'s own kill-on-close job) and the engine and vision sidecar (in
+  `serve/util/winjob.py`'s). The process is created suspended and joins the job before it runs, so nothing escapes.
+* `-Sfondo` starts the server detached in a hidden console (no job of the script's); `basalt.pid` records it.
+  `-Prova` runs every check and prints the command without starting anything.
+* `Ferma-Basalt.ps1` finds the server from `basalt.pid` (PID and start time) or from the port, asks it to unload the
+  model (`POST /unload`: the engine gets QUIT and frees RAM and VRAM), ends the process tree, checks that no process
+  of this `bin\` is left and prints the RAM available before and after. It handles both modes; a tied window then
+  closes its loop by itself.
+
+**ExecutionPolicy.** "Run with PowerShell" from Explorer sets the policy to Bypass for that process only. From a
+terminal, the default `RemoteSigned` runs these local scripts; if the policy is `Restricted` (or the files were
+downloaded and are blocked), use `powershell -ExecutionPolicy Bypass -File .\Avvia-Basalt.ps1`, or once
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (and `Unblock-File .\*.ps1` for downloaded copies). The scripts
+are UTF-8 with a BOM so that Windows PowerShell 5.1 reads the accented messages correctly.
+
 ## Not supported on Windows (yet)
 
 * `--shared-expert-arena` (refused at start).
