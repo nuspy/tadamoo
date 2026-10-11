@@ -694,7 +694,9 @@ def make_handler(svc: Service):
 
 
 class Server(ThreadingHTTPServer):
-    allow_reuse_address = True
+    # On Windows SO_REUSEADDR lets a second server bind a port that is already serving, and requests then land on
+    # either one (a forgotten second start).  Without it the second start fails loudly instead.
+    allow_reuse_address = os.name != "nt"
 
     def handle_error(self, request, client_address):
         if not isinstance(sys.exc_info()[1], ConnectionError):   # a hang-up needs no stack trace
