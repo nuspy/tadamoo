@@ -11,11 +11,27 @@
 .PARAMETER Config
     Il file di configurazione da cui leggere la porta (predefinito: basalt_config.json accanto allo script).
 
+.PARAMETER Port
+    Ferma solo il server su questa porta (anche --port N): gli altri server Basalt restano accesi.
+
 .EXAMPLE
     .\Ferma-Basalt.ps1
+.EXAMPLE
+    .\Ferma-Basalt.ps1 --port 7298
 #>
 [CmdletBinding()]
-param([string]$Config = 'basalt_config.json')
+param(
+    [string]$Config = 'basalt_config.json',
+    [int]$Port = 0,
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$Altri = @()
+)
+for ($i = 0; $i -lt $Altri.Count; $i++) {          # le forme --port N e --port=N
+    $a = $Altri[$i]
+    if ($a -eq '--port' -and $i + 1 -lt $Altri.Count) { $Port = [int]$Altri[++$i] }
+    elseif ($a -like '--port=*') { $Port = [int]$a.Substring(7) }
+    else { Write-Host "Argomento sconosciuto: $a (uso: Ferma-Basalt.ps1 [--port N])" -ForegroundColor Red; exit 1 }
+}
+if ($Port -ne 0 -and ($Port -lt 1 -or $Port -gt 65535)) { Write-Host "Porta non valida: $Port (1..65535)" -ForegroundColor Red; exit 1 }
 
 Set-StrictMode -Version 2
 $ErrorActionPreference = 'Stop'
@@ -60,6 +76,7 @@ if (Test-Path $cfgPath) {
     if ($srv.PSObject.Properties['port']) { $porta = [int]$srv.port }
     if ($srv.PSObject.Properties['host'] -and $srv.host -notin @('', '0.0.0.0', '::')) { $hostIp = $srv.host }
 }
+if ($Port) { $porta = $Port }
 $capo = $null                                   # il processo "basalt.exe serve" avviato dallo script
 $modo = $null
 if (Test-Path $pidFile) {
@@ -67,7 +84,8 @@ if (Test-Path $pidFile) {
         $info = Get-Content -Raw $pidFile | ConvertFrom-Json
         $p = Get-Process -Id ([int]$info.pid) -ErrorAction Stop
         # stesso PID e stesso istante di avvio: non un altro processo che ha riusato il numero
-        if ([math]::Abs(($p.StartTime - [datetime]$info.start).TotalSeconds) -lt 2) { $capo = $p.Id; $modo = $info.mode }
+        $stessaPorta = -not $Port -or -not $info.PSObject.Properties['port'] -or [int]$info.port -eq $Port
+        if ($stessaPorta -and [math]::Abs(($p.StartTime - [datetime]$info.start).TotalSeconds) -lt 2) { $capo = $p.Id; $modo = $info.mode }
     } catch { }
 }
 if (-not $capo) {
@@ -81,6 +99,21 @@ if (-not $capo) {
             Scrivi "Sulla porta $porta ascolta $($srvProc.Name) (PID $($srvProc.ProcessId)), che non è Basalt: non lo tocco." Yellow
         }
     }
+}
+function Get-Albero([int]$Capo) {
+    # il processo e tutti i suoi discendenti
+    $elenco = @(Get-CimInstance Win32_Process)
+    $ids = @($Capo); $nuovi = @($Capo)
+    while ($nuovi.Count) {
+        $figli = @($elenco | Where-Object { $nuovi -contains [int]$_.ParentProcessId } | ForEach-Object { [int]$_.ProcessId })
+        $nuovi = @($figli | Where-Object { $ids -notcontains $_ }); $ids += $nuovi
+    }
+    $elenco | Where-Object { $ids -contains [int]$_.ProcessId }
+}
+if ($Port) {                                    # solo il server di questa porta e i suoi processi
+    if (-not $capo) { Scrivi "Nessun server Basalt sulla porta $Port." Green; Esci 0 }
+    $albero = @(Get-Albero $capo | ForEach-Object { [int]$_.ProcessId })
+    function Get-ProcessiBasalt { Get-CimInstance Win32_Process | Where-Object { $albero -contains [int]$_.ProcessId } }
 }
 $tutti = @(Get-ProcessiBasalt)
 if (-not $capo -and $tutti.Count -eq 0) {
@@ -126,7 +159,7 @@ if ($resto.Count -gt 0) {
     $resto | ForEach-Object { Scrivi "  PID $($_.ProcessId) $($_.Name)" Red }
     Esci 1
 }
-Remove-Item $pidFile -ErrorAction SilentlyContinue
+if (-not $Port -or $modo) { Remove-Item $pidFile -ErrorAction SilentlyContinue }   # basalt.pid era di questo server
 
 # ------------------------------------------------------------------ 3. la RAM torna libera
 $dopo = Disponibile

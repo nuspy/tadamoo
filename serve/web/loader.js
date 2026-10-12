@@ -275,7 +275,7 @@
     return `${p.name}${tags.length ? ` (${tags.join(", ")})` : ""} — ${parts.join(" · ")}`;
   }
   function headlessCmd(name) {
-    return `powershell -ExecutionPolicy Bypass -File Avvia-Basalt.ps1 --config "${name.replace(/"/g, "")}" -Sfondo`;
+    return `powershell -ExecutionPolicy Bypass -File Avvia-Basalt.ps1 --config "${name.replace(/"/g, "")}" -SoloServer`;
   }
   function profileBar(target, mode) {
     const box = $(target);

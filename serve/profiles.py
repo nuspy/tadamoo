@@ -245,6 +245,7 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("list", help="the load profiles, one per line (the default marked *)")
     sub.add_parser("default", help="the default load profile's name")
+    sub.add_parser("names", help="the load profiles' names as a JSON list")
     ap_apply = sub.add_parser("apply", help="write a load profile into the config file; prints its values as JSON")
     ap_apply.add_argument("name")
     ap_apply.add_argument("--config", required=True)
@@ -256,6 +257,9 @@ def main(argv=None) -> int:
         return 0
     if a.cmd == "default":
         print(default_name())
+        return 0
+    if a.cmd == "names":
+        print(json.dumps([p["name"] for p in listing()["load"]], ensure_ascii=False))
         return 0
     try:
         values = apply(a.name, a.config)

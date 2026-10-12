@@ -495,3 +495,47 @@ def save_calibration(facts: dict, record: dict) -> Path:
 
 def now_iso() -> str:
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def main(argv=None) -> int:
+    """python -m serve.loader check --config FILE: the plan of the config file's settings against what is free now,
+    in Italian lines and a last JSON line; exit 0 when it fits, 3 when it does not, 2 for a bad file."""
+    import argparse
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from serve import settings
+    ap = argparse.ArgumentParser(prog="python -m serve.loader")
+    ap.add_argument("cmd", choices=["check"])
+    ap.add_argument("--config", required=True)
+    ap.add_argument("--gpu", type=int, default=0)
+    a = ap.parse_args(argv)
+    try:
+        raw = settings.read_file(a.config)
+        values = settings.values_of(raw, settings.LOADER_FIELDS)
+        model = values.get("server.model")
+        if model and not os.path.isabs(model):
+            model = str(Path(a.config).resolve().parent / model)
+        facts = model_facts(model)
+    except (OSError, ValueError, KeyError) as e:
+        print(f"configurazione non leggibile: {e}", file=sys.stderr)
+        return 2
+    p = plan({k: v for k, v in values.items() if k != "server.model"}, facts, system_now(a.gpu))
+    s = predict_speed(p)
+    g = lambda n: "—" if n is None else f"{n / GiB:.1f}".replace(".", ",")   # noqa: E731
+    v, r, c = p["vram"], p["ram"], p["commit"]
+    print(f"  VRAM:   servono {g(v['need'] + v['reserve'])} GiB (riserva compresa), liberi {g(v['available'])} GiB; "
+          f"{v['expert_slots']} esperti in VRAM")
+    print(f"  RAM:    servono {g(r['need'])} GiB, disponibili {g(r['available'])} GiB, {g(r['keep'])} restano liberi (15%)")
+    print(f"  commit: servono {g(c['need'])} GiB (RAM {g(c['ram_part'])} + VRAM {g(c['vram_part'])}), liberi "
+          f"{g(c['available'])} GiB, {g(c['keep'])} restano liberi (15%)")
+    print(f"  velocità stimata: {s['decode']:.0f} tok/s in risposta, {s['prefill']:.0f} tok/s in lettura "
+          f"({'calibrata' if s['source']['kind'] == 'calibration' else 'stima iniziale'})")
+    for x in p["problems"]:
+        print("  " + problem_text(x, "it"))
+    print(json.dumps({"fits": p["fits"], "problems": [x["code"] for x in p["problems"]],
+                      "port": p["values"].get("server.port")}))
+    return 0 if p["fits"] else 3
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
