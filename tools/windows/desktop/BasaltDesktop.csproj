@@ -7,14 +7,15 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- not "Basalt": the engine is basalt.exe, and a shared name invites stopping the wrong process -->
-    <AssemblyName>BasaltPannello</AssemblyName>
+    <AssemblyName>BasaltWinGUI</AssemblyName>
+    <AssemblyTitle>Basalt Win+GUI</AssemblyTitle>
     <RootNamespace>BasaltDesktop</RootNamespace>
     <ApplicationIcon>basalt.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <SelfContained>false</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <Product>Basalt</Product>
-    <Description>Basalt: the window, the tray icon and the start of the local server</Description>
+    <Product>Basalt Win+GUI</Product>
+    <Description>Basalt Win+GUI: the window, the tray icon and the start of the local server</Description>
   </PropertyGroup>
 
   <ItemGroup>

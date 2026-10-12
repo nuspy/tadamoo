@@ -24,11 +24,11 @@ class Options(unittest.TestCase):
 
     def test_the_app_is_the_default(self):
         code, out = self.run_script("Avvia-Basalt.ps1", "-prova", "--port", "7285", "--vram-libera", "1.5")
-        if not (ROOT / "tools/windows/desktop/publish/BasaltPannello.exe").is_file():
+        if not (ROOT / "tools/windows/desktop/publish/BasaltWinGUI.exe").is_file():
             self.assertIn("dotnet publish", out)
             return
         self.assertEqual(code, 0, out)
-        self.assertIn("BasaltPannello.exe --port 7285 --vram-libera 1.5", out)
+        self.assertIn("BasaltWinGUI.exe --port 7285 --vram-libera 1.5", out)
         self.assertIn("http://127.0.0.1:", out)
         self.assertIn("il browser non si apre", out)
 

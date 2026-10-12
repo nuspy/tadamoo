@@ -1,13 +1,13 @@
 ﻿<#
 .SYNOPSIS
-    Avvia Basalt: di norma apre l'app BasaltPannello (l'interfaccia principale), oppure il server con il browser, oppure
-    il solo server per gli agenti.
+    Avvia Basalt Win+GUI: di norma apre l'app (BasaltWinGUI.exe, l'interfaccia principale), oppure il server con il browser,
+    oppure il solo server per gli agenti.
 
 .DESCRIPTION
     Tre modi, con gli stessi nomi di Avvia-Strata.ps1 (ogni opzione si scrive con uno o due trattini, maiuscole o
     minuscole come si vuole):
 
-      -gui      (il modo predefinito, senza opzioni) apre l'app BasaltPannello.exe passandole --config, --model,
+      -gui      (il modo predefinito, senza opzioni) apre l'app BasaltWinGUI.exe passandole --config, --model,
                 --port e --vram-libera. L'app avvia il server senza caricare il modello e mostra il Loader: cartelle
                 dei modelli, profili, tutti i valori, la previsione di memoria e velocità, la configurazione guidata,
                 Carica. Il browser NON si apre, ma l'indirizzo resta disponibile e viene stampato. Se l'app non è
@@ -18,7 +18,7 @@
       -server   il solo server, staccato dalla finestra, senza app né browser: lo script ritorna quando il modello è
                 carico (o se non parte). Serve agli agenti; si ferma con Ferma-Basalt.ps1 --port N.
 
-    Se un server Basalt di questa cartella è già acceso non ne avvia un altro: con -gui apre l'app (che chiede se
+    Se un server Basalt Win+GUI di questa cartella è già acceso non ne avvia un altro: con -gui apre l'app (che chiede se
     collegarsi o cambiare modello), con -browser apre il browser su quel server, con -server si collega e ritorna.
 
     Con -browser e -server lo script scrive in basalt_config.json i valori del profilo scelto (--config "<nome>",
@@ -255,11 +255,13 @@ $cfgPath = if ([System.IO.Path]::IsPathRooted($File)) { $File } else { Join-Path
 $accesi = @(Get-ServerAccesi)
 
 # ------------------------------------------------------------------ -gui: l'app
-$exeApp = Join-Path $Radice 'tools\windows\desktop\publish\BasaltPannello.exe'
+$exeApp = Join-Path $Radice 'tools\windows\desktop\publish\BasaltWinGUI.exe'
+$exeVecchio = Join-Path $Radice 'tools\windows\desktop\publish\BasaltPannello.exe'   # il nome di prima
+if (-not (Test-Path $exeApp) -and (Test-Path $exeVecchio)) { $exeApp = $exeVecchio }
 if ($Gui -and -not (Test-Path $exeApp)) {
-    Scrivi "L'app BasaltPannello non è ancora stata costruita ($exeApp)." Yellow
+    Scrivi "L'app Basalt Win+GUI non è ancora stata costruita ($exeApp)." Yellow
     Scrivi '  Per costruirla (serve il .NET 8 SDK):  dotnet publish tools\windows\desktop -c Release -o tools\windows\desktop\publish' Yellow
-    Scrivi '  Intanto apro Basalt nel browser (-browser).' Yellow
+    Scrivi '  Intanto apro Basalt Win+GUI nel browser (-browser).' Yellow
     $Gui = $false
     $Browser = $true
 }
@@ -278,9 +280,9 @@ if ($Gui) {
         try { $srv0 = (Get-Content -Raw -Encoding UTF8 $cfgPath | ConvertFrom-Json).server; if ($srv0 -and $srv0.PSObject.Properties['port']) { $porta = [int]$srv0.port } } catch { }
     }
     $mostra = ($argApp | ForEach-Object { if ($_ -match '\s') { """$_""" } else { $_ } }) -join ' '
-    Scrivi "Basalt - app $(if ($Prova) { '(PROVA: non parte nulla)' })" Cyan
+    Scrivi "Basalt Win+GUI - app $(if ($Prova) { '(PROVA: non parte nulla)' })" Cyan
     Scrivi "  app:        $exeApp $mostra"
-    if ($accesi.Count) { Scrivi "  Basalt è già acceso sulla porta ${porta}: l'app chiede se collegarsi o cambiare modello." Yellow }
+    if ($accesi.Count) { Scrivi "  Basalt Win+GUI è già acceso sulla porta ${porta}: l'app chiede se collegarsi o cambiare modello." Yellow }
     Scrivi "  indirizzo:  http://127.0.0.1:$porta/  (il browser non si apre: l'indirizzo resta disponibile)"
     Scrivi '  L''app avvia il server senza caricare il modello e mostra il Loader; si chiude dall''icona vicino all''orologio (Spegni).'
     if ($Prova) { Scrivi 'PROVA completata: nessun processo avviato.' Green; Esci 0 }
@@ -294,7 +296,7 @@ if ($accesi.Count) {
     $s = $accesi[0]
     $url = "http://127.0.0.1:$($s.Porta)/"
     $imp = Get-Json "${url}api/settings"
-    Scrivi "Basalt è già acceso: mi collego a quello, non ne avvio un altro." Yellow
+    Scrivi "Basalt Win+GUI è già acceso: mi collego a quello, non ne avvio un altro." Yellow
     Scrivi "  indirizzo:  $url"
     Scrivi "  modello:    $($s.Salute.model) (contesto $($s.Salute.max_context) token, $(if ($s.Salute.loaded) { 'caricato' } else { 'non ancora caricato' }))"
     if ($imp -and $imp.running) {
@@ -310,7 +312,7 @@ if ($accesi.Count) {
         } catch { }
     }
     if ($imp -and $imp.PSObject.Properties['model'] -and $imp.model) { Scrivi "  file:       $($imp.model)" }
-    if ($accesi.Count -gt 1) { Scrivi "  altri server Basalt accesi sulle porte: $(($accesi | Select-Object -Skip 1 | ForEach-Object { $_.Porta }) -join ', ')" }
+    if ($accesi.Count -gt 1) { Scrivi "  altri server Basalt Win+GUI accesi sulle porte: $(($accesi | Select-Object -Skip 1 | ForEach-Object { $_.Porta }) -join ', ')" }
     if ($Config) { Scrivi "  (il profilo «$Config» non è stato applicato: per cambiarlo usa il Loader o Ferma-Basalt.ps1 e poi riavvia)" DarkYellow }
     if ($Model) {
         $inUso = if ($imp -and $imp.PSObject.Properties['model']) { [string]$imp.model } else { '' }
@@ -394,14 +396,14 @@ $log = Join-Path $logDir 'basalt-serve.log'
 $pidFile = Join-Path $Radice 'basalt.pid'
 $modo = if ($Server) { 'server' } elseif ($PerApp) { 'per-app' } else { 'browser' }
 
-Scrivi "Basalt - avvio -$modo $(if ($Prova) { '(PROVA: non parte nulla)' })" Cyan
+Scrivi "Basalt Win+GUI - avvio -$modo $(if ($Prova) { '(PROVA: non parte nulla)' })" Cyan
 Scrivi "  profilo:        $Config"
 Scrivi "  configurazione: $cfgPath$(if ($Prova) { ' (in prova: una copia)' })"
 Scrivi "  modello:        $modello ($fonte)"
 Scrivi "  indirizzo:      $url"
 
 $asc = Get-Ascoltatore $porta
-if ($asc) { Scrivi "La porta $porta è occupata da $($asc.Name) (PID $($asc.ProcessId)): non avvio Basalt (--port N per un'altra)." Red; Esci 1 }
+if ($asc) { Scrivi "La porta $porta è occupata da $($asc.Name) (PID $($asc.ProcessId)): non avvio Basalt Win+GUI (--port N per un'altra)." Red; Esci 1 }
 if (Test-Path $pidFile) {
     if (-not $Prova) { Remove-Item $pidFile -ErrorAction SilentlyContinue }   # di un avvio finito male
     Scrivi '  (basalt.pid di un avvio precedente: rimosso)' DarkGray
@@ -423,13 +425,13 @@ $ck = Invoke-Py @('-m', 'serve.loader', 'check', '--config', $usato, '--gpu', "$
 $ck.Righe | Select-Object -SkipLast 1 | ForEach-Object { Scrivi $_ $(if ($_ -match '^  (Non entra|Manca|La tabella|GPU NON)') { 'Red' } elseif ($_ -match '^  Attenzione') { 'Yellow' } else { 'Gray' }) }
 $memOk = $ck.Codice -eq 0
 if ($ck.Codice -eq 2) { Scrivi '  configurazione non leggibile' Red; Esci 1 }
-if ($ck.Codice -eq 4) { Scrivi 'Basalt NON viene avviato: il motore non gira su questa GPU (servono GPU NVIDIA Blackwell).' Red; Esci 1 }
+if ($ck.Codice -eq 4) { Scrivi 'Basalt Win+GUI NON viene avviato: il motore non gira su questa GPU (servono GPU NVIDIA Blackwell).' Red; Esci 1 }
 if ($memOk) { Scrivi '  OK' Green }
 if ($Prova) { Remove-Item $usato -ErrorAction SilentlyContinue; Remove-Item "$usato.bak" -ErrorAction SilentlyContinue }
 
 if (-not $memOk -and -not $Prova) {
     Scrivi ''
-    Scrivi 'Basalt NON viene avviato: la memoria non basta senza usare il file di paging (scegli un altro profilo nel Loader o chiudi altri programmi).' Red
+    Scrivi 'Basalt Win+GUI NON viene avviato: la memoria non basta senza usare il file di paging (scegli un altro profilo nel Loader o chiudi altri programmi).' Red
     Esci 1
 }
 
@@ -503,7 +505,7 @@ try {
         $codice = [BasaltLauncher]::ExitCode()
         if ($codice -eq $RiavvioModello -and $legato) {
             Mostra-Log
-            Scrivi 'Il Loader ha scelto un altro modello: riavvio Basalt con quello (la pagina si ricollega da sola).' Cyan
+            Scrivi 'Il Loader ha scelto un altro modello: riavvio Basalt Win+GUI con quello (la pagina si ricollega da sola).' Cyan
             $lettore.Dispose()
             $idServer = Avvia-Server
             $lettore = Apri-Log
@@ -551,7 +553,7 @@ try {
 } finally {
     if ($legato -and [BasaltLauncher]::ExitCode() -eq -1) {
         # Ctrl+C: il server l'ha ricevuto anche lui e si ferma da solo (QUIT al motore); poi il job chiude il resto
-        Scrivi 'Arresto di Basalt in corso...' Yellow
+        Scrivi 'Arresto di Basalt Win+GUI in corso...' Yellow
         $limite = (Get-Date).AddSeconds(45)
         while ([BasaltLauncher]::ExitCode() -eq -1 -and (Get-Date) -lt $limite) {
             Mostra-Log
@@ -565,7 +567,7 @@ try {
     if ($fine) {
         Remove-Item $pidFile -ErrorAction SilentlyContinue
         $dopo = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory
-        Scrivi "Basalt fermato. RAM disponibile ora: $(GiB ([double]$dopo.AvailableBytes))." Cyan
+        Scrivi "Basalt Win+GUI fermato. RAM disponibile ora: $(GiB ([double]$dopo.AvailableBytes))." Cyan
     }
 }
 if ($fine -and [BasaltLauncher]::ExitCode() -ne 0) { Esci 1 }

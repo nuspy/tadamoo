@@ -1,5 +1,6 @@
-// The window: the server's own web UI in WebView2 (or the browser when WebView2 is missing). On opening, the app starts
-// the server without loading a model (--standby) and shows its Loader: the models folders (the folder dialog is this
+// The window of "Basalt Win+GUI": the server's own web UI in WebView2 (or the browser when WebView2 is missing). On
+// opening, the app starts the server without loading a model (--standby) and shows its Loader: the models folders (the
+// folder dialog is this
 // app's, asked for by the page), the model list, profiles, every value, the memory and speed prediction, the
 // configuration wizard and Load. A Load of another model ends the server with exit code 75 and the app starts it again
 // with that model. The native start panel (model, profile, VRAM, port, check, Avvia / Avvia solo server) is only the
@@ -66,7 +67,7 @@ sealed class MainForm : Form
     {
         this.opt = opt;
         this.showEvent = showEvent;
-        Text = "Basalt";
+        Text = Program.AppName;
         Icon = LoadIcon();
         BackColor = Bg;
         ForeColor = Fg;
@@ -84,7 +85,7 @@ sealed class MainForm : Form
         menu.Items.Add("Avvia solo server (per gli agenti)…", null, async (_, _) => await HeadlessFromTray());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Spegni", null, (_, _) => TurnOff(true));
-        tray = new NotifyIcon { Icon = Icon, Text = "Basalt", ContextMenuStrip = menu, Visible = true };
+        tray = new NotifyIcon { Icon = Icon, Text = Program.AppName, ContextMenuStrip = menu, Visible = true };
         tray.DoubleClick += (_, _) => ShowWindow();
 
         BuildStartPanel();
@@ -129,7 +130,7 @@ sealed class MainForm : Form
     {
         start.ColumnCount = 1;
         start.AutoScroll = true;
-        start.Controls.Add(L("Basalt", 22f, Fg, FontStyle.Bold));
+        start.Controls.Add(L(Program.AppName, 22f, Fg, FontStyle.Bold));
         start.Controls.Add(reasonLabel);
         start.Controls.Add(L("Scegli il modello e il profilo di caricamento: prima di avviare controllo che VRAM, RAM e commit bastino lasciando libera la parte di RAM e di commit scelta per gli altri programmi.", 11f, Fg2));
         start.Controls.Add(L("Modello", 11.5f, Fg, FontStyle.Bold));
@@ -339,7 +340,7 @@ sealed class MainForm : Form
         if (e.TryGetProperty("mtp", out var mtp) && mtp.ValueKind == JsonValueKind.String) parts.Add(mtp.GetString() == "present" ? "drafter MTP" : mtp.GetString() == "source" ? "MTP da mtp-qwen" : "MTP da scaricare");
         if (e.TryGetProperty("vision", out var vis) && vis.ValueKind == JsonValueKind.True) parts.Add("visione");
         string why = e.GetProperty("reason").GetProperty("it").GetString();
-        string extra = st == "convert" ? "\nDa convertire: avvia Basalt con un modello pronto e usa «Carica modello» → Converti, oppure Avvia-Basalt.ps1 --model \"<file gguf>\" -Converti." : "";
+        string extra = st == "convert" ? "\nDa convertire: avvia Basalt Win+GUI con un modello pronto e usa «Carica modello» → Converti, oppure Avvia-Basalt.ps1 --model \"<file gguf>\" -Converti." : "";
         int inc = modelBox.Tag is int n ? n : 0;
         modelInfo.ForeColor = st == "ready" ? Fg2 : Bad;
         modelInfo.Text = string.Join(" · ", parts) + "\n" + why + extra + (inc > 0 ? $"\n({inc} file non compatibili nelle cartelle: l'elenco completo è in «Carica modello».)" : "");
@@ -426,7 +427,7 @@ sealed class MainForm : Form
             var change = new TaskDialogButton($"Cambia modello: chiudi il server attuale e scegli «{want}» nel Loader");
             var page = new TaskDialogPage
             {
-                Caption = "Basalt", Heading = $"Basalt è già acceso sulla porta {p}",
+                Caption = Program.AppName, Heading = $"{Program.AppName} è già acceso sulla porta {p}",
                 Text = $"Modello in uso: {model}. Puoi usare questo server, oppure chiuderlo (solo lui e i suoi processi) e caricare un altro modello dal Loader.",
                 Buttons = { attach, change, TaskDialogButton.Cancel }, Icon = TaskDialogIcon.Information,
             };
@@ -474,7 +475,7 @@ sealed class MainForm : Form
         }
         string py = Path.Combine(opt.Repo, ".venv", "Scripts", "python.exe");
         string exe = opt.TestMock ? py : Path.Combine(opt.Repo, "bin", "basalt.exe");
-        if (!File.Exists(exe)) { await Fallback($"Manca {exe}: Basalt non è costruito in questa cartella (vedi docs\\WINDOWS.md)."); return; }
+        if (!File.Exists(exe)) { await Fallback($"Manca {exe}: il motore non è costruito in questa cartella (vedi docs\\WINDOWS.md)."); return; }
         string mode = (standby ? " --standby" : " --listen-first") + " --relaunch-on-model-change";
         string cmd = opt.TestMock ? $"\"{py}\" -m serve.server --mock-engine --config \"{cfgPath}\" --port {p}{mode}"
                                   : $"\"{exe}\" serve --config \"{cfgPath}\" --port {p}{mode}";
@@ -499,7 +500,7 @@ sealed class MainForm : Form
         }
         catch (Exception e) { await Fallback("Avvio del server non riuscito: " + e.Message); return; }
         pageView = standby ? "loader" : "stats";
-        ShowServer(p, true, standby ? "Avvio di Basalt…" : "Basalt riparte con il nuovo modello…");
+        ShowServer(p, true, standby ? $"Avvio di {Program.AppName}…" : $"{Program.AppName} riparte con il nuovo modello…");
     }
 
     /// <summary>The web server could not start: the native start panel, with the reason and the end of the log.</summary>
@@ -549,7 +550,7 @@ sealed class MainForm : Form
         if (opt.Profile != null && !profileList.Any(x => x.GetProperty("name").GetString() == opt.Profile))
         {
             MessageBox.Show(this, $"Profilo sconosciuto: «{opt.Profile}».\nProfili: " + string.Join(", ", profileList.Select(x => x.GetProperty("name").GetString())),
-                "Basalt", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         await Check();
         if (opt.TestMock && opt.Screenshot != null)
@@ -701,7 +702,7 @@ sealed class MainForm : Form
         await proc.WaitForExitAsync();
         if (proc.ExitCode == 0)
         {
-            MessageBox.Show(this, $"Server avviato sulla porta {p} senza finestra.\nIndirizzo: http://127.0.0.1:{p}/\nPer fermarlo: Ferma-Basalt.ps1 --port {p}", "Basalt", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, $"Server avviato sulla porta {p} senza finestra.\nIndirizzo: http://127.0.0.1:{p}/\nPer fermarlo: Ferma-Basalt.ps1 --port {p}", Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
             exiting = true; Close();
         }
         else { check.Text = "Il solo server non è partito: vedi logs\\basalt-serve.log."; check.ForeColor = Bad; go.Enabled = headless.Enabled = true; }
@@ -713,7 +714,7 @@ sealed class MainForm : Form
         serverPort = p;
         start.Visible = false;
         web.Visible = true;
-        _ = InitWeb(loading, heading ?? "Avvio di Basalt…");
+        _ = InitWeb(loading, heading ?? $"Avvio di {Program.AppName}…");
     }
 
     bool useBrowser;                // WebView2 is missing: the page opens in the default browser
@@ -771,7 +772,7 @@ sealed class MainForm : Form
                 await web.EnsureCoreWebView2Async(env);
                 web.CoreWebView2.Settings.AreDevToolsEnabled = opt.TestMock;
                 web.CoreWebView2.Settings.IsStatusBarEnabled = false;
-                web.CoreWebView2.DocumentTitleChanged += (_, _) => Text = "Basalt";
+                web.CoreWebView2.DocumentTitleChanged += (_, _) => Text = Program.AppName;
                 web.CoreWebView2.NewWindowRequested += (_, e) => { e.Handled = true; Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute = true }); };
                 web.CoreWebView2.WebMessageReceived += OnWebMessage;
             }
@@ -781,16 +782,16 @@ sealed class MainForm : Form
                 report.Add("webview2 missing: " + e.Message);
                 const string get = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
                 var answer = opt.TestMock ? DialogResult.Yes : MessageBox.Show(this,
-                    "Manca Microsoft Edge WebView2 Runtime, che serve per mostrare Basalt in questa finestra.\n\n" +
-                    "Sì: apro Basalt nel browser (il server resta acceso dietro l'icona vicino all'orologio).\n" +
-                    "No: apro la pagina per installare WebView2 (poi riavvia BasaltPannello).",
-                    "Basalt", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                    $"Manca Microsoft Edge WebView2 Runtime, che serve per mostrare {Program.AppName} in questa finestra.\n\n" +
+                    $"Sì: apro {Program.AppName} nel browser (il server resta acceso dietro l'icona vicino all'orologio).\n" +
+                    $"No: apro la pagina per installare WebView2 (poi riavvia {Program.AppName}).",
+                    Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (answer == DialogResult.No) Process.Start(new ProcessStartInfo(get) { UseShellExecute = true });
                 web.Visible = false;
                 start.Visible = true;
                 reasonLabel.Visible = false;
                 check.ForeColor = Fg2;
-                check.Text = $"Basalt si apre nel browser: http://127.0.0.1:{serverPort}/ (WebView2 non è installato).";
+                check.Text = $"{Program.AppName} si apre nel browser: http://127.0.0.1:{serverPort}/ (WebView2 non è installato).";
             }
         }
         if (useBrowser)
@@ -854,7 +855,7 @@ sealed class MainForm : Form
         int p = serverPort != 0 ? serverPort : WebPort();
         if (MessageBox.Show(this, $"Avviare il solo server sulla porta {p}, senza finestra né icona, con il profilo predefinito?\n\n" +
                 "Il server di questa app si chiude e il modello si carica di nuovo dal server per gli agenti. Per fermarlo: Ferma-Basalt.ps1 --port " + p,
-                "Basalt", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         if (ours)
         {
             Native.PostJson($"http://127.0.0.1:{p}/unload", "{}");
@@ -870,7 +871,7 @@ sealed class MainForm : Form
         using var proc = Process.Start(psi);
         await proc.WaitForExitAsync();
         MessageBox.Show(proc.ExitCode == 0 ? $"Server avviato sulla porta {p} senza finestra.\nIndirizzo: http://127.0.0.1:{p}/\nPer fermarlo: Ferma-Basalt.ps1 --port {p}"
-                                           : "Il solo server non è partito: vedi logs\\basalt-serve.log.", "Basalt", MessageBoxButtons.OK,
+                                           : "Il solo server non è partito: vedi logs\\basalt-serve.log.", Program.AppName, MessageBoxButtons.OK,
                         proc.ExitCode == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Error);
         exiting = true;
         Close();
@@ -945,7 +946,7 @@ sealed class MainForm : Form
             Hide();
             if (!BalloonShown())
             {
-                tray.ShowBalloonTip(6000, "Basalt", "Basalt è ancora acceso: spegnilo dall'icona.", ToolTipIcon.Info);
+                tray.ShowBalloonTip(6000, Program.AppName, $"{Program.AppName} è ancora acceso: spegnilo dall'icona.", ToolTipIcon.Info);
                 RememberBalloon();
             }
             return;
@@ -975,7 +976,7 @@ sealed class MainForm : Form
     /// back, and exit.</summary>
     void TurnOff(bool ask)
     {
-        if (ask && MessageBox.Show(this, "Spegnere Basalt (server e motore)?", "Basalt", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        if (ask && MessageBox.Show(this, $"Spegnere {Program.AppName} (server e motore)?", Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         exiting = true;                                    // the server's end is wanted: no restart, no fallback panel
         poll.Stop();
         Cursor = Cursors.WaitCursor;
@@ -995,12 +996,12 @@ sealed class MainForm : Form
         for (int i = 0; i < 10 && after - before < 1; i++) { Thread.Sleep(500); after = Native.AvailableRamGiB(); }
         bool down = serverPort == 0 || Native.GetJson($"http://127.0.0.1:{serverPort}/health") == null;
         report.Add($"turned off: server down={down}, RAM available {before:0.0} -> {after:0.0} GiB");
-        string text = down ? $"Basalt è spento. RAM disponibile: {after:0.0} GiB (liberati {Math.Max(0, after - before):0.0} GiB)."
+        string text = down ? $"{Program.AppName} è spento. RAM disponibile: {after:0.0} GiB (liberati {Math.Max(0, after - before):0.0} GiB)."
                            : "Il server risponde ancora: fermalo con Ferma-Basalt.ps1.";
         if (opt.Screenshot != null)
             File.WriteAllLines(Path.ChangeExtension(opt.Screenshot, ".txt"), report);
         else
-            MessageBox.Show(text, "Basalt", MessageBoxButtons.OK, down ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            MessageBox.Show(text, Program.AppName, MessageBoxButtons.OK, down ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
         ExitCode = down ? 0 : 1;
         exiting = true;
         Close();

@@ -1,5 +1,5 @@
-// BasaltPannello.exe: the desktop window of the local Basalt server. One instance per user session: a second start brings the
-// running window to the front.
+// BasaltWinGUI.exe ("Basalt Win+GUI"): the desktop window of the local Basalt server. One instance per user session:
+// a second start brings the running window to the front.
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -8,8 +8,9 @@ namespace BasaltDesktop;
 
 static class Program
 {
-    const string MutexName = @"Local\Basalt.Desktop";
-    public const string ShowEventName = @"Local\Basalt.Desktop.Show";
+    public const string AppName = "Basalt Win+GUI";       // the name the window, the tray and the dialogs show
+    const string MutexName = @"Local\BasaltWinGUI.Desktop";
+    public const string ShowEventName = @"Local\BasaltWinGUI.Desktop.Show";
 
     [STAThread]
     static int Main(string[] args)
@@ -17,7 +18,7 @@ static class Program
         var opt = Options.Parse(args);
         if (opt.Error != null)
         {
-            MessageBox.Show(opt.Error, "Basalt", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(opt.Error, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 2;
         }
         using var mutex = new Mutex(true, opt.TestMock ? MutexName + ".test" : MutexName, out bool first);
@@ -77,13 +78,13 @@ sealed class Options
                 case "--test-mock": o.TestMock = true; break;
                 case "--test-screenshot": o.Screenshot = Next(); break;
                 case "--test-exit": o.TestExit = true; break;
-                default: o.Error = $"Argomento sconosciuto: {args[i]}\nUso: BasaltPannello.exe [--config \"<profilo>\"] [--model \"<file .basalt>\"] [--port N] [--vram-libera GB] [--file <configurazione>]"; break;
+                default: o.Error = $"Argomento sconosciuto: {args[i]}\nUso: BasaltWinGUI.exe [--config \"<profilo>\"] [--model \"<file .basalt>\"] [--port N] [--vram-libera GB] [--file <configurazione>]"; break;
             }
         }
         o.Repo ??= FindRepo(AppContext.BaseDirectory);
         if (o.Repo == null && o.Error == null)
-            o.Error = "Non trovo la cartella di Basalt (bin\\basalt.exe e Avvia-Basalt.ps1) sopra " + AppContext.BaseDirectory +
-                      ". Avvia BasaltPannello.exe con --repo <cartella>.";
+            o.Error = "Non trovo la cartella di Basalt Win+GUI (bin\\basalt.exe e Avvia-Basalt.ps1) sopra " + AppContext.BaseDirectory +
+                      ". Avvia BasaltWinGUI.exe con --repo <cartella>.";
         return o;
     }
 

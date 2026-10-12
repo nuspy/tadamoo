@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Ferma Basalt (server e motore) e controlla che la RAM sia tornata libera.
+    Ferma Basalt Win+GUI (server e motore) e controlla che la RAM sia tornata libera.
 
 .DESCRIPTION
     Funziona con ogni modo di Avvia-Basalt.ps1: il solo server (-server), quello legato a una finestra (-browser, che
@@ -10,7 +10,7 @@
     motore) e verifica che non resti nulla. Le opzioni si scrivono con uno o due trattini, come in Avvia-Basalt.ps1.
 
 .PARAMETER Port
-    Ferma solo il server su questa porta (--port N): gli altri server Basalt restano accesi.
+    Ferma solo il server su questa porta (--port N): gli altri server Basalt Win+GUI restano accesi.
 
 .PARAMETER File
     Il file di configurazione da cui leggere la porta (predefinito: basalt_config.json accanto allo script).
@@ -101,7 +101,7 @@ if (-not $capo) {
             $padre = Get-CimInstance Win32_Process -Filter "ProcessId=$($srvProc.ParentProcessId)"
             $capo = if ($padre -and $padre.Name -eq 'basalt.exe') { $padre.ProcessId } else { $srvProc.ProcessId }
         } elseif ($srvProc) {
-            Scrivi "Sulla porta $porta ascolta $($srvProc.Name) (PID $($srvProc.ProcessId)), che non è Basalt: non lo tocco." Yellow
+            Scrivi "Sulla porta $porta ascolta $($srvProc.Name) (PID $($srvProc.ProcessId)), che non è Basalt Win+GUI: non lo tocco." Yellow
         }
     }
 }
@@ -116,19 +116,19 @@ function Get-Albero([int]$Capo) {
     $elenco | Where-Object { $ids -contains [int]$_.ProcessId }
 }
 if ($Port) {                                    # solo il server di questa porta e i suoi processi
-    if (-not $capo) { Scrivi "Nessun server Basalt sulla porta $Port." Green; Esci 0 }
+    if (-not $capo) { Scrivi "Nessun server Basalt Win+GUI sulla porta $Port." Green; Esci 0 }
     $albero = @(Get-Albero $capo | ForEach-Object { [int]$_.ProcessId })
     function Get-ProcessiBasalt { Get-CimInstance Win32_Process | Where-Object { $albero -contains [int]$_.ProcessId } }
 }
 $tutti = @(Get-ProcessiBasalt)
 if (-not $capo -and $tutti.Count -eq 0) {
-    Scrivi 'Basalt non è in esecuzione.' Green
+    Scrivi 'Basalt Win+GUI non è in esecuzione.' Green
     Remove-Item $pidFile -ErrorAction SilentlyContinue
     Esci 0
 }
 
 $prima = Disponibile
-Scrivi "Fermo Basalt$(if ($capo) { " (PID $capo$(if ($modo) { ", avviato $modo" }))" }). RAM disponibile ora: $(GiB $prima)." Cyan
+Scrivi "Fermo Basalt Win+GUI$(if ($capo) { " (PID $capo$(if ($modo) { ", avviato $modo" }))" }). RAM disponibile ora: $(GiB $prima)." Cyan
 
 # ------------------------------------------------------------------ 1. il motore esce in modo pulito
 try {
@@ -160,7 +160,7 @@ do {
 
 $resto = @(Get-ProcessiBasalt)
 if ($resto.Count -gt 0) {
-    Scrivi 'Restano processi di Basalt:' Red
+    Scrivi 'Restano processi di Basalt Win+GUI:' Red
     $resto | ForEach-Object { Scrivi "  PID $($_.ProcessId) $($_.Name)" Red }
     Esci 1
 }
@@ -170,5 +170,5 @@ if (-not $Port -or $modo) { Remove-Item $pidFile -ErrorAction SilentlyContinue }
 $dopo = Disponibile
 $limite = (Get-Date).AddSeconds(15)
 while ($dopo - $prima -lt 1GB -and (Get-Date) -lt $limite) { Start-Sleep -Seconds 1; $dopo = Disponibile }
-Scrivi "Basalt fermato: nessun processo rimasto. RAM disponibile: $(GiB $dopo) (prima $(GiB $prima), liberati $(GiB ([math]::Max([double]0, $dopo - $prima))))." Green
+Scrivi "Basalt Win+GUI fermato: nessun processo rimasto. RAM disponibile: $(GiB $dopo) (prima $(GiB $prima), liberati $(GiB ([math]::Max([double]0, $dopo - $prima))))." Green
 Esci 0

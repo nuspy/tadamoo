@@ -127,14 +127,15 @@ best on this CPU (`--pool-workers 15`: the 7 P-cores and the first 8 E-cores); n
 
 ## Starting and stopping with the PowerShell scripts
 
-`Avvia-Basalt.ps1` and `Ferma-Basalt.ps1` (repository root, messages in Italian) start and stop Basalt with
+`Avvia-Basalt.ps1` and `Ferma-Basalt.ps1` (repository root, messages in Italian) start and stop Basalt Win+GUI with
 `basalt_config.json` beside them (machine-specific and not tracked; `tools/windows/basalt_config.example.json` shows
 its shape for a 3-bit file on a 32 GB card). Paths are relative to the scripts' folder, so they work from any
 directory and from Explorer (right click, "Run with PowerShell"), with Windows PowerShell 5.1 or PowerShell 7. Both
 take their options only by name (`PositionalBinding = $false`): `--port 7232` never lands in another parameter. The
 option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and in any case.
 
-* **Three modes.** `-gui` (the default, no option) opens `tools\windows\desktop\publish\BasaltPannello.exe` with
+* **Three modes.** `-gui` (the default, no option) opens `tools\windows\desktop\publish\BasaltWinGUI.exe` (an older `BasaltPannello.exe` is used when it is the
+  only one built) with
   `--config`, `--model`, `--port`, `--vram-libera` and `--file`, prints the address and does not open the browser;
   when the app is not built it prints `dotnet publish tools\windows\desktop -c Release -o tools\windows\desktop\publish`
   and falls back to `-browser`. `-browser` is the server tied to the script's window with the UI in the browser.
@@ -213,7 +214,8 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
   "Machine Default". Every real load also records the RAM and commit it really took against its plan, per model
   (`calibration\<model>.json`), and later plans add what was above.
 * **The desktop app** `tools\windows\desktop` (`dotnet publish -c Release -o publish`, .NET 8, WebView2) builds
-  `BasaltPannello.exe` (window title "Basalt"; the name differs from the engine's `basalt.exe` on purpose; options
+  `BasaltWinGUI.exe` (window title, tray and dialogs "Basalt Win+GUI"; the file name differs from the engine's
+  `basalt.exe` on purpose; the icon `basalt.ico` is also the web page's favicon; options
   `--config`, `--model`, `--port`, `--vram-libera`, `--file`, as the script). It starts `bin\basalt.exe serve --config
   basalt_config.json --standby --relaunch-on-model-change` in its kill-on-close job without a console window (a new
   installation gets a config file without a model) and opens the web Loader in its window: the command line's profile,
