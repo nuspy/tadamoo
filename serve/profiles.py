@@ -1,10 +1,11 @@
 """Saved configurations, shared by the web UI, the desktop app and the start scripts: named load profiles (the
-Loader's engine fields and the port) and named inference presets (the chat settings). They live in one JSON file in
-the basalt cache directory (outside the repository). "Valori sicuri" is a built-in load profile: it cannot be
-changed or deleted, and it is the default until another profile is chosen.
+Loader's engine fields, the port and, when saved with one, the model file) and named inference presets (the chat
+settings). They live in one JSON file in the basalt cache directory (outside the repository). "Valori sicuri" is a
+built-in load profile: it cannot be changed or deleted, it keeps the model the config file has, and it is the default
+until another profile is chosen.
 
     python -m serve.profiles list
-    python -m serve.profiles apply NAME --config basalt_config.json     # write NAME's values into the config file
+    python -m serve.profiles apply NAME --config basalt_config.json [--model FILE.basalt]   # write NAME into the file
     python -m serve.profiles default
 """
 from __future__ import annotations
@@ -89,6 +90,27 @@ def check_load(values) -> dict:
     return out
 
 
+def check_model(value) -> str | None:
+    """A load profile's model: None (the config file's model stays) or a .basalt file the engine can open."""
+    if value is None or value == "":
+        return None
+    from serve import models
+    try:
+        return models.check_basalt(value)
+    except ValueError as e:
+        raise ValueError(f"model: {e}") from None
+
+
+def _model_facts(model: str | None, fallback: dict | None) -> dict | None:
+    if not model:
+        return fallback
+    try:
+        from serve import models
+        return models.facts_for(model)
+    except (OSError, ValueError, KeyError):
+        return fallback
+
+
 def check_inference(values) -> dict:
     if not isinstance(values, dict):
         raise ValueError("settings: an object of chat settings")
@@ -102,14 +124,18 @@ def listing(system: dict | None = None, facts: dict | None = None) -> dict:
     """Both kinds, the built-in first, each load profile with a one-line summary (context, KV, spec, VRAM, speed)."""
     data = _read()
     facts = facts or loader.DEMO_FACTS
-    loads = [{"name": SAFE_NAME, "values": safe_values(), "builtin": True}]
-    loads += [{"name": n, "values": p.get("values", {}), "builtin": False, "saved": p.get("saved")}
+    loads = [{"name": SAFE_NAME, "values": safe_values(), "builtin": True, "model": None}]
+    loads += [{"name": n, "values": p.get("values", {}), "builtin": False, "saved": p.get("saved"),
+               "model": p.get("model") if isinstance(p.get("model"), str) else None}
               for n, p in sorted(data["load"].items(), key=lambda kv: kv[0].lower())]
     names = {p["name"] for p in loads}
     default = data["default"] if data["default"] in names else SAFE_NAME
     for p in loads:
         p["default"] = p["name"] == default
-        p["summary"] = summary(p["values"], facts, system)
+        p["summary"] = summary(p["values"], _model_facts(p["model"], facts), system)
+        if p["model"]:
+            p["summary"]["model"] = Path(p["model"]).stem
+            p["summary"]["model_missing"] = not os.path.isfile(p["model"])
     infer = [{"name": n, "settings": p.get("settings", {}), "saved": p.get("saved"),
               "summary": inference_summary(p.get("settings", {}))}
              for n, p in sorted(data["inference"].items(), key=lambda kv: kv[0].lower())]
@@ -155,6 +181,22 @@ def get_load(name: str) -> dict | None:
     return dict(p.get("values", {})) if p else None
 
 
+def get_model(name: str) -> str | None:
+    """The model file a load profile was saved with (None: the config file's model stays)."""
+    if name == SAFE_NAME:
+        return None
+    p = _read()["load"].get(name) or {}
+    return p.get("model") if isinstance(p.get("model"), str) else None
+
+
+def _load_item(values, model) -> dict:
+    item = {"values": check_load(values)}
+    model = check_model(model)
+    if model:
+        item["model"] = model
+    return item
+
+
 def default_name() -> str:
     data = _read()
     return data["default"] if data["default"] == SAFE_NAME or data["default"] in data["load"] else SAFE_NAME
@@ -174,7 +216,7 @@ def change(req: dict) -> dict:
             name = check_name(req.get("name"))
             if kind == "load" and name == SAFE_NAME:
                 raise ValueError(f"{SAFE_NAME} is built in: save under another name")
-            item = {"values": check_load(req.get("values"))} if kind == "load" else \
+            item = _load_item(req.get("values"), req.get("model")) if kind == "load" else \
                 {"settings": check_inference(req.get("settings"))}
             box[name] = {**item, "saved": loader.now_iso()}
         elif action == "rename":
@@ -210,8 +252,13 @@ def change(req: dict) -> dict:
                     name = check_name(name)
                     if k == "load" and name == SAFE_NAME:
                         continue
-                    data[k][name] = ({"values": check_load(item.get("values"))} if k == "load" else
-                                     {"settings": check_inference(item.get("settings"))}) | {"saved": loader.now_iso()}
+                    if k == "load":
+                        model = item.get("model")
+                        if model and not os.path.isfile(str(model)):
+                            model = None                 # exported on another PC: the config file's model stays
+                        data[k][name] = _load_item(item.get("values"), model) | {"saved": loader.now_iso()}
+                    else:
+                        data[k][name] = {"settings": check_inference(item.get("settings")), "saved": loader.now_iso()}
         else:
             raise ValueError("action: save, rename, delete, default or import")
         _write(data)
@@ -227,8 +274,9 @@ def export(kind: str | None = None) -> dict:
     return out
 
 
-def apply(name: str, config: str) -> dict:
-    """Write load profile `name` into the config file (FILE.bak kept, every other key as it was); its values."""
+def apply(name: str, config: str, model: str | None = None) -> dict:
+    """Write load profile `name` into the config file (FILE.bak kept, every other key as it was); its values. The
+    model is `model` when given, else the profile's, else the config file's stays (Valori sicuri)."""
     values = get_load(name)
     if values is None:
         raise KeyError(name)
@@ -236,6 +284,15 @@ def apply(name: str, config: str) -> dict:
     changes = {f: values.get(f) for f in LOAD_FIELDS if values.get(f) != current.get(f)}
     if changes:
         settings.save(config, changes, settings.LOADER_FIELDS)
+    model = model or get_model(name)
+    if model:
+        from serve import models
+        model = settings.check_model_value("model", model)
+        try:
+            title = models.basalt_info(model, os.path.getsize(model)).get("name")
+        except OSError:
+            title = None
+        settings.set_model(config, model, title or Path(model).stem)
     return values
 
 
@@ -251,6 +308,7 @@ def main(argv=None) -> int:
     ap_apply = sub.add_parser("apply", help="write a load profile into the config file; prints its values as JSON")
     ap_apply.add_argument("name")
     ap_apply.add_argument("--config", required=True)
+    ap_apply.add_argument("--model", help="the .basalt file to load instead of the profile's")
     a = ap.parse_args(argv)
     if a.cmd == "list":
         d = default_name()
@@ -276,7 +334,7 @@ def main(argv=None) -> int:
         print(json.dumps(listing(loader.system_now(), facts), ensure_ascii=False))
         return 0
     try:
-        values = apply(a.name, a.config)
+        values = apply(a.name, a.config, a.model)
     except KeyError:
         print(f"profilo sconosciuto: {a.name!r}. Profili: " + ", ".join(p["name"] for p in listing()["load"]),
               file=sys.stderr)
@@ -284,7 +342,11 @@ def main(argv=None) -> int:
     except (OSError, ValueError) as e:
         print(f"il profilo {a.name!r} non si può applicare: {e}", file=sys.stderr)
         return 2
-    print(json.dumps({"name": a.name, "values": values}, ensure_ascii=False))
+    try:
+        model = settings.model_of(a.config)
+    except (OSError, ValueError):
+        model = None
+    print(json.dumps({"name": a.name, "values": values, "model": model}, ensure_ascii=False))
     return 0
 
 

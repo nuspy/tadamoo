@@ -58,13 +58,35 @@ def _holds(svc, sup):
     return holds, vram
 
 
-def evaluate(svc, values: dict, lang: str = "en") -> dict:
-    """The plan and speed of `values` ({"engine.kv": "q4_0", ...}; None = the engine's default) against now."""
+def _same(a, b) -> bool:
+    return bool(a) and bool(b) and os.path.normcase(os.path.abspath(str(a))) == os.path.normcase(os.path.abspath(str(b)))
+
+
+def facts_of(svc, model: str | None) -> dict:
+    """The sizes a plan uses: the running model's, or another .basalt file's (from its header)."""
     sup = sup_of(svc)
+    running = (getattr(svc, "settings_info", None) or {}).get("model")
+    if not model or _same(model, running) or _same(model, sup.facts.get("path")):
+        return sup.facts
+    from serve import models
+    try:
+        return models.facts_for(models.check_basalt(model))
+    except (OSError, KeyError) as e:
+        raise ValueError(f"model: {model}: {e}") from None
+    except ValueError as e:
+        raise ValueError(f"model: {e}") from None
+
+
+def evaluate(svc, values: dict, lang: str = "en", model: str | None = None) -> dict:
+    """The plan and speed of `values` ({"engine.kv": "q4_0", ...}; None = the engine's default) against now, for the
+    running model or `model` (a .basalt file)."""
+    sup = sup_of(svc)
+    facts = facts_of(svc, model)
     holds, holds_vram = _holds(svc, sup)
     system = loader.system_now(getattr(svc, "gpu_index", 0))
-    p = loader.plan(values, sup.facts, system, holds, holds_vram)
-    cal = loader.best_calibration(sup.facts, values)
+    p = loader.plan(values, facts, system, holds, holds_vram)
+    p["model"] = {k: v for k, v in facts.items() if k != "path"} | {"path": facts.get("path")}
+    cal = loader.best_calibration(facts, values)
     p["speed"] = loader.predict_speed(p, cal)
     p["problems"] = [{**x, "text": loader.problem_text(x, "en"), "text_it": loader.problem_text(x, "it")}
                      for x in p["problems"]]
@@ -90,8 +112,13 @@ def info(svc, local: bool, lang: str = "en") -> dict:
     path = _config(svc)
     si = getattr(svc, "settings_info", None) or {}
     values = file_values(svc)
+    try:
+        config_model = settings.model_of(path) if path else None
+    except (OSError, ValueError):
+        config_model = None
     out = {"config": path, "model": {k: v for k, v in sup.facts.items() if k != "path"},
-           "model_path": si.get("model"), "values": values, "running": si.get("running") or {},
+           "model_path": si.get("model"), "config_model": config_model,
+           "values": values, "running": si.get("running") or {},
            "from_command_line": [n for n in si.get("cli") or [] if n in FIELD_NAMES], "fields": FIELD_NAMES,
            "defaults": loader.ENGINE_DEFAULTS, "editable": False, "reason": "",
            "limits": {"parallel_max": PARALLEL_MAX, "spec_max": settings.SPEC_MAX, "kv": list(settings.KV_MODES),
@@ -103,7 +130,10 @@ def info(svc, local: bool, lang: str = "en") -> dict:
     system = loader.system_now(getattr(svc, "gpu_index", 0))
     out["safe"] = loader.safe(sup.facts, system, holds, holds_vram)
     out["safe_why"] = {k: {"en": en, "it": it} for k, (en, it) in loader.SAFE_WHY.items()}
-    out["plan"] = evaluate(svc, values, lang)
+    try:
+        out["plan"] = evaluate(svc, values, lang, config_model)
+    except ValueError:
+        out["plan"] = evaluate(svc, values, lang)
     runs = loader.read_calibrations(sup.facts)["runs"]
     out["calibrations"] = sorted(({"at": r.get("at"), "fingerprint": fp, "decode_off": r.get("decode_off"),
                                    "decode_on": r.get("decode_on"), "prefill": r.get("prefill"), "mock": r.get("mock")}
@@ -129,19 +159,34 @@ def load(svc, req: dict) -> dict:
     if sup.busy():
         raise Refused(409, {"error": {"type": "model_busy", "code": "busy",
                                       "message": "a load or a calibration is already running"}})
+    model = req.get("model") if isinstance(req, dict) else None
     try:
         values = clean(req.get("values") if isinstance(req, dict) else None)
         settings.preview(path, values, settings.LOADER_FIELDS) if values else None
+        if model is not None:
+            model = settings.check_model_value("model", model)
     except ValueError as e:
         raise Refused(400, {"error": {"type": "invalid_request_error", "message": str(e)}}) from None
     merged = {**file_values(svc), **values}
     merged = {k: v for k, v in merged.items() if v is not None and k in FIELD_NAMES}
-    p = evaluate(svc, merged)
+    p = evaluate(svc, merged, model=model)
     if not p["fits"]:
         raise Refused(422, {"error": {"type": "insufficient_memory", "code": "does_not_fit",
                                       "message": " ".join(x["text"] for x in p["problems"])},
                             "problems": p["problems"], "plan": p})
     result = settings.save(path, values, settings.LOADER_FIELDS) if values else {"changed": [], "values": merged}
+    running = (getattr(svc, "settings_info", None) or {}).get("model")
+    if model is not None:
+        from serve import models
+        changed = settings.set_model(path, model, models.basalt_info(model, os.path.getsize(model)).get("name"))
+        result["changed"] = result["changed"] + changed["changed"]
+        if not _same(model, running):
+            # the tokenizer, the chat template and the API name come from the model file when the server starts:
+            # a different model is loaded by starting the server again, not by restarting the engine inside it
+            print(f"[server] loader: {', '.join(result['changed']) or 'no change'} saved to {path}; the new model "
+                  "loads when the server starts again", flush=True)
+            return {"status": "saved", "changed": result["changed"], "values": result["values"], "plan": p,
+                    "notes": ["model_on_restart"], "model": model}
     print(f"[server] loader: {', '.join(result['changed']) or 'no change'} saved to {path}; reloading the engine",
           flush=True)
     if not sup.reload():

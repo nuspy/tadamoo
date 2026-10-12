@@ -29,6 +29,8 @@ LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-fu
                  ("engine", "max-context"), ("engine", "kv"), ("engine", "prefill"), ("engine", "spec"),
                  ("engine", "spec-min-p"), ("engine", "expert-cache"), ("engine", "resident-experts"),
                  ("engine", "vram-reserve-mib"), ("engine", "ple-io"), ("engine", "pool-workers"))
+# the model a load profile or the Loader writes (with the API name, when the file sets one)
+MODEL_FIELDS = (("server", "model"), ("server", "alias"))
 PLE_IO_MODES = ("direct", "mmap", "ram")             # the engine's --ple-io
 POOL_WORKERS_MAX = 256
 RESTART_NOTE = "Saved to the config file. The running server keeps its settings until it is started again."
@@ -112,6 +114,22 @@ def check_value(section: str, key: str, value):
     raise ValueError(f"{what}: not a field this page sets")
 
 
+def check_model_value(key: str, value):
+    """server.model (a .basalt file the engine can open, as a POSIX path) or server.alias (a name), as written by a
+    load profile or the Loader; ValueError with the reason."""
+    if key == "model":
+        from serve import models
+        try:
+            return models.check_basalt(value)
+        except ValueError as e:
+            raise ValueError(f"server.model: {e}") from None
+    if key == "alias":
+        if not isinstance(value, str) or not value.strip() or len(value) > 200:
+            raise ValueError(f"server.alias: a name of 1 to 200 characters, not {value!r}")
+        return value.strip()
+    raise ValueError(f"server.{key}: not a model field")
+
+
 def read_file(path: str) -> dict:
     """The config file's JSON object (OSError / ValueError when it cannot be read)."""
     with open(path, encoding="utf-8") as f:
@@ -156,7 +174,7 @@ def merge(raw: dict, changes: dict, fields=FIELDS) -> tuple[dict, list[str]]:
             if present:
                 changed.append(name)
             continue
-        value = check_value(section, key, value)
+        value = check_model_value(key, value) if (section, key) in MODEL_FIELDS else check_value(section, key, value)
         if present:
             if sec[present[0]] != value:
                 changed.append(name)
@@ -206,6 +224,27 @@ def save(path: str, changes: dict, fields=FIELDS) -> dict:
     """Validate and write the changes; {"changed": [...], "values": {...}}. The old file is kept as FILE.bak."""
     with _write_lock:
         return _save(path, changes, fields)
+
+
+def model_of(path: str) -> str | None:
+    """The config file's server.model as an absolute path (relative paths are the config file's folder's)."""
+    model = values_of(read_file(path)).get("server.model")
+    if not isinstance(model, str) or not model:
+        return None
+    return model if os.path.isabs(model) else str(Path(path).resolve().parent / model)
+
+
+def set_model(path: str, model: str, name: str | None = None) -> dict:
+    """Write `model` (a .basalt file) as the config file's server.model; when the model changes and the file names
+    the model for the API (server.alias), that name becomes `name`. {"changed": [...], "values": {...}}."""
+    current = model_of(path)
+    changes = {"server.model": model}
+    same = current is not None and os.path.normcase(os.path.abspath(current)) == os.path.normcase(os.path.abspath(model))
+    if same:
+        return {"changed": [], "values": values_of(read_file(path), MODEL_FIELDS)}
+    if name and "server.alias" in values_of(read_file(path), MODEL_FIELDS):
+        changes["server.alias"] = name
+    return save(path, changes, MODEL_FIELDS)
 
 
 def preview(path: str, changes: dict, fields=FIELDS) -> dict:

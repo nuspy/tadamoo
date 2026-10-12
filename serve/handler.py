@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT, chatctx, loader, loader_api, profiles, settings
+from serve import ROOT, chatctx, loader, loader_api, models, profiles, settings
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
 from serve.api.anthropic import anthropic_collect, anthropic_events
@@ -270,6 +270,13 @@ def make_handler(svc: Service):
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
+            elif path == "/api/models":
+                if self._authorized():
+                    rescan = parse_qs(urlsplit(self.path).query).get("rescan", ["0"])[0] in ("1", "true")
+                    self._json(200, self._models_listing(rescan))
+            elif path == "/api/models/job":
+                if self._authorized():
+                    self._json(200, models.JOBS.status())
             elif path == "/api/loader/status":
                 if self._authorized():
                     self._json(200, {**loader_api.sup_of(svc).status(), "loaded": svc.loaded(), "loading": svc.loading,
@@ -338,6 +345,9 @@ def make_handler(svc: Service):
                 return
             if path == "/api/profiles":
                 self._profiles_post()
+                return
+            if path.startswith("/api/models/"):
+                self._models_post(path[len("/api/models/"):])
                 return
             if path.startswith("/v1/") and self._foreign_page():
                 return
@@ -600,9 +610,12 @@ def make_handler(svc: Service):
                 return
             try:
                 if what == "plan":
-                    self._json(200, loader_api.evaluate(svc, loader_api.clean((req or {}).get("values", {}))))
+                    model = (req or {}).get("model") if isinstance(req, dict) else None
+                    self._json(200, loader_api.evaluate(svc, loader_api.clean((req or {}).get("values", {})),
+                                                        model=model or None))
                 elif what == "load":
-                    self._json(202, loader_api.load(svc, req))
+                    out = loader_api.load(svc, req)
+                    self._json(200 if out.get("status") == "saved" else 202, out)
                 else:
                     sup = loader_api.sup_of(svc)
                     if not svc.loaded() or svc.loading:
@@ -638,6 +651,61 @@ def make_handler(svc: Service):
                 self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
             except OSError as e:
                 self._json(500, {"error": {"type": "server_error", "message": f"cannot write the profiles: {e}"}})
+
+        def _models_listing(self, rescan: bool = False) -> dict:
+            """GET /api/models: the models folders, every model under them with its status, the running job."""
+            path = (getattr(svc, "settings_info", None) or {}).get("config")
+            try:
+                current = settings.model_of(path) if path else None
+            except (OSError, ValueError):
+                current = None
+            out = models.listing(rescan, current or (getattr(svc, "settings_info", None) or {}).get("model"))
+            out["editable"] = settings.is_loopback(self.client_address[0])
+            return out
+
+        def _models_post(self, what: str):
+            """POST /api/models/dirs | plan | convert | verify | cancel: only from this PC, as JSON from the server's
+            own page (serve/models.py). A conversion needs the plan's token and confirm: true."""
+            try:                                            # read first: a refusal then reaches the client whole
+                raw = self._body(settings.BODY_MAX)
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                return
+            if what not in ("dirs", "plan", "convert", "verify", "cancel"):
+                self._json(404, {"error": {"message": "not found"}})
+                return
+            if not settings.is_loopback(self.client_address[0]):
+                self._json(403, {"error": {"type": "forbidden",
+                                           "message": "the models can be managed only from the PC the server runs on"}})
+                return
+            if not self._own_page("the models can be managed"):
+                return
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+            except ValueError:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": "the body is not valid JSON"}})
+                return
+            try:
+                if what == "dirs":
+                    models.set_dirs(req.get("dirs"))
+                    self._json(200, self._models_listing(True))
+                elif what == "plan":
+                    self._json(200, models.convert_plan(str(req.get("id") or ""), req.get("out_dir")))
+                elif what == "convert":
+                    self._json(202, models.JOBS.start_convert(str(req.get("id") or ""), req.get("out_dir"),
+                                                              req.get("token"), req.get("confirm")))
+                elif what == "verify":
+                    self._json(202, models.JOBS.start_verify(req.get("path")))
+                else:
+                    self._json(200, {"cancelled": models.JOBS.cancel(), **models.JOBS.status()})
+            except models.DirsError as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}, "fields": e.errors})
+            except models.Refused as e:
+                self._json(e.status, e.body)
+            except OSError as e:
+                self._json(500, {"error": {"type": "server_error", "message": f"{e.strerror or e}"}})
 
         def _chat_context(self):
             """POST /api/chat/context: the chat page's context meter and overflow policy (serve/chatctx.py)."""

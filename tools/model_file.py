@@ -8,6 +8,8 @@
 
     m = ModelFile(path)
     m.names(); m.section("meta") -> (offset, bytes); m.read("meta") -> bytes; m.verify("dense") -> bool
+
+    python tools/model_file.py verify FILE.basalt      # every section, with progress lines (exit 3: a bad one)
 """
 from __future__ import annotations
 
@@ -159,19 +161,69 @@ class ModelFile:
             f.seek(off)
             return f.read(size)
 
-    def verify(self, name: str) -> bool:
+    def verify(self, name: str, progress=None, buffer: bytearray | None = None) -> bool:
         """The section's SHA-256 against the table, read through one reused 16 MiB buffer (a new 64 MiB bytes object
-        per read could fail with MemoryError on a machine short of commit, and churned the allocator)."""
+        per read could fail with MemoryError on a machine short of commit, and churned the allocator). `progress(n)`
+        is called with the bytes of each read; `buffer` lets several sections share one buffer."""
         off, size, digest = self.sections[name]
         h = hashlib.sha256()
-        view = memoryview(bytearray(VERIFY_CHUNK))
+        view = memoryview(buffer if buffer is not None else bytearray(VERIFY_CHUNK))
         with open(self.path, "rb", buffering=0) as f:
             f.seek(off)
             left = size
             while left > 0:
-                n = f.readinto(view[:min(VERIFY_CHUNK, left)])
+                n = f.readinto(view[:min(len(view), left)])
                 if not n:
                     return False
                 h.update(view[:n])
                 left -= n
+                if progress is not None:
+                    progress(n)
         return h.digest() == digest
+
+
+def main(argv=None) -> int:
+    """python tools/model_file.py verify FILE: every section's SHA-256 against the table, through one reused 16 MiB
+    buffer. Prints `progress DONE TOTAL` about every GiB, one line per section and a last JSON line; exit 0 when all
+    match, 3 when a section does not, 2 when the file cannot be read."""
+    import argparse
+    import json
+    import sys
+    ap = argparse.ArgumentParser(prog="python tools/model_file.py")
+    ap.add_argument("cmd", choices=["verify"])
+    ap.add_argument("file")
+    a = ap.parse_args(argv)
+    try:
+        m = ModelFile(a.file)
+    except (OSError, ValueError) as e:
+        print(f"error: {e}", flush=True)
+        print(json.dumps({"ok": False, "error": str(e)}), flush=True)
+        return 2
+    total = sum(size for _, size, _ in m.sections.values())
+    done, shown = 0, 0
+    buf = bytearray(VERIFY_CHUNK)
+
+    def tick(n):
+        nonlocal done, shown
+        done += n
+        if done - shown >= 1 << 30 or done == total:
+            shown = done
+            print(f"progress {done} {total}", flush=True)
+
+    bad = []
+    for name in m.names():
+        try:
+            ok = m.verify(name, tick, buf)
+        except OSError as e:
+            print(f"error: {name}: {e}", flush=True)
+            ok = False
+        print(f"{'ok ' if ok else 'BAD'} {name}", flush=True)
+        if not ok:
+            bad.append(name)
+    print(f"progress {total} {total}", flush=True)
+    print(json.dumps({"ok": not bad, "bad": bad, "sections": len(m.sections), "bytes": total}), flush=True)
+    return 0 if not bad else 3
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
