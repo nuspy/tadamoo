@@ -1,10 +1,15 @@
 "use strict";
 /* Chat settings: sampling, reasoning, output length, stop strings, system prompt, structured output, the context policy
-   and named presets. The current settings stay in this browser (localStorage when it allows it); presets are kept by
-   the server (GET/POST /api/profiles, shared with the desktop app) and in this browser when the server cannot.
-   A request carries only the fields that are set, so the model file's defaults apply to the rest. */
+   and named presets. The current settings stay in this client (localStorage when it allows it): the app and each
+   browser keep their own. Presets are kept by the server (GET/POST /api/profiles, shared with the desktop app) and in
+   this browser when the server cannot. A request carries only the fields that are set, so the model file's defaults
+   apply to the rest.
+   On opening, a client takes the preset it used last when it still exists; otherwise, and when it used the default,
+   it follows the current default ("Machine Default" from the configuration wizard, else the model's own defaults).
+   Settings changed by hand after that are kept as they are. */
 const chatSettings = (() => {
-  const STORE = "basalt.chatset", PRESETS = "basalt.presets";
+  const STORE = "basalt.chatset", PRESETS = "basalt.presets", LAST = "basalt.chatset.last";
+  const MODEL = "@model";                     // LAST.name of the model's own defaults chosen by hand
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
   const keep = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
   // the request fields the engine samples with (serve/engine/process.py sampling_keys)
@@ -24,9 +29,14 @@ const chatSettings = (() => {
     { key: "max_tokens", id: "cs-max_tokens", min: 1, kind: "int", label: "cs.max_tokens" },
     { key: "retries", id: "cs-retries", min: 0, max: 5, kind: "int", label: "cs.retries" },
   ];
-  const CONTROL_DEFAULTS = { temperature: 1, top_p: 1, top_k: 64, min_p: 0, repetition_penalty: 1,
+  // what the engine does with a key that neither the request nor the model file sets (the GEN line's defaults)
+  const ENGINE_SAMPLING = { temperature: 0, top_p: 1, top_k: 20, min_p: 0, repetition_penalty: 1,
     presence_penalty: 0, frequency_penalty: 0, penalty_last_n: 64 };
-  let modelDefaults = {}, serverPresets = null;
+  let modelDefaults = {}, serverPresets = null, inferenceDefault = null, started = false;
+  // the preset this client used last: a name, "" (follow the default) or MODEL; edited: changed by hand since
+  let last = load(LAST, null);
+  if (!last || typeof last !== "object" || typeof last.name !== "string")
+    last = { name: "", edited: Object.keys(load(STORE, {}) || {}).length > 0 };   // settings from before: kept
 
   const grid = $("#cs-sampling");
   for (const f of SAMPLING) {
@@ -138,7 +148,9 @@ const chatSettings = (() => {
     try {
       const r = await fetch("api/profiles", { cache: "no-store", headers: authHeaders() });
       if (!r.ok) throw new Error();
-      serverPresets = (await r.json()).inference || [];
+      const all = await r.json();
+      serverPresets = all.inference || [];
+      inferenceDefault = all.inference_default || null;
       const local = localPresets();                    // presets kept here while the server could not: move them
       for (const [name, settings] of Object.entries(local)) {
         if (serverPresets.some(p => p.name === name)) continue;
@@ -151,6 +163,40 @@ const chatSettings = (() => {
       }
     } catch (e) { serverPresets = null; }
     drawPresets($("#cs-preset").value);
+    if (!started) { started = true; startWith(); }
+    showActive();
+  }
+
+  /* the settings a client opens with (see the top); the Active line says which */
+  function modelOnly() {
+    const s = read();
+    return { system: s.system, policy: s.policy, threshold: s.threshold, effort: s.effort, format: s.format,
+      schema: s.schema, schema_name: s.schema_name };
+  }
+  function startWith() {
+    if (last.edited) return;
+    const all = presets();
+    if (last.name && last.name !== MODEL && all[last.name]) { write(all[last.name].settings); save(); drawPresets(last.name); return; }
+    if (last.name === MODEL) { write(modelOnly()); save(); return; }
+    if (last.name) last = { name: "", edited: false };    // the preset was deleted: the default
+    followDefault();
+  }
+  function followDefault() {
+    const p = inferenceDefault && presets()[inferenceDefault];
+    write(p ? p.settings : modelOnly()); save();
+    drawPresets(p ? inferenceDefault : "");
+  }
+  function remember(name, edited) { last = { name, edited }; keep(LAST, last); showActive(); }
+  function showActive() {
+    const box = $("#cs-active");
+    if (!box) return;
+    const def = inferenceDefault && presets()[inferenceDefault] ? inferenceDefault : "";
+    let text;
+    if (last.name === MODEL) text = T("cs.active.model");
+    else if (last.name) text = T("cs.active.preset", last.name);
+    else text = def ? T("cs.active.default", def) : T("cs.active.model.default");
+    box.textContent = last.edited ? T("cs.active.edited", text) : text;
+    $("#cs-machine").hidden = !(serverPresets && serverPresets.some(p => p.name === "Machine Default"));
   }
   async function change(req) {
     try {
@@ -170,6 +216,7 @@ const chatSettings = (() => {
     $("#cs-preset-del").disabled = $("#cs-preset-rename").disabled = !name;
     if (!p) return;
     write(p.settings); save(); say(T("cs.preset.loaded", name), "ok");
+    remember(name === inferenceDefault ? "" : name, false);
     $("#cs-preset-name").value = name;
     document.dispatchEvent(new CustomEvent("basalt:chatset"));
   };
@@ -216,9 +263,19 @@ const chatSettings = (() => {
     } catch (err) { say(err.message, "err"); }
   };
   $("#cs-reset").onclick = () => {
-    const s = read();
-    write({ system: s.system, policy: s.policy, threshold: s.threshold, effort: s.effort, format: s.format, schema: s.schema, schema_name: s.schema_name });
+    write(modelOnly());
     save(); say(T("cs.reset.done"), "ok");
+    drawPresets(""); remember(MODEL, false);
+    document.dispatchEvent(new CustomEvent("basalt:chatset"));
+  };
+  $("#cs-machine").onclick = async () => {
+    await fetchPresets();
+    const p = presets()["Machine Default"];
+    if (!p) { say(T("cs.machine.none"), "err"); return; }
+    write(p.settings); save(); drawPresets("Machine Default");
+    remember(inferenceDefault === "Machine Default" ? "" : "Machine Default", false);
+    say(T("cs.machine.done"), "ok");
+    document.dispatchEvent(new CustomEvent("basalt:chatset"));
   };
 
   /* panel */
@@ -232,13 +289,21 @@ const chatSettings = (() => {
   $("#cs-open").onclick = () => openPanel($("#chatset").hidden);
   $("#cs-close").onclick = () => { openPanel(false); $("#cs-open").focus(); };
   $("#chatset").addEventListener("keydown", e => { if (e.key === "Escape") { openPanel(false); $("#cs-open").focus(); } });
+  // a setting changed by hand (not the preset controls): kept as it is on the next opening
+  const byHand = e => e.target.closest && !e.target.closest("#cs-preset-box");
   $("#cs-form").addEventListener("input", e => {
     const f = fieldsOf().find(x => x.id === e.target.id);
     if (f) { const p = mark(f); say(p ? T("cs.bad", T(f.label), p) : "", p ? "err" : ""); }
     show(); save();
+    if (byHand(e) && !last.edited) remember(last.name, true);
     document.dispatchEvent(new CustomEvent("basalt:chatset"));
   });
-  $("#cs-form").addEventListener("change", () => { show(); save(); document.dispatchEvent(new CustomEvent("basalt:chatset")); });
+  $("#cs-form").addEventListener("change", e => {
+    show(); save();
+    if (byHand(e) && !last.edited) remember(last.name, true);
+    document.dispatchEvent(new CustomEvent("basalt:chatset"));
+  });
+  $("#effort").addEventListener("change", e => { if (e.isTrusted && !last.edited) remember(last.name, true); });
   $("#cs-form").onsubmit = e => e.preventDefault();
 
   /* the model's defaults as placeholders (GET /props) */
@@ -249,13 +314,14 @@ const chatSettings = (() => {
       const p = (((await r.json()).default_generation_settings) || {}).params || {};
       const names = { repeat_penalty: "repetition_penalty", repeat_last_n: "penalty_last_n" };
       modelDefaults = Object.fromEntries(Object.entries(p).map(([k, v]) => [names[k] || k, v]));
-    } catch (e) { /* placeholders stay generic */ }
+    } catch (e) { /* the engine's own values until the model answers */ }
     for (const f of SAMPLING) {
-      const v = f.key in modelDefaults ? modelDefaults[f.key] : CONTROL_DEFAULTS[f.key];
-      $("#cs-" + f.key).placeholder = v == null ? T("cs.model") : T("cs.default", v);
+      const v = modelDefaults[f.key], e = ENGINE_SAMPLING[f.key];
+      $("#cs-" + f.key).placeholder = v != null ? T("cs.default", v) : e != null ? T("cs.engine", e) : T("cs.model");
     }
   }
   document.addEventListener("basalt:key", () => { defaults(); fetchPresets(); });
+  document.addEventListener("basalt:view", e => { if (e.detail === "chat") defaults(); });
 
   write(load(STORE, {}));
   drawPresets("");

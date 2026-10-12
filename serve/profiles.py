@@ -1,8 +1,9 @@
 """Saved configurations, shared by the web UI, the desktop app and the start scripts: named load profiles (the
 Loader's engine fields, the port and, when saved with one, the model file) and named inference presets (the chat
 settings). They live in one JSON file in the user's data folder (serve/userdata.py, outside the repository). "Valori sicuri" is a
-built-in load profile: it cannot be changed or deleted, it keeps the model the config file has, and it is the default
-until another profile is chosen.
+built-in load profile: it cannot be changed or deleted and it keeps the model the config file has. The default load
+profile is the one chosen (Make default), else "Machine Default" once the configuration wizard has saved it, else
+Valori sicuri; a client's chat follows "Machine Default" the same way until it picks another preset.
 
     python -m serve.profiles list
     python -m serve.profiles apply NAME --config basalt_config.json [--model FILE.basalt]   # write NAME into the file
@@ -22,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from serve import loader, settings  # noqa: E402
 
 SAFE_NAME = "Valori sicuri"
+MACHINE_NAME = "Machine Default"        # the configuration wizard's load profile and inference preset
 KINDS = ("load", "inference")
 NAME_MAX = 60
 DEFAULT_PORT = 7232
@@ -49,8 +51,23 @@ def _read() -> dict:
         if not isinstance(data.get(kind), dict):
             data[kind] = {}
     if not isinstance(data.get("default"), str):
-        data["default"] = SAFE_NAME
+        data["default"] = None                          # none chosen: default_of() picks one
     return data
+
+
+def default_of(data: dict) -> str:
+    """The default load profile: the one chosen (Make default, or the wizard), else Machine Default when the wizard
+    has saved one, else Valori sicuri."""
+    chosen = data.get("default")
+    if chosen == SAFE_NAME or chosen in data["load"]:
+        return chosen
+    return MACHINE_NAME if MACHINE_NAME in data["load"] else SAFE_NAME
+
+
+def inference_default(data: dict) -> str | None:
+    """The inference preset a client follows until it picks another: Machine Default when it exists, else none (the
+    model's own defaults)."""
+    return MACHINE_NAME if MACHINE_NAME in data["inference"] else None
 
 
 def _write(data: dict) -> None:
@@ -132,8 +149,7 @@ def listing(system: dict | None = None, facts: dict | None = None) -> dict:
     loads += [{"name": n, "values": p.get("values", {}), "builtin": False, "saved": p.get("saved"),
                "model": p.get("model") if isinstance(p.get("model"), str) else None}
               for n, p in sorted(data["load"].items(), key=lambda kv: kv[0].lower())]
-    names = {p["name"] for p in loads}
-    default = data["default"] if data["default"] in names else SAFE_NAME
+    default = default_of(data)
     for p in loads:
         p["default"] = p["name"] == default
         p["summary"] = summary(p["values"], _model_facts(p["model"], facts), system)
@@ -143,7 +159,8 @@ def listing(system: dict | None = None, facts: dict | None = None) -> dict:
     infer = [{"name": n, "settings": p.get("settings", {}), "saved": p.get("saved"),
               "summary": inference_summary(p.get("settings", {}))}
              for n, p in sorted(data["inference"].items(), key=lambda kv: kv[0].lower())]
-    return {"load": loads, "inference": infer, "default": default, "file": str(path())}
+    return {"load": loads, "inference": infer, "default": default, "inference_default": inference_default(data),
+            "machine": MACHINE_NAME, "file": str(path())}
 
 
 def summary(values: dict, facts: dict, system: dict | None) -> dict:
@@ -203,8 +220,7 @@ def _load_item(values, model) -> dict:
 
 
 def default_name() -> str:
-    data = _read()
-    return data["default"] if data["default"] == SAFE_NAME or data["default"] in data["load"] else SAFE_NAME
+    return default_of(_read())
 
 
 def change(req: dict) -> dict:
@@ -242,7 +258,7 @@ def change(req: dict) -> dict:
             if box.pop(name, None) is None:
                 raise ValueError(f"no {kind} profile named {name!r}")
             if kind == "load" and data["default"] == name:
-                data["default"] = SAFE_NAME
+                data["default"] = None
         elif action == "default":
             name = check_name(req.get("name"))
             if kind != "load" or (name != SAFE_NAME and name not in box):

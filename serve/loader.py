@@ -73,7 +73,8 @@ PREFILL_HALF = 768        # the chunk at which prefill runs at half its large-ch
 DEMO_FACTS = {"name": "demo model (mock engine)", "path": None, "experts_bytes": 53477376000, "n_layers": 48,
               "n_expert": 512, "max_blob": 2176000, "dense_bytes": 1538035200, "head_bytes": 437043200,
               "has_mtp": True, "mtp_bytes": 116099072 + 707788800, "n_vocab": 248320, "token_embd_bytes": 273152000,
-              "ple_bytes": 28800138240, "mmproj_bytes": 904004352, "profile_slots": 24576, "has_profile": True}
+              "ple_bytes": 28800138240, "mmproj_bytes": 904004352, "profile_slots": 24576, "has_profile": True,
+              "sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.0, "presence_penalty": 0.0}}
 
 
 # ------------------------------------------------------------------------------------------------ the model file
@@ -83,7 +84,7 @@ def model_facts(path: str | None) -> dict:
         return dict(DEMO_FACTS)
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-    from model_file import ModelFile
+    from model_file import ModelFile, meta_sampling
     mf = ModelFile(path)
     meta = json.loads(mf.read("meta"))
     size = lambda name: mf.section(name)[1] if name in mf.sections else 0   # noqa: E731
@@ -108,7 +109,7 @@ def model_facts(path: str | None) -> dict:
             "n_vocab": int(shape[-1]) if shape else 0, "token_embd_bytes": tb("token_embd.weight"),
             "ple_bytes": tb("per_layer_token_embd.weight"), "mmproj_bytes": size("vision/mmproj"),
             "profile_slots": int(profile.get("slots") or 0), "has_profile": "profile" in mf.sections,
-            "meta_hash": mf.sections["meta"][2].hex()[:16]}
+            "meta_hash": mf.sections["meta"][2].hex()[:16], "sampling": meta_sampling(meta)[0]}
 
 
 # ------------------------------------------------------------------------------------------------ this PC now

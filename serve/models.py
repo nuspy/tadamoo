@@ -48,7 +48,7 @@ DIRS_MAX = 8
 WALK_DEPTH_MAX = 8                     # folders below a models folder
 WALK_FILES_MAX = 20000                 # entries looked at per folder, so a whole disk cannot stall the page
 META_MAX = 64 << 20                    # a .basalt meta section larger than this is not read
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 COMMIT_MAX = 0.75                      # a conversion starts only below this share of the commit limit
 DISK_MARGIN = 2 * GiB                  # free space left on the disk after a conversion
 MTP_SECTION_BYTES = 116099072 + 707788800      # mtp/dense + mtp/experts in a converted file
@@ -448,6 +448,9 @@ def basalt_info(path: str, size: int) -> dict:
             meta = json.loads(mf.read("meta"))
             kv = meta.get("gguf_kv") if isinstance(meta.get("gguf_kv"), dict) else {}
             tensors = meta.get("tensors") if isinstance(meta.get("tensors"), dict) else {}
+            from model_file import meta_sampling
+            sampling, source = meta_sampling(meta)
+            info.update(sampling=sampling, sampling_source=source)
             info.update(name=meta.get("name") if isinstance(meta.get("name"), str) else None,
                         sources=[s.get("path") for s in meta.get("sources") or [] if isinstance(s, dict)][:8],
                         file_type=kv.get("general.file_type") if isinstance(kv.get("general.file_type"), int) else None,
@@ -620,6 +623,8 @@ def _basalt_item(path: str, size: int, info: dict) -> dict:
     item.update(status="ready", reason=_say("Pronto da caricare.", "Ready to load."))
     if info.get("ple_bytes"):
         item["ple_bytes"] = info["ple_bytes"]
+    if isinstance(info.get("sampling"), dict):          # the model's own chat defaults
+        item["sampling"], item["sampling_source"] = info["sampling"], info.get("sampling_source")
     if info.get("meta_unreadable"):
         item["notes"].append(_say("La sezione meta non si legge: usa «Verifica».", "The meta section cannot be read: "
                                   "use Verify."))

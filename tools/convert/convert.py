@@ -43,10 +43,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent))   # for model_file, gguf_reader, tokenizer
 import model_sections as S  # noqa: E402
-from model_file import TENSOR_ALIGN, ModelWriter  # noqa: E402
+from model_file import TENSOR_ALIGN, ModelWriter, gguf_sampling  # noqa: E402
 
 FINGERPRINT_BYTES = 64 << 20
 
+# the sampling block when the source GGUF declares no general.sampling.* keys
 SAMPLING = {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.0, "presence_penalty": 0.0}
 LICENSE_TEXT = (HERE / "qwen-community-license-1.0.txt").read_text(encoding="utf-8")
 
@@ -57,6 +58,13 @@ def model_license(kv: dict) -> dict:
     if kv.get("general.quantized_by"):
         lic["quantized_by"] = kv["general.quantized_by"]
     return lic
+
+
+def model_sampling(kv: dict) -> tuple[dict, str]:
+    """(the sampling block, its source): the source GGUF's general.sampling.* keys over the fallback SAMPLING;
+    "gguf" when at least one came from the file, else "converter"."""
+    found = gguf_sampling(kv)
+    return {**SAMPLING, **found}, "gguf" if found else "converter"
 
 
 def die(msg: str):
@@ -249,6 +257,9 @@ def convert(a) -> None:
                     else:
                         job.file(name, src, off, size)
 
+            sampling, sampling_source = model_sampling(kv)
+            origin = "from the source GGUF" if sampling_source == "gguf" else "none in the source GGUF: the fallback"
+            print(f"sampling defaults ({origin}): " + ", ".join(f"{k}={v}" for k, v in sampling.items()), flush=True)
             sources = [{"path": p.name, "size": p.stat().st_size,
                         "fingerprint_sha256_first_last_64mib_and_size": fingerprint(p)}
                        for p in model.paths + ([mmproj] if not a.no_vision else [])]
@@ -261,7 +272,7 @@ def convert(a) -> None:
                                 "bytes": nb, "offset": tensor_offsets[n]}
                             for n, _, _, nb, t in tensors},
                 "conversions": {"compat_bf16": a.compat_bf16, "tensors": dense.records},
-                "sampling": SAMPLING, "license": model_license(kv),
+                "sampling": sampling, "sampling_source": sampling_source, "license": model_license(kv),
                 "profile": prof,
                 "hc8": {"bytes": Path(a.hc8).stat().st_size} if a.hc8 else None,
                 "mtp": None if mtp is None else {"source_sha256": mtp.source_sha256(),

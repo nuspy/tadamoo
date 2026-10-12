@@ -27,6 +27,42 @@ ENTRY = struct.Struct("<64sQQ32s16s")         # 128 bytes
 MAX_SECTIONS = (HEADER_BYTES - HEADER.size) // ENTRY.size
 COPY_CHUNK = 64 << 20
 VERIFY_CHUNK = 16 << 20                        # verify(): one buffer, reused
+# general.sampling.* (llama.cpp's recommended-sampling keys in a GGUF header) -> the meta "sampling" block's keys
+GGUF_SAMPLING = {"general.sampling.temp": "temperature", "general.sampling.top_p": "top_p",
+                 "general.sampling.top_k": "top_k", "general.sampling.min_p": "min_p",
+                 "general.sampling.penalty_repeat": "repetition_penalty",
+                 "general.sampling.penalty_last_n": "penalty_last_n"}
+
+
+def gguf_sampling(kv: dict) -> dict:
+    """The sampling defaults a GGUF header declares (general.sampling.*), as the meta "sampling" block's keys; a value
+    the server would refuse (serve/config.py sampling_defaults_from_config) is left out."""
+    out = {}
+    for key, name in GGUF_SAMPLING.items():
+        v = (kv or {}).get(key)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            continue
+        if name in ("top_k", "penalty_last_n"):
+            if v != int(v) or (name == "top_k" and not 1 <= v <= 64) or (name == "penalty_last_n" and v < 0):
+                continue
+            out[name] = int(v)
+            continue
+        if (name == "temperature" and v < 0) or (name == "top_p" and not 0 < v <= 1) or \
+                (name == "min_p" and not 0 <= v <= 1) or (name == "repetition_penalty" and v <= 0):
+            continue
+        out[name] = round(float(v), 6)                 # an f32 in the header: 0.95 reads 0.949999988079071
+    return out
+
+
+def meta_sampling(meta: dict) -> tuple[dict, str]:
+    """(a model file's sampling defaults, their source). A file whose meta names its sampling_source has the block
+    as written. An older file's block was a fixed fallback: the source GGUF's own general.sampling.* keys, kept in
+    the meta's copy of that header (gguf_kv), win over it."""
+    block = dict(meta.get("sampling") or {}) if isinstance(meta.get("sampling"), dict) else {}
+    if meta.get("sampling_source"):
+        return block, str(meta["sampling_source"])
+    found = gguf_sampling(meta.get("gguf_kv") if isinstance(meta.get("gguf_kv"), dict) else {})
+    return ({**block, **found}, "gguf") if found else (block, "file")
 
 
 def _align(n: int) -> int:

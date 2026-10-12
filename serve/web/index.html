@@ -107,7 +107,8 @@
       <div class="sh"><b id="cs-title" data-t="cs.title">Chat settings</b><span class="grow"></span>
         <button type="button" class="btn ghost" id="cs-close" data-t="cs.close">Close</button></div>
       <form class="csform" id="cs-form" novalidate>
-        <div class="csgroup">
+        <div class="csgroup" id="cs-preset-box">
+          <p class="csactive" id="cs-active" role="status" aria-live="polite"></p>
           <label for="cs-preset" data-t="cs.preset">Preset</label>
           <div class="csrow">
             <select id="cs-preset"><option value="" data-t="cs.preset.none">Current settings</option></select>
@@ -181,6 +182,7 @@
         </div>
         <div class="setactions">
           <p class="setstatus" id="cs-status" role="status" aria-live="polite"></p>
+          <button type="button" class="btn ghost" id="cs-machine" data-t="cs.machine" hidden>Restore Machine Default</button>
           <button type="button" class="btn ghost" id="cs-reset" data-t="cs.reset">Model defaults</button>
         </div>
       </form>

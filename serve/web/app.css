@@ -692,3 +692,7 @@ fieldset:disabled input, fieldset:disabled select { opacity: .7; }
   .ldform, .ldside, .ldmodels { min-width: 0; max-width: 100%; }
   .ldform select, .ldmodels select, #st-prof select { max-width: 100%; width: 100%; }
 }
+/* the chat's active preset, the Loader's no-model note */
+.csactive { margin: 0 0 6px; font-size: 14px; line-height: 1.5; color: var(--fg-2); }
+.ldstandby { padding: 14px 20px; margin-bottom: 16px; font-size: 16px; color: var(--fg); }
+@media (max-width: 640px) { .ldstandby { padding: 12px 16px; } }

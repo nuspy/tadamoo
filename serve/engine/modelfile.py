@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
-from model_file import ModelFile  # noqa: E402
+from model_file import ModelFile, meta_sampling  # noqa: E402
 
 VISION_EXE = "basalt-vision"
 
@@ -129,7 +129,7 @@ def model_config(path: str, engine_bin: str, gpus: int | None = None, vision: bo
     cdir = cache_dir(mf)
     cdir.mkdir(parents=True, exist_ok=True)
     cfg = {"engine_bin": os.path.abspath(engine_bin), "args": args, "model_name": meta.get("name") or "basalt",
-           "sampling": dict(meta.get("sampling") or {}), "log": str(cdir / "engine.log"),
+           "sampling": meta_sampling(meta)[0], "log": str(cdir / "engine.log"),
            "tokenizer": str(extract_tokenizer(mf))}
     v = vision_config(mf, engine_bin, sidecar=vision != "dynamic") if vision else None
     if v:
