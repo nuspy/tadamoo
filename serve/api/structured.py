@@ -1,4 +1,6 @@
-"""JSON response formats: prompt once, validate before delivery; failures are errors, never retried.
+"""JSON response formats: the schema goes in the prompt and the answer is validated before delivery; generation is not
+constrained (the engine has no grammar sampler). /v1/chat/completions tries again with the error fed back
+(api/openai.py structured_retry_chunks); a last failure is an error.
 
 `jsonschema` is optional: without it json_schema only checks for one JSON object (said once).
 """

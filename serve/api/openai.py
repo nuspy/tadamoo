@@ -96,28 +96,65 @@ def openai_collect(chunks) -> dict:
            "usage": last["usage"]}
     if last.get("timings"):
         out["timings"] = last["timings"]
+    if last.get("structured_output"):
+        out["structured_output"] = last["structured_output"]
     return out
 
 
-def structured_chunks(chunks, validator):
-    """Buffer structured streams so a client never receives unvalidated content."""
-    buffered = []
-    heartbeat = time.monotonic()
-    try:
-        for chunk in chunks:
-            if chunk is not None:
-                buffered.append(chunk)
-            if chunk is None or time.monotonic() - heartbeat >= 1:
-                heartbeat = time.monotonic()
-                yield None
+STRUCTURED_RETRIES = 2              # extra tries after an answer that fails its JSON check
+STRUCTURED_RETRIES_MAX = 5
+RETRY_TEXT = ("Your previous answer was rejected: {error}. Answer again with only the corrected JSON object that "
+              "matches the required JSON Schema: no Markdown, no code fences, no text outside the JSON.")
+
+
+def structured_retries(req: dict) -> int:
+    """The request's `structured_retries` (0..5, default 2); ValueError for anything else."""
+    n = req.get("structured_retries", STRUCTURED_RETRIES)
+    if isinstance(n, bool) or not isinstance(n, int) or not 0 <= n <= STRUCTURED_RETRIES_MAX:
+        raise ValueError(f"structured_retries: a whole number 0..{STRUCTURED_RETRIES_MAX}, not {n!r}")
+    return n
+
+
+def retry_messages(messages: list[dict], bad: str, error: str) -> list[dict]:
+    """The conversation with the rejected answer and the reason, for the next try."""
+    return [*messages, {"role": "assistant", "content": bad},
+            {"role": "user", "content": RETRY_TEXT.format(error=error)}]
+
+
+def structured_retry_chunks(start, validator, retries: int):
+    """Buffer each try, validate it, and on a rejected answer start again with the error fed back (at most `retries`
+    more times). `start(feedback)` gives a try's chunks: feedback is None first, then (rejected text, error). The
+    final chunk says how many tries it took (`structured_output`); generation itself is not constrained."""
+    from serve.api.structured import StructuredOutputError
+    feedback, attempt = None, 0
+    while True:
+        attempt += 1
+        chunks = start(feedback)
+        buffered, heartbeat = [], time.monotonic()
+        try:
+            for chunk in chunks:
+                if chunk is not None:
+                    buffered.append(chunk)
+                if chunk is None or time.monotonic() - heartbeat >= 1:
+                    heartbeat = time.monotonic()
+                    yield None
+        finally:
+            chunks.close()
         result = openai_collect(buffered)
         choice = result["choices"][0]
-        content = validated_json(choice["message"]["content"], validator, choice["finish_reason"])
+        try:
+            content = validated_json(choice["message"]["content"], validator, choice["finish_reason"])
+        except StructuredOutputError as e:
+            if attempt > retries or choice["finish_reason"] != "stop":
+                raise StructuredOutputError(f"{e} (after {attempt} tr{'y' if attempt == 1 else 'ies'})") from None
+            print(f"[server] structured output try {attempt} rejected ({e}); trying again", flush=True)
+            feedback = (choice["message"]["content"] or "", str(e))
+            continue
         yield buffered[0]
         delta = {"content": content}
         if choice["message"].get("reasoning_content"):
             delta["reasoning_content"] = choice["message"]["reasoning_content"]
         yield {**buffered[0], "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}
-        yield buffered[-1]
-    finally:
-        chunks.close()
+        yield {**buffered[-1], "structured_output": {"validated": True, "constrained": False, "attempts": attempt}}
+        return
+

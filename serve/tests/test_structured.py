@@ -119,8 +119,28 @@ class Structured(unittest.TestCase):
             load.assert_not_called()
         self.engine = self.svc.engine = MockEngine(self.tok, "Markdown is not JSON", max_context=16384)
         with mock.patch.object(self.engine, "generate", wraps=self.engine.generate) as generate:
-            self.assertEqual(self.chat()[0], 502)
+            self.assertEqual(self.chat(structured_retries=0)[0], 502)
             self.assertEqual(generate.call_count, 1)
+            code, reply = self.chat()                           # the default: two more tries, then the error
+            self.assertEqual(code, 502)
+            self.assertEqual(generate.call_count, 4)
+            self.assertIn("after 3 tries", reply["error"]["message"])
+        for bad in (-1, 6, "2", True):
+            self.assertEqual(self.chat(structured_retries=bad)[0], 400, bad)
+
+    def test_a_rejected_answer_is_tried_again_with_the_error(self):
+        code, reply = self.chat(["## Not JSON", json.dumps(STORY)])
+        self.assertEqual(code, 200, reply)
+        self.assertEqual(json.loads(reply["choices"][0]["message"]["content"]), STORY)
+        self.assertEqual(reply["structured_output"], {"validated": True, "constrained": False, "attempts": 2})
+        second = self.tok.decode(self.engine.requests[1][0])
+        self.assertIn("## Not JSON", second)                   # the rejected answer and why, then the request again
+        self.assertIn("Your previous answer was rejected", second)
+        code, raw = self.chat(["## Not JSON", json.dumps(STORY)], stream=True)
+        chunks = [json.loads(line[6:]) for line in raw.splitlines() if line.startswith("data: {")]
+        self.assertEqual(json.loads("".join(c["choices"][0]["delta"].get("content", "") for c in chunks)), STORY)
+        self.assertNotIn("Not JSON", raw)                       # the rejected try never reaches the client
+        self.assertEqual(chunks[-1]["structured_output"]["attempts"], 2)
 
     @unittest.skipUnless(HAVE_JSONSCHEMA, "jsonschema is not installed")
     def test_invalid_schema_is_400_and_local_refs_work(self):

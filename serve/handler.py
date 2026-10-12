@@ -19,7 +19,8 @@ from serve.engine.vision import VISION_MODES
 from serve.api.anthropic import anthropic_collect, anthropic_events
 from serve.engine.errors import EngineDied, EngineStarting, EngineStuck, GpuBusy, ModelBusy
 from serve.frontend import anthropic_to_messages, openai_to_messages
-from serve.api.openai import openai_chunks, openai_collect, structured_chunks
+from serve.api.openai import (openai_chunks, openai_collect, retry_messages, structured_retries,
+                              structured_retry_chunks)
 from serve.api.responses import ResponsesError
 from serve.security import host_allowed, host_names_for, key_matches, origin_allowed
 from serve.service import LOG_FIRST_LINES, LOG_MAX_LINES, Service, _debug_req
@@ -641,17 +642,25 @@ def make_handler(svc: Service):
             messages, validator = prepare_format(req.get("response_format"), messages)
             if validator is not None and tools:
                 raise ValueError("structured response_format with tools is not supported")
+            retries = structured_retries(req) if validator is not None else 0
             svc.load()
-            max_new = int(req.get("max_completion_tokens") or req.get("max_tokens") or 0)   # 0/-1: the rest of the context
+            asked = int(req.get("max_completion_tokens") or req.get("max_tokens") or 0)   # 0/-1: the rest of the context
             svc.reasoning_budget(req)                         # a bad value is a 400 before streaming
             stop_strings(req)                                 # likewise a bad stop
-            ids, thinking, max_new = svc.prepare(messages, tools, kw, max_new)
+            ids, thinking, max_new = svc.prepare(messages, tools, kw, asked)
             _debug_req("openai", req, messages, tools, max_new, thinking, len(ids))
             cancel = threading.Event()
             self._watch_client(cancel)
-            chunks = openai_chunks(svc, req, ids, thinking, tools, max_new, cancel)
-            if validator is not None:
-                chunks = structured_chunks(chunks, validator)
+            if validator is None:
+                chunks = openai_chunks(svc, req, ids, thinking, tools, max_new, cancel)
+            else:                                             # validated, and tried again with the error fed back
+                def start(feedback):
+                    if feedback is None:
+                        return openai_chunks(svc, req, ids, thinking, tools, max_new, cancel)
+                    again = retry_messages(messages, *feedback)
+                    ids2, thinking2, max_new2 = svc.prepare(again, tools, kw, asked)
+                    return openai_chunks(svc, req, ids2, thinking2, tools, max_new2, cancel)
+                chunks = structured_retry_chunks(start, validator, retries)
             if not req.get("stream"):
                 return self._json(200, openai_collect(chunks))
             self._sse()
