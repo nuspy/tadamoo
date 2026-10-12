@@ -354,6 +354,26 @@ class OverHttp(Isolated):
         self.assertEqual(self.req("POST", "/api/wizard/nope", {})[0], 404)
 
 
+class Cli(Isolated):
+    def test_without_questions(self):
+        env = {"BASALT_FAKE_SYSTEM_OK": "1", "BASALT_FAKE_SYSTEM": json.dumps(system()),
+               "BASALT_FAKE_GPU": json.dumps(BLACKWELL), "BASALT_FAKE_DISPLAYS": json.dumps([INTEL, NVIDIA]),
+               "BASALT_FAKE_CPU": json.dumps(HYBRID), "BASALT_FAKE_PAGEFILE": json.dumps({"files": []})}
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(out):
+            code = loader.main(["wizard", "--json", "--free-share", "0.2", "--save", "--port", "7240"])
+        self.assertEqual(code, 0, out.getvalue())
+        data = json.loads(out.getvalue())
+        self.assertEqual((data["proposal"]["monitor"], data["proposal"]["free_share"]), ("none", 0.2))
+        self.assertEqual(data["saved"]["values"]["server.port"], 7240)
+        self.assertEqual(profiles.default_name(), profiles.MACHINE_NAME)
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(out):
+            self.assertEqual(loader.main(["wizard", "--monitor", "primary", "--vram-libera", "3"]), 0)
+        self.assertIn("monitor principale", out.getvalue())
+        self.assertIn("engine.vram-reserve-mib = 3072", out.getvalue())
+
+
 class PendingMeasure(Isolated):
     def test_the_measurement_after_the_restart_with_the_model(self):
         from serve import loader_api
