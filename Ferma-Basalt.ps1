@@ -19,7 +19,7 @@
 .EXAMPLE
     .\Ferma-Basalt.ps1 --port 7298
 #>
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]   # --port / --model / --config go to $Altri, never to a parameter by position
 param(
     [string]$Config = 'basalt_config.json',
     [int]$Port = 0,

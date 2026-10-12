@@ -59,7 +59,7 @@
 .EXAMPLE
     .\Avvia-Basalt.ps1 --model "D:\Modelli\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --port 7240
 #>
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]   # --port / --model / --config go to $Altri, never to a parameter by position
 param(
     [string]$Config = '',
     [string]$Model = '',
