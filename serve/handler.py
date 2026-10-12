@@ -542,6 +542,11 @@ def make_handler(svc: Service):
         def _settings_post(self):
             """POST /api/settings {"changes": {"engine.spec": 7, "server.port": null, ...}}: validate and write them to
             the --config file. Only from this PC, only as JSON from the server's own page (the API key too, if set)."""
+            try:                                            # read first: a refusal then reaches the client whole
+                raw = self._body(settings.BODY_MAX)
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                return
             if not settings.is_loopback(self.client_address[0]):
                 self._json(403, {"error": {"type": "forbidden",
                                            "message": "settings can be changed only from the PC the server runs on"}})
@@ -549,10 +554,7 @@ def make_handler(svc: Service):
             if not self._own_page("settings can be changed"):
                 return
             try:
-                req = json.loads(self._body(settings.BODY_MAX) or b"{}")
-            except BadBody as e:
-                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
-                return
+                req = json.loads(raw or b"{}")
             except ValueError:
                 self._json(400, {"error": {"type": "invalid_request_error", "message": "the body is not valid JSON"}})
                 return
