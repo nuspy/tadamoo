@@ -35,8 +35,12 @@ const chatSettings = (() => {
   let modelDefaults = {}, serverPresets = null, inferenceDefault = null, started = false;
   // the preset this client used last: a name, "" (follow the default) or MODEL; edited: changed by hand since
   let last = load(LAST, null);
-  if (!last || typeof last !== "object" || typeof last.name !== "string")
-    last = { name: "", edited: Object.keys(load(STORE, {}) || {}).length > 0 };   // settings from before: kept
+  if (!last || typeof last !== "object" || typeof last.name !== "string") {
+    // the first opening with this version: settings a user typed before are kept, as changed by hand
+    const before = load(STORE, {}) || {}, plain = { policy: "stop", effort: "", format: "" };
+    last = { name: "", edited: Object.entries(before).some(([k, v]) => v !== "" && v != null && plain[k] !== v) };
+    keep(LAST, last);
+  }
 
   const grid = $("#cs-sampling");
   for (const f of SAMPLING) {
@@ -178,7 +182,7 @@ const chatSettings = (() => {
     const all = presets();
     if (last.name && last.name !== MODEL && all[last.name]) { write(all[last.name].settings); save(); drawPresets(last.name); return; }
     if (last.name === MODEL) { write(modelOnly()); save(); return; }
-    if (last.name) last = { name: "", edited: false };    // the preset was deleted: the default
+    if (last.name) { last = { name: "", edited: false }; keep(LAST, last); }   // the preset was deleted: the default
     followDefault();
   }
   function followDefault() {
@@ -309,8 +313,10 @@ const chatSettings = (() => {
   /* the model's defaults as placeholders (GET /props) */
   async function defaults() {
     try {
+      const h = await fetch("health", { cache: "no-store" }).then(r => r.json());
+      if (h.standby) throw new Error("no model loaded yet");   // /props answers once a model is loaded
       const r = await fetch("props", { cache: "no-store", headers: authHeaders() });
-      if (!r.ok) return;
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const p = (((await r.json()).default_generation_settings) || {}).params || {};
       const names = { repeat_penalty: "repetition_penalty", repeat_last_n: "penalty_last_n" };
       modelDefaults = Object.fromEntries(Object.entries(p).map(([k, v]) => [names[k] || k, v]));
@@ -321,6 +327,11 @@ const chatSettings = (() => {
     }
   }
   document.addEventListener("basalt:key", () => { defaults(); fetchPresets(); });
+  // the wizard saved a new Machine Default: a client that follows the default takes it now
+  document.addEventListener("basalt:machine", async () => {
+    await fetchPresets();
+    if (!last.edited && !last.name) { followDefault(); showActive(); }
+  });
   document.addEventListener("basalt:view", e => { if (e.detail === "chat") defaults(); });
 
   write(load(STORE, {}));

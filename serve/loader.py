@@ -429,10 +429,11 @@ def reserve_proposal(system: dict, monitor: str | None = None, holds_vram: int =
                 "none": "nothing for monitors: this GPU drives none",
                 None: f"+{g(extra)} GB until the configuration wizard confirms where the monitor is"}[
         monitor if monitor in MONITOR_PLACES else None]
-    where_it = {"primary": f"+{g(extra)} GB perché questa GPU pilota il monitor principale",
-                "secondary": f"+{g(extra)} GB per il monitor secondario su questa GPU (accenderlo usa un po' di VRAM)",
+    gi = lambda m: g(m).replace(".", ",")                                      # noqa: E731
+    where_it = {"primary": f"+{gi(extra)} GB perché questa GPU pilota il monitor principale",
+                "secondary": f"+{gi(extra)} GB per il monitor secondario su questa GPU (accenderlo usa un po' di VRAM)",
                 "none": "niente per i monitor: questa GPU non ne pilota",
-                None: f"+{g(extra)} GB finché la configurazione guidata non conferma dov'è il monitor"}[
+                None: f"+{gi(extra)} GB finché la configurazione guidata non conferma dov'è il monitor"}[
         monitor if monitor in MONITOR_PLACES else None]
     return (mib, f"{g(mib)} GB stay free on the GPU: {g(RESERVE_BASE_MIB)} GB for the driver, {g(others)} GB that other "
                  f"programs use now, {where_en}.",

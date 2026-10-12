@@ -743,3 +743,4 @@ fieldset:disabled input, fieldset:disabled select { opacity: .7; }
   .wz-foot { padding-inline: 16px; }
   .wz-foot .btn { flex: 1 1 0; }
 }
+@media (max-width: 640px) { .wz-msg { flex-basis: 100%; } .wz-msg:empty { display: none; } }
