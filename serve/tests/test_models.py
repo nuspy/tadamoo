@@ -144,7 +144,7 @@ class Base(unittest.TestCase):
         self.cache = self.root / "cache"
         self.models = self.root / "models"
         self.models.mkdir()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": str(self.cache)})
+        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": str(self.cache), "BASALT_DATA": str(self.cache)})
         self.env.start()
         self.geo = mock.patch.object(models, "GEOMETRY", dict(SMALL))
         self.geo.start()

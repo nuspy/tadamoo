@@ -30,7 +30,7 @@ FAST = {"engine.max-context": 65536, "engine.kv": "int8", "engine.spec": 7, "ser
 class Store(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name})
         self.env.start()
 
     def tearDown(self):
@@ -112,7 +112,7 @@ class Store(unittest.TestCase):
 class OverHttp(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name})
         self.env.start()
         tok = ByteTokenizer()
         self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))

@@ -1,6 +1,6 @@
 """Saved configurations, shared by the web UI, the desktop app and the start scripts: named load profiles (the
 Loader's engine fields, the port and, when saved with one, the model file) and named inference presets (the chat
-settings). They live in one JSON file in the basalt cache directory (outside the repository). "Valori sicuri" is a
+settings). They live in one JSON file in the user's data folder (serve/userdata.py, outside the repository). "Valori sicuri" is a
 built-in load profile: it cannot be changed or deleted, it keeps the model the config file has, and it is the default
 until another profile is chosen.
 
@@ -34,8 +34,8 @@ INFERENCE_KEYS = ("system", "stop", "policy", "threshold", "effort", "temperatur
 
 
 def path() -> Path:
-    from serve.engine.modelfile import cache_root
-    return cache_root() / "profiles.json"
+    from serve import userdata
+    return userdata.path("profiles.json")
 
 
 def _read() -> dict:

@@ -1,1 +1,8 @@
 """Tests for the server: python -m unittest discover -s serve/tests -t ."""
+import os
+import tempfile
+
+# a test never reads or writes the user's own settings or caches: both default to a scratch folder for this run
+_scratch = tempfile.mkdtemp(prefix="basalt-tests-")
+os.environ.setdefault("BASALT_DATA", os.path.join(_scratch, "data"))
+os.environ.setdefault("BASALT_CACHE", os.path.join(_scratch, "cache"))

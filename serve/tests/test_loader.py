@@ -175,7 +175,7 @@ def make_service(max_context=4096):
 class Calibration(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name})
         self.env.start()
 
     def tearDown(self):
@@ -203,7 +203,7 @@ class Calibration(unittest.TestCase):
 class OverHttp(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name})
         self.env.start()
         self.path = os.path.join(self.dir.name, "basalt_config.json")
         Path(self.path).write_text(json.dumps(CONFIG, indent=2), encoding="utf-8")

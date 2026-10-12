@@ -561,8 +561,8 @@ def predict_speed(the_plan: dict, calibration: dict | None = None) -> dict:
 
 # ------------------------------------------------------------------------------------------------ calibration file
 def calibration_path(facts: dict) -> Path:
-    from serve.engine.modelfile import cache_root
-    return cache_root() / (facts.get("meta_hash") or "mock") / "calibration.json"
+    from serve import userdata
+    return userdata.calibration_file(facts.get("meta_hash") or "mock")
 
 
 def read_calibrations(facts: dict) -> dict:

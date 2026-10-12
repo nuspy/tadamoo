@@ -1,6 +1,6 @@
 """The models folders and what is in them, for the Loader, the Settings page and the desktop app.
 
-The owner names one or more folders (kept next to the load profiles, in the basalt cache directory: models.json).
+The owner names one or more folders (kept next to the load profiles, in the user's data folder: models.json).
 Every .basalt and .gguf file under them is described from its header alone - the .basalt 64 KiB table with its meta
 and experts.layout sections, the GGUF key/value block and tensor directory; no weights are read - cached by path,
 size and modification time, and given a status for Basalt:
@@ -100,8 +100,8 @@ def gb(n) -> str:
 
 # ------------------------------------------------------------------------------------------------ the folders
 def store_path() -> Path:
-    from serve.engine.modelfile import cache_root
-    return cache_root() / "models.json"
+    from serve import userdata
+    return userdata.path("models.json")
 
 
 def read_store() -> dict:
