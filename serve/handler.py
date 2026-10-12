@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
 from serve import ROOT, chatctx, loader, loader_api, models, profiles, settings
+from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
 from serve.api.anthropic import anthropic_collect, anthropic_events
@@ -294,8 +295,13 @@ def make_handler(svc: Service):
                     self._json(200, {**loader_api.sup_of(svc).status(), "loaded": svc.loaded(), "loading": svc.loading,
                                      "standby": bool(getattr(svc, "standby", False)),
                                      "max_context": svc.engine.max_context})
+            elif path == "/api/prefs":
+                self._json(200, lang_mod.info())
             elif path == "":
-                body = (ROOT / "serve" / "web" / "index.html").read_bytes()
+                # the page opens in the user's language (serve/lang.py) unless this browser chose another
+                code = lang_mod.lang()
+                body = (ROOT / "serve" / "web" / "index.html").read_bytes().replace(
+                    b'<html lang="en">', f'<html lang="{code}" data-server-lang="{code}">'.encode(), 1)
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
@@ -359,6 +365,22 @@ def make_handler(svc: Service):
                 return
             if path.startswith("/api/wizard/"):
                 self._wizard_post(path[len("/api/wizard/"):])
+                return
+            if path == "/api/prefs":                          # the user's language, shared with the app and the scripts
+                if not settings.is_loopback(self.client_address[0]):
+                    self._json(403, {"error": {"type": "forbidden",
+                                               "message": "preferences can be changed only from the PC the server runs on"}})
+                    return
+                if not self._own_page("preferences can be changed"):
+                    return
+                try:
+                    req = json.loads(self._body(1 << 16) or b"{}")
+                    lang_mod.set_lang(req.get("lang") if isinstance(req, dict) else None)
+                    self._json(200, lang_mod.info())
+                except BadBody as e:
+                    self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                except ValueError as e:
+                    self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
                 return
             if path == "/api/profiles":
                 self._profiles_post()

@@ -1,16 +1,20 @@
 "use strict";
-/* Strings of the Loader and the chat settings in English and Italian. The language follows the browser unless
-   ?lang=en|it (remembered in this browser) picks one. */
+/* Strings of the Loader and the chat settings in English and Italian. The language: ?lang=en|it (remembered in this
+   browser), else the user's language that the server puts on the page (serve/lang.py: the choice made in Settings,
+   shared with the app and the scripts, else English). */
 const LANG = (() => {
   let pick = new URLSearchParams(location.search).get("lang");
   try {
     if (pick === "en" || pick === "it") localStorage.setItem("basalt.lang", pick);
     else pick = localStorage.getItem("basalt.lang");
-  } catch (e) { /* storage blocked: the browser's language */ }
+  } catch (e) { /* storage blocked: the server's or the browser's language */ }
   if (pick === "en" || pick === "it") return pick;
-  return /^it\b/i.test(navigator.language || "") ? "it" : "en";
+  const server = document.documentElement.dataset.serverLang;
+  if (server === "en" || server === "it") return server;
+  return "en";
 })();
 document.documentElement.dataset.lang = LANG;
+document.documentElement.lang = LANG;
 
 const STRINGS = {
   en: {
@@ -126,6 +130,7 @@ const STRINGS = {
     "rsv.fixed": "The expert cache has a fixed number of slots: the reserve does not change how many experts are in VRAM.",
     "rsv.procs": "On the GPU now: {0}",
     "ld.model.restart": "Saved: “{0}” loads when Basalt Win+GUI starts again (from the tray icon: Spegni, then start it; or Ferma-Basalt.ps1 and Avvia-Basalt.ps1).",
+    "st.lang.title": "Language", "st.lang.label": "Language of Basalt Win+GUI: the app, this page, the scripts and the command-line tools", "st.lang.auto": "Default (English)", "st.lang.saved": "Saved: the page reloads in the new language.",
     "ld.open": "Open the Loader", "st.reload.title": "Reload the model", "st.reload.help": "Pick a load profile or edit the values in the Loader; the prediction below is checked again before the reload.",
   },
   it: {
@@ -239,6 +244,7 @@ const STRINGS = {
     "rsv.fixed": "La cache esperti ha un numero fisso di posti: la riserva non cambia quanti esperti stanno in VRAM.",
     "rsv.procs": "Sulla GPU ora: {0}",
     "ld.model.restart": "Salvato: «{0}» si carica al prossimo avvio di Basalt Win+GUI (dall'icona: Spegni e poi riavvia; oppure Ferma-Basalt.ps1 e Avvia-Basalt.ps1).",
+    "st.lang.title": "Lingua", "st.lang.label": "Lingua di Basalt Win+GUI: l'app, questa pagina, gli script e i comandi", "st.lang.auto": "Predefinita (inglese)", "st.lang.saved": "Salvata: la pagina si ricarica nella nuova lingua.",
     "ld.open": "Apri il Loader", "st.reload.title": "Ricarica il modello", "st.reload.help": "Scegli un profilo di caricamento o modifica i valori nel Loader; la previsione qui sotto viene ricontrollata prima di ricaricare.",
   },
 };

@@ -35,15 +35,15 @@ sealed class MainForm : Form
     readonly Label check = new() { AutoSize = true, ForeColor = Fg2, Font = new Font("Consolas", 10.5f), Margin = new Padding(0, 8, 0, 8) };
     readonly Label reasonLabel = new() { AutoSize = true, ForeColor = Color.FromArgb(255, 143, 163), Font = new Font("Consolas", 10f), Margin = new Padding(0, 0, 0, 12), Visible = false };
     readonly FlowLayoutPanel startBar = new() { Dock = DockStyle.Bottom, AutoSize = false, Height = 84, WrapContents = false, Padding = new Padding(32, 12, 32, 16), BackColor = Color.FromArgb(21, 26, 31) };
-    readonly Button go = Btn("Avvia", true), headless = Btn("Avvia solo server", false), quit = Btn("Esci", false);
-    readonly Button foldersBtn = Btn("Cartelle dei modelli…", false), defaultBtn = Btn("Usa come modello predefinito per il server", false);
+    readonly Button go = Btn(Tr.T("Avvia", "Start"), true), headless = Btn(Tr.T("Avvia solo server", "Start server only"), false), quit = Btn(Tr.T("Esci", "Quit"), false);
+    readonly Button foldersBtn = Btn(Tr.T("Cartelle dei modelli…", "Models folders…"), false), defaultBtn = Btn(Tr.T("Usa come modello predefinito per il server", "Use as the default server model"), false);
     readonly System.Windows.Forms.Timer poll = new() { Interval = 500 }, recheck = new() { Interval = 350 };
     // the folder prompt, shown instead of the start panel until the models folders are set
     readonly TableLayoutPanel folders = new() { Dock = DockStyle.Fill, Padding = new Padding(32, 24, 32, 24), BackColor = Bg, Visible = false };
     readonly ListBox folderList = new() { Height = 150, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 11.5f), IntegralHeight = false };
     readonly Label folderMsg = new() { AutoSize = true, ForeColor = Bad, Font = new Font("Segoe UI", 10.5f) };
     readonly FlowLayoutPanel suggestRow = new() { AutoSize = true, WrapContents = true, Margin = new Padding(0, 8, 0, 8) };
-    readonly Button folderGo = Btn("Continua", true);
+    readonly Button folderGo = Btn(Tr.T("Continua", "Continue"), true);
     List<JsonElement> profileList = new();
     List<JsonElement> modelList = new();
     string defaultModel;
@@ -80,11 +80,11 @@ sealed class MainForm : Form
                   : Path.Combine(string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello") : data, "desktop.json");
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Apri", null, (_, _) => ShowWindow());
-        menu.Items.Add("Ricarica con altri parametri…", null, (_, _) => { ShowWindow(); if (web.Visible) web.CoreWebView2?.Navigate($"http://127.0.0.1:{serverPort}/#loader"); });
-        menu.Items.Add("Avvia solo server (per gli agenti)…", null, async (_, _) => await HeadlessFromTray());
+        menu.Items.Add(Tr.T("Apri", "Open"), null, (_, _) => ShowWindow());
+        menu.Items.Add(Tr.T("Ricarica con altri parametri…", "Reload with other settings…"), null, (_, _) => { ShowWindow(); if (web.Visible) web.CoreWebView2?.Navigate($"http://127.0.0.1:{serverPort}/#loader"); });
+        menu.Items.Add(Tr.T("Avvia solo server (per gli agenti)…", "Start the server alone (for agents)…"), null, async (_, _) => await HeadlessFromTray());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Spegni", null, (_, _) => TurnOff(true));
+        menu.Items.Add(Tr.T("Spegni", "Turn off"), null, (_, _) => TurnOff(true));
         tray = new NotifyIcon { Icon = Icon, Text = Program.AppName, ContextMenuStrip = menu, Visible = true };
         tray.DoubleClick += (_, _) => ShowWindow();
 
@@ -132,8 +132,8 @@ sealed class MainForm : Form
         start.AutoScroll = true;
         start.Controls.Add(L(Program.AppName, 22f, Fg, FontStyle.Bold));
         start.Controls.Add(reasonLabel);
-        start.Controls.Add(L("Scegli il modello e il profilo di caricamento: prima di avviare controllo che VRAM, RAM e commit bastino lasciando libera la parte di RAM e di commit scelta per gli altri programmi.", 11f, Fg2));
-        start.Controls.Add(L("Modello", 11.5f, Fg, FontStyle.Bold));
+        start.Controls.Add(L(Tr.T("Scegli il modello e il profilo di caricamento: prima di avviare controllo che VRAM, RAM e commit bastino lasciando libera la parte di RAM e di commit scelta per gli altri programmi.", "Choose the model and the load profile: before starting, VRAM, RAM and commit are checked, leaving free the share of RAM and commit chosen for the other programs."), 11f, Fg2));
+        start.Controls.Add(L(Tr.T("Modello", "Model"), 11.5f, Fg, FontStyle.Bold));
         var mrow = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 0, 0, 0) };
         mrow.Controls.AddRange(new Control[] { modelBox, foldersBtn });
         start.Controls.Add(mrow);
@@ -141,22 +141,22 @@ sealed class MainForm : Form
         var drow = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 0, 0, 12) };
         drow.Controls.Add(defaultBtn);
         start.Controls.Add(drow);
-        start.Controls.Add(L("Profilo di caricamento", 11.5f, Fg, FontStyle.Bold));
+        start.Controls.Add(L(Tr.T("Profilo di caricamento", "Load profile"), 11.5f, Fg, FontStyle.Bold));
         start.Controls.Add(profiles);
-        start.Controls.Add(L("VRAM da lasciare libera", 11.5f, Fg, FontStyle.Bold));
+        start.Controls.Add(L(Tr.T("VRAM da lasciare libera", "VRAM to leave free"), 11.5f, Fg, FontStyle.Bold));
         var rrow = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 0, 0, 0) };
         rrow.Controls.AddRange(new Control[] { reserveBar, reserve, L("GB", 11.5f, Fg) });
         start.Controls.Add(rrow);
-        start.Controls.Add(L("Il resto della VRAM contiene esperti: più VRAM libera vuol dire meno esperti sulla GPU, un po' più lento e meno commit. Da 1 a 2 GB è il minimo per desktop e driver.", 10f, Fg2));
+        start.Controls.Add(L(Tr.T("Il resto della VRAM contiene esperti: più VRAM libera vuol dire meno esperti sulla GPU, un po' più lento e meno commit. Da 1 a 2 GB è il minimo per desktop e driver.", "The rest of the VRAM holds experts: more free VRAM means fewer experts on the GPU, a little slower, and less commit. 1 to 2 GB is the least for the desktop and the driver."), 10f, Fg2));
         var row = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 12, 0, 8) };
-        row.Controls.Add(L("Porta", 11.5f, Fg, FontStyle.Bold));
+        row.Controls.Add(L(Tr.T("Porta", "Port"), 11.5f, Fg, FontStyle.Bold));
         row.Controls.Add(port);
         start.Controls.Add(row);
         start.Controls.Add(check);
         // the buttons stay in sight at the bottom of the window while the panel above scrolls
         startBar.Controls.AddRange(new Control[] { go, headless, quit });
         start.VisibleChanged += (_, _) => startBar.Visible = start.Visible;
-        start.Controls.Add(L("«Avvia solo server» avvia il server senza finestra né icona (per gli agenti); si ferma con Ferma-Basalt.ps1 --port N.", 10f, Fg2));
+        start.Controls.Add(L(Tr.T("«Avvia solo server» avvia il server senza finestra né icona (per gli agenti); si ferma con Ferma-Basalt.ps1 --port N.", "“Start server only” starts the server without window or icon (for agents); Ferma-Basalt.ps1 --port N stops it."), 10f, Fg2));
         for (int i = 0; i < start.Controls.Count; i++) start.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         WrapLabels(start);
         foreach (var c in new Control[] { profiles, modelBox, port, reserve }) { c.BackColor = Panel; c.ForeColor = Fg; }
@@ -198,19 +198,19 @@ sealed class MainForm : Form
     {
         folders.ColumnCount = 1;
         folders.AutoScroll = true;
-        folders.Controls.Add(L("Dove sono i modelli?", 20f, Fg, FontStyle.Bold));
-        folders.Controls.Add(L("Prima di continuare scegli una o più cartelle in cui cercare i modelli: file .basalt pronti e modelli GGUF scaricati (per esempio da LM Studio). La ricerca guarda anche nelle sottocartelle e legge solo le intestazioni dei file.", 11f, Fg2));
+        folders.Controls.Add(L(Tr.T("Dove sono i modelli?", "Where are the models?"), 20f, Fg, FontStyle.Bold));
+        folders.Controls.Add(L(Tr.T("Prima di continuare scegli una o più cartelle in cui cercare i modelli: file .basalt pronti e modelli GGUF scaricati (per esempio da LM Studio). La ricerca guarda anche nelle sottocartelle e legge solo le intestazioni dei file.", "Before going on, choose one or more folders to search for models: ready .basalt files and downloaded GGUF models (for example from LM Studio). The search also looks in the subfolders and reads only the files' headers."), 11f, Fg2));
         folders.Controls.Add(folderList);
         var row = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 8, 0, 0) };
-        var add = Btn("Aggiungi cartella…", false);
-        var remove = Btn("Rimuovi", false);
+        var add = Btn(Tr.T("Aggiungi cartella…", "Add a folder…"), false);
+        var remove = Btn(Tr.T("Rimuovi", "Remove"), false);
         row.Controls.AddRange(new Control[] { add, remove });
         folders.Controls.Add(row);
-        folders.Controls.Add(L("Trovate su questo PC:", 10.5f, Fg2));
+        folders.Controls.Add(L(Tr.T("Trovate su questo PC:", "Found on this PC:"), 10.5f, Fg2));
         folders.Controls.Add(suggestRow);
         folders.Controls.Add(folderMsg);
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 12, 0, 0) };
-        var leave = Btn("Esci", false);
+        var leave = Btn(Tr.T("Esci", "Quit"), false);
         buttons.Controls.AddRange(new Control[] { folderGo, leave });
         folders.Controls.Add(buttons);
         for (int i = 0; i < folders.Controls.Count; i++) folders.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -220,7 +220,7 @@ sealed class MainForm : Form
         folderGo.Enabled = false;
         add.Click += (_, _) =>
         {
-            using var dlg = new FolderBrowserDialog { Description = "Cartella dei modelli", UseDescriptionForTitle = true, ShowNewFolderButton = false };
+            using var dlg = new FolderBrowserDialog { Description = Tr.T("Cartella dei modelli", "Models folder"), UseDescriptionForTitle = true, ShowNewFolderButton = false };
             if (dlg.ShowDialog(this) == DialogResult.OK) AddFolder(dlg.SelectedPath);
         };
         remove.Click += (_, _) => { if (folderList.SelectedIndex >= 0) folderList.Items.RemoveAt(folderList.SelectedIndex); folderGo.Enabled = folderList.Items.Count > 0; };
@@ -256,20 +256,20 @@ sealed class MainForm : Form
         foreach (var s in root.GetProperty("suggestions").EnumerateArray())
         {
             string path = s.GetString();
-            var b = Btn("Aggiungi " + path, false);
+            var b = Btn(Tr.T("Aggiungi ", "Add ") + path, false);
             b.Click += (_, _) => AddFolder(path);
             suggestRow.Controls.Add(b);
         }
-        if (suggestRow.Controls.Count == 0) suggestRow.Controls.Add(L("(nessuna cartella di modelli nota trovata)", 10.5f, Fg2));
+        if (suggestRow.Controls.Count == 0) suggestRow.Controls.Add(L(Tr.T("(nessuna cartella di modelli nota trovata)", "(no known models folder found)"), 10.5f, Fg2));
         folderGo.Enabled = folderList.Items.Count > 0;
     }
 
     async Task SaveFolders()
     {
         var dirs = folderList.Items.Cast<string>().ToList();
-        if (dirs.Count == 0) { folderMsg.Text = "Aggiungi almeno una cartella."; return; }
+        if (dirs.Count == 0) { folderMsg.Text = Tr.T("Aggiungi almeno una cartella.", "Add at least one folder."); return; }
         folderGo.Enabled = false;
-        folderMsg.ForeColor = Fg2; folderMsg.Text = "Cerco nelle cartelle…";
+        folderMsg.ForeColor = Fg2; folderMsg.Text = Tr.T("Cerco nelle cartelle…", "Searching the folders…");
         var (code, output) = await Py(new[] { "-m", "serve.models", "set-dirs" }.Concat(dirs).ToArray());
         folderGo.Enabled = true;
         if (code != 0) { folderMsg.ForeColor = Bad; folderMsg.Text = output.Trim(); return; }
@@ -284,17 +284,17 @@ sealed class MainForm : Form
     string SelectedModelPath => SelectedModel()?.GetProperty("path").GetString();
     bool SelectedReady => SelectedModel() is JsonElement m && m.GetProperty("status").GetString() == "ready";
 
-    static string Status(string s) => s switch { "ready" => "✓ Pronto", "convert" => "⇄ Da convertire", _ => "✕ Non compatibile" };
+    static string Status(string s) => s switch { "ready" => Tr.T("✓ Pronto", "✓ Ready"), "convert" => Tr.T("⇄ Da convertire", "⇄ To convert"), _ => Tr.T("✕ Non compatibile", "✕ Not compatible") };
     static string Gb(long bytes) => (bytes / 1073741824.0).ToString("0.0", System.Globalization.CultureInfo.GetCultureInfo("it-IT")) + " GB";
 
     async Task LoadModels()
     {
         modelInfo.ForeColor = Fg2;
-        modelInfo.Text = "Cerco i modelli nelle cartelle…";
+        modelInfo.Text = Tr.T("Cerco i modelli nelle cartelle…", "Searching the models in the folders…");
         var (code, output) = await Py("-m", "serve.models", "json", "--config", cfgPath);
         modelList.Clear();
         modelBox.Items.Clear();
-        if (code != 0) { modelInfo.Text = "Non riesco a leggere i modelli:\n" + output; return; }
+        if (code != 0) { modelInfo.Text = Tr.T("Non riesco a leggere i modelli:\n", "Cannot read the models:\n") + output; return; }
         var root = JsonDocument.Parse(output.Trim().Split('\n').Last()).RootElement.Clone();
         defaultModel = root.TryGetProperty("default_model", out var dm) && dm.ValueKind == JsonValueKind.String ? dm.GetString() : null;
         int incompatible = 0;
@@ -315,7 +315,7 @@ sealed class MainForm : Form
             int i = modelList.FindIndex(x => x.GetProperty("status").GetString() == "ready");
             if (i >= 0) modelBox.SelectedIndex = i;
         }
-        if (modelList.Count == 0) modelInfo.Text = $"Nessun modello pronto o da convertire nelle cartelle ({incompatible} file non compatibili). Usa «Cartelle dei modelli…».";
+        if (modelList.Count == 0) modelInfo.Text = Tr.T($"Nessun modello pronto o da convertire nelle cartelle ({incompatible} file non compatibili). Usa «Cartelle dei modelli…».", $"No model ready or to convert in the folders ({incompatible} files not compatible). Use “Models folders…”.");
         ShowModelInfo();
     }
 
@@ -336,18 +336,18 @@ sealed class MainForm : Form
         var e = m.Value;
         string st = e.GetProperty("status").GetString();
         var parts = new List<string> { e.GetProperty("path").GetString() };
-        if (e.TryGetProperty("experts_bytes", out var eb) && eb.GetInt64() > 0) parts.Add("esperti " + Gb(eb.GetInt64()));
-        if (e.TryGetProperty("mtp", out var mtp) && mtp.ValueKind == JsonValueKind.String) parts.Add(mtp.GetString() == "present" ? "drafter MTP" : mtp.GetString() == "source" ? "MTP da mtp-qwen" : "MTP da scaricare");
-        if (e.TryGetProperty("vision", out var vis) && vis.ValueKind == JsonValueKind.True) parts.Add("visione");
-        string why = e.GetProperty("reason").GetProperty("it").GetString();
-        string extra = st == "convert" ? "\nDa convertire: avvia Basalt Win+GUI con un modello pronto e usa «Carica modello» → Converti, oppure Avvia-Basalt.ps1 --model \"<file gguf>\" -Converti." : "";
+        if (e.TryGetProperty("experts_bytes", out var eb) && eb.GetInt64() > 0) parts.Add(Tr.T("esperti ", "experts ") + Gb(eb.GetInt64()));
+        if (e.TryGetProperty("mtp", out var mtp) && mtp.ValueKind == JsonValueKind.String) parts.Add(mtp.GetString() == "present" ? Tr.T("drafter MTP", "MTP drafter") : mtp.GetString() == "source" ? Tr.T("MTP da mtp-qwen", "MTP from mtp-qwen") : Tr.T("MTP da scaricare", "MTP to download"));
+        if (e.TryGetProperty("vision", out var vis) && vis.ValueKind == JsonValueKind.True) parts.Add(Tr.T("visione", "vision"));
+        string why = e.GetProperty("reason").GetProperty(Tr.Code).GetString();
+        string extra = st == "convert" ? Tr.T("\nDa convertire: avvia Basalt Win+GUI con un modello pronto e usa «Carica modello» → Converti, oppure Avvia-Basalt.ps1 --model \"<file gguf>\" -converti.", "\nTo convert: start Basalt Win+GUI with a ready model and use the Loader → Converti, or Avvia-Basalt.ps1 --model \"<gguf file>\" -converti.") : "";
         int inc = modelBox.Tag is int n ? n : 0;
         modelInfo.ForeColor = st == "ready" ? Fg2 : Bad;
-        modelInfo.Text = string.Join(" · ", parts) + "\n" + why + extra + (inc > 0 ? $"\n({inc} file non compatibili nelle cartelle: l'elenco completo è in «Carica modello».)" : "");
+        modelInfo.Text = string.Join(" · ", parts) + "\n" + why + extra + (inc > 0 ? Tr.T($"\n({inc} file non compatibili nelle cartelle: l'elenco completo è in «Carica modello».)", $"\n({inc} files not compatible in the folders: the full list is in the Loader.)") : "");
         bool isDefault = defaultModel != null && string.Equals(defaultModel.Replace('\\', '/'), SelectedModelPath?.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase);
         defaultBtn.Visible = st == "ready";
         defaultBtn.Enabled = !isDefault;
-        defaultBtn.Text = isDefault ? "★ Modello predefinito per il server" : "Usa come modello predefinito per il server";
+        defaultBtn.Text = isDefault ? Tr.T("★ Modello predefinito per il server", "★ Default server model") : Tr.T("Usa come modello predefinito per il server", "Use as the default server model");
     }
 
     async Task MakeDefault()
@@ -422,13 +422,13 @@ sealed class MainForm : Form
             var (p, h) = running[0];
             string model = h.TryGetProperty("model", out var m) ? m.GetString() : "?";
             string last = opt.Model ?? ReadState("last_model");
-            string want = last != null ? Path.GetFileNameWithoutExtension(last) : "un altro modello";
-            var attach = new TaskDialogButton("Collegati al server in esecuzione");
-            var change = new TaskDialogButton($"Cambia modello: chiudi il server attuale e scegli «{want}» nel Loader");
+            string want = last != null ? Path.GetFileNameWithoutExtension(last) : Tr.T("un altro modello", "another model");
+            var attach = new TaskDialogButton(Tr.T("Collegati al server in esecuzione", "Connect to the running server"));
+            var change = new TaskDialogButton(Tr.T($"Cambia modello: chiudi il server attuale e scegli «{want}» nel Loader", $"Change model: close the running server and choose “{want}” in the Loader"));
             var page = new TaskDialogPage
             {
-                Caption = Program.AppName, Heading = $"{Program.AppName} è già acceso sulla porta {p}",
-                Text = $"Modello in uso: {model}. Puoi usare questo server, oppure chiuderlo (solo lui e i suoi processi) e caricare un altro modello dal Loader.",
+                Caption = Program.AppName, Heading = Tr.T($"{Program.AppName} è già acceso sulla porta {p}", $"{Program.AppName} is already running on port {p}"),
+                Text = Tr.T($"Modello in uso: {model}. Puoi usare questo server, oppure chiuderlo (solo lui e i suoi processi) e caricare un altro modello dal Loader.", $"Model in use: {model}. You can use this server, or close it (only it and its processes) and load another model from the Loader."),
                 Buttons = { attach, change, TaskDialogButton.Cancel }, Icon = TaskDialogIcon.Information,
             };
             var choice = TaskDialog.ShowDialog(this, page);
@@ -436,7 +436,7 @@ sealed class MainForm : Form
             if (choice != change) { exiting = true; Close(); return; }
             await StopExternal(p);
         }
-        if (opt.TestFallback) { await Fallback("prova: il server web non parte (--test-fallback)"); return; }
+        if (opt.TestFallback) { await Fallback(Tr.T("prova: il server web non parte (--test-fallback)", "test: the web server does not start (--test-fallback)")); return; }
         await StartWeb(true);
     }
 
@@ -461,21 +461,21 @@ sealed class MainForm : Form
         {
             // a new installation: a config file without a model; the Loader writes the model and the values into it
             try { File.WriteAllText(cfgPath, "{\n  \"server\": {\n    \"port\": 7232,\n    \"listen-first\": true\n  },\n  \"engine\": {}\n}\n"); }
-            catch (Exception e) { await Fallback($"Non riesco a creare {cfgPath}: {e.Message}"); return; }
+            catch (Exception e) { await Fallback(Tr.T($"Non riesco a creare {cfgPath}: {e.Message}", $"Cannot create {cfgPath}: {e.Message}")); return; }
         }
-        if (!File.Exists(cfgPath)) { await Fallback($"Manca il file di configurazione {cfgPath}."); return; }
+        if (!File.Exists(cfgPath)) { await Fallback(Tr.T($"Manca il file di configurazione {cfgPath}.", $"The config file is missing: {cfgPath}.")); return; }
         int p = WebPort();
         var taken = Native.Listeners().FirstOrDefault(x => x.port == p);
         if (taken.port != 0)
         {
             string who = "?";
             try { who = Process.GetProcessById(taken.pid).ProcessName; } catch { }
-            await Fallback($"La porta {p} è occupata da {who} (PID {taken.pid}): scegli un'altra porta qui sotto, oppure avvia l'app con --port N.");
+            await Fallback(Tr.T($"La porta {p} è occupata da {who} (PID {taken.pid}): scegli un'altra porta qui sotto, oppure avvia l'app con --port N.", $"Port {p} is taken by {who} (PID {taken.pid}): choose another port below, or start the app with --port N."));
             return;
         }
         string py = Path.Combine(opt.Repo, ".venv", "Scripts", "python.exe");
         string exe = opt.TestMock ? py : Path.Combine(opt.Repo, "bin", "basalt.exe");
-        if (!File.Exists(exe)) { await Fallback($"Manca {exe}: il motore non è costruito in questa cartella (vedi docs\\WINDOWS.md)."); return; }
+        if (!File.Exists(exe)) { await Fallback(Tr.T($"Manca {exe}: il motore non è costruito in questa cartella (vedi docs\\WINDOWS.md).", $"{exe} is missing: the engine is not built in this folder (see docs\\WINDOWS.md).")); return; }
         string mode = (standby ? " --standby" : " --listen-first") + " --relaunch-on-model-change";
         string cmd = opt.TestMock ? $"\"{py}\" -m serve.server --mock-engine --config \"{cfgPath}\" --port {p}{mode}"
                                   : $"\"{exe}\" serve --config \"{cfgPath}\" --port {p}{mode}";
@@ -498,9 +498,9 @@ sealed class MainForm : Form
                     pid, start = Process.GetProcessById(pid).StartTime.ToString("o"), mode = "app", port = p, log,
                 }));
         }
-        catch (Exception e) { await Fallback("Avvio del server non riuscito: " + e.Message); return; }
+        catch (Exception e) { await Fallback(Tr.T("Avvio del server non riuscito: ", "The server did not start: ") + e.Message); return; }
         pageView = standby ? "loader" : "stats";
-        ShowServer(p, true, standby ? $"Avvio di {Program.AppName}…" : $"{Program.AppName} riparte con il nuovo modello…");
+        ShowServer(p, true, standby ? Tr.T($"Avvio di {Program.AppName}…", $"Starting {Program.AppName}…") : Tr.T($"{Program.AppName} riparte con il nuovo modello…", $"{Program.AppName} starts again with the new model…"));
     }
 
     /// <summary>The web server could not start: the native start panel, with the reason and the end of the log.</summary>
@@ -512,7 +512,7 @@ sealed class MainForm : Form
         string log = Path.Combine(opt.Repo, "logs", opt.TestMock ? "basalt-app-test.log" : "basalt-serve.log");
         string tail = "";
         try { using var s = new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete); using var r = new StreamReader(s); tail = string.Join("\n", r.ReadToEnd().Split('\n').TakeLast(10)); } catch { }
-        fallbackReason = "Il server web non è partito: " + reason + (tail.Trim().Length > 0 ? "\n\nUltime righe del log (" + log + "):\n" + tail.TrimEnd() : "");
+        fallbackReason = Tr.T("Il server web non è partito: ", "The web server did not start: ") + reason + (tail.Trim().Length > 0 ? Tr.T("\n\nUltime righe del log (", "\n\nThe log's last lines (") + log + "):\n" + tail.TrimEnd() : "");
         report.Add("fallback: " + reason);
         await FallbackPanel();
     }
@@ -549,7 +549,7 @@ sealed class MainForm : Form
         await LoadProfiles();
         if (opt.Profile != null && !profileList.Any(x => x.GetProperty("name").GetString() == opt.Profile))
         {
-            MessageBox.Show(this, $"Profilo sconosciuto: «{opt.Profile}».\nProfili: " + string.Join(", ", profileList.Select(x => x.GetProperty("name").GetString())),
+            MessageBox.Show(this, Tr.T($"Profilo sconosciuto: «{opt.Profile}».\nProfili: ", $"Unknown profile: “{opt.Profile}”.\nProfiles: ") + string.Join(", ", profileList.Select(x => x.GetProperty("name").GetString())),
                 Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         await Check();
@@ -571,7 +571,7 @@ sealed class MainForm : Form
         var (code, output) = await Py(args.ToArray());
         profileList.Clear();
         profiles.Items.Clear();
-        if (code != 0) { check.Text = "Non riesco a leggere i profili:\n" + output; return; }
+        if (code != 0) { check.Text = Tr.T("Non riesco a leggere i profili:\n", "Cannot read the profiles:\n") + output; return; }
         var root = JsonDocument.Parse(output.Trim().Split('\n').Last()).RootElement.Clone();
         string def = root.GetProperty("default").GetString();
         foreach (var p in root.GetProperty("load").EnumerateArray())
@@ -580,7 +580,7 @@ sealed class MainForm : Form
             var s = p.GetProperty("summary");
             string extra = (s.TryGetProperty("vram_gb", out var v) ? $" · VRAM ~{v.GetDouble():0.0} GB" : "") + (s.TryGetProperty("tok_s", out var t) ? $" · ~{t.GetInt32()} tok/s" : "");
             string name = p.GetProperty("name").GetString();
-            profiles.Items.Add($"{name}{(p.GetProperty("default").GetBoolean() ? " (predefinito)" : "")} — {s.GetProperty("text").GetString()}{extra}");
+            profiles.Items.Add($"{name}{(p.GetProperty("default").GetBoolean() ? Tr.T(" (predefinito)", " (default)") : "")} — {s.GetProperty("text").GetString()}{extra}");
         }
         string want = keep ?? opt.Profile ?? def;
         int idx = profileList.FindIndex(x => x.GetProperty("name").GetString() == want);
@@ -600,11 +600,11 @@ sealed class MainForm : Form
         if (SelectedModel() != null && !SelectedReady)
         {
             check.ForeColor = Bad;
-            check.Text = "Questo modello va convertito prima di caricarlo (vedi sopra).";
+            check.Text = Tr.T("Questo modello va convertito prima di caricarlo (vedi sopra).", "This model must be converted before it can be loaded (see above).");
             return;
         }
         check.ForeColor = Fg2;
-        check.Text = "Controllo la memoria…";
+        check.Text = Tr.T("Controllo la memoria…", "Checking the memory…");
         string tmp = Path.Combine(Path.GetTempPath(), $"basalt_config.check.{Environment.ProcessId}.{seq}.json");   // one per check: they can overlap
         string output; int code;
         try
@@ -621,9 +621,9 @@ sealed class MainForm : Form
         checkOk = code == 0;
         string verdict = code switch
         {
-            0 => "\n\nOK: si può avviare.",
-            4 => "\n\nNon si avvia: il motore di Basalt gira solo su GPU NVIDIA Blackwell (RTX 50, RTX PRO 6000, B200).",
-            _ => "\n\nNon si avvia: la memoria non basta senza usare il file di paging. Scegli un altro profilo, lascia libera meno VRAM o chiudi altri programmi.",
+            0 => Tr.T("\n\nOK: si può avviare.", "\n\nOK: it can start."),
+            4 => Tr.T("\n\nNon si avvia: il motore di Basalt gira solo su GPU NVIDIA Blackwell (RTX 50, RTX PRO 6000, B200).", "\n\nIt does not start: the Basalt engine runs only on NVIDIA Blackwell GPUs (RTX 50, RTX PRO 6000, B200)."),
+            _ => Tr.T("\n\nNon si avvia: la memoria non basta senza usare il file di paging. Scegli un altro profilo, lascia libera meno VRAM o chiudi altri programmi.", "\n\nIt does not start: the memory is not enough without the page file. Choose another profile, leave less VRAM free or close other programs."),
         };
         check.Text = string.Join("\n", lines) + verdict;
         check.ForeColor = checkOk ? Fg : Bad;
@@ -681,7 +681,7 @@ sealed class MainForm : Form
         }
         catch (Exception e)
         {
-            check.Text = "Avvio non riuscito: " + e.Message; check.ForeColor = Bad;
+            check.Text = Tr.T("Avvio non riuscito: ", "The start failed: ") + e.Message; check.ForeColor = Bad;
             return;
         }
         ShowServer(p, true);
@@ -692,9 +692,9 @@ sealed class MainForm : Form
         string name = SelectedName;
         int p = (int)port.Value;
         go.Enabled = headless.Enabled = false;
-        check.Text = $"Avvio il solo server «{name}» sulla porta {p}…";
+        check.Text = Tr.T($"Avvio il solo server «{name}» sulla porta {p}…", $"Starting the server alone “{name}” on port {p}…");
         var psi = new ProcessStartInfo("powershell.exe") { WorkingDirectory = opt.Repo, UseShellExecute = false, CreateNoWindow = true };
-        var args = new List<string> { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Avvia-Basalt.ps1"), "-server", "--config", name, "--port", p.ToString(),
+        var args = new List<string> { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Avvia-Basalt.ps1"), "-server", "--lang", Tr.Code, "--config", name, "--port", p.ToString(),
                                       "--vram-libera", reserve.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), "--file", cfgPath };
         if (SelectedReady) { args.Add("--model"); args.Add(SelectedModelPath); WriteState("last_model", SelectedModelPath); }
         foreach (var a in args) psi.ArgumentList.Add(a);
@@ -702,10 +702,10 @@ sealed class MainForm : Form
         await proc.WaitForExitAsync();
         if (proc.ExitCode == 0)
         {
-            MessageBox.Show(this, $"Server avviato sulla porta {p} senza finestra.\nIndirizzo: http://127.0.0.1:{p}/\nPer fermarlo: Ferma-Basalt.ps1 --port {p}", Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, Tr.T($"Server avviato sulla porta {p} senza finestra.\nIndirizzo: http://127.0.0.1:{p}/\nPer fermarlo: Ferma-Basalt.ps1 --port {p}", $"Server started on port {p} without a window.\nAddress: http://127.0.0.1:{p}/\nTo stop it: Ferma-Basalt.ps1 --port {p}"), Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
             exiting = true; Close();
         }
-        else { check.Text = "Il solo server non è partito: vedi logs\\basalt-serve.log."; check.ForeColor = Bad; go.Enabled = headless.Enabled = true; }
+        else { check.Text = Tr.T("Il solo server non è partito: vedi logs\\basalt-serve.log.", "The server alone did not start: see logs\\basalt-serve.log."); check.ForeColor = Bad; go.Enabled = headless.Enabled = true; }
     }
 
     // ------------------------------------------------------------------ the web UI
@@ -714,7 +714,7 @@ sealed class MainForm : Form
         serverPort = p;
         start.Visible = false;
         web.Visible = true;
-        _ = InitWeb(loading, heading ?? $"Avvio di {Program.AppName}…");
+        _ = InitWeb(loading, heading ?? Tr.T($"Avvio di {Program.AppName}…", $"Starting {Program.AppName}…"));
     }
 
     bool useBrowser;                // WebView2 is missing: the page opens in the default browser
@@ -751,7 +751,7 @@ sealed class MainForm : Form
             if (m.GetProperty("type").GetString() != "pickFolder") return;
             string id = m.TryGetProperty("id", out var i) ? i.GetString() : "";
             string start = m.TryGetProperty("path", out var sp) && sp.ValueKind == JsonValueKind.String ? sp.GetString() : null;
-            using var dlg = new FolderBrowserDialog { Description = "Cartella dei modelli", UseDescriptionForTitle = true, ShowNewFolderButton = false };
+            using var dlg = new FolderBrowserDialog { Description = Tr.T("Cartella dei modelli", "Models folder"), UseDescriptionForTitle = true, ShowNewFolderButton = false };
             if (!string.IsNullOrEmpty(start) && Directory.Exists(start)) dlg.InitialDirectory = start;
             string path = dlg.ShowDialog(this) == DialogResult.OK ? dlg.SelectedPath : null;
             web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "folder", id, path }));
@@ -767,8 +767,8 @@ sealed class MainForm : Form
             {
                 if (opt.TestNoWebView) throw new WebView2RuntimeNotFoundException("test");
                 string data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Basalt", opt.TestMock ? "WebView2-test" : "WebView2");
-                // the app speaks Italian, so does the page (the Loader and the chat settings follow the browser language)
-                var env = await CoreWebView2Environment.CreateAsync(null, data, new CoreWebView2EnvironmentOptions { Language = "it-IT" });
+                // the page speaks the user's language (Tr.Code: --lang, BASALT_LANG, the Settings choice, Windows')
+                var env = await CoreWebView2Environment.CreateAsync(null, data, new CoreWebView2EnvironmentOptions { Language = Tr.Code == "it" ? "it-IT" : "en-US" });
                 await web.EnsureCoreWebView2Async(env);
                 web.CoreWebView2.Settings.AreDevToolsEnabled = opt.TestMock;
                 web.CoreWebView2.Settings.IsStatusBarEnabled = false;
@@ -782,16 +782,14 @@ sealed class MainForm : Form
                 report.Add("webview2 missing: " + e.Message);
                 const string get = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
                 var answer = opt.TestMock ? DialogResult.Yes : MessageBox.Show(this,
-                    $"Manca Microsoft Edge WebView2 Runtime, che serve per mostrare {Program.AppName} in questa finestra.\n\n" +
-                    $"Sì: apro {Program.AppName} nel browser (il server resta acceso dietro l'icona vicino all'orologio).\n" +
-                    $"No: apro la pagina per installare WebView2 (poi riavvia {Program.AppName}).",
+                    Tr.T($"Manca Microsoft Edge WebView2 Runtime, che serve per mostrare {Program.AppName} in questa finestra.\n\nSì: apro {Program.AppName} nel browser (il server resta acceso dietro l'icona vicino all'orologio).\nNo: apro la pagina per installare WebView2 (poi riavvia {Program.AppName}).", $"Microsoft Edge WebView2 Runtime is missing; it shows {Program.AppName} in this window.\n\nYes: {Program.AppName} opens in the browser (the server keeps running behind the icon near the clock).\nNo: the page to install WebView2 opens (then start {Program.AppName} again)."),
                     Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (answer == DialogResult.No) Process.Start(new ProcessStartInfo(get) { UseShellExecute = true });
                 web.Visible = false;
                 start.Visible = true;
                 reasonLabel.Visible = false;
                 check.ForeColor = Fg2;
-                check.Text = $"{Program.AppName} si apre nel browser: http://127.0.0.1:{serverPort}/ (WebView2 non è installato).";
+                check.Text = Tr.T($"{Program.AppName} si apre nel browser: http://127.0.0.1:{serverPort}/ (WebView2 non è installato).", $"{Program.AppName} opens in the browser: http://127.0.0.1:{serverPort}/ (WebView2 is not installed).");
             }
         }
         if (useBrowser)
@@ -803,8 +801,8 @@ sealed class MainForm : Form
         }
         if (loading)
         {
-            web.CoreWebView2.NavigateToString("<html lang='it'><body style='background:#0E1114;color:#E9ECEE;font:18px Segoe UI;display:flex;align-items:center;justify-content:center;height:90vh;margin:0 16px'>" +
-                $"<div><b>{System.Net.WebUtility.HtmlEncode(heading)}</b><p style='color:#9AA4AD'>Porta {serverPort}. La pagina si apre appena il server risponde.</p></div></body></html>");
+            web.CoreWebView2.NavigateToString($"<html lang='{Tr.Code}'><body style='background:#0E1114;color:#E9ECEE;font:18px Segoe UI;display:flex;align-items:center;justify-content:center;height:90vh;margin:0 16px'>" +
+                $"<div><b>{System.Net.WebUtility.HtmlEncode(heading)}</b><p style='color:#9AA4AD'>" + Tr.T($"Porta {serverPort}. La pagina si apre appena il server risponde.", $"Port {serverPort}. The page opens as soon as the server answers.") + "</p></div></body></html>");
             waitingHealth = true;
             poll.Start();
         }
@@ -833,7 +831,7 @@ sealed class MainForm : Form
             poll.Stop();
             ours = false;
             try { File.Delete(Path.Combine(opt.Repo, "basalt.pid")); } catch { }
-            _ = Fallback($"il server si è fermato (codice {code}).");
+            _ = Fallback(Tr.T($"il server si è fermato (codice {code}).", $"the server stopped (code {code})."));
             return;
         }
         if (!waitingHealth) return;
@@ -853,8 +851,7 @@ sealed class MainForm : Form
     async Task HeadlessFromTray()
     {
         int p = serverPort != 0 ? serverPort : WebPort();
-        if (MessageBox.Show(this, $"Avviare il solo server sulla porta {p}, senza finestra né icona, con il profilo predefinito?\n\n" +
-                "Il server di questa app si chiude e il modello si carica di nuovo dal server per gli agenti. Per fermarlo: Ferma-Basalt.ps1 --port " + p,
+        if (MessageBox.Show(this, Tr.T($"Avviare il solo server sulla porta {p}, senza finestra né icona, con il profilo predefinito?\n\nIl server di questa app si chiude e il modello si carica di nuovo dal server per gli agenti. Per fermarlo: Ferma-Basalt.ps1 --port {p}", $"Start the server alone on port {p}, without window or icon, with the default profile?\n\nThis app's server closes and the model loads again in the server for agents. To stop it: Ferma-Basalt.ps1 --port {p}"),
                 Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         if (ours)
         {
@@ -866,12 +863,12 @@ sealed class MainForm : Form
             try { File.Delete(Path.Combine(opt.Repo, "basalt.pid")); } catch { }
         }
         var psi = new ProcessStartInfo("powershell.exe") { WorkingDirectory = opt.Repo, UseShellExecute = false, CreateNoWindow = true };
-        foreach (var a in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Avvia-Basalt.ps1"), "-server", "--port", p.ToString(), "--file", cfgPath })
+        foreach (var a in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Avvia-Basalt.ps1"), "-server", "--lang", Tr.Code, "--port", p.ToString(), "--file", cfgPath })
             psi.ArgumentList.Add(a);
         using var proc = Process.Start(psi);
         await proc.WaitForExitAsync();
-        MessageBox.Show(proc.ExitCode == 0 ? $"Server avviato sulla porta {p} senza finestra.\nIndirizzo: http://127.0.0.1:{p}/\nPer fermarlo: Ferma-Basalt.ps1 --port {p}"
-                                           : "Il solo server non è partito: vedi logs\\basalt-serve.log.", Program.AppName, MessageBoxButtons.OK,
+        MessageBox.Show(proc.ExitCode == 0 ? Tr.T($"Server avviato sulla porta {p} senza finestra.\nIndirizzo: http://127.0.0.1:{p}/\nPer fermarlo: Ferma-Basalt.ps1 --port {p}", $"Server started on port {p} without a window.\nAddress: http://127.0.0.1:{p}/\nTo stop it: Ferma-Basalt.ps1 --port {p}")
+                                           : Tr.T("Il solo server non è partito: vedi logs\\basalt-serve.log.", "The server alone did not start: see logs\\basalt-serve.log."), Program.AppName, MessageBoxButtons.OK,
                         proc.ExitCode == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Error);
         exiting = true;
         Close();
@@ -946,7 +943,7 @@ sealed class MainForm : Form
             Hide();
             if (!BalloonShown())
             {
-                tray.ShowBalloonTip(6000, Program.AppName, $"{Program.AppName} è ancora acceso: spegnilo dall'icona.", ToolTipIcon.Info);
+                tray.ShowBalloonTip(6000, Program.AppName, Tr.T($"{Program.AppName} è ancora acceso: spegnilo dall'icona.", $"{Program.AppName} is still running: turn it off from the icon."), ToolTipIcon.Info);
                 RememberBalloon();
             }
             return;
@@ -966,7 +963,7 @@ sealed class MainForm : Form
     async Task StopExternal(int p)
     {
         var psi = new ProcessStartInfo("powershell.exe") { WorkingDirectory = opt.Repo, UseShellExecute = false, CreateNoWindow = true };
-        foreach (var a in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Ferma-Basalt.ps1"), "--port", p.ToString() })
+        foreach (var a in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Ferma-Basalt.ps1"), "--lang", Tr.Code, "--port", p.ToString() })
             psi.ArgumentList.Add(a);
         using var proc = Process.Start(psi);
         await proc.WaitForExitAsync();
@@ -976,7 +973,7 @@ sealed class MainForm : Form
     /// back, and exit.</summary>
     void TurnOff(bool ask)
     {
-        if (ask && MessageBox.Show(this, $"Spegnere {Program.AppName} (server e motore)?", Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        if (ask && MessageBox.Show(this, Tr.T($"Spegnere {Program.AppName} (server e motore)?", $"Turn off {Program.AppName} (server and engine)?"), Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         exiting = true;                                    // the server's end is wanted: no restart, no fallback panel
         poll.Stop();
         Cursor = Cursors.WaitCursor;
@@ -996,8 +993,8 @@ sealed class MainForm : Form
         for (int i = 0; i < 10 && after - before < 1; i++) { Thread.Sleep(500); after = Native.AvailableRamGiB(); }
         bool down = serverPort == 0 || Native.GetJson($"http://127.0.0.1:{serverPort}/health") == null;
         report.Add($"turned off: server down={down}, RAM available {before:0.0} -> {after:0.0} GiB");
-        string text = down ? $"{Program.AppName} è spento. RAM disponibile: {after:0.0} GiB (liberati {Math.Max(0, after - before):0.0} GiB)."
-                           : "Il server risponde ancora: fermalo con Ferma-Basalt.ps1.";
+        string text = down ? Tr.T($"{Program.AppName} è spento. RAM disponibile: {after:0.0} GiB (liberati {Math.Max(0, after - before):0.0} GiB).", $"{Program.AppName} is off. RAM available: {after:0.0} GiB ({Math.Max(0, after - before):0.0} GiB freed).")
+                           : Tr.T("Il server risponde ancora: fermalo con Ferma-Basalt.ps1.", "The server still answers: stop it with Ferma-Basalt.ps1.");
         if (opt.Screenshot != null)
             File.WriteAllLines(Path.ChangeExtension(opt.Screenshot, ".txt"), report);
         else

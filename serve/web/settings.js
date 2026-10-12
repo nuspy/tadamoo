@@ -143,6 +143,23 @@
     });
   }
 
+  /* the user's language (serve/lang.py): the app, this page, the scripts and the command-line tools follow it */
+  applyT($(".stlang"));
+  async function langRefresh() {
+    try { const p = await (await fetch("api/prefs", { cache: "no-store" })).json(); $("#st-lang").value = p.chosen || "auto"; }
+    catch (e) { /* the select keeps Automatic */ }
+  }
+  $("#st-lang").addEventListener("change", async e => {
+    const v = e.target.value;
+    const r = await fetch("api/prefs", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ lang: v === "auto" ? null : v }) });
+    if (!r.ok) { $("#st-lang-msg").textContent = `HTTP ${r.status}`; $("#st-lang-msg").dataset.kind = "err"; return; }
+    try { localStorage.removeItem("basalt.lang"); } catch (err) { /* nothing kept here */ }
+    $("#st-lang-msg").textContent = T("st.lang.saved"); $("#st-lang-msg").dataset.kind = "ok";
+    setTimeout(() => location.reload(), 600);
+  });
+  document.addEventListener("basalt:view", e => { if (e.detail === "settings") langRefresh(); });
+  if (viewOn === "settings") langRefresh();
   document.addEventListener("basalt:view", e => { if (e.detail === "settings") refresh(); });
   document.addEventListener("basalt:key", () => { if (viewOn === "settings" || loaded) refresh(); });
   if (viewOn === "settings") refresh();

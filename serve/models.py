@@ -1292,6 +1292,7 @@ def listing(rescan: bool = False, config_model: str | None = None) -> dict:
 
 
 def main(argv=None) -> int:
+    from serve import lang
     ap = argparse.ArgumentParser(prog="python -m serve.models", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1358,7 +1359,7 @@ def main(argv=None) -> int:
             st = set_dirs(a.dirs)
         except DirsError as e:
             for i, why in e.errors.items():
-                print(f"{a.dirs[int(i)]}: {why['it']}", file=sys.stderr)
+                print(f"{a.dirs[int(i)]}: {why[lang.lang()]}", file=sys.stderr)
             if not e.errors:
                 print(str(e), file=sys.stderr)
             return 2
@@ -1379,22 +1380,25 @@ def main(argv=None) -> int:
         print(json.dumps(out, ensure_ascii=False))
         return 0
     out = listing(a.rescan)
-    label = {"ready": "Pronto", "convert": "Da convertire", "incompatible": "Non compatibile"}
+    t, L = lang.t, lang.lang()
+    label = {"ready": t("Pronto", "Ready"), "convert": t("Da convertire", "To convert"),
+             "incompatible": t("Non compatibile", "Not compatible")}
     for m in out["models"]:
         size = f"{m['size_bytes'] / 1e9:.1f} GB"
         extra = []
         if m.get("quant"):
             extra.append(m["quant"])
         if m.get("experts_bytes"):
-            extra.append(f"esperti {m['experts_bytes'] / GiB:.1f} GiB")
+            extra.append(f"{t('esperti', 'experts')} {m['experts_bytes'] / GiB:.1f} GiB")
         if m.get("mtp"):
-            extra.append({"present": "MTP", "source": "MTP da mtp-qwen", "fetch": "MTP da scaricare"}[m["mtp"]])
+            extra.append({"present": "MTP", "source": t("MTP da mtp-qwen", "MTP from mtp-qwen"),
+                          "fetch": t("MTP da scaricare", "MTP to download")}[m["mtp"]])
         if m.get("vision"):
-            extra.append("visione")
+            extra.append(t("visione", "vision"))
         if m.get("estimate_bytes"):
-            extra.append(f"diventa ~{m['estimate_bytes'] / GiB:.2f} GiB")
+            extra.append(f"{t('diventa', 'becomes')} ~{m['estimate_bytes'] / GiB:.2f} GiB")
         print(f"[{label[m['status']]}] {m['name']} | {size} | {' · '.join(extra)}\n    {m['path']}\n    "
-              f"{m['reason']['it']}")
+              f"{m['reason'][L]}")
     return 0
 
 

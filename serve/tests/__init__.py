@@ -6,3 +6,5 @@ import tempfile
 _scratch = tempfile.mkdtemp(prefix="basalt-tests-")
 os.environ.setdefault("BASALT_DATA", os.path.join(_scratch, "data"))
 os.environ.setdefault("BASALT_CACHE", os.path.join(_scratch, "cache"))
+# messages in one language whatever the system's (the language tests set their own)
+os.environ.setdefault("BASALT_LANG", "it")

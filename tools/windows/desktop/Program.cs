@@ -16,6 +16,7 @@ static class Program
     static int Main(string[] args)
     {
         var opt = Options.Parse(args);
+        Tr.Init(opt.Lang);
         if (opt.Error != null)
         {
             MessageBox.Show(opt.Error, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -42,7 +43,7 @@ static class Program
 /// DIR is chosen as the user would), --test-no-webview.</summary>
 sealed class Options
 {
-    public string Profile, Repo, Error, Screenshot, Model, TestModelsDir, ConfigFile;
+    public string Profile, Repo, Error, Screenshot, Model, TestModelsDir, ConfigFile, Lang;
     public int Port;
     public double VramLibera = -1;
     public bool TestMock, TestExit, TestFolderPrompt, TestNoWebView, TestNoWizard, TestFallback;
@@ -60,14 +61,18 @@ sealed class Options
             {
                 case "--config": o.Profile = Next(); break;
                 case "--port":
-                    if (!int.TryParse(Next(), out o.Port) || o.Port < 1 || o.Port > 65535) o.Error = "--port vuole un numero da 1 a 65535.";
+                    if (!int.TryParse(Next(), out o.Port) || o.Port < 1 || o.Port > 65535) o.Error = "--port: 1..65535";
                     break;
                 case "--vram-libera":
                     if (!double.TryParse((Next() ?? "").Replace(',', '.'), System.Globalization.NumberStyles.Float,
                             System.Globalization.CultureInfo.InvariantCulture, out o.VramLibera) || o.VramLibera < 0 || o.VramLibera > 1024)
-                        o.Error = "--vram-libera vuole i GB da lasciare liberi (per esempio 2 o 1,5).";
+                        o.Error = "--vram-libera: GB (2, 1.5)";
                     break;
                 case "--file": o.ConfigFile = Next(); break;
+                case "--lang":
+                    o.Lang = (Next() ?? "").ToLowerInvariant();
+                    if (o.Lang != "it" && o.Lang != "en") o.Error = "--lang: it | en";
+                    break;
                 case "--repo": o.Repo = Next(); break;
                 case "--model": o.Model = Next(); break;
                 case "--test-folder-prompt": o.TestFolderPrompt = o.TestFallback = o.TestMock = true; break;
@@ -78,13 +83,12 @@ sealed class Options
                 case "--test-mock": o.TestMock = true; break;
                 case "--test-screenshot": o.Screenshot = Next(); break;
                 case "--test-exit": o.TestExit = true; break;
-                default: o.Error = $"Argomento sconosciuto: {args[i]}\nUso: BasaltWinGUI.exe [--config \"<profilo>\"] [--model \"<file .basalt>\"] [--port N] [--vram-libera GB] [--file <configurazione>]"; break;
+                default: o.Error = $"? {args[i]}\nBasaltWinGUI.exe [--config \"<profile>\"] [--model \"<file .basalt>\"] [--port N] [--vram-libera GB] [--file <config>] [--lang it|en]"; break;
             }
         }
         o.Repo ??= FindRepo(AppContext.BaseDirectory);
         if (o.Repo == null && o.Error == null)
-            o.Error = "Non trovo la cartella di Basalt Win+GUI (bin\\basalt.exe e Avvia-Basalt.ps1) sopra " + AppContext.BaseDirectory +
-                      ". Avvia BasaltWinGUI.exe con --repo <cartella>.";
+            o.Error = "Basalt Win+GUI: bin\\basalt.exe + Avvia-Basalt.ps1 ? " + AppContext.BaseDirectory + " (--repo <folder>)";
         return o;
     }
 
@@ -95,6 +99,36 @@ sealed class Options
                 return d.FullName;
         return null;
     }
+}
+
+/// <summary>The language of the app's texts, Italian or English: --lang, else BASALT_LANG, else the user's choice in
+/// prefs.json (the web page's Settings; serve/lang.py), else English. Children (the server, the scripts) get
+/// BASALT_LANG when --lang is given.</summary>
+static class Tr
+{
+    public static string Code = "en";
+
+    public static void Init(string arg)
+    {
+        string Valid(string v) => v != null && (v.ToLowerInvariant() == "it" || v.ToLowerInvariant() == "en") ? v.ToLowerInvariant() : null;
+        string chosen = Valid(arg) ?? Valid(Environment.GetEnvironmentVariable("BASALT_LANG"));
+        if (chosen == null)
+        {
+            try
+            {
+                string data = Environment.GetEnvironmentVariable("BASALT_DATA");
+                if (string.IsNullOrEmpty(data)) data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello");
+                string prefs = Path.Combine(data, "prefs.json");
+                if (File.Exists(prefs) && JsonDocument.Parse(File.ReadAllText(prefs)).RootElement.TryGetProperty("lang", out var l) &&
+                    l.ValueKind == JsonValueKind.String) chosen = Valid(l.GetString());
+            }
+            catch { }
+        }
+        Code = chosen ?? "en";
+        if (Valid(arg) != null) Environment.SetEnvironmentVariable("BASALT_LANG", Code);
+    }
+
+    public static string T(string it, string en) => Code == "it" ? it : en;
 }
 
 /// <summary>This PC's memory, the TCP listeners and their processes, and small HTTP calls to the server.</summary>

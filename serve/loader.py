@@ -899,7 +899,8 @@ def wizard_cli(argv) -> int:
                    "vram_reserve_mib": None if a.vram_libera is None else int(round(a.vram_libera * 1024))}
         prop = wizard_proposal(hw, facts, answers)
     except (OSError, ValueError, KeyError) as e:
-        print(f"configurazione guidata: {e}", file=sys.stderr)
+        from serve import lang
+        print(f"{lang.t('configurazione guidata', 'configuration wizard')}: {e}", file=sys.stderr)
         return 2
     saved = None
     if a.save:
@@ -908,35 +909,44 @@ def wizard_cli(argv) -> int:
     if a.json:
         print(json.dumps({"hardware": hw, "proposal": prop, "saved": saved}, ensure_ascii=False, default=str))
         return 0 if prop["fits"] else 3
-    g = lambda n: "—" if n is None else f"{n / GiB:.1f}".replace(".", ",")      # noqa: E731
+    from serve import lang
+    L, tr = lang.lang(), lang.t
+    dec = "," if L == "it" else "."
+    g = lambda n: "—" if n is None else f"{n / GiB:.1f}".replace(".", dec)      # noqa: E731
     s, m = hw["system"], hw["monitor"]
-    print(f"  RAM {g(s.get('ram_total'))} GiB, commit {g(s.get('commit_used'))} di {g(s.get('commit_limit'))} GiB, "
-          f"file di paging {'gestito da Windows (può crescere)' if hw['page_file'].get('automatic') else 'fisso'}")
+    pf = tr("gestito da Windows (può crescere)", "managed by Windows (it may grow)") if hw["page_file"].get("automatic") \
+        else tr("fisso", "fixed")
+    print(f"  RAM {g(s.get('ram_total'))} GiB, commit {g(s.get('commit_used'))} {tr('di', 'of')} "
+          f"{g(s.get('commit_limit'))} GiB, {tr('file di paging', 'page file')} {pf}")
     c = hw["cpu"]
     print(f"  CPU: {c.get('physical')} core" + (f" ({c['p_cores']} P + {c['e_cores']} E)" if c.get("hybrid") else ""))
-    print(f"  GPU: {hw['gpu'].get('name') or 'nessuna GPU NVIDIA leggibile'}, VRAM {g(s.get('vram_total'))} GiB")
+    print(f"  GPU: {hw['gpu'].get('name') or tr('nessuna GPU NVIDIA leggibile', 'no NVIDIA GPU could be read')}, "
+          f"VRAM {g(s.get('vram_total'))} GiB")
     for d in hw["displays"] or []:
-        outputs = f", {d['outputs']} uscite attive" if d["outputs"] else ""
-        print(f"  scheda video: {d['name']}{' — monitor principale' if d['primary'] else ''}{outputs}")
-    print(f"  monitor rispetto alla GPU: rilevato «{m['where']}», usato «{prop['monitor'] or 'non confermato'}»")
-    print(f"  da lasciare liberi: {pct(prop['free_share'])} di RAM e commit; VRAM {prop['vram_reserve_mib'] / 1024:.1f} GB"
-          .replace(".", ","))
-    print(f"  modello: {prop['model']}; campionamento: {json.dumps(prop['sampling'])}")
+        outputs = f", {d['outputs']} {tr('uscite attive', 'outputs on the desktop')}" if d["outputs"] else ""
+        main_mon = f" — {tr('monitor principale', 'main monitor')}" if d["primary"] else ""
+        print(f"  {tr('scheda video', 'video adapter')}: {d['name']}{main_mon}{outputs}")
+    print(f"  {tr('monitor rispetto alla GPU: rilevato', 'monitor against the GPU: detected')} «{m['where']}», "
+          f"{tr('usato', 'used')} «{prop['monitor'] or tr('non confermato', 'not confirmed')}»")
+    print(f"  {tr('da lasciare liberi', 'left free')}: {pct(prop['free_share'])} {tr('di RAM e commit', 'of RAM and commit')}; "
+          f"VRAM {prop['vram_reserve_mib'] / 1024:.1f} GB".replace(".", dec))
+    print(f"  {tr('modello', 'model')}: {prop['model']}; {tr('campionamento', 'sampling')}: {json.dumps(prop['sampling'])}")
     for k, v in prop["values"].items():
         print(f"    {k} = {v}")
     sp = prop["speed"]
-    print(f"  previsione: {'entra' if prop['fits'] else 'NON entra'}; {sp['decode']:.0f} tok/s in risposta, "
-          f"{sp['prefill']:.0f} tok/s in lettura")
+    print(f"  {tr('previsione', 'prediction')}: {tr('entra', 'fits') if prop['fits'] else tr('NON entra', 'does NOT fit')}; "
+          f"{sp['decode']:.0f} tok/s {tr('in risposta', 'answering')}, {sp['prefill']:.0f} tok/s {tr('in lettura', 'reading')}")
     for x in prop["problems"]:
-        print("  " + x["text_it"])
+        print("  " + (x["text_it"] if L == "it" else x["text"]))
     if saved:
-        print(f"  salvato: profilo e preset «{saved['profile']}» (profilo predefinito)")
+        print(f"  {tr('salvato: profilo e preset', 'saved: the load profile and the preset')} «{saved['profile']}» "
+              f"({tr('profilo predefinito', 'the default profile')})")
     return 0 if prop["fits"] else 3
 
 
 def main(argv=None) -> int:
     """python -m serve.loader check --config FILE: the plan of the config file's settings against what is free now,
-    in Italian lines and a last JSON line; exit 0 when it fits, 3 when it does not, 4 when the GPU cannot run the
+    in lines of the user's language (serve/lang.py) and a last JSON line; exit 0 when it fits, 3 when it does not, 4 when the GPU cannot run the
     engine (not Blackwell), 2 for a bad file.
     python -m serve.loader wizard [...]: the configuration wizard without questions (wizard_cli)."""
     import argparse
@@ -950,6 +960,8 @@ def main(argv=None) -> int:
     ap.add_argument("--config", required=True)
     ap.add_argument("--gpu", type=int, default=0)
     a = ap.parse_args(argv)
+    from serve import lang
+    L, tr = lang.lang(), lang.t
     try:
         raw = settings.read_file(a.config)
         values = settings.values_of(raw, settings.LOADER_FIELDS)
@@ -958,13 +970,14 @@ def main(argv=None) -> int:
             model = str(Path(a.config).resolve().parent / model)
         facts = model_facts(model)
     except (OSError, ValueError, KeyError) as e:
-        print(f"configurazione non leggibile: {e}", file=sys.stderr)
+        print(f"{tr('configurazione non leggibile', 'the config file cannot be read')}: {e}", file=sys.stderr)
         return 2
     values = {k: v for k, v in values.items() if k != "server.model"}
     p = plan(values, facts, system_now(a.gpu))
     s = predict_speed(p)
-    g = lambda n: "—" if n is None else f"{n / GiB:.1f}".replace(".", ",")   # noqa: E731
-    dots = lambda n: f"{n:,}".replace(",", ".")                                # noqa: E731
+    dec, th = ("," if L == "it" else "."), ("." if L == "it" else ",")
+    g = lambda n: "—" if n is None else f"{n / GiB:.1f}".replace(".", dec)   # noqa: E731
+    dots = lambda n: f"{n:,}".replace(",", th)                                 # noqa: E731
     v, r, c = p["vram"], p["ram"], p["commit"]
     from serve import hardware
     gpu = hardware.gpu(a.gpu)
@@ -973,24 +986,34 @@ def main(argv=None) -> int:
         print(f"  GPU:    {gpu['name']} (compute capability {cc})")
     cache = next((i["bytes"] for i in v["items"] if i["key"] == "experts"), 0)
     share = v["expert_slots"] / max(1, v["expert_slots_total"]) * 100
-    print(f"  VRAM:   servono {g(v['need'] + v['reserve'])} GiB (riserva compresa), liberi {g(v['available'])} GiB; "
-          f"{g(v['reserve'])} GiB lasciati liberi, {g(cache)} GiB per gli esperti: {dots(v['expert_slots'])} di "
-          f"{dots(v['expert_slots_total'])} esperti in VRAM ({share:.0f}%)")
-    print(f"  RAM:    servono {g(r['need'])} GiB, disponibili {g(r['available'])} GiB, {g(r['keep'])} restano liberi "
-          f"({pct(r['keep_share'])})")
-    print(f"  commit: servono {g(c['need'])} GiB (RAM {g(c['ram_part'])} + VRAM {g(c['vram_part'])}), liberi "
-          f"{g(c['available'])} GiB, {g(c['keep'])} restano liberi ({pct(c['keep_share'])})")
-    hit = f"{s['hit_rate'] * 100:.1f}".replace(".", ",")
-    print(f"  velocità stimata: {s['decode']:.0f} tok/s in risposta, {s['prefill']:.0f} tok/s in lettura, {hit}% colpi "
-          f"nella cache esperti ({'calibrata' if s['source']['kind'] == 'calibration' else 'stima iniziale'})")
+    print(tr(f"  VRAM:   servono {g(v['need'] + v['reserve'])} GiB (riserva compresa), liberi {g(v['available'])} GiB; "
+             f"{g(v['reserve'])} GiB lasciati liberi, {g(cache)} GiB per gli esperti: {dots(v['expert_slots'])} di "
+             f"{dots(v['expert_slots_total'])} esperti in VRAM ({share:.0f}%)",
+             f"  VRAM:   {g(v['need'] + v['reserve'])} GiB needed (reserve included), {g(v['available'])} GiB free; "
+             f"{g(v['reserve'])} GiB left free, {g(cache)} GiB for experts: {dots(v['expert_slots'])} of "
+             f"{dots(v['expert_slots_total'])} experts in VRAM ({share:.0f}%)"))
+    print(tr(f"  RAM:    servono {g(r['need'])} GiB, disponibili {g(r['available'])} GiB, {g(r['keep'])} restano liberi "
+             f"({pct(r['keep_share'])})",
+             f"  RAM:    {g(r['need'])} GiB needed, {g(r['available'])} GiB available, {g(r['keep'])} stay free "
+             f"({pct(r['keep_share'])})"))
+    print(tr(f"  commit: servono {g(c['need'])} GiB (RAM {g(c['ram_part'])} + VRAM {g(c['vram_part'])}), liberi "
+             f"{g(c['available'])} GiB, {g(c['keep'])} restano liberi ({pct(c['keep_share'])})",
+             f"  commit: {g(c['need'])} GiB needed (RAM {g(c['ram_part'])} + VRAM {g(c['vram_part'])}), "
+             f"{g(c['available'])} GiB free, {g(c['keep'])} stay free ({pct(c['keep_share'])})"))
+    hit = f"{s['hit_rate'] * 100:.1f}".replace(".", dec)
+    src = tr("calibrata", "calibrated") if s["source"]["kind"] == "calibration" else tr("stima iniziale", "initial estimate")
+    print(tr(f"  velocità stimata: {s['decode']:.0f} tok/s in risposta, {s['prefill']:.0f} tok/s in lettura, {hit}% colpi "
+             f"nella cache esperti ({src})",
+             f"  predicted speed: {s['decode']:.0f} tok/s answering, {s['prefill']:.0f} tok/s reading the prompt, {hit}% "
+             f"expert-cache hits ({src})"))
     for x in reserve_warnings(values, gpu):
-        print("  Attenzione: " + x["text_it"])
+        print(tr("  Attenzione: ", "  Warning: ") + (x["text_it"] if L == "it" else x["text"]))
     for x in p["problems"]:
-        print("  " + problem_text(x, "it"))
-    warn = hardware.gpu_warning(gpu, "it")
+        print("  " + problem_text(x, L))
+    warn = hardware.gpu_warning(gpu, L)
     unsupported = gpu.get("blackwell") is False
     if warn:
-        print(("  GPU NON SUPPORTATA: " if unsupported else "  Attenzione: ") + warn)
+        print((tr("  GPU NON SUPPORTATA: ", "  UNSUPPORTED GPU: ") if unsupported else tr("  Attenzione: ", "  Warning: ")) + warn)
     print(json.dumps({"fits": p["fits"], "problems": [x["code"] for x in p["problems"]],
                       "port": p["values"].get("server.port"), "gpu_supported": not unsupported,
                       "expert_slots": v["expert_slots"], "expert_slots_total": v["expert_slots_total"],

@@ -331,6 +331,18 @@
   </div>
 
   <div class="view settings" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <section class="sec stlang" aria-labelledby="st-lang-h">
+      <div class="sh"><b id="st-lang-h" data-t="st.lang.title">Language</b></div>
+      <div class="stlang-body">
+        <label for="st-lang" data-t="st.lang.label">Language</label>
+        <select id="st-lang">
+          <option value="auto" data-t="st.lang.auto">Automatic</option>
+          <option value="it" lang="it">Italiano</option>
+          <option value="en" lang="en">English</option>
+        </select>
+        <p class="setstatus" id="st-lang-msg" role="status" aria-live="polite"></p>
+      </div>
+    </section>
     <section class="sec streload" id="st-reload" aria-labelledby="st-reload-h">
       <div class="sh"><b id="st-reload-h" data-t="st.reload.title">Reload the model</b><span class="grow"></span>
         <a class="btn ghost" href="#loader" data-t="ld.open">Open the Loader</a></div>
