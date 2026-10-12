@@ -34,13 +34,14 @@ static class Program
     }
 }
 
-/// <summary>The command line: --config "profile", --port N, --repo DIR; hidden test options --test-mock,
-/// --test-screenshot FILE, --test-exit.</summary>
+/// <summary>The command line: --config "profile", --model FILE.basalt, --port N, --repo DIR; hidden test options
+/// --test-mock, --test-screenshot FILE, --test-exit, --test-folder-prompt (the models folders unset: the prompt, then
+/// --test-models-dir DIR is chosen as the user would and the start panel is shown), --test-no-webview.</summary>
 sealed class Options
 {
-    public string Profile, Repo, Error, Screenshot;
+    public string Profile, Repo, Error, Screenshot, Model, TestModelsDir;
     public int Port;
-    public bool TestMock, TestExit;
+    public bool TestMock, TestExit, TestFolderPrompt, TestNoWebView;
 
     public static Options Parse(string[] args)
     {
@@ -58,10 +59,14 @@ sealed class Options
                     if (!int.TryParse(Next(), out o.Port) || o.Port < 1 || o.Port > 65535) o.Error = "--port vuole un numero da 1 a 65535.";
                     break;
                 case "--repo": o.Repo = Next(); break;
+                case "--model": case "-model": o.Model = Next(); break;
+                case "--test-folder-prompt": o.TestFolderPrompt = o.TestMock = true; break;
+                case "--test-models-dir": o.TestModelsDir = Next(); break;
+                case "--test-no-webview": o.TestNoWebView = true; break;
                 case "--test-mock": o.TestMock = true; break;
                 case "--test-screenshot": o.Screenshot = Next(); break;
                 case "--test-exit": o.TestExit = true; break;
-                default: o.Error = $"Argomento sconosciuto: {args[i]}\nUso: BasaltPannello.exe [--config \"<profilo>\"] [--port N]"; break;
+                default: o.Error = $"Argomento sconosciuto: {args[i]}\nUso: BasaltPannello.exe [--config \"<profilo>\"] [--model \"<file .basalt>\"] [--port N]"; break;
             }
         }
         o.Repo ??= FindRepo(AppContext.BaseDirectory);

@@ -1,8 +1,11 @@
-// The window: a start panel (load profile, port, the memory check, Avvia / Avvia solo server) while no server runs,
-// then the server's own web UI in WebView2. Closing the window only hides it: Basalt keeps running behind the
-// notification-area icon, whose menu opens it again, reloads with other settings or turns everything off.
+// The window: a start panel (the model, the load profile, the VRAM to leave free, the port, the memory check, Avvia /
+// Avvia solo server) while no server runs, then the server's own web UI in WebView2 (or the browser when WebView2 is
+// missing). Until the models folders are set, a folder prompt comes first. Closing the window only hides it: Basalt
+// keeps running behind the notification-area icon, whose menu opens it again, reloads with other settings or turns
+// everything off.
 using System.Diagnostics;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -20,18 +23,33 @@ sealed class MainForm : Form
     readonly WebView2 web = new() { Dock = DockStyle.Fill, Visible = false, DefaultBackgroundColor = Color.FromArgb(14, 17, 20) };
     readonly TableLayoutPanel start = new() { Dock = DockStyle.Fill, Padding = new Padding(32, 24, 32, 24), BackColor = Bg };
     readonly ComboBox profiles = new() { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 12f) };
+    readonly ComboBox modelBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Width = 560, Font = new Font("Segoe UI", 12f), Margin = new Padding(0, 0, 12, 0) };
+    readonly Label modelInfo = new() { AutoSize = true, ForeColor = Fg2, Font = new Font("Segoe UI", 10.5f), Margin = new Padding(0, 4, 0, 8) };
     readonly NumericUpDown port = new() { Minimum = 1, Maximum = 65535, Value = 7232, Width = 140, Font = new Font("Segoe UI", 12f) };
-    readonly Label check = new() { AutoSize = false, Dock = DockStyle.Fill, ForeColor = Fg2, Font = new Font("Consolas", 10.5f) };
+    readonly TrackBar reserveBar = new() { Minimum = 0, Maximum = 128, Value = 24, TickFrequency = 8, SmallChange = 1, LargeChange = 4, Width = 360, Height = 48, AutoSize = false };
+    readonly NumericUpDown reserve = new() { Minimum = 0, Maximum = 32, DecimalPlaces = 2, Increment = 0.25m, Value = 6, Width = 110, Font = new Font("Segoe UI", 12f) };
+    readonly Label check = new() { AutoSize = true, ForeColor = Fg2, Font = new Font("Consolas", 10.5f), Margin = new Padding(0, 8, 0, 8) };
+    readonly FlowLayoutPanel startBar = new() { Dock = DockStyle.Bottom, AutoSize = false, Height = 84, WrapContents = false, Padding = new Padding(32, 12, 32, 16), BackColor = Color.FromArgb(21, 26, 31) };
     readonly Button go = Btn("Avvia", true), headless = Btn("Avvia solo server", false), quit = Btn("Esci", false);
-    readonly System.Windows.Forms.Timer poll = new() { Interval = 500 };
+    readonly Button foldersBtn = Btn("Cartelle dei modelli…", false), defaultBtn = Btn("Usa come modello predefinito per il server", false);
+    readonly System.Windows.Forms.Timer poll = new() { Interval = 500 }, recheck = new() { Interval = 350 };
+    // the folder prompt, shown instead of the start panel until the models folders are set
+    readonly TableLayoutPanel folders = new() { Dock = DockStyle.Fill, Padding = new Padding(32, 24, 32, 24), BackColor = Bg, Visible = false };
+    readonly ListBox folderList = new() { Height = 150, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 11.5f), IntegralHeight = false };
+    readonly Label folderMsg = new() { AutoSize = true, ForeColor = Bad, Font = new Font("Segoe UI", 10.5f) };
+    readonly FlowLayoutPanel suggestRow = new() { AutoSize = true, WrapContents = true, Margin = new Padding(0, 8, 0, 8) };
+    readonly Button folderGo = Btn("Continua", true);
     List<JsonElement> profileList = new();
+    List<JsonElement> modelList = new();
+    string defaultModel;
     string cfgPath;
     int serverPort;                 // the port of the server this window shows
     bool ours;                      // started by this app: in its job object
     bool exiting, checkOk;
     int checkSeq;
     public int ExitCode { get; private set; }
-    readonly string statePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Basalt", "desktop.json");
+    // per user: %APPDATA%\BasaltPannello\desktop.json (the last model, the tray tip); never in the repository
+    readonly string statePath;
     readonly List<string> report = new();
 
     public MainForm(Options opt, EventWaitHandle showEvent)
@@ -46,6 +64,8 @@ sealed class MainForm : Form
         Size = new Size(1360, 900);
         StartPosition = FormStartPosition.CenterScreen;
         cfgPath = Path.Combine(opt.Repo, "basalt_config.json");
+        statePath = opt.TestMock ? Path.Combine(Path.GetTempPath(), "basalt-desktop-test", "desktop.json")
+                                 : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello", "desktop.json");
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Apri", null, (_, _) => ShowWindow());
@@ -56,9 +76,13 @@ sealed class MainForm : Form
         tray.DoubleClick += (_, _) => ShowWindow();
 
         BuildStartPanel();
+        BuildFolderPanel();
         Controls.Add(web);
         Controls.Add(start);
+        Controls.Add(folders);
+        Controls.Add(startBar);                            // last: docked first, at the bottom
         poll.Tick += (_, _) => WaitForServer();
+        recheck.Tick += (_, _) => { recheck.Stop(); _ = Check(); };
         new Thread(() => { while (showEvent.WaitOne()) BeginInvoke(ShowWindow); }) { IsBackground = true }.Start();
         Shown += async (_, _) => await Begin();
     }
@@ -76,38 +100,275 @@ sealed class MainForm : Form
         Margin = new Padding(0, 0, 12, 0), Cursor = Cursors.Hand,
     };
 
+    static Label L(string t, float size, Color c, FontStyle st = FontStyle.Regular) => new() { Text = t, AutoSize = true, ForeColor = c, Font = new Font("Segoe UI", size, st), Margin = new Padding(0, 0, 0, 8) };
+
+    static void WrapLabels(TableLayoutPanel p)
+    {
+        void Wrap()
+        {
+            int w = Math.Max(200, p.ClientSize.Width - p.Padding.Horizontal - 8);
+            foreach (Control c in p.Controls) if (c is Label { AutoSize: true } l) l.MaximumSize = new Size(w, 0);
+        }
+        p.Resize += (_, _) => Wrap();
+        Wrap();
+    }
+
     void BuildStartPanel()
     {
         start.ColumnCount = 1;
-        Label L(string t, float size, Color c, FontStyle st = FontStyle.Regular) => new() { Text = t, AutoSize = true, ForeColor = c, Font = new Font("Segoe UI", size, st), Margin = new Padding(0, 0, 0, 8) };
+        start.AutoScroll = true;
         start.Controls.Add(L("Basalt", 22f, Fg, FontStyle.Bold));
-        start.Controls.Add(L("Scegli il profilo di caricamento: prima di avviare controllo che VRAM, RAM e commit bastino lasciando liberi il 15% della RAM e del commit.", 11f, Fg2));
+        start.Controls.Add(L("Scegli il modello e il profilo di caricamento: prima di avviare controllo che VRAM, RAM e commit bastino lasciando liberi il 15% della RAM e del commit.", 11f, Fg2));
+        start.Controls.Add(L("Modello", 11.5f, Fg, FontStyle.Bold));
+        var mrow = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 0, 0, 0) };
+        mrow.Controls.AddRange(new Control[] { modelBox, foldersBtn });
+        start.Controls.Add(mrow);
+        start.Controls.Add(modelInfo);
+        var drow = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 0, 0, 12) };
+        drow.Controls.Add(defaultBtn);
+        start.Controls.Add(drow);
         start.Controls.Add(L("Profilo di caricamento", 11.5f, Fg, FontStyle.Bold));
         start.Controls.Add(profiles);
+        start.Controls.Add(L("VRAM da lasciare libera", 11.5f, Fg, FontStyle.Bold));
+        var rrow = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 0, 0, 0) };
+        rrow.Controls.AddRange(new Control[] { reserveBar, reserve, L("GB", 11.5f, Fg) });
+        start.Controls.Add(rrow);
+        start.Controls.Add(L("Il resto della VRAM contiene esperti: più VRAM libera vuol dire meno esperti sulla GPU, un po' più lento e meno commit. Da 1 a 2 GB è il minimo per desktop e driver.", 10f, Fg2));
         var row = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 12, 0, 8) };
         row.Controls.Add(L("Porta", 11.5f, Fg, FontStyle.Bold));
         row.Controls.Add(port);
         start.Controls.Add(row);
         start.Controls.Add(check);
-        var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 12, 0, 0) };
-        buttons.Controls.AddRange(new Control[] { go, headless, quit });
-        start.Controls.Add(buttons);
+        // the buttons stay in sight at the bottom of the window while the panel above scrolls
+        startBar.Controls.AddRange(new Control[] { go, headless, quit });
+        start.VisibleChanged += (_, _) => startBar.Visible = start.Visible;
         start.Controls.Add(L("«Avvia solo server» avvia il server senza finestra né icona (per gli agenti); si ferma con Ferma-Basalt.ps1 --port N.", 10f, Fg2));
         for (int i = 0; i < start.Controls.Count; i++) start.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        void Wrap()
+        WrapLabels(start);
+        foreach (var c in new Control[] { profiles, modelBox, port, reserve }) { c.BackColor = Panel; c.ForeColor = Fg; }
+        reserveBar.BackColor = Bg;
+        profiles.SelectedIndexChanged += (_, _) =>
         {
-            int w = Math.Max(200, start.ClientSize.Width - start.Padding.Horizontal - 8);
-            foreach (Control c in start.Controls) if (c is Label { AutoSize: true } l) l.MaximumSize = new Size(w, 0);
-        }
-        start.Resize += (_, _) => Wrap();
-        Wrap();
-        start.RowStyles[5] = new RowStyle(SizeType.Percent, 100);
-        profiles.BackColor = Panel; profiles.ForeColor = Fg;
-        port.BackColor = Panel; port.ForeColor = Fg;
-        profiles.SelectedIndexChanged += (_, _) => { var p = SelectedProfile(); if (p != null && p.Value.TryGetProperty("values", out var v) && v.TryGetProperty("server.port", out var pp) && opt.Port == 0) port.Value = pp.GetInt32(); _ = Check(); };
+            var p = SelectedProfile();
+            if (p != null && p.Value.TryGetProperty("values", out var v))
+            {
+                if (v.TryGetProperty("server.port", out var pp) && opt.Port == 0) port.Value = pp.GetInt32();
+                if (v.TryGetProperty("engine.vram-reserve-mib", out var rm) && rm.ValueKind == JsonValueKind.Number) SetReserve(rm.GetDouble() / 1024.0);
+                if (p.Value.TryGetProperty("model", out var pm) && pm.ValueKind == JsonValueKind.String) SelectModel(pm.GetString());
+            }
+            _ = Check();
+        };
+        modelBox.SelectedIndexChanged += (_, _) => { ShowModelInfo(); _ = Check(); };
+        bool syncing = false;
+        reserveBar.Scroll += (_, _) => { if (syncing) return; syncing = true; reserve.Value = Math.Min(reserve.Maximum, reserveBar.Value / 4m); syncing = false; recheck.Stop(); recheck.Start(); };
+        reserve.ValueChanged += (_, _) => { if (syncing) return; syncing = true; reserveBar.Value = (int)Math.Min(reserveBar.Maximum, Math.Round(reserve.Value * 4)); syncing = false; recheck.Stop(); recheck.Start(); };
+        foldersBtn.Click += (_, _) => ShowFolders(true);
+        defaultBtn.Click += async (_, _) => await MakeDefault();
         go.Click += async (_, _) => await StartServer();
         headless.Click += async (_, _) => await StartHeadless();
         quit.Click += (_, _) => { exiting = true; Close(); };
+    }
+
+    void SetReserve(double gb)
+    {
+        decimal v = Math.Max(reserve.Minimum, Math.Min(reserve.Maximum, Math.Round((decimal)gb * 4) / 4));
+        reserve.Value = v;
+    }
+
+    void BuildFolderPanel()
+    {
+        folders.ColumnCount = 1;
+        folders.AutoScroll = true;
+        folders.Controls.Add(L("Dove sono i modelli?", 20f, Fg, FontStyle.Bold));
+        folders.Controls.Add(L("Prima di continuare scegli una o più cartelle in cui cercare i modelli: file .basalt pronti e modelli GGUF scaricati (per esempio da LM Studio). La ricerca guarda anche nelle sottocartelle e legge solo le intestazioni dei file.", 11f, Fg2));
+        folders.Controls.Add(folderList);
+        var row = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 8, 0, 0) };
+        var add = Btn("Aggiungi cartella…", false);
+        var remove = Btn("Rimuovi", false);
+        row.Controls.AddRange(new Control[] { add, remove });
+        folders.Controls.Add(row);
+        folders.Controls.Add(L("Trovate su questo PC:", 10.5f, Fg2));
+        folders.Controls.Add(suggestRow);
+        folders.Controls.Add(folderMsg);
+        var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 12, 0, 0) };
+        var leave = Btn("Esci", false);
+        buttons.Controls.AddRange(new Control[] { folderGo, leave });
+        folders.Controls.Add(buttons);
+        for (int i = 0; i < folders.Controls.Count; i++) folders.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        folders.RowStyles[2] = new RowStyle(SizeType.Absolute, 160);
+        WrapLabels(folders);
+        folderList.BackColor = Panel; folderList.ForeColor = Fg;
+        folderGo.Enabled = false;
+        add.Click += (_, _) =>
+        {
+            using var dlg = new FolderBrowserDialog { Description = "Cartella dei modelli", UseDescriptionForTitle = true, ShowNewFolderButton = false };
+            if (dlg.ShowDialog(this) == DialogResult.OK) AddFolder(dlg.SelectedPath);
+        };
+        remove.Click += (_, _) => { if (folderList.SelectedIndex >= 0) folderList.Items.RemoveAt(folderList.SelectedIndex); folderGo.Enabled = folderList.Items.Count > 0; };
+        folderGo.Click += async (_, _) => await SaveFolders();
+        leave.Click += (_, _) => { if (start.Visible || modelList.Count > 0) ShowFolders(false); else { exiting = true; Close(); } };
+    }
+
+    void AddFolder(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        foreach (var x in folderList.Items) if (string.Equals((string)x, path, StringComparison.OrdinalIgnoreCase)) return;
+        folderList.Items.Add(path);
+        folderGo.Enabled = true;
+        folderMsg.Text = "";
+    }
+
+    /// <summary>The folder prompt (with the folders saved so far and the ones found on this PC) or back to the start panel.</summary>
+    void ShowFolders(bool on)
+    {
+        folders.Visible = on;
+        start.Visible = !on;
+        if (on) _ = FillFolders();
+    }
+
+    async Task FillFolders()
+    {
+        var (code, output) = await Py("-m", "serve.models", "dirs");
+        if (code != 0) { folderMsg.Text = output; return; }
+        var root = JsonDocument.Parse(output.Trim().Split('\n').Last()).RootElement;
+        folderList.Items.Clear();
+        foreach (var d in root.GetProperty("dirs").EnumerateArray()) folderList.Items.Add(d.GetString());
+        suggestRow.Controls.Clear();
+        foreach (var s in root.GetProperty("suggestions").EnumerateArray())
+        {
+            string path = s.GetString();
+            var b = Btn("Aggiungi " + path, false);
+            b.Click += (_, _) => AddFolder(path);
+            suggestRow.Controls.Add(b);
+        }
+        if (suggestRow.Controls.Count == 0) suggestRow.Controls.Add(L("(nessuna cartella di modelli nota trovata)", 10.5f, Fg2));
+        folderGo.Enabled = folderList.Items.Count > 0;
+    }
+
+    async Task SaveFolders()
+    {
+        var dirs = folderList.Items.Cast<string>().ToList();
+        if (dirs.Count == 0) { folderMsg.Text = "Aggiungi almeno una cartella."; return; }
+        folderGo.Enabled = false;
+        folderMsg.ForeColor = Fg2; folderMsg.Text = "Cerco nelle cartelle…";
+        var (code, output) = await Py(new[] { "-m", "serve.models", "set-dirs" }.Concat(dirs).ToArray());
+        folderGo.Enabled = true;
+        if (code != 0) { folderMsg.ForeColor = Bad; folderMsg.Text = output.Trim(); return; }
+        folderMsg.Text = "";
+        ShowFolders(false);
+        await LoadModels();
+        await Check();
+    }
+
+    // ------------------------------------------------------------------ the models (serve.models json)
+    JsonElement? SelectedModel() => modelBox.SelectedIndex >= 0 && modelBox.SelectedIndex < modelList.Count ? modelList[modelBox.SelectedIndex] : null;
+    string SelectedModelPath => SelectedModel()?.GetProperty("path").GetString();
+    bool SelectedReady => SelectedModel() is JsonElement m && m.GetProperty("status").GetString() == "ready";
+
+    static string Status(string s) => s switch { "ready" => "✓ Pronto", "convert" => "⇄ Da convertire", _ => "✕ Non compatibile" };
+    static string Gb(long bytes) => (bytes / 1073741824.0).ToString("0.0", System.Globalization.CultureInfo.GetCultureInfo("it-IT")) + " GB";
+
+    async Task LoadModels()
+    {
+        modelInfo.ForeColor = Fg2;
+        modelInfo.Text = "Cerco i modelli nelle cartelle…";
+        var (code, output) = await Py("-m", "serve.models", "json", "--config", cfgPath);
+        modelList.Clear();
+        modelBox.Items.Clear();
+        if (code != 0) { modelInfo.Text = "Non riesco a leggere i modelli:\n" + output; return; }
+        var root = JsonDocument.Parse(output.Trim().Split('\n').Last()).RootElement.Clone();
+        defaultModel = root.TryGetProperty("default_model", out var dm) && dm.ValueKind == JsonValueKind.String ? dm.GetString() : null;
+        int incompatible = 0;
+        foreach (var m in root.GetProperty("models").EnumerateArray())
+        {
+            string st = m.GetProperty("status").GetString();
+            if (st == "incompatible") { incompatible++; continue; }
+            modelList.Add(m);
+            string quant = m.TryGetProperty("quant", out var q) && q.ValueKind == JsonValueKind.String ? " · " + q.GetString() : "";
+            modelBox.Items.Add($"{Status(st)} · {m.GetProperty("name").GetString()}{quant} · {Gb(m.GetProperty("size_bytes").GetInt64())}");
+        }
+        modelBox.Tag = incompatible;
+        // the model used last time, else the config file's, else the default server model, else the first ready one
+        string last = ReadState("last_model");
+        string current = root.TryGetProperty("current", out var cur) && cur.ValueKind == JsonValueKind.String ? cur.GetString() : null;
+        if (!SelectModel(opt.Model) && !SelectModel(last) && !SelectModel(current) && !SelectModel(defaultModel))
+        {
+            int i = modelList.FindIndex(x => x.GetProperty("status").GetString() == "ready");
+            if (i >= 0) modelBox.SelectedIndex = i;
+        }
+        if (modelList.Count == 0) modelInfo.Text = $"Nessun modello pronto o da convertire nelle cartelle ({incompatible} file non compatibili). Usa «Cartelle dei modelli…».";
+        ShowModelInfo();
+    }
+
+    bool SelectModel(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        string norm(string p) => p.Replace('\\', '/').ToLowerInvariant();
+        int i = modelList.FindIndex(x => norm(x.GetProperty("path").GetString()) == norm(path));
+        if (i < 0) return false;
+        modelBox.SelectedIndex = i;
+        return true;
+    }
+
+    void ShowModelInfo()
+    {
+        var m = SelectedModel();
+        if (m == null) { defaultBtn.Visible = false; return; }
+        var e = m.Value;
+        string st = e.GetProperty("status").GetString();
+        var parts = new List<string> { e.GetProperty("path").GetString() };
+        if (e.TryGetProperty("experts_bytes", out var eb) && eb.GetInt64() > 0) parts.Add("esperti " + Gb(eb.GetInt64()));
+        if (e.TryGetProperty("mtp", out var mtp) && mtp.ValueKind == JsonValueKind.String) parts.Add(mtp.GetString() == "present" ? "drafter MTP" : mtp.GetString() == "source" ? "MTP da mtp-qwen" : "MTP da scaricare");
+        if (e.TryGetProperty("vision", out var vis) && vis.ValueKind == JsonValueKind.True) parts.Add("visione");
+        string why = e.GetProperty("reason").GetProperty("it").GetString();
+        string extra = st == "convert" ? "\nDa convertire: avvia Basalt con un modello pronto e usa «Carica modello» → Converti, oppure Avvia-Basalt.ps1 --model \"<file gguf>\" -Converti." : "";
+        int inc = modelBox.Tag is int n ? n : 0;
+        modelInfo.ForeColor = st == "ready" ? Fg2 : Bad;
+        modelInfo.Text = string.Join(" · ", parts) + "\n" + why + extra + (inc > 0 ? $"\n({inc} file non compatibili nelle cartelle: l'elenco completo è in «Carica modello».)" : "");
+        bool isDefault = defaultModel != null && string.Equals(defaultModel.Replace('\\', '/'), SelectedModelPath?.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase);
+        defaultBtn.Visible = st == "ready";
+        defaultBtn.Enabled = !isDefault;
+        defaultBtn.Text = isDefault ? "★ Modello predefinito per il server" : "Usa come modello predefinito per il server";
+    }
+
+    async Task MakeDefault()
+    {
+        string path = SelectedModelPath;
+        if (path == null || !SelectedReady) return;
+        var (code, output) = await Py("-m", "serve.models", "default", "--set", path);
+        if (code != 0) { modelInfo.ForeColor = Bad; modelInfo.Text = output; return; }
+        defaultModel = path;
+        ShowModelInfo();
+    }
+
+    // ------------------------------------------------------------------ per-user state (%APPDATA%\BasaltPannello)
+    string ReadState(string key)
+    {
+        foreach (var p in new[] { statePath, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Basalt", "desktop.json") })
+        {
+            try
+            {
+                if (File.Exists(p) && JsonDocument.Parse(File.ReadAllText(p)).RootElement.TryGetProperty(key, out var v))
+                    return v.ValueKind == JsonValueKind.String ? v.GetString() : v.ToString();
+            }
+            catch { }
+            if (opt.TestMock) break;
+        }
+        return null;
+    }
+
+    void WriteState(string key, object value)
+    {
+        try
+        {
+            var d = new Dictionary<string, object>();
+            if (File.Exists(statePath))
+                foreach (var p in JsonDocument.Parse(File.ReadAllText(statePath)).RootElement.EnumerateObject()) d[p.Name] = p.Value.Clone();
+            d[key] = value;
+            Directory.CreateDirectory(Path.GetDirectoryName(statePath));
+            File.WriteAllText(statePath, JsonSerializer.Serialize(d));
+        }
+        catch { }
     }
 
     JsonElement? SelectedProfile() => profiles.SelectedIndex >= 0 && profiles.SelectedIndex < profileList.Count ? profileList[profiles.SelectedIndex] : null;
@@ -135,25 +396,51 @@ sealed class MainForm : Form
     async Task Begin()
     {
         if (opt.TestMock) PrepareMock();
-        var running = await Task.Run(Native.RunningServers);
+        bool autoStart = false;
+        var running = opt.TestFolderPrompt ? new List<(int, JsonElement)>() : await Task.Run(Native.RunningServers);
         if (running.Count > 0)
         {
             var (p, h) = running[0];
             string model = h.TryGetProperty("model", out var m) ? m.GetString() : "?";
-            string want = opt.Profile ?? "il profilo predefinito";
+            string last = opt.Model ?? ReadState("last_model");
+            string want = last != null ? Path.GetFileNameWithoutExtension(last) : "il modello scelto";
             var attach = new TaskDialogButton("Collegati al server in esecuzione");
-            var restart = new TaskDialogButton($"Chiudi il server attuale e avvia con «{want}»");
+            var change = new TaskDialogButton($"Cambia modello: chiudi il server attuale e carica «{want}»");
             var page = new TaskDialogPage
             {
                 Caption = "Basalt", Heading = $"Basalt è già acceso sulla porta {p}",
-                Text = $"Modello: {model}. Puoi collegarti a questo server oppure chiuderlo e avviarne uno nuovo.",
-                Buttons = { attach, restart, TaskDialogButton.Cancel }, Icon = TaskDialogIcon.Information,
+                Text = $"Modello in uso: {model}. Puoi usare questo server, oppure chiuderlo (solo lui e i suoi processi) e caricare il modello scelto qui.",
+                Buttons = { attach, change, TaskDialogButton.Cancel }, Icon = TaskDialogIcon.Information,
             };
             var choice = opt.TestMock ? attach : TaskDialog.ShowDialog(this, page);
             if (choice == attach) { ShowServer(p, false); return; }
-            if (choice != restart) { exiting = true; Close(); return; }
+            if (choice != change) { exiting = true; Close(); return; }
             await StopExternal(p);
+            autoStart = true;
         }
+        var (dc, dout) = await Py("-m", "serve.models", "dirs");
+        bool configured = dc == 0 && JsonDocument.Parse(dout.Trim().Split('\n').Last()).RootElement.GetProperty("configured").GetBoolean();
+        if (!configured)
+        {
+            ShowFolders(true);
+            await FillFolders();
+            if (opt.TestFolderPrompt)
+            {
+                await Task.Delay(300);
+                if (opt.Screenshot != null) SnapForm(Path.ChangeExtension(opt.Screenshot, null) + "-folders.png");
+                if (opt.TestModelsDir == null) { ExitCode = 0; exiting = true; Close(); return; }
+                AddFolder(opt.TestModelsDir);
+                await SaveFolders();
+                await LoadProfiles();
+                await Check();
+                await Task.Delay(300);
+                if (opt.Screenshot != null) SnapForm(Path.ChangeExtension(opt.Screenshot, null) + "-panel.png");
+                if (opt.Screenshot != null) File.WriteAllLines(Path.ChangeExtension(opt.Screenshot, ".txt"), report.Append("check: " + check.Text));
+                ExitCode = 0; exiting = true; Close();
+            }
+            return;                                        // the start panel follows the folders' "Continua"
+        }
+        await LoadModels();
         await LoadProfiles();
         if (opt.Profile != null && !profileList.Any(x => x.GetProperty("name").GetString() == opt.Profile))
         {
@@ -165,7 +452,10 @@ sealed class MainForm : Form
             await Check();
             if (opt.Screenshot != null) SnapForm(Path.ChangeExtension(opt.Screenshot, null) + "-panel.png");
             await StartServer();
+            return;
         }
+        await Check();
+        if (autoStart && checkOk) await StartServer();     // "Cambia modello": the old server is gone, load the new one
     }
 
     async Task LoadProfiles()
@@ -196,18 +486,22 @@ sealed class MainForm : Form
         string name = SelectedName;
         if (name == null) return;
         go.Enabled = headless.Enabled = false;
+        checkOk = false;
+        if (SelectedModel() != null && !SelectedReady)
+        {
+            check.ForeColor = Bad;
+            check.Text = "Questo modello va convertito prima di caricarlo (vedi sopra).";
+            return;
+        }
         check.ForeColor = Fg2;
         check.Text = "Controllo la memoria…";
-        string tmp = Path.Combine(Path.GetTempPath(), $"basalt_config.check.{Environment.ProcessId}.json");
+        string tmp = Path.Combine(Path.GetTempPath(), $"basalt_config.check.{Environment.ProcessId}.{seq}.json");   // one per check: they can overlap
         string output; int code;
         try
         {
             File.Copy(cfgPath, tmp, true);
-            if (!opt.TestMock)
-            {
-                var ap = await Py("-m", "serve.profiles", "apply", name, "--config", tmp);
-                if (ap.code != 0) { check.Text = ap.output; check.ForeColor = Bad; return; }
-            }
+            var ap = await Py(ApplyArgs(name, tmp));
+            if (ap.code != 0) { if (seq == checkSeq) { check.Text = ap.output; check.ForeColor = Bad; } return; }
             (code, output) = await Py("-m", "serve.loader", "check", "--config", tmp);
         }
         finally { try { File.Delete(tmp); File.Delete(tmp + ".bak"); } catch { } }
@@ -215,9 +509,24 @@ sealed class MainForm : Form
         var lines = output.TrimEnd().Split('\n').Select(l => l.TrimEnd('\r')).ToList();
         if (lines.Count > 0 && lines[^1].StartsWith("{")) lines.RemoveAt(lines.Count - 1);
         checkOk = code == 0;
-        check.Text = string.Join("\n", lines) + (checkOk ? "\n\nOK: si può avviare." : "\n\nNon si avvia: la memoria non basta senza usare il file di paging. Scegli un altro profilo o chiudi altri programmi.");
+        string verdict = code switch
+        {
+            0 => "\n\nOK: si può avviare.",
+            4 => "\n\nNon si avvia: il motore di Basalt gira solo su GPU NVIDIA Blackwell (RTX 50, RTX PRO 6000, B200).",
+            _ => "\n\nNon si avvia: la memoria non basta senza usare il file di paging. Scegli un altro profilo, lascia libera meno VRAM o chiudi altri programmi.",
+        };
+        check.Text = string.Join("\n", lines) + verdict;
         check.ForeColor = checkOk ? Fg : Bad;
         go.Enabled = headless.Enabled = checkOk;
+    }
+
+    /// <summary>serve.profiles apply with the chosen model and the VRAM to leave free of the panel.</summary>
+    string[] ApplyArgs(string profile, string config)
+    {
+        var a = new List<string> { "-m", "serve.profiles", "apply", profile, "--config", config,
+                                   "--vram-reserve-mib", ((int)Math.Round(reserve.Value * 1024)).ToString() };
+        if (SelectedReady) { a.Add("--model"); a.Add(SelectedModelPath); }
+        return a.ToArray();
     }
 
     // ------------------------------------------------------------------ start the server, in this app's job
@@ -235,11 +544,12 @@ sealed class MainForm : Form
         }
         else
         {
-            var ap = await Py("-m", "serve.profiles", "apply", name, "--config", cfgPath);
+            var ap = await Py(ApplyArgs(name, cfgPath));
             if (ap.code != 0) { check.Text = ap.output; check.ForeColor = Bad; return; }
             exe = Path.Combine(opt.Repo, "bin", "basalt.exe");
             cmd = $"\"{exe}\" serve --config \"{cfgPath}\" --port {p}";
         }
+        if (SelectedReady) WriteState("last_model", SelectedModelPath);
         string logDir = Path.Combine(opt.Repo, "logs");
         Directory.CreateDirectory(logDir);
         string log = Path.Combine(logDir, "basalt-serve.log");
@@ -273,8 +583,10 @@ sealed class MainForm : Form
         go.Enabled = headless.Enabled = false;
         check.Text = $"Avvio il solo server «{name}» sulla porta {p}…";
         var psi = new ProcessStartInfo("powershell.exe") { WorkingDirectory = opt.Repo, UseShellExecute = false, CreateNoWindow = true };
-        foreach (var a in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Avvia-Basalt.ps1"), "--config", name, "--port", p.ToString(), "-SoloServer" })
-            psi.ArgumentList.Add(a);
+        var args = new List<string> { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Avvia-Basalt.ps1"), "--config", name, "--port", p.ToString(),
+                                      "--vram-reserve-mib", ((int)Math.Round(reserve.Value * 1024)).ToString(), "-SoloServer" };
+        if (SelectedReady) { args.Add("--model"); args.Add(SelectedModelPath); WriteState("last_model", SelectedModelPath); }
+        foreach (var a in args) psi.ArgumentList.Add(a);
         using var proc = Process.Start(psi);
         await proc.WaitForExitAsync();
         if (proc.ExitCode == 0)
@@ -294,18 +606,46 @@ sealed class MainForm : Form
         _ = InitWeb(loading);
     }
 
+    bool useBrowser;                // WebView2 is missing: the page opens in the default browser
+
     async Task InitWeb(bool loading)
     {
-        if (web.CoreWebView2 == null)
+        if (web.CoreWebView2 == null && !useBrowser)
         {
-            string data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Basalt", opt.TestMock ? "WebView2-test" : "WebView2");
-            // the app speaks Italian, so does the page (the Loader and the chat settings follow the browser language)
-            var env = await CoreWebView2Environment.CreateAsync(null, data, new CoreWebView2EnvironmentOptions { Language = "it-IT" });
-            await web.EnsureCoreWebView2Async(env);
-            web.CoreWebView2.Settings.AreDevToolsEnabled = opt.TestMock;
-            web.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            web.CoreWebView2.DocumentTitleChanged += (_, _) => Text = "Basalt";
-            web.CoreWebView2.NewWindowRequested += (_, e) => { e.Handled = true; Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute = true }); };
+            try
+            {
+                if (opt.TestNoWebView) throw new WebView2RuntimeNotFoundException("test");
+                string data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Basalt", opt.TestMock ? "WebView2-test" : "WebView2");
+                // the app speaks Italian, so does the page (the Loader and the chat settings follow the browser language)
+                var env = await CoreWebView2Environment.CreateAsync(null, data, new CoreWebView2EnvironmentOptions { Language = "it-IT" });
+                await web.EnsureCoreWebView2Async(env);
+                web.CoreWebView2.Settings.AreDevToolsEnabled = opt.TestMock;
+                web.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                web.CoreWebView2.DocumentTitleChanged += (_, _) => Text = "Basalt";
+                web.CoreWebView2.NewWindowRequested += (_, e) => { e.Handled = true; Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute = true }); };
+            }
+            catch (Exception e) when (e is WebView2RuntimeNotFoundException || e is COMException || e is FileNotFoundException)
+            {
+                useBrowser = true;
+                report.Add("webview2 missing: " + e.Message);
+                const string get = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
+                var answer = opt.TestMock ? DialogResult.Yes : MessageBox.Show(this,
+                    "Manca Microsoft Edge WebView2 Runtime, che serve per mostrare Basalt in questa finestra.\n\n" +
+                    "Sì: apro Basalt nel browser (il server resta acceso dietro l'icona vicino all'orologio).\n" +
+                    "No: apro la pagina per installare WebView2 (poi riavvia BasaltPannello).",
+                    "Basalt", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (answer == DialogResult.No) Process.Start(new ProcessStartInfo(get) { UseShellExecute = true });
+                web.Visible = false;
+                start.Visible = true;
+                check.ForeColor = Fg2;
+                check.Text = $"Basalt si apre nel browser: http://127.0.0.1:{serverPort}/ (WebView2 non è installato).";
+            }
+        }
+        if (useBrowser)
+        {
+            if (loading) poll.Start();
+            else OpenBrowser();
+            return;
         }
         if (loading)
         {
@@ -332,8 +672,21 @@ sealed class MainForm : Form
         {
             poll.Stop();
             report.Add("health ok");
+            if (useBrowser) { OpenBrowser(); return; }
             web.CoreWebView2.Navigate($"http://127.0.0.1:{serverPort}/");
             if (opt.Screenshot != null) _ = TestRun();
+        }
+    }
+
+    void OpenBrowser()
+    {
+        string url = $"http://127.0.0.1:{serverPort}/";
+        report.Add("browser " + url);
+        if (!opt.TestMock) Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        if (opt.TestMock && opt.Screenshot != null)
+        {
+            SnapForm(Path.ChangeExtension(opt.Screenshot, null) + "-browser.png");
+            if (opt.TestExit) TurnOff(false);
         }
     }
 
@@ -373,8 +726,8 @@ sealed class MainForm : Form
     // ------------------------------------------------------------------ hide, show, turn off
     void SnapForm(string path)
     {
-        using var bmp = new Bitmap(ClientSize.Width, ClientSize.Height);
-        DrawToBitmap(bmp, new Rectangle(Point.Empty, ClientSize));
+        using var bmp = new Bitmap(Width, Height);             // the whole window: DrawToBitmap includes the title bar
+        DrawToBitmap(bmp, new Rectangle(Point.Empty, Size));
         bmp.Save(path, ImageFormat.Png);
         report.Add("screenshot " + path);
     }
@@ -403,15 +756,12 @@ sealed class MainForm : Form
         base.OnFormClosing(e);
     }
 
-    bool BalloonShown()
-    {
-        try { return File.Exists(statePath) && JsonDocument.Parse(File.ReadAllText(statePath)).RootElement.TryGetProperty("tray_tip_shown", out _); } catch { return false; }
-    }
+    bool BalloonShown() => ReadState("tray_tip_shown") != null;
 
     void RememberBalloon()
     {
         if (opt.TestMock) return;
-        try { Directory.CreateDirectory(Path.GetDirectoryName(statePath)); File.WriteAllText(statePath, "{\"tray_tip_shown\": true}"); } catch { }
+        WriteState("tray_tip_shown", true);
     }
 
     async Task StopExternal(int p)
@@ -464,7 +814,10 @@ sealed class MainForm : Form
         cfgPath = Path.Combine(dir, "mock_config.json");
         File.WriteAllText(cfgPath, "{\"server\": {\"port\": 7298, \"vision\": \"dynamic\", \"listen-first\": true}}");
         Environment.SetEnvironmentVariable("BASALT_CACHE", Path.Combine(dir, "cache"));
+        if (opt.TestFolderPrompt)                          // the folders are not set yet: the prompt comes first
+            try { File.Delete(Path.Combine(dir, "cache", "models.json")); File.Delete(statePath); } catch { }
         Environment.SetEnvironmentVariable("BASALT_FAKE_SYSTEM", "{\"ram_total\": 137438953472, \"ram_available\": 118111600640, \"commit_limit\": 154618822656, \"commit_used\": 21474836480, \"vram_total\": 34359738368, \"vram_free\": 32212254720}");
+        Environment.SetEnvironmentVariable("BASALT_FAKE_GPU", "{\"name\": \"NVIDIA GeForce RTX 5090\", \"cc\": [12, 0], \"vram_total\": 34359738368, \"vram_free\": 32212254720, \"processes\": [{\"pid\": 11, \"name\": \"dwm.exe\"}]}");
         Environment.SetEnvironmentVariable("BASALT_FAKE_SYSTEM_OK", "1");
         if (opt.Port == 0) port.Value = 7298;
         else port.Value = opt.Port;

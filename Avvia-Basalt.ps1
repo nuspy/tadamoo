@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Avvia Basalt (server web + motore) con un profilo di caricamento e apre l'interfaccia nel browser.
 
@@ -21,6 +21,20 @@
 .PARAMETER Config
     Il profilo di caricamento (anche --config "<nome>"). Senza: il profilo predefinito.
 
+.PARAMETER Model
+    Il file .basalt da servire, con il percorso completo (anche --model "<file>" o -Model). Senza: il modello del
+    profilo (--config), altrimenti il modello predefinito per il server scelto nell'app o nel Loader («Usa come
+    modello predefinito per il server»), altrimenti quello già nel file di configurazione. Se non ce n'è nessuno lo
+    script si ferma e dice come sceglierlo. Un GGUF «Da convertire» si converte con -Converti (dopo una conferma che
+    dice quanto scrive e su quale disco); un file «Non compatibile» viene rifiutato con il motivo.
+
+.PARAMETER Converti
+    Se il modello è un GGUF da convertire: mostra il piano (dimensione del nuovo file, disco, spazio libero), chiede
+    conferma, converte e poi avvia il file .basalt ottenuto (anche --converti).
+
+.PARAMETER RiservaMib
+    La VRAM da lasciare libera, in MiB, al posto di quella del profilo (anche --vram-reserve-mib N).
+
 .PARAMETER Port
     La porta (anche --port N, 1..65535); vince su quella del profilo.
 
@@ -42,11 +56,16 @@
     .\Avvia-Basalt.ps1 --config "Valori sicuri" --port 7240
 .EXAMPLE
     .\Avvia-Basalt.ps1 -SoloServer
+.EXAMPLE
+    .\Avvia-Basalt.ps1 --model "D:\Modelli\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --port 7240
 #>
 [CmdletBinding()]
 param(
     [string]$Config = '',
+    [string]$Model = '',
+    [switch]$Converti,
     [int]$Port = 0,
+    [int]$RiservaMib = -1,
     [switch]$Prova,
     [switch]$Sfondo,
     [switch]$SoloServer,
@@ -84,6 +103,13 @@ for ($i = 0; $i -lt $Altri.Count; $i++) {
     $a = $Altri[$i]
     $val = { param($n) if ($a -like "--$n=*") { $a.Substring($n.Length + 3) } elseif ($i + 1 -lt $Altri.Count) { $script:i++; $Altri[$script:i] } else { $null } }
     if ($a -eq '--config' -or $a -like '--config=*') { $Config = & $val 'config' }
+    elseif ($a -eq '--model' -or $a -like '--model=*') { $Model = & $val 'model' }
+    elseif ($a -eq '--converti') { $Converti = $true }
+    elseif ($a -eq '--vram-reserve-mib' -or $a -like '--vram-reserve-mib=*') {
+        $v = & $val 'vram-reserve-mib'
+        if (-not ($v -match '^\d+$')) { Scrivi "--vram-reserve-mib vuole un numero di MiB, non '$v'" Red; Esci 1 }
+        $RiservaMib = [int]$v
+    }
     elseif ($a -eq '--port' -or $a -like '--port=*') {
         $v = & $val 'port'
         if (-not ($v -match '^\d+$')) { Scrivi "--port vuole un numero da 1 a 65535, non '$v'" Red; Esci 1 }
@@ -92,7 +118,7 @@ for ($i = 0; $i -lt $Altri.Count; $i++) {
     elseif ($a -eq '--solo-server') { $SoloServer = $true }
     elseif ($a -eq '--prova') { $Prova = $true }
     elseif ($a -eq '--sfondo') { $Sfondo = $true }
-    else { Scrivi "Argomento sconosciuto: $a (uso: Avvia-Basalt.ps1 [--config ""<profilo>""] [--port N] [-Sfondo|-SoloServer] [-Prova])" Red; Esci 1 }
+    else { Scrivi "Argomento sconosciuto: $a (uso: Avvia-Basalt.ps1 [--config ""<profilo>""] [--model ""<file .basalt>""] [--port N] [-Converti] [-Sfondo|-SoloServer] [-Prova])" Red; Esci 1 }
 }
 if ($Port -ne 0 -and ($Port -lt 1 -or $Port -gt 65535)) { Scrivi "Porta non valida: $Port (1..65535)" Red; Esci 1 }
 if ($SoloServer) { $Sfondo = $true }
@@ -183,8 +209,22 @@ if ($accesi.Count) {
         Scrivi "  impostazioni in uso: kv $($r.'engine.kv'), spec $($r.'engine.spec'), cache esperti $($r.'engine.expert-cache'), slot $($r.'server.parallel')"
         if ($imp.config) { Scrivi "  configurazione: $($imp.config)" }
     }
+    $pidFile0 = Join-Path $Radice 'basalt.pid'
+    if (Test-Path $pidFile0) {
+        try {
+            $info0 = Get-Content -Raw $pidFile0 | ConvertFrom-Json
+            if ($info0.PSObject.Properties['profile'] -and $info0.profile -and $info0.PSObject.Properties['port'] -and [int]$info0.port -eq $s.Porta) { Scrivi "  profilo:    $($info0.profile)" }
+        } catch { }
+    }
+    if ($imp -and $imp.PSObject.Properties['model'] -and $imp.model) { Scrivi "  file:       $($imp.model)" }
     if ($accesi.Count -gt 1) { Scrivi "  altri server Basalt accesi sulle porte: $(($accesi | Select-Object -Skip 1 | ForEach-Object { $_.Porta }) -join ', ')" }
     if ($Config) { Scrivi "  (il profilo «$Config» non è stato applicato: per cambiarlo usa il Loader o Ferma-Basalt.ps1 e poi riavvia)" DarkYellow }
+    if ($Model) {
+        $inUso = if ($imp -and $imp.PSObject.Properties['model']) { [string]$imp.model } else { '' }
+        if (-not $inUso -or ([System.IO.Path]::GetFullPath($Model) -ne [System.IO.Path]::GetFullPath($inUso))) {
+            Scrivi "  (il modello «$Model» NON è stato caricato: questo server serve un altro modello. Per cambiarlo: Ferma-Basalt.ps1 --port $($s.Porta), poi di nuovo Avvia-Basalt.ps1 --model ...)" DarkYellow
+        }
+    }
     if (-not $Prova -and -not $SoloServer) { Start-Process $url }
     Esci 0
 }
@@ -206,7 +246,43 @@ if ($Prova) {
     $usato = Join-Path ([System.IO.Path]::GetTempPath()) "basalt_config.prova.$PID.json"
     Copy-Item $cfgPath $usato -Force
 }
-$ap = Invoke-Py @('-m', 'serve.profiles', 'apply', $Config, '--config', $usato)
+# ------------------------------------------------------------------ il modello: --model > profilo > predefinito > file
+$argR = @('-m', 'serve.models', 'resolve', '--profile', $Config, '--config', $cfgPath)
+if ($Model) { $argR += @('--model', $Model) }
+$rs = Invoke-Py $argR
+try { $scelta = $rs.Righe | Select-Object -Last 1 | ConvertFrom-Json } catch { Scrivi "Non riesco a scegliere il modello:" Red; $rs.Righe | ForEach-Object { Scrivi "  $_" Red }; Esci 1 }
+$fonte = if ($scelta.source) { $scelta.source_text.it } else { '' }
+if ($rs.Codice -eq 7) { Scrivi $scelta.reason.it Red; Esci 1 }
+if ($rs.Codice -eq 6) {
+    Scrivi "Il modello ($fonte) non si può usare: $($scelta.model)" Red
+    Scrivi "  $($scelta.reason.it)" Red
+    Esci 1
+}
+if ($rs.Codice -eq 5) {
+    Scrivi "Il modello ($fonte) è un GGUF da convertire in .basalt: $($scelta.model)" Yellow
+    if (-not $Converti) {
+        Scrivi "  Per convertirlo: .\Avvia-Basalt.ps1 --model `"$($scelta.model)`" -Converti (chiede conferma e dice quanto scrive)," Yellow
+        Scrivi "  oppure dalla pagina Carica modello: Converti." Yellow
+        Esci 1
+    }
+    $pc = Invoke-Py @('-m', 'serve.models', 'convert', '--model', $scelta.model)
+    try { $piano = $pc.Righe | Select-Object -Last 1 | ConvertFrom-Json } catch { $pc.Righe | ForEach-Object { Scrivi "  $_" Red }; Esci 1 }
+    Scrivi "  $($piano.summary.it)"
+    Scrivi "  file nuovo: $($piano.out_path)"
+    foreach ($x in @($piano.problems)) { Scrivi "  $($x.text_it)" Red }
+    if (-not $piano.ok) { Scrivi 'Conversione non possibile ora.' Red; Esci 1 }
+    if ($Prova) { Scrivi '  (PROVA: la conversione non parte)' Yellow; Esci 0 }
+    $ok = Read-Host "Converto? Scrive circa $([math]::Round($piano.estimate_bytes / 1GB, 1)) GB sul disco $($piano.disk) [s/N]"
+    if ($ok -notmatch '^(s|si|sì|y|yes)$') { Scrivi 'Conversione annullata.' Yellow; Esci 1 }
+    Push-Location $Radice
+    try { & $py -m serve.models convert --model $scelta.model --out $piano.out_dir --yes --token $piano.token; $codConv = $LASTEXITCODE } finally { Pop-Location }
+    if ($codConv -ne 0) { Scrivi 'La conversione non è riuscita (vedi sopra).' Red; Esci 1 }
+    $scelta.model = $piano.out_path
+    $fonte = 'il file appena convertito'
+}
+$argA = @('-m', 'serve.profiles', 'apply', $Config, '--config', $usato, '--model', $scelta.model)
+if ($RiservaMib -ge 0) { $argA += @('--vram-reserve-mib', "$RiservaMib") }
+$ap = Invoke-Py $argA
 if ($ap.Codice -ne 0) { Scrivi "Il profilo «$Config» non si può applicare:" Red; $ap.Righe | ForEach-Object { Scrivi "  $_" Red }; Esci 1 }
 $valori = ($ap.Righe | Select-Object -Last 1 | ConvertFrom-Json).values
 $cfg = Get-Content -Raw -Encoding UTF8 $usato | ConvertFrom-Json
@@ -227,7 +303,7 @@ $pidFile = Join-Path $Radice 'basalt.pid'
 Scrivi "Basalt - avvio $(if ($Prova) { '(PROVA: non parte nulla)' })" Cyan
 Scrivi "  profilo:        $Config"
 Scrivi "  configurazione: $cfgPath$(if ($Prova) { ' (in prova: una copia)' })"
-Scrivi "  modello:        $modello"
+Scrivi "  modello:        $modello ($fonte)"
 Scrivi "  indirizzo:      $url"
 
 $asc = Get-Ascoltatore $porta
@@ -250,9 +326,10 @@ if ($srv.PSObject.Properties['gpu']) { $gpu = [int](([string]$srv.gpu).Split(','
 Scrivi ''
 Scrivi 'Memoria (gli stessi calcoli del Loader):' Cyan
 $ck = Invoke-Py @('-m', 'serve.loader', 'check', '--config', $usato, '--gpu', "$gpu")
-$ck.Righe | Select-Object -SkipLast 1 | ForEach-Object { Scrivi $_ $(if ($_ -match '^  (Non entra|Manca|La tabella)') { 'Red' } else { 'Gray' }) }
+$ck.Righe | Select-Object -SkipLast 1 | ForEach-Object { Scrivi $_ $(if ($_ -match '^  (Non entra|Manca|La tabella|GPU NON)') { 'Red' } elseif ($_ -match '^  Attenzione') { 'Yellow' } else { 'Gray' }) }
 $memOk = $ck.Codice -eq 0
 if ($ck.Codice -eq 2) { Scrivi '  configurazione non leggibile' Red; Esci 1 }
+if ($ck.Codice -eq 4) { Scrivi 'Basalt NON viene avviato: il motore non gira su questa GPU (servono GPU NVIDIA Blackwell).' Red; Esci 1 }
 if ($memOk) { Scrivi '  OK' Green }
 if ($Prova) { Remove-Item $usato -ErrorAction SilentlyContinue; Remove-Item "$usato.bak" -ErrorAction SilentlyContinue }
 
