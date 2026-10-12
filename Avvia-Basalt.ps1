@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Avvia Basalt (server web + motore) con un profilo di caricamento e apre l'interfaccia nel browser.
 
