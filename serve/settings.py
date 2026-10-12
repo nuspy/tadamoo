@@ -24,6 +24,13 @@ FIELDS = (("server", "port"), ("server", "parallel"), ("server", "vision"),
           ("engine", "max-context"), ("engine", "kv"), ("engine", "spec"), ("engine", "spec-min-p"),
           ("engine", "expert-cache"), ("engine", "prefill"))
 READ_ONLY = (("server", "model"),)
+# the Loader's fields: the settings page's engine fields and the memory and slot switches
+LOADER_FIELDS = (("server", "parallel"), ("server", "slot-full-context"), ("server", "vision"),
+                 ("engine", "max-context"), ("engine", "kv"), ("engine", "prefill"), ("engine", "spec"),
+                 ("engine", "spec-min-p"), ("engine", "expert-cache"), ("engine", "resident-experts"),
+                 ("engine", "vram-reserve-mib"), ("engine", "ple-io"), ("engine", "pool-workers"))
+PLE_IO_MODES = ("direct", "mmap", "ram")             # the engine's --ple-io
+POOL_WORKERS_MAX = 256
 RESTART_NOTE = "Saved to the config file. The running server keeps its settings until it is started again."
 
 
@@ -89,6 +96,19 @@ def check_value(section: str, key: str, value):
         except ValueError:
             raise ValueError(f"{what}: auto, auto:8192, auto:16384, auto:32768 or a chunk size in tokens, "
                              f"not {value!r}") from None
+    if key in ("resident-experts", "slot-full-context"):
+        if not isinstance(value, bool):
+            raise ValueError(f"{what}: true or false, not {value!r}")
+        return value
+    if key == "vram-reserve-mib":
+        return _whole(value, what, 0, 1 << 20)
+    if key == "pool-workers":
+        return _whole(value, what, 1, POOL_WORKERS_MAX)
+    if key == "ple-io":
+        text = str(value).strip().lower() if isinstance(value, str) else None
+        if text not in PLE_IO_MODES:
+            raise ValueError(f"{what}: one of {', '.join(PLE_IO_MODES)}, not {value!r}")
+        return text
     raise ValueError(f"{what}: not a field this page sets")
 
 
@@ -101,10 +121,10 @@ def read_file(path: str) -> dict:
     return raw
 
 
-def values_of(raw: dict) -> dict:
+def values_of(raw: dict, fields=FIELDS) -> dict:
     """{"server.port": value, ...} for the edited and read-only fields the file sets."""
     out = {}
-    for section, key in (*FIELDS, *READ_ONLY):
+    for section, key in (*fields, *READ_ONLY):
         sec = raw.get(section) if isinstance(raw.get(section), dict) else {}
         for k, v in sec.items():
             if norm(k) == key:
@@ -112,12 +132,12 @@ def values_of(raw: dict) -> dict:
     return out
 
 
-def merge(raw: dict, changes: dict) -> tuple[dict, list[str]]:
+def merge(raw: dict, changes: dict, fields=FIELDS) -> tuple[dict, list[str]]:
     """(new file object, the fields that changed). `changes` maps "section.key" to a value, or None to remove the key
     (back to the default). Existing keys keep their spelling and place; every other key is kept as it was."""
     if not isinstance(changes, dict) or not changes:
         raise ValueError('send {"changes": {"engine.spec": 7, ...}}')
-    allowed = {f"{s}.{k}": (s, k) for s, k in FIELDS}
+    allowed = {f"{s}.{k}": (s, k) for s, k in fields}
     out = json.loads(json.dumps(raw))                  # a deep copy
     changed = []
     for name, value in changes.items():
@@ -182,17 +202,24 @@ def check_whole(obj: dict, path: str) -> None:
             pass
 
 
-def save(path: str, changes: dict) -> dict:
+def save(path: str, changes: dict, fields=FIELDS) -> dict:
     """Validate and write the changes; {"changed": [...], "values": {...}}. The old file is kept as FILE.bak."""
     with _write_lock:
-        return _save(path, changes)
+        return _save(path, changes, fields)
 
 
-def _save(path: str, changes: dict) -> dict:
+def preview(path: str, changes: dict, fields=FIELDS) -> dict:
+    """The file object the changes would give, checked as the server would load it; nothing is written."""
+    new, _ = merge(read_file(path), changes, fields)
+    check_whole(new, path)
+    return new
+
+
+def _save(path: str, changes: dict, fields=FIELDS) -> dict:
     raw = read_file(path)
-    new, changed = merge(raw, changes)
+    new, changed = merge(raw, changes, fields)
     if not changed:
-        return {"changed": [], "values": values_of(raw)}
+        return {"changed": [], "values": values_of(raw, fields)}
     check_whole(new, path)
     text = json.dumps(new, indent=2, ensure_ascii=False) + "\n"
     folder = os.path.dirname(os.path.abspath(path))
@@ -211,7 +238,7 @@ def _save(path: str, changes: dict) -> dict:
         except OSError:
             pass
         raise
-    return {"changed": changed, "values": values_of(new)}
+    return {"changed": changed, "values": values_of(new, fields)}
 
 
 def is_loopback(address: str) -> bool:

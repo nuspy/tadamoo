@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # also runnable as a script
-from serve import ROOT, service, settings  # noqa: E402
+from serve import ROOT, loader, service, settings, supervisor  # noqa: E402
 from serve.config import (build_parser, check_engine_flags, engine_flags_of, engine_line, engine_settings,  # noqa: E402
                           parse_settings, sampling_defaults_from_config)
 from serve.engine import process as engine_process  # noqa: E402
@@ -60,18 +60,8 @@ def warn_tight_ram(arena_mib) -> None:
 
 
 def settings_info(a, flags: dict) -> dict:
-    """What the settings page shows: the --config file, the model, the values this run uses and the fields the
-    command line set (they win over the file)."""
-    cli = sys.argv[1:]
-    given = lambda name: any(w == f"--{name}" or w.startswith(f"--{name}=") for w in cli)   # noqa: E731
-    running = {"server.port": a.port, "server.parallel": a.parallel or 1, "server.vision": a.vision}
-    for name in ("max-context", "kv", "spec", "spec-min-p", "expert-cache", "prefill"):
-        value = flags.get(f"--{name}")
-        running[f"engine.{name}"] = None if value is False else value
-    if getattr(a, "shared_context", None):              # the total, before it was divided among the slots
-        running["engine.max-context"] = a.shared_context
-    return {"config": str(Path(a.config).resolve()) if a.config else None, "model": a.model, "running": running,
-            "cli": [f"{s}.{k}" for s, k in settings.FIELDS if given(k)]}
+    """What the settings page shows (supervisor.settings_info over this process's command line)."""
+    return supervisor.settings_info(a, flags, sys.argv[1:])
 
 
 def main() -> int:
@@ -198,6 +188,15 @@ def main() -> int:
                   sampling_defaults=sampling_defaults, fit_max_tokens=a.fit_max_tokens)
     svc.logs = logs
     svc.settings_info = settings_info(a, flags)
+    try:
+        facts = loader.model_facts(a.model) if a.model else dict(loader.DEMO_FACTS)
+    except (OSError, ValueError, KeyError) as e:
+        print(f"[server] warning: the Loader cannot read {a.model} ({e}); it uses the demo sizes", flush=True)
+        facts = dict(loader.DEMO_FACTS)
+    if a.mock_engine:
+        import os
+        os.environ["BASALT_FAKE_SYSTEM_OK"] = "1"        # BASALT_FAKE_SYSTEM: demo memory readings for the mock
+    svc.supervisor = supervisor.Supervisor(svc, sys.argv[1:], mock=bool(a.mock_engine), facts=facts)
     if any(x == "--api-key" and i + 1 < len(used_argv) and not used_argv[i + 1].strip() or x.strip() == "--api-key="
            for i, x in enumerate(used_argv)):
         # an empty key would silently disable authentication
@@ -255,6 +254,14 @@ def main() -> int:
             return
         warn_tight_ram(engine.info.get("arena_mib"))
         say_ready()
+        first_calibration()
+
+    def first_calibration():
+        """The first load of a model measures its speeds for the Loader's predictions."""
+        sup = svc.supervisor
+        if sup.auto_calibrate and not loader.read_calibrations(sup.facts)["runs"]:
+            print("[server] first load of this model: measuring its speed for the Loader (Calibrate)", flush=True)
+            sup.calibrate()
 
     if listen_first:
         svc.loading = True
@@ -263,6 +270,8 @@ def main() -> int:
         threading.Thread(target=load_model, name="load-model", daemon=True).start()
     else:
         say_ready()
+        if not a.lazy:
+            first_calibration()
     print(f"[server] web UI: http://{here}:{a.port}/ (chat, monitor, settings; Ctrl+C stops)", flush=True)
     if a.host not in LOOPBACK_NAMES:
         # reachable from other devices: print the addresses

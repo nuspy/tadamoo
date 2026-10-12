@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT, chatctx, settings
+from serve import ROOT, chatctx, loader_api, settings
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
 from serve.api.anthropic import anthropic_collect, anthropic_events
@@ -251,6 +251,13 @@ def make_handler(svc: Service):
             elif path == "/api/settings":
                 if self._authorized():
                     self._settings_get()
+            elif path == "/api/loader":
+                if self._authorized():
+                    self._json(200, loader_api.info(svc, settings.is_loopback(self.client_address[0])))
+            elif path == "/api/loader/status":
+                if self._authorized():
+                    self._json(200, {**loader_api.sup_of(svc).status(), "loaded": svc.loaded(), "loading": svc.loading,
+                                     "max_context": svc.engine.max_context})
             elif path == "":
                 body = (ROOT / "serve" / "web" / "index.html").read_bytes()
                 self.send_response(200)
@@ -309,6 +316,9 @@ def make_handler(svc: Service):
                 return
             if path == "/api/chat/context":
                 self._chat_context()
+                return
+            if path.startswith("/api/loader/"):
+                self._loader_post(path[len("/api/loader/"):])
                 return
             if path.startswith("/v1/") and self._foreign_page():
                 return
@@ -544,6 +554,48 @@ def make_handler(svc: Service):
             print(f"[server] settings saved to {path}: {', '.join(result['changed']) or 'nothing changed'}"
                   f"{' (apply on restart)' if result['changed'] else ''}", flush=True)
             self._json(200, {"saved": True, **result, "note": settings.RESTART_NOTE})
+
+        def _loader_post(self, what: str):
+            """POST /api/loader/plan | load | calibrate. A plan is a computation; a load and a calibration change
+            the engine, so only from this PC, as JSON from the server's own page (and with the API key, if set)."""
+            if what not in ("plan", "load", "calibrate"):
+                self._json(404, {"error": {"message": "not found"}})
+                return
+            if what != "plan" and not settings.is_loopback(self.client_address[0]):
+                self._json(403, {"error": {"type": "forbidden",
+                                           "message": "the model can be loaded only from the PC the server runs on"}})
+                return
+            if not self._own_page("the model can be loaded or calibrated"):
+                return
+            try:
+                req = json.loads(self._body(settings.BODY_MAX) or b"{}")
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                return
+            except ValueError:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": "the body is not valid JSON"}})
+                return
+            try:
+                if what == "plan":
+                    self._json(200, loader_api.evaluate(svc, loader_api.clean((req or {}).get("values", {}))))
+                elif what == "load":
+                    self._json(202, loader_api.load(svc, req))
+                else:
+                    sup = loader_api.sup_of(svc)
+                    if not svc.loaded() or svc.loading:
+                        self._json(409, {"error": {"type": "invalid_request_error", "code": "not_loaded",
+                                                   "message": "load the model first, then calibrate"}})
+                    elif not sup.calibrate():
+                        self._json(409, {"error": {"type": "model_busy", "code": "busy",
+                                                   "message": "a load or a calibration is already running"}})
+                    else:
+                        self._json(202, {"status": "calibrating"})
+            except loader_api.Refused as e:
+                self._json(e.status, e.body)
+            except ValueError as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except OSError as e:
+                self._json(500, {"error": {"type": "server_error", "message": f"cannot write the config file: {e}"}})
 
         def _chat_context(self):
             """POST /api/chat/context: the chat page's context meter and overflow policy (serve/chatctx.py)."""
