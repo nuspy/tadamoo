@@ -686,3 +686,9 @@ fieldset:disabled input, fieldset:disabled select { opacity: .7; }
   .mdl-act .btn, .mdl-dirs .setactions .btn { flex: 1 1 auto; }
 }
 @media (prefers-reduced-motion: reduce) { .mdl-bar i { transition: none; } }
+/* narrow screens: the Loader's column never grows past the screen (a long profile name in a <select> did) */
+@media (max-width: 980px) {
+  .ldgrid { grid-template-columns: minmax(0, 1fr); }
+  .ldform, .ldside, .ldmodels { min-width: 0; max-width: 100%; }
+  .ldform select, .ldmodels select, #st-prof select { max-width: 100%; width: 100%; }
+}

@@ -1,7 +1,7 @@
 {
   "server": {
-    "model": "E:/Modelli/basalt/Qwen3.8-Flash-Next-Uncensored-IQ3_XXS.basalt",
-    "alias": "Qwen3.8 Flash Next Uncensored",
+    "model": "D:/Models/Qwen3.8-Flash-Next-IQ3_XXS.basalt",
+    "alias": "Qwen3.8 Flash Next",
     "host": "127.0.0.1",
     "port": 7232,
     "vision": "dynamic",
