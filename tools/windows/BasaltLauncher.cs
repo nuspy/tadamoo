@@ -111,6 +111,13 @@ public static class BasaltLauncher
     /// the kill-on-close job; otherwise a hidden console of its own and no job. Returns the process id.</summary>
     public static int Start(string exe, string commandLine, string cwd, string logPath, bool tied)
     {
+        return Start(exe, commandLine, cwd, logPath, tied, false);
+    }
+
+    /// <summary>As Start; `noWindow` (for a caller without a console, the desktop app): in the job, with no console
+    /// window at all (CREATE_NO_WINDOW), so Ctrl+C never reaches it and the job or /unload stops it.</summary>
+    public static int Start(string exe, string commandLine, string cwd, string logPath, bool tied, bool noWindow)
+    {
         IntPtr log = Inheritable(logPath, 0x0004 /* FILE_APPEND_DATA */, 4 /* OPEN_ALWAYS */);
         IntPtr nul = Inheritable("NUL", 0x80000000 /* GENERIC_READ */, 3 /* OPEN_EXISTING */);
         try
@@ -120,7 +127,9 @@ public static class BasaltLauncher
             si.dwFlags = STARTF_USESTDHANDLES;
             si.hStdInput = nul; si.hStdOutput = log; si.hStdError = log;
             uint flags = CREATE_SUSPENDED | 0x20;               // NORMAL_PRIORITY_CLASS, whatever the script runs at
-            if (!tied)
+            if (noWindow)
+                flags |= 0x08000000;                        // CREATE_NO_WINDOW
+            else if (!tied)
             {
                 flags |= CREATE_NEW_CONSOLE;
                 si.dwFlags |= STARTF_USESHOWWINDOW;

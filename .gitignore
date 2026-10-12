@@ -17,3 +17,6 @@ __pycache__/
 /basalt_config.json
 /basalt_config.json.bak
 /basalt.pid
+/tools/windows/desktop/bin/
+/tools/windows/desktop/obj/
+/tools/windows/desktop/publish/

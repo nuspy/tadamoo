@@ -246,6 +246,8 @@ def main(argv=None) -> int:
     sub.add_parser("list", help="the load profiles, one per line (the default marked *)")
     sub.add_parser("default", help="the default load profile's name")
     sub.add_parser("names", help="the load profiles' names as a JSON list")
+    ap_json = sub.add_parser("json", help="the profiles with their summaries for this PC now, as JSON")
+    ap_json.add_argument("--config", help="the config file whose model the summaries are for")
     ap_apply = sub.add_parser("apply", help="write a load profile into the config file; prints its values as JSON")
     ap_apply.add_argument("name")
     ap_apply.add_argument("--config", required=True)
@@ -260,6 +262,18 @@ def main(argv=None) -> int:
         return 0
     if a.cmd == "names":
         print(json.dumps([p["name"] for p in listing()["load"]], ensure_ascii=False))
+        return 0
+    if a.cmd == "json":
+        facts = None
+        if a.config:
+            try:
+                model = settings.values_of(settings.read_file(a.config)).get("server.model")
+                if model and not os.path.isabs(model):
+                    model = str(Path(a.config).resolve().parent / model)
+                facts = loader.model_facts(model) if model else None
+            except (OSError, ValueError, KeyError):
+                facts = None
+        print(json.dumps(listing(loader.system_now(), facts), ensure_ascii=False))
         return 0
     try:
         values = apply(a.name, a.config)

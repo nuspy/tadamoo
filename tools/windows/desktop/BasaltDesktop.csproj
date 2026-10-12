@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Basalt</AssemblyName>
+    <RootNamespace>BasaltDesktop</RootNamespace>
+    <ApplicationIcon>basalt.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <SelfContained>false</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Product>Basalt</Product>
+    <Description>Basalt: the window, the tray icon and the start of the local server</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\BasaltLauncher.cs" Link="BasaltLauncher.cs" />
+    <EmbeddedResource Include="basalt.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3485.44" />
+  </ItemGroup>
+
+</Project>
