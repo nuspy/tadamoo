@@ -3,34 +3,39 @@
     Ferma Basalt (server e motore) e controlla che la RAM sia tornata libera.
 
 .DESCRIPTION
-    Funziona sia con il server avviato in sfondo (Avvia-Basalt.ps1 -Sfondo) sia con quello legato a una finestra
-    (che allora si chiude da sola). Trova il server da basalt.pid, o dalla porta di basalt_config.json; prima chiede
-    al server di scaricare il modello (il motore riceve QUIT e libera RAM e VRAM in modo pulito), poi termina
-    l'albero dei processi (basalt.exe serve -> Python -> motore) e verifica che non resti nulla.
-
-.PARAMETER Config
-    Il file di configurazione da cui leggere la porta (predefinito: basalt_config.json accanto allo script).
+    Funziona con ogni modo di Avvia-Basalt.ps1: il solo server (-server), quello legato a una finestra (-browser, che
+    allora si chiude da sola) e quello dell'app (l'app se ne accorge e torna al Loader). Trova il server da
+    basalt.pid, o dalla porta di basalt_config.json; prima chiede al server di scaricare il modello (il motore riceve
+    QUIT e libera RAM e VRAM in modo pulito), poi termina l'albero dei processi (basalt.exe serve -> Python ->
+    motore) e verifica che non resti nulla. Le opzioni si scrivono con uno o due trattini, come in Avvia-Basalt.ps1.
 
 .PARAMETER Port
-    Ferma solo il server su questa porta (anche --port N): gli altri server Basalt restano accesi.
+    Ferma solo il server su questa porta (--port N): gli altri server Basalt restano accesi.
+
+.PARAMETER File
+    Il file di configurazione da cui leggere la porta (predefinito: basalt_config.json accanto allo script).
 
 .EXAMPLE
     .\Ferma-Basalt.ps1
 .EXAMPLE
-    .\Ferma-Basalt.ps1 --port 7298
+    .\Ferma-Basalt.ps1 --port 7240
 #>
-[CmdletBinding(PositionalBinding = $false)]   # --port / --model / --config go to $Altri, never to a parameter by position
+[CmdletBinding(PositionalBinding = $false)]   # --port / --file go to $Altri, never to a parameter by position
 param(
-    [string]$Config = 'basalt_config.json',
     [int]$Port = 0,
+    [Alias('Config')][string]$File = 'basalt_config.json',      # -Config: il nome vecchio di -File
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Altri = @()
 )
-for ($i = 0; $i -lt $Altri.Count; $i++) {          # le forme --port N e --port=N
+for ($i = 0; $i -lt $Altri.Count; $i++) {          # -port N, --port N, --port=N; lo stesso per --file
     $a = $Altri[$i]
-    if ($a -eq '--port' -and $i + 1 -lt $Altri.Count) { $Port = [int]$Altri[++$i] }
-    elseif ($a -like '--port=*') { $Port = [int]$a.Substring(7) }
-    else { Write-Host "Argomento sconosciuto: $a (uso: Ferma-Basalt.ps1 [--port N])" -ForegroundColor Red; exit 1 }
+    $parti = $a.TrimStart('-').Split([char[]]'=', 2)
+    $nome = if ($a.StartsWith('-')) { $parti[0].ToLowerInvariant() } else { '' }
+    $v = if ($parti.Count -gt 1) { $parti[1] } elseif ($i + 1 -lt $Altri.Count) { $Altri[++$i] } else { $null }
+    if ($nome -eq 'port' -and $v -match '^\d+$') { $Port = [int]$v }
+    elseif ($nome -in 'file', 'config' -and $v) { $File = $v }
+    else { Write-Host "Argomento sconosciuto o senza valore: $a (uso: Ferma-Basalt.ps1 [--port N] [--file <configurazione>])" -ForegroundColor Red; exit 1 }
 }
+$Config = $File
 if ($Port -ne 0 -and ($Port -lt 1 -or $Port -gt 65535)) { Write-Host "Porta non valida: $Port (1..65535)" -ForegroundColor Red; exit 1 }
 
 Set-StrictMode -Version 2

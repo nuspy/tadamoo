@@ -5,6 +5,7 @@ engine inside this server."""
 from __future__ import annotations
 
 import os
+import threading
 
 from serve import loader, settings
 from serve.config import PARALLEL_MAX
@@ -128,7 +129,8 @@ def info(svc, local: bool, lang: str = "en") -> dict:
                       "vision": list(VISION_MODES), "ple_io": list(settings.PLE_IO_MODES),
                       "context_max": loader.CONTEXT_UI_MAX, "prefill_ceilings": list(settings.PREFILL_CEILINGS),
                       "pool_workers_max": settings.POOL_WORKERS_MAX, "cpu_threads": os.cpu_count()},
-           "status": sup.status(), "mock": sup.mock}
+           "status": sup.status(), "mock": sup.mock, "standby": bool(getattr(svc, "standby", False)),
+           "relaunch": bool(getattr(svc, "relaunch_on_model_change", False))}
     holds, holds_vram = _holds(svc, sup)
     system = loader.system_now(getattr(svc, "gpu_index", 0))
     try:
@@ -185,12 +187,22 @@ def load(svc, req: dict) -> dict:
         raise Refused(422, {"error": {"type": "insufficient_memory", "code": "does_not_fit",
                                       "message": " ".join(x["text"] for x in p["problems"])},
                             "problems": p["problems"], "plan": p})
-    result = settings.save(path, values, settings.LOADER_FIELDS) if values else {"changed": [], "values": merged}
     running = (getattr(svc, "settings_info", None) or {}).get("model")
+    if model is None and not running and not sup.mock:
+        raise Refused(409, {"error": {"type": "invalid_request_error", "code": "no_model",
+                                      "message": "no model is chosen: pick one in the Loader's model list first"}})
+    result = settings.save(path, values, settings.LOADER_FIELDS) if values else {"changed": [], "values": merged}
     if model is not None:
         from serve import models
         changed = settings.set_model(path, model, models.basalt_info(model, os.path.getsize(model)).get("name"))
         result["changed"] = result["changed"] + changed["changed"]
+        if not _same(model, running) and getattr(svc, "relaunch_on_model_change", False):
+            # the program that started this server starts it again with the model now in the config file
+            print(f"[server] loader: {', '.join(result['changed']) or 'no change'} saved to {path}; the server "
+                  "starts again with the new model", flush=True)
+            threading.Timer(0.5, svc.exit_request.set).start()
+            return {"status": "restarting", "changed": result["changed"], "values": result["values"], "plan": p,
+                    "notes": ["model_restart"], "model": model}
         if not _same(model, running):
             # the tokenizer, the chat template and the API name come from the model file when the server starts:
             # a different model is loaded by starting the server again, not by restarting the engine inside it

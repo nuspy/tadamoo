@@ -17,6 +17,7 @@ ENGINE_DEFAULT_CONTEXT = 4096     # the engine's context without --max-context
 ENGINE_PASSTHROUGH = ("spec", "spec-min-p", "mtp-max-t", "peer-exclusive", "max-context")
 PARALLEL_MAX = 8                            # the engine's batch slots
 CONFIG_PATHS = ("model", "tokenizer")       # relative to the config file
+RELAUNCH_EXIT_CODE = 75                     # --relaunch-on-model-change: start me again (EX_TEMPFAIL)
 
 
 def engine_flags_of(engine_bin: str) -> set[str] | None:
@@ -324,6 +325,13 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--listen-first", action="store_true",
                     help="answer HTTP (web UI, /metrics, /api/logs) at once and load the model behind it; requests "
                          "wait for the load, the Monitor shows Loading")
+    ap.add_argument("--standby", action="store_true",
+                    help="answer HTTP (web UI, Loader) without starting the engine, even without a model: the Loader's "
+                         "Load starts it; requests are refused until then")
+    ap.add_argument("--relaunch-on-model-change", action="store_true",
+                    help=f"when the Loader loads another model, save it and end with exit code {RELAUNCH_EXIT_CODE} so "
+                         "the program that started the server starts it again with that model (the desktop app and "
+                         "Avvia-Basalt.ps1 do)")
     ap.add_argument("--idle-unload", type=float, default=None, metavar="SECONDS",
                     help="unload the model after this many seconds without requests; the next request loads it again")
     ap.add_argument("--min-free-vram-mib", type=int, default=None,

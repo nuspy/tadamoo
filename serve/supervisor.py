@@ -139,6 +139,7 @@ class Supervisor:
                 else:
                     self._reload_engine(a, flags)
                 svc.settings_info = settings_info(a, flags, self.argv)
+                svc.standby = False                      # the Loader loaded the model: requests may run now
             finally:
                 svc.loading = False
                 svc.fifo.release()

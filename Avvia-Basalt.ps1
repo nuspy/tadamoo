@@ -1,75 +1,96 @@
 ﻿<#
 .SYNOPSIS
-    Avvia Basalt (server web + motore) con un profilo di caricamento e apre l'interfaccia nel browser.
+    Avvia Basalt: di norma apre l'app BasaltPannello (l'interfaccia principale), oppure il server con il browser, oppure
+    il solo server per gli agenti.
 
 .DESCRIPTION
-    Se un server Basalt di questa cartella è già acceso (su qualunque porta) non ne avvia un altro: si collega a quello,
-    dice indirizzo, impostazioni e modello, ed esce.
+    Tre modi, con gli stessi nomi di Avvia-Strata.ps1 (ogni opzione si scrive con uno o due trattini, maiuscole o
+    minuscole come si vuole):
 
-    Altrimenti scrive in basalt_config.json i valori del profilo scelto (--config "<nome>", altrimenti il profilo
-    predefinito scelto nel Loader; il file precedente resta in basalt_config.json.bak) e controlla con gli stessi
-    calcoli del Loader che VRAM, RAM e memoria impegnabile (commit) bastino lasciando liberi il 15% della RAM e il 15%
-    del limite di commit, senza far crescere il file di paging. Poi avvia "bin\basalt.exe serve --config
-    basalt_config.json", apre http://127.0.0.1:<porta> appena il server risponde (il modello si carica dietro, la
-    pagina Monitor mostra "Loading") e mostra il log dal vivo.
+      -gui      (il modo predefinito, senza opzioni) apre l'app BasaltPannello.exe passandole --config, --model,
+                --port e --vram-libera. L'app avvia il server senza caricare il modello e mostra il Loader: cartelle
+                dei modelli, profili, tutti i valori, la previsione di memoria e velocità, la configurazione guidata,
+                Carica. Il browser NON si apre, ma l'indirizzo resta disponibile e viene stampato. Se l'app non è
+                ancora stata costruita lo script dice come costruirla e intanto usa -browser.
+      -browser  il server legato a questa finestra e l'interfaccia nel browser, senza app: Ctrl+C o la X della
+                finestra fermano server e motore e liberano la RAM (un Job Object di Windows chiude tutto anche se
+                PowerShell viene terminato di colpo).
+      -server   il solo server, staccato dalla finestra, senza app né browser: lo script ritorna quando il modello è
+                carico (o se non parte). Serve agli agenti; si ferma con Ferma-Basalt.ps1 --port N.
 
-    Normalmente il server è legato a questa finestra: Ctrl+C o la X della finestra fermano server e motore e
-    liberano la RAM (un Job Object di Windows chiude tutto anche se PowerShell viene terminato di colpo).
-    Con -Sfondo il server parte staccato, senza finestra: si ferma con Ferma-Basalt.ps1.
-    Con -SoloServer parte staccato e senza aprire il browser: per gli agenti.
+    Se un server Basalt di questa cartella è già acceso non ne avvia un altro: con -gui apre l'app (che chiede se
+    collegarsi o cambiare modello), con -browser apre il browser su quel server, con -server si collega e ritorna.
+
+    Con -browser e -server lo script scrive in basalt_config.json i valori del profilo scelto (--config "<nome>",
+    altrimenti il profilo predefinito: «Machine Default» se la configurazione guidata l'ha creato, altrimenti
+    «Valori sicuri», a meno che un altro sia stato scelto come predefinito nel Loader; il file precedente resta in
+    basalt_config.json.bak) e controlla con gli stessi calcoli del Loader che VRAM, RAM e memoria impegnabile
+    (commit) bastino lasciando libera la parte di RAM e di commit scelta per gli altri programmi (15% se non è stata
+    cambiata), senza far crescere il file di paging.
+
+.PARAMETER Gui
+    Apre l'app (il modo predefinito).
+
+.PARAMETER Browser
+    Server legato alla finestra e interfaccia nel browser.
+
+.PARAMETER Server
+    Solo server, staccato dalla finestra; ritorna quando il modello è carico.
 
 .PARAMETER Config
-    Il profilo di caricamento (anche --config "<nome>"). Senza: il profilo predefinito.
+    Il profilo di caricamento (--config "<nome>"). Senza: il profilo predefinito.
 
 .PARAMETER Model
-    Il file .basalt da servire, con il percorso completo (anche --model "<file>" o -Model). Senza: il modello del
-    profilo (--config), altrimenti il modello predefinito per il server scelto nell'app o nel Loader («Usa come
-    modello predefinito per il server»), altrimenti quello già nel file di configurazione. Se non ce n'è nessuno lo
-    script si ferma e dice come sceglierlo. Un GGUF «Da convertire» si converte con -Converti (dopo una conferma che
-    dice quanto scrive e su quale disco); un file «Non compatibile» viene rifiutato con il motivo.
+    Il file .basalt da servire, con il percorso completo (--model "<file>"). Senza: il modello del profilo, altrimenti
+    il modello predefinito per il server scelto nell'app o nel Loader, altrimenti quello già nel file di
+    configurazione. Un GGUF «Da convertire» si converte con -converti (dopo una conferma che dice quanto scrive e su
+    quale disco); un file «Non compatibile» viene rifiutato con il motivo.
+
+.PARAMETER Port
+    La porta (--port N, 1..65535); vince su quella del profilo.
+
+.PARAMETER VramLibera
+    La VRAM da lasciare libera per gli altri programmi, in GB (--vram-libera 1.5 oppure "1,5"), al posto di quella
+    del profilo.
+    --vram-reserve-mib N (in MiB) resta come sinonimo.
 
 .PARAMETER Converti
     Se il modello è un GGUF da convertire: mostra il piano (dimensione del nuovo file, disco, spazio libero), chiede
-    conferma, converte e poi avvia il file .basalt ottenuto (anche --converti).
-
-.PARAMETER RiservaMib
-    La VRAM da lasciare libera, in MiB, al posto di quella del profilo (anche --vram-reserve-mib N).
-
-.PARAMETER Port
-    La porta (anche --port N, 1..65535); vince su quella del profilo.
+    conferma, converte e poi avvia il file .basalt ottenuto.
 
 .PARAMETER Prova
     Fa tutti i controlli e dice cosa farebbe, senza avviare nulla e senza scrivere basalt_config.json.
-
-.PARAMETER Sfondo
-    Avvia il server staccato dalla finestra (PID in basalt.pid); per fermarlo: Ferma-Basalt.ps1.
-
-.PARAMETER SoloServer
-    Come -Sfondo, senza aprire il browser (anche --solo-server).
 
 .PARAMETER File
     Il file di configurazione (predefinito: basalt_config.json accanto a questo script).
 
 .EXAMPLE
-    .\Avvia-Basalt.ps1 -Prova
+    .\Avvia-Basalt.ps1
 .EXAMPLE
-    .\Avvia-Basalt.ps1 --config "Valori sicuri" --port 7240
+    .\Avvia-Basalt.ps1 -prova
 .EXAMPLE
-    .\Avvia-Basalt.ps1 -SoloServer
+    .\Avvia-Basalt.ps1 -browser --config "Valori sicuri" --port 7240
 .EXAMPLE
-    .\Avvia-Basalt.ps1 --model "D:\Modelli\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --port 7240
+    .\Avvia-Basalt.ps1 -server --model "D:\Modelli\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --vram-libera 2
 #>
 [CmdletBinding(PositionalBinding = $false)]   # --port / --model / --config go to $Altri, never to a parameter by position
 param(
+    [switch]$Gui,
+    [switch]$Browser,
+    [switch]$Server,
     [string]$Config = '',
     [string]$Model = '',
-    [switch]$Converti,
     [int]$Port = 0,
-    [int]$RiservaMib = -1,
+    [Alias('vram-libera')][string]$VramLibera = '',
+    [Alias('vram-reserve-mib')][int]$RiservaMib = -1,
+    [switch]$Converti,
     [switch]$Prova,
-    [switch]$Sfondo,
-    [switch]$SoloServer,
     [string]$File = 'basalt_config.json',
+    # interno: il server legato al chiamante, senza interfaccia (per un programma che lo avvia e lo ferma)
+    [switch]$PerApp,
+    # nomi vecchi, ancora accettati: -Sfondo e -SoloServer ora sono -server
+    [switch]$Sfondo,
+    [Alias('solo-server')][switch]$SoloServer,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Altri = @()
 )
 
@@ -80,6 +101,9 @@ $ErrorActionPreference = 'Stop'
 $Radice = $PSScriptRoot
 $GiB = [double](1GB)
 $AttesaMaxS = 600         # 10 minuti per la prima risposta HTTP
+$AttesaCaricoS = 1800     # -server: 30 minuti perché il modello sia carico
+$RiavvioModello = 75      # codice d'uscita del server quando il Loader ha scelto un altro modello: si riavvia
+$Uso = 'uso: Avvia-Basalt.ps1 [-gui | -browser | -server] [--config "<profilo>"] [--model "<file .basalt>"] [--port N] [--vram-libera GB] [-converti] [-prova] [-file <configurazione>]'
 
 function Scrivi([string]$Testo, [string]$Colore = 'Gray') { Write-Host $Testo -ForegroundColor $Colore }
 function GiB([double]$Byte) { '{0:N1} GiB' -f ($Byte / $GiB) }
@@ -98,30 +122,62 @@ function Esci([int]$Codice) {
     exit $Codice
 }
 
-# ------------------------------------------------------------------ argomenti nella forma --nome valore
+# ------------------------------------------------------------------ le opzioni: -nome o --nome, --nome valore o --nome=valore
 for ($i = 0; $i -lt $Altri.Count; $i++) {
     $a = $Altri[$i]
-    $val = { param($n) if ($a -like "--$n=*") { $a.Substring($n.Length + 3) } elseif ($i + 1 -lt $Altri.Count) { $script:i++; $Altri[$script:i] } else { $null } }
-    if ($a -eq '--config' -or $a -like '--config=*') { $Config = & $val 'config' }
-    elseif ($a -eq '--model' -or $a -like '--model=*') { $Model = & $val 'model' }
-    elseif ($a -eq '--converti') { $Converti = $true }
-    elseif ($a -eq '--vram-reserve-mib' -or $a -like '--vram-reserve-mib=*') {
-        $v = & $val 'vram-reserve-mib'
-        if (-not ($v -match '^\d+$')) { Scrivi "--vram-reserve-mib vuole un numero di MiB, non '$v'" Red; Esci 1 }
-        $RiservaMib = [int]$v
+    if (-not $a.StartsWith('-')) { Scrivi "Argomento inatteso: $a ($Uso)" Red; Esci 1 }
+    $parti = $a.TrimStart('-').Split([char[]]'=', 2)
+    $nome = $parti[0].ToLowerInvariant()
+    $inLinea = if ($parti.Count -gt 1) { $parti[1] } else { $null }
+    $val = {
+        if ($null -ne $inLinea) { return $inLinea }
+        if ($script:i + 1 -lt $Altri.Count) { $script:i++; return $Altri[$script:i] }
+        Scrivi "--$nome vuole un valore ($Uso)" Red; Esci 1
     }
-    elseif ($a -eq '--port' -or $a -like '--port=*') {
-        $v = & $val 'port'
-        if (-not ($v -match '^\d+$')) { Scrivi "--port vuole un numero da 1 a 65535, non '$v'" Red; Esci 1 }
-        $Port = [int]$v
+    switch -Exact ($nome) {
+        'gui' { $Gui = $true }
+        'browser' { $Browser = $true }
+        'server' { $Server = $true }
+        'prova' { $Prova = $true }
+        'converti' { $Converti = $true }
+        'perapp' { $PerApp = $true }
+        'sfondo' { $Sfondo = $true }
+        { $_ -in 'solo-server', 'soloserver' } { $SoloServer = $true }
+        'config' { $Config = & $val }
+        'model' { $Model = & $val }
+        'file' { $File = & $val }
+        'port' {
+            $v = & $val
+            if (-not ($v -match '^\d+$')) { Scrivi "--port vuole un numero da 1 a 65535, non '$v'" Red; Esci 1 }
+            $Port = [int]$v
+        }
+        { $_ -in 'vram-libera', 'vramlibera' } { $VramLibera = & $val }
+        { $_ -in 'vram-reserve-mib', 'riservamib' } {
+            $v = & $val
+            if (-not ($v -match '^\d+$')) { Scrivi "--vram-reserve-mib vuole un numero di MiB, non '$v'" Red; Esci 1 }
+            $RiservaMib = [int]$v
+        }
+        default { Scrivi "Argomento sconosciuto: $a ($Uso)" Red; Esci 1 }
     }
-    elseif ($a -eq '--solo-server') { $SoloServer = $true }
-    elseif ($a -eq '--prova') { $Prova = $true }
-    elseif ($a -eq '--sfondo') { $Sfondo = $true }
-    else { Scrivi "Argomento sconosciuto: $a (uso: Avvia-Basalt.ps1 [--config ""<profilo>""] [--model ""<file .basalt>""] [--port N] [-Converti] [-Sfondo|-SoloServer] [-Prova])" Red; Esci 1 }
 }
 if ($Port -ne 0 -and ($Port -lt 1 -or $Port -gt 65535)) { Scrivi "Porta non valida: $Port (1..65535)" Red; Esci 1 }
-if ($SoloServer) { $Sfondo = $true }
+if ($VramLibera) {
+    $gb = 0.0
+    if (-not [double]::TryParse($VramLibera.Replace(',', '.'), [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$gb) -or $gb -lt 0 -or $gb -gt 1024) {
+        Scrivi "--vram-libera vuole i GB da lasciare liberi (per esempio 2 o 1,5), non '$VramLibera'" Red; Esci 1
+    }
+    if ($RiservaMib -ge 0) { Scrivi '--vram-libera e --vram-reserve-mib dicono la stessa cosa: usane uno solo' Red; Esci 1 }
+    $RiservaMib = [int][math]::Round($gb * 1024)
+}
+$ApriDopo = $false                         # -Sfondo apriva il browser quando il server rispondeva
+if ($Sfondo -or $SoloServer) {
+    Scrivi "Nota: $(if ($Sfondo) { '-Sfondo' } else { '-SoloServer' }) è un nome vecchio: ora si scrive -server." DarkYellow
+    $Server = $true
+    $ApriDopo = [bool]$Sfondo
+}
+$modi = @(@($Gui, $Browser, $Server, $PerApp) | Where-Object { $_ })
+if ($modi.Count -gt 1) { Scrivi "Scegli un solo modo tra -gui, -browser e -server ($Uso)" Red; Esci 1 }
+if ($modi.Count -eq 0) { $Gui = $true }
 
 function Test-Http([string]$Url) {
     try {
@@ -195,8 +251,45 @@ function Invoke-Py([string[]]$Argomenti) {
     } finally { Pop-Location }
 }
 
-# ------------------------------------------------------------------ già acceso?
+$cfgPath = if ([System.IO.Path]::IsPathRooted($File)) { $File } else { Join-Path $Radice $File }
 $accesi = @(Get-ServerAccesi)
+
+# ------------------------------------------------------------------ -gui: l'app
+$exeApp = Join-Path $Radice 'tools\windows\desktop\publish\BasaltPannello.exe'
+if ($Gui -and -not (Test-Path $exeApp)) {
+    Scrivi "L'app BasaltPannello non è ancora stata costruita ($exeApp)." Yellow
+    Scrivi '  Per costruirla (serve il .NET 8 SDK):  dotnet publish tools\windows\desktop -c Release -o tools\windows\desktop\publish' Yellow
+    Scrivi '  Intanto apro Basalt nel browser (-browser).' Yellow
+    $Gui = $false
+    $Browser = $true
+}
+if ($Gui) {
+    $argApp = @()
+    if ($Config) { $argApp += @('--config', $Config) }
+    if ($Model) { $argApp += @('--model', $Model) }
+    if ($Port) { $argApp += @('--port', "$Port") }
+    if ($RiservaMib -ge 0) { $argApp += @('--vram-libera', ([double]$RiservaMib / 1024).ToString([Globalization.CultureInfo]::InvariantCulture)) }
+    if ($File -ne 'basalt_config.json') { $argApp += @('--file', $cfgPath) }
+    if ($Converti) { Scrivi '  (-converti vale con -browser e -server: nell''app la conversione è nel Loader, «Converti…»)' DarkYellow }
+    $porta = 7232
+    if ($accesi.Count) { $porta = $accesi[0].Porta }
+    elseif ($Port) { $porta = $Port }
+    elseif (Test-Path $cfgPath) {
+        try { $srv0 = (Get-Content -Raw -Encoding UTF8 $cfgPath | ConvertFrom-Json).server; if ($srv0 -and $srv0.PSObject.Properties['port']) { $porta = [int]$srv0.port } } catch { }
+    }
+    $mostra = ($argApp | ForEach-Object { if ($_ -match '\s') { """$_""" } else { $_ } }) -join ' '
+    Scrivi "Basalt - app $(if ($Prova) { '(PROVA: non parte nulla)' })" Cyan
+    Scrivi "  app:        $exeApp $mostra"
+    if ($accesi.Count) { Scrivi "  Basalt è già acceso sulla porta ${porta}: l'app chiede se collegarsi o cambiare modello." Yellow }
+    Scrivi "  indirizzo:  http://127.0.0.1:$porta/  (il browser non si apre: l'indirizzo resta disponibile)"
+    Scrivi '  L''app avvia il server senza caricare il modello e mostra il Loader; si chiude dall''icona vicino all''orologio (Spegni).'
+    if ($Prova) { Scrivi 'PROVA completata: nessun processo avviato.' Green; Esci 0 }
+    if ($argApp.Count) { Start-Process -FilePath $exeApp -ArgumentList $mostra -WorkingDirectory $Radice }
+    else { Start-Process -FilePath $exeApp -WorkingDirectory $Radice }
+    Esci 0
+}
+
+# ------------------------------------------------------------------ già acceso?
 if ($accesi.Count) {
     $s = $accesi[0]
     $url = "http://127.0.0.1:$($s.Porta)/"
@@ -225,12 +318,12 @@ if ($accesi.Count) {
             Scrivi "  (il modello «$Model» NON è stato caricato: questo server serve un altro modello. Per cambiarlo: Ferma-Basalt.ps1 --port $($s.Porta), poi di nuovo Avvia-Basalt.ps1 --model ...)" DarkYellow
         }
     }
-    if (-not $Prova -and -not $SoloServer) { Start-Process $url }
+    if ($PerApp) { Esci 3 }                                # chi voleva avviarlo deve collegarsi a questo
+    if ($Browser -and -not $Prova) { Start-Process $url }
     Esci 0
 }
 
 # ------------------------------------------------------------------ profilo e configurazione
-$cfgPath = if ([System.IO.Path]::IsPathRooted($File)) { $File } else { Join-Path $Radice $File }
 if (-not (Test-Path $cfgPath)) { Scrivi "Manca il file di configurazione $cfgPath" Red; Esci 1 }
 if (-not (Test-Path $py)) { Scrivi "Manca il Python del venv: $py" Red; Esci 1 }
 if (-not $Config) { $Config = ((Invoke-Py @('-m', 'serve.profiles', 'default')).Righe | Select-Object -Last 1).Trim() }
@@ -261,8 +354,8 @@ if ($rs.Codice -eq 6) {
 if ($rs.Codice -eq 5) {
     Scrivi "Il modello ($fonte) è un GGUF da convertire in .basalt: $($scelta.model)" Yellow
     if (-not $Converti) {
-        Scrivi "  Per convertirlo: .\Avvia-Basalt.ps1 --model `"$($scelta.model)`" -Converti (chiede conferma e dice quanto scrive)," Yellow
-        Scrivi "  oppure dalla pagina Carica modello: Converti." Yellow
+        Scrivi "  Per convertirlo: .\Avvia-Basalt.ps1 --model `"$($scelta.model)`" -converti (chiede conferma e dice quanto scrive)," Yellow
+        Scrivi "  oppure dall'app o dalla pagina Carica modello: Converti." Yellow
         Esci 1
     }
     $pc = Invoke-Py @('-m', 'serve.models', 'convert', '--model', $scelta.model)
@@ -299,8 +392,9 @@ $exe = Join-Path $Radice 'bin\basalt.exe'
 $logDir = Join-Path $Radice 'logs'
 $log = Join-Path $logDir 'basalt-serve.log'
 $pidFile = Join-Path $Radice 'basalt.pid'
+$modo = if ($Server) { 'server' } elseif ($PerApp) { 'per-app' } else { 'browser' }
 
-Scrivi "Basalt - avvio $(if ($Prova) { '(PROVA: non parte nulla)' })" Cyan
+Scrivi "Basalt - avvio -$modo $(if ($Prova) { '(PROVA: non parte nulla)' })" Cyan
 Scrivi "  profilo:        $Config"
 Scrivi "  configurazione: $cfgPath$(if ($Prova) { ' (in prova: una copia)' })"
 Scrivi "  modello:        $modello ($fonte)"
@@ -340,13 +434,16 @@ if (-not $memOk -and -not $Prova) {
 }
 
 # ------------------------------------------------------------------ ambiente e comando
-$cmdLine = '"' + $exe + '" serve --config "' + $cfgPath + '"' + $(if ($Port) { " --port $Port" } else { '' })
+$legato = -not $Server
+# legato a questa finestra: se dal Loader si sceglie un altro modello il server esce con 75 e qui riparte con quello
+$cmdLine = '"' + $exe + '" serve --config "' + $cfgPath + '"' + $(if ($Port) { " --port $Port" } else { '' }) +
+    $(if ($legato) { ' --relaunch-on-model-change' } else { '' })
 $cache = if ($env:BASALT_CACHE) { $env:BASALT_CACHE } else { Join-Path $HOME '.cache\basalt' }
 Scrivi ''
 Scrivi 'Avvio:' Cyan
 Scrivi "  comando:      $cmdLine"
 Scrivi "  cartella:     $Radice"
-Scrivi "  modo:         $(if ($SoloServer) { 'solo server, in sfondo e senza browser (fermare con Ferma-Basalt.ps1)' } elseif ($Sfondo) { 'in sfondo (fermare con Ferma-Basalt.ps1)' } else { 'legato a questa finestra (Ctrl+C o chiudere la finestra lo ferma)' })"
+Scrivi "  modo:         $(if ($Server) { 'solo server, staccato e senza browser: lo script ritorna quando il modello è carico (fermare con Ferma-Basalt.ps1)' } elseif ($PerApp) { 'legato al programma che l''ha avviato, senza interfaccia' } else { 'legato a questa finestra, interfaccia nel browser (Ctrl+C o chiudere la finestra lo ferma)' })"
 Scrivi "  log server:   $log"
 Scrivi "  log motore:   $cache\<modello>\engine.log"
 
@@ -367,18 +464,24 @@ $venv = Join-Path $Radice '.venv'
 $env:VIRTUAL_ENV = $venv                                                              # il venv, senza Activate.ps1
 $env:PATH = (Join-Path $venv 'Scripts') + ';' + $env:PATH
 New-Item -ItemType Directory -Force $logDir | Out-Null
-if (Test-Path $log) { Move-Item -Force $log "$log.1" }                                # il log dell'avvio precedente
-$legato = -not $Sfondo
-$idServer = [BasaltLauncher]::Start($exe, $cmdLine, $Radice, $log, $legato)
-$proc = Get-Process -Id $idServer
-@{ pid = $idServer; start = $proc.StartTime.ToString('o'); mode = $(if ($legato) { 'finestra' } elseif ($SoloServer) { 'solo-server' } else { 'sfondo' });
-   port = $porta; profile = $Config; log = $log } | ConvertTo-Json | Set-Content -Encoding UTF8 $pidFile
-Scrivi "  avviato: PID $idServer" Green
-Scrivi ''
+function Avvia-Server {
+    if (Test-Path $log) { Move-Item -Force $log "$log.1" }                            # il log dell'avvio precedente
+    $id = [BasaltLauncher]::Start($exe, $cmdLine, $Radice, $log, $legato)
+    $proc = Get-Process -Id $id
+    @{ pid = $id; start = $proc.StartTime.ToString('o'); mode = $modo; port = $porta; profile = $Config; log = $log } |
+        ConvertTo-Json | Set-Content -Encoding UTF8 $pidFile
+    Scrivi "  avviato: PID $id" Green
+    Scrivi ''
+    return $id
+}
+$idServer = Avvia-Server
 
 # ------------------------------------------------------------------ log dal vivo, attesa, browser
-$fs = [System.IO.File]::Open($log, 'OpenOrCreate', 'Read', 'ReadWrite, Delete')
-$lettore = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)
+function Apri-Log {
+    $fs = [System.IO.File]::Open($log, 'OpenOrCreate', 'Read', 'ReadWrite, Delete')
+    return New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)
+}
+$lettore = Apri-Log
 $t0 = Get-Date
 $aperto = $false
 $fine = $false
@@ -398,28 +501,47 @@ try {
     while ($true) {
         Mostra-Log
         $codice = [BasaltLauncher]::ExitCode()
+        if ($codice -eq $RiavvioModello -and $legato) {
+            Mostra-Log
+            Scrivi 'Il Loader ha scelto un altro modello: riavvio Basalt con quello (la pagina si ricollega da sola).' Cyan
+            $lettore.Dispose()
+            $idServer = Avvia-Server
+            $lettore = Apri-Log
+            $t0 = Get-Date
+            continue
+        }
         if ($codice -ne -1) {
             Mostra-Log
             Scrivi "Il server si è fermato (codice $codice)." $(if ($codice -eq 0) { 'Yellow' } else { 'Red' })
             $fine = $true
             break
         }
-        if (-not $aperto) {
+        if ($Server) {
+            $h = Get-Json ($url + 'health')
+            if ($h -and $h.loaded) {
+                Mostra-Log
+                Scrivi "Server pronto con il modello caricato: $url (solo server, PID $idServer). Per fermarlo: Ferma-Basalt.ps1 --port $porta" Green
+                if ($ApriDopo) { Start-Process $url }
+                break
+            }
+            if (((Get-Date) - $t0).TotalSeconds -gt $AttesaCaricoS) {
+                Scrivi "Il modello non è carico dopo $AttesaCaricoS s: lo fermo." Red
+                & taskkill.exe /PID $idServer /T /F | Out-Null
+                $fine = $true
+                break
+            }
+        } elseif (-not $aperto) {
             if (Test-Http ($url + 'health')) {
                 $aperto = $true
-                if ($SoloServer) {
-                    Scrivi "Server pronto su $url (solo server, PID $idServer; il modello si carica: GET ${url}health). Per fermarlo: Ferma-Basalt.ps1 --port $porta" Green
-                    break
-                }
-                Scrivi "Interfaccia web pronta: apro $url (il modello si carica: vedi Monitor)" Green
-                Start-Process $url
-                if ($Sfondo) {
-                    Scrivi "Basalt resta in esecuzione in sfondo (PID $idServer). Per fermarlo: Ferma-Basalt.ps1" Cyan
-                    break
+                if ($Browser) {
+                    Scrivi "Interfaccia web pronta: apro $url (il modello si carica: vedi Monitor)" Green
+                    Start-Process $url
+                } else {
+                    Scrivi "Server pronto su $url (il modello si carica: vedi Monitor)" Green
                 }
             } elseif (((Get-Date) - $t0).TotalSeconds -gt $AttesaMaxS) {
                 Scrivi "Il server non risponde dopo $AttesaMaxS s: lo fermo." Red
-                if ($legato) { [BasaltLauncher]::KillAll() } else { & taskkill.exe /PID $idServer /T /F | Out-Null }
+                [BasaltLauncher]::KillAll()
                 $fine = $true
                 break
             }

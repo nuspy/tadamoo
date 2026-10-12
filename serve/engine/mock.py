@@ -14,6 +14,24 @@ class Engine(Protocol):
     def generate(self, ids: list[int], max_new: int, sampling: dict, cancel: threading.Event) -> Iterator[int]: ...
 
 
+class NoEngine:
+    """Stands in for the engine while a --standby server has no model: nothing runs until the Loader picks one."""
+
+    max_context = 0
+    batch = 0
+    unloaded = False
+
+    def __init__(self):
+        self.info = {}
+
+    def alive(self) -> bool:
+        return False
+
+    def generate(self, ids, max_new, sampling, cancel, embeddings=None):
+        from serve.engine.errors import EngineStarting
+        raise EngineStarting("no model is loaded yet")
+
+
 class MockEngine:
     """Replays scripted completions as token ids plus the end-of-turn token; a list gives one script per request, the last repeating."""
 

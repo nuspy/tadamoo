@@ -22,11 +22,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # also runnable as a script
 from serve import ROOT, loader, service, settings, supervisor  # noqa: E402
-from serve.config import (build_parser, check_engine_flags, engine_flags_of, engine_line, engine_settings,  # noqa: E402
-                          parse_settings, sampling_defaults_from_config)
+from serve.config import (RELAUNCH_EXIT_CODE, build_parser, check_engine_flags, engine_flags_of,  # noqa: E402
+                          engine_line, engine_settings, parse_settings, sampling_defaults_from_config)
 from serve.engine import process as engine_process  # noqa: E402
 from serve.engine.errors import EngineStartError  # noqa: E402
-from serve.engine.mock import MockEngine  # noqa: E402
+from serve.engine.mock import MockEngine, NoEngine  # noqa: E402
 from serve.engine.process import ProcessEngine  # noqa: E402
 from serve.engine.vision import (EngineVision, Vision, child_env, engine_args, gpu_list, gpus_in_play,  # noqa: E402
                                  peer_card, vision_env, vision_line)
@@ -81,7 +81,8 @@ def main() -> int:
             gpu_list(cfg)
     except ValueError:
         fail(f"--gpu {a.gpu}: expected numbers like 0 or 0,1")
-    if not a.mock_engine and not (a.model and a.engine_bin):
+    standby = bool(a.standby)                           # HTTP and the Loader now, the engine on the Loader's Load
+    if not a.mock_engine and not (a.model and a.engine_bin) and not (standby and a.engine_bin):
         fail("the server needs --model and the engine binary: run it as basalt serve --config FILE (or --mock-engine)")
     if (file_engine or cli_engine) and not a.model:
         fail("engine flags need --model")
@@ -123,7 +124,7 @@ def main() -> int:
         a.tokenizer = cfg["tokenizer"]
     tok = ByteTokenizer()
     tpath = Path(a.tokenizer)
-    if not a.mock_engine and not (tpath / "vocab.json").exists():
+    if not a.mock_engine and a.model and not (tpath / "vocab.json").exists():
         fail(f"tokenizer missing: {tpath / 'vocab.json'}")
     if (tpath / "vocab.json").exists():
         import tokenizer as ST
@@ -134,14 +135,21 @@ def main() -> int:
         merges = (tpath / "merges.txt").read_text(encoding="utf-8").split("\n")
         types = json.loads((tpath / "token_type.json").read_text())
         tok = ST.Tokenizer(tokens, merges, types)
-    if not a.mock_engine:
+    if not a.mock_engine and not a.model:               # --standby without a model: the Loader chooses one
+        engine, vision, sampling_defaults = NoEngine(), None, {}
+        cfg.setdefault("model_name", "no model loaded")
+        print("[server] standby without a model: choose one in the Loader", flush=True)
+    elif not a.mock_engine:
         vision = None
         env = child_env(cfg)
         sampling_defaults = sampling_defaults_from_config(cfg)
         if sampling_defaults:
             pretty = ", ".join(f"{k}={v}" for k, v in sampling_defaults.items())
             print(f"[server] sampling defaults: {pretty}", flush=True)
-        lazy = a.lazy
+        lazy = a.lazy or standby
+        if standby:                                     # the Loader's Load starts the engine and the encoder
+            cfg = {**cfg, "vision": None}
+            print("[server] standby: the engine starts when the Loader loads the model", flush=True)
         if lazy and cfg.get("vision"):
             print("[server] warning: lazy loading is text-only, vision off", flush=True)
             if "--vision-mmproj" in cfg["args"]:
@@ -159,7 +167,7 @@ def main() -> int:
                 vision = Vision(cfg["vision"], log=open(cfg["log"], "a", encoding="utf-8") if cfg.get("log") else None,
                                 env=vision_env(cfg, env, "on" if mode == "on" else "peer"))
         print(vision_line(cfg.get("vision"), cfg, vision.ready_s if vision else 0.0), flush=True)
-        if lazy:
+        if lazy and not standby:
             print("[server] model unloaded, the first request loads it", flush=True)
         if cfg.get("log"):                              # follow the engine's log file
             threading.Thread(target=tail_file, args=(logs, cfg["log"], "eng"), daemon=True).start()
@@ -189,6 +197,8 @@ def main() -> int:
                   sampling_defaults=sampling_defaults, fit_max_tokens=a.fit_max_tokens)
     svc.logs = logs
     svc.settings_info = settings_info(a, flags)
+    svc.standby = standby
+    svc.relaunch_on_model_change = bool(a.relaunch_on_model_change)
     try:
         facts = loader.model_facts(a.model) if a.model else dict(loader.DEMO_FACTS)
     except (OSError, ValueError, KeyError) as e:
@@ -222,7 +232,7 @@ def main() -> int:
                  "; warning: any web page can use the model (--api-key KEY)"), flush=True)
     svc.idle_unload_s = a.idle_unload or 0
     svc.min_free_vram_mib = a.min_free_vram_mib or 0
-    svc.gpu_indices = gpus_in_play(cfg, engine_args(cfg) if not a.mock_engine else [])   # the cards /metrics reads
+    svc.gpu_indices = gpus_in_play(cfg, engine_args(cfg) if cfg.get("args") else [])   # the cards /metrics reads
     svc.gpu_index = svc.gpu_indices[0]
     httpd = serve(svc, host=a.host, port=a.port)
     svc.start_idle_unload()
@@ -269,6 +279,9 @@ def main() -> int:
         print(f"[server] listening on http://{here}:{a.port}/ while the model loads (the Monitor shows Loading)",
               flush=True)
         threading.Thread(target=load_model, name="load-model", daemon=True).start()
+    elif standby:
+        print(f"[server] standby: http://{here}:{a.port}/ answers; no model is loaded until the Loader's Load",
+              flush=True)
     else:
         say_ready()
         if not a.lazy:
@@ -294,12 +307,17 @@ def main() -> int:
     except (ValueError, OSError, AttributeError):         # not the main thread
         pass
     try:
-        while not failed.is_set():
+        while not failed.is_set() and not svc.exit_request.is_set():
             time.sleep(1)                               # a timed wait keeps Ctrl+C deliverable
-        print("[server] stopping: the model did not load", flush=True)
+        if failed.is_set():
+            print("[server] stopping: the model did not load", flush=True)
+        else:
+            print(f"[server] stopping so the program that started me starts me again with the new model "
+                  f"(exit code {RELAUNCH_EXIT_CODE})", flush=True)
     except KeyboardInterrupt:
         print("[server] stopping (Ctrl+C again to force)", flush=True)
-    closers = [httpd.shutdown, getattr(engine, "close", None), vision.close if vision else None]
+    engine = svc.engine
+    closers = [httpd.shutdown, getattr(engine, "close", None), svc.vision.close if svc.vision else None]
     for close in filter(None, closers):
         try:
             close()
@@ -307,7 +325,9 @@ def main() -> int:
             if getattr(engine, "proc", None):
                 engine.proc.kill()
     print("[server] stopped", flush=True)
-    return 1 if failed.is_set() else 0
+    if failed.is_set():
+        return 1
+    return RELAUNCH_EXIT_CODE if svc.exit_request.is_set() else 0
 
 
 if __name__ == "__main__":

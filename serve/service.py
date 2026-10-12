@@ -43,6 +43,8 @@ REQUESTS_SHOWN = 12        # finished requests /metrics lists
 RATE_MIN_SPAN_S = 0.25      # below this span there is no rate yet: use the mean with the span floored
 # diagnostics, off unless the server flag sets them
 DEBUG = False            # --debug: one line per request plus the raw model text
+STANDBY_MESSAGE = ("no model is loaded yet: choose one in the Loader (the web page's Loader tab, or the desktop app) "
+                   "and press Load")
 
 
 class Service:
@@ -78,6 +80,8 @@ class Service:
         self.last_request_at = None                      # last request start or finish
         self.started_at = time.time()
         self.loading = False                             # --listen-first: the model loads behind the HTTP server
+        self.standby = False                             # --standby: no engine until the Loader's Load
+        self.exit_request = threading.Event()            # --relaunch-on-model-change: end so the owner starts again
         self.status_lock = threading.Lock()
         # GPU sharing, all off by default: idle unload seconds, min free VRAM to load, a command run before loading
         self.idle_unload_s = 0
@@ -91,6 +95,8 @@ class Service:
                             tokenizer.encode("<|endoftext|>", parse_special=True))
 
     def loaded(self) -> bool:
+        if self.standby:
+            return False
         return not hasattr(self.engine, "alive") or self.engine.alive()
 
     def reasoning_budget(self, req) -> int | None:
@@ -123,6 +129,8 @@ class Service:
 
     def ensure_loaded(self):
         """Start the engine if it is not running, after the before_load hook and VRAM check. Caller holds fifo."""
+        if self.standby:
+            raise EngineStarting(STANDBY_MESSAGE)
         if self.loaded() and not self._vision_down():
             return
         if self.before_load:
@@ -205,6 +213,8 @@ class Service:
         """Start the engine if unloaded (POST /load and every generation request); may raise GpuBusy."""
         # keeps the idle thread from unloading before this request starts
         self.last_request_at = time.time()
+        if self.standby:
+            raise EngineStarting(STANDBY_MESSAGE)
         if self.loaded() and not self._vision_down():
             return
         with self.fifo:

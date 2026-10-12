@@ -280,10 +280,24 @@
     const { r, j } = await post("api/loader/load", m ? { values, model: m } : { values });
     if (r.status === 422 && j.plan) { renderSide(target, j.plan, mode); return; }
     if (!r.ok) { say(T("ld.phase.failed", (j.error && j.error.message) || `HTTP ${r.status}`), "err"); return; }
+    if ((j.notes || []).includes("model_restart")) { say(T("ld.model.relaunch", BasaltModels.name(j.model)), "ok"); waitRestart(); return; }
     if ((j.notes || []).includes("model_on_restart")) { say(T("ld.model.restart", BasaltModels.name(j.model)), "ok"); return; }
     if ((j.notes || []).includes("port_on_restart")) say(T("ld.port.note"));
     INFO.status = { phase: "waiting" };
     watch();
+  }
+  // the server ends and its owner starts it again with the new model: reload the page once it answers again
+  function waitRestart() {
+    let down = false;
+    const t0 = Date.now();
+    const tick = async () => {
+      let up = false;
+      try { up = (await fetch("health", { cache: "no-store" })).ok; } catch (e) { up = false; }
+      if (!up) down = true;
+      if (up && (down || Date.now() - t0 > 15000)) { location.hash = "#loader"; location.reload(); return; }
+      setTimeout(tick, 1000);
+    };
+    setTimeout(tick, 800);
   }
   async function calibrate() {
     const { r, j } = await post("api/loader/calibrate", {});
@@ -331,7 +345,7 @@
     return `${p.name}${tags.length ? ` (${tags.join(", ")})` : ""} — ${parts.join(" · ")}`;
   }
   function headlessCmd(name) {
-    return `powershell -ExecutionPolicy Bypass -File Avvia-Basalt.ps1 --config "${name.replace(/"/g, "")}" -SoloServer`;
+    return `powershell -ExecutionPolicy Bypass -File Avvia-Basalt.ps1 -server --config "${name.replace(/"/g, "")}"`;
   }
   function profileBar(target, mode) {
     const box = $(target);
@@ -452,6 +466,7 @@
     $("#ld-model").textContent = (INFO.model && INFO.model.name) || "";
     const gw = INFO.gpu_warning && (INFO.gpu_warning[LANG] || INFO.gpu_warning.en);
     $("#ld-gpu").hidden = !gw; $("#ld-gpu").textContent = gw || "";
+    $("#ld-standby").hidden = !INFO.standby;
     if (window.BasaltModels) await BasaltModels.refresh();
     defaults();
     const reason = INFO.editable ? "" : T("ld.ro." + (INFO.reason || "no_config"));
