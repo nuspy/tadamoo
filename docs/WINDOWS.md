@@ -133,14 +133,17 @@ one for the OrcaRouter IQ3_XXS file on an RTX 5090 + 128 GB machine). Paths are 
 they work from any directory and from Explorer (right click, "Run with PowerShell"), with Windows PowerShell 5.1 or
 PowerShell 7.
 
-* `Avvia-Basalt.ps1` checks, before anything starts: that nothing serves the port yet (if Basalt does, it only opens
-  the browser); the free VRAM (`nvidia-smi`, a warning under 6 GiB); that the available RAM covers the expert section
-  of the `.basalt` file + 6 GiB of buffers + 15% of the RAM; and that the commit left (commit limit - committed, with
-  the page file at its current size) covers the experts + 6 GiB + the VRAM Basalt will take (free VRAM minus
-  `vram-reserve-mib`), because WDDM charges that VRAM to the commit. When either is short it says how much is missing
-  and exits with 1: nothing relies on the page file growing. It then clears `CL`/`_CL_`, puts the venv first on
-  `PATH`, starts `bin\basalt.exe serve --config basalt_config.json` at normal priority with its output in
-  `logs\basalt-serve.log`, shows that log live, and opens http://127.0.0.1:7232 as soon as the server answers.
+* `Avvia-Basalt.ps1 [--config "<profile>"] [--port N]` (also `-Config`/`-Port`) first looks for a Basalt server of
+  this folder already running, on any port (the listening `serve.server` processes of this repository and
+  `basalt.pid`, confirmed by `/health` answering `"service": "basalt"`): if there is one it starts nothing, prints its
+  address, settings and model, and exits 0. Otherwise it writes the load profile into `basalt_config.json` (the
+  default profile chosen in the Loader when `--config` is not given; the previous file stays as `.bak`; an unknown
+  name lists the profiles and exits 1) and checks memory with the Loader's own plan (`python -m serve.loader check`):
+  VRAM, RAM and commit, keeping 15% of the RAM and 15% of the commit limit free and counting the VRAM the engine
+  allocates in the commit, because WDDM charges it there. When something is short it says what and exits 1: nothing
+  relies on the page file growing. It then clears `CL`/`_CL_`, puts the venv first on `PATH`, starts
+  `bin\basalt.exe serve --config basalt_config.json [--port N]` at normal priority with its output in
+  `logs\basalt-serve.log`, shows that log live, and opens the page as soon as the server answers.
   `"listen-first": true` in the config makes the server answer while the model loads (the Monitor shows Loading).
 * By default the server is tied to the script's window: it shares the console (Ctrl+C reaches it and it stops the
   engine cleanly) and it runs in a job object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` whose only handle belongs to
@@ -148,12 +151,55 @@ PowerShell 7.
   Ctrl+C, the window's X, Task Manager - Windows closes that handle and the whole tree goes: `basalt.exe serve`, the
   Python server (in `basalt.exe`'s own kill-on-close job) and the engine and vision sidecar (in
   `serve/util/winjob.py`'s). The process is created suspended and joins the job before it runs, so nothing escapes.
-* `-Sfondo` starts the server detached in a hidden console (no job of the script's); `basalt.pid` records it.
-  `-Prova` runs every check and prints the command without starting anything.
-* `Ferma-Basalt.ps1` finds the server from `basalt.pid` (PID and start time) or from the port, asks it to unload the
-  model (`POST /unload`: the engine gets QUIT and frees RAM and VRAM), ends the process tree, checks that no process
-  of this `bin\` is left and prints the RAM available before and after. It handles both modes; a tied window then
-  closes its loop by itself.
+* `-Sfondo` starts the server detached in a hidden console (no job of the script's); `basalt.pid` records it (PID,
+  start time, port, profile). `-SoloServer` (`--solo-server`) does the same without opening the browser and returns
+  as soon as `/health` answers. `-Prova` runs every check on a copy of the config and prints the command without
+  starting anything.
+* `Ferma-Basalt.ps1 [--port N]` finds the server from `basalt.pid` (PID and start time) or from the port, asks it to
+  unload the model (`POST /unload`: the engine gets QUIT and frees RAM and VRAM), ends the process tree, checks that
+  no process of this `bin\` is left and prints the RAM available before and after. With `--port` only the process
+  tree of the server on that port is ended. Processes are found by PID file, by the listening port's owner and its
+  children, or by full path under this `bin\`, never by name alone.
+
+### Load profiles, the Loader and the desktop app
+
+* **Load profiles** (the Loader's engine fields and the port) and **inference presets** (the chat settings) are kept
+  in `%USERPROFILE%\.cache\basalt\profiles.json` (or `%BASALT_CACHE%`), shared by the web UI, the desktop app and
+  the scripts: `python -m serve.profiles list | default | apply NAME --config FILE`. "Valori sicuri" is built in and
+  cannot be changed or deleted; it is the default until another profile is made default in the Loader.
+* **The Loader** (web UI, tab "Carica modello") edits the engine settings by hand or from a profile, shows the VRAM,
+  RAM and commit the plan needs next to what is free now (what the running engine gives back included) and the
+  predicted speed, and reloads the engine inside the running server (`POST /api/loader/load`: checked, written to the
+  config file with a `.bak`, applied by restarting the engine process; the HTTP server and its port stay, a new port
+  applies at the next start). Settings has the same profile picker and a Reload button. Speeds come from a
+  calibration (`Calibra`, and automatically at the first load of a model) stored per model and settings in
+  `%USERPROFILE%\.cache\basalt\<model>\calibration.json`; before that they are seeded estimates.
+* **The desktop app** `tools\windows\desktop` (`dotnet publish -c Release -o publish`, .NET 8, WebView2) builds
+  `BasaltPannello.exe` (window title "Basalt"; the name differs from the engine's `basalt.exe` on purpose). It
+  shows a start panel (load profile, port, the same memory check; Avvia, or Avvia solo server, which runs
+  `Avvia-Basalt.ps1 -SoloServer` and exits), then the web UI in its own window. A server it starts runs in its
+  kill-on-close job without a console window. Closing the window hides it to the notification area; the icon's menu
+  has Apri, Ricarica con altri parametri (the Loader) and Spegni (unload, end the job, report the RAM freed). A
+  second start brings the first window to the front; when a Basalt server already runs it asks whether to attach to
+  it or close it and start with the chosen profile.
+
+### For agents
+
+```powershell
+# start without window, tray icon or browser; returns when /health answers (exit 1: memory short or bad profile)
+powershell -ExecutionPolicy Bypass -File .\Avvia-Basalt.ps1 --config "Valori sicuri" --port 7240 -SoloServer
+# already running? the same command attaches and prints the port; or read it from basalt.pid
+Get-Content .\basalt.pid | ConvertFrom-Json | Select-Object port, pid, profile
+# ready? "loaded": true once the model is in (with listen-first the server answers while it loads)
+Invoke-RestMethod http://127.0.0.1:7240/health
+# stop only that server
+powershell -ExecutionPolicy Bypass -File .\Ferma-Basalt.ps1 --port 7240
+```
+
+The API is OpenAI-compatible at `http://127.0.0.1:<port>/v1` (`/v1/chat/completions`, `/v1/messages`,
+`/v1/responses`). `response_format` (`json_object`, `json_schema`) is validated, not constrained during generation
+(the engine has no grammar sampler): a rejected answer is generated again with the error fed back, up to
+`structured_retries` times (default 2), and the final chunk carries `"structured_output": {"attempts": n}`.
 
 **ExecutionPolicy.** "Run with PowerShell" from Explorer sets the policy to Bypass for that process only. From a
 terminal, the default `RemoteSigned` runs these local scripts; if the policy is `Restricted` (or the files were
