@@ -26,7 +26,7 @@
       model: "Model", nomodel: "No model is ready in the models folders: choose them in the Loader first.",
       sampling: "The model's own chat values: {0}", nosampling: "the model file sets no chat values",
       fits: "Fits", nofit: "Does not fit", need: "{0} GB needed, {1} available", speed: "Predicted: {0} tok/s answer, {1} tok/s prompt reading",
-      measureh: "About 5 to 10 minutes: Basalt loads the computed values, checks the real memory after the load against the plan (smaller values if it is above), measures the speed, tries the drafting floor per request and one other verify window. Without it the values stay as computed.",
+      measureh: "About 5 to 10 minutes: Basalt loads the computed values, checks the real memory after the load against the plan (smaller values if it is above), measures the speed, tries the drafting floor per request (0.3, 0.5, 0.7) and the verify windows 5, 7 and 8 (one reload each), and keeps the fastest. Without it the values stay as computed.",
       measure: "Measure now", measureLoad: "Load the model and measure", measureRestart: "Basalt starts again with this model; the measurement starts by itself and this page reconnects.",
       measuring: "Measuring: {0}…", measured: "Measured: {0} tok/s (answer), {1} tok/s (with reasoning), {2} tok/s (prompt reading).",
       cannot: "The measurement needs less than {0} of the commit limit in use (now {1}): close other programs, or skip it.",
@@ -35,6 +35,7 @@
       save: "Save as Machine Default", saved: "Saved: “Machine Default” is now the default load profile and the chat's default preset.",
       use: "Use in the Loader", summary: "Summary", left: "Left free: {0} of RAM and commit, {1} GB of VRAM; monitor: {2}",
       monitor: { primary: "on this GPU", secondary: "on another adapter, secondary on this GPU", none: "on another adapter" },
+      windows: "Verify windows: {0}; kept {1}.", floors: "Drafting floor: {0}; kept {1}.",
       offer: "Configuration wizard", machine: "Restore Machine Default", machineDone: "Machine Default in the form: check the prediction, then Load.",
       noMachine: "There is no Machine Default yet: run the configuration wizard.",
     },
@@ -58,7 +59,7 @@
       model: "Modello", nomodel: "Nessun modello pronto nelle cartelle dei modelli: sceglile prima nel Loader.",
       sampling: "Valori di chat del modello: {0}", nosampling: "il file del modello non indica valori di chat",
       fits: "Entra", nofit: "Non entra", need: "servono {0} GB, disponibili {1}", speed: "Previsione: {0} tok/s in risposta, {1} tok/s in lettura",
-      measureh: "Circa 5-10 minuti: Basalt carica i valori calcolati, confronta la memoria reale dopo il caricamento con il piano (valori più piccoli se è sopra), misura la velocità, prova la soglia del drafter per richiesta e un'altra finestra di verifica. Senza misura restano i valori calcolati.",
+      measureh: "Circa 5-10 minuti: Basalt carica i valori calcolati, confronta la memoria reale dopo il caricamento con il piano (valori più piccoli se è sopra), misura la velocità, prova la soglia del drafter per richiesta (0,3, 0,5, 0,7) e le finestre di verifica 5, 7 e 8 (un ricaricamento ciascuna) e tiene la più veloce. Senza misura restano i valori calcolati.",
       measure: "Misura ora", measureLoad: "Carica il modello e misura", measureRestart: "Basalt riparte con questo modello; la misura parte da sola e questa pagina si ricollega.",
       measuring: "Misura in corso: {0}…", measured: "Misurato: {0} tok/s (risposta), {1} tok/s (con ragionamento), {2} tok/s (lettura del prompt).",
       cannot: "La misura vuole meno del {0} del limite di commit in uso (ora {1}): chiudi altri programmi, oppure saltala.",
@@ -67,6 +68,7 @@
       save: "Salva come Machine Default", saved: "Salvato: «Machine Default» ora è il profilo di caricamento predefinito e il preset di chat predefinito.",
       use: "Usa nel Loader", summary: "Riepilogo", left: "Liberi: {0} di RAM e commit, {1} GB di VRAM; monitor: {2}",
       monitor: { primary: "su questa GPU", secondary: "su un'altra scheda, secondario su questa GPU", none: "su un'altra scheda" },
+      windows: "Finestre di verifica: {0}; tenuta {1}.", floors: "Soglia del drafter: {0}; tenuta {1}.",
       offer: "Configurazione guidata", machine: "Ripristina Machine Default", machineDone: "Machine Default nel modulo: controlla la previsione, poi Carica.",
       noMachine: "Non c'è ancora un Machine Default: avvia la configurazione guidata.",
     },
@@ -244,13 +246,20 @@
   function step5() {
     const hw = W.info.hardware, can = hw.can_measure;
     const other = W.info.relaunch && W.model && W.info.running_model && !same(W.model, W.info.running_model) && !(W.info.hardware || {}).mock;
-    const res = W.measured ? `<p class="wz-res" data-kind="ok">${esc(t("measured", nfmt(W.measured.decode, 0), nfmt(W.measured.decode_reasoning, 0), nfmt(W.measured.prefill, 0)))}</p>` :
+    const res = W.measured ? `<p class="wz-res" data-kind="ok">${esc(t("measured", nfmt(W.measured.decode, 0), nfmt(W.measured.decode_reasoning, 0), nfmt(W.measured.prefill, 0)))}</p>${tries()}` :
       W.measureNote ? `<p class="wz-res" data-kind="${W.measureNote.kind}">${esc(W.measureNote.text)}</p>` : "";
     return `<h3>${esc(t("h5"))}</h3><p class="setnote">${esc(t("measureh"))}</p>
       ${!can ? `<p class="setnote warnnote">${esc(t("cannot", nfmt(hw.measure_commit_max * 100, 0) + "%", nfmt((hw.commit_share_used || 0) * 100, 0) + "%"))}</p>` : ""}
       ${other ? `<p class="help">${esc(t("measureRestart"))}</p>` : ""}
       <div class="setactions"><button type="button" class="btn" data-wz="measure" ${can && W.prop && W.prop.fits ? "" : "disabled"}>${esc(other ? t("measureLoad") : t("measure"))}</button></div>
       <div class="wz-progress" id="wz-progress" aria-live="polite"></div>${res}`;
+  }
+  // every candidate the measurement tried, with its speed, and the one kept
+  function tries() {
+    const m = W.measured || {}, v = (W.prop || {}).values || {};
+    const list = o => Object.entries(o || {}).map(([k, x]) => `${nfmt(Number(k), k.includes(".") ? 1 : 0)} → ${nfmt(x, 0)} tok/s`).join(" · ");
+    return (m.spec ? `<p class="help">${esc(t("windows", list(m.spec), v["engine.spec"]))}</p>` : "") +
+      (m.spec_min_p ? `<p class="help">${esc(t("floors", list(m.spec_min_p), nfmt(v["engine.spec-min-p"], 1)))}</p>` : "");
   }
   async function measure() {
     const { r, j } = await api("api/wizard/measure", { model: W.model, values: W.prop.values });

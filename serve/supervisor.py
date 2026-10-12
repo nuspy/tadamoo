@@ -19,6 +19,7 @@ RELOAD_WAIT_S = 300.0          # how long a reload waits for the running request
 BUSY = ("waiting", "stopping", "starting", "calibrating", "measuring")   # a job runs: no other may start
 MEASURE_ANSWER = 384           # tokens of each answer the wizard's measurement times
 SPEC_MIN_P_TRIES = (0.3, 0.5, 0.7)   # draft floors tried per request, without reloading
+SPEC_TRIES = (5, 7, 8)         # verify windows the wizard's measurement tries (set at the start: one reload each)
 CALIBRATION_ANSWER = 512       # tokens of the reasoning-off answer
 CALIBRATION_THINKING = 1024    # tokens of the reasoning-on answer
 CALIBRATION_PROMPT = 8192      # tokens of the long prompt
@@ -60,6 +61,18 @@ def engine_config(a, flags: dict, mock: bool = False) -> dict:
     if off and cfg.get("args"):
         cfg["args"] = [x for x in cfg["args"] if x not in off]
     return cfg
+
+
+def record_memory(facts: dict, values: dict, before: dict, after: dict) -> None:
+    """The real memory of a load against its plan, for later plans (loader.record_load_memory); never fails a load."""
+    try:
+        r = loader.record_load_memory(facts, values, before, after)
+    except Exception as e:  # noqa: BLE001 - a reading or a write that fails leaves the plans as they were
+        print(f"[server] warning: the memory of this load was not recorded: {e}", flush=True)
+        return
+    if r and (r["commit_extra"] > 256 * loader.MiB or r["ram_extra"] > 256 * loader.MiB):
+        print(f"[server] this load took {r['commit_extra'] / loader.GiB:.1f} GiB of commit and {r['ram_extra'] / loader.GiB:.1f}"
+              " GiB of RAM more than planned; the Loader's plans for this model add it from now on", flush=True)
 
 
 def make_vision(cfg: dict, env: dict):
@@ -184,7 +197,10 @@ class Supervisor:
         spawn = list(engine.spawn)
         spawn[0], spawn[1], spawn[3], spawn[4] = cfg["engine_bin"], engine_args(cfg), cfg.get("log"), env
         engine.spawn = tuple(spawn)
+        before = loader.system_now(getattr(svc, "gpu_index", 0))
         engine.restart(tries=1)
+        record_memory(self.facts, settings_info(a, flags, self.argv)["running"], before,
+                      loader.system_now(getattr(svc, "gpu_index", 0)))
         vision = make_vision(cfg, env)
         if isinstance(vision, EngineVision):
             vision.attach(engine)
@@ -302,8 +318,9 @@ class Supervisor:
     def measure(self, values: dict, wait: bool = False) -> bool:
         """Load `values` (the wizard's computed Loader values) for this server's model and measure them: the real
         memory after the load against the plan (a smaller context, then no resident experts, while it is above), the
-        calibration, the drafting floor per request (SPEC_MIN_P_TRIES, no reload) and at most one other verify window
-        (one reload). The result {"values", "measured", "log"} is the job's message; False when a job is running."""
+        calibration, the drafting floor per request (SPEC_MIN_P_TRIES, no reload) and the verify windows SPEC_TRIES (one
+        reload each; the fastest decode is kept, a tie keeps the lower window). The result {"values", "measured" (every
+        candidate's speed), "log"} is the job's message; False when a job is running."""
         if not self._begin("measure"):
             return False
         self.thread = threading.Thread(target=self._measure_job, args=(dict(values),), name="measure", daemon=True)
@@ -378,22 +395,22 @@ class Supervisor:
                 best_p = max(tries, key=tries.get)
                 say("drafting floor: " + ", ".join(f"{p} -> {tries[p]:.1f} tok/s" for p in SPEC_MIN_P_TRIES))
                 current["engine.spec-min-p"] = best_p
-                base = tries[best_p]
-                other = 5 if int(v["engine.spec"]) != 5 else 7
-                self._set(step="spec")
-                trial = {**current, "engine.spec": other}
-                self._write_values(trial)
-                self._reload_now(phase="measuring")
-                self._set(phase="measuring")
-                alt = self._decode({"spec_min_p": best_p})
-                say(f"verify window {v['engine.spec']} -> {base:.1f} tok/s, {other} -> {alt:.1f} tok/s")
-                if alt > base:
-                    current, base = trial, alt
-                else:
+                windows = {}
+                for spec in SPEC_TRIES:                  # set only at the engine's start: one reload each
+                    self._set(step="spec")
+                    self._write_values({**current, "engine.spec": spec})
+                    self._reload_now(phase="measuring")
+                    self._set(phase="measuring")
+                    windows[spec] = round(self._decode({"spec_min_p": best_p}), 1)
+                best = max(windows, key=lambda s: (windows[s], -s))         # the fastest; a tie keeps the lower
+                say("verify window: " + ", ".join(f"{s} -> {windows[s]:.1f} tok/s" for s in SPEC_TRIES)
+                    + f"; kept {best}")
+                current["engine.spec"] = best
+                if best != SPEC_TRIES[-1]:
                     self._write_values(current)
                     self._reload_now(phase="measuring")
                     self._set(phase="measuring")
-                measured.update(decode=round(base, 1), spec_min_p=tries)
+                measured.update(decode=windows[best], spec_min_p=tries, spec=windows)
             result = {"values": current, "measured": measured, "log": log}
             self._set(phase="ready", finished=time.time(), step=None, message=json.dumps(result))
             print(f"[server] wizard: measurement done: {json.dumps(measured)}", flush=True)

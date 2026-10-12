@@ -67,7 +67,7 @@ ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.pref
 # drafter and vision projector), kept as a documented example and for the tests
 SAFE = {"engine.max-context": 262144, "engine.kv": "q4_0", "engine.prefill": "auto", "engine.spec": 7,
         "engine.spec-min-p": 0.5, "engine.expert-cache": "auto", "engine.resident-experts": True,
-        "engine.vram-reserve-mib": 2560, "engine.ple-io": "direct", "engine.pool-workers": 15,
+        "engine.vram-reserve-mib": 1536, "engine.ple-io": "direct", "engine.pool-workers": 15,
         "server.parallel": 1, "server.slot-full-context": False, "server.vision": "dynamic"}
 
 # seed speeds until this model is calibrated; SEED["note"] names their source
@@ -284,10 +284,11 @@ def _item(key, nbytes, estimate=False):
 
 
 def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, holds_vram: int = 0,
-         keep_share: float | None = None) -> dict:
+         keep_share: float | None = None, correction: dict | None = None) -> dict:
     """The memory a load with these values needs, next to what is free (plus what the running engine gives back
     when it stops: `holds` from engine_holds(), `holds_vram` its VRAM), with `keep_share` of the RAM and of the commit
-    limit left free (the user's share by default). Bytes throughout."""
+    limit left free (the user's share by default). `correction` ({"ram", "commit"}; by default memory_correction())
+    adds what an earlier load of this model really took above its plan. Bytes throughout."""
     share = free_share() if keep_share is None else keep_share
     v = effective(values)
     holds = holds or {"ram": 0, "commit": 0}
@@ -333,8 +334,12 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     ple_ram = facts["ple_bytes"] if v["engine.ple-io"] == "ram" else 0
     host.append(_item("ple", ple_ram if ple_ram else PLE_ROW_CACHE))
     host.append(_item("other", HOST_OTHER, True))
+    corr = memory_correction(facts) if correction is None else correction
+    if corr.get("ram"):                                 # measured at an earlier load of this model, above the plan
+        host.append(_item("measured", corr["ram"]))
     ram_need = sum(h["bytes"] for h in host)
     commit_need = ram_need - ple_ram + vram_need        # the PLE map is file-backed; VRAM is charged to the commit
+    commit_need += max(0, corr.get("commit", 0) - corr.get("ram", 0))
     # ---- available and the rules
     total, avail = system.get("ram_total"), system.get("ram_available")
     limit, used = system.get("commit_limit"), system.get("commit_used")
@@ -409,36 +414,37 @@ CONTEXT_STEPS = (262144, 131072, 65536, 32768, 16384, 8192, 4096)
 RESERVE_MIN_MIB, RESERVE_MAX_MIB = 512, 8192
 RESERVE_BASE_MIB = 512                  # the driver and the GPU's own needs, when the GPU drives no monitor
 RESERVE_MONITOR_MIB = {"primary": 1536, "secondary": 384, "none": 0, None: 1024}   # by where the monitor is
-RESERVE_OTHERS_UNKNOWN_MIB = 1024       # what other programs use when the GPU cannot be read
-RESERVE_WARN_MIB = 1024                 # below this the desktop and the driver may run short of VRAM
+RESERVE_WARN_MIB = 1024                 # below this a GPU that drives the main monitor may run short of VRAM
 
 
 def reserve_proposal(system: dict, monitor: str | None = None, holds_vram: int = 0) -> tuple[int, str, str]:
-    """The VRAM to leave free for the other programs: a base for the driver, what the other programs use on the GPU
-    now (VRAM in use apart from the running engine's), and more when this GPU drives the main monitor (the desktop
-    compositor and the browsers grow with it) or a secondary one; `monitor` None = not confirmed yet. Rounded up to
-    256 MiB, 0.5 to 8 GiB. (MiB, why in English, why in Italian)"""
+    """The VRAM to leave free for the other programs: a base for the driver, and more when this GPU drives the main
+    monitor (the desktop compositor and the browsers grow with it) or a secondary one; `monitor` None = not confirmed
+    yet. What other programs use on the GPU now is said, not added: the expert cache (auto) sizes itself to the VRAM
+    free at the load, which already leaves it to them. Rounded up to 256 MiB, 0.5 to 8 GiB. (MiB, why in English,
+    why in Italian)"""
     total, free = system.get("vram_total"), system.get("vram_free")
-    others = max(0, total - free - holds_vram) // MiB if total and free is not None else RESERVE_OTHERS_UNKNOWN_MIB
+    others = max(0, total - free - holds_vram) // MiB if total and free is not None else None
     extra = RESERVE_MONITOR_MIB.get(monitor, RESERVE_MONITOR_MIB[None])
-    mib = -(-(RESERVE_BASE_MIB + others + extra) // 256) * 256
+    mib = -(-(RESERVE_BASE_MIB + extra) // 256) * 256
     mib = max(RESERVE_MIN_MIB, min(RESERVE_MAX_MIB, mib))
     g = lambda m: f"{m / 1024:.1f}"                                             # noqa: E731
+    gi = lambda m: g(m).replace(".", ",")                                      # noqa: E731
+    place = monitor if monitor in MONITOR_PLACES else None
     where_en = {"primary": f"+{g(extra)} GB because this GPU drives the main monitor",
                 "secondary": f"+{g(extra)} GB for the secondary monitor on this GPU (turning it on takes a little VRAM)",
                 "none": "nothing for monitors: this GPU drives none",
-                None: f"+{g(extra)} GB until the configuration wizard confirms where the monitor is"}[
-        monitor if monitor in MONITOR_PLACES else None]
-    gi = lambda m: g(m).replace(".", ",")                                      # noqa: E731
+                None: f"+{g(extra)} GB until the configuration wizard confirms where the monitor is"}[place]
     where_it = {"primary": f"+{gi(extra)} GB perché questa GPU pilota il monitor principale",
                 "secondary": f"+{gi(extra)} GB per il monitor secondario su questa GPU (accenderlo usa un po' di VRAM)",
                 "none": "niente per i monitor: questa GPU non ne pilota",
-                None: f"+{gi(extra)} GB finché la configurazione guidata non conferma dov'è il monitor"}[
-        monitor if monitor in MONITOR_PLACES else None]
-    return (mib, f"{g(mib)} GB stay free on the GPU: {g(RESERVE_BASE_MIB)} GB for the driver, {g(others)} GB that other "
-                 f"programs use now, {where_en}.",
-            f"{g(mib).replace('.', ',')} GB restano liberi sulla GPU: {g(RESERVE_BASE_MIB).replace('.', ',')} GB per il "
-            f"driver, {g(others).replace('.', ',')} GB usati ora dagli altri programmi, {where_it}.")
+                None: f"+{gi(extra)} GB finché la configurazione guidata non conferma dov'è il monitor"}[place]
+    now_en = f" Other programs use {g(others)} GB of it now: the expert cache leaves that to them anyway." \
+        if others is not None else ""
+    now_it = f" Gli altri programmi ne usano ora {gi(others)} GB: la cache esperti li lascia comunque a loro." \
+        if others is not None else ""
+    return (mib, f"{g(mib)} GB stay free on the GPU: {g(RESERVE_BASE_MIB)} GB for the driver, {where_en}.{now_en}",
+            f"{gi(mib)} GB restano liberi sulla GPU: {gi(RESERVE_BASE_MIB)} GB per il driver, {where_it}.{now_it}")
 
 
 def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int = 0, cpu: dict | None = None,
@@ -551,25 +557,29 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
     return out
 
 
-def reserve_warnings(values: dict, gpu: dict | None) -> list[dict]:
-    """A VRAM reserve too small for the desktop and the driver (more when other programs use the GPU)."""
+def reserve_warnings(values: dict, gpu: dict | None, monitor: str | None = ...) -> list[dict]:
+    """A VRAM reserve under 1 GiB on a GPU that drives the main monitor (the wizard's answer, else NVML's display
+    flag while it is unconfirmed): the desktop and the driver may run short; the other programs on it are named."""
     v = effective(values)
     if v["engine.expert-cache"] not in ("auto", 0, "0", None):
         return []
+    if monitor is ...:
+        monitor = machine_settings().get("monitor")
+    drives = monitor == "primary" or (monitor is None and (gpu or {}).get("display_active") is True)
     reserve = int(v["engine.vram-reserve-mib"])
+    if not drives or reserve >= RESERVE_WARN_MIB:
+        return []
     others = [p for p in (gpu or {}).get("processes") or []
               if (p.get("name") or "").lower() not in ("basalt.exe", "basalt", "python.exe", "python")]
-    want = RESERVE_WARN_MIB + (1024 if others else 0)
-    if reserve >= want:
-        return []
     names = ", ".join(sorted({p.get("name") or str(p.get("pid")) for p in others}))
     g = lambda n: f"{n / 1024:.1f}"                                              # noqa: E731
+    want = RESERVE_WARN_MIB
     return [{"code": "reserve_low", "reserve_mib": reserve, "want_mib": want, "processes": others,
-             "text": f"Only {g(reserve)} GB of VRAM stay free: the desktop and the driver need about {g(want)} GB"
-                     + (f" (other programs on the GPU: {names})" if others else "") + ". Raise it to avoid stutters "
-                     "or an engine that cannot allocate.",
-             "text_it": f"Restano liberi solo {g(reserve).replace('.', ',')} GB di VRAM: desktop e driver ne vogliono "
-                        f"circa {g(want).replace('.', ',')}"
+             "text": f"Only {g(reserve)} GB of VRAM stay free on the GPU that drives the main monitor: the desktop and "
+                     f"the driver need about {g(want)} GB" + (f" (other programs on the GPU: {names})" if others else "")
+                     + ". Raise it to avoid stutters or an engine that cannot allocate.",
+             "text_it": f"Restano liberi solo {g(reserve).replace('.', ',')} GB di VRAM sulla GPU che pilota il monitor "
+                        f"principale: desktop e driver ne vogliono circa {g(want).replace('.', ',')}"
                         + (f" (altri programmi sulla GPU: {names})" if others else "")
                         + ". Alzala per evitare scatti o un motore che non riesce ad allocare."}]
 
@@ -705,6 +715,56 @@ def save_calibration(facts: dict, record: dict) -> Path:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
     return path
+
+
+_memory_cache: dict = {}
+
+
+def memory_correction(facts: dict) -> dict:
+    """What the last real load of this model took above its plan: {"ram", "commit"} in bytes (zeros before one, and
+    for the demo sizes)."""
+    if not facts.get("meta_hash"):
+        return {"ram": 0, "commit": 0}
+    p = calibration_path(facts)
+    try:
+        st = p.stat()
+    except OSError:
+        return {"ram": 0, "commit": 0}
+    key = (str(p), st.st_mtime_ns, st.st_size)
+    if _memory_cache.get(str(p), (None,))[0] != key:
+        m = read_calibrations(facts).get("memory") or {}
+        _memory_cache[str(p)] = (key, {"ram": max(0, int(m.get("ram_extra") or 0)),
+                                       "commit": max(0, int(m.get("commit_extra") or 0))})
+    return dict(_memory_cache[str(p)][1])
+
+
+def record_load_memory(facts: dict, values: dict, before: dict, after: dict) -> dict | None:
+    """After a real load: the RAM and commit the load took (the system's readings before and after it) against the
+    plan of the same values, kept with the model's calibrations; later plans add what was above (plan()). None when
+    the readings are missing or the load took nothing measurable."""
+    if not facts.get("meta_hash"):                      # the demo sizes: no model file to keep it with
+        return None
+    try:
+        ram_real = int(before["ram_available"]) - int(after["ram_available"])
+        commit_real = int(after["commit_used"]) - int(before["commit_used"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if ram_real <= 0 and commit_real <= 0:
+        return None
+    p = plan(values, facts, before, correction={"ram": 0, "commit": 0})
+    record = {"at": now_iso(), "fingerprint": fingerprint(values), "ram_real": ram_real, "ram_planned": p["ram"]["need"],
+              "commit_real": commit_real, "commit_planned": p["commit"]["need"],
+              "ram_extra": max(0, ram_real - p["ram"]["need"]), "commit_extra": max(0, commit_real - p["commit"]["need"])}
+    path = calibration_path(facts)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = read_calibrations(facts)
+    data["model"] = facts.get("name")
+    data["memory"] = record
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix="calibration.", suffix=".json")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+    return record
 
 
 def now_iso() -> str:

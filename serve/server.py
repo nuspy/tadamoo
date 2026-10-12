@@ -75,6 +75,7 @@ def main() -> int:
     sys.stdout, sys.stderr = TeeStream(sys.stdout, logs, "srv"), TeeStream(sys.stderr, logs, "srv")
     cfg = {}                                            # what the model file implies
     listen_first = False
+    loaded_memory = None                                # (system before, after) the engine loaded at start
     try:
         if a.gpu is not None:
             cfg["gpu"] = a.gpu
@@ -175,8 +176,11 @@ def main() -> int:
             ProcessEngine.stderr_sink = lambda line: logs.add("eng", line)
         listen_first = bool(a.listen_first) and not lazy   # the engine starts after the HTTP server, on a thread
         try:
+            started_from = loader.system_now()            # RAM and commit before the engine starts
             engine = ProcessEngine(cfg["engine_bin"], engine_args(cfg), log=cfg.get("log"), env=env,
                                    lazy=lazy or listen_first)
+            if not (lazy or listen_first):              # loaded now: what it took, against the plan, once facts are read
+                loaded_memory = (started_from, loader.system_now(0))
         except EngineStartError as e:
             print(f"[server] error: {e}", file=sys.stderr, flush=True)
             if e.log:
@@ -208,6 +212,8 @@ def main() -> int:
         import os
         os.environ["BASALT_FAKE_SYSTEM_OK"] = "1"        # BASALT_FAKE_SYSTEM: demo memory readings for the mock
     svc.supervisor = supervisor.Supervisor(svc, sys.argv[1:], mock=bool(a.mock_engine), facts=facts)
+    if loaded_memory:
+        supervisor.record_memory(facts, svc.settings_info.get("running") or {}, *loaded_memory)
     if any(x == "--api-key" and i + 1 < len(used_argv) and not used_argv[i + 1].strip() or x.strip() == "--api-key="
            for i, x in enumerate(used_argv)):
         # an empty key would silently disable authentication
@@ -251,6 +257,7 @@ def main() -> int:
 
     def load_model():
         """--listen-first: start the engine behind the running HTTP server; requests wait on the fifo meanwhile."""
+        before = loader.system_now(getattr(svc, "gpu_index", 0))
         try:
             svc.load_at_start()
         except EngineStartError as e:
@@ -264,6 +271,8 @@ def main() -> int:
             failed.set()
             return
         warn_tight_ram(engine.info.get("arena_mib"))
+        supervisor.record_memory(svc.supervisor.facts, svc.settings_info.get("running") or {}, before,
+                                 loader.system_now(getattr(svc, "gpu_index", 0)))
         say_ready()
         first_calibration()
 

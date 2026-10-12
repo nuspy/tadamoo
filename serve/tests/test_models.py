@@ -573,7 +573,7 @@ class SafeValues(unittest.TestCase):
         facts = {**loader.DEMO_FACTS, "has_mtp": False, "mmproj_bytes": 0}
         v = loader.safe(facts, small, cpu={"logical": 12, "physical": 6, "p_cores": 0, "e_cores": 0, "hybrid": False})
         self.assertEqual((v["engine.vram-reserve-mib"], v["engine.pool-workers"], v["engine.spec"], v["server.vision"]),
-                         (2560, 5, 0, "off"))   # 0.5 GB + 1 GB in use + 1 GB while the monitor is unconfirmed
+                         (1536, 5, 0, "off"))   # 0.5 GB + 1 GB while the monitor is unconfirmed
         self.assertTrue(loader.plan(v, facts, small)["fits"])
         # nothing fits: the shortest context, and the reason says so
         why = {}
@@ -582,14 +582,19 @@ class SafeValues(unittest.TestCase):
         self.assertEqual(v["engine.max-context"], loader.CONTEXT_STEPS[-1])
         self.assertIn("nessun contesto", why["engine.max-context"][1])
 
-    def test_reserve_warning_names_the_other_programs(self):
+    def test_reserve_warning_only_on_the_gpu_with_the_main_monitor(self):
         gpu = {"processes": [{"pid": 1, "name": "dwm.exe", "used": None}, {"pid": 2, "name": "basalt.exe"}]}
-        self.assertEqual(loader.reserve_warnings({"engine.vram-reserve-mib": 4096, "engine.expert-cache": "auto"}, gpu), [])
-        (w,) = loader.reserve_warnings({"engine.vram-reserve-mib": 1024, "engine.expert-cache": "auto"}, gpu)
-        self.assertEqual(w["want_mib"], 2048)
+        auto = lambda mib: {"engine.vram-reserve-mib": mib, "engine.expert-cache": "auto"}   # noqa: E731
+        self.assertEqual(loader.reserve_warnings(auto(1024), gpu, "primary"), [])
+        (w,) = loader.reserve_warnings(auto(768), gpu, "primary")
+        self.assertEqual(w["want_mib"], 1024)
         self.assertIn("dwm.exe", w["text_it"])
         self.assertNotIn("basalt.exe", w["text_it"])
-        self.assertEqual(loader.reserve_warnings({"engine.vram-reserve-mib": 256, "engine.expert-cache": 100}, gpu), [])
+        self.assertEqual(loader.reserve_warnings(auto(512), gpu, "none"), [])          # no monitor on it: no warning
+        self.assertEqual(loader.reserve_warnings(auto(512), gpu, "secondary"), [])
+        self.assertEqual(len(loader.reserve_warnings(auto(512), {**gpu, "display_active": True}, None)), 1)
+        self.assertEqual(loader.reserve_warnings({"engine.vram-reserve-mib": 256, "engine.expert-cache": 100}, gpu,
+                                                 "primary"), [])
 
 
 class OverHttp(Base):

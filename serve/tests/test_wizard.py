@@ -85,17 +85,20 @@ class Monitor(unittest.TestCase):
 class Reserve(unittest.TestCase):
     def test_by_where_the_monitor_is(self):
         s = system(used_vram_gib=1.0)
-        self.assertEqual(loader.reserve_proposal(s, "none")[0], 512 + 1024)
-        self.assertEqual(loader.reserve_proposal(s, "secondary")[0], 2048)          # 512 + 1024 + 384, rounded up
-        self.assertEqual(loader.reserve_proposal(s, "primary")[0], 512 + 1024 + 1536)
-        self.assertEqual(loader.reserve_proposal(s, None)[0], 512 + 1024 + 1024)     # not confirmed yet
+        self.assertEqual(loader.reserve_proposal(s, "none")[0], 512)
+        self.assertEqual(loader.reserve_proposal(s, "secondary")[0], 1024)          # 512 + 384, rounded up
+        self.assertEqual(loader.reserve_proposal(s, "primary")[0], 2048)
+        self.assertEqual(loader.reserve_proposal(s, None)[0], 1536)                 # not confirmed yet
         self.assertIn("monitor principale", loader.reserve_proposal(s, "primary")[2])
 
-    def test_what_other_programs_use_and_the_running_engine(self):
+    def test_what_other_programs_use_is_said_not_added(self):
         s = system(used_vram_gib=20)
-        self.assertEqual(loader.reserve_proposal(s, "none")[0], loader.RESERVE_MAX_MIB)
-        self.assertEqual(loader.reserve_proposal(s, "none", holds_vram=19 * GiB)[0], 1536)   # 1 GB is not ours
-        self.assertEqual(loader.reserve_proposal({"vram_total": None, "vram_free": None}, "none")[0], 1536)
+        mib, en, it = loader.reserve_proposal(s, "none")
+        self.assertEqual(mib, 512)                       # the auto cache already leaves their VRAM to them
+        self.assertIn("20.0 GB", en)
+        self.assertIn("20,0 GB", it)
+        self.assertIn("1,0 GB", loader.reserve_proposal(s, "none", holds_vram=19 * GiB)[2])   # 19 GB are ours
+        self.assertNotIn("usano ora", loader.reserve_proposal({"vram_total": None, "vram_free": None}, "none")[2])
 
 
 class Proposals(Isolated):
@@ -112,7 +115,7 @@ class Proposals(Isolated):
         self.assertEqual(v["engine.max-context"], 262144)
         self.assertTrue(v["engine.resident-experts"])
         self.assertEqual(v["engine.pool-workers"], 15)
-        self.assertEqual((p["monitor"], p["vram_reserve_mib"]), ("none", 1536))
+        self.assertEqual((p["monitor"], p["vram_reserve_mib"]), ("none", 512))
         self.assertTrue(p["fits"])
         self.assertEqual(p["sampling"]["top_k"], 20)
 
@@ -146,9 +149,9 @@ class Proposals(Isolated):
     def test_the_monitor_on_the_compute_gpu_leaves_more_vram(self):
         same = self.hw(displays=[{**NVIDIA, "primary": True, "outputs": 1}])
         p = loader.wizard_proposal(same, loader.DEMO_FACTS)
-        self.assertEqual((p["monitor"], p["vram_reserve_mib"]), ("primary", 3072))
+        self.assertEqual((p["monitor"], p["vram_reserve_mib"]), ("primary", 2048))
         p = loader.wizard_proposal(same, loader.DEMO_FACTS, {"monitor": "none"})    # the user corrects it
-        self.assertEqual(p["vram_reserve_mib"], 1536)
+        self.assertEqual(p["vram_reserve_mib"], 512)
         p = loader.wizard_proposal(same, loader.DEMO_FACTS, {"vram_reserve_mib": 4096})
         self.assertEqual(p["values"]["engine.vram-reserve-mib"], 4096)
 
@@ -160,7 +163,7 @@ class Proposals(Isolated):
         unknown = {**system(), "vram_total": None, "vram_free": None}
         p = loader.wizard_proposal(self.hw(unknown, {"name": None}, displays=()), loader.DEMO_FACTS)
         self.assertIsNone(p["monitor"])
-        self.assertEqual(p["vram_reserve_mib"], 512 + 1024 + 1024)
+        self.assertEqual(p["vram_reserve_mib"], 1536)
         self.assertIsNone(p["have"]["vram"])
 
     def test_bad_answers(self):
@@ -240,7 +243,11 @@ class Measure(Isolated):
         st = self.run_measure(values)
         self.assertEqual(st["phase"], "ready", st)
         out = json.loads(st["message"])
-        self.assertIn(out["values"]["engine.spec"], (5, 7))
+        self.assertIn(out["values"]["engine.spec"], supervisor.SPEC_TRIES)
+        self.assertEqual(sorted(map(int, out["measured"]["spec"])), list(supervisor.SPEC_TRIES))   # all three shown
+        spec = out["measured"]["spec"]
+        best = max(spec.values())
+        self.assertEqual(out["values"]["engine.spec"], min(int(s) for s, d in spec.items() if d == best))
         self.assertIn(out["values"]["engine.spec-min-p"], supervisor.SPEC_MIN_P_TRIES)
         self.assertEqual(sorted(map(float, out["measured"]["spec_min_p"])), list(supervisor.SPEC_MIN_P_TRIES))
         self.assertGreater(out["measured"]["decode"], 0)
@@ -321,12 +328,12 @@ class OverHttp(Isolated):
         self.assertTrue(hw["can_measure"])
         self.assertTrue(info["same_model"])
         prop = info["proposal"]
-        self.assertEqual((prop["monitor"], prop["vram_reserve_mib"]), ("secondary", 2048))
+        self.assertEqual((prop["monitor"], prop["vram_reserve_mib"]), ("secondary", 1024))
         code, plan = self.req("POST", "/api/wizard/plan", {"answers": {"monitor": "none", "free_share": 0.2}})
         self.assertEqual(code, 200, plan)
-        self.assertEqual((plan["vram_reserve_mib"], plan["free_share"]), (1536, 0.2))
+        self.assertEqual((plan["vram_reserve_mib"], plan["free_share"]), (512, 0.2))
         code, saved = self.req("POST", "/api/wizard/save", {"values": plan["values"], "free_share": 0.2,
-                                                           "vram_reserve_mib": 1536, "monitor": "none"})
+                                                           "vram_reserve_mib": 512, "monitor": "none"})
         self.assertEqual(code, 200, saved)
         self.assertEqual(saved["values"]["server.port"], 7287)
         self.assertEqual(self.req("GET", "/api/profiles")[1]["default"], profiles.MACHINE_NAME)
@@ -352,6 +359,40 @@ class OverHttp(Isolated):
             self.assertEqual(self.req("POST", "/api/wizard/save", {"values": {}})[0], 403)
             self.assertEqual(self.req("POST", "/api/wizard/plan", {})[0], 200)
         self.assertEqual(self.req("POST", "/api/wizard/nope", {})[0], 404)
+
+
+class RealMemory(Isolated):
+    """The engine's real memory with the model loaded, kept per model and added to later plans."""
+    F = {**loader.DEMO_FACTS, "meta_hash": "00aa11bb22cc33dd", "name": "real"}
+
+    def test_recorded_and_used(self):
+        values = {**loader.SAFE, "engine.max-context": 65536}
+        before = system()
+        planned = loader.plan(values, self.F, before)
+        after = {**before, "ram_available": before["ram_available"] - planned["ram"]["need"] - 1 * GiB,
+                 "commit_used": before["commit_used"] + planned["commit"]["need"] + int(1.7 * GiB)}
+        r = loader.record_load_memory(self.F, values, before, after)
+        self.assertEqual((r["ram_extra"], r["commit_extra"]), (1 * GiB, int(1.7 * GiB)))
+        again = loader.plan(values, self.F, before)
+        self.assertEqual(again["ram"]["need"], planned["ram"]["need"] + 1 * GiB)
+        self.assertEqual(again["commit"]["need"], planned["commit"]["need"] + int(1.7 * GiB))
+        self.assertIn("measured", [i["key"] for i in again["ram"]["items"]])
+        # a later load within the plan clears it
+        loader.record_load_memory(self.F, values, before, {**before, "ram_available": before["ram_available"] - GiB,
+                                                           "commit_used": before["commit_used"] + GiB})
+        self.assertEqual(loader.plan(values, self.F, before)["commit"]["need"], planned["commit"]["need"])
+
+    def test_not_for_the_demo_sizes_nor_without_readings(self):
+        self.assertIsNone(loader.record_load_memory(loader.DEMO_FACTS, {}, system(), system()))
+        self.assertIsNone(loader.record_load_memory(self.F, {}, {"ram_available": None}, system()))
+        self.assertEqual(loader.memory_correction(loader.DEMO_FACTS), {"ram": 0, "commit": 0})
+
+    def test_the_reload_records_it(self):
+        readings = iter([system(), {**system(), "commit_used": 100 * GiB, "ram_available": 10 * GiB}])
+        with mock.patch.object(loader, "system_now", side_effect=lambda *a: next(readings, system())), \
+                contextlib.redirect_stdout(io.StringIO()):
+            supervisor.record_memory(self.F, dict(loader.SAFE), loader.system_now(), loader.system_now())
+        self.assertGreater(loader.memory_correction(self.F)["commit"], 0)
 
 
 class Cli(Isolated):
