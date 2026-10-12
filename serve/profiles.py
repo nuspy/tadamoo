@@ -20,7 +20,7 @@ import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from serve import loader, settings  # noqa: E402
+from serve import lang, loader, settings  # noqa: E402
 
 SAFE_NAME = "Valori sicuri"
 MACHINE_NAME = "Machine Default"        # the configuration wizard's load profile and inference preset
@@ -326,6 +326,73 @@ def apply(name: str, config: str, model: str | None = None, reserve_mib: int | N
     return values
 
 
+# ------------------------------------------------------------------------------------------------ a running server
+COMPARED = [f for f in LOAD_FIELDS if f != "server.port"]
+
+
+def _same_value(a, b) -> bool:
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool) and not isinstance(b, bool):
+        return abs(float(a) - float(b)) < 1e-9
+    if isinstance(a, str) and isinstance(b, str):
+        return a.strip().lower() == b.strip().lower()
+    return a == b
+
+
+def _same_path(a, b) -> bool:
+    if not a or not b:
+        return not a and not b
+    return os.path.normcase(os.path.abspath(str(a))) == os.path.normcase(os.path.abspath(str(b)))
+
+
+def compare(running: dict, running_model: str | None, requested: dict, requested_model: str | None,
+            running_port: int | None = None, requested_port: int | None = None) -> dict:
+    """The loading parameters a start asks for against those of the running server, both with the engine's
+    defaults filled in: {"same", "differences": [{"field", "running", "requested"}]}. A requested model of None
+    (none chosen) and a port not asked for are not differences."""
+    r, q = loader.effective(running or {}), loader.effective(requested or {})
+    out = []
+    if requested_model and not _same_path(requested_model, running_model):
+        out.append({"field": "server.model", "running": running_model, "requested": requested_model})
+    for f in COMPARED:
+        if not _same_value(r.get(f), q.get(f)):
+            out.append({"field": f, "running": r.get(f), "requested": q.get(f)})
+    if requested_port and running_port and int(requested_port) != int(running_port):
+        out.append({"field": "server.port", "running": running_port, "requested": requested_port})
+    return {"same": not out, "differences": out}
+
+
+def _get_json(url: str):
+    import urllib.request
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(url, timeout=10) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def compare_with_server(url: str, profile: str | None, model: str | None, config: str | None,
+                        reserve_mib: int | None = None, port: int | None = None) -> dict:
+    """What `Avvia-Basalt.ps1 -server` would load (resolved as a new start: the profile, else the default one; the
+    model by --model > profile > default server model > config file) against the server answering at `url`. Valori
+    sicuri is the server's own computation (it knows the memory its engine gives back)."""
+    from serve import models
+    base = url.rstrip("/") + "/"
+    s = _get_json(base + "api/settings")
+    running, running_model = s.get("running") or {}, s.get("model")
+    name = profile or default_name()
+    if name == SAFE_NAME:
+        requested = {k: v for k, v in (_get_json(base + "api/loader").get("safe") or {}).items()}
+    else:
+        requested = get_load(name)
+        if requested is None:
+            raise KeyError(name)
+    if reserve_mib is not None:
+        requested["engine.vram-reserve-mib"] = int(reserve_mib)
+    chosen = models.resolve(model, name, config)
+    requested_model = chosen["model"] if chosen.get("status") == "ready" else model
+    out = compare(running, running_model, requested, requested_model, running.get("server.port"), port)
+    out.update(profile=name, running_model=running_model, requested_model=requested_model)
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m serve.profiles", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -341,7 +408,26 @@ def main(argv=None) -> int:
     ap_apply.add_argument("--config", required=True)
     ap_apply.add_argument("--model", help="the .basalt file to load instead of the profile's")
     ap_apply.add_argument("--vram-reserve-mib", type=int, help="the VRAM to leave free instead of the profile's")
+    ap_cmp = sub.add_parser("compare", help="what a start would load against the server running at --url, as JSON "
+                                            "(exit 0 the same, 3 different, 2 an error)")
+    ap_cmp.add_argument("--url", required=True)
+    ap_cmp.add_argument("--profile", help="the load profile (default: the default profile)")
+    ap_cmp.add_argument("--model")
+    ap_cmp.add_argument("--config", help="the config file (its model, when nothing else names one)")
+    ap_cmp.add_argument("--vram-reserve-mib", type=int)
+    ap_cmp.add_argument("--port", type=int, help="the port asked for")
     a = ap.parse_args(argv)
+    if a.cmd == "compare":
+        try:
+            out = compare_with_server(a.url, a.profile, a.model, a.config, a.vram_reserve_mib, a.port)
+        except KeyError as e:
+            print(json.dumps({"error": f"unknown profile {e}"}))
+            return 2
+        except (OSError, ValueError) as e:
+            print(json.dumps({"error": str(e)}))
+            return 2
+        print(json.dumps(out, ensure_ascii=False))
+        return 0 if out["same"] else 3
     if a.cmd == "list":
         d = default_name()
         for p in listing()["load"]:
@@ -374,11 +460,13 @@ def main(argv=None) -> int:
     try:
         values = apply(a.name, a.config, a.model, a.vram_reserve_mib)
     except KeyError:
-        print(f"profilo sconosciuto: {a.name!r}. Profili: " + ", ".join(p["name"] for p in listing()["load"]),
+        print(lang.t(f"profilo sconosciuto: {a.name!r}. Profili: ", f"unknown profile: {a.name!r}. Profiles: ")
+              + ", ".join(p["name"] for p in listing()["load"]),
               file=sys.stderr)
         return 1
     except (OSError, ValueError) as e:
-        print(f"il profilo {a.name!r} non si può applicare: {e}", file=sys.stderr)
+        print(lang.t(f"il profilo {a.name!r} non si può applicare: {e}", f"the profile {a.name!r} cannot be applied: {e}"),
+              file=sys.stderr)
         return 2
     try:
         model = settings.model_of(a.config)

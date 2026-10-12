@@ -15,6 +15,10 @@
 .PARAMETER File
     Il file di configurazione da cui leggere la porta (predefinito: basalt_config.json accanto allo script).
 
+.PARAMETER Lang
+    La lingua dei messaggi (--lang it|en); altrimenti BASALT_LANG, quella scelta nell'interfaccia, l'inglese.
+    The messages' language (--lang it|en); else BASALT_LANG, the one chosen in the interface, English.
+
 .EXAMPLE
     .\Ferma-Basalt.ps1
 .EXAMPLE
@@ -24,6 +28,7 @@
 param(
     [int]$Port = 0,
     [Alias('Config')][string]$File = 'basalt_config.json',      # -Config: il nome vecchio di -File
+    [string]$Lang = '',
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Altri = @()
 )
 for ($i = 0; $i -lt $Altri.Count; $i++) {          # -port N, --port N, --port=N; lo stesso per --file
@@ -33,10 +38,20 @@ for ($i = 0; $i -lt $Altri.Count; $i++) {          # -port N, --port N, --port=N
     $v = if ($parti.Count -gt 1) { $parti[1] } elseif ($i + 1 -lt $Altri.Count) { $Altri[++$i] } else { $null }
     if ($nome -eq 'port' -and $v -match '^\d+$') { $Port = [int]$v }
     elseif ($nome -in 'file', 'config' -and $v) { $File = $v }
-    else { Write-Host "Argomento sconosciuto o senza valore: $a (uso: Ferma-Basalt.ps1 [--port N] [--file <configurazione>])" -ForegroundColor Red; exit 1 }
+    elseif ($nome -eq 'lang' -and $v) { $Lang = $v }
+    else { Write-Host "Argomento sconosciuto o senza valore / unknown argument or no value: $a (Ferma-Basalt.ps1 [--port N] [--file <config>] [--lang it|en])" -ForegroundColor Red; exit 1 }
 }
 $Config = $File
-if ($Port -ne 0 -and ($Port -lt 1 -or $Port -gt 65535)) { Write-Host "Porta non valida: $Port (1..65535)" -ForegroundColor Red; exit 1 }
+# la lingua: --lang > BASALT_LANG > scelta nell'interfaccia (prefs.json) > inglese
+$Lingua = 'en'
+$dati = if ($env:BASALT_DATA) { $env:BASALT_DATA } else { Join-Path $env:APPDATA 'BasaltPannello' }
+$scelta = $null
+try { $scelta = (Get-Content -Raw -Encoding UTF8 -ErrorAction Stop (Join-Path $dati 'prefs.json') | ConvertFrom-Json).lang } catch { }
+foreach ($l in @($Lang, $env:BASALT_LANG, $scelta)) {
+    if ($l -and ([string]$l).ToLowerInvariant() -in 'it', 'en') { $Lingua = ([string]$l).ToLowerInvariant(); break }
+}
+function T([string]$It, [string]$En) { if ($Lingua -eq 'it') { $It } else { $En } }
+if ($Port -ne 0 -and ($Port -lt 1 -or $Port -gt 65535)) { Write-Host (T "Porta non valida: $Port (1..65535)" "Invalid port: $Port (1..65535)") -ForegroundColor Red; exit 1 }
 
 Set-StrictMode -Version 2
 $ErrorActionPreference = 'Stop'
@@ -58,7 +73,7 @@ function Test-DaExplorer {
     } catch { return $false }
 }
 function Esci([int]$Codice) {
-    if (Test-DaExplorer) { [void](Read-Host 'Premi Invio per chiudere la finestra') }
+    if (Test-DaExplorer) { [void](Read-Host (T 'Premi Invio per chiudere la finestra' 'Press Enter to close the window')) }
     exit $Codice
 }
 
@@ -101,7 +116,7 @@ if (-not $capo) {
             $padre = Get-CimInstance Win32_Process -Filter "ProcessId=$($srvProc.ParentProcessId)"
             $capo = if ($padre -and $padre.Name -eq 'basalt.exe') { $padre.ProcessId } else { $srvProc.ProcessId }
         } elseif ($srvProc) {
-            Scrivi "Sulla porta $porta ascolta $($srvProc.Name) (PID $($srvProc.ProcessId)), che non è Basalt Win+GUI: non lo tocco." Yellow
+            Scrivi (T "Sulla porta $porta ascolta $($srvProc.Name) (PID $($srvProc.ProcessId)), che non è Basalt Win+GUI: non lo tocco." "Port $porta is held by $($srvProc.Name) (PID $($srvProc.ProcessId)), which is not Basalt Win+GUI: left alone.") Yellow
         }
     }
 }
@@ -116,19 +131,20 @@ function Get-Albero([int]$Capo) {
     $elenco | Where-Object { $ids -contains [int]$_.ProcessId }
 }
 if ($Port) {                                    # solo il server di questa porta e i suoi processi
-    if (-not $capo) { Scrivi "Nessun server Basalt Win+GUI sulla porta $Port." Green; Esci 0 }
+    if (-not $capo) { Scrivi (T "Nessun server Basalt Win+GUI sulla porta $Port." "No Basalt Win+GUI server on port $Port.") Green; Esci 0 }
     $albero = @(Get-Albero $capo | ForEach-Object { [int]$_.ProcessId })
     function Get-ProcessiBasalt { Get-CimInstance Win32_Process | Where-Object { $albero -contains [int]$_.ProcessId } }
 }
 $tutti = @(Get-ProcessiBasalt)
 if (-not $capo -and $tutti.Count -eq 0) {
-    Scrivi 'Basalt Win+GUI non è in esecuzione.' Green
+    Scrivi (T 'Basalt Win+GUI non è in esecuzione.' 'Basalt Win+GUI is not running.') Green
     Remove-Item $pidFile -ErrorAction SilentlyContinue
     Esci 0
 }
 
 $prima = Disponibile
-Scrivi "Fermo Basalt Win+GUI$(if ($capo) { " (PID $capo$(if ($modo) { ", avviato $modo" }))" }). RAM disponibile ora: $(GiB $prima)." Cyan
+$chi = if ($capo) { " (PID $capo$(if ($modo) { ", $(T 'avviato' 'started') $modo" }))" } else { '' }
+Scrivi (T "Fermo Basalt Win+GUI$chi. RAM disponibile ora: $(GiB $prima)." "Stopping Basalt Win+GUI$chi. RAM available now: $(GiB $prima).") Cyan
 
 # ------------------------------------------------------------------ 1. il motore esce in modo pulito
 try {
@@ -143,9 +159,9 @@ try {
     $res = $req.GetResponse()
     $testo = (New-Object System.IO.StreamReader($res.GetResponseStream())).ReadToEnd()
     $res.Close()
-    Scrivi "  modello scaricato: $testo"
+    Scrivi "  $(T 'modello scaricato' 'model unloaded'): $testo"
 } catch {
-    Scrivi "  il server non ha scaricato il modello ($($_.Exception.Message)): termino i processi." DarkYellow
+    Scrivi "  $(T 'il server non ha scaricato il modello' 'the server did not unload the model') ($($_.Exception.Message)): $(T 'termino i processi.' 'ending the processes.')" DarkYellow
 }
 
 # ------------------------------------------------------------------ 2. l'albero dei processi
@@ -160,7 +176,7 @@ do {
 
 $resto = @(Get-ProcessiBasalt)
 if ($resto.Count -gt 0) {
-    Scrivi 'Restano processi di Basalt Win+GUI:' Red
+    Scrivi (T 'Restano processi di Basalt Win+GUI:' 'Basalt Win+GUI processes are left:') Red
     $resto | ForEach-Object { Scrivi "  PID $($_.ProcessId) $($_.Name)" Red }
     Esci 1
 }
@@ -170,5 +186,6 @@ if (-not $Port -or $modo) { Remove-Item $pidFile -ErrorAction SilentlyContinue }
 $dopo = Disponibile
 $limite = (Get-Date).AddSeconds(15)
 while ($dopo - $prima -lt 1GB -and (Get-Date) -lt $limite) { Start-Sleep -Seconds 1; $dopo = Disponibile }
-Scrivi "Basalt Win+GUI fermato: nessun processo rimasto. RAM disponibile: $(GiB $dopo) (prima $(GiB $prima), liberati $(GiB ([math]::Max([double]0, $dopo - $prima))))." Green
+$liberati = GiB ([math]::Max([double]0, $dopo - $prima))
+Scrivi (T "Basalt Win+GUI fermato: nessun processo rimasto. RAM disponibile: $(GiB $dopo) (prima $(GiB $prima), liberati $liberati)." "Basalt Win+GUI stopped: no process left. RAM available: $(GiB $dopo) (before $(GiB $prima), freed $liberati).") Green
 Esci 0
