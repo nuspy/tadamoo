@@ -152,7 +152,7 @@ sealed class MainForm : Form
             var p = SelectedProfile();
             if (p != null && p.Value.TryGetProperty("values", out var v))
             {
-                if (v.TryGetProperty("server.port", out var pp) && opt.Port == 0) port.Value = pp.GetInt32();
+                if (v.TryGetProperty("server.port", out var pp) && opt.Port == 0 && !opt.TestMock) port.Value = pp.GetInt32();
                 if (v.TryGetProperty("engine.vram-reserve-mib", out var rm) && rm.ValueKind == JsonValueKind.Number) SetReserve(rm.GetDouble() / 1024.0);
                 if (p.Value.TryGetProperty("model", out var pm) && pm.ValueKind == JsonValueKind.String) SelectModel(pm.GetString());
             }
