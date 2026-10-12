@@ -128,11 +128,17 @@ best on this CPU (`--pool-workers 15`: the 7 P-cores and the first 8 E-cores); n
 ## Starting and stopping with the PowerShell scripts
 
 `Avvia-Basalt.ps1` and `Ferma-Basalt.ps1` (repository root, messages in Italian) start and stop the server with
-`basalt_config.json` beside them (machine-specific and not tracked; `tools/windows/basalt_config.example.json` is the
-one for the OrcaRouter IQ3_XXS file on an RTX 5090 + 128 GB machine). Paths are relative to the scripts' folder, so
-they work from any directory and from Explorer (right click, "Run with PowerShell"), with Windows PowerShell 5.1 or
-PowerShell 7.
+`basalt_config.json` beside them (machine-specific and not tracked; `tools/windows/basalt_config.example.json` shows
+its shape for a 3-bit file on a 32 GB card). Paths are relative to the scripts' folder, so they work from any
+directory and from Explorer (right click, "Run with PowerShell"), with Windows PowerShell 5.1 or PowerShell 7. Both
+take their options only by name (`PositionalBinding = $false`): `--port 7232` never lands in another parameter.
 
+* **The model** (`--model "<file .basalt>"`, `-Model`): `--model`, else the load profile's model, else the default
+  server model (`python -m serve.models default`, set from the Loader or the app), else the config file's; none set
+  is an error that says how to choose one (exit 1). The choice is printed with where it came from. A GGUF "Da
+  convertire" is not started (the script says how to convert it; `-Converti` shows the plan, asks and converts); a
+  "Non compatibile" file is refused with the reason. `--vram-reserve-mib N` overrides the profile's VRAM reserve.
+  `python -m serve.loader check` exits 4 on a GPU the engine is not built for (not Blackwell): the start is refused.
 * `Avvia-Basalt.ps1 [--config "<profile>"] [--port N]` (also `-Config`/`-Port`) first looks for a Basalt server of
   this folder already running, on any port (the listening `serve.server` processes of this repository and
   `basalt.pid`, confirmed by `/health` answering `"service": "basalt"`): if there is one it starts nothing, prints its
@@ -163,10 +169,16 @@ PowerShell 7.
 
 ### Load profiles, the Loader and the desktop app
 
-* **Load profiles** (the Loader's engine fields and the port) and **inference presets** (the chat settings) are kept
-  in `%USERPROFILE%\.cache\basalt\profiles.json` (or `%BASALT_CACHE%`), shared by the web UI, the desktop app and
-  the scripts: `python -m serve.profiles list | default | apply NAME --config FILE`. "Valori sicuri" is built in and
-  cannot be changed or deleted; it is the default until another profile is made default in the Loader.
+* **Load profiles** (the Loader's engine fields, the port and, when saved with one, the model) and **inference
+  presets** (the chat settings) are kept in `%USERPROFILE%\.cache\basalt\profiles.json` (or `%BASALT_CACHE%`), shared
+  by the web UI, the desktop app and the scripts: `python -m serve.profiles list | default | apply NAME --config FILE
+  [--model FILE] [--vram-reserve-mib N]`. "Valori sicuri" is built in and cannot be changed or deleted; it is
+  computed from this PC (`serve/hardware.py`: cores, GPU, VRAM, RAM, commit) and the chosen model each time
+  (`loader.safe()`), keeps the config file's model, and is the default until another profile is made default.
+* **Models** (`serve/models.py`): the models folders and the default server model in `models.json`, the header scan's
+  cache in `models-scan.json`, the conversion and verification logs in `models-jobs\`, all beside `profiles.json`.
+  The Loader's model section lists every model with its status and runs Verifica / Converti in the background
+  (a conversion only after its plan was shown and confirmed, with free space and the commit below 75%).
 * **The Loader** (web UI, tab "Carica modello") edits the engine settings by hand or from a profile, shows the VRAM,
   RAM and commit the plan needs next to what is free now (what the running engine gives back included) and the
   predicted speed, and reloads the engine inside the running server (`POST /api/loader/load`: checked, written to the
@@ -175,19 +187,27 @@ PowerShell 7.
   calibration (`Calibra`, and automatically at the first load of a model) stored per model and settings in
   `%USERPROFILE%\.cache\basalt\<model>\calibration.json`; before that they are seeded estimates.
 * **The desktop app** `tools\windows\desktop` (`dotnet publish -c Release -o publish`, .NET 8, WebView2) builds
-  `BasaltPannello.exe` (window title "Basalt"; the name differs from the engine's `basalt.exe` on purpose). It
-  shows a start panel (load profile, port, the same memory check; Avvia, or Avvia solo server, which runs
-  `Avvia-Basalt.ps1 -SoloServer` and exits), then the web UI in its own window. A server it starts runs in its
-  kill-on-close job without a console window. Closing the window hides it to the notification area; the icon's menu
-  has Apri, Ricarica con altri parametri (the Loader) and Spegni (unload, end the job, report the RAM freed). A
-  second start brings the first window to the front; when a Basalt server already runs it asks whether to attach to
-  it or close it and start with the chosen profile.
+  `BasaltPannello.exe` (window title "Basalt"; the name differs from the engine's `basalt.exe` on purpose). Until the
+  models folders are set it asks for them (FolderBrowserDialog, folders found on this PC offered). Its start panel has
+  the model (the last one used preselected, kept in `%APPDATA%\BasaltPannello\desktop.json`, with its status and
+  "Usa come modello predefinito per il server"), the load profile, "VRAM da lasciare libera" (slider + GB, every change
+  re-runs the memory check), the port and the check; Avvia, or Avvia solo server (`Avvia-Basalt.ps1 -SoloServer` with
+  the same model and reserve). Then the web UI in its own window, or in the default browser when WebView2 is missing.
+  A server it starts runs in its kill-on-close job without a console window. Closing the window hides it to the
+  notification area; the icon's menu has Apri, Ricarica con altri parametri (the Loader) and Spegni (unload, end the
+  job, report the RAM freed). A second start brings the first window to the front; when a Basalt server already runs
+  it offers "Collegati al server in esecuzione" or "Cambia modello" (stops only that server's tree with
+  `Ferma-Basalt.ps1 --port N`, then loads the chosen model). Hidden test options: `--test-mock`,
+  `--test-screenshot FILE`, `--test-exit`, `--test-folder-prompt [--test-models-dir DIR]`, `--test-no-webview`.
 
 ### For agents
 
 ```powershell
-# start without window, tray icon or browser; returns when /health answers (exit 1: memory short or bad profile)
-powershell -ExecutionPolicy Bypass -File .\Avvia-Basalt.ps1 --config "Valori sicuri" --port 7240 -SoloServer
+# start without window, tray icon or browser; returns when /health answers (exit 1: memory short, bad profile,
+# no model chosen, a GGUF still to convert, or a GPU the engine does not support)
+powershell -ExecutionPolicy Bypass -File .\Avvia-Basalt.ps1 --model "D:\Models\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --config "Valori sicuri" --port 7240 -SoloServer
+# which model would start, and why (exit 0 ready, 5 to convert, 6 not usable, 7 none chosen)
+.\.venv\Scripts\python.exe -m serve.models resolve --profile "Valori sicuri" --config .\basalt_config.json
 # already running? the same command attaches and prints the port; or read it from basalt.pid
 Get-Content .\basalt.pid | ConvertFrom-Json | Select-Object port, pid, profile
 # ready? "loaded": true once the model is in (with listen-first the server answers while it loads)
