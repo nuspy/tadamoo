@@ -6,7 +6,8 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>Basalt</AssemblyName>
+    <!-- not "Basalt": the engine is basalt.exe, and a shared name invites stopping the wrong process -->
+    <AssemblyName>BasaltPannello</AssemblyName>
     <RootNamespace>BasaltDesktop</RootNamespace>
     <ApplicationIcon>basalt.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>

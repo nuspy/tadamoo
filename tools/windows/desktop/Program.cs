@@ -1,4 +1,4 @@
-// Basalt.exe: the desktop window of the local Basalt server. One instance per user session: a second start brings the
+// BasaltPannello.exe: the desktop window of the local Basalt server. One instance per user session: a second start brings the
 // running window to the front.
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -61,13 +61,13 @@ sealed class Options
                 case "--test-mock": o.TestMock = true; break;
                 case "--test-screenshot": o.Screenshot = Next(); break;
                 case "--test-exit": o.TestExit = true; break;
-                default: o.Error = $"Argomento sconosciuto: {args[i]}\nUso: Basalt.exe [--config \"<profilo>\"] [--port N]"; break;
+                default: o.Error = $"Argomento sconosciuto: {args[i]}\nUso: BasaltPannello.exe [--config \"<profilo>\"] [--port N]"; break;
             }
         }
         o.Repo ??= FindRepo(AppContext.BaseDirectory);
         if (o.Repo == null && o.Error == null)
             o.Error = "Non trovo la cartella di Basalt (bin\\basalt.exe e Avvia-Basalt.ps1) sopra " + AppContext.BaseDirectory +
-                      ". Avvia Basalt.exe con --repo <cartella>.";
+                      ". Avvia BasaltPannello.exe con --repo <cartella>.";
         return o;
     }
 
