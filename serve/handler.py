@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT, settings
+from serve import ROOT, chatctx, settings
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
 from serve.api.anthropic import anthropic_collect, anthropic_events
@@ -307,6 +307,9 @@ def make_handler(svc: Service):
             if path == "/api/settings":
                 self._settings_post()
                 return
+            if path == "/api/chat/context":
+                self._chat_context()
+                return
             if path.startswith("/v1/") and self._foreign_page():
                 return
             if path in ("/unload", "/load") and not self._control_body():
@@ -541,6 +544,22 @@ def make_handler(svc: Service):
             print(f"[server] settings saved to {path}: {', '.join(result['changed']) or 'nothing changed'}"
                   f"{' (apply on restart)' if result['changed'] else ''}", flush=True)
             self._json(200, {"saved": True, **result, "note": settings.RESTART_NOTE})
+
+        def _chat_context(self):
+            """POST /api/chat/context: the chat page's context meter and overflow policy (serve/chatctx.py)."""
+            if not self._own_page("the chat context"):
+                return
+            try:
+                req = json.loads(self._body() or b"{}")
+                self._json(200, chatctx.fit(svc, req))
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except ValueError as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except ModelBusy as e:
+                self._json(409, {"error": {"type": "model_busy", "message": str(e)}})
+            except (GpuBusy, EngineStarting, EngineDied, EngineStuck) as e:
+                self._json(503, {"error": {"type": "server_error", "message": str(e)}})
 
         def _logs(self):
             """GET /api/logs?after=<id>&limit=<n>: the newest lines after that id, and the newest id."""
