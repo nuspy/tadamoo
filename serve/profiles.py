@@ -62,8 +62,11 @@ def _write(data: dict) -> None:
     os.replace(tmp, p)
 
 
-def safe_values(port: int = DEFAULT_PORT) -> dict:
-    return {**loader.SAFE, "server.port": port}
+def safe_values(port: int = DEFAULT_PORT, facts: dict | None = None, system: dict | None = None) -> dict:
+    """Valori sicuri for this PC now and the model (`facts`; the demo sizes without one), computed by loader.safe()."""
+    facts = facts or loader.DEMO_FACTS
+    system = loader.system_now() if system is None else system
+    return {**{k: v for k, v in loader.safe(facts, system).items() if v is not None}, "server.port": port}
 
 
 def check_name(name) -> str:
@@ -124,7 +127,8 @@ def listing(system: dict | None = None, facts: dict | None = None) -> dict:
     """Both kinds, the built-in first, each load profile with a one-line summary (context, KV, spec, VRAM, speed)."""
     data = _read()
     facts = facts or loader.DEMO_FACTS
-    loads = [{"name": SAFE_NAME, "values": safe_values(), "builtin": True, "model": None}]
+    loads = [{"name": SAFE_NAME, "values": safe_values(facts=facts, system=system or {}), "builtin": True,
+              "model": None}]
     loads += [{"name": n, "values": p.get("values", {}), "builtin": False, "saved": p.get("saved"),
                "model": p.get("model") if isinstance(p.get("model"), str) else None}
               for n, p in sorted(data["load"].items(), key=lambda kv: kv[0].lower())]
@@ -174,9 +178,10 @@ def inference_summary(s: dict) -> str:
     return " · ".join(parts)
 
 
-def get_load(name: str) -> dict | None:
+def get_load(name: str, facts: dict | None = None) -> dict | None:
+    """A load profile's values; Valori sicuri computed for this PC now and `facts` (the model's sizes)."""
     if name == SAFE_NAME:
-        return safe_values()
+        return safe_values(facts=facts)
     p = _read()["load"].get(name)
     return dict(p.get("values", {})) if p else None
 
@@ -274,12 +279,21 @@ def export(kind: str | None = None) -> dict:
     return out
 
 
-def apply(name: str, config: str, model: str | None = None) -> dict:
+def apply(name: str, config: str, model: str | None = None, reserve_mib: int | None = None) -> dict:
     """Write load profile `name` into the config file (FILE.bak kept, every other key as it was); its values. The
-    model is `model` when given, else the profile's, else the config file's stays (Valori sicuri)."""
-    values = get_load(name)
+    model is `model` when given, else the profile's, else the config file's stays (Valori sicuri); `reserve_mib`,
+    when given, is the VRAM left free instead of the profile's (the start panel's control)."""
+    facts = None
+    if name == SAFE_NAME:                                # computed for the model it will load
+        try:
+            facts = _model_facts(model or settings.model_of(config), None)
+        except (OSError, ValueError):
+            facts = None
+    values = get_load(name, facts)
     if values is None:
         raise KeyError(name)
+    if reserve_mib is not None:
+        values = {**values, "engine.vram-reserve-mib": settings.check_value("engine", "vram-reserve-mib", reserve_mib)}
     current = settings.values_of(settings.read_file(config), settings.LOADER_FIELDS)
     changes = {f: values.get(f) for f in LOAD_FIELDS if values.get(f) != current.get(f)}
     if changes:
@@ -309,6 +323,7 @@ def main(argv=None) -> int:
     ap_apply.add_argument("name")
     ap_apply.add_argument("--config", required=True)
     ap_apply.add_argument("--model", help="the .basalt file to load instead of the profile's")
+    ap_apply.add_argument("--vram-reserve-mib", type=int, help="the VRAM to leave free instead of the profile's")
     a = ap.parse_args(argv)
     if a.cmd == "list":
         d = default_name()
@@ -334,7 +349,7 @@ def main(argv=None) -> int:
         print(json.dumps(listing(loader.system_now(), facts), ensure_ascii=False))
         return 0
     try:
-        values = apply(a.name, a.config, a.model)
+        values = apply(a.name, a.config, a.model, a.vram_reserve_mib)
     except KeyError:
         print(f"profilo sconosciuto: {a.name!r}. Profili: " + ", ".join(p["name"] for p in listing()["load"]),
               file=sys.stderr)

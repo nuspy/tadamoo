@@ -52,38 +52,13 @@ ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.pref
                    "engine.vram-reserve-mib": 700, "engine.ple-io": "direct", "engine.pool-workers": None,
                    "server.parallel": 1, "server.slot-full-context": False, "server.vision": "off", "server.port": 7232}
 
-# the values "Ripristina valori sicuri" fills in, each with why (ple-io becomes ram when the table fits, see safe())
+# "Valori sicuri" are computed from this PC and the model (safe()); SAFE is what that gives on one example PC (an RTX
+# 5090 with 32 GiB, 128 GiB of RAM, a processor with 8 performance and 16 efficiency cores, the IQ3_XXS file with its
+# drafter and vision projector), kept as a documented example and for the tests
 SAFE = {"engine.max-context": 262144, "engine.kv": "q4_0", "engine.prefill": "auto", "engine.spec": 7,
         "engine.spec-min-p": 0.5, "engine.expert-cache": "auto", "engine.resident-experts": True,
         "engine.vram-reserve-mib": 6144, "engine.ple-io": "direct", "engine.pool-workers": 15,
         "server.parallel": 1, "server.slot-full-context": False, "server.vision": "dynamic"}
-SAFE_WHY = {
-    "engine.max-context": ("The model's full context; q4_0 keeps its KV cache near 2 GiB.",
-                           "Il contesto intero del modello; con q4_0 la cache KV resta vicina a 2 GiB."),
-    "engine.kv": ("q4_0: the smallest KV cache, more VRAM left for experts.",
-                  "q4_0: la cache KV più piccola, più VRAM per gli esperti."),
-    "engine.prefill": ("auto: the prompt is read in large chunks that borrow expert-cache slots.",
-                       "auto: il prompt si legge a blocchi grandi che prendono in prestito posti della cache esperti."),
-    "engine.spec": ("7: the drafter proposes up to 6 tokens per step; the usual best speed.",
-                    "7: il drafter propone fino a 6 token per passo; di solito la velocità migliore."),
-    "engine.spec-min-p": ("0.5: drafting stops when the drafter is unsure, so fewer wasted checks.",
-                          "0.5: il drafter si ferma quando è incerto, meno verifiche sprecate."),
-    "engine.expert-cache": ("auto: every MiB of VRAM left after the reserve holds experts.",
-                            "auto: tutta la VRAM che resta oltre la riserva contiene esperti."),
-    "engine.resident-experts": ("on: the experts outside the GPU cache are copied to RAM once, not read from disk.",
-                                "attivo: gli esperti fuori dalla cache GPU sono copiati in RAM una volta, non letti dal disco."),
-    "engine.vram-reserve-mib": ("6 GiB stay free on the GPU for the desktop, the browser and other programs.",
-                                "6 GiB restano liberi sulla GPU per il desktop, il browser e gli altri programmi."),
-    "engine.ple-io": ("direct, or ram when the PLE table fits with 15% of RAM and of the commit free.",
-                      "direct, oppure ram se la tabella PLE ci sta lasciando liberi il 15% della RAM e del commit."),
-    "engine.pool-workers": ("15 CPU workers: the 8 P-cores and half the E-cores, the rest stay for the system.",
-                            "15 thread CPU: gli 8 P-core e metà degli E-core, il resto resta al sistema."),
-    "server.parallel": ("1: one request at a time gets the whole context and the full speed.",
-                        "1: una richiesta alla volta ha tutto il contesto e tutta la velocità."),
-    "server.slot-full-context": ("off: with one slot it changes nothing.", "spento: con un solo slot non cambia nulla."),
-    "server.vision": ("dynamic: images are read inside the engine, no VRAM kept for them (0.84 GiB pinned in RAM).",
-                      "dynamic: le immagini si leggono dentro il motore, nessuna VRAM fissa (0,84 GiB bloccati in RAM)."),
-}
 
 # seed speeds until this model is calibrated; SEED["note"] names their source
 SEED = {"source": "seed", "decode_spec0": 184.0, "decode_spec7": 320.0, "hit_rate": 0.984, "cache_share": 0.37,
@@ -350,14 +325,141 @@ def problem_text(p: dict, lang: str = "en") -> str:
             "in use counts toward the commit).")
 
 
-def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int = 0) -> dict:
-    """SAFE, with the PLE table in RAM when that still leaves 15% of the RAM and of the commit free."""
-    out = dict(SAFE)
+CONTEXT_STEPS = (262144, 131072, 65536, 32768, 16384, 8192, 4096)
+RESERVE_SHARE = 3 / 16                  # of the card's VRAM left free by the safe values (6 GiB of 32 GiB)
+RESERVE_MIN_MIB, RESERVE_MAX_MIB = 1024, 8192
+RESERVE_WARN_MIB = 1024                 # below this the desktop and the driver may run short of VRAM
+
+
+def safe_reserve_mib(vram_total: int | None) -> int:
+    """The VRAM the safe values leave free: 3/16 of the card, 1 to 8 GiB, in steps of 256 MiB (6 GiB when unknown)."""
+    if not vram_total:
+        return 6144
+    mib = int(vram_total / MiB * RESERVE_SHARE) // 256 * 256
+    return max(RESERVE_MIN_MIB, min(RESERVE_MAX_MIB, mib))
+
+
+def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int = 0, cpu: dict | None = None,
+         why: dict | None = None) -> dict:
+    """The safe values for this PC and this model, computed with the same rules as every plan: 15% of the RAM and of
+    the commit limit stay free; the VRAM reserve is sized to the card (safe_reserve_mib); the KV cache is the
+    smallest (q4_0) and the context the longest that fits; the drafter is on when the file has one; the experts are
+    resident in RAM and the PLE table in RAM when they fit; the CPU workers follow the cores (hardware.pool_workers).
+    `why`, when given, is filled with each value's reason {key: (English, Italian)}."""
+    from serve import hardware
+    g = lambda n: f"{n / GiB:.1f}"                                               # noqa: E731
+    gi = lambda n: g(n).replace(".", ",")                                       # noqa: E731
+    reasons = {} if why is None else why
+    reserve = safe_reserve_mib(system.get("vram_total"))
+    workers, w_en, w_it = hardware.pool_workers(cpu)
+    mtp = bool(facts.get("has_mtp"))
+    vision = "dynamic" if facts.get("mmproj_bytes") else "off"
+    out = {"engine.max-context": CONTEXT_STEPS[-1], "engine.kv": "q4_0", "engine.prefill": "auto",
+           "engine.spec": 7 if mtp else 0, "engine.spec-min-p": 0.5 if mtp else None, "engine.expert-cache": "auto",
+           "engine.resident-experts": True, "engine.vram-reserve-mib": reserve, "engine.ple-io": "direct",
+           "engine.pool-workers": workers, "server.parallel": 1, "server.slot-full-context": False,
+           "server.vision": vision}
+    fitted = False
+    for resident in (True, False):
+        for ctx in CONTEXT_STEPS:
+            trial = {**out, "engine.max-context": ctx, "engine.resident-experts": resident}
+            if plan(trial, facts, system, holds, holds_vram)["fits"]:
+                out, fitted = trial, True
+                break
+        if fitted:
+            break
     if facts.get("ple_bytes"):
         with_ram = plan({**out, "engine.ple-io": "ram"}, facts, system, holds, holds_vram)
         if with_ram["fits"] and "ram" not in with_ram["unknown"]:
             out["engine.ple-io"] = "ram"
+    ctx = out["engine.max-context"]
+    kv = KV_TOKEN_BYTES["q4_0"] * ctx
+    total = system.get("vram_total")
+    reasons.update({
+        "engine.max-context": (
+            f"{ctx:,} tokens: the longest context that fits this PC with the rest of these values "
+            f"(KV cache {g(kv)} GiB in q4_0)." if ctx < CONTEXT_STEPS[0] else
+            f"The model's full context; with q4_0 its KV cache is {g(kv)} GiB.",
+            f"{ctx:,} token: il contesto più lungo che ci sta su questo PC con gli altri valori (cache KV "
+            f"{gi(kv)} GiB in q4_0).".replace(",", ".", 1) if ctx < CONTEXT_STEPS[0] else
+            f"Il contesto intero del modello; con q4_0 la cache KV è di {gi(kv)} GiB."),
+    })
+    if not fitted:
+        reasons["engine.max-context"] = (
+            f"{ctx:,} tokens, the shortest offered: with what is free now no context fits; close other programs "
+            "(the plan says what is missing).",
+            f"{ctx:,} token, il più corto: con quello che è libero ora non ci sta nessun contesto; chiudi altri "
+            "programmi (la previsione dice cosa manca).".replace(",", ".", 1))
+    reasons.update({
+        "engine.kv": ("q4_0: the smallest KV cache, more VRAM left for experts.",
+                      "q4_0: la cache KV più piccola, più VRAM per gli esperti."),
+        "engine.prefill": ("auto: the prompt is read in large chunks that borrow expert-cache slots.",
+                           "auto: il prompt si legge a blocchi grandi che prendono in prestito posti della cache esperti."),
+        "engine.spec": (("7: the drafter proposes up to 6 tokens per step; the usual best speed." if mtp else
+                         "0: this model file has no MTP drafter."),
+                        ("7: il drafter propone fino a 6 token per passo; di solito la velocità migliore." if mtp else
+                         "0: questo file non ha il drafter MTP.")),
+        "engine.spec-min-p": (("0.5: drafting stops when the drafter is unsure, so fewer wasted checks." if mtp else
+                               "Not used without a drafter."),
+                              ("0.5: il drafter si ferma quando è incerto, meno verifiche sprecate." if mtp else
+                               "Non serve senza drafter.")),
+        "engine.expert-cache": ("auto: every MiB of VRAM left after the reserve holds experts.",
+                                "auto: tutta la VRAM che resta oltre la riserva contiene esperti."),
+        "engine.resident-experts": (
+            ("on: the experts outside the GPU cache are copied to RAM once, not read from disk."
+             if out["engine.resident-experts"] else
+             "off: a resident copy of the experts would not leave 15% of the RAM and of the commit free; they are "
+             "read from the file."),
+            ("attivo: gli esperti fuori dalla cache GPU sono copiati in RAM una volta, non letti dal disco."
+             if out["engine.resident-experts"] else
+             "spento: una copia residente degli esperti non lascerebbe liberi il 15% della RAM e del commit; si "
+             "leggono dal file.")),
+        "engine.vram-reserve-mib": (
+            f"{g(reserve * MiB)} GiB stay free on the GPU ({'3/16 of its ' + g(total) + ' GiB' if total else 'the GPU size is unknown'}"
+            ", 1 to 8 GiB) for the desktop, the browser and other programs.",
+            f"{gi(reserve * MiB)} GiB restano liberi sulla GPU ({'3/16 dei suoi ' + gi(total) + ' GiB' if total else 'dimensione della GPU sconosciuta'}"
+            ", da 1 a 8 GiB) per il desktop, il browser e gli altri programmi."),
+        "engine.ple-io": (("ram: the PLE table fits in RAM with 15% of RAM and of the commit free." if
+                           out["engine.ple-io"] == "ram" else
+                           "direct: rows are read from disk (the table in RAM would not leave 15% free)." if
+                           facts.get("ple_bytes") else "direct: this model has no PLE table."),
+                          ("ram: la tabella PLE ci sta in RAM lasciando liberi il 15% della RAM e del commit." if
+                           out["engine.ple-io"] == "ram" else
+                           "direct: le righe si leggono dal disco (in RAM non resterebbe libero il 15%)." if
+                           facts.get("ple_bytes") else "direct: questo modello non ha la tabella PLE.")),
+        "engine.pool-workers": (w_en, w_it),
+        "server.parallel": ("1: one request at a time gets the whole context and the full speed.",
+                            "1: una richiesta alla volta ha tutto il contesto e tutta la velocità."),
+        "server.slot-full-context": ("off: with one slot it changes nothing.", "spento: con un solo slot non cambia nulla."),
+        "server.vision": (("dynamic: images are read inside the engine, no VRAM kept for them." if vision == "dynamic"
+                           else "off: this model file has no vision projector."),
+                          ("dynamic: le immagini si leggono dentro il motore, nessuna VRAM fissa." if vision == "dynamic"
+                           else "off: questo file non ha il proiettore visivo.")),
+    })
     return out
+
+
+def reserve_warnings(values: dict, gpu: dict | None) -> list[dict]:
+    """A VRAM reserve too small for the desktop and the driver (more when other programs use the GPU)."""
+    v = effective(values)
+    if v["engine.expert-cache"] not in ("auto", 0, "0", None):
+        return []
+    reserve = int(v["engine.vram-reserve-mib"])
+    others = [p for p in (gpu or {}).get("processes") or []
+              if (p.get("name") or "").lower() not in ("basalt.exe", "basalt", "python.exe", "python")]
+    want = RESERVE_WARN_MIB + (1024 if others else 0)
+    if reserve >= want:
+        return []
+    names = ", ".join(sorted({p.get("name") or str(p.get("pid")) for p in others}))
+    g = lambda n: f"{n / 1024:.1f}"                                              # noqa: E731
+    return [{"code": "reserve_low", "reserve_mib": reserve, "want_mib": want, "processes": others,
+             "text": f"Only {g(reserve)} GB of VRAM stay free: the desktop and the driver need about {g(want)} GB"
+                     + (f" (other programs on the GPU: {names})" if others else "") + ". Raise it to avoid stutters "
+                     "or an engine that cannot allocate.",
+             "text_it": f"Restano liberi solo {g(reserve).replace('.', ',')} GB di VRAM: desktop e driver ne vogliono "
+                        f"circa {g(want).replace('.', ',')}"
+                        + (f" (altri programmi sulla GPU: {names})" if others else "")
+                        + ". Alzala per evitare scatti o un motore che non riesce ad allocare."}]
 
 
 # ------------------------------------------------------------------------------------------------ speed
@@ -499,7 +601,8 @@ def now_iso() -> str:
 
 def main(argv=None) -> int:
     """python -m serve.loader check --config FILE: the plan of the config file's settings against what is free now,
-    in Italian lines and a last JSON line; exit 0 when it fits, 3 when it does not, 2 for a bad file."""
+    in Italian lines and a last JSON line; exit 0 when it fits, 3 when it does not, 4 when the GPU cannot run the
+    engine (not Blackwell), 2 for a bad file."""
     import argparse
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -519,21 +622,43 @@ def main(argv=None) -> int:
     except (OSError, ValueError, KeyError) as e:
         print(f"configurazione non leggibile: {e}", file=sys.stderr)
         return 2
-    p = plan({k: v for k, v in values.items() if k != "server.model"}, facts, system_now(a.gpu))
+    values = {k: v for k, v in values.items() if k != "server.model"}
+    p = plan(values, facts, system_now(a.gpu))
     s = predict_speed(p)
     g = lambda n: "—" if n is None else f"{n / GiB:.1f}".replace(".", ",")   # noqa: E731
+    dots = lambda n: f"{n:,}".replace(",", ".")                                # noqa: E731
     v, r, c = p["vram"], p["ram"], p["commit"]
+    from serve import hardware
+    gpu = hardware.gpu(a.gpu)
+    if gpu.get("name"):
+        cc = ".".join(str(x) for x in gpu["cc"]) if gpu.get("cc") else "?"
+        print(f"  GPU:    {gpu['name']} (compute capability {cc})")
+    cache = next((i["bytes"] for i in v["items"] if i["key"] == "experts"), 0)
+    share = v["expert_slots"] / max(1, v["expert_slots_total"]) * 100
     print(f"  VRAM:   servono {g(v['need'] + v['reserve'])} GiB (riserva compresa), liberi {g(v['available'])} GiB; "
-          f"{v['expert_slots']} esperti in VRAM")
+          f"{g(v['reserve'])} GiB lasciati liberi, {g(cache)} GiB per gli esperti: {dots(v['expert_slots'])} di "
+          f"{dots(v['expert_slots_total'])} esperti in VRAM ({share:.0f}%)")
     print(f"  RAM:    servono {g(r['need'])} GiB, disponibili {g(r['available'])} GiB, {g(r['keep'])} restano liberi (15%)")
     print(f"  commit: servono {g(c['need'])} GiB (RAM {g(c['ram_part'])} + VRAM {g(c['vram_part'])}), liberi "
           f"{g(c['available'])} GiB, {g(c['keep'])} restano liberi (15%)")
-    print(f"  velocità stimata: {s['decode']:.0f} tok/s in risposta, {s['prefill']:.0f} tok/s in lettura "
-          f"({'calibrata' if s['source']['kind'] == 'calibration' else 'stima iniziale'})")
+    hit = f"{s['hit_rate'] * 100:.1f}".replace(".", ",")
+    print(f"  velocità stimata: {s['decode']:.0f} tok/s in risposta, {s['prefill']:.0f} tok/s in lettura, {hit}% colpi "
+          f"nella cache esperti ({'calibrata' if s['source']['kind'] == 'calibration' else 'stima iniziale'})")
+    for x in reserve_warnings(values, gpu):
+        print("  Attenzione: " + x["text_it"])
     for x in p["problems"]:
         print("  " + problem_text(x, "it"))
+    warn = hardware.gpu_warning(gpu, "it")
+    unsupported = gpu.get("blackwell") is False
+    if warn:
+        print(("  GPU NON SUPPORTATA: " if unsupported else "  Attenzione: ") + warn)
     print(json.dumps({"fits": p["fits"], "problems": [x["code"] for x in p["problems"]],
-                      "port": p["values"].get("server.port")}))
+                      "port": p["values"].get("server.port"), "gpu_supported": not unsupported,
+                      "expert_slots": v["expert_slots"], "expert_slots_total": v["expert_slots_total"],
+                      "decode": s["decode"], "prefill": s["prefill"], "hit_rate": s["hit_rate"],
+                      "commit_need": c["need"], "reserve_mib": int(v["reserve"] // MiB)}))
+    if unsupported:
+        return 4
     return 0 if p["fits"] else 3
 
 

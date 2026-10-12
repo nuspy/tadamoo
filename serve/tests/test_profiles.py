@@ -100,7 +100,8 @@ class Store(unittest.TestCase):
         self.assertEqual((new["engine"]["kv"], new["engine"]["max-context"]), ("int8", 65536))
         self.assertNotIn("resident-experts", new["engine"])              # the profile's own value: the default
         self.assertEqual(json.loads(Path(cfg + ".bak").read_text(encoding="utf-8")), original)
-        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err, \
+                mock.patch.object(loader, "system_now", return_value=dict(ROOMY)):   # Valori sicuri follow the PC
             self.assertEqual(profiles.main(["apply", "Nessuno", "--config", cfg]), 1)
             self.assertIn("Valori sicuri", err.getvalue())
             self.assertEqual(profiles.main(["apply", profiles.SAFE_NAME, "--config", cfg]), 0)

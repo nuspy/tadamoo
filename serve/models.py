@@ -208,6 +208,22 @@ def _fixed_drives() -> list[str]:
     return out
 
 
+def default_model() -> str | None:
+    """The model the server starts with when neither --model nor the profile names one ("Usa come modello
+    predefinito per il server"), per user next to the folders."""
+    m = read_store().get("default_model")
+    return m if isinstance(m, str) and m else None
+
+
+def set_default_model(path) -> str | None:
+    """Save (a .basalt the engine can open) or clear (None) the default server model; ValueError with the reason."""
+    value = check_basalt(path) if path else None
+    data = read_store()
+    data["default_model"] = value
+    write_store(data)
+    return value
+
+
 def suggestions() -> list[str]:
     """Folders where models usually are that exist on this PC, found now: LM Studio's, the Hugging Face cache,
     ~/models, and a Models or Modelli folder at the top of each local disk."""
@@ -838,6 +854,53 @@ def find(model_id: str, folders: list[str] | None = None) -> dict | None:
     return None
 
 
+def describe(path: str) -> dict:
+    """One model file's entry with its status, inside the models folders or not (its own folder is scanned for its
+    shards and attachments); status "missing" when there is no such file."""
+    if not path or not os.path.isfile(path):
+        return {"path": _posix(path) if path else None, "status": "missing",
+                "reason": _say("Il file non esiste.", "There is no such file.")}
+    for m in scan([str(Path(path).parent)])["models"]:
+        if any(_norm(f) == _norm(path) for f in m["files"]):
+            return m
+    return {"path": _posix(path), "status": "incompatible",
+            "reason": _say("Non è un file .basalt né un modello GGUF.", "Neither a .basalt file nor a GGUF model.")}
+
+
+SOURCES = {"argument": ("--model", "--model"), "profile": ("il modello del profilo", "the profile's model"),
+           "default": ("il modello predefinito per il server", "the default server model"),
+           "config": ("il modello del file di configurazione", "the config file's model")}
+
+
+def resolve(model: str | None = None, profile: str | None = None, config: str | None = None) -> dict:
+    """The model a start uses: --model, else the load profile's, else the default server model, else the config
+    file's; with its status. {"model", "source", "status", "reason", "item"}; source None when none is set."""
+    from serve import profiles, settings
+    cands = [("argument", model)]
+    if profile:
+        try:
+            cands.append(("profile", profiles.get_model(profile)))
+        except (OSError, ValueError):
+            pass
+    cands.append(("default", default_model()))
+    if config:
+        try:
+            cands.append(("config", settings.model_of(config)))
+        except (OSError, ValueError):
+            pass
+    for source, path in cands:
+        if path:
+            p = os.path.abspath(os.path.expandvars(os.path.expanduser(str(path).strip().strip('"'))))
+            item = describe(p)
+            return {"model": _posix(p), "source": source, "source_text": _say(*SOURCES[source]),
+                    "status": item["status"], "reason": item["reason"], "item": item}
+    return {"model": None, "source": None, "status": "none",
+            "reason": _say("Nessun modello scelto: passa --model \"<percorso del file .basalt>\", oppure scegli il "
+                           "modello nell'app o nel Loader e premi «Usa come modello predefinito per il server».",
+                           "No model chosen: pass --model \"<path of the .basalt file>\", or pick the model in the app "
+                           "or the Loader and press “Use as the default server model”."), "item": None}
+
+
 # ------------------------------------------------------------------------------------------------ conversion plan
 def _commit_share() -> float | None:
     from serve import loader
@@ -1099,8 +1162,8 @@ class Jobs:
         return self.status()
 
     # ---- convert
-    def start_convert(self, model_id: str, out_dir: str | None, token, confirm) -> dict:
-        plan = convert_plan(model_id, out_dir)
+    def start_convert(self, model_id: str, out_dir: str | None, token, confirm, folders=None) -> dict:
+        plan = convert_plan(model_id, out_dir, folders)
         if confirm is not True or not token:
             raise Refused(409, {"error": {"type": "confirmation_required", "code": "confirm",
                                           "message": "a conversion writes a large new file: show the plan and send "
@@ -1166,6 +1229,38 @@ def _kill_tree(proc) -> None:
 JOBS = Jobs()
 
 
+def _convert_now(model_id: str, out_dir, token, folders) -> int:
+    """Run a confirmed conversion in this process, printing its output and progress (the start script's -Converti)."""
+    try:
+        JOBS.start_convert(model_id, out_dir, token, True, folders)
+    except Refused as e:
+        print(json.dumps(e.body, ensure_ascii=False))
+        return 3
+    shown, last = 0, -1
+    try:
+        while True:
+            st = JOBS.status()
+            with JOBS.lock:
+                lines = JOBS.log[shown:]
+                shown += len(lines)
+            for line in lines:
+                print(line, flush=True)
+            pct = round((st.get("progress") or 0) * 100)
+            if pct != last and st["phase"] == "running":
+                print(f"progress {pct}%", flush=True)
+                last = pct
+            if st["phase"] != "running":
+                break
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        JOBS.cancel()
+        while JOBS.running():
+            time.sleep(0.2)
+    st = JOBS.status()
+    print(json.dumps({k: st.get(k) for k in ("phase", "error", "out_path")}, ensure_ascii=False), flush=True)
+    return 0 if st["phase"] == "done" else 1
+
+
 # ------------------------------------------------------------------------------------------------ the page's view
 def listing(rescan: bool = False, config_model: str | None = None) -> dict:
     """GET /api/models: the folders, the models with their status, the running job."""
@@ -1174,6 +1269,7 @@ def listing(rescan: bool = False, config_model: str | None = None) -> dict:
                                                         "mtp_sources": [], "errors": [], "scanned_at": time.time()}
     out["suggestions"] = suggestions() if not st["dirs"] else []
     out["output_dir"] = st.get("output_dir")
+    out["default_model"] = default_model()
     out["job"] = JOBS.status()
     if config_model:
         out["current"] = _posix(config_model)
@@ -1202,7 +1298,51 @@ def main(argv=None) -> int:
     js.add_argument("--config", help="a config file whose model is listed even outside the folders")
     ls = sub.add_parser("list", help="the models, one line each")
     ls.add_argument("--rescan", action="store_true")
+    df = sub.add_parser("default", help="the default server model (or --set FILE.basalt / --clear)")
+    df.add_argument("--set", dest="set_to")
+    df.add_argument("--clear", action="store_true")
+    rs = sub.add_parser("resolve", help="the model a start uses (--model > profile > default > config), as JSON; "
+                                        "exit 0 ready, 5 to convert, 6 not usable, 7 none chosen")
+    rs.add_argument("--model")
+    rs.add_argument("--profile")
+    rs.add_argument("--config")
+    cv = sub.add_parser("convert", help="the conversion plan of a GGUF model as JSON; with --yes --token, run it")
+    cv.add_argument("--model", required=True, help="the GGUF file (shard 1 of a split model)")
+    cv.add_argument("--out", help="the folder to write the .basalt file to")
+    cv.add_argument("--yes", action="store_true", help="run the conversion (after the plan was shown and confirmed)")
+    cv.add_argument("--token", help="the plan's token, from a run without --yes")
     a = ap.parse_args(argv)
+    if a.cmd == "default":
+        try:
+            if a.clear:
+                set_default_model(None)
+            elif a.set_to:
+                set_default_model(a.set_to)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        print(json.dumps({"default_model": default_model()}, ensure_ascii=False))
+        return 0
+    if a.cmd == "resolve":
+        out = resolve(a.model, a.profile, a.config)
+        print(json.dumps(out, ensure_ascii=False))
+        return {"ready": 0, "convert": 5, "none": 7}.get(out["status"], 6)
+    if a.cmd == "convert":
+        item = describe(os.path.abspath(a.model))
+        if item.get("status") != "convert":
+            print(json.dumps({"ok": False, "status": item.get("status"), "reason": item.get("reason")},
+                             ensure_ascii=False))
+            return 6
+        folders = [str(Path(a.model).parent)]
+        try:
+            plan = convert_plan(item["id"], a.out, folders)
+        except Refused as e:
+            print(json.dumps(e.body, ensure_ascii=False))
+            return 6
+        if not a.yes:
+            print(json.dumps(plan, ensure_ascii=False))
+            return 0 if plan["ok"] else 3
+        return _convert_now(item["id"], a.out, a.token, folders)
     if a.cmd == "dirs":
         st = read_store()
         print(json.dumps({"dirs": st["dirs"], "configured": bool(st["dirs"]), "suggestions": suggestions(),

@@ -520,6 +520,78 @@ class WithModel(Base):
         self.assertEqual(svc.supervisor.status()["phase"], "idle")       # no engine restart for another model
 
 
+class StartModel(WithModel):
+    def test_precedence_argument_profile_default_config(self):
+        cfg = str(self.cfg)
+        r = models.resolve(None, None, cfg)
+        self.assertEqual((r["source"], r["model"], r["status"]), ("config", self.a.as_posix(), "ready"))
+        models.set_default_model(str(self.b))
+        self.assertEqual(models.resolve(None, None, cfg)["source"], "default")
+        self.assertEqual(models.resolve(None, None, cfg)["model"], self.b.as_posix())
+        profiles.change({"action": "save", "name": "P", "values": {}, "model": str(self.a)})
+        r = models.resolve(None, "P", cfg)
+        self.assertEqual((r["source"], r["model"]), ("profile", self.a.as_posix()))
+        r = models.resolve(str(self.b), "P", cfg)
+        self.assertEqual((r["source"], r["model"]), ("argument", self.b.as_posix()))
+        with self.assertRaises(ValueError):
+            models.set_default_model(str(self.root / "nope.basalt"))
+        models.set_default_model(None)
+        self.assertIsNone(models.default_model())
+        empty = self.root / "empty.json"
+        empty.write_text("{}", encoding="utf-8")
+        r = models.resolve(None, None, str(empty))
+        self.assertEqual((r["status"], r["source"]), ("none", None))
+        self.assertIn("--model", r["reason"]["it"])
+
+    def test_a_gguf_to_convert_and_a_missing_file(self):
+        (g,) = tiny_qwen(self.models, shards=1)
+        r = models.resolve(str(g))
+        self.assertEqual(r["status"], "convert")
+        self.assertEqual(models.resolve(str(self.root / "gone.basalt"))["status"], "missing")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(models.main(["resolve", "--model", str(g)]), 5)
+            self.assertEqual(models.main(["resolve", "--model", str(self.a)]), 0)
+            with mock.patch.object(models, "_commit_share", return_value=0.5):
+                self.assertEqual(models.main(["convert", "--model", str(g), "--out", str(self.root)]), 0)
+        plan = json.loads(out.getvalue().splitlines()[-1])
+        self.assertTrue(plan["ok"] and plan["token"])
+        self.assertIn("Scrive un nuovo file", plan["summary"]["it"])
+
+
+class SafeValues(unittest.TestCase):
+    def test_computed_from_the_hardware_and_the_model(self):
+        roomy = dict(ROOMY)
+        hybrid = {"logical": 32, "physical": 24, "p_cores": 8, "e_cores": 16, "hybrid": True}
+        why = {}
+        v = loader.safe(loader.DEMO_FACTS, roomy, cpu=hybrid, why=why)
+        self.assertEqual({k: v[k] for k in loader.SAFE if k != "engine.ple-io"},
+                         {k: x for k, x in loader.SAFE.items() if k != "engine.ple-io"})   # the documented example
+        self.assertIn("8", why["engine.pool-workers"][1])
+        # a 16 GB card, a plain 6-core processor, a model without drafter nor projector, less RAM
+        small = {**roomy, "vram_total": 16 * GiB, "vram_free": 15 * GiB, "ram_total": 64 * GiB,
+                 "ram_available": 60 * GiB, "commit_limit": 80 * GiB}
+        facts = {**loader.DEMO_FACTS, "has_mtp": False, "mmproj_bytes": 0}
+        v = loader.safe(facts, small, cpu={"logical": 12, "physical": 6, "p_cores": 0, "e_cores": 0, "hybrid": False})
+        self.assertEqual((v["engine.vram-reserve-mib"], v["engine.pool-workers"], v["engine.spec"], v["server.vision"]),
+                         (3072, 5, 0, "off"))
+        self.assertTrue(loader.plan(v, facts, small)["fits"])
+        # nothing fits: the shortest context, and the reason says so
+        why = {}
+        tight = {**roomy, "ram_available": 8 * GiB}
+        v = loader.safe(loader.DEMO_FACTS, tight, cpu=hybrid, why=why)
+        self.assertEqual(v["engine.max-context"], loader.CONTEXT_STEPS[-1])
+        self.assertIn("nessun contesto", why["engine.max-context"][1])
+
+    def test_reserve_warning_names_the_other_programs(self):
+        gpu = {"processes": [{"pid": 1, "name": "dwm.exe", "used": None}, {"pid": 2, "name": "basalt.exe"}]}
+        self.assertEqual(loader.reserve_warnings({"engine.vram-reserve-mib": 4096, "engine.expert-cache": "auto"}, gpu), [])
+        (w,) = loader.reserve_warnings({"engine.vram-reserve-mib": 1024, "engine.expert-cache": "auto"}, gpu)
+        self.assertEqual(w["want_mib"], 2048)
+        self.assertIn("dwm.exe", w["text_it"])
+        self.assertNotIn("basalt.exe", w["text_it"])
+        self.assertEqual(loader.reserve_warnings({"engine.vram-reserve-mib": 256, "engine.expert-cache": 100}, gpu), [])
+
+
 class OverHttp(Base):
     def setUp(self):
         super().setUp()

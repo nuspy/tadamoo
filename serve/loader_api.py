@@ -86,6 +86,9 @@ def evaluate(svc, values: dict, lang: str = "en", model: str | None = None) -> d
     system = loader.system_now(getattr(svc, "gpu_index", 0))
     p = loader.plan(values, facts, system, holds, holds_vram)
     p["model"] = {k: v for k, v in facts.items() if k != "path"} | {"path": facts.get("path")}
+    from serve import hardware
+    p["gpu"] = hardware.gpu(getattr(svc, "gpu_index", 0))
+    p["warnings"] = loader.reserve_warnings(values, p["gpu"])
     cal = loader.best_calibration(facts, values)
     p["speed"] = loader.predict_speed(p, cal)
     p["problems"] = [{**x, "text": loader.problem_text(x, "en"), "text_it": loader.problem_text(x, "it")}
@@ -128,12 +131,20 @@ def info(svc, local: bool, lang: str = "en") -> dict:
            "status": sup.status(), "mock": sup.mock}
     holds, holds_vram = _holds(svc, sup)
     system = loader.system_now(getattr(svc, "gpu_index", 0))
-    out["safe"] = loader.safe(sup.facts, system, holds, holds_vram)
-    out["safe_why"] = {k: {"en": en, "it": it} for k, (en, it) in loader.SAFE_WHY.items()}
     try:
         out["plan"] = evaluate(svc, values, lang, config_model)
+        facts = facts_of(svc, config_model)
     except ValueError:
         out["plan"] = evaluate(svc, values, lang)
+        facts = sup.facts
+    why = {}
+    out["safe"] = loader.safe(facts, system, holds, holds_vram, why=why)
+    out["safe_why"] = {k: {"en": en, "it": it} for k, (en, it) in why.items()}
+    from serve import hardware
+    out["gpu"] = out["plan"]["gpu"]
+    out["gpu_warning"] = {"it": hardware.gpu_warning(out["gpu"], "it"), "en": hardware.gpu_warning(out["gpu"], "en")}
+    out["reserve"] = {"default_mib": loader.safe_reserve_mib(system.get("vram_total")),
+                      "warn_mib": loader.RESERVE_WARN_MIB, "vram_total": system.get("vram_total")}
     runs = loader.read_calibrations(sup.facts)["runs"]
     out["calibrations"] = sorted(({"at": r.get("at"), "fingerprint": fp, "decode_off": r.get("decode_off"),
                                    "decode_on": r.get("decode_on"), "prefill": r.get("prefill"), "mock": r.get("mock")}

@@ -664,14 +664,14 @@ def make_handler(svc: Service):
             return out
 
         def _models_post(self, what: str):
-            """POST /api/models/dirs | plan | convert | verify | cancel: only from this PC, as JSON from the server's
+            """POST /api/models/dirs | plan | convert | verify | cancel | default: only from this PC, as JSON from the server's
             own page (serve/models.py). A conversion needs the plan's token and confirm: true."""
             try:                                            # read first: a refusal then reaches the client whole
                 raw = self._body(settings.BODY_MAX)
             except BadBody as e:
                 self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
                 return
-            if what not in ("dirs", "plan", "convert", "verify", "cancel"):
+            if what not in ("dirs", "plan", "convert", "verify", "cancel", "default"):
                 self._json(404, {"error": {"message": "not found"}})
                 return
             if not settings.is_loopback(self.client_address[0]):
@@ -698,6 +698,13 @@ def make_handler(svc: Service):
                                                               req.get("token"), req.get("confirm")))
                 elif what == "verify":
                     self._json(202, models.JOBS.start_verify(req.get("path")))
+                elif what == "default":
+                    try:
+                        models.set_default_model(req.get("path") or None)
+                    except ValueError as e:
+                        self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                        return
+                    self._json(200, {"default_model": models.default_model()})
                 else:
                     self._json(200, {"cancelled": models.JOBS.cancel(), **models.JOBS.status()})
             except models.DirsError as e:
