@@ -265,7 +265,7 @@ class OverHttp(unittest.TestCase):
         self.assertIn("speed", body)
         self.assertEqual(body["slot_context"], 262144)
         self.assertEqual(self.post("plan", {"values": {"engine.kv": "fp8"}})[0], 400)
-        self.assertEqual(self.post("plan", {"values": {"server.port": 1}})[0], 400)
+        self.assertEqual(self.post("plan", {"values": {"server.model": "x"}})[0], 400)
         self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), CONFIG)
 
     def test_load_writes_the_file_and_reloads(self):

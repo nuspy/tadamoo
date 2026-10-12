@@ -577,6 +577,11 @@ def make_handler(svc: Service):
         def _loader_post(self, what: str):
             """POST /api/loader/plan | load | calibrate. A plan is a computation; a load and a calibration change
             the engine, so only from this PC, as JSON from the server's own page (and with the API key, if set)."""
+            try:                                            # read first: a refusal then reaches the client whole
+                raw = self._body(settings.BODY_MAX)
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                return
             if what not in ("plan", "load", "calibrate"):
                 self._json(404, {"error": {"message": "not found"}})
                 return
@@ -587,10 +592,7 @@ def make_handler(svc: Service):
             if not self._own_page("the model can be loaded or calibrated"):
                 return
             try:
-                req = json.loads(self._body(settings.BODY_MAX) or b"{}")
-            except BadBody as e:
-                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
-                return
+                req = json.loads(raw or b"{}")
             except ValueError:
                 self._json(400, {"error": {"type": "invalid_request_error", "message": "the body is not valid JSON"}})
                 return
