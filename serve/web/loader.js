@@ -452,7 +452,8 @@
 
   /* ---- reading ---- */
   async function refreshProfiles() {
-    try { PROF = await get("api/profiles"); } catch (e) { PROF = null; }
+    const m = modelNow();
+    try { PROF = await get("api/profiles" + (m ? "?model=" + encodeURIComponent(m) : "")); } catch (e) { PROF = null; }
     profileBar("#ld-prof", "loader");
     profileBar("#st-prof", "settings");
   }
@@ -485,8 +486,34 @@
     await refreshProfiles();
     if (viewOn === "settings") settingsPick(($("#st-prof select") || {}).value || "");
     if (["waiting", "stopping", "starting", "calibrating"].includes((INFO.status || {}).phase)) watch();
+    if (viewOn === "loader") applyStart();
   }
   let formTouched = false;
+
+  /* the first opening: ?profile=, ?model=, ?reserve= (GB) from the desktop app's command line, and ?wizard=1 when this
+     PC has no Machine Default yet; a server without a loaded model starts from the default profile, not the file */
+  const START = new URLSearchParams(location.search);
+  let startDone = false;
+  function applyStart() {
+    if (startDone || !INFO) return;
+    startDone = true;
+    const prof = START.get("profile"), model = START.get("model"), reserve = START.get("reserve");
+    if (model && window.BasaltModels) BasaltModels.select(model);
+    const name = prof || (INFO.standby && PROF ? PROF.default : null);
+    const p = name && PROF ? PROF.load.find(x => x.name === name) : null;
+    if (p) {
+      writeForm(p.values);
+      if (p.model && !model && window.BasaltModels) BasaltModels.select(p.model);
+      const sel = $("#ld-prof select"); if (sel) sel.value = p.name;
+      formTouched = true;
+    }
+    if (reserve !== null && reserve !== "" && Number.isFinite(Number(reserve))) {
+      el("engine.vram-reserve-mib").value = String(Number(reserve)); syncReserve("lf", el("engine.vram-reserve-mib")); formTouched = true;
+    }
+    if (p || model || reserve) replan();
+    if (START.get("wizard") === "1" && window.BasaltWizard) BasaltWizard.offer();
+    if ([...START.keys()].length) history.replaceState(null, "", location.pathname + location.hash);
+  }
 
   build();
   $("#st-rsv").innerHTML = reserveHtml("st", "st-rsv-num", "st-rsv-h");
@@ -500,7 +527,7 @@
   $("#ld-form").addEventListener("change", formInput);
   $("#st-rsv").addEventListener("input", e => settingsReserve(e.target.id === "st-rsv-range" ? "range" : "num"));
   if (window.BasaltModels) BasaltModels.onChange(() => {
-    if (viewOn === "loader") replan();
+    if (viewOn === "loader") { replan(); refreshProfiles(); }
     if (viewOn === "settings" && stValues) { stModel = modelNow(); settingsReplan(); }
   });
   $("#ld-form").onsubmit = e => e.preventDefault();

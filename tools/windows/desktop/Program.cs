@@ -34,14 +34,17 @@ static class Program
     }
 }
 
-/// <summary>The command line: --config "profile", --model FILE.basalt, --port N, --repo DIR; hidden test options
-/// --test-mock, --test-screenshot FILE, --test-exit, --test-folder-prompt (the models folders unset: the prompt, then
-/// --test-models-dir DIR is chosen as the user would and the start panel is shown), --test-no-webview.</summary>
+/// <summary>The command line (the same names as Avvia-Basalt.ps1, one or two dashes): --config "profile", --model
+/// FILE.basalt, --port N, --vram-libera GB, --file CONFIG.json, --repo DIR; hidden test options --test-mock,
+/// --test-screenshot FILE, --test-exit, --test-no-wizard, --test-fallback (the web server cannot start: the native
+/// panel), --test-folder-prompt (with --test-fallback: the models folders unset, the prompt, then --test-models-dir
+/// DIR is chosen as the user would), --test-no-webview.</summary>
 sealed class Options
 {
-    public string Profile, Repo, Error, Screenshot, Model, TestModelsDir;
+    public string Profile, Repo, Error, Screenshot, Model, TestModelsDir, ConfigFile;
     public int Port;
-    public bool TestMock, TestExit, TestFolderPrompt, TestNoWebView;
+    public double VramLibera = -1;
+    public bool TestMock, TestExit, TestFolderPrompt, TestNoWebView, TestNoWizard, TestFallback;
 
     public static Options Parse(string[] args)
     {
@@ -50,23 +53,31 @@ sealed class Options
         {
             string a = args[i], v = null;
             int eq = a.IndexOf('=');
-            if (a.StartsWith("--") && eq > 0) { v = a[(eq + 1)..]; a = a[..eq]; }
+            if (a.StartsWith("-") && eq > 0) { v = a[(eq + 1)..]; a = a[..eq]; }
             string Next() => v ?? (i + 1 < args.Length ? args[++i] : null);
-            switch (a.ToLowerInvariant())
+            switch ("--" + a.TrimStart('-').ToLowerInvariant())
             {
-                case "--config": case "-config": o.Profile = Next(); break;
-                case "--port": case "-port":
+                case "--config": o.Profile = Next(); break;
+                case "--port":
                     if (!int.TryParse(Next(), out o.Port) || o.Port < 1 || o.Port > 65535) o.Error = "--port vuole un numero da 1 a 65535.";
                     break;
+                case "--vram-libera":
+                    if (!double.TryParse((Next() ?? "").Replace(',', '.'), System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out o.VramLibera) || o.VramLibera < 0 || o.VramLibera > 1024)
+                        o.Error = "--vram-libera vuole i GB da lasciare liberi (per esempio 2 o 1,5).";
+                    break;
+                case "--file": o.ConfigFile = Next(); break;
                 case "--repo": o.Repo = Next(); break;
-                case "--model": case "-model": o.Model = Next(); break;
-                case "--test-folder-prompt": o.TestFolderPrompt = o.TestMock = true; break;
+                case "--model": o.Model = Next(); break;
+                case "--test-folder-prompt": o.TestFolderPrompt = o.TestFallback = o.TestMock = true; break;
                 case "--test-models-dir": o.TestModelsDir = Next(); break;
                 case "--test-no-webview": o.TestNoWebView = true; break;
+                case "--test-no-wizard": o.TestNoWizard = true; break;
+                case "--test-fallback": o.TestFallback = o.TestMock = true; break;
                 case "--test-mock": o.TestMock = true; break;
                 case "--test-screenshot": o.Screenshot = Next(); break;
                 case "--test-exit": o.TestExit = true; break;
-                default: o.Error = $"Argomento sconosciuto: {args[i]}\nUso: BasaltPannello.exe [--config \"<profilo>\"] [--model \"<file .basalt>\"] [--port N]"; break;
+                default: o.Error = $"Argomento sconosciuto: {args[i]}\nUso: BasaltPannello.exe [--config \"<profilo>\"] [--model \"<file .basalt>\"] [--port N] [--vram-libera GB] [--file <configurazione>]"; break;
             }
         }
         o.Repo ??= FindRepo(AppContext.BaseDirectory);

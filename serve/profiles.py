@@ -335,6 +335,7 @@ def main(argv=None) -> int:
     sub.add_parser("names", help="the load profiles' names as a JSON list")
     ap_json = sub.add_parser("json", help="the profiles with their summaries for this PC now, as JSON")
     ap_json.add_argument("--config", help="the config file whose model the summaries are for")
+    ap_json.add_argument("--model", help="the .basalt file the summaries are for (wins over the config file's)")
     ap_apply = sub.add_parser("apply", help="write a load profile into the config file; prints its values as JSON")
     ap_apply.add_argument("name")
     ap_apply.add_argument("--config", required=True)
@@ -354,7 +355,13 @@ def main(argv=None) -> int:
         return 0
     if a.cmd == "json":
         facts = None
-        if a.config:
+        if a.model:
+            try:
+                from serve import models
+                facts = models.facts_for(models.check_basalt(a.model))
+            except (OSError, ValueError, KeyError):
+                facts = None
+        if a.config and facts is None:
             try:
                 model = settings.values_of(settings.read_file(a.config)).get("server.model")
                 if model and not os.path.isabs(model):

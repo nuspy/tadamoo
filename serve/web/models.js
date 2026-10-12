@@ -10,6 +10,7 @@
       ask: "Before going on, choose the folders where your models are (.basalt files and GGUF downloads). The search also looks in their subfolders.",
       dirs: "Models folders", dirsHelp: "Folders searched for .basalt and GGUF files, subfolders included. More than one is fine (for example your .basalt files and LM Studio's downloads).",
       dir: "Folder {0}", remove: "Remove", removeN: "Remove folder {0}", add: "Add a folder", save: "Save folders",
+      browse: "Browse…", browseN: "Choose folder {0} in the Windows dialog",
       found: "Found on this PC:", use: "Use {0}", saved: "Folders saved: {0} models found.", saving: "Searching the folders…",
       noDir: "Add at least one folder.",
       ready: "Ready", convert: "To convert", incompatible: "Not compatible", attached: "attachment",
@@ -31,6 +32,7 @@
       ask: "Prima di continuare scegli le cartelle in cui sono i modelli (file .basalt e GGUF scaricati). La ricerca guarda anche nelle sottocartelle.",
       dirs: "Cartelle dei modelli", dirsHelp: "Cartelle in cui cercare i file .basalt e GGUF, sottocartelle comprese. Possono essere più di una (per esempio i tuoi .basalt e i download di LM Studio).",
       dir: "Cartella {0}", remove: "Rimuovi", removeN: "Rimuovi la cartella {0}", add: "Aggiungi una cartella", save: "Salva le cartelle",
+      browse: "Sfoglia…", browseN: "Scegli la cartella {0} con la finestra di Windows",
       found: "Trovate su questo PC:", use: "Usa {0}", saved: "Cartelle salvate: trovati {0} modelli.", saving: "Cerco nelle cartelle…",
       noDir: "Aggiungi almeno una cartella.",
       ready: "Pronto", convert: "Da convertire", incompatible: "Non compatibile", attached: "allegato",
@@ -68,11 +70,20 @@
   }
 
   /* ---- the folders editor ---- */
+  // inside the desktop app (WebView2) a folder is picked with the Windows dialog; in a browser it is typed
+  const app = window.chrome && window.chrome.webview;
+  if (app) app.addEventListener("message", e => {
+    const m = e.data || {};
+    if (m.type !== "folder" || !m.path) return;
+    const input = document.getElementById(m.id);
+    if (input) { input.value = m.path; input.dispatchEvent(new Event("input", { bubbles: true })); input.focus(); }
+  });
   function dirsEditor(where, dirs) {
     const rows = (dirs.length ? dirs : [""]).map((d, i) => `
       <div class="field mdl-dirrow" data-i="${i}">
         <label for="${where}-dir-${i}">${esc(t("dir", i + 1))}</label>
         <div class="pfrow"><input id="${where}-dir-${i}" type="text" value="${esc(d)}" autocomplete="off" spellcheck="false" autocapitalize="off" inputmode="url">
+          ${app ? `<button type="button" class="btn" data-m="browse" data-for="${where}-dir-${i}" aria-label="${esc(t("browseN", i + 1))}">${esc(t("browse"))}</button>` : ""}
           <button type="button" class="btn ghost" data-m="del" aria-label="${esc(t("removeN", i + 1))}">${esc(t("remove"))}</button></div>
         <p class="ferr" role="alert" hidden></p>
       </div>`).join("");
@@ -315,6 +326,9 @@
     } else if (m === "sugg" && form) {
       const dirs = readDirs(form);
       form.outerHTML = dirsEditor(form.dataset.where, [...dirs, b.dataset.path]);
+    } else if (m === "browse" && app) {
+      const input = document.getElementById(b.dataset.for);
+      app.postMessage({ type: "pickFolder", id: b.dataset.for, path: input ? input.value.trim() : "" });
     } else if (m === "rescan") refresh(true);
     else if (m === "choose") choose(b.dataset.path);
     else if (m === "verify") verify(b.dataset.path);

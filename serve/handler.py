@@ -257,8 +257,13 @@ def make_handler(svc: Service):
                     self._json(200, loader_api.info(svc, settings.is_loopback(self.client_address[0])))
             elif path == "/api/profiles":
                 if self._authorized():
-                    sup = loader_api.sup_of(svc)
-                    self._json(200, profiles.listing(loader.system_now(getattr(svc, "gpu_index", 0)), sup.facts))
+                    # the summaries are for ?model= (the Loader's chosen .basalt), else the running model
+                    model = parse_qs(urlsplit(self.path).query).get("model", [None])[0]
+                    try:
+                        facts = loader_api.facts_of(svc, model or None)
+                    except ValueError:
+                        facts = loader_api.sup_of(svc).facts
+                    self._json(200, profiles.listing(loader.system_now(getattr(svc, "gpu_index", 0)), facts))
             elif path == "/api/profiles/export":
                 if self._authorized():
                     kind = parse_qs(urlsplit(self.path).query).get("kind", [None])[0]

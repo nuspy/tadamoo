@@ -1,8 +1,11 @@
-// The window: a start panel (the model, the load profile, the VRAM to leave free, the port, the memory check, Avvia /
-// Avvia solo server) while no server runs, then the server's own web UI in WebView2 (or the browser when WebView2 is
-// missing). Until the models folders are set, a folder prompt comes first. Closing the window only hides it: Basalt
-// keeps running behind the notification-area icon, whose menu opens it again, reloads with other settings or turns
-// everything off.
+// The window: the server's own web UI in WebView2 (or the browser when WebView2 is missing). On opening, the app starts
+// the server without loading a model (--standby) and shows its Loader: the models folders (the folder dialog is this
+// app's, asked for by the page), the model list, profiles, every value, the memory and speed prediction, the
+// configuration wizard and Load. A Load of another model ends the server with exit code 75 and the app starts it again
+// with that model. The native start panel (model, profile, VRAM, port, check, Avvia / Avvia solo server) is only the
+// fallback when the web server cannot start, with the reason and the log. Closing the window only hides it: Basalt
+// keeps running behind the notification-area icon, whose menu opens it again, reloads with other settings, starts the
+// server alone for agents or turns everything off.
 using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
@@ -29,6 +32,7 @@ sealed class MainForm : Form
     readonly TrackBar reserveBar = new() { Minimum = 0, Maximum = 128, Value = 24, TickFrequency = 8, SmallChange = 1, LargeChange = 4, Width = 360, Height = 48, AutoSize = false };
     readonly NumericUpDown reserve = new() { Minimum = 0, Maximum = 32, DecimalPlaces = 2, Increment = 0.25m, Value = 6, Width = 110, Font = new Font("Segoe UI", 12f) };
     readonly Label check = new() { AutoSize = true, ForeColor = Fg2, Font = new Font("Consolas", 10.5f), Margin = new Padding(0, 8, 0, 8) };
+    readonly Label reasonLabel = new() { AutoSize = true, ForeColor = Color.FromArgb(255, 143, 163), Font = new Font("Consolas", 10f), Margin = new Padding(0, 0, 0, 12), Visible = false };
     readonly FlowLayoutPanel startBar = new() { Dock = DockStyle.Bottom, AutoSize = false, Height = 84, WrapContents = false, Padding = new Padding(32, 12, 32, 16), BackColor = Color.FromArgb(21, 26, 31) };
     readonly Button go = Btn("Avvia", true), headless = Btn("Avvia solo server", false), quit = Btn("Esci", false);
     readonly Button foldersBtn = Btn("Cartelle dei modelli…", false), defaultBtn = Btn("Usa come modello predefinito per il server", false);
@@ -46,9 +50,15 @@ sealed class MainForm : Form
     int serverPort;                 // the port of the server this window shows
     bool ours;                      // started by this app: in its job object
     bool exiting, checkOk;
+    bool waitingHealth;             // the server just started: the page opens when /health answers
+    bool loadingProfiles;           // the profile list is being refilled: no model change, no check
+    bool firstPage = true;          // the first page carries the command line's profile, model and VRAM
+    string pageView = "loader";     // the view the page opens on
     int checkSeq;
+    public const int RelaunchExitCode = 75;   // the server saved another model: start it again (serve/config.py)
     public int ExitCode { get; private set; }
-    // per user: %APPDATA%\BasaltPannello\desktop.json (the last model, the tray tip); never in the repository
+    // per user: %BASALT_DATA% or %APPDATA%\BasaltPannello\desktop.json (the last model, the tray tip), next to the
+    // server's profiles.json and models.json (serve/userdata.py); never in the repository
     readonly string statePath;
     readonly List<string> report = new();
 
@@ -63,13 +73,15 @@ sealed class MainForm : Form
         MinimumSize = new Size(420, 520);
         Size = new Size(1360, 900);
         StartPosition = FormStartPosition.CenterScreen;
-        cfgPath = Path.Combine(opt.Repo, "basalt_config.json");
+        cfgPath = opt.ConfigFile != null ? Path.GetFullPath(opt.ConfigFile) : Path.Combine(opt.Repo, "basalt_config.json");
+        string data = Environment.GetEnvironmentVariable("BASALT_DATA");
         statePath = opt.TestMock ? Path.Combine(Path.GetTempPath(), "basalt-desktop-test", "desktop.json")
-                                 : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello", "desktop.json");
+                  : Path.Combine(string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello") : data, "desktop.json");
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Apri", null, (_, _) => ShowWindow());
         menu.Items.Add("Ricarica con altri parametri…", null, (_, _) => { ShowWindow(); if (web.Visible) web.CoreWebView2?.Navigate($"http://127.0.0.1:{serverPort}/#loader"); });
+        menu.Items.Add("Avvia solo server (per gli agenti)…", null, async (_, _) => await HeadlessFromTray());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Spegni", null, (_, _) => TurnOff(true));
         tray = new NotifyIcon { Icon = Icon, Text = "Basalt", ContextMenuStrip = menu, Visible = true };
@@ -81,7 +93,7 @@ sealed class MainForm : Form
         Controls.Add(start);
         Controls.Add(folders);
         Controls.Add(startBar);                            // last: docked first, at the bottom
-        poll.Tick += (_, _) => WaitForServer();
+        poll.Tick += (_, _) => WatchServer();
         recheck.Tick += (_, _) => { recheck.Stop(); _ = Check(); };
         new Thread(() => { while (showEvent.WaitOne()) BeginInvoke(ShowWindow); }) { IsBackground = true }.Start();
         Shown += async (_, _) => await Begin();
@@ -118,7 +130,8 @@ sealed class MainForm : Form
         start.ColumnCount = 1;
         start.AutoScroll = true;
         start.Controls.Add(L("Basalt", 22f, Fg, FontStyle.Bold));
-        start.Controls.Add(L("Scegli il modello e il profilo di caricamento: prima di avviare controllo che VRAM, RAM e commit bastino lasciando liberi il 15% della RAM e del commit.", 11f, Fg2));
+        start.Controls.Add(reasonLabel);
+        start.Controls.Add(L("Scegli il modello e il profilo di caricamento: prima di avviare controllo che VRAM, RAM e commit bastino lasciando libera la parte di RAM e di commit scelta per gli altri programmi.", 11f, Fg2));
         start.Controls.Add(L("Modello", 11.5f, Fg, FontStyle.Bold));
         var mrow = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 0, 0, 0) };
         mrow.Controls.AddRange(new Control[] { modelBox, foldersBtn });
@@ -154,11 +167,16 @@ sealed class MainForm : Form
             {
                 if (v.TryGetProperty("server.port", out var pp) && opt.Port == 0 && !opt.TestMock) port.Value = pp.GetInt32();
                 if (v.TryGetProperty("engine.vram-reserve-mib", out var rm) && rm.ValueKind == JsonValueKind.Number) SetReserve(rm.GetDouble() / 1024.0);
-                if (p.Value.TryGetProperty("model", out var pm) && pm.ValueKind == JsonValueKind.String) SelectModel(pm.GetString());
+                if (!loadingProfiles && p.Value.TryGetProperty("model", out var pm) && pm.ValueKind == JsonValueKind.String) SelectModel(pm.GetString());
             }
-            _ = Check();
+            if (!loadingProfiles) _ = Check();
         };
-        modelBox.SelectedIndexChanged += (_, _) => { ShowModelInfo(); _ = Check(); };
+        modelBox.SelectedIndexChanged += async (_, _) =>
+        {
+            ShowModelInfo();
+            if (profileList.Count > 0 && !loadingProfiles) await LoadProfiles();   // their summaries are for this model
+            await Check();
+        };
         bool syncing = false;
         reserveBar.Scroll += (_, _) => { if (syncing) return; syncing = true; reserve.Value = Math.Min(reserve.Maximum, reserveBar.Value / 4m); syncing = false; recheck.Stop(); recheck.Start(); };
         reserve.ValueChanged += (_, _) => { if (syncing) return; syncing = true; reserveBar.Value = (int)Math.Min(reserveBar.Maximum, Math.Round(reserve.Value * 4)); syncing = false; recheck.Stop(); recheck.Start(); };
@@ -392,32 +410,118 @@ sealed class MainForm : Form
         return (p.ExitCode, (await outTask) + (await errTask));
     }
 
-    // ------------------------------------------------------------------ start: attach, or the start panel
+    // ------------------------------------------------------------------ start: attach, or the server without a model
     async Task Begin()
     {
         if (opt.TestMock) PrepareMock();
-        bool autoStart = false;
-        var running = opt.TestFolderPrompt ? new List<(int, JsonElement)>() : await Task.Run(Native.RunningServers);
+        start.Visible = false;
+        var running = opt.TestMock ? new List<(int, JsonElement)>() : await Task.Run(Native.RunningServers);
         if (running.Count > 0)
         {
             var (p, h) = running[0];
             string model = h.TryGetProperty("model", out var m) ? m.GetString() : "?";
             string last = opt.Model ?? ReadState("last_model");
-            string want = last != null ? Path.GetFileNameWithoutExtension(last) : "il modello scelto";
+            string want = last != null ? Path.GetFileNameWithoutExtension(last) : "un altro modello";
             var attach = new TaskDialogButton("Collegati al server in esecuzione");
-            var change = new TaskDialogButton($"Cambia modello: chiudi il server attuale e carica «{want}»");
+            var change = new TaskDialogButton($"Cambia modello: chiudi il server attuale e scegli «{want}» nel Loader");
             var page = new TaskDialogPage
             {
                 Caption = "Basalt", Heading = $"Basalt è già acceso sulla porta {p}",
-                Text = $"Modello in uso: {model}. Puoi usare questo server, oppure chiuderlo (solo lui e i suoi processi) e caricare il modello scelto qui.",
+                Text = $"Modello in uso: {model}. Puoi usare questo server, oppure chiuderlo (solo lui e i suoi processi) e caricare un altro modello dal Loader.",
                 Buttons = { attach, change, TaskDialogButton.Cancel }, Icon = TaskDialogIcon.Information,
             };
-            var choice = opt.TestMock ? attach : TaskDialog.ShowDialog(this, page);
-            if (choice == attach) { ShowServer(p, false); return; }
+            var choice = TaskDialog.ShowDialog(this, page);
+            if (choice == attach) { pageView = "chat"; ShowServer(p, false); return; }
             if (choice != change) { exiting = true; Close(); return; }
             await StopExternal(p);
-            autoStart = true;
         }
+        if (opt.TestFallback) { await Fallback("prova: il server web non parte (--test-fallback)"); return; }
+        await StartWeb(true);
+    }
+
+    /// <summary>The port of the app's server: --port, else the config file's, else 7232.</summary>
+    int WebPort()
+    {
+        if (opt.Port != 0) return opt.Port;
+        try
+        {
+            if (JsonDocument.Parse(File.ReadAllText(cfgPath)).RootElement.TryGetProperty("server", out var s) &&
+                s.TryGetProperty("port", out var p) && p.ValueKind == JsonValueKind.Number) return p.GetInt32();
+        }
+        catch { }
+        return 7232;
+    }
+
+    /// <summary>Start the server in this app's job: in standby (the Loader first, no model loaded) or, after the Loader
+    /// chose another model (exit code 75), loading the model now in the config file while the page already answers.</summary>
+    async Task StartWeb(bool standby)
+    {
+        if (!File.Exists(cfgPath) && opt.ConfigFile == null)
+        {
+            // a new installation: a config file without a model; the Loader writes the model and the values into it
+            try { File.WriteAllText(cfgPath, "{\n  \"server\": {\n    \"port\": 7232,\n    \"listen-first\": true\n  },\n  \"engine\": {}\n}\n"); }
+            catch (Exception e) { await Fallback($"Non riesco a creare {cfgPath}: {e.Message}"); return; }
+        }
+        if (!File.Exists(cfgPath)) { await Fallback($"Manca il file di configurazione {cfgPath}."); return; }
+        int p = WebPort();
+        var taken = Native.Listeners().FirstOrDefault(x => x.port == p);
+        if (taken.port != 0)
+        {
+            string who = "?";
+            try { who = Process.GetProcessById(taken.pid).ProcessName; } catch { }
+            await Fallback($"La porta {p} è occupata da {who} (PID {taken.pid}): scegli un'altra porta qui sotto, oppure avvia l'app con --port N.");
+            return;
+        }
+        string py = Path.Combine(opt.Repo, ".venv", "Scripts", "python.exe");
+        string exe = opt.TestMock ? py : Path.Combine(opt.Repo, "bin", "basalt.exe");
+        if (!File.Exists(exe)) { await Fallback($"Manca {exe}: Basalt non è costruito in questa cartella (vedi docs\\WINDOWS.md)."); return; }
+        string mode = (standby ? " --standby" : " --listen-first") + " --relaunch-on-model-change";
+        string cmd = opt.TestMock ? $"\"{py}\" -m serve.server --mock-engine --config \"{cfgPath}\" --port {p}{mode}"
+                                  : $"\"{exe}\" serve --config \"{cfgPath}\" --port {p}{mode}";
+        string logDir = Path.Combine(opt.Repo, "logs");
+        Directory.CreateDirectory(logDir);
+        string log = Path.Combine(logDir, opt.TestMock ? "basalt-app-test.log" : "basalt-serve.log");
+        try { if (File.Exists(log)) File.Move(log, log + ".1", true); } catch { }
+        foreach (var v in new[] { "CL", "_CL_" }) Environment.SetEnvironmentVariable(v, null);
+        Environment.SetEnvironmentVariable("PYTHONUTF8", "1");
+        Environment.SetEnvironmentVariable("PYTHONIOENCODING", "utf-8");
+        Environment.SetEnvironmentVariable("VIRTUAL_ENV", Path.Combine(opt.Repo, ".venv"));
+        try
+        {
+            int pid = BasaltLauncher.Start(exe, cmd, opt.Repo, log, true, true);
+            ours = true;
+            report.Add($"started pid {pid} on port {p} ({(standby ? "standby" : "loading")})");
+            if (!opt.TestMock)
+                File.WriteAllText(Path.Combine(opt.Repo, "basalt.pid"), JsonSerializer.Serialize(new
+                {
+                    pid, start = Process.GetProcessById(pid).StartTime.ToString("o"), mode = "app", port = p, log,
+                }));
+        }
+        catch (Exception e) { await Fallback("Avvio del server non riuscito: " + e.Message); return; }
+        pageView = standby ? "loader" : "stats";
+        ShowServer(p, true, standby ? "Avvio di Basalt…" : "Basalt riparte con il nuovo modello…");
+    }
+
+    /// <summary>The web server could not start: the native start panel, with the reason and the end of the log.</summary>
+    async Task Fallback(string reason)
+    {
+        poll.Stop();
+        web.Visible = false;
+        start.Visible = true;
+        string log = Path.Combine(opt.Repo, "logs", opt.TestMock ? "basalt-app-test.log" : "basalt-serve.log");
+        string tail = "";
+        try { using var s = new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete); using var r = new StreamReader(s); tail = string.Join("\n", r.ReadToEnd().Split('\n').TakeLast(10)); } catch { }
+        fallbackReason = "Il server web non è partito: " + reason + (tail.Trim().Length > 0 ? "\n\nUltime righe del log (" + log + "):\n" + tail.TrimEnd() : "");
+        report.Add("fallback: " + reason);
+        await FallbackPanel();
+    }
+
+    string fallbackReason;
+
+    async Task FallbackPanel()
+    {
+        reasonLabel.Text = fallbackReason ?? "";
+        reasonLabel.Visible = !string.IsNullOrEmpty(fallbackReason);
         var (dc, dout) = await Py("-m", "serve.models", "dirs");
         bool configured = dc == 0 && JsonDocument.Parse(dout.Trim().Split('\n').Last()).RootElement.GetProperty("configured").GetBoolean();
         if (!configured)
@@ -447,20 +551,23 @@ sealed class MainForm : Form
             MessageBox.Show(this, $"Profilo sconosciuto: «{opt.Profile}».\nProfili: " + string.Join(", ", profileList.Select(x => x.GetProperty("name").GetString())),
                 "Basalt", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
-        if (opt.TestMock)
-        {
-            await Check();
-            if (opt.Screenshot != null) SnapForm(Path.ChangeExtension(opt.Screenshot, null) + "-panel.png");
-            await StartServer();
-            return;
-        }
         await Check();
-        if (autoStart && checkOk) await StartServer();     // "Cambia modello": the old server is gone, load the new one
+        if (opt.TestMock && opt.Screenshot != null)
+        {
+            await Task.Delay(300);
+            SnapForm(Path.ChangeExtension(opt.Screenshot, null) + "-fallback.png");
+            File.WriteAllLines(Path.ChangeExtension(opt.Screenshot, ".txt"), report.Append("check: " + check.Text));
+            if (opt.TestExit) { ExitCode = 0; exiting = true; Close(); }
+        }
     }
 
     async Task LoadProfiles()
     {
-        var (code, output) = await Py("-m", "serve.profiles", "json", "--config", cfgPath);
+        // the summaries (VRAM, tok/s) are for the model chosen above, not the config file's
+        var args = new List<string> { "-m", "serve.profiles", "json", "--config", cfgPath };
+        if (SelectedReady) { args.Add("--model"); args.Add(SelectedModelPath); }
+        string keep = SelectedName;
+        var (code, output) = await Py(args.ToArray());
         profileList.Clear();
         profiles.Items.Clear();
         if (code != 0) { check.Text = "Non riesco a leggere i profili:\n" + output; return; }
@@ -474,9 +581,11 @@ sealed class MainForm : Form
             string name = p.GetProperty("name").GetString();
             profiles.Items.Add($"{name}{(p.GetProperty("default").GetBoolean() ? " (predefinito)" : "")} — {s.GetProperty("text").GetString()}{extra}");
         }
-        string want = opt.Profile ?? def;
+        string want = keep ?? opt.Profile ?? def;
         int idx = profileList.FindIndex(x => x.GetProperty("name").GetString() == want);
+        loadingProfiles = true;
         profiles.SelectedIndex = Math.Max(0, idx);
+        loadingProfiles = false;
         if (opt.Port != 0) port.Value = opt.Port;
     }
 
@@ -540,15 +649,16 @@ sealed class MainForm : Form
         if (opt.TestMock)
         {
             exe = Path.Combine(opt.Repo, ".venv", "Scripts", "python.exe");
-            cmd = $"\"{exe}\" -m serve.server --mock-engine --config \"{cfgPath}\" --port {p}";
+            cmd = $"\"{exe}\" -m serve.server --mock-engine --config \"{cfgPath}\" --port {p} --relaunch-on-model-change";
         }
         else
         {
             var ap = await Py(ApplyArgs(name, cfgPath));
             if (ap.code != 0) { check.Text = ap.output; check.ForeColor = Bad; return; }
             exe = Path.Combine(opt.Repo, "bin", "basalt.exe");
-            cmd = $"\"{exe}\" serve --config \"{cfgPath}\" --port {p}";
+            cmd = $"\"{exe}\" serve --config \"{cfgPath}\" --port {p} --relaunch-on-model-change";
         }
+        pageView = "stats";
         if (SelectedReady) WriteState("last_model", SelectedModelPath);
         string logDir = Path.Combine(opt.Repo, "logs");
         Directory.CreateDirectory(logDir);
@@ -583,8 +693,8 @@ sealed class MainForm : Form
         go.Enabled = headless.Enabled = false;
         check.Text = $"Avvio il solo server «{name}» sulla porta {p}…";
         var psi = new ProcessStartInfo("powershell.exe") { WorkingDirectory = opt.Repo, UseShellExecute = false, CreateNoWindow = true };
-        var args = new List<string> { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Avvia-Basalt.ps1"), "--config", name, "--port", p.ToString(),
-                                      "--vram-reserve-mib", ((int)Math.Round(reserve.Value * 1024)).ToString(), "-SoloServer" };
+        var args = new List<string> { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Avvia-Basalt.ps1"), "-server", "--config", name, "--port", p.ToString(),
+                                      "--vram-libera", reserve.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), "--file", cfgPath };
         if (SelectedReady) { args.Add("--model"); args.Add(SelectedModelPath); WriteState("last_model", SelectedModelPath); }
         foreach (var a in args) psi.ArgumentList.Add(a);
         using var proc = Process.Start(psi);
@@ -598,17 +708,57 @@ sealed class MainForm : Form
     }
 
     // ------------------------------------------------------------------ the web UI
-    void ShowServer(int p, bool loading)
+    void ShowServer(int p, bool loading, string heading = null)
     {
         serverPort = p;
         start.Visible = false;
         web.Visible = true;
-        _ = InitWeb(loading);
+        _ = InitWeb(loading, heading ?? "Avvio di Basalt…");
     }
 
     bool useBrowser;                // WebView2 is missing: the page opens in the default browser
 
-    async Task InitWeb(bool loading)
+    /// <summary>The page's address: the view to open and, the first time, the command line's profile, model and VRAM
+    /// to leave free for the Loader, and the wizard when this PC has no Machine Default yet.</summary>
+    string PageUrl()
+    {
+        var q = new List<string>();
+        if (firstPage)
+        {
+            if (opt.Profile != null) q.Add("profile=" + Uri.EscapeDataString(opt.Profile));
+            if (opt.Model != null) q.Add("model=" + Uri.EscapeDataString(opt.Model));
+            if (opt.VramLibera >= 0) q.Add("reserve=" + opt.VramLibera.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (pageView == "loader" && !opt.TestNoWizard && !HasMachineDefault()) q.Add("wizard=1");
+            firstPage = false;
+        }
+        return $"http://127.0.0.1:{serverPort}/{(q.Count > 0 ? "?" + string.Join("&", q) : "")}#{pageView}";
+    }
+
+    bool HasMachineDefault()
+    {
+        if (Native.GetJson($"http://127.0.0.1:{serverPort}/api/profiles") is not JsonElement p) return true;
+        return p.TryGetProperty("load", out var load) && load.EnumerateArray().Any(x => x.GetProperty("name").GetString() == "Machine Default");
+    }
+
+    /// <summary>The page asks for the folder dialog: {"type": "pickFolder", "id": ..., "path": ...}; the answer is
+    /// {"type": "folder", "id": ..., "path": ...} (no path when cancelled).</summary>
+    void OnWebMessage(object sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        try
+        {
+            var m = JsonDocument.Parse(e.WebMessageAsJson).RootElement;
+            if (m.GetProperty("type").GetString() != "pickFolder") return;
+            string id = m.TryGetProperty("id", out var i) ? i.GetString() : "";
+            string start = m.TryGetProperty("path", out var sp) && sp.ValueKind == JsonValueKind.String ? sp.GetString() : null;
+            using var dlg = new FolderBrowserDialog { Description = "Cartella dei modelli", UseDescriptionForTitle = true, ShowNewFolderButton = false };
+            if (!string.IsNullOrEmpty(start) && Directory.Exists(start)) dlg.InitialDirectory = start;
+            string path = dlg.ShowDialog(this) == DialogResult.OK ? dlg.SelectedPath : null;
+            web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "folder", id, path }));
+        }
+        catch (Exception ex) { report.Add("web message: " + ex.Message); }
+    }
+
+    async Task InitWeb(bool loading, string heading)
     {
         if (web.CoreWebView2 == null && !useBrowser)
         {
@@ -623,6 +773,7 @@ sealed class MainForm : Form
                 web.CoreWebView2.Settings.IsStatusBarEnabled = false;
                 web.CoreWebView2.DocumentTitleChanged += (_, _) => Text = "Basalt";
                 web.CoreWebView2.NewWindowRequested += (_, e) => { e.Handled = true; Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute = true }); };
+                web.CoreWebView2.WebMessageReceived += OnWebMessage;
             }
             catch (Exception e) when (e is WebView2RuntimeNotFoundException || e is COMException || e is FileNotFoundException)
             {
@@ -637,50 +788,97 @@ sealed class MainForm : Form
                 if (answer == DialogResult.No) Process.Start(new ProcessStartInfo(get) { UseShellExecute = true });
                 web.Visible = false;
                 start.Visible = true;
+                reasonLabel.Visible = false;
                 check.ForeColor = Fg2;
                 check.Text = $"Basalt si apre nel browser: http://127.0.0.1:{serverPort}/ (WebView2 non è installato).";
             }
         }
         if (useBrowser)
         {
-            if (loading) poll.Start();
-            else OpenBrowser();
+            waitingHealth = loading;
+            if (loading || ours) poll.Start();
+            if (!loading) OpenBrowser();
             return;
         }
         if (loading)
         {
-            web.CoreWebView2.NavigateToString("<html><body style='background:#0E1114;color:#E9ECEE;font:18px Segoe UI;display:flex;align-items:center;justify-content:center;height:90vh'>" +
-                $"<div><b>Avvio di Basalt sulla porta {serverPort}…</b><p style='color:#9AA4AD'>La pagina si apre appena il server risponde; il modello si carica dietro (Monitor).</p></div></body></html>");
+            web.CoreWebView2.NavigateToString("<html lang='it'><body style='background:#0E1114;color:#E9ECEE;font:18px Segoe UI;display:flex;align-items:center;justify-content:center;height:90vh;margin:0 16px'>" +
+                $"<div><b>{System.Net.WebUtility.HtmlEncode(heading)}</b><p style='color:#9AA4AD'>Porta {serverPort}. La pagina si apre appena il server risponde.</p></div></body></html>");
+            waitingHealth = true;
             poll.Start();
         }
-        else web.CoreWebView2.Navigate($"http://127.0.0.1:{serverPort}/");
+        else
+        {
+            web.CoreWebView2.Navigate(PageUrl());
+            if (ours) poll.Start();
+        }
     }
 
-    void WaitForServer()
+    /// <summary>Every half second while this app's server runs: open the page once /health answers; start the server
+    /// again with the new model after exit code 75; the native panel with the reason after any other end.</summary>
+    void WatchServer()
     {
-        if (ours && BasaltLauncher.ExitCode() >= 0)
+        long code = ours ? BasaltLauncher.ExitCode() : -1;
+        if (ours && code == RelaunchExitCode && !exiting)
         {
             poll.Stop();
-            string log = Path.Combine(opt.Repo, "logs", "basalt-serve.log");
-            string tail = "";
-            try { using var s = new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete); using var r = new StreamReader(s); tail = string.Join("\n", r.ReadToEnd().Split('\n').TakeLast(12)); } catch { }
-            MessageBox.Show(this, "Il server si è fermato durante l'avvio.\n\n" + tail, "Basalt", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            web.Visible = false; start.Visible = true; ours = false; _ = Check();
+            report.Add("exit 75: the server starts again with the new model");
+            ours = false;
+            _ = StartWeb(false);
             return;
         }
-        if (Native.GetJson($"http://127.0.0.1:{serverPort}/health") is JsonElement)
+        if (ours && code >= 0 && !exiting)
         {
             poll.Stop();
+            ours = false;
+            try { File.Delete(Path.Combine(opt.Repo, "basalt.pid")); } catch { }
+            _ = Fallback($"il server si è fermato (codice {code}).");
+            return;
+        }
+        if (!waitingHealth) return;
+        if (Native.GetJson($"http://127.0.0.1:{serverPort}/health") is JsonElement)
+        {
+            waitingHealth = false;
             report.Add("health ok");
+            if (!ours) poll.Stop();
             if (useBrowser) { OpenBrowser(); return; }
-            web.CoreWebView2.Navigate($"http://127.0.0.1:{serverPort}/");
+            web.CoreWebView2.Navigate(PageUrl());
             if (opt.Screenshot != null) _ = TestRun();
         }
     }
 
+    /// <summary>Tray: start the server alone for agents (Avvia-Basalt.ps1 -server, detached) in place of this app's,
+    /// with the default profile, then close the app.</summary>
+    async Task HeadlessFromTray()
+    {
+        int p = serverPort != 0 ? serverPort : WebPort();
+        if (MessageBox.Show(this, $"Avviare il solo server sulla porta {p}, senza finestra né icona, con il profilo predefinito?\n\n" +
+                "Il server di questa app si chiude e il modello si carica di nuovo dal server per gli agenti. Per fermarlo: Ferma-Basalt.ps1 --port " + p,
+                "Basalt", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        if (ours)
+        {
+            Native.PostJson($"http://127.0.0.1:{p}/unload", "{}");
+            exiting = true;                                // this app's server ends on purpose
+            BasaltLauncher.KillAll();
+            BasaltLauncher.Wait(15000);
+            ours = false;
+            try { File.Delete(Path.Combine(opt.Repo, "basalt.pid")); } catch { }
+        }
+        var psi = new ProcessStartInfo("powershell.exe") { WorkingDirectory = opt.Repo, UseShellExecute = false, CreateNoWindow = true };
+        foreach (var a in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Avvia-Basalt.ps1"), "-server", "--port", p.ToString(), "--file", cfgPath })
+            psi.ArgumentList.Add(a);
+        using var proc = Process.Start(psi);
+        await proc.WaitForExitAsync();
+        MessageBox.Show(proc.ExitCode == 0 ? $"Server avviato sulla porta {p} senza finestra.\nIndirizzo: http://127.0.0.1:{p}/\nPer fermarlo: Ferma-Basalt.ps1 --port {p}"
+                                           : "Il solo server non è partito: vedi logs\\basalt-serve.log.", "Basalt", MessageBoxButtons.OK,
+                        proc.ExitCode == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Error);
+        exiting = true;
+        Close();
+    }
+
     void OpenBrowser()
     {
-        string url = $"http://127.0.0.1:{serverPort}/";
+        string url = PageUrl();
         report.Add("browser " + url);
         if (!opt.TestMock) Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
         if (opt.TestMock && opt.Screenshot != null)
@@ -778,6 +976,8 @@ sealed class MainForm : Form
     void TurnOff(bool ask)
     {
         if (ask && MessageBox.Show(this, "Spegnere Basalt (server e motore)?", "Basalt", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        exiting = true;                                    // the server's end is wanted: no restart, no fallback panel
+        poll.Stop();
         Cursor = Cursors.WaitCursor;
         double before = Native.AvailableRamGiB();
         if (serverPort != 0)
@@ -811,16 +1011,21 @@ sealed class MainForm : Form
         // the mock server: a scratch config, demo memory readings, nothing of the real model touched
         string dir = Path.Combine(Path.GetTempPath(), "basalt-desktop-test");
         Directory.CreateDirectory(dir);
-        cfgPath = Path.Combine(dir, "mock_config.json");
-        File.WriteAllText(cfgPath, "{\"server\": {\"port\": 7298, \"vision\": \"dynamic\", \"listen-first\": true}}");
-        Environment.SetEnvironmentVariable("BASALT_CACHE", Path.Combine(dir, "cache"));
+        if (opt.ConfigFile == null)
+        {
+            cfgPath = Path.Combine(dir, "mock_config.json");
+            File.WriteAllText(cfgPath, "{\"server\": {\"port\": 7288, \"vision\": \"dynamic\", \"listen-first\": true}}");
+        }
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BASALT_CACHE")))
+            Environment.SetEnvironmentVariable("BASALT_CACHE", Path.Combine(dir, "cache"));
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BASALT_DATA")))
+            Environment.SetEnvironmentVariable("BASALT_DATA", Path.Combine(dir, "data"));
         if (opt.TestFolderPrompt)                          // the folders are not set yet: the prompt comes first
-            try { File.Delete(Path.Combine(dir, "cache", "models.json")); File.Delete(statePath); } catch { }
+            try { File.Delete(Path.Combine(Environment.GetEnvironmentVariable("BASALT_DATA"), "models.json")); File.Delete(statePath); } catch { }
         Environment.SetEnvironmentVariable("BASALT_FAKE_SYSTEM", "{\"ram_total\": 137438953472, \"ram_available\": 118111600640, \"commit_limit\": 154618822656, \"commit_used\": 21474836480, \"vram_total\": 34359738368, \"vram_free\": 32212254720}");
         Environment.SetEnvironmentVariable("BASALT_FAKE_GPU", "{\"name\": \"NVIDIA GeForce RTX 5090\", \"cc\": [12, 0], \"vram_total\": 34359738368, \"vram_free\": 32212254720, \"processes\": [{\"pid\": 11, \"name\": \"dwm.exe\"}]}");
         Environment.SetEnvironmentVariable("BASALT_FAKE_SYSTEM_OK", "1");
-        if (opt.Port == 0) port.Value = 7298;
-        else port.Value = opt.Port;
+        port.Value = opt.Port != 0 ? opt.Port : WebPort();
     }
 
     protected override void Dispose(bool disposing)
