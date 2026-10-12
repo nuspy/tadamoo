@@ -9,8 +9,14 @@ context, the server's heap) is an estimate, named as one. Windows charges VRAM a
 commit a load needs is its committed host memory plus the VRAM it allocates; file-backed maps (the PLE table with
 --ple-io ram) take RAM but no commit.
 
-Rules of this PC's owner: at least 15% of the physical RAM and 15% of the commit limit stay free, and the page file
-never grows: a plan that breaks one of them is refused.
+Rules: a share of the physical RAM and of the commit limit stays free for the other programs (15% unless the user
+chose another share in the configuration wizard, never less than FREE_FLOOR), and the page file never grows: a plan
+that breaks one of them is refused.
+
+The configuration wizard (wizard_*(), GET/POST /api/wizard, python -m serve.loader wizard) reads this PC, asks what to
+leave free and where the monitor is, computes the values with safe(), may measure them on a real load, and saves
+them as the "Machine Default" load profile and inference preset; this PC's answers stay in machine.json in the user's
+data folder.
 
 Speed is predicted from a calibration measured on this model (or the seed figures until there is one), scaled by a
 simple model that is documented on predict_speed()."""
@@ -23,11 +29,15 @@ import json
 import math
 import os
 import re
+import sys
 import tempfile
 from pathlib import Path
 
 GiB, MiB = 1 << 30, 1 << 20
-FREE_SHARE = 0.15                       # the share of RAM and of the commit limit that stays free
+FREE_SHARE = 0.15                       # the share of RAM and of the commit limit that stays free, until the user sets one
+FREE_SHARE_MIN, FREE_SHARE_MAX = 0.05, 0.5
+FREE_FLOOR = 2 * GiB                    # at least this much RAM and commit stay free, whatever the share
+MEASURE_COMMIT_MAX = 0.75               # the wizard measures only with less of the commit limit in use
 CONTEXT_UI_MAX = 262144                 # the longest context the Loader offers
 
 # KV + indexer state per token of one session: 12 attention layers x (K/V cell + fp32 pooled indexer key 128 B +
@@ -57,7 +67,7 @@ ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.pref
 # drafter and vision projector), kept as a documented example and for the tests
 SAFE = {"engine.max-context": 262144, "engine.kv": "q4_0", "engine.prefill": "auto", "engine.spec": 7,
         "engine.spec-min-p": 0.5, "engine.expert-cache": "auto", "engine.resident-experts": True,
-        "engine.vram-reserve-mib": 6144, "engine.ple-io": "direct", "engine.pool-workers": 15,
+        "engine.vram-reserve-mib": 2560, "engine.ple-io": "direct", "engine.pool-workers": 15,
         "server.parallel": 1, "server.slot-full-context": False, "server.vision": "dynamic"}
 
 # seed speeds until this model is calibrated; SEED["note"] names their source
@@ -173,6 +183,70 @@ def engine_holds(engine) -> dict:
         return {"ram": 0, "commit": 0}
 
 
+# ------------------------------------------------------------------------------------------------ this PC's own settings
+MONITOR_PLACES = ("primary", "secondary", "none")
+
+
+def machine_path() -> Path:
+    from serve import userdata
+    return userdata.path("machine.json")
+
+
+_machine_cache: dict = {}
+
+
+def machine_settings() -> dict:
+    """This PC's answers to the configuration wizard: {"free_share", "vram_reserve_mib", "monitor": primary |
+    secondary | none, "wizard": {...}}; {} before the wizard."""
+    p = machine_path()
+    try:
+        st = p.stat()
+    except OSError:
+        return {}
+    key = (str(p), st.st_mtime_ns, st.st_size)
+    if _machine_cache.get("key") != key:
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        _machine_cache.update(key=key, data=data if isinstance(data, dict) else {})
+    return dict(_machine_cache["data"])
+
+
+def save_machine_settings(changes: dict) -> dict:
+    data = {**machine_settings(), **changes}
+    p = machine_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix="machine.", suffix=".json")
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, p)
+    return data
+
+
+def check_free_share(value) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or \
+            not FREE_SHARE_MIN <= float(value) <= FREE_SHARE_MAX:
+        raise ValueError(f"free_share: a share from {FREE_SHARE_MIN} to {FREE_SHARE_MAX} (0.15 = 15%), not {value!r}")
+    return round(float(value), 4)
+
+
+def free_share() -> float:
+    """The share of RAM and of the commit limit left to the other programs: the user's, else FREE_SHARE."""
+    try:
+        return check_free_share(machine_settings().get("free_share", FREE_SHARE))
+    except ValueError:
+        return FREE_SHARE
+
+
+def keep_bytes(total: int | None, share: float) -> int:
+    return max(int(share * total), FREE_FLOOR) if total else 0
+
+
+def pct(share: float) -> str:
+    return f"{share * 100:.0f}%"
+
+
 # ------------------------------------------------------------------------------------------------ the values
 def effective(values: dict) -> dict:
     """The values with the engine's defaults filled in for the absent ones."""
@@ -209,9 +283,12 @@ def _item(key, nbytes, estimate=False):
     return {"key": key, "bytes": int(max(0, nbytes)), "estimate": estimate}
 
 
-def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, holds_vram: int = 0) -> dict:
+def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, holds_vram: int = 0,
+         keep_share: float | None = None) -> dict:
     """The memory a load with these values needs, next to what is free (plus what the running engine gives back
-    when it stops: `holds` from engine_holds(), `holds_vram` its VRAM). Bytes throughout."""
+    when it stops: `holds` from engine_holds(), `holds_vram` its VRAM), with `keep_share` of the RAM and of the commit
+    limit left free (the user's share by default). Bytes throughout."""
+    share = free_share() if keep_share is None else keep_share
     v = effective(values)
     holds = holds or {"ram": 0, "commit": 0}
     par = max(1, int(v["server.parallel"]))
@@ -263,8 +340,8 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     limit, used = system.get("commit_limit"), system.get("commit_used")
     ram_avail = None if avail is None else avail + holds["ram"]
     commit_avail = None if limit is None or used is None else limit - used + holds["commit"]
-    ram_keep = int(FREE_SHARE * total) if total else 0
-    commit_keep = int(FREE_SHARE * limit) if limit else 0
+    ram_keep = keep_bytes(total, share)
+    commit_keep = keep_bytes(limit, share)
     problems = []
     if vram_avail is not None:
         if ec in ("auto", 0, "0", None):
@@ -274,9 +351,10 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
             problems.append({"code": "vram", "need": vram_need + reserve, "have": vram_avail})
     if ram_avail is not None and ram_need > ram_avail - ram_keep:
         problems.append({"code": "ple_ram" if ple_ram and ram_need - ple_ram <= ram_avail - ram_keep else "ram",
-                         "need": ram_need, "have": ram_avail, "keep": ram_keep})
+                         "need": ram_need, "have": ram_avail, "keep": ram_keep, "share": share})
     if commit_avail is not None and commit_need > commit_avail - commit_keep:
-        problems.append({"code": "commit", "need": commit_need, "have": commit_avail, "keep": commit_keep})
+        problems.append({"code": "commit", "need": commit_need, "have": commit_avail, "keep": commit_keep,
+                         "share": share})
     return {
         "values": v, "slot_context": ctx, "parallel": par,
         "vram": {"items": [_item("dense", dense), _item("drafter", drafter), _item("kv", kv),
@@ -285,9 +363,9 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
                  "need": vram_need, "reserve": reserve, "available": vram_avail, "free_now": vram_free,
                  "total": system.get("vram_total"), "expert_slots": slots, "expert_slots_total": total_slots},
         "ram": {"items": host, "need": ram_need, "available": ram_avail, "free_now": avail, "total": total,
-                "keep": ram_keep},
+                "keep": ram_keep, "keep_share": share},
         "commit": {"need": commit_need, "available": commit_avail, "free_now": None if limit is None or used is None
-                   else limit - used, "limit": limit, "used": used, "keep": commit_keep,
+                   else limit - used, "limit": limit, "used": used, "keep": commit_keep, "keep_share": share,
                    "ram_part": ram_need - ple_ram, "vram_part": vram_need},
         "engine_holds": {"ram": holds["ram"], "commit": holds["commit"], "vram": holds_vram},
         "unknown": [k for k, x in (("vram", vram_avail), ("ram", ram_avail), ("commit", commit_avail)) if x is None],
@@ -299,6 +377,7 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
 def problem_text(p: dict, lang: str = "en") -> str:
     """A refusal in words, with the figures."""
     g = lambda n: f"{n / GiB:.1f}".replace(".", "," if lang == "it" else ".")   # noqa: E731
+    sh = pct(p.get("share", FREE_SHARE))
     if p["code"] == "vram":
         return (f"Non entra in VRAM: servono {g(p['need'])} GiB (riserva compresa), ne sono liberi {g(p['have'])}. "
                 "Riduci il contesto, usa una cache KV più piccola (q4_0), abbassa la riserva o spegni il drafter."
@@ -307,51 +386,87 @@ def problem_text(p: dict, lang: str = "en") -> str:
                 "Lower the context, use a smaller KV cache (q4_0), lower the reserve or turn the drafter off.")
     if p["code"] == "ple_ram":
         return (f"La tabella PLE in RAM non ci sta: servono {g(p['need'])} GiB di RAM, disponibili {g(p['have'])} "
-                f"e {g(p['keep'])} devono restare liberi (15%). Usa PLE direct."
+                f"e {g(p['keep'])} devono restare liberi ({sh}). Usa PLE direct."
                 if lang == "it" else
                 f"The PLE table does not fit in RAM: {g(p['need'])} GiB needed, {g(p['have'])} GiB available and "
-                f"{g(p['keep'])} GiB must stay free (15%). Use PLE direct.")
+                f"{g(p['keep'])} GiB must stay free ({sh}). Use PLE direct.")
     if p["code"] == "ram":
         return (f"Manca RAM: servono {g(p['need'])} GiB, disponibili {g(p['have'])} e {g(p['keep'])} devono restare "
-                "liberi (15%). Chiudi altri programmi pesanti, oppure usa meno contesto o meno slot."
+                f"liberi ({sh}). Chiudi altri programmi pesanti, oppure usa meno contesto o meno slot."
                 if lang == "it" else
                 f"Not enough RAM: {g(p['need'])} GiB needed, {g(p['have'])} GiB available and {g(p['keep'])} GiB must "
-                "stay free (15%). Close other heavy programs, or use less context or fewer slots.")
+                f"stay free ({sh}). Close other heavy programs, or use less context or fewer slots.")
     return (f"Manca memoria impegnabile (commit): servono {g(p['need'])} GiB, ne restano {g(p['have'])} sotto il "
-            f"limite e {g(p['keep'])} devono restare liberi (15%). Il file di paging non deve crescere: chiudi altri "
+            f"limite e {g(p['keep'])} devono restare liberi ({sh}). Il file di paging non deve crescere: chiudi altri "
             "programmi (la VRAM usata conta nel commit)."
             if lang == "it" else
             f"Not enough commit: {g(p['need'])} GiB needed, {g(p['have'])} GiB left under the limit and "
-            f"{g(p['keep'])} GiB must stay free (15%). The page file must not grow: close other programs (the VRAM "
+            f"{g(p['keep'])} GiB must stay free ({sh}). The page file must not grow: close other programs (the VRAM "
             "in use counts toward the commit).")
 
 
 CONTEXT_STEPS = (262144, 131072, 65536, 32768, 16384, 8192, 4096)
-RESERVE_SHARE = 3 / 16                  # of the card's VRAM left free by the safe values (6 GiB of 32 GiB)
-RESERVE_MIN_MIB, RESERVE_MAX_MIB = 1024, 8192
+RESERVE_MIN_MIB, RESERVE_MAX_MIB = 512, 8192
+RESERVE_BASE_MIB = 512                  # the driver and the GPU's own needs, when the GPU drives no monitor
+RESERVE_MONITOR_MIB = {"primary": 1536, "secondary": 384, "none": 0, None: 1024}   # by where the monitor is
+RESERVE_OTHERS_UNKNOWN_MIB = 1024       # what other programs use when the GPU cannot be read
 RESERVE_WARN_MIB = 1024                 # below this the desktop and the driver may run short of VRAM
 
 
-def safe_reserve_mib(vram_total: int | None) -> int:
-    """The VRAM the safe values leave free: 3/16 of the card, 1 to 8 GiB, in steps of 256 MiB (6 GiB when unknown)."""
-    if not vram_total:
-        return 6144
-    mib = int(vram_total / MiB * RESERVE_SHARE) // 256 * 256
-    return max(RESERVE_MIN_MIB, min(RESERVE_MAX_MIB, mib))
+def reserve_proposal(system: dict, monitor: str | None = None, holds_vram: int = 0) -> tuple[int, str, str]:
+    """The VRAM to leave free for the other programs: a base for the driver, what the other programs use on the GPU
+    now (VRAM in use apart from the running engine's), and more when this GPU drives the main monitor (the desktop
+    compositor and the browsers grow with it) or a secondary one; `monitor` None = not confirmed yet. Rounded up to
+    256 MiB, 0.5 to 8 GiB. (MiB, why in English, why in Italian)"""
+    total, free = system.get("vram_total"), system.get("vram_free")
+    others = max(0, total - free - holds_vram) // MiB if total and free is not None else RESERVE_OTHERS_UNKNOWN_MIB
+    extra = RESERVE_MONITOR_MIB.get(monitor, RESERVE_MONITOR_MIB[None])
+    mib = -(-(RESERVE_BASE_MIB + others + extra) // 256) * 256
+    mib = max(RESERVE_MIN_MIB, min(RESERVE_MAX_MIB, mib))
+    g = lambda m: f"{m / 1024:.1f}"                                             # noqa: E731
+    where_en = {"primary": f"+{g(extra)} GB because this GPU drives the main monitor",
+                "secondary": f"+{g(extra)} GB for the secondary monitor on this GPU (turning it on takes a little VRAM)",
+                "none": "nothing for monitors: this GPU drives none",
+                None: f"+{g(extra)} GB until the configuration wizard confirms where the monitor is"}[
+        monitor if monitor in MONITOR_PLACES else None]
+    where_it = {"primary": f"+{g(extra)} GB perché questa GPU pilota il monitor principale",
+                "secondary": f"+{g(extra)} GB per il monitor secondario su questa GPU (accenderlo usa un po' di VRAM)",
+                "none": "niente per i monitor: questa GPU non ne pilota",
+                None: f"+{g(extra)} GB finché la configurazione guidata non conferma dov'è il monitor"}[
+        monitor if monitor in MONITOR_PLACES else None]
+    return (mib, f"{g(mib)} GB stay free on the GPU: {g(RESERVE_BASE_MIB)} GB for the driver, {g(others)} GB that other "
+                 f"programs use now, {where_en}.",
+            f"{g(mib).replace('.', ',')} GB restano liberi sulla GPU: {g(RESERVE_BASE_MIB).replace('.', ',')} GB per il "
+            f"driver, {g(others).replace('.', ',')} GB usati ora dagli altri programmi, {where_it}.")
 
 
 def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int = 0, cpu: dict | None = None,
-         why: dict | None = None) -> dict:
-    """The safe values for this PC and this model, computed with the same rules as every plan: 15% of the RAM and of
-    the commit limit stay free; the VRAM reserve is sized to the card (safe_reserve_mib); the KV cache is the
-    smallest (q4_0) and the context the longest that fits; the drafter is on when the file has one; the experts are
-    resident in RAM and the PLE table in RAM when they fit; the CPU workers follow the cores (hardware.pool_workers).
-    `why`, when given, is filled with each value's reason {key: (English, Italian)}."""
+         why: dict | None = None, reserve_mib: int | None = None, monitor: str | None = None,
+         keep_share: float | None = None) -> dict:
+    """The safe values for this PC and this model, computed with the same rules as every plan: the user's share of
+    the RAM and of the commit limit stays free (`keep_share`, else the saved one, else 15%); the VRAM reserve is
+    `reserve_mib`, else the one the wizard saved, else reserve_proposal() for where the monitor is (`monitor`, else
+    the wizard's answer); the KV cache is the smallest (q4_0) and the context the longest that fits; the drafter is
+    on (spec 7, spec-min-p 0.5) when the file has one; prefill auto; the experts are resident in RAM and the PLE table
+    in RAM when they fit; the CPU workers follow the cores (hardware.pool_workers). `why`, when given, is filled with
+    each value's reason {key: (English, Italian)}."""
     from serve import hardware
     g = lambda n: f"{n / GiB:.1f}"                                               # noqa: E731
     gi = lambda n: g(n).replace(".", ",")                                       # noqa: E731
     reasons = {} if why is None else why
-    reserve = safe_reserve_mib(system.get("vram_total"))
+    saved = machine_settings()
+    share = free_share() if keep_share is None else keep_share
+    monitor = monitor if monitor is not None else saved.get("monitor")
+    if reserve_mib is None and isinstance(saved.get("vram_reserve_mib"), int):
+        reserve = saved["vram_reserve_mib"]
+        r_en = (f"{g(reserve * MiB)} GB stay free on the GPU, as chosen in the configuration wizard.",
+                f"{gi(reserve * MiB)} GB restano liberi sulla GPU, come scelto nella configurazione guidata.")
+    elif reserve_mib is not None:
+        reserve = int(reserve_mib)
+        r_en = (f"{g(reserve * MiB)} GB stay free on the GPU, as chosen.", f"{gi(reserve * MiB)} GB restano liberi sulla GPU, come scelto.")
+    else:
+        reserve, *r_en = reserve_proposal(system, monitor, holds_vram)
+        r_en = tuple(r_en)
     workers, w_en, w_it = hardware.pool_workers(cpu)
     mtp = bool(facts.get("has_mtp"))
     vision = "dynamic" if facts.get("mmproj_bytes") else "off"
@@ -364,18 +479,17 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
     for resident in (True, False):
         for ctx in CONTEXT_STEPS:
             trial = {**out, "engine.max-context": ctx, "engine.resident-experts": resident}
-            if plan(trial, facts, system, holds, holds_vram)["fits"]:
+            if plan(trial, facts, system, holds, holds_vram, share)["fits"]:
                 out, fitted = trial, True
                 break
         if fitted:
             break
     if facts.get("ple_bytes"):
-        with_ram = plan({**out, "engine.ple-io": "ram"}, facts, system, holds, holds_vram)
+        with_ram = plan({**out, "engine.ple-io": "ram"}, facts, system, holds, holds_vram, share)
         if with_ram["fits"] and "ram" not in with_ram["unknown"]:
             out["engine.ple-io"] = "ram"
     ctx = out["engine.max-context"]
     kv = KV_TOKEN_BYTES["q4_0"] * ctx
-    total = system.get("vram_total")
     reasons.update({
         "engine.max-context": (
             f"{ctx:,} tokens: the longest context that fits this PC with the rest of these values "
@@ -409,24 +523,20 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
         "engine.resident-experts": (
             ("on: the experts outside the GPU cache are copied to RAM once, not read from disk."
              if out["engine.resident-experts"] else
-             "off: a resident copy of the experts would not leave 15% of the RAM and of the commit free; they are "
+             f"off: a resident copy of the experts would not leave {pct(share)} of the RAM and of the commit free; they are "
              "read from the file."),
             ("attivo: gli esperti fuori dalla cache GPU sono copiati in RAM una volta, non letti dal disco."
              if out["engine.resident-experts"] else
-             "spento: una copia residente degli esperti non lascerebbe liberi il 15% della RAM e del commit; si "
+             f"spento: una copia residente degli esperti non lascerebbe liberi il {pct(share)} della RAM e del commit; si "
              "leggono dal file.")),
-        "engine.vram-reserve-mib": (
-            f"{g(reserve * MiB)} GiB stay free on the GPU ({'3/16 of its ' + g(total) + ' GiB' if total else 'the GPU size is unknown'}"
-            ", 1 to 8 GiB) for the desktop, the browser and other programs.",
-            f"{gi(reserve * MiB)} GiB restano liberi sulla GPU ({'3/16 dei suoi ' + gi(total) + ' GiB' if total else 'dimensione della GPU sconosciuta'}"
-            ", da 1 a 8 GiB) per il desktop, il browser e gli altri programmi."),
-        "engine.ple-io": (("ram: the PLE table fits in RAM with 15% of RAM and of the commit free." if
+        "engine.vram-reserve-mib": r_en,
+        "engine.ple-io": ((f"ram: the PLE table fits in RAM with {pct(share)} of RAM and of the commit free." if
                            out["engine.ple-io"] == "ram" else
-                           "direct: rows are read from disk (the table in RAM would not leave 15% free)." if
+                           f"direct: rows are read from disk (the table in RAM would not leave {pct(share)} free)." if
                            facts.get("ple_bytes") else "direct: this model has no PLE table."),
-                          ("ram: la tabella PLE ci sta in RAM lasciando liberi il 15% della RAM e del commit." if
+                          (f"ram: la tabella PLE ci sta in RAM lasciando liberi il {pct(share)} della RAM e del commit." if
                            out["engine.ple-io"] == "ram" else
-                           "direct: le righe si leggono dal disco (in RAM non resterebbe libero il 15%)." if
+                           f"direct: le righe si leggono dal disco (in RAM non resterebbe libero il {pct(share)})." if
                            facts.get("ple_bytes") else "direct: questo modello non ha la tabella PLE.")),
         "engine.pool-workers": (w_en, w_it),
         "server.parallel": ("1: one request at a time gets the whole context and the full speed.",
@@ -600,13 +710,179 @@ def now_iso() -> str:
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+# ------------------------------------------------------------------------------------------------ the wizard
+def shrink(values: dict) -> dict | None:
+    """Smaller values after a load that took more memory than planned: the next shorter context, then the experts
+    no longer resident; None when there is nothing left to give."""
+    v = dict(values)
+    ctx = int(effective(v)["engine.max-context"])
+    shorter = [c for c in CONTEXT_STEPS if c < ctx]
+    if shorter:
+        v["engine.max-context"] = shorter[0]
+        return v
+    if effective(v)["engine.resident-experts"]:
+        v["engine.resident-experts"] = False
+        return v
+    return None
+
+
+def wizard_hardware(gpu_index: int = 0) -> dict:
+    """Step 1: what this PC has - RAM, commit and page file, the processor, the NVIDIA GPU, the video adapters and
+    which one shows the main monitor (detected; the user confirms it)."""
+    from serve import hardware
+    system = system_now(gpu_index)
+    g = hardware.gpu(gpu_index)
+    adapters = hardware.displays()
+    limit, used = system.get("commit_limit"), system.get("commit_used")
+    share_used = used / limit if limit and used is not None else None
+    return {"system": system, "cpu": hardware.cpu(), "gpu": g, "displays": adapters,
+            "monitor": hardware.monitor_on(g, adapters), "page_file": hardware.page_file(),
+            "gpu_warning": {"it": hardware.gpu_warning(g, "it"), "en": hardware.gpu_warning(g, "en")},
+            "commit_share_used": share_used,
+            "can_measure": share_used is not None and share_used < MEASURE_COMMIT_MAX,
+            "measure_commit_max": MEASURE_COMMIT_MAX, "saved": machine_settings(),
+            "free_share": {"default": FREE_SHARE, "min": FREE_SHARE_MIN, "max": FREE_SHARE_MAX,
+                           "floor_bytes": FREE_FLOOR}}
+
+
+def check_monitor(value) -> str:
+    if value not in MONITOR_PLACES:
+        raise ValueError(f"monitor: one of {', '.join(MONITOR_PLACES)}, not {value!r}")
+    return value
+
+
+def wizard_proposal(hw: dict, facts: dict, answers: dict | None = None, holds: dict | None = None,
+                    holds_vram: int = 0) -> dict:
+    """Steps 2 to 4: the answers (monitor, free_share, vram_reserve_mib; each proposed when absent) and the values
+    computed from them with safe(), with their plan and predicted speed. ValueError for a bad answer."""
+    a = dict(answers or {})
+    detected = (hw.get("monitor") or {}).get("where")
+    monitor = check_monitor(a["monitor"]) if a.get("monitor") is not None else \
+        hw.get("saved", {}).get("monitor") or (detected if detected in MONITOR_PLACES else None)
+    share = check_free_share(a["free_share"]) if a.get("free_share") is not None else free_share()
+    proposal = reserve_proposal(hw["system"], monitor, holds_vram)
+    reserve = proposal[0]
+    if a.get("vram_reserve_mib") is not None:
+        r = a["vram_reserve_mib"]
+        if isinstance(r, bool) or not isinstance(r, (int, float)) or not 0 <= r <= 1 << 20:
+            raise ValueError(f"vram_reserve_mib: a whole number of MiB, not {r!r}")
+        reserve = int(r)
+    why = {}
+    values = safe(facts, hw["system"], holds, holds_vram, cpu=hw.get("cpu"), why=why, reserve_mib=reserve,
+                  monitor=monitor, keep_share=share)
+    values = {k: v for k, v in values.items() if v is not None}
+    p = plan(values, facts, hw["system"], holds, holds_vram, share)
+    speed = predict_speed(p, best_calibration(facts, values))
+    return {"monitor": monitor, "detected": detected, "free_share": share, "vram_reserve_mib": reserve,
+            "reserve_proposal": {"mib": proposal[0], "en": proposal[1], "it": proposal[2]},
+            "values": values, "why": {k: {"en": en, "it": it} for k, (en, it) in why.items()},
+            "fits": p["fits"], "problems": [{**x, "text": problem_text(x, "en"), "text_it": problem_text(x, "it")}
+                                            for x in p["problems"]],
+            "need": {"vram": p["vram"]["need"] + p["vram"]["reserve"], "ram": p["ram"]["need"],
+                     "commit": p["commit"]["need"]},
+            "have": {"vram": p["vram"]["available"], "ram": p["ram"]["available"], "commit": p["commit"]["available"]},
+            "keep": {"ram": p["ram"]["keep"], "commit": p["commit"]["keep"]},
+            "expert_slots": [p["vram"]["expert_slots"], p["vram"]["expert_slots_total"]],
+            "speed": speed, "sampling": facts.get("sampling") or {}, "model": facts.get("name")}
+
+
+INFERENCE_FROM_SAMPLING = ("temperature", "top_p", "top_k", "min_p", "repetition_penalty", "presence_penalty",
+                           "frequency_penalty", "penalty_last_n")
+
+
+def wizard_save(model: str | None, values: dict, free_share_value: float, reserve_mib: int, monitor: str | None,
+                sampling: dict | None = None, measured: dict | None = None, port: int | None = None) -> dict:
+    """Step 6: this PC's answers in machine.json, the load profile "Machine Default" (with the model) made the
+    default, and the inference preset "Machine Default" with the model's own sampling values."""
+    from serve import profiles
+    share = check_free_share(free_share_value)
+    mon = check_monitor(monitor) if monitor is not None else None
+    load_values = {k: v for k, v in values.items() if k in profiles.LOAD_FIELDS and v is not None}
+    load_values["engine.vram-reserve-mib"] = int(reserve_mib)
+    if port:
+        load_values["server.port"] = int(port)
+    profiles.change({"action": "save", "kind": "load", "name": profiles.MACHINE_NAME, "values": load_values,
+                     "model": model})
+    preset = {k: (sampling or {})[k] for k in INFERENCE_FROM_SAMPLING if (sampling or {}).get(k) is not None}
+    profiles.change({"action": "save", "kind": "inference", "name": profiles.MACHINE_NAME, "settings": preset})
+    profiles.change({"action": "default", "kind": "load", "name": profiles.MACHINE_NAME})
+    saved = save_machine_settings({"free_share": share, "vram_reserve_mib": int(reserve_mib), "monitor": mon,
+                                   "pending_measure": None,
+                                   "wizard": {"at": now_iso(), "model": model, "values": load_values,
+                                              "measured": measured or None}})
+    return {"profile": profiles.MACHINE_NAME, "values": load_values, "preset": preset, "machine": saved}
+
+
+def wizard_cli(argv) -> int:
+    """python -m serve.loader wizard [--model FILE.basalt] [--monitor primary|secondary|none] [--free-share 0.15]
+    [--vram-libera GB] [--save] [--json]: steps 1 to 4 without questions (the detected and proposed answers unless
+    given), and with --save step 6. The measurement needs a server: the Loader's wizard does it."""
+    import argparse
+    ap = argparse.ArgumentParser(prog="python -m serve.loader wizard")
+    ap.add_argument("--model", help="the .basalt file (default: the default server model, else the demo sizes)")
+    ap.add_argument("--monitor", choices=MONITOR_PLACES, help="where the main monitor is, as confirmed by the user")
+    ap.add_argument("--free-share", type=float, help="the share of RAM and commit left to other programs (0.15)")
+    ap.add_argument("--vram-libera", type=float, help="GB of VRAM left to other programs (default: the proposal)")
+    ap.add_argument("--port", type=int, help="the port the Machine Default profile keeps")
+    ap.add_argument("--gpu", type=int, default=0)
+    ap.add_argument("--save", action="store_true", help="save Machine Default (load profile and inference preset)")
+    ap.add_argument("--json", action="store_true", help="one JSON object instead of lines")
+    a = ap.parse_args(argv)
+    from serve import models
+    model = a.model or models.default_model()
+    try:
+        model = models.check_basalt(model) if model else None
+        facts = models.facts_for(model) if model else dict(DEMO_FACTS)
+        hw = wizard_hardware(a.gpu)
+        answers = {"monitor": a.monitor, "free_share": a.free_share,
+                   "vram_reserve_mib": None if a.vram_libera is None else int(round(a.vram_libera * 1024))}
+        prop = wizard_proposal(hw, facts, answers)
+    except (OSError, ValueError, KeyError) as e:
+        print(f"configurazione guidata: {e}", file=sys.stderr)
+        return 2
+    saved = None
+    if a.save:
+        saved = wizard_save(model, prop["values"], prop["free_share"], prop["vram_reserve_mib"], prop["monitor"],
+                            prop["sampling"], port=a.port)
+    if a.json:
+        print(json.dumps({"hardware": hw, "proposal": prop, "saved": saved}, ensure_ascii=False, default=str))
+        return 0 if prop["fits"] else 3
+    g = lambda n: "—" if n is None else f"{n / GiB:.1f}".replace(".", ",")      # noqa: E731
+    s, m = hw["system"], hw["monitor"]
+    print(f"  RAM {g(s.get('ram_total'))} GiB, commit {g(s.get('commit_used'))} di {g(s.get('commit_limit'))} GiB, "
+          f"file di paging {'gestito da Windows (può crescere)' if hw['page_file'].get('automatic') else 'fisso'}")
+    c = hw["cpu"]
+    print(f"  CPU: {c.get('physical')} core" + (f" ({c['p_cores']} P + {c['e_cores']} E)" if c.get("hybrid") else ""))
+    print(f"  GPU: {hw['gpu'].get('name') or 'nessuna GPU NVIDIA leggibile'}, VRAM {g(s.get('vram_total'))} GiB")
+    for d in hw["displays"] or []:
+        outputs = f", {d['outputs']} uscite attive" if d["outputs"] else ""
+        print(f"  scheda video: {d['name']}{' — monitor principale' if d['primary'] else ''}{outputs}")
+    print(f"  monitor rispetto alla GPU: rilevato «{m['where']}», usato «{prop['monitor'] or 'non confermato'}»")
+    print(f"  da lasciare liberi: {pct(prop['free_share'])} di RAM e commit; VRAM {prop['vram_reserve_mib'] / 1024:.1f} GB"
+          .replace(".", ","))
+    print(f"  modello: {prop['model']}; campionamento: {json.dumps(prop['sampling'])}")
+    for k, v in prop["values"].items():
+        print(f"    {k} = {v}")
+    sp = prop["speed"]
+    print(f"  previsione: {'entra' if prop['fits'] else 'NON entra'}; {sp['decode']:.0f} tok/s in risposta, "
+          f"{sp['prefill']:.0f} tok/s in lettura")
+    for x in prop["problems"]:
+        print("  " + x["text_it"])
+    if saved:
+        print(f"  salvato: profilo e preset «{saved['profile']}» (profilo predefinito)")
+    return 0 if prop["fits"] else 3
+
+
 def main(argv=None) -> int:
     """python -m serve.loader check --config FILE: the plan of the config file's settings against what is free now,
     in Italian lines and a last JSON line; exit 0 when it fits, 3 when it does not, 4 when the GPU cannot run the
-    engine (not Blackwell), 2 for a bad file."""
+    engine (not Blackwell), 2 for a bad file.
+    python -m serve.loader wizard [...]: the configuration wizard without questions (wizard_cli)."""
     import argparse
-    import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["wizard"]:
+        return wizard_cli(argv[1:])
     from serve import settings
     ap = argparse.ArgumentParser(prog="python -m serve.loader")
     ap.add_argument("cmd", choices=["check"])
@@ -639,9 +915,10 @@ def main(argv=None) -> int:
     print(f"  VRAM:   servono {g(v['need'] + v['reserve'])} GiB (riserva compresa), liberi {g(v['available'])} GiB; "
           f"{g(v['reserve'])} GiB lasciati liberi, {g(cache)} GiB per gli esperti: {dots(v['expert_slots'])} di "
           f"{dots(v['expert_slots_total'])} esperti in VRAM ({share:.0f}%)")
-    print(f"  RAM:    servono {g(r['need'])} GiB, disponibili {g(r['available'])} GiB, {g(r['keep'])} restano liberi (15%)")
+    print(f"  RAM:    servono {g(r['need'])} GiB, disponibili {g(r['available'])} GiB, {g(r['keep'])} restano liberi "
+          f"({pct(r['keep_share'])})")
     print(f"  commit: servono {g(c['need'])} GiB (RAM {g(c['ram_part'])} + VRAM {g(c['vram_part'])}), liberi "
-          f"{g(c['available'])} GiB, {g(c['keep'])} restano liberi (15%)")
+          f"{g(c['available'])} GiB, {g(c['keep'])} restano liberi ({pct(c['keep_share'])})")
     hit = f"{s['hit_rate'] * 100:.1f}".replace(".", ",")
     print(f"  velocità stimata: {s['decode']:.0f} tok/s in risposta, {s['prefill']:.0f} tok/s in lettura, {hit}% colpi "
           f"nella cache esperti ({'calibrata' if s['source']['kind'] == 'calibration' else 'stima iniziale'})")

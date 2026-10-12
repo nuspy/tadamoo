@@ -145,8 +145,10 @@ def info(svc, local: bool, lang: str = "en") -> dict:
     from serve import hardware
     out["gpu"] = out["plan"]["gpu"]
     out["gpu_warning"] = {"it": hardware.gpu_warning(out["gpu"], "it"), "en": hardware.gpu_warning(out["gpu"], "en")}
-    out["reserve"] = {"default_mib": loader.safe_reserve_mib(system.get("vram_total")),
+    out["reserve"] = {"default_mib": out["safe"]["engine.vram-reserve-mib"],
                       "warn_mib": loader.RESERVE_WARN_MIB, "vram_total": system.get("vram_total")}
+    out["machine"] = loader.machine_settings()
+    out["free_share"] = loader.free_share()
     runs = loader.read_calibrations(sup.facts)["runs"]
     out["calibrations"] = sorted(({"at": r.get("at"), "fingerprint": fp, "decode_off": r.get("decode_off"),
                                    "decode_on": r.get("decode_on"), "prefill": r.get("prefill"), "mock": r.get("mock")}
@@ -222,3 +224,99 @@ def load(svc, req: dict) -> dict:
         notes.append("port_on_restart")                 # the HTTP server keeps its port until it starts again
     return {"status": "reloading", "changed": result["changed"], "values": result["values"], "plan": p,
             "notes": notes}
+
+
+# ------------------------------------------------------------------------------------------------ the wizard
+def _wizard_facts(svc, model):
+    if model:
+        return facts_of(svc, model), model
+    path = _config(svc)
+    try:
+        config_model = settings.model_of(path) if path else None
+    except (OSError, ValueError):
+        config_model = None
+    return facts_of(svc, config_model), config_model
+
+
+def wizard_info(svc, model: str | None = None) -> dict:
+    """GET /api/wizard: this PC (step 1) and the proposal for `model` (else the config file's model)."""
+    sup = sup_of(svc)
+    facts, model = _wizard_facts(svc, model)
+    holds, holds_vram = _holds(svc, sup)
+    hw = loader.wizard_hardware(getattr(svc, "gpu_index", 0))
+    running = (getattr(svc, "settings_info", None) or {}).get("model")
+    return {"hardware": hw, "proposal": loader.wizard_proposal(hw, facts, {}, holds, holds_vram), "model": model,
+            "running_model": running, "standby": bool(getattr(svc, "standby", False)),
+            "same_model": not model or _same(model, running) or sup.mock,
+            "relaunch": bool(getattr(svc, "relaunch_on_model_change", False)), "status": sup.status()}
+
+
+def wizard_plan(svc, req: dict) -> dict:
+    """POST /api/wizard/plan: the values computed from the answers; nothing is written."""
+    sup = sup_of(svc)
+    facts, model = _wizard_facts(svc, req.get("model") or None)
+    holds, holds_vram = _holds(svc, sup)
+    hw = loader.wizard_hardware(getattr(svc, "gpu_index", 0))
+    out = loader.wizard_proposal(hw, facts, req.get("answers") or {}, holds, holds_vram)
+    out["model_path"] = model
+    return out
+
+
+def wizard_measure(svc, req: dict) -> dict:
+    """POST /api/wizard/measure {"model", "values"}: measure the values with this server's model now; with another
+    model, save it with the values and start the server again with it (when its owner can), then measure."""
+    sup = sup_of(svc)
+    path = _config(svc)
+    if not path:
+        raise Refused(409, {"error": {"type": "invalid_request_error", "code": "no_config",
+                                      "message": "the server was started without --config: there is no file to load from"}})
+    if sup.busy():
+        raise Refused(409, {"error": {"type": "model_busy", "code": "busy",
+                                      "message": "a load, a calibration or a measurement is already running"}})
+    try:
+        values = clean(req.get("values"))
+        model = settings.check_model_value("model", req["model"]) if req.get("model") else None
+    except ValueError as e:
+        raise Refused(400, {"error": {"type": "invalid_request_error", "message": str(e)}}) from None
+    now = loader.system_now(getattr(svc, "gpu_index", 0))
+    limit, used = now.get("commit_limit"), now.get("commit_used")
+    if limit and used is not None and used / limit >= loader.MEASURE_COMMIT_MAX:
+        raise Refused(409, {"error": {"type": "insufficient_memory", "code": "commit_high",
+                                      "message": f"the commit in use is {used / limit:.0%} of the limit: the "
+                                                 f"measurement starts only below {loader.MEASURE_COMMIT_MAX:.0%}"}})
+    running = (getattr(svc, "settings_info", None) or {}).get("model")
+    if model and not _same(model, running) and not sup.mock:
+        if not getattr(svc, "relaunch_on_model_change", False):
+            raise Refused(409, {"error": {"type": "invalid_request_error", "code": "load_first",
+                                          "message": "the measurement runs with the model this server has: load the "
+                                                     "model first, then measure"}})
+        clean_values = {k: v for k, v in values.items() if v is not None}
+        loader.save_machine_settings({"pending_measure": {"model": model, "values": clean_values,
+                                                          "at": loader.now_iso()}})
+        out = load(svc, {"values": clean_values, "model": model})
+        return {**out, "measure": "after_restart"}
+    if not sup.measure({k: v for k, v in values.items() if v is not None}):
+        raise Refused(409, {"error": {"type": "model_busy", "code": "busy",
+                                      "message": "a load, a calibration or a measurement is already running"}})
+    return {"status": "measuring"}
+
+
+def pending_measure(svc) -> bool:
+    """At the start of a server the wizard restarted with another model: its measurement starts now (True)."""
+    pm = loader.machine_settings().get("pending_measure")
+    running = (getattr(svc, "settings_info", None) or {}).get("model")
+    if not isinstance(pm, dict) or not _same(pm.get("model"), running):
+        return False
+    loader.save_machine_settings({"pending_measure": None})
+    print("[server] the configuration wizard measures the values it chose for this model", flush=True)
+    return sup_of(svc).measure(pm.get("values") or {})
+
+
+def wizard_save(svc, req: dict) -> dict:
+    """POST /api/wizard/save: this PC's answers and Machine Default (load profile with the model, inference preset)."""
+    facts, model = _wizard_facts(svc, req.get("model") or None)
+    values = clean(req.get("values"))
+    port = ((getattr(svc, "settings_info", None) or {}).get("running") or {}).get("server.port")
+    return loader.wizard_save(model, values, req.get("free_share", loader.free_share()),
+                              int(req.get("vram_reserve_mib") or values.get("engine.vram-reserve-mib") or 0),
+                              req.get("monitor"), facts.get("sampling") or {}, req.get("measured"), port)

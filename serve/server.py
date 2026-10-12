@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # also runnable as a script
-from serve import ROOT, loader, service, settings, supervisor  # noqa: E402
+from serve import ROOT, loader, loader_api, service, settings, supervisor  # noqa: E402
 from serve.config import (RELAUNCH_EXIT_CODE, build_parser, check_engine_flags, engine_flags_of,  # noqa: E402
                           engine_line, engine_settings, parse_settings, sampling_defaults_from_config)
 from serve.engine import process as engine_process  # noqa: E402
@@ -268,7 +268,10 @@ def main() -> int:
         first_calibration()
 
     def first_calibration():
-        """The first load of a model measures its speeds for the Loader's predictions."""
+        """The first load of a model measures its speeds for the Loader's predictions (or the configuration wizard's
+        measurement, when the wizard started this server with the model it measures)."""
+        if loader_api.pending_measure(svc):
+            return
         sup = svc.supervisor
         if sup.auto_calibrate and not loader.read_calibrations(sup.facts)["runs"]:
             print("[server] first load of this model: measuring its speed for the Loader (Calibrate)", flush=True)

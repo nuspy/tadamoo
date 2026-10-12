@@ -165,7 +165,7 @@
   }
 
   /* ---- the prediction: resources, speed, the Load button ---- */
-  function bar(kind, need, have, keep, items, notes) {
+  function bar(kind, need, have, keep, items, notes, share) {
     const known = typeof have === "number";
     const ok = !known || need <= have - (keep || 0);
     const top = Math.max(need + (keep || 0), known ? have : need, 1);
@@ -176,7 +176,7 @@
       <div class="res-h"><b>${esc(T("pr." + kind))}</b><span class="fit">${ok ? "✓ " + esc(T("pr.fits")) : "✕ " + esc(T("pr.nofit"))}</span></div>
       <div class="res-n"><span>${esc(T("pr.need", gib(need)))}</span><span>${known ? esc(T("pr.have", gib(have))) : esc(T("pr.unknown"))}</span></div>
       <div class="resbar" aria-hidden="true"><i style="width:${pct(need)}"></i>${known && keep ? `<u style="left:${pct(have - keep)}"></u>` : ""}${known ? `<s style="left:${pct(have)}"></s>` : ""}</div>
-      ${keep ? `<p class="res-note">${esc(T("pr.keep", gib(keep)))}</p>` : ""}
+      ${keep ? `<p class="res-note">${esc(T("pr.keep", gib(keep), nfmt((share ?? 0.15) * 100, 0) + "%"))}</p>` : ""}
       ${(notes || []).map(n => `<p class="res-note">${esc(n)}</p>`).join("")}
       ${lis ? `<ul class="res-items">${lis}</ul>` : ""}
     </div>`;
@@ -199,8 +199,8 @@
         <div class="sh"><b>${esc(T("pr.title"))}</b></div>
         <div class="pad">
           ${bar("vram", v.need + v.reserve, v.available, 0, v.items, vnotes)}
-          ${bar("ram", r.need, r.available, r.keep, r.items, holds)}
-          ${bar("commit", c.need, c.available, c.keep, [], [T("pr.commit.parts", gib(c.ram_part), gib(c.vram_part))])}
+          ${bar("ram", r.need, r.available, r.keep, r.items, holds, r.keep_share)}
+          ${bar("commit", c.need, c.available, c.keep, [], [T("pr.commit.parts", gib(c.ram_part), gib(c.vram_part))], c.keep_share)}
         </div>
       </section>
       <section class="sec ldspeed" aria-label="${esc(T("sp.title"))}">
@@ -366,7 +366,9 @@
         <button type="button" class="btn ghost" data-pf="default" ${editable ? "" : "disabled"}>${esc(T("ld.profile.default"))}</button>
         <a class="btn ghost" href="api/profiles/export?kind=load" download="basalt-load-profiles.json">${esc(T("ld.profile.export"))}</a>
         <label class="btn ghost filebtn">${esc(T("ld.profile.import"))}<input type="file" accept="application/json,.json" data-pf="import" ${editable ? "" : "disabled"}></label>
-        <button type="button" class="btn" data-pf="safe">${esc(T("ld.safe"))}</button></div>` : ""}
+        <button type="button" class="btn" data-pf="safe">${esc(T("ld.safe"))}</button>
+        <button type="button" class="btn" data-pf="machine" ${PROF.load.some(p => p.name === PROF.machine) ? "" : "disabled"}>${esc(T("ld.machine"))}</button>
+        <button type="button" class="btn primary" data-pf="wizard">${esc(T("ld.wizard"))}</button></div>` : ""}
       <div class="pfrow wrap headless"><span>${esc(T("ld.headless"))}:</span><code data-pf-cmd></code>
         <button type="button" class="btn ghost" data-pf="copy">${esc(T("ld.headless.copy"))}</button></div>
       <p class="setnote">${esc(T("ld.headless.help"))}</p>
@@ -396,6 +398,8 @@
       writeForm({ ...INFO.safe, "server.port": Number(el("server.port").value) || INFO.safe["server.port"] || 7232 });
       syncMtp(); replan(); $("#ld-safe-why").open = true; pfSay(box, T("ld.safe.done"), "ok"); return;
     }
+    if (act === "machine") { applyMachine(box); return; }
+    if (act === "wizard") { if (window.BasaltWizard) BasaltWizard.open(); return; }
     if (act === "copy") {
       const t = box.querySelector("[data-pf-cmd]").textContent;
       if (navigator.clipboard) navigator.clipboard.writeText(t).then(() => pfSay(box, T("ld.headless.copied"), "ok"), () => {});
@@ -414,6 +418,20 @@
     if (act === "delete") await done("ld.profile.deleted", name);
     if (act === "default") await done("ld.profile.defaulted", name);
   }
+  // "Ripristina Machine Default": the wizard's profile in the form, with its model
+  function applyMachine(box) {
+    const md = PROF && PROF.load.find(p => p.name === PROF.machine);
+    if (!md) { pfSay(box, T("ld.machine.none"), "err"); return; }
+    writeForm(md.values); syncMtp();
+    if (md.model && window.BasaltModels) BasaltModels.select(md.model);
+    const sel = box.querySelector("select"); if (sel) sel.value = md.name;
+    formTouched = true;
+    replan(); pfSay(box, T("ld.machine.done"), "ok");
+  }
+  document.addEventListener("basalt:machine", async e => {
+    await refreshProfiles();
+    if (e.detail && e.detail.apply) { view("loader"); applyMachine($("#ld-prof")); }
+  });
   async function importProfiles(box, file) {
     try {
       const data = JSON.parse(await file.text());
@@ -512,6 +530,7 @@
     }
     if (p || model || reserve) replan();
     if (START.get("wizard") === "1" && window.BasaltWizard) BasaltWizard.offer();
+    if (START.get("wizard") === "resume" && window.BasaltWizard) BasaltWizard.resume();
     if ([...START.keys()].length) history.replaceState(null, "", location.pathname + location.hash);
   }
 

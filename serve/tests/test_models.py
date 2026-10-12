@@ -573,7 +573,7 @@ class SafeValues(unittest.TestCase):
         facts = {**loader.DEMO_FACTS, "has_mtp": False, "mmproj_bytes": 0}
         v = loader.safe(facts, small, cpu={"logical": 12, "physical": 6, "p_cores": 0, "e_cores": 0, "hybrid": False})
         self.assertEqual((v["engine.vram-reserve-mib"], v["engine.pool-workers"], v["engine.spec"], v["server.vision"]),
-                         (3072, 5, 0, "off"))
+                         (2560, 5, 0, "off"))   # 0.5 GB + 1 GB in use + 1 GB while the monitor is unconfirmed
         self.assertTrue(loader.plan(v, facts, small)["fits"])
         # nothing fits: the shortest context, and the reason says so
         why = {}

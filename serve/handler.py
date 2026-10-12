@@ -255,6 +255,13 @@ def make_handler(svc: Service):
             elif path == "/api/loader":
                 if self._authorized():
                     self._json(200, loader_api.info(svc, settings.is_loopback(self.client_address[0])))
+            elif path == "/api/wizard":
+                if self._authorized():
+                    model = parse_qs(urlsplit(self.path).query).get("model", [None])[0]
+                    try:
+                        self._json(200, loader_api.wizard_info(svc, model or None))
+                    except ValueError as e:
+                        self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
             elif path == "/api/profiles":
                 if self._authorized():
                     # the summaries are for ?model= (the Loader's chosen .basalt), else the running model
@@ -349,6 +356,9 @@ def make_handler(svc: Service):
                 return
             if path.startswith("/api/loader/"):
                 self._loader_post(path[len("/api/loader/"):])
+                return
+            if path.startswith("/api/wizard/"):
+                self._wizard_post(path[len("/api/wizard/"):])
                 return
             if path == "/api/profiles":
                 self._profiles_post()
@@ -639,6 +649,41 @@ def make_handler(svc: Service):
                 self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
             except OSError as e:
                 self._json(500, {"error": {"type": "server_error", "message": f"cannot write the config file: {e}"}})
+
+        def _wizard_post(self, what: str):
+            """POST /api/wizard/plan | measure | save (serve/loader_api.py). A plan is a computation; a measurement
+            loads the model and a save writes this PC's settings, so only from this PC, as JSON from the own page."""
+            try:
+                raw = self._body(settings.BODY_MAX)
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                return
+            if what not in ("plan", "measure", "save"):
+                self._json(404, {"error": {"message": "not found"}})
+                return
+            if what != "plan" and not settings.is_loopback(self.client_address[0]):
+                self._json(403, {"error": {"type": "forbidden",
+                                           "message": "the wizard can save or measure only from the PC the server runs on"}})
+                return
+            if not self._own_page("the configuration wizard"):
+                return
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                if what == "plan":
+                    self._json(200, loader_api.wizard_plan(svc, req))
+                elif what == "measure":
+                    out = loader_api.wizard_measure(svc, req)
+                    self._json(202, out)
+                else:
+                    self._json(200, loader_api.wizard_save(svc, req))
+            except loader_api.Refused as e:
+                self._json(e.status, e.body)
+            except ValueError as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except OSError as e:
+                self._json(500, {"error": {"type": "server_error", "message": f"cannot write: {e}"}})
 
         def _profiles_post(self):
             """POST /api/profiles {"action": "save"|"rename"|"delete"|"default"|"import", "kind": "load"|"inference",

@@ -95,7 +95,7 @@ class Service:
                             tokenizer.encode("<|endoftext|>", parse_special=True))
 
     def loaded(self) -> bool:
-        if self.standby:
+        if getattr(self, "standby", False):
             return False
         return not hasattr(self.engine, "alive") or self.engine.alive()
 
@@ -129,7 +129,7 @@ class Service:
 
     def ensure_loaded(self):
         """Start the engine if it is not running, after the before_load hook and VRAM check. Caller holds fifo."""
-        if self.standby:
+        if getattr(self, "standby", False):
             raise EngineStarting(STANDBY_MESSAGE)
         if self.loaded() and not self._vision_down():
             return
@@ -213,7 +213,7 @@ class Service:
         """Start the engine if unloaded (POST /load and every generation request); may raise GpuBusy."""
         # keeps the idle thread from unloading before this request starts
         self.last_request_at = time.time()
-        if self.standby:
+        if getattr(self, "standby", False):
             raise EngineStarting(STANDBY_MESSAGE)
         if self.loaded() and not self._vision_down():
             return

@@ -478,6 +478,9 @@ class ProcessEngine:
         seed = sampling.get("seed")
         if isinstance(seed, int) and seed > 0:
             keys += f" seed={seed}"
+        smp = sampling.get("spec_min_p")                 # a tuning key: the drafting floor for this request only
+        if isinstance(smp, (int, float)) and not isinstance(smp, bool) and 0.0 <= float(smp) <= 1.0:
+            keys += f" spec_min_p={float(smp)!r}"
         return keys + ProcessEngine.projection_key(sampling)
 
     @staticmethod

@@ -16,6 +16,9 @@ from serve.engine.errors import EngineStartError
 from serve.engine.vision import EngineVision, Vision, child_env, engine_args, gpu_list, gpus_in_play, vision_env
 
 RELOAD_WAIT_S = 300.0          # how long a reload waits for the running request to finish
+BUSY = ("waiting", "stopping", "starting", "calibrating", "measuring")   # a job runs: no other may start
+MEASURE_ANSWER = 384           # tokens of each answer the wizard's measurement times
+SPEC_MIN_P_TRIES = (0.3, 0.5, 0.7)   # draft floors tried per request, without reloading
 CALIBRATION_ANSWER = 512       # tokens of the reasoning-off answer
 CALIBRATION_THINKING = 1024    # tokens of the reasoning-on answer
 CALIBRATION_PROMPT = 8192      # tokens of the long prompt
@@ -89,7 +92,7 @@ class Supervisor:
 
     def busy(self) -> bool:
         with self.lock:
-            return self.state["phase"] in ("waiting", "stopping", "starting", "calibrating")
+            return self.state["phase"] in BUSY
 
     def _set(self, **kw):
         with self.lock:
@@ -97,7 +100,7 @@ class Supervisor:
 
     def _begin(self, job: str) -> bool:
         with self.lock:
-            if self.state["phase"] in ("waiting", "stopping", "starting", "calibrating"):
+            if self.state["phase"] in BUSY:
                 return False
             self.state = {"phase": "waiting", "job": job, "message": "", "started": time.time(), "finished": None,
                           "error": None, "step": None}
@@ -124,25 +127,30 @@ class Supervisor:
         flags, _ = engine_settings(file_engine, cli_engine)
         return a, flags
 
+    def _reload_now(self, phase: str = "stopping"):
+        """Restart the engine with the config file's settings on this thread; raises when it does not start."""
+        svc = self.svc
+        a, flags = self._parse()
+        if not svc.fifo.acquire(timeout=RELOAD_WAIT_S):
+            raise RuntimeError("a request kept the model busy; try again when it has finished")
+        try:
+            svc.loading = True
+            self._set(phase=phase)
+            print("[server] reloading the engine with the settings of the config file", flush=True)
+            if self.mock:
+                self._reload_mock(a, flags)
+            else:
+                self._reload_engine(a, flags)
+            svc.settings_info = settings_info(a, flags, self.argv)
+            svc.standby = False                          # the Loader loaded the model: requests may run now
+        finally:
+            svc.loading = False
+            svc.fifo.release()
+
     def _reload(self):
         svc = self.svc
         try:
-            a, flags = self._parse()
-            if not svc.fifo.acquire(timeout=RELOAD_WAIT_S):
-                raise RuntimeError("a request kept the model busy; try again when it has finished")
-            try:
-                svc.loading = True
-                self._set(phase="stopping")
-                print("[server] reloading the engine with the settings of the config file", flush=True)
-                if self.mock:
-                    self._reload_mock(a, flags)
-                else:
-                    self._reload_engine(a, flags)
-                svc.settings_info = settings_info(a, flags, self.argv)
-                svc.standby = False                      # the Loader loaded the model: requests may run now
-            finally:
-                svc.loading = False
-                svc.fifo.release()
+            self._reload_now()
         except EngineStartError as e:
             self._set(phase="failed", error=str(e), finished=time.time())
             print(f"[server] error: the engine did not start with the new settings: {e}", flush=True)
@@ -200,10 +208,11 @@ class Supervisor:
             self.thread.join()
         return True
 
-    def _measure(self, prompt: str, max_new: int, effort: str | None) -> dict:
+    def _measure(self, prompt: str, max_new: int, effort: str | None, extra: dict | None = None) -> dict:
         from serve.frontend import openai_to_messages
         svc = self.svc
-        req = {"messages": [{"role": "user", "content": prompt}], "temperature": 0.7, "top_p": 0.95, "seed": 1234}
+        req = {"messages": [{"role": "user", "content": prompt}], "temperature": 0.7, "top_p": 0.95, "seed": 1234,
+               **(extra or {})}
         if effort:
             req["reasoning_effort"] = effort
         messages, tools, kw = openai_to_messages(req)
@@ -243,42 +252,152 @@ class Supervisor:
             n += len(tok.encode(line))
         return "".join(lines)
 
-    def _calibrate(self):
+    ASK = ("Explain, in about 400 words, how a mixture-of-experts language model chooses which experts to run for each "
+           "token, and why that makes caching experts in GPU memory effective.")
+
+    def _calibration_record(self) -> dict:
+        """Measure the running configuration (an answer, one with reasoning, a long prompt) and save it."""
         svc = self.svc
+        values = {**(svc.settings_info or {}).get("running", {})}
+        self._set(step="decode")
+        off = self._measure(self.ASK, CALIBRATION_ANSWER, "none")
+        self._set(step="reasoning")
+        on = self._measure(self.ASK, CALIBRATION_THINKING, None)
+        self._set(step="prefill")
+        pre = self._measure(self._long_prompt(), 16, "none")
+        info = getattr(svc.engine, "info", {}) or {}
+        the_plan = loader.plan(values, self.facts, loader.system_now(getattr(svc, "gpu_index", 0)))
+        slots = info.get("expert_slots") or the_plan["vram"]["expert_slots"]
+        accept = None
+        if off.get("drafts_offered"):
+            accept = off["drafts_accepted"] / off["drafts_offered"]
+        record = {"at": loader.now_iso(), "fingerprint": loader.fingerprint(values), "values": values,
+                  "decode_off": round(off["decode"] or 0, 1), "decode_on": round(on["decode"] or 0, 1),
+                  "visible_share": round((on["tokens"] - on["reasoning_tokens"]) / on["tokens"], 3)
+                  if on["tokens"] else None,
+                  "tokens_off": off["tokens"], "tokens_on": on["tokens"], "reasoning_tokens": on["reasoning_tokens"],
+                  "prefill": round(pre["prefill"] or 0, 0), "prefill_tokens": pre["prompt_tokens"],
+                  "prefill_chunk": loader.prefill_chunk(loader.effective(values)),
+                  "hit_rate": off.get("hit_rate"), "expert_slots": slots,
+                  "cache_share": round(slots / max(1, the_plan["vram"]["expert_slots_total"]), 4),
+                  "spec": int(loader.effective(values)["engine.spec"] or 0), "accept": accept,
+                  "engine": info.get("version"), "mock": self.mock}
+        if not record["decode_off"]:
+            raise RuntimeError("no tokens were generated")
+        path = loader.save_calibration(self.facts, record)
+        print(f"[server] calibration saved to {path}: decode {record['decode_off']} tok/s, with reasoning "
+              f"{record['decode_on']} tok/s, prefill {record['prefill']:.0f} tok/s", flush=True)
+        return record
+
+    def _calibrate(self):
         self._set(phase="calibrating")
         try:
-            values = {**(svc.settings_info or {}).get("running", {})}
-            ask = ("Explain, in about 400 words, how a mixture-of-experts language model chooses which experts to run "
-                   "for each token, and why that makes caching experts in GPU memory effective.")
-            self._set(step="decode")
-            off = self._measure(ask, CALIBRATION_ANSWER, "none")
-            self._set(step="reasoning")
-            on = self._measure(ask, CALIBRATION_THINKING, None)
-            self._set(step="prefill")
-            pre = self._measure(self._long_prompt(), 16, "none")
-            info = getattr(svc.engine, "info", {}) or {}
-            the_plan = loader.plan(values, self.facts, loader.system_now(getattr(svc, "gpu_index", 0)))
-            slots = info.get("expert_slots") or the_plan["vram"]["expert_slots"]
-            accept = None
-            if off.get("drafts_offered"):
-                accept = off["drafts_accepted"] / off["drafts_offered"]
-            record = {"at": loader.now_iso(), "fingerprint": loader.fingerprint(values), "values": values,
-                      "decode_off": round(off["decode"] or 0, 1), "decode_on": round(on["decode"] or 0, 1),
-                      "visible_share": round((on["tokens"] - on["reasoning_tokens"]) / on["tokens"], 3)
-                      if on["tokens"] else None,
-                      "tokens_off": off["tokens"], "tokens_on": on["tokens"], "reasoning_tokens": on["reasoning_tokens"],
-                      "prefill": round(pre["prefill"] or 0, 0), "prefill_tokens": pre["prompt_tokens"],
-                      "prefill_chunk": loader.prefill_chunk(loader.effective(values)),
-                      "hit_rate": off.get("hit_rate"), "expert_slots": slots,
-                      "cache_share": round(slots / max(1, the_plan["vram"]["expert_slots_total"]), 4),
-                      "spec": int(loader.effective(values)["engine.spec"] or 0), "accept": accept,
-                      "engine": info.get("version"), "mock": self.mock}
-            if not record["decode_off"]:
-                raise RuntimeError("no tokens were generated")
-            path = loader.save_calibration(self.facts, record)
-            print(f"[server] calibration saved to {path}: decode {record['decode_off']} tok/s, with reasoning "
-                  f"{record['decode_on']} tok/s, prefill {record['prefill']:.0f} tok/s", flush=True)
+            record = self._calibration_record()
             self._set(phase="ready", finished=time.time(), step=None, message=json.dumps(record))
         except Exception as e:  # noqa: BLE001 - reported on the page and in the log
             self._set(phase="failed", error=f"calibration: {e}", finished=time.time(), step=None)
             print(f"[server] error: calibration failed: {e}", file=sys.stderr, flush=True)
+
+    # ---- the configuration wizard's measurement
+    def measure(self, values: dict, wait: bool = False) -> bool:
+        """Load `values` (the wizard's computed Loader values) for this server's model and measure them: the real
+        memory after the load against the plan (a smaller context, then no resident experts, while it is above), the
+        calibration, the drafting floor per request (SPEC_MIN_P_TRIES, no reload) and at most one other verify window
+        (one reload). The result {"values", "measured", "log"} is the job's message; False when a job is running."""
+        if not self._begin("measure"):
+            return False
+        self.thread = threading.Thread(target=self._measure_job, args=(dict(values),), name="measure", daemon=True)
+        self.thread.start()
+        if wait:
+            self.thread.join()
+        return True
+
+    def _write_values(self, values: dict) -> None:
+        path = (self.svc.settings_info or {}).get("config")
+        if not path:
+            raise RuntimeError("the server was started without --config: there is no file to load from")
+        fields = [f"{s}.{k}" for s, k in settings.LOADER_FIELDS]
+        settings.save(path, {f: values.get(f) for f in fields if f != "server.port"}, settings.LOADER_FIELDS)
+
+    def _over_plan(self, values: dict) -> str | None:
+        """What the real memory after the load says against the plan: None when within it, else the reason."""
+        now = loader.system_now(getattr(self.svc, "gpu_index", 0))
+        v = loader.effective(values)
+        share = loader.free_share()
+        free, reserve = now.get("vram_free"), int(v["engine.vram-reserve-mib"]) * loader.MiB
+        if free is not None and v["engine.expert-cache"] in ("auto", 0, "0", None) and free < reserve // 2:
+            return f"VRAM free after the load {free // loader.MiB} MiB, the reserve is {reserve // loader.MiB} MiB"
+        limit, used = now.get("commit_limit"), now.get("commit_used")
+        if limit and used is not None and used > limit - loader.keep_bytes(limit, share):
+            return f"commit in use {used / loader.GiB:.1f} GiB of {limit / loader.GiB:.1f} GiB"
+        total, avail = now.get("ram_total"), now.get("ram_available")
+        if total and avail is not None and avail < loader.keep_bytes(total, share):
+            return f"RAM available {avail / loader.GiB:.1f} GiB"
+        return None
+
+    def _decode(self, extra: dict | None = None) -> float:
+        return float(self._measure(self.ASK, MEASURE_ANSWER, "none", extra)["decode"] or 0)
+
+    def _measure_job(self, values: dict):
+        log = []
+
+        def say(text):
+            log.append(text)
+            print(f"[server] wizard: {text}", flush=True)
+        self._set(phase="measuring", step="check")
+        try:
+            now = loader.system_now(getattr(self.svc, "gpu_index", 0))
+            limit, used = now.get("commit_limit"), now.get("commit_used")
+            if limit and used is not None and used / limit >= loader.MEASURE_COMMIT_MAX:
+                raise RuntimeError(f"the commit in use is {used / limit:.0%} of the limit: the measurement starts only "
+                                   f"below {loader.MEASURE_COMMIT_MAX:.0%} (close other programs)")
+            current = dict(values)
+            for attempt in range(3):
+                self._set(step="load")
+                self._write_values(current)
+                self._reload_now(phase="measuring")
+                self._set(phase="measuring")
+                over = self._over_plan(current)
+                if not over:
+                    say(f"loaded with context {current.get('engine.max-context')}: the memory is within the plan")
+                    break
+                smaller = loader.shrink(current)
+                say(f"above the plan ({over}); trying {'nothing smaller' if smaller is None else 'smaller values'}")
+                if smaller is None or attempt == 2:
+                    raise RuntimeError(f"the real memory stays above the plan: {over}")
+                current = smaller
+            self._set(step="calibrate")
+            record = self._calibration_record()
+            self._set(phase="measuring")
+            measured = {"decode": record["decode_off"], "decode_reasoning": record["decode_on"],
+                        "prefill": record["prefill"], "hit_rate": record.get("hit_rate"), "accept": record.get("accept")}
+            v = loader.effective(current)
+            if self.facts.get("has_mtp") and int(v["engine.spec"] or 0) >= 2:
+                self._set(step="spec_min_p")
+                tries = {p: self._decode({"spec_min_p": p}) for p in SPEC_MIN_P_TRIES}
+                best_p = max(tries, key=tries.get)
+                say("drafting floor: " + ", ".join(f"{p} -> {tries[p]:.1f} tok/s" for p in SPEC_MIN_P_TRIES))
+                current["engine.spec-min-p"] = best_p
+                base = tries[best_p]
+                other = 5 if int(v["engine.spec"]) != 5 else 7
+                self._set(step="spec")
+                trial = {**current, "engine.spec": other}
+                self._write_values(trial)
+                self._reload_now(phase="measuring")
+                self._set(phase="measuring")
+                alt = self._decode({"spec_min_p": best_p})
+                say(f"verify window {v['engine.spec']} -> {base:.1f} tok/s, {other} -> {alt:.1f} tok/s")
+                if alt > base:
+                    current, base = trial, alt
+                else:
+                    self._write_values(current)
+                    self._reload_now(phase="measuring")
+                    self._set(phase="measuring")
+                measured.update(decode=round(base, 1), spec_min_p=tries)
+            result = {"values": current, "measured": measured, "log": log}
+            self._set(phase="ready", finished=time.time(), step=None, message=json.dumps(result))
+            print(f"[server] wizard: measurement done: {json.dumps(measured)}", flush=True)
+        except Exception as e:  # noqa: BLE001 - reported on the page and in the log
+            self._set(phase="failed", error=f"measurement: {e}", finished=time.time(), step=None,
+                      message=json.dumps({"log": log}))
+            print(f"[server] error: the wizard's measurement failed: {e}", file=sys.stderr, flush=True)
