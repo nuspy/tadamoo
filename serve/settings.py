@@ -25,7 +25,7 @@ FIELDS = (("server", "port"), ("server", "parallel"), ("server", "vision"),
           ("engine", "expert-cache"), ("engine", "prefill"))
 READ_ONLY = (("server", "model"),)
 # the Loader's fields: the settings page's engine fields and the memory and slot switches
-LOADER_FIELDS = (("server", "parallel"), ("server", "slot-full-context"), ("server", "vision"),
+LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-full-context"), ("server", "vision"),
                  ("engine", "max-context"), ("engine", "kv"), ("engine", "prefill"), ("engine", "spec"),
                  ("engine", "spec-min-p"), ("engine", "expert-cache"), ("engine", "resident-experts"),
                  ("engine", "vram-reserve-mib"), ("engine", "ple-io"), ("engine", "pool-workers"))

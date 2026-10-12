@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT, chatctx, loader_api, settings
+from serve import ROOT, chatctx, loader, loader_api, profiles, settings
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
 from serve.api.anthropic import anthropic_collect, anthropic_events
@@ -255,6 +255,21 @@ def make_handler(svc: Service):
             elif path == "/api/loader":
                 if self._authorized():
                     self._json(200, loader_api.info(svc, settings.is_loopback(self.client_address[0])))
+            elif path == "/api/profiles":
+                if self._authorized():
+                    sup = loader_api.sup_of(svc)
+                    self._json(200, profiles.listing(loader.system_now(getattr(svc, "gpu_index", 0)), sup.facts))
+            elif path == "/api/profiles/export":
+                if self._authorized():
+                    kind = parse_qs(urlsplit(self.path).query).get("kind", [None])[0]
+                    body = json.dumps(profiles.export(kind if kind in profiles.KINDS else None), indent=2,
+                                      ensure_ascii=False).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Disposition", 'attachment; filename="basalt-profiles.json"')
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
             elif path == "/api/loader/status":
                 if self._authorized():
                     self._json(200, {**loader_api.sup_of(svc).status(), "loaded": svc.loaded(), "loading": svc.loading,
@@ -320,6 +335,9 @@ def make_handler(svc: Service):
                 return
             if path.startswith("/api/loader/"):
                 self._loader_post(path[len("/api/loader/"):])
+                return
+            if path == "/api/profiles":
+                self._profiles_post()
                 return
             if path.startswith("/v1/") and self._foreign_page():
                 return
@@ -597,6 +615,25 @@ def make_handler(svc: Service):
                 self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
             except OSError as e:
                 self._json(500, {"error": {"type": "server_error", "message": f"cannot write the config file: {e}"}})
+
+        def _profiles_post(self):
+            """POST /api/profiles {"action": "save"|"rename"|"delete"|"default"|"import", "kind": "load"|"inference",
+            ...}: only from this PC, as JSON from the server's own page (serve/profiles.py)."""
+            if not settings.is_loopback(self.client_address[0]):
+                self._json(403, {"error": {"type": "forbidden",
+                                           "message": "profiles can be changed only from the PC the server runs on"}})
+                return
+            if not self._own_page("profiles can be changed"):
+                return
+            try:
+                req = json.loads(self._body(1 << 20) or b"{}")
+                self._json(200, profiles.change(req))
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except ValueError as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except OSError as e:
+                self._json(500, {"error": {"type": "server_error", "message": f"cannot write the profiles: {e}"}})
 
         def _chat_context(self):
             """POST /api/chat/context: the chat page's context meter and overflow policy (serve/chatctx.py)."""

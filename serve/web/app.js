@@ -23,7 +23,8 @@ async function get(path) {
 }
 
 /* ---- views: Chat, Monitor (stats), Hardware, Settings ---- */
-const VIEWS = ["chat", "stats", "hardware", "settings"];
+const VIEWS = ["chat", "stats", "hardware", "loader", "settings"];
+applyT($(".tabs"));
 let viewOn = "";
 function view(v, focus) {
   if (!VIEWS.includes(v)) v = "chat";

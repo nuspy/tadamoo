@@ -50,7 +50,7 @@ MTP_EXPERT_BLOB = 1382400
 ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.prefill": None, "engine.spec": 0,
                    "engine.spec-min-p": 0, "engine.expert-cache": 0, "engine.resident-experts": False,
                    "engine.vram-reserve-mib": 700, "engine.ple-io": "direct", "engine.pool-workers": None,
-                   "server.parallel": 1, "server.slot-full-context": False, "server.vision": "off"}
+                   "server.parallel": 1, "server.slot-full-context": False, "server.vision": "off", "server.port": 7232}
 
 # the values "Ripristina valori sicuri" fills in, each with why (ple-io becomes ram when the table fits, see safe())
 SAFE = {"engine.max-context": 262144, "engine.kv": "q4_0", "engine.prefill": "auto", "engine.spec": 7,

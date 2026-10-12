@@ -180,7 +180,8 @@ def main() -> int:
             warn_tight_ram(engine.info.get("arena_mib"))
     else:
         engine, vision, sampling_defaults = MockEngine(tok, a.script or [
-            "Thinking about it.</think>\n\nHello from the mock engine."], batch=a.parallel or 0), None, {}
+            "Thinking about it.</think>\n\nHello from the mock engine."], batch=a.parallel or 0,
+            max_context=int(flags.get("--max-context") or 32768)), None, {}
     # the model's exported template, else the bundled one
     tpl = tpath / "chat_template.jinja"
     svc = Service(engine, tok, ChatTemplate(tpl if tpl.exists() else ROOT / "serve/chat_template.jinja"),

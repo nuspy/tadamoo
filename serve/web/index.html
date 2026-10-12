@@ -8,9 +8,12 @@
 <link rel="preload" href="fonts/geist-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/geist-mono-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="web/app.css">
+<script defer src="web/i18n.js"></script>
 <script defer src="web/app.js"></script>
+<script defer src="web/chatset.js"></script>
 <script defer src="web/chat.js"></script>
 <script defer src="web/settings.js"></script>
+<script defer src="web/loader.js"></script>
 </head>
 <body>
 
@@ -21,6 +24,7 @@
     <button class="tab" role="tab" id="tab-chat" data-view="chat" aria-controls="view-chat" aria-selected="false" tabindex="-1">Chat</button>
     <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats" aria-selected="true">Monitor</button>
     <button class="tab" role="tab" id="tab-hardware" data-view="hardware" aria-controls="view-hardware" aria-selected="false" tabindex="-1">Hardware</button>
+    <button class="tab" role="tab" id="tab-loader" data-view="loader" aria-controls="view-loader" aria-selected="false" tabindex="-1" data-t="tab.loader">Loader</button>
     <button class="tab" role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1">Settings</button>
   </nav>
   <span class="grow"></span>
@@ -71,6 +75,7 @@
             <option value="none">Off</option>
           </select>
         </label>
+        <button type="button" class="btn" id="cs-open" aria-expanded="false" aria-controls="chatset" data-t="cs.open">Settings</button>
         <button type="button" class="btn" id="new-chat">New chat</button>
       </div>
       <div class="msgs" id="msgs" role="log" aria-label="Messages" aria-live="polite" aria-busy="false" tabindex="0">
@@ -88,12 +93,97 @@
           <button type="button" class="btn" id="attach" hidden>Attach image</button>
           <span class="hint" id="chat-hint">Enter sends, Shift+Enter adds a line</span>
           <span class="grow"></span>
+          <div class="ctxm" id="ctx-meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Context">
+            <span class="ctxm-t" id="ctx-text">Context: —</span><span class="ctxm-bar" aria-hidden="true"><i id="ctx-bar"></i></span>
+          </div>
           <button type="button" class="btn" id="stop" hidden>Stop</button>
           <button type="submit" class="btn primary" id="send">Send</button>
         </div>
         <div class="sr" id="chat-status" role="status"></div>
       </form>
     </section>
+    <aside class="sec chatset" id="chatset" aria-labelledby="cs-title" hidden>
+      <div class="sh"><b id="cs-title" data-t="cs.title">Chat settings</b><span class="grow"></span>
+        <button type="button" class="btn ghost" id="cs-close" data-t="cs.close">Close</button></div>
+      <form class="csform" id="cs-form" novalidate>
+        <div class="csgroup">
+          <label for="cs-preset" data-t="cs.preset">Preset</label>
+          <div class="csrow">
+            <select id="cs-preset"><option value="" data-t="cs.preset.none">Current settings</option></select>
+            <button type="button" class="btn ghost" id="cs-preset-del" data-t="cs.preset.delete">Delete</button>
+          </div>
+          <div class="csrow">
+            <input id="cs-preset-name" type="text" autocomplete="off" maxlength="60" data-t-aria="cs.preset.name" aria-label="Preset name">
+            <button type="button" class="btn" id="cs-preset-save" data-t="cs.preset.save">Save preset</button>
+          </div>
+          <div class="csrow wrap">
+            <button type="button" class="btn ghost" id="cs-preset-rename" data-t="cs.preset.rename">Rename</button>
+            <a class="btn ghost" id="cs-preset-export" href="api/profiles/export?kind=inference" download="basalt-presets.json" data-t="cs.preset.export">Export</a>
+            <label class="btn ghost filebtn"><span data-t="cs.preset.import">Import</span><input type="file" id="cs-preset-import" accept="application/json,.json"></label>
+          </div>
+        </div>
+        <div class="csgroup">
+          <label for="cs-system" data-t="cs.system">System prompt</label>
+          <textarea id="cs-system" rows="4" aria-describedby="cs-system-h"></textarea>
+          <p class="help" id="cs-system-h" data-t="cs.system.help"></p>
+        </div>
+        <fieldset class="csgroup">
+          <legend data-t="cs.context">When the context is full</legend>
+          <label class="radio"><input type="radio" name="cs-policy" value="stop" checked><span><b data-t="cs.policy.stop">Stop at the limit</b><small data-t="cs.policy.stop.help"></small></span></label>
+          <label class="radio"><input type="radio" name="cs-policy" value="rolling"><span><b data-t="cs.policy.rolling">Sliding window</b><small data-t="cs.policy.rolling.help"></small></span></label>
+          <label class="radio"><input type="radio" name="cs-policy" value="compact"><span><b data-t="cs.policy.compact">Compact</b><small data-t="cs.policy.compact.help"></small></span></label>
+          <div class="csnum" id="cs-threshold-box">
+            <label for="cs-threshold" data-t="cs.threshold">Compact at (% of context)</label>
+            <input id="cs-threshold" type="number" inputmode="numeric" min="30" max="100" step="5" placeholder="80">
+          </div>
+        </fieldset>
+        <fieldset class="csgroup">
+          <legend data-t="cs.reasoning">Reasoning</legend>
+          <div class="csgrid">
+            <div class="csnum"><label for="cs-budget" data-t="cs.budget">Reasoning budget (tokens)</label>
+              <input id="cs-budget" type="number" inputmode="numeric" min="0" step="256" aria-describedby="cs-budget-h">
+              <p class="help" id="cs-budget-h" data-t="cs.budget.help"></p></div>
+            <div class="csnum"><label for="cs-max_tokens" data-t="cs.max_tokens">Max output tokens</label>
+              <input id="cs-max_tokens" type="number" inputmode="numeric" min="1" step="256" aria-describedby="cs-max_tokens-h">
+              <p class="help" id="cs-max_tokens-h" data-t="cs.max_tokens.help"></p></div>
+          </div>
+        </fieldset>
+        <fieldset class="csgroup">
+          <legend data-t="cs.sampling">Sampling</legend>
+          <p class="help" data-t="cs.sampling.help"></p>
+          <div class="csgrid" id="cs-sampling"></div>
+        </fieldset>
+        <fieldset class="csgroup">
+          <legend data-t="cs.format">Structured output</legend>
+          <select id="cs-format" aria-label="Structured output">
+            <option value="" data-t="cs.format.text">Text</option>
+            <option value="json_object" data-t="cs.format.json_object">JSON object</option>
+            <option value="json_schema" data-t="cs.format.json_schema">JSON schema</option>
+          </select>
+          <div id="cs-schema-box" class="csgrid1">
+            <label for="cs-schema_name" data-t="cs.schema_name">Schema name</label>
+            <input id="cs-schema_name" type="text" autocomplete="off" spellcheck="false" placeholder="answer">
+            <label for="cs-schema" data-t="cs.schema">JSON Schema</label>
+            <textarea id="cs-schema" rows="6" spellcheck="false" aria-describedby="cs-schema-h"></textarea>
+            <p class="help" id="cs-schema-h" role="status" aria-live="polite"></p>
+          </div>
+          <div class="csnum" id="cs-retries-box">
+            <label for="cs-retries" data-t="cs.retries">Tries after a rejected answer</label>
+            <input id="cs-retries" type="number" inputmode="numeric" min="0" max="5" step="1" placeholder="2">
+          </div>
+          <p class="csnote" id="cs-format-note" data-t="cs.format.note"></p>
+        </fieldset>
+        <div class="csgroup">
+          <label for="cs-stop" data-t="cs.stop">Stop strings</label>
+          <textarea id="cs-stop" rows="2" aria-describedby="cs-stop-h" spellcheck="false"></textarea>
+          <p class="help" id="cs-stop-h" data-t="cs.stop.help"></p>
+        </div>
+        <div class="setactions">
+          <p class="setstatus" id="cs-status" role="status" aria-live="polite"></p>
+          <button type="button" class="btn ghost" id="cs-reset" data-t="cs.reset">Model defaults</button>
+        </div>
+      </form>
+    </aside>
   </div>
 
   <div class="view stats" id="view-stats" role="tabpanel" aria-labelledby="tab-stats">
@@ -216,7 +306,29 @@
     </div>
   </div>
 
+  <div class="view loader" id="view-loader" role="tabpanel" aria-labelledby="tab-loader" hidden>
+    <div class="ldgrid">
+      <form class="sec ldform" id="ld-form" novalidate>
+        <div class="sh"><b data-t="ld.title">Load the model</b><span class="grow"></span><span class="ldmodel" id="ld-model"></span></div>
+        <div class="ldprof" id="ld-prof"></div>
+        <p class="setnote warnnote" id="ld-reason" hidden></p>
+        <p class="setnote" id="ld-cli" hidden></p>
+        <div id="ld-fields"></div>
+        <div class="ldsticky" id="ld-sticky" aria-live="polite"></div>
+        <details class="ldsafe" id="ld-safe-why"><summary data-t="ld.safe.title">Why these safe values</summary><dl id="ld-safe-list"></dl></details>
+      </form>
+      <aside class="ldside" id="ld-side"></aside>
+    </div>
+  </div>
+
   <div class="view settings" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <section class="sec streload" id="st-reload" aria-labelledby="st-reload-h">
+      <div class="sh"><b id="st-reload-h" data-t="st.reload.title">Reload the model</b><span class="grow"></span>
+        <a class="btn ghost" href="#loader" data-t="ld.open">Open the Loader</a></div>
+      <p class="setnote" data-t="st.reload.help"></p>
+      <div class="ldprof" id="st-prof"></div>
+      <div id="st-side"></div>
+    </section>
     <div class="setgrid">
       <section class="sec setfile" aria-labelledby="set-file-h">
         <div class="sh"><b id="set-file-h">Settings file</b></div>

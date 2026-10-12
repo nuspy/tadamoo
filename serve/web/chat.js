@@ -83,8 +83,30 @@
   const time = t => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   function msgEl(m, i) {
     const el = document.createElement("article");
-    el.className = `cmsg ${m.role}`;
+    el.className = `cmsg ${m.role}${m.outside ? " outside" : ""}`;
     el.dataset.i = i;
+    if (m.outside) {
+      const o = document.createElement("div"); o.className = "outside-l"; o.textContent = T("outside"); el.append(o);
+    }
+    if (m.role === "summary") {
+      const d = document.createElement("details"); d.className = "compacted";
+      const s = document.createElement("summary"); s.textContent = T("compact.title", (m.originals || []).length);
+      const body = document.createElement("div"); body.className = "answer"; body.innerHTML = markdown(m.text || "");
+      const orig = document.createElement("details"); orig.className = "orig";
+      const os = document.createElement("summary"); os.textContent = T("compact.show");
+      const list = document.createElement("div"); list.className = "orig-list";
+      (m.originals || []).forEach(o => {
+        const p = document.createElement("div"); p.className = `orig-m ${o.role}`;
+        const who = document.createElement("b"); who.textContent = o.role === "user" ? "You" : o.role === "summary" ? "Summary" : "Model";
+        const t = document.createElement("div"); t.textContent = o.text || "";
+        p.append(who, t); list.append(p);
+      });
+      orig.append(os, list);
+      const undo = document.createElement("button"); undo.type = "button"; undo.className = "btn ghost undo"; undo.textContent = T("compact.undo");
+      d.append(s, body, orig, undo);
+      el.append(d);
+      return el;
+    }
     if (m.role === "user") {
       if (m.images && m.images.length) {
         const wrap = document.createElement("div"); wrap.className = "imgs";
@@ -140,6 +162,15 @@
     if (!keep(STORE, messages)) keep(STORE, messages.map(m => ({ ...m, images: (m.images || []).map(i => ({ name: i.name })) })));
   }
   msgs.addEventListener("click", e => {
+    const u = e.target.closest(".undo");
+    if (u && !busy) {                                   // put the original messages back in place of the summary
+      const i = +u.closest(".cmsg").dataset.i, s = messages[i];
+      if (s && s.role === "summary") {
+        messages.splice(i, 1, ...(s.originals || []));
+        save(); render(); status(T("compact.undone")); meter();
+      }
+      return;
+    }
     const b = e.target.closest(".copy");
     if (!b) return;
     const m = messages[+b.closest(".cmsg").dataset.i];
@@ -152,18 +183,93 @@
   }, true);
 
   /* ---- sending ---- */
+  // the conversation as API messages, with the system prompt first; `at[k]` is the conversation index of message k
+  // (-1 for the system prompt). A compaction summary goes as the user message the server wrote for it.
   function apiMessages() {
-    const out = [];
-    for (const m of messages) {
-      if (busy && busy.msg === m) continue;
+    const out = [], at = [];
+    const sys = chatSettings.system();
+    if (sys) { out.push({ role: "system", content: sys }); at.push(-1); }
+    messages.forEach((m, i) => {
+      if (busy && busy.msg === m) return;
       if (m.role === "user") {
         const imgs = (m.images || []).filter(i => i.url);
         out.push({ role: "user", content: imgs.length ? [{ type: "text", text: m.text }, ...imgs.map(i => ({ type: "image_url", image_url: { url: i.url } }))] : m.text });
+      } else if (m.role === "summary") {
+        out.push({ role: "user", content: m.content || m.text || "" });
       } else {
+        if (m.error && !m.text) return;                 // a failed reply is not part of the conversation
         out.push({ role: "assistant", content: m.text || "" });
       }
+      at.push(i);
+    });
+    return { out, at };
+  }
+
+  /* ---- the context: counted by the server, the meter under the prompt, the overflow policy before a send ---- */
+  let meterTimer = 0, meterSeq = 0;
+  function showMeter(used, limit) {
+    const box = $("#ctx-meter");
+    if (!(limit > 0)) { $("#ctx-text").textContent = T("ctx.unknown"); box.setAttribute("aria-valuenow", "0"); $("#ctx-bar").style.width = "0"; return; }
+    const pctv = Math.min(100, used / limit * 100);
+    $("#ctx-text").textContent = T("ctx.value", nfmt(used), nfmt(limit));
+    box.setAttribute("aria-valuenow", pctv.toFixed(0));
+    box.setAttribute("aria-valuetext", T("ctx.value", nfmt(used), nfmt(limit)));
+    $("#ctx-bar").style.width = pctv.toFixed(1) + "%";
+    box.dataset.level = pctv >= 90 ? "full" : pctv >= 70 ? "high" : "";
+  }
+  async function context(policy, extra) {
+    const { out, at } = apiMessages();
+    if (!out.length) return { out, at, r: null };
+    const sampling = chatSettings.body();
+    const body = { messages: out, policy, max_tokens: sampling.max_tokens || 0, threshold: chatSettings.threshold(), ...extra };
+    if (effort.value) body.reasoning_effort = effort.value;
+    const r = await fetch("api/chat/context", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify(body) });
+    if (!r.ok) return { out, at, r: null };
+    return { out, at, r: await r.json() };
+  }
+  function meter() {
+    clearTimeout(meterTimer);
+    meterTimer = setTimeout(async () => {
+      const seq = ++meterSeq;
+      if (!messages.length && !chatSettings.system()) { showMeter(0, limitKnown); return; }
+      try {
+        const { r } = await context("stop");
+        if (seq === meterSeq && r) { limitKnown = r.limit; showMeter(r.used, r.limit); }
+      } catch (e) { /* the meter waits for the next change */ }
+    }, 250);
+  }
+  let limitKnown = 0;
+  document.addEventListener("basalt:chatset", meter);
+  effort.addEventListener("change", meter);
+
+  // apply the policy before a send: true to go on, false when the conversation cannot be sent
+  async function fitContext(m) {
+    const policy = chatSettings.policy();
+    let res;
+    try { res = await context(policy); } catch (e) { return true; }   // the server says no later if it must
+    const r = res.r;
+    if (!r) return true;
+    limitKnown = r.limit;
+    messages.forEach(x => { delete x.outside; });
+    if (r.action === "over") {
+      m.error = T("ctx.over", nfmt(r.used + r.reserve), nfmt(r.limit));
+      showMeter(r.used, r.limit);
+      return false;
     }
-    return out;
+    if (r.action === "dropped") {
+      const kept = new Set(r.keep.map(k => res.at[k]));
+      let n = 0;
+      messages.forEach((x, i) => { if (x !== m && !kept.has(i)) { x.outside = true; n++; } });
+      status(T("ctx.dropped", n));
+    } else if (r.action === "compacted") {
+      const idx = r.summary.replaces.map(k => res.at[k]).filter(i => i >= 0).sort((a, b) => a - b);
+      const originals = idx.map(i => messages[i]).flatMap(x => x.role === "summary" ? (x.originals || [x]) : [x]);
+      const entry = { role: "summary", text: r.summary.text, content: r.summary.message.content, originals, time: Date.now() };
+      for (let k = idx.length - 1; k >= 0; k--) messages.splice(idx[k], 1);
+      messages.splice(idx[0], 0, entry);
+    }
+    showMeter(r.used, r.limit);
+    return true;
   }
   function setBusy(on) {
     $("#stop").hidden = !on;
@@ -181,17 +287,30 @@
     const m = { role: "assistant", text: "", reasoning: "", time: Date.now() };
     messages.push(m);
     render();
-    const el = msgs.lastElementChild, controller = new AbortController();
+    let el = msgs.lastElementChild;
+    const controller = new AbortController();
     busy = { controller, msg: m, el };
-    setBusy(true); status("The model is answering");
+    setBusy(true);
+    let first = null, thinkStart = null, usage = null, frame = 0;
+    const draw = () => { frame = 0; paint(el, m, true); scrollDown(); };
+    if (chatSettings.policy() === "compact") status(T("ctx.compacting"));
+    const fits = await fitContext(m);
+    if (busy && busy.msg === m) { render(); el = busy.el = msgs.lastElementChild; paint(el, m, true); }
+    if (!fits || controller.signal.aborted) {
+      if (controller.signal.aborted) m.stopped = true;
+      busy = null; setBusy(false); paint(el, m, false);
+      status(m.error || "Stopped"); save(); scrollDown();
+      return;
+    }
+    status("The model is answering");
     // a server started with --listen-first may still be loading the model: the request waits for it
     fetch("v1/status", { cache: "no-store", headers: authHeaders() }).then(r => r.ok ? r.json() : null)
       .then(s => { if (s && s.loading && busy && busy.msg === m && !first) status("The model is still loading; the answer starts when it is ready"); })
       .catch(() => {});
-    const body ={ model: model || undefined, messages: apiMessages(), stream: true };
+    const body = { model: model || undefined, ...chatSettings.body(), stream: true };
+    const api = apiMessages();                          // the sliding window leaves out what is marked outside
+    body.messages = api.out.filter((x, k) => api.at[k] < 0 || !messages[api.at[k]].outside);
     if (effort.value) body.reasoning_effort = effort.value;
-    let first = null, thinkStart = null, usage = null, frame = 0;
-    const draw = () => { frame = 0; paint(el, m, true); scrollDown(); };
     try {
       const r = await fetch("v1/chat/completions", { method: "POST", signal: controller.signal,
         headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify(body) });
@@ -218,6 +337,7 @@
           try { j = JSON.parse(data); } catch (e) { continue; }
           if (j.error) throw new Error(j.error.message || "the engine reported an error");
           if (j.usage) usage = j.usage;
+          if (j.structured_output) m.structured = j.structured_output;
           const d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
           if (d.reasoning_content) { first = first || performance.now(); thinkStart = thinkStart || performance.now(); m.reasoning += d.reasoning_content; }
           if (d.content) {
@@ -239,12 +359,17 @@
       const secs = (performance.now() - first) / 1000;
       m.meta = `${n.toLocaleString("en-US")} tokens${secs > 0.25 ? ` · ${(n / secs).toFixed(1)} tok/s` : ""}${m.stopped ? " · stopped" : ""}`;
     } else if (m.stopped) m.meta = "Stopped";
+    if (m.structured) {                                 // validated JSON: shown as a code block
+      m.meta = `${m.meta ? m.meta + " · " : ""}${T("cs.validated", m.structured.attempts)}`;
+      try { m.text = "```json\n" + JSON.stringify(JSON.parse(m.text), null, 2) + "\n```"; } catch (e) { /* left as sent */ }
+    }
     busy = null;
     setBusy(false);
     paint(el, m, false);
     status(m.error ? `Error: ${m.error}` : m.stopped ? "Stopped" : "Answer complete");
     save();
     scrollDown();
+    meter();
   }
 
   $("#composer").onsubmit = e => { e.preventDefault(); send(); };
@@ -257,7 +382,7 @@
   prompt.addEventListener("input", autosize);
   $("#new-chat").onclick = () => {
     if (busy) busy.controller.abort();
-    messages = []; save(); render(); status("New chat"); prompt.focus();
+    messages = []; save(); render(); status("New chat"); prompt.focus(); meter();
   };
 
   /* ---- images (only when the server reads them) ---- */
@@ -305,9 +430,9 @@
     $("#chat-model").textContent = model;
     prompt.placeholder = images ? "Message the model, or attach an image" : "Message the model";
   }
-  document.addEventListener("basalt:key", capabilities);
-  document.addEventListener("basalt:view", e => { if (e.detail === "chat") { scrollDown(true); } });
+  document.addEventListener("basalt:key", () => { capabilities(); meter(); });
+  document.addEventListener("basalt:view", e => { if (e.detail === "chat") { scrollDown(true); meter(); } });
 
   render();
-  capabilities();
+  capabilities().then(meter);
 })();

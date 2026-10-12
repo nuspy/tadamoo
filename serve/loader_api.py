@@ -147,4 +147,10 @@ def load(svc, req: dict) -> dict:
     if not sup.reload():
         raise Refused(409, {"error": {"type": "model_busy", "code": "busy",
                                       "message": "a load or a calibration is already running"}})
-    return {"status": "reloading", "changed": result["changed"], "values": result["values"], "plan": p}
+    notes = []
+    port = merged.get("server.port")
+    running_port = ((getattr(svc, "settings_info", None) or {}).get("running") or {}).get("server.port")
+    if port is not None and running_port is not None and int(port) != int(running_port):
+        notes.append("port_on_restart")                 # the HTTP server keeps its port until it starts again
+    return {"status": "reloading", "changed": result["changed"], "values": result["values"], "plan": p,
+            "notes": notes}
