@@ -13,6 +13,7 @@
 <script defer src="web/chatset.js"></script>
 <script defer src="web/chat.js"></script>
 <script defer src="web/settings.js"></script>
+<script defer src="web/models.js"></script>
 <script defer src="web/loader.js"></script>
 </head>
 <body>
@@ -307,6 +308,8 @@
   </div>
 
   <div class="view loader" id="view-loader" role="tabpanel" aria-labelledby="tab-loader" hidden>
+    <p class="sec setnote warnnote ldgpu" id="ld-gpu" role="alert" hidden></p>
+    <section class="sec ldmodels" id="ld-models" aria-label="Model"></section>
     <div class="ldgrid">
       <form class="sec ldform" id="ld-form" novalidate>
         <div class="sh"><b data-t="ld.title">Load the model</b><span class="grow"></span><span class="ldmodel" id="ld-model"></span></div>
@@ -327,8 +330,10 @@
         <a class="btn ghost" href="#loader" data-t="ld.open">Open the Loader</a></div>
       <p class="setnote" data-t="st.reload.help"></p>
       <div class="ldprof" id="st-prof"></div>
+      <div class="field rsv strsv" id="st-rsv"></div>
       <div id="st-side"></div>
     </section>
+    <section class="sec stmodels" id="st-models" aria-label="Models folders"></section>
     <div class="setgrid">
       <section class="sec setfile" aria-labelledby="set-file-h">
         <div class="sh"><b id="set-file-h">Settings file</b></div>

@@ -94,8 +94,8 @@ def _say(it: str, en: str) -> dict:
 
 
 def gb(n) -> str:
-    """Decimal gigabytes with an Italian comma, as the dialogs show disk sizes."""
-    return f"{(n or 0) / 1e9:,.1f}".replace(",", " ").replace(".", ",").replace(" ", ".")
+    """GiB written "GB" with an Italian comma, as Windows Explorer shows file and disk sizes."""
+    return f"{(n or 0) / GiB:,.1f}".replace(",", " ").replace(".", ",").replace(" ", ".")
 
 
 # ------------------------------------------------------------------------------------------------ the folders

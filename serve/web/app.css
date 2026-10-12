@@ -596,3 +596,93 @@ fieldset:disabled input, fieldset:disabled select { opacity: .7; }
   .ldsticky .btn { text-decoration: none; display: inline-flex; align-items: center; flex: none; }
 }
 .csrow a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+
+/* ---- Models (models.js): the picker, the folders, the jobs, the conversion dialog ---- */
+.ldgpu { padding: 14px 20px; margin-bottom: 16px; font-size: 16px; }
+.ldmodels { margin-bottom: 16px; }
+.mdl { display: flex; flex-direction: column; gap: 12px; padding: 14px 20px 16px; min-width: 0; }
+.mdl-pick { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mdl-pick label { font: 500 15px/1.4 var(--font-sans); }
+.mdl-pick select { min-height: 48px; padding: 8px 12px; flex: 1 1 260px; min-width: 0; }
+.mdl-ask { display: flex; flex-direction: column; gap: 4px; }
+.mdl-ask > .warnnote { padding: 0; font-size: 16px; }
+.mdl .setnote { padding: 0; font-size: 15px; }
+.chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chips li { font: 400 14px/1.4 var(--font-mono); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; overflow-wrap: anywhere; }
+.badge { display: inline-flex; align-items: center; gap: 4px; font: 600 14px/1.3 var(--font-sans); border-radius: 6px; padding: 3px 8px; border: 1px solid currentColor; white-space: nowrap; }
+.badge[data-s="ready"] { color: #7EE2A8; }
+.badge[data-s="convert"] { color: var(--ember-hot); }
+.badge[data-s="incompatible"] { color: #FF8FA3; }
+.badge[data-s="att"], .badge[data-s="def"] { color: var(--fg-2); }
+.mdl-all > summary, .mdl-inc > summary, .mdl-dirbox > summary, .mdl-job details > summary, .mdl-dlg details > summary { min-height: 48px; display: flex; align-items: center; cursor: pointer; font: 600 15px/1.4 var(--font-sans); }
+.mdl-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.mdl-inc, .mdl-dirbox { margin-top: 8px; }
+.mdl-card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; background: var(--bg); min-width: 0; }
+.mdl-card[data-s="ready"] { border-left: 4px solid #7EE2A8; }
+.mdl-card[data-s="convert"] { border-left: 4px solid var(--ember-hot); }
+.mdl-card[data-s="incompatible"] { border-left: 4px solid var(--basalt-500); }
+.mdl-h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.mdl-h b { font: 600 16px/1.4 var(--font-sans); overflow-wrap: anywhere; min-width: 0; }
+.mdl-path { margin: 0; font-size: 13.5px; color: var(--fg-2); overflow-wrap: anywhere; }
+.mdl-path code { font-size: 13.5px; }
+.mdl-why, .mdl-note { margin: 0; font-size: 15px; line-height: 1.5; color: var(--fg-2); }
+.mdl-card[data-s="incompatible"] .mdl-why { color: var(--fg); }
+.mdl-act { display: flex; flex-wrap: wrap; gap: 8px; }
+.mdl-act .btn[aria-pressed="true"] { border-color: var(--accent); }
+.mdl-dirs { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mdl-dirrows { display: flex; flex-direction: column; gap: 12px; }
+.mdl-dirrow .pfrow { flex-wrap: wrap; }
+.mdl-dirrow input { flex: 1 1 240px; min-width: 0; min-height: 48px; padding: 8px 12px; font: 400 16px/1.5 var(--font-mono); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.mdl-dirrow input[aria-invalid="true"] { border-color: var(--err); }
+.mdl-dirrow label { font: 500 15px/1.4 var(--font-sans); }
+.mdl-sugg-h { margin: 4px 0 0; font-size: 15px; color: var(--fg-2); }
+.mdl-sugg .btn { overflow-wrap: anywhere; text-align: left; }
+.mdl-dirs .setactions { padding: 8px 0 0; border-top: 0; }
+.mdl-msg:empty { display: none; }
+.mdl-job { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; background: var(--bg); }
+.mdl-job-h { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.mdl-job-h b { font: 600 15px/1.4 var(--font-sans); overflow-wrap: anywhere; }
+.mdl-job[data-phase="failed"] .mdl-job-h span { color: #FF8FA3; }
+.mdl-job[data-phase="done"] .mdl-job-h span { color: #7EE2A8; }
+.mdl-bar { height: 10px; border-radius: 5px; background: var(--raised); overflow: hidden; }
+.mdl-bar i { display: block; height: 100%; background: var(--accent); transition: width .4s ease; }
+.mdl-job-s, .mdl-job-r { margin: 0; font: 400 14px/1.5 var(--font-mono); color: var(--fg-2); }
+.mdl-job-r { color: var(--fg); font-family: var(--font-sans); font-size: 15px; }
+.mdl-log { margin: 0; max-height: 260px; overflow: auto; font: 400 13px/1.5 var(--font-mono); color: var(--fg-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.mdl-dlg { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--fg); padding: 0; }
+.mdl-dlg::backdrop { background: rgba(5, 7, 9, .72); }
+.mdl-dlg form { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px calc(16px + env(safe-area-inset-bottom)); }
+.mdl-dlg h2 { margin: 0; font: 600 19px/1.35 var(--font-sans); overflow-wrap: anywhere; }
+.mdl-dlg-sum { margin: 0; font-size: 16px; line-height: 1.55; }
+.mdl-dlg input { min-height: 48px; padding: 8px 12px; width: 100%; font: 400 16px/1.5 var(--font-mono); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.mdl-dlg .help { margin: 0; font-size: 14px; color: var(--fg-2); overflow-wrap: anywhere; }
+.mdl-problems { margin: 0; padding-left: 20px; color: #FF8FA3; font-size: 15px; line-height: 1.5; }
+.mdl-problems:empty { display: none; }
+.mdl-cmd { display: block; font-size: 13px; color: var(--fg-2); overflow-wrap: anywhere; }
+.mdl-dlg .setactions { padding: 8px 0 0; border-top: 0; }
+#view-loader[data-blocked] .ldgrid { display: none; }
+.stmodels { margin-bottom: 16px; }
+.stmodels .mdl-dirs { padding: 14px 20px 16px; }
+.stmodels > .warnnote { padding: 14px 20px 0; }
+
+/* the VRAM left free: slider + number, and the live figures under it */
+.rsv { gap: 8px; }
+.ldgroup .fields .rsv { grid-column: 1 / -1; }
+.rsv label { font: 600 16px/1.4 var(--font-sans); }
+.rsv-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rsv-row input[type=range] { flex: 1 1 220px; min-width: 0; height: 44px; accent-color: var(--accent); margin: 0; }
+.rsv-num { display: inline-flex; align-items: center; gap: 6px; font: 500 16px/1 var(--font-sans); }
+.rsv-num input { width: 110px; min-height: 44px; padding: 8px 10px; font: 400 16px/1.5 var(--font-mono); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.rsv-figs { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 6px 16px; }
+.rsv-figs li { display: flex; flex-direction: column; gap: 2px; font-size: 14px; color: var(--fg-2); }
+.rsv-figs b { font: 600 17px/1.3 var(--font-mono); color: var(--fg); }
+.rsv-warn { margin: 0; color: var(--warn); font-size: 15px; line-height: 1.5; }
+.rsv-live .help { margin: 6px 0 0; }
+.strsv { padding: 14px 20px 0; }
+@media (max-width: 640px) {
+  .mdl { padding: 12px 16px 14px; }
+  .ldgpu { padding: 12px 16px; }
+  .strsv, .stmodels .mdl-dirs { padding-inline: 16px; }
+  .mdl-act .btn, .mdl-dirs .setactions .btn { flex: 1 1 auto; }
+}
+@media (prefers-reduced-motion: reduce) { .mdl-bar i { transition: none; } }

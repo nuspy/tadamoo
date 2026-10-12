@@ -5,6 +5,7 @@
    reuses the profile picker, the prediction and the Reload button. */
 (() => {
   const FIELDS = [
+    { group: "reserve", name: "engine.vram-reserve-mib", kind: "reserve" },
     { group: "context", name: "engine.max-context", kind: "int", min: 256, max: 262144, step: 1024,
       list: [4096, 8192, 16384, 32768, 65536, 131072, 262144] },
     { group: "context", name: "engine.kv", kind: "choice", options: ["fp16", "int8", "k8v4", "q4_0"] },
@@ -16,7 +17,6 @@
     { group: "speed", name: "engine.spec-min-p", kind: "float", min: 0, max: 1, step: 0.05 },
     { group: "memory", name: "engine.expert-cache", kind: "text", list: ["auto"] },
     { group: "memory", name: "engine.resident-experts", kind: "bool" },
-    { group: "memory", name: "engine.vram-reserve-mib", kind: "int", min: 0, max: 65536, step: 256 },
     { group: "memory", name: "engine.ple-io", kind: "choice", options: ["direct", "mmap", "ram"] },
     { group: "memory", name: "engine.pool-workers", kind: "int", min: 1, max: 256, step: 1 },
     { group: "server", name: "server.port", kind: "int", min: 1, max: 65535, step: 1 },
@@ -43,6 +43,12 @@
         d.className = "field" + (f.kind === "bool" ? " check" : "");
         d.dataset.name = f.name;
         let input;
+        if (f.kind === "reserve") {
+          d.className = "field rsv";
+          d.innerHTML = reserveHtml("lf", id, help);
+          grid.append(d);
+          continue;
+        }
         if (f.kind === "bool") {
           input = `<input id="${id}" type="checkbox" aria-describedby="${help}">`;
           d.innerHTML = `<label for="${id}">${input}<span>${esc(T("f." + key))}</span></label>`;
@@ -66,6 +72,48 @@
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const el = name => $("#" + fid(name));
 
+  /* ---- the VRAM left free: a slider and a number in GB (GiB, as Windows shows them), engine.vram-reserve-mib ---- */
+  function reserveHtml(prefix, id, help) {
+    return `<label for="${id}" class="${prefix === "lf" ? "sr" : ""}">${esc(T("rsv.title"))}</label>
+      <div class="rsv-row"><input type="range" id="${prefix}-rsv-range" min="0" max="32" step="0.25" aria-label="${esc(T("rsv.title"))}" aria-describedby="${help}">
+        <span class="rsv-num"><input id="${id}" type="number" inputmode="decimal" min="0" max="64" step="0.25" aria-describedby="${help}"><span aria-hidden="true">GB</span></span></div>
+      <p class="help" id="${help}">${esc(T("rsv.help"))}</p>
+      <div class="rsv-live" id="${prefix}-rsv-live" aria-live="polite"></div>`;
+  }
+  function reserveMax() {
+    const v = INFO && INFO.reserve && INFO.reserve.vram_total;
+    return v ? Math.max(4, Math.min(64, Math.floor(v / GiBn))) : 32;
+  }
+  function syncReserve(prefix, num, from) {
+    const range = $(`#${prefix}-rsv-range`);
+    if (!range || !num) return;
+    range.max = String(reserveMax());
+    if (from === "range") num.value = range.value;
+    else range.value = num.value === "" ? String((((INFO && INFO.defaults) || {})["engine.vram-reserve-mib"] || 700) / 1024) : num.value;
+  }
+  const toMiB = raw => { const n = Number(String(raw).replace(",", ".")); return raw === "" ? null : Number.isFinite(n) ? Math.round(n * 1024) : raw; };
+  const toGB = mib => mib == null ? "" : String(+(Number(mib) / 1024).toFixed(2));
+  function reserveLive(p, target) {
+    const box = $(target);
+    if (!box || !p) return;
+    const v = p.vram, s = p.speed || {}, c = p.commit;
+    const cache = ((v.items || []).find(i => i.key === "experts") || {}).bytes || 0;
+    const pct = v.expert_slots / Math.max(1, v.expert_slots_total) * 100;
+    const auto = ["auto", 0, "0", null, undefined].includes((p.values || {})["engine.expert-cache"]);
+    const procs = ((p.gpu || {}).processes || []).map(x => x.name || String(x.pid));
+    const counts = procs.reduce((a, n) => (a[n] = (a[n] || 0) + 1, a), {});
+    const list = Object.entries(counts).map(([n, k]) => k > 1 ? `${n} ×${k}` : n).join(", ");
+    box.innerHTML = `<ul class="rsv-figs">
+        <li><span>${esc(T("rsv.experts"))}</span><b>${gib(cache)} GB</b></li>
+        <li><span>${esc(T("rsv.slots"))}</span><b>${esc(T("rsv.slots.v", nfmt(v.expert_slots), nfmt(v.expert_slots_total), nfmt(pct, 0)))}</b></li>
+        <li><span>${esc(T("rsv.hit"))}</span><b>${nfmt((s.hit_rate || 0) * 100, 1)}%</b></li>
+        <li><span>${esc(T("rsv.speed"))}</span><b>${nfmt(s.decode, 0)} · ${nfmt(s.prefill, 0)} tok/s</b></li>
+        <li><span>${esc(T("rsv.commit"))}</span><b>${gib(c.need)} GB</b></li></ul>
+      <p class="help">${esc(auto ? T("rsv.trade") : T("rsv.fixed"))}</p>
+      ${(p.warnings || []).map(x => `<p class="rsv-warn" role="alert">⚠ ${esc(LANG === "it" ? x.text_it : x.text)}</p>`).join("")}
+      ${list ? `<p class="help">${esc(T("rsv.procs", list))}</p>` : ""}`;
+  }
+
   function defaults() {
     const d = (INFO && INFO.defaults) || {};
     FIELDS.forEach(f => {
@@ -73,6 +121,7 @@
       if (!e || f.virtual) return;
       const v = d[f.name];
       if (f.kind === "choice") e.querySelector("[data-default]").textContent = T("opt.default", v ?? fallback[f.name] ?? "—");
+      else if (f.kind === "reserve") e.placeholder = toGB(v);
       else if (f.kind !== "bool") e.placeholder = v == null ? "—" : String(v);
     });
   }
@@ -83,6 +132,7 @@
       if (f.virtual) continue;
       const e = el(f.name);
       if (f.kind === "bool") { out[f.name] = e.checked; continue; }
+      if (f.kind === "reserve") { out[f.name] = toMiB(e.value.trim()); continue; }
       const raw = e.value.trim();
       if (raw === "") { out[f.name] = null; continue; }
       if (f.kind === "int" || f.kind === "float") { const n = Number(raw); out[f.name] = Number.isFinite(n) ? n : raw; continue; }
@@ -98,6 +148,7 @@
       if (f.virtual) continue;
       const e = el(f.name), x = v[f.name];
       if (f.kind === "bool") e.checked = x === true;
+      else if (f.kind === "reserve") { e.value = toGB(x); syncReserve("lf", e); }
       else e.value = x == null ? "" : String(x);
     }
     const spec = Number(v["engine.spec"] ?? 0);
@@ -173,8 +224,10 @@
     const box = $(target);
     box.innerHTML = sideHtml(p, mode);
     if (mode === "loader") sticky(p);
+    reserveLive(p, mode === "loader" ? "#lf-rsv-live" : "#st-rsv-live");
     showStatus();
   }
+  const modelNow = () => (window.BasaltModels && BasaltModels.selected()) || null;
   // on a phone the prediction is far below the fields: a summary bar stays at the bottom while editing
   function sticky(p) {
     const ok = k => !(p.problems || []).some(x => x.code === k || (k === "ram" && x.code === "ple_ram"));
@@ -185,9 +238,9 @@
       `<a class="btn ${go && !go.disabled ? "primary" : "ghost"}" href="#ld-side">${esc(go && !go.disabled ? T("ld.load") : T("pr.nofit"))}</a>`;
   }
 
-  async function plan(values) {
+  async function plan(values, model) {
     const r = await fetch("api/loader/plan", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ values }) });
+      body: JSON.stringify({ values, model: model === undefined ? modelNow() : model }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error((j.error && j.error.message) || `HTTP ${r.status}`);
     return j;
@@ -222,10 +275,12 @@
     if (r.status === 401) askKey();
     return { r, j };
   }
-  async function load(values, target, mode) {
-    const { r, j } = await post("api/loader/load", { values });
+  async function load(values, target, mode, model) {
+    const m = model || modelNow();
+    const { r, j } = await post("api/loader/load", m ? { values, model: m } : { values });
     if (r.status === 422 && j.plan) { renderSide(target, j.plan, mode); return; }
     if (!r.ok) { say(T("ld.phase.failed", (j.error && j.error.message) || `HTTP ${r.status}`), "err"); return; }
+    if ((j.notes || []).includes("model_on_restart")) { say(T("ld.model.restart", BasaltModels.name(j.model)), "ok"); return; }
     if ((j.notes || []).includes("port_on_restart")) say(T("ld.port.note"));
     INFO.status = { phase: "waiting" };
     watch();
@@ -268,6 +323,7 @@
   function profileLabel(p) {
     const s = p.summary || {};
     const parts = [s.text];
+    if (s.model) parts.unshift(s.model + (s.model_missing ? " (?)" : ""));
     if (s.vram_gb != null) parts.push(`VRAM ~${nfmt(s.vram_gb, 1)} GB`);
     if (s.tok_s != null) parts.push(`~${nfmt(s.tok_s)} tok/s`);
     if (s.port && s.port !== 7232) parts.push(`:${s.port}`);
@@ -317,7 +373,11 @@
     const prof = PROF.load.find(p => p.name === name);
     const done = async (key, arg) => { await refreshProfiles(); pfSay(box, T(key, arg), "ok"); };
     const fail = j => pfSay(box, (j.error && j.error.message) || "error", "err");
-    if (act === "use" && prof) { writeForm(prof.values); syncMtp(); replan(); pfSay(box, T("ld.profile.used", name), "ok"); return; }
+    if (act === "use" && prof) {
+      writeForm(prof.values); syncMtp();
+      if (prof.model) BasaltModels.select(prof.model);
+      replan(); pfSay(box, T("ld.profile.used", name), "ok"); return;
+    }
     if (act === "safe") {
       writeForm({ ...INFO.safe, "server.port": Number(el("server.port").value) || INFO.safe["server.port"] || 7232 });
       syncMtp(); replan(); $("#ld-safe-why").open = true; pfSay(box, T("ld.safe.done"), "ok"); return;
@@ -328,7 +388,7 @@
       return;
     }
     let body = null;
-    if (act === "save") { if (!typed) { pfSay(box, T("cs.preset.noname"), "err"); input.focus(); return; } body = { action: "save", kind: "load", name: typed, values: readForm() }; }
+    if (act === "save") { if (!typed) { pfSay(box, T("cs.preset.noname"), "err"); input.focus(); return; } body = { action: "save", kind: "load", name: typed, values: readForm(), model: modelNow() }; }
     if (act === "rename") { if (!typed) { pfSay(box, T("cs.preset.noname"), "err"); input.focus(); return; } body = { action: "rename", kind: "load", name, new_name: typed }; }
     if (act === "delete") body = { action: "delete", kind: "load", name };
     if (act === "default") body = { action: "default", kind: "load", name };
@@ -355,10 +415,25 @@
   }
 
   /* ---- the Settings view: a profile or the file, its prediction, Reload ---- */
+  let stModel = null, stTimer = 0;
   async function settingsPick(name) {
     const prof = PROF && PROF.load.find(p => p.name === name);
     stValues = prof ? { ...prof.values } : { ...(INFO.values || {}) };
-    try { renderSide("#st-side", await plan(stValues), "settings"); } catch (e) { $("#st-side").textContent = e.message; }
+    stModel = (prof && prof.model) || modelNow();
+    const num = $("#st-rsv-num");
+    if (num) { num.value = toGB(stValues["engine.vram-reserve-mib"]); num.placeholder = toGB((INFO.defaults || {})["engine.vram-reserve-mib"]); syncReserve("st", num); }
+    await settingsReplan();
+  }
+  async function settingsReplan() {
+    try { renderSide("#st-side", await plan(stValues, stModel), "settings"); } catch (e) { $("#st-side").textContent = e.message; }
+  }
+  function settingsReserve(from) {
+    const num = $("#st-rsv-num");
+    syncReserve("st", num, from);
+    if (!stValues) return;
+    stValues["engine.vram-reserve-mib"] = toMiB(num.value.trim());
+    clearTimeout(stTimer);
+    stTimer = setTimeout(settingsReplan, 200);
   }
 
   /* ---- reading ---- */
@@ -375,17 +450,23 @@
       return;
     }
     $("#ld-model").textContent = (INFO.model && INFO.model.name) || "";
+    const gw = INFO.gpu_warning && (INFO.gpu_warning[LANG] || INFO.gpu_warning.en);
+    $("#ld-gpu").hidden = !gw; $("#ld-gpu").textContent = gw || "";
+    if (window.BasaltModels) await BasaltModels.refresh();
     defaults();
     const reason = INFO.editable ? "" : T("ld.ro." + (INFO.reason || "no_config"));
     $("#ld-reason").hidden = !reason; $("#ld-reason").textContent = reason;
     $("#ld-cli").hidden = !(INFO.from_command_line || []).length;
     $("#ld-cli").textContent = T("ld.cli", (INFO.from_command_line || []).join(", "));
     if (!formTouched) writeForm(INFO.values);
+    syncReserve("lf", el("engine.vram-reserve-mib"));
     $("#ld-safe-list").innerHTML = Object.entries(INFO.safe || {}).map(([k, v]) => {
       const why = (INFO.safe_why || {})[k];
       return `<dt>${esc(T("f." + k))}: <code>${esc(String(v))}</code></dt><dd>${esc(why ? why[LANG] || why.en : "")}</dd>`;
     }).join("");
-    renderSide("#ld-side", INFO.plan, "loader");
+    const m = modelNow();
+    if (m && !(INFO.plan && INFO.plan.model && INFO.plan.model.path && INFO.plan.model.path.replace(/\\/g, "/").toLowerCase() === m.toLowerCase())) replan();
+    else renderSide("#ld-side", INFO.plan, "loader");
     await refreshProfiles();
     if (viewOn === "settings") settingsPick(($("#st-prof select") || {}).value || "");
     if (["waiting", "stopping", "starting", "calibrating"].includes((INFO.status || {}).phase)) watch();
@@ -393,18 +474,32 @@
   let formTouched = false;
 
   build();
-  $("#ld-form").addEventListener("input", () => { formTouched = true; syncMtp(); replan(); });
-  $("#ld-form").addEventListener("change", () => { formTouched = true; syncMtp(); replan(); });
+  $("#st-rsv").innerHTML = reserveHtml("st", "st-rsv-num", "st-rsv-h");
+  const formInput = e => {
+    formTouched = true;
+    if (e.target.id === "lf-rsv-range") syncReserve("lf", el("engine.vram-reserve-mib"), "range");
+    else if (e.target === el("engine.vram-reserve-mib")) syncReserve("lf", e.target);
+    syncMtp(); replan();
+  };
+  $("#ld-form").addEventListener("input", formInput);
+  $("#ld-form").addEventListener("change", formInput);
+  $("#st-rsv").addEventListener("input", e => settingsReserve(e.target.id === "st-rsv-range" ? "range" : "num"));
+  if (window.BasaltModels) BasaltModels.onChange(() => {
+    if (viewOn === "loader") replan();
+    if (viewOn === "settings" && stValues) { stModel = modelNow(); settingsReplan(); }
+  });
   $("#ld-form").onsubmit = e => e.preventDefault();
   document.addEventListener("click", e => {
     const b = e.target.closest("[data-act]");
     if (!b || b.disabled) return;
     const inSettings = !!b.closest("#st-side");
-    if (b.dataset.act === "load") load(inSettings ? stValues : readForm(), inSettings ? "#st-side" : "#ld-side", inSettings ? "settings" : "loader");
+    if (b.dataset.act === "load") load(inSettings ? stValues : readForm(), inSettings ? "#st-side" : "#ld-side", inSettings ? "settings" : "loader",
+      inSettings ? stModel : undefined);
     if (b.dataset.act === "calibrate") calibrate();
   });
   document.addEventListener("basalt:view", e => { if (e.detail === "loader" || e.detail === "settings") refresh(); });
   document.addEventListener("basalt:key", () => { if (viewOn === "loader" || viewOn === "settings") refresh(); });
   applyT($("#view-loader")); applyT($("#st-reload"));
+  $("#ld-models").setAttribute("aria-label", T("ld.model"));
   if (viewOn === "loader" || viewOn === "settings") refresh();
 })();
