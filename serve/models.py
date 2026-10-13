@@ -1048,9 +1048,10 @@ def resolve(model: str | None = None, profile: str | None = None, config: str | 
                     "status": item["status"], "reason": item["reason"], "item": item}
     return {"model": None, "source": None, "status": "none",
             "reason": _say("Nessun modello scelto: passa --model \"<percorso del file .basalt>\", oppure scegli il "
-                           "modello nell'app o nel Loader e premi «Usa come modello predefinito per il server».",
-                           "No model chosen: pass --model \"<path of the .basalt file>\", or pick the model in the app "
-                           "or the Loader and press “Use as the default server model”."), "item": None}
+                           "«Modello predefinito per il server» nelle Impostazioni della pagina web (o nella schermata "
+                           "iniziale dell'app).",
+                           "No model chosen: pass --model \"<path of the .basalt file>\", or choose the “Default server "
+                           "model” in the web page's Settings (or on the app's start screen)."), "item": None}
 
 
 # ------------------------------------------------------------------------------------------------ conversion plan

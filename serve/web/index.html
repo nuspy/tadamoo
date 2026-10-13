@@ -343,96 +343,32 @@
         <p class="setstatus" id="st-lang-msg" role="status" aria-live="polite"></p>
       </div>
     </section>
-    <section class="sec streload" id="st-reload" aria-labelledby="st-reload-h">
-      <div class="sh"><b id="st-reload-h" data-t="st.reload.title">Reload the model</b><span class="grow"></span>
-        <a class="btn ghost" href="#loader" data-t="ld.open">Open the Loader</a></div>
-      <p class="setnote" data-t="st.reload.help"></p>
-      <div class="ldprof" id="st-prof"></div>
-      <div class="field rsv strsv" id="st-rsv"></div>
-      <div id="st-side"></div>
+    <section class="sec stload" id="st-load" aria-labelledby="st-load-h">
+      <div class="sh"><b id="st-load-h" data-t="st.load.title">Loading parameters</b></div>
+      <div class="stload-body">
+        <p class="stload-help" data-t="st.load.help"></p>
+        <p class="stload-run" id="st-run" role="status" aria-live="polite"></p>
+        <p class="stload-file" id="st-run-file"></p>
+        <div class="stload-act"><button type="button" class="btn primary" id="st-open-loader" data-t="ld.open">Open the Loader</button></div>
+      </div>
     </section>
     <section class="sec stmodels" id="st-models" aria-label="Models folders"></section>
-    <div class="setgrid">
-      <section class="sec setfile" aria-labelledby="set-file-h">
-        <div class="sh"><b id="set-file-h">Settings file</b></div>
-        <dl class="kv">
-          <dt>File</dt><dd id="set-path">—</dd>
-          <dt>Model</dt><dd id="set-model">—</dd>
-        </dl>
-        <p class="setnote" id="set-note"><b>Changes apply on restart.</b> Saving writes the config file; the running server keeps its settings until it is started again with <code>basalt serve --config FILE</code>.</p>
-        <p class="setnote warnnote" id="set-reason" hidden></p>
-      </section>
-
-      <form class="sec setform" id="set-form" novalidate>
-        <fieldset id="set-fields" disabled>
-          <legend class="sr">Server and engine settings</legend>
-          <div class="sh"><b>Server</b><span class="grow"></span><span>Empty = the default</span></div>
-          <div class="fields">
-            <div class="field" data-name="server.port">
-              <label for="f-port">Port</label>
-              <input id="f-port" type="number" inputmode="numeric" min="1" max="65535" step="1" placeholder="7232" aria-describedby="h-port">
-              <p class="help" id="h-port">1 to 65535. Default 7232.</p>
-            </div>
-            <div class="field" data-name="server.parallel">
-              <label for="f-parallel">Parallel requests</label>
-              <input id="f-parallel" type="number" inputmode="numeric" min="1" max="8" step="1" placeholder="1" aria-describedby="h-parallel">
-              <p class="help" id="h-parallel">1 to 8 slots; the max context is shared among them. Default 1.</p>
-            </div>
-            <div class="field" data-name="server.vision">
-              <label for="f-vision">Image input</label>
-              <select id="f-vision" aria-describedby="h-vision">
-                <option value="">Default (off)</option>
-                <option value="off">off</option><option value="on">on</option><option value="peer">peer</option>
-                <option value="dynamic">dynamic</option><option value="cpu">cpu</option>
-              </select>
-              <p class="help" id="h-vision">on: encoder on the main GPU (~2.2 GiB). peer: on the second GPU. dynamic: inside the engine, no standing VRAM. cpu: no VRAM, slow.</p>
-            </div>
-          </div>
-          <div class="sh"><b>Engine</b></div>
-          <div class="fields">
-            <div class="field" data-name="engine.max-context">
-              <label for="f-max-context">Max context (tokens)</label>
-              <input id="f-max-context" type="number" inputmode="numeric" min="1" step="1" placeholder="4096" aria-describedby="h-max-context">
-              <p class="help" id="h-max-context">The longest context the engine allows. Default 4096.</p>
-            </div>
-            <div class="field" data-name="engine.kv">
-              <label for="f-kv">KV cache</label>
-              <select id="f-kv" aria-describedby="h-kv">
-                <option value="">Default (fp16)</option>
-                <option value="fp16">fp16</option><option value="int8">int8</option>
-                <option value="q4_0">q4_0</option><option value="k8v4">k8v4</option>
-              </select>
-              <p class="help" id="h-kv">int8 halves the VRAM of fp16; q4_0 halves int8's; k8v4 is INT8 K with Q4_0 V.</p>
-            </div>
-            <div class="field" data-name="engine.spec">
-              <label for="f-spec">Speculation window</label>
-              <input id="f-spec" type="number" inputmode="numeric" min="0" max="8" step="1" placeholder="0" aria-describedby="h-spec">
-              <p class="help" id="h-spec">0 to 8 tokens per verify window; 0 or 1 = no speculation. Default 0 (7 is usual).</p>
-            </div>
-            <div class="field" data-name="engine.spec-min-p">
-              <label for="f-spec-min-p">Draft min probability</label>
-              <input id="f-spec-min-p" type="number" inputmode="decimal" min="0" max="1" step="0.05" placeholder="0" aria-describedby="h-spec-min-p">
-              <p class="help" id="h-spec-min-p">0 to 1. Stop drafting below this probability; 0 = always draft to the window.</p>
-            </div>
-            <div class="field" data-name="engine.expert-cache">
-              <label for="f-expert-cache">Expert cache</label>
-              <input id="f-expert-cache" type="text" autocapitalize="off" spellcheck="false" placeholder="0" aria-describedby="h-expert-cache">
-              <p class="help" id="h-expert-cache"><code>auto</code> or a number of expert slots kept in VRAM. Default 0.</p>
-            </div>
-            <div class="field" data-name="engine.prefill">
-              <label for="f-prefill">Prefill chunk</label>
-              <input id="f-prefill" type="text" autocapitalize="off" spellcheck="false" placeholder="off" aria-describedby="h-prefill">
-              <p class="help" id="h-prefill"><code>auto</code>, <code>auto:8192</code>, <code>auto:16384</code>, <code>auto:32768</code> or a chunk size in tokens.</p>
-            </div>
-          </div>
-          <div class="setactions">
-            <p class="setstatus" id="set-status" role="status" aria-live="polite"></p>
-            <button type="button" class="btn" id="set-revert">Revert</button>
-            <button type="submit" class="btn primary" id="set-save">Save to file</button>
-          </div>
-        </fieldset>
+    <section class="sec stprefs" id="st-prefs" aria-labelledby="st-prefs-h">
+      <div class="sh"><b id="st-prefs-h" data-t="st.prefs.title">Memory and start</b></div>
+      <form class="stprefs-body" id="st-share-form" novalidate>
+        <div class="field">
+          <label for="st-share" data-t="st.share">RAM and commit left free for other programs (%)</label>
+          <div class="pfrow wrap"><input id="st-share" type="number" inputmode="numeric" min="5" max="50" step="1" aria-describedby="st-share-h st-share-msg">
+            <button type="submit" class="btn" data-t="st.share.save">Save</button></div>
+          <p class="help" id="st-share-h" data-t="st.share.help"></p>
+          <p class="setstatus" id="st-share-msg" role="status" aria-live="polite"></p>
+        </div>
+        <div class="field check">
+          <label for="st-wizard"><input id="st-wizard" type="checkbox" aria-describedby="st-wizard-h"><span data-t="st.wizard">Offer the configuration wizard at start</span></label>
+          <p class="help" id="st-wizard-h" data-t="st.wizard.help"></p>
+        </div>
       </form>
-    </div>
+    </section>
   </div>
 </main>
 

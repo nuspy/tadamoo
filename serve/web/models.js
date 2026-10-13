@@ -1,7 +1,7 @@
 "use strict";
-/* Models: the models folders and every model under them with its status for Basalt (GET /api/models), shown at the
-   top of the Loader (pick the model to load, verify, convert, make it the server's default) and in Settings (the
-   folders). Until the folders are set the Loader asks for them first. A conversion opens a dialog that states the
+/* Models: the models folders and every model under them with its status for Basalt (GET /api/models). The Loader
+   picks the model to load (verify, convert); Settings holds the app's choices: the folders and the default server
+   model. Until the folders are set the Loader asks for them first. A conversion opens a dialog that states the
    new file's size and the disk's free space; it starts only from that plan (its token). */
 (() => {
   const S = {
@@ -18,7 +18,10 @@
       experts: "experts {0} GB", mtp: "MTP drafter", mtpSource: "MTP from {0}", mtpFetch: "MTP to download",
       vision: "vision", outside: "outside the folders (from the config file)",
       choose: "Use", verify: "Verify", conv: "Convert…", isDefault: "server default",
-      makeDefault: "Use as the default server model", defaultSet: "“{0}” is now the default server model: Avvia-Basalt.ps1 without --model starts it.",
+      defaultSet: "“{0}” is now the default server model: Avvia-Basalt.ps1 without --model starts it.",
+      defModel: "Default server model", defModelHelp: "Avvia-Basalt.ps1 and the app start this model when no --model is given. Each load can still pick another one in the Loader.",
+      defNone: "None: the config file's model", defIs: "Default server model: {0}.", defNoneShort: "No default server model.",
+      inSettings: "Change it in Settings", dirsIn: "Models folders ({0}): in Settings",
       dlgTitle: "Convert “{0}”?", out: "Output folder", file: "The new file: {0}", cmd: "Command", cancel: "Cancel",
       go: "Convert (writes ~{0} GB)", planning: "Checking disk and memory…",
       job: { convert: "Converting “{0}”", verify: "Verifying “{0}”" },
@@ -40,7 +43,10 @@
       experts: "esperti {0} GB", mtp: "drafter MTP", mtpSource: "MTP da {0}", mtpFetch: "MTP da scaricare",
       vision: "visione", outside: "fuori dalle cartelle (dal file di configurazione)",
       choose: "Usa", verify: "Verifica", conv: "Converti…", isDefault: "predefinito per il server",
-      makeDefault: "Usa come modello predefinito per il server", defaultSet: "«{0}» ora è il modello predefinito per il server: Avvia-Basalt.ps1 senza --model avvia questo.",
+      defaultSet: "«{0}» ora è il modello predefinito per il server: Avvia-Basalt.ps1 senza --model avvia questo.",
+      defModel: "Modello predefinito per il server", defModelHelp: "Avvia-Basalt.ps1 e l'app avviano questo modello quando non si indica --model. Ogni caricamento può comunque sceglierne un altro nel Loader.",
+      defNone: "Nessuno: il modello del file di configurazione", defIs: "Modello predefinito per il server: {0}.", defNoneShort: "Nessun modello predefinito per il server.",
+      inSettings: "Cambialo nelle Impostazioni", dirsIn: "Cartelle dei modelli ({0}): nelle Impostazioni",
       dlgTitle: "Convertire «{0}»?", out: "Cartella di uscita", file: "Il nuovo file: {0}", cmd: "Comando", cancel: "Annulla",
       go: "Converti (scrive ~{0} GB)", planning: "Controllo disco e memoria…",
       job: { convert: "Conversione di «{0}»", verify: "Verifica di «{0}»" },
@@ -153,6 +159,7 @@
     </li>`;
   }
   const readyOnes = () => (M && M.models || []).filter(m => m.status === "ready");
+  const nameOf = path => { const m = (M && M.models || []).find(x => same(x.path, path)); return m ? m.name : (path || "").split(/[\\/]/).pop(); };
   function pickDefault() {
     if (selected && readyOnes().some(m => same(m.path, selected))) return;
     const cur = M && M.current;
@@ -188,15 +195,16 @@
           <button type="button" class="btn ghost" data-m="rescan">${esc(t("rescan"))}</button></div>
       </div>
       ${sel ? `<ul class="chips mdl-sel-chips" aria-live="polite">${chips(sel)}</ul>
-        <div class="pfrow wrap">${same(sel.path, M.default_model) ? `<span class="badge" data-s="def">★ ${esc(t("isDefault"))}</span>`
-          : `<button type="button" class="btn ghost" data-m="default">${esc(t("makeDefault"))}</button>`}
+        <div class="pfrow wrap">${same(sel.path, M.default_model) ? `<span class="badge" data-s="def">★ ${esc(t("isDefault"))}</span>` : ""}
           <button type="button" class="btn ghost" data-m="verify" data-path="${esc(sel.path)}">${esc(t("verify"))}</button></div>` : ""}
+      <div class="pfrow wrap mdl-def"><span>${esc(M.default_model ? t("defIs", nameOf(M.default_model)) : t("defNoneShort"))}</span>
+        <a class="btn ghost mdl-goset" href="#settings">${esc(t("inSettings"))}</a></div>
       <p class="setstatus mdl-msg" role="status" aria-live="polite"></p>
       ${jobHtml()}
       <details class="mdl-all"><summary>${esc(t("all", c.ready || 0, c.convert || 0, c.incompatible || 0))}</summary>
         <ul class="mdl-list">${models.map(card).join("")}</ul>
         ${inc.length ? `<details class="mdl-inc"><summary>${esc(t("inc", inc.length))}</summary><ul class="mdl-list">${inc.map(card).join("")}</ul></details>` : ""}
-        <details class="mdl-dirbox"><summary>${esc(t("dirs"))} (${M.dirs.length})</summary>${dirsEditor("ldx", M.dirs)}</details>
+        <p class="mdl-dirbox"><a class="btn ghost mdl-goset" href="#settings">${esc(t("dirsIn", M.dirs.length))}</a></p>
       </details>`;
   }
   function render() {
@@ -210,7 +218,20 @@
       $("#view-loader").toggleAttribute("data-blocked", !!blocked);
     }
     const st = $("#st-models");
-    if (st && M) st.innerHTML = `<div class="sh"><b>${esc(t("dirs"))}</b></div>${M.configured ? "" : `<p class="setnote warnnote">${esc(t("ask"))}</p>`}${dirsEditor("st", M.dirs)}`;
+    if (st && M) {
+      const keep = document.activeElement && document.activeElement.id === "st-defmodel";
+      const known = !M.default_model || readyOnes().some(m => same(m.path, M.default_model));
+      st.innerHTML = `<div class="sh"><b>${esc(t("dirs"))}</b></div>${M.configured ? "" : `<p class="setnote warnnote">${esc(t("ask"))}</p>`}${dirsEditor("st", M.dirs)}
+        <div class="field mdl-defbox"><label for="st-defmodel">${esc(t("defModel"))}</label>
+          <select id="st-defmodel" aria-describedby="st-defmodel-h">${M.default_model ? "" : `<option value="">${esc(t("defNone"))}</option>`}${known ? ""
+            : `<option value="${esc(M.default_model)}">${esc(nameOf(M.default_model))}</option>`}${readyOnes().map(m =>
+            `<option value="${esc(m.path)}">${esc(`${m.name}${m.quant && !m.name.includes(m.quant) ? " · " + m.quant : ""}`)}</option>`).join("")}</select>
+          <p class="help" id="st-defmodel-h">${esc(t("defModelHelp"))}</p>
+          <p class="setstatus mdl-msg" role="status" aria-live="polite"></p></div>`;
+      const s = st.querySelector("#st-defmodel");
+      s.value = M.default_model ? ((readyOnes().find(m => same(m.path, M.default_model)) || {}).path || M.default_model) : "";
+      if (keep) s.focus();
+    }
   }
 
   /* ---- actions ---- */
@@ -224,11 +245,11 @@
     if (!r.ok) { msg((j.error && j.error.message) || `HTTP ${r.status}`, "err"); return; }
     M.job = j; render(); watch();
   }
-  async function makeDefault() {
-    const { r, j } = await api("api/models/default", { path: selected });
+  async function makeDefault(path) {
+    const { r, j } = await api("api/models/default", { path });
     if (!r.ok) { msg((j.error && j.error.message) || `HTTP ${r.status}`, "err"); return; }
     M.default_model = j.default_model; render();
-    msg(t("defaultSet", (readyOnes().find(m => same(m.path, selected)) || {}).name || selected), "ok");
+    msg(t("defaultSet", nameOf(path)), "ok");
   }
   async function cancelJob() { const { j } = await api("api/models/cancel", {}); M.job = j; render(); }
   function watch() {
@@ -333,14 +354,16 @@
     else if (m === "choose") choose(b.dataset.path);
     else if (m === "verify") verify(b.dataset.path);
     else if (m === "conv") openConvert(b.dataset.id);
-    else if (m === "default") makeDefault();
     else if (m === "cancel") cancelJob();
   });
   document.addEventListener("submit", e => {
     const f = e.target.closest("form.mdl-dirs");
     if (f) { e.preventDefault(); saveDirs(f); }
   });
-  document.addEventListener("change", e => { if (e.target.id === "ld-mdl-sel") choose(e.target.value); });
+  document.addEventListener("change", e => {
+    if (e.target.id === "ld-mdl-sel") choose(e.target.value);
+    if (e.target.id === "st-defmodel" && e.target.value) makeDefault(e.target.value);
+  });
 
   async function refresh(rescan) {
     const { r, j } = await api("api/models" + (rescan ? "?rescan=1" : ""));

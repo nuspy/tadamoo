@@ -1,8 +1,9 @@
 "use strict";
 /* Loader: the engine settings by hand or from a saved load profile, with the memory they need next to what this PC
    has free now and the speed they should give (both from the server: GET /api/loader, POST /api/loader/plan). Load
-   writes the config file and restarts the engine inside the server (POST /api/loader/load). The Settings view
-   reuses the profile picker, the prediction and the Reload button. */
+   writes the config file and restarts the engine inside the server (POST /api/loader/load). Every value decided when
+   the model loads is here, with the load profiles and the default one (★); the Settings view only shows what runs now
+   and the profile it matches, and its button opens this view on that profile. */
 (() => {
   const FIELDS = [
     { group: "reserve", name: "engine.vram-reserve-mib", kind: "reserve" },
@@ -25,7 +26,7 @@
   const fid = name => "lf-" + name.replace(/[^a-z0-9]+/gi, "-");
   const GiBn = 2 ** 30;
   const gib = n => nfmt(n / GiBn, 1);
-  let INFO = null, PROF = null, seq = 0, timer = 0, poll = 0, stValues = null;
+  let INFO = null, PROF = null, seq = 0, timer = 0, poll = 0;
   const fallback = { "server.vision": "off", "engine.kv": "fp16", "engine.ple-io": "direct" };
 
   /* ---- the form ---- */
@@ -184,7 +185,7 @@
   function when(iso) {
     try { return new Date(iso).toLocaleString(LANG === "it" ? "it-IT" : "en-US", { dateStyle: "medium", timeStyle: "short" }); } catch (e) { return iso; }
   }
-  function sideHtml(p, mode) {
+  function sideHtml(p) {
     const v = p.vram, r = p.ram, c = p.commit, s = p.speed || {}, h = p.engine_holds || {};
     const holds = (h.ram || h.commit) ? [T("pr.holds", gib((h.commit || 0) + (h.vram || 0)))] : [];
     const vnotes = [T("pr.reserve", gib(v.reserve)), T("pr.slots", nfmt(v.expert_slots), nfmt(v.expert_slots_total),
@@ -194,7 +195,7 @@
     const problems = (p.problems || []).map(x => LANG === "it" ? x.text_it : x.text);
     const editable = INFO && INFO.editable, busy = INFO && INFO.status && ["waiting", "stopping", "starting", "calibrating"].includes(INFO.status.phase);
     const why = !editable ? T("ld.ro." + ((INFO && INFO.reason) || "no_config")) : busy ? T("ld.busy") : problems.length ? T("ld.refused", problems.join(" ")) : "";
-    const label = mode === "settings" ? T("ld.reload") : T("ld.load");
+    const label = T("ld.load");
     return `<section class="sec ldres" aria-label="${esc(T("pr.title"))}">
         <div class="sh"><b>${esc(T("pr.title"))}</b></div>
         <div class="pad">
@@ -220,11 +221,11 @@
         <div class="setactions"><button type="button" class="btn primary" data-act="load" ${why ? "disabled" : ""}>${esc(label)}</button></div>
       </div>`;
   }
-  function renderSide(target, p, mode) {
+  function renderSide(target, p) {
     const box = $(target);
-    box.innerHTML = sideHtml(p, mode);
-    if (mode === "loader") sticky(p);
-    reserveLive(p, mode === "loader" ? "#lf-rsv-live" : "#st-rsv-live");
+    box.innerHTML = sideHtml(p);
+    sticky(p);
+    reserveLive(p, "#lf-rsv-live");
     showStatus();
   }
   const modelNow = () => (window.BasaltModels && BasaltModels.selected()) || null;
@@ -347,18 +348,18 @@
   function headlessCmd(name) {
     return `powershell -ExecutionPolicy Bypass -File Avvia-Basalt.ps1 -server --config "${name.replace(/"/g, "")}"`;
   }
-  function profileBar(target, mode) {
+  function profileBar(target) {
     const box = $(target);
     if (!PROF) { box.replaceChildren(); return; }
     const id = target.slice(1) + "-sel", sel = box.querySelector("select");
-    const keep = sel ? sel.value : (mode === "settings" ? "" : PROF.default);
+    const keep = sel ? sel.value : PROF.default;
     const editable = INFO && INFO.editable;
     box.innerHTML = `
       <div class="pfrow"><label for="${id}">${esc(T("ld.profile"))}</label>
-        <select id="${id}">${mode === "settings" ? `<option value="">${esc(T("ld.config"))}</option>` : ""}${PROF.load.map(p =>
+        <select id="${id}">${PROF.load.map(p =>
           `<option value="${esc(p.name)}">${esc(profileLabel(p))}</option>`).join("")}</select>
-        ${mode === "loader" ? `<button type="button" class="btn" data-pf="use">${esc(T("ld.profile.apply"))}</button>` : ""}</div>
-      ${mode === "loader" ? `<div class="pfrow wrap">
+        <button type="button" class="btn" data-pf="use">${esc(T("ld.profile.apply"))}</button></div>
+      <div class="pfrow wrap">
         <input type="text" maxlength="60" autocomplete="off" aria-label="${esc(T("ld.profile.name"))}" placeholder="${esc(T("ld.profile.name"))}" data-pf-name>
         <button type="button" class="btn" data-pf="save" ${editable ? "" : "disabled"}>${esc(T("ld.profile.save"))}</button>
         <button type="button" class="btn ghost" data-pf="rename" ${editable ? "" : "disabled"}>${esc(T("ld.profile.rename"))}</button>
@@ -368,7 +369,7 @@
         <label class="btn ghost filebtn">${esc(T("ld.profile.import"))}<input type="file" accept="application/json,.json" data-pf="import" ${editable ? "" : "disabled"}></label>
         <button type="button" class="btn" data-pf="safe">${esc(T("ld.safe"))}</button>
         <button type="button" class="btn" data-pf="machine" ${PROF.load.some(p => p.name === PROF.machine) ? "" : "disabled"}>${esc(T("ld.machine"))}</button>
-        <button type="button" class="btn primary" data-pf="wizard">${esc(T("ld.wizard"))}</button></div>` : ""}
+        <button type="button" class="btn primary" data-pf="wizard">${esc(T("ld.wizard"))}</button></div>
       <div class="pfrow wrap headless"><span>${esc(T("ld.headless"))}:</span><code data-pf-cmd></code>
         <button type="button" class="btn ghost" data-pf="copy">${esc(T("ld.headless.copy"))}</button></div>
       <p class="setnote">${esc(T("ld.headless.help"))}</p>
@@ -377,13 +378,10 @@
     s.value = [...s.options].some(o => o.value === keep) ? keep : s.options[0].value;
     const cmd = () => { box.querySelector("[data-pf-cmd]").textContent = headlessCmd(s.value || PROF.default); };
     cmd();
-    s.onchange = () => {
-      cmd();
-      if (mode === "settings") settingsPick(s.value);
-    };
+    s.onchange = cmd;
   }
   function pfSay(box, text, kind) { const m = box.querySelector(".pfmsg"); if (m) { m.textContent = text; m.dataset.kind = kind || ""; } }
-  async function profileAction(box, act, mode) {
+  async function profileAction(box, act) {
     const s = box.querySelector("select"), name = s.value, input = box.querySelector("[data-pf-name]");
     const typed = input ? input.value.trim() : "";
     const prof = PROF.load.find(p => p.name === name);
@@ -440,40 +438,61 @@
       await refreshProfiles(); pfSay(box, T("ld.profile.imported"), "ok");
     } catch (e) { pfSay(box, e.message, "err"); }
   }
-  for (const [target, mode] of [["#ld-prof", "loader"], ["#st-prof", "settings"]]) {
-    const box = $(target);
-    box.addEventListener("click", e => { const b = e.target.closest("[data-pf]"); if (b && b.tagName === "BUTTON") profileAction(box, b.dataset.pf, mode); });
+  {
+    const box = $("#ld-prof");
+    box.addEventListener("click", e => { const b = e.target.closest("[data-pf]"); if (b && b.tagName === "BUTTON") profileAction(box, b.dataset.pf); });
     box.addEventListener("change", e => { if (e.target.dataset.pf === "import" && e.target.files[0]) { importProfiles(box, e.target.files[0]); e.target.value = ""; } });
   }
 
-  /* ---- the Settings view: a profile or the file, its prediction, Reload ---- */
-  let stModel = null, stTimer = 0;
-  async function settingsPick(name) {
-    const prof = PROF && PROF.load.find(p => p.name === name);
-    stValues = prof ? { ...prof.values } : { ...(INFO.values || {}) };
-    stModel = (prof && prof.model) || modelNow();
-    const num = $("#st-rsv-num");
-    if (num) { num.value = toGB(stValues["engine.vram-reserve-mib"]); num.placeholder = toGB((INFO.defaults || {})["engine.vram-reserve-mib"]); syncReserve("st", num); }
-    await settingsReplan();
+  /* ---- the Settings view: what runs now and the load profile it matches; "Open the Loader" opens this view on
+     that profile (the form already holds the config file's values, which are the running ones) ---- */
+  const samePath = (a, b) => !!a && !!b && a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
+  function eff(f, v) {
+    const x = v ?? ((INFO && INFO.defaults) || {})[f.name] ?? fallback[f.name] ?? (f.kind === "bool" ? false : null);
+    return x == null ? "" : String(x);
   }
-  async function settingsReplan() {
-    try { renderSide("#st-side", await plan(stValues, stModel), "settings"); } catch (e) { $("#st-side").textContent = e.message; }
+  function matchProfile(values) {
+    if (!PROF || !values) return null;
+    const fields = FIELDS.filter(f => !f.virtual);
+    const list = [...PROF.load].sort((a, b) => (b.name === PROF.default) - (a.name === PROF.default));
+    return list.find(p => {
+      const pv = p.values || {};
+      if (p.model && INFO.config_model && !samePath(p.model, INFO.config_model)) return false;
+      // a profile without a port keeps the file's (the Loader's Use leaves the field as it is)
+      return fields.every(f => (f.name === "server.port" && pv[f.name] == null) || eff(f, pv[f.name]) === eff(f, values[f.name]));
+    }) || null;
   }
-  function settingsReserve(from) {
-    const num = $("#st-rsv-num");
-    syncReserve("st", num, from);
-    if (!stValues) return;
-    stValues["engine.vram-reserve-mib"] = toMiB(num.value.trim());
-    clearTimeout(stTimer);
-    stTimer = setTimeout(settingsReplan, 200);
+  const ctxText = n => { const v = Number(n); return Number.isFinite(v) && v >= 1024 && v % 1024 === 0 ? `${nfmt(v / 1024)}K` : nfmt(v); };
+  function renderSettings() {
+    const run = $("#st-run");
+    if (!run || !INFO) return;
+    const live = !INFO.standby && INFO.running && Object.keys(INFO.running).length;
+    const v = live ? INFO.running : (INFO.values || {});
+    const val = name => v[name] ?? ((INFO.defaults || {})[name]) ?? fallback[name];
+    const spec = Number(val("engine.spec") || 0), par = Number(val("server.parallel") || 1);
+    const parts = [(INFO.model && INFO.model.name) || "", ctxText(val("engine.max-context")), val("engine.kv"),
+      spec >= 2 ? `spec ${spec}` : T("st.load.nomtp"), par > 1 ? T("st.load.slots", par) : "",
+      T("st.load.free", toGB(val("engine.vram-reserve-mib")))].filter(Boolean);
+    run.textContent = live ? T("st.load.running", parts.join(" · ")) : `${T("st.load.none")} ${T("st.load.next", parts.join(" · "))}`;
+    const p = matchProfile(INFO.values);
+    const prof = p ? T("st.load.profile", p.name + (p.name === PROF.default ? ` (${T("ld.profile.isdefault")})` : "")) : T("st.load.custom");
+    $("#st-run-file").textContent = `${prof} · ${INFO.config ? T("st.load.file", INFO.config) : T("ld.ro.no_config")}`;
   }
+  function openLoader() {
+    const p = matchProfile(INFO && INFO.values);
+    view("loader");
+    const sel = $("#ld-prof select");
+    if (sel && p) { sel.value = p.name; sel.dispatchEvent(new Event("change")); }
+    (sel || $("#tab-loader")).focus();
+  }
+  $("#st-open-loader").addEventListener("click", openLoader);
 
   /* ---- reading ---- */
   async function refreshProfiles() {
     const m = modelNow();
     try { PROF = await get("api/profiles" + (m ? "?model=" + encodeURIComponent(m) : "")); } catch (e) { PROF = null; }
-    profileBar("#ld-prof", "loader");
-    profileBar("#st-prof", "settings");
+    profileBar("#ld-prof");
+    renderSettings();
   }
   async function refresh() {
     try {
@@ -502,7 +521,6 @@
     if (m && !(INFO.plan && INFO.plan.model && INFO.plan.model.path && INFO.plan.model.path.replace(/\\/g, "/").toLowerCase() === m.toLowerCase())) replan();
     else renderSide("#ld-side", INFO.plan, "loader");
     await refreshProfiles();
-    if (viewOn === "settings") settingsPick(($("#st-prof select") || {}).value || "");
     if (["waiting", "stopping", "starting", "calibrating"].includes((INFO.status || {}).phase)) watch();
     if (viewOn === "loader") applyStart();
   }
@@ -535,7 +553,6 @@
   }
 
   build();
-  $("#st-rsv").innerHTML = reserveHtml("st", "st-rsv-num", "st-rsv-h");
   const formInput = e => {
     formTouched = true;
     if (e.target.id === "lf-rsv-range") syncReserve("lf", el("engine.vram-reserve-mib"), "range");
@@ -544,23 +561,19 @@
   };
   $("#ld-form").addEventListener("input", formInput);
   $("#ld-form").addEventListener("change", formInput);
-  $("#st-rsv").addEventListener("input", e => settingsReserve(e.target.id === "st-rsv-range" ? "range" : "num"));
   if (window.BasaltModels) BasaltModels.onChange(() => {
     if (viewOn === "loader") { replan(); refreshProfiles(); }
-    if (viewOn === "settings" && stValues) { stModel = modelNow(); settingsReplan(); }
   });
   $("#ld-form").onsubmit = e => e.preventDefault();
   document.addEventListener("click", e => {
     const b = e.target.closest("[data-act]");
     if (!b || b.disabled) return;
-    const inSettings = !!b.closest("#st-side");
-    if (b.dataset.act === "load") load(inSettings ? stValues : readForm(), inSettings ? "#st-side" : "#ld-side", inSettings ? "settings" : "loader",
-      inSettings ? stModel : undefined);
+    if (b.dataset.act === "load") load(readForm(), "#ld-side", "loader");
     if (b.dataset.act === "calibrate") calibrate();
   });
   document.addEventListener("basalt:view", e => { if (e.detail === "loader" || e.detail === "settings") refresh(); });
   document.addEventListener("basalt:key", () => { if (viewOn === "loader" || viewOn === "settings") refresh(); });
-  applyT($("#view-loader")); applyT($("#st-reload"));
+  applyT($("#view-loader"));
   $("#ld-models").setAttribute("aria-label", T("ld.model"));
   if (viewOn === "loader" || viewOn === "settings") refresh();
 })();

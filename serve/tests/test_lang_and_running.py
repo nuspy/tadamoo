@@ -79,6 +79,17 @@ class Language(Isolated):
                 self.assertEqual(req("POST", "/api/prefs", {"lang": "de"})[0], 400)
                 with mock.patch("serve.settings.is_loopback", return_value=False):
                     self.assertEqual(req("POST", "/api/prefs", {"lang": "en"})[0], 403)
+                # the Settings view's share of the RAM and of the commit kept free: the language stays as it is
+                self.assertEqual(json.loads(req("GET", "/api/prefs")[1])["free_share"]["value"], loader.FREE_SHARE)
+                code, body = req("POST", "/api/prefs", {"free_share": 0.2})
+                self.assertEqual(code, 200, body)
+                got = json.loads(body)
+                self.assertEqual((got["free_share"]["value"], got["chosen"]), (0.2, "it"))
+                self.assertEqual(loader.free_share(), 0.2)                       # every plan follows it
+                for bad in (0.9, 0.01, "lots", True):
+                    self.assertEqual(req("POST", "/api/prefs", {"free_share": bad})[0], 400, bad)
+                self.assertEqual(req("POST", "/api/prefs", {"lang": "de", "free_share": 0.3})[0], 400)
+                self.assertEqual(loader.free_share(), 0.2)                       # one bad value: nothing saved
         finally:
             httpd.shutdown()
             httpd.server_close()
