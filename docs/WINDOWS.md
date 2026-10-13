@@ -127,7 +127,8 @@ best on this CPU (`--pool-workers 15`: the 7 P-cores and the first 8 E-cores); n
 
 ## Starting and stopping with the PowerShell scripts
 
-`Avvia-Basalt.ps1` and `Ferma-Basalt.ps1` (repository root, messages in Italian) start and stop Basalt Win+GUI with
+`Avvia-Basalt.ps1` and `Ferma-Basalt.ps1` (repository root; messages in English, or Italian with `--lang it`,
+`BASALT_LANG=it` or the language chosen in the web page's Settings, see `serve/lang.py`) start and stop Basalt Win+GUI with
 `basalt_config.json` beside them (machine-specific and not tracked; `tools/windows/basalt_config.example.json` shows
 its shape for a 3-bit file on a 32 GB card). Paths are relative to the scripts' folder, so they work from any
 directory and from Explorer (right click, "Run with PowerShell"), with Windows PowerShell 5.1 or PowerShell 7. Both
@@ -149,8 +150,18 @@ option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and 
   with the reason. `--vram-libera GB` (or `--vram-reserve-mib N`) overrides the profile's VRAM reserve.
   `python -m serve.loader check` exits 4 on a GPU the engine is not built for (not Blackwell): the start is refused.
 * **A server already running** (the listening `serve.server` processes of this repository and `basalt.pid`, confirmed
-  by `/health` answering `"service": "basalt"`, on any port): `-gui` opens the app, which asks "Collegati" or "Cambia
-  modello"; `-browser` opens the browser on it; `-server` prints its address, settings and model and exits 0.
+  by `/health` answering `"service": "basalt"`, on any port): `-gui` opens the app, which asks "Connect to the running
+  server" or "Change model"; `-browser` opens the browser on it. `-server` resolves the parameters asked for as for a
+  new start and compares them with the running server's (`python -m serve.profiles compare --url URL [--profile P]
+  [--model F] [--vram-reserve-mib N] [--port N] --config FILE`: exit 0 the same, 3 different, 2 error; the running
+  values come from `/api/settings`, "Valori sicuri" from the server's own `/api/loader`). The same: it prints its
+  address, settings and model and exits 0. Different: it lists the differences and asks "Reuse the running server" or
+  "Restart with the new parameters" in a topmost WinForms dialog (a desktop session, not session 0), else at the
+  console (R / S, or R / A in Italian), else nobody is asked. No answer within 60 s (`BASALT_ASK_TIMEOUT_S`) or nobody
+  to ask means reuse: a server is never stopped without an answer. `-riusa` / `-riavvia` answer in advance; restarting
+  runs `Ferma-Basalt.ps1 --port N` (that server's tree only) and starts on the same port. `BASALT_NO_DIALOG=1` skips
+  the window (tests); `BASALT_SCAN_PORTS=7280-7289` (tests) limits the search to those ports, so a test never sees,
+  asks or stops a real server, and leaves `basalt.pid` alone.
 * Otherwise `-browser` and `-server` write the load profile into `basalt_config.json` (the default profile when
   `--config` is not given: the one made default in the Loader, else Machine Default, else Valori sicuri; the previous
   file stays as `.bak`; an unknown name lists the profiles and exits 1) and check memory with the Loader's own plan
@@ -180,8 +191,9 @@ option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and 
 ### Where the settings live
 
 The user's settings are in the user data folder (`serve/userdata.py`): `%APPDATA%\BasaltPannello\` (or
-`%BASALT_DATA%`): `profiles.json`, `models.json`, `machine.json` (the wizard's answers), `calibration\<model>.json`
-and the app's `desktop.json`. What can be rebuilt stays in `%USERPROFILE%\.cache\basalt\` (or `%BASALT_CACHE%`): the
+`%BASALT_DATA%`): `profiles.json`, `models.json`, `machine.json` (the wizard's answers), `calibration\<model>.json`,
+`prefs.json` (the language: `python -m serve.lang set it|en|auto`, or Settings in the web page) and the app's
+`desktop.json`. What can be rebuilt stays in `%USERPROFILE%\.cache\basalt\` (or `%BASALT_CACHE%`): the
 header scan `models-scan.json`, the job logs `models-jobs\`, and per model the unpacked tokenizer and vision files and
 `engine.log`. The first use copies (never moves) the settings that earlier versions kept in the cache folder.
 
@@ -216,7 +228,8 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
 * **The desktop app** `tools\windows\desktop` (`dotnet publish -c Release -o publish`, .NET 8, WebView2) builds
   `BasaltWinGUI.exe` (window title, tray and dialogs "Basalt Win+GUI"; the file name differs from the engine's
   `basalt.exe` on purpose; the icon `basalt.ico` is also the web page's favicon; options
-  `--config`, `--model`, `--port`, `--vram-libera`, `--file`, as the script). It starts `bin\basalt.exe serve --config
+  `--config`, `--model`, `--port`, `--vram-libera`, `--file`, `--lang it|en`, as the script; its texts and WebView2's
+  language follow `--lang` > `BASALT_LANG` > `prefs.json` > English, never the Windows display language). It starts `bin\basalt.exe serve --config
   basalt_config.json --standby --relaunch-on-model-change` in its kill-on-close job without a console window (a new
   installation gets a config file without a model) and opens the web Loader in its window: the command line's profile,
   model and VRAM reach the page as `?profile=`, `?model=`, `?reserve=`, and `?wizard=1` offers the wizard while no
@@ -224,10 +237,10 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
   (`chrome.webview.postMessage`). Exit code 75 starts the server again with `--listen-first` and the new model; any
   other end shows the reason, the log's last lines and the native start panel (model, profile, VRAM, port, memory
   check, Avvia / Avvia solo server) as a fallback. Without WebView2 the page opens in the default browser. Closing the
-  window hides it to the notification area; the icon's menu has Apri, Ricarica con altri parametri (the Loader), Avvia
-  solo server (per gli agenti) and Spegni (unload, end the job, report the RAM freed). A second start brings the first
-  window to the front; when a Basalt server already runs it offers "Collegati al server in esecuzione" or "Cambia
-  modello" (stops only that server's tree with `Ferma-Basalt.ps1 --port N`, then opens the Loader). Hidden test
+  window hides it to the notification area; the icon's menu has Open, Reload with other settings… (the Loader), Start
+  the server alone (for agents)… and Turn off (unload, end the job, report the RAM freed). A second start brings the
+  first window to the front; when a Basalt server already runs it offers "Connect to the running server" or "Change
+  model" (stops only that server's tree with `Ferma-Basalt.ps1 --port N`, then opens the Loader). Hidden test
   options: `--test-mock` (the mock engine on port 7288), `--test-screenshot FILE`, `--test-exit`, `--test-no-wizard`,
   `--test-fallback`, `--test-folder-prompt [--test-models-dir DIR]`, `--test-no-webview`.
 
@@ -241,7 +254,8 @@ powershell -ExecutionPolicy Bypass -File .\Avvia-Basalt.ps1 -server --model "D:\
 .\.venv\Scripts\python.exe -m serve.loader wizard --monitor none --save --json
 # which model would start, and why (exit 0 ready, 5 to convert, 6 not usable, 7 none chosen)
 .\.venv\Scripts\python.exe -m serve.models resolve --profile "Machine Default" --config .\basalt_config.json
-# already running? the same command attaches and prints the port; or read it from basalt.pid
+# already running? the same parameters attach and print the port; different ones ask (add -riusa or -riavvia to
+# answer in advance; with nobody to ask the running server is reused); or read the port from basalt.pid
 Get-Content .\basalt.pid | ConvertFrom-Json | Select-Object port, pid, profile
 # ready? "loaded": true once the model is in (with listen-first the server answers while it loads)
 Invoke-RestMethod http://127.0.0.1:7240/health
@@ -249,8 +263,9 @@ Invoke-RestMethod http://127.0.0.1:7240/health
 powershell -ExecutionPolicy Bypass -File .\Ferma-Basalt.ps1 --port 7240
 ```
 
-The API is OpenAI-compatible at `http://127.0.0.1:<port>/v1` (`/v1/chat/completions`, `/v1/messages`,
-`/v1/responses`). `response_format` (`json_object`, `json_schema`) is validated, not constrained during generation
+The API is OpenAI- and Anthropic-compatible at `http://127.0.0.1:<port>/v1` (`/v1/chat/completions`, `/v1/responses`,
+`/v1/messages`, `/v1/messages/count_tokens`; examples with curl, the Python SDKs and Claude Code in the
+[README](../README.md#using-it-as-a-server-api)). `response_format` (`json_object`, `json_schema`) is validated, not constrained during generation
 (the engine has no grammar sampler): a rejected answer is generated again with the error fed back, up to
 `structured_retries` times (default 2), and the final chunk carries `"structured_output": {"attempts": n}`.
 
