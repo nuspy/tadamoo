@@ -354,8 +354,12 @@ class ProcessEngine:
                     time.sleep(self.RESTART_RETRY_S)
         finally:
             self.starting = False
-            with self.slot_cv:                   # wake the requests that waited through the restart
-                self.slot_cv.notify_all()
+            # wake the requests that waited through the restart; an engine that never reached READY has no slot_cv
+            # yet (a lazy first start that failed), and touching it here would hide the engine's own reason
+            cv = self.__dict__.get("slot_cv")
+            if cv is not None:
+                with cv:
+                    cv.notify_all()
         self.info = {**info, **self.info}
 
     def _parse_done(self, line):
