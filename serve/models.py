@@ -48,7 +48,7 @@ DIRS_MAX = 8
 WALK_DEPTH_MAX = 8                     # folders below a models folder
 WALK_FILES_MAX = 20000                 # entries looked at per folder, so a whole disk cannot stall the page
 META_MAX = 64 << 20                    # a .basalt meta section larger than this is not read
-CACHE_VERSION = 5                      # 5: the vision projector checked against the engine's encoder
+CACHE_VERSION = 6                      # 6: a .basalt's context length (GET /v1/models)
 COMMIT_MAX = 0.75                      # a conversion starts only below this share of the commit limit
 DISK_MARGIN = 2 * GiB                  # free space left on the disk after a conversion
 MTP_SECTION_BYTES = 116099072 + 707788800      # mtp/dense + mtp/experts in a converted file
@@ -567,10 +567,13 @@ def basalt_info(path: str, size: int) -> dict:
             from model_file import meta_sampling
             sampling, source = meta_sampling(meta)
             info.update(sampling=sampling, sampling_source=source)
+            arch = kv.get("general.architecture") if isinstance(kv.get("general.architecture"), str) else None
+            ctx = kv.get(f"{arch}.context_length") if arch else None
             info.update(name=meta.get("name") if isinstance(meta.get("name"), str) else None,
                         sources=[s.get("path") for s in meta.get("sources") or [] if isinstance(s, dict)][:8],
                         file_type=kv.get("general.file_type") if isinstance(kv.get("general.file_type"), int) else None,
                         gguf_name=kv.get("general.name") if isinstance(kv.get("general.name"), str) else None,
+                        context_length=ctx if isinstance(ctx, int) and not isinstance(ctx, bool) and ctx > 0 else None,
                         ple_bytes=int((tensors.get("per_layer_token_embd.weight") or {}).get("bytes") or 0))
         except (OSError, ValueError, AttributeError):
             info["meta_unreadable"] = True
@@ -737,6 +740,8 @@ def _basalt_item(path: str, size: int, info: dict) -> dict:
         item.update(status="incompatible", reason=_basalt_reason(info))
         return item
     item.update(status="ready", reason=_say("Pronto da caricare.", "Ready to load."))
+    if info.get("context_length"):
+        item["context_length"] = info["context_length"]
     if info.get("ple_bytes"):
         item["ple_bytes"] = info["ple_bytes"]
     if isinstance(info.get("sampling"), dict):          # the model's own chat defaults

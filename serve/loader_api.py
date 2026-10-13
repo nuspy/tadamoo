@@ -59,6 +59,12 @@ def _holds(svc, sup):
     return holds, vram
 
 
+def engine_holds(svc) -> tuple[dict, int]:
+    """(_holds) what the running engine gives back when a load stops it, for any plan of a load (the profiles'
+    summaries too)."""
+    return _holds(svc, sup_of(svc))
+
+
 def _same(a, b) -> bool:
     return bool(a) and bool(b) and os.path.normcase(os.path.abspath(str(a))) == os.path.normcase(os.path.abspath(str(b)))
 

@@ -422,7 +422,9 @@
     try {                                               // the model list says it too, when this client may read it
       const r = await fetch("v1/models", { cache: "no-store", headers: authHeaders() });
       if (r.ok) {
-        const d = ((await r.json()).data || [])[0];
+        // the served model: the list holds the folders' other models too ("unloaded")
+        const all = (await r.json()).data || [];
+        const d = all.find(x => x.id === model) || all.find(x => (x.status || {}).value === "loaded");
         if (d) { model = d.id || model; images = ((d.architecture || {}).input_modalities || []).includes("image"); }
       }
     } catch (e) { /* /health is enough */ }

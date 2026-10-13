@@ -9,11 +9,11 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT, chatctx, loader, loader_api, models, profiles, settings
+from serve import ROOT, chatctx, loader, loader_api, model_list, models, profiles, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
@@ -271,7 +271,10 @@ def make_handler(svc: Service):
                         facts = loader_api.facts_of(svc, model or None)
                     except ValueError:
                         facts = loader_api.sup_of(svc).facts
-                    self._json(200, profiles.listing(loader.system_now(getattr(svc, "gpu_index", 0)), facts))
+                    # planned as the Loader plans a load: the running engine's memory is given back first
+                    holds, holds_vram = loader_api.engine_holds(svc)
+                    self._json(200, profiles.listing(loader.system_now(getattr(svc, "gpu_index", 0)), facts,
+                                                     holds, holds_vram))
             elif path == "/api/profiles/export":
                 if self._authorized():
                     kind = parse_qs(urlsplit(self.path).query).get("kind", [None])[0]
@@ -330,16 +333,20 @@ def make_handler(svc: Service):
                     s.pop(k, None)
                 self._json(200, s)
             elif path in ("/v1/models", "/models"):
+                if self._authorized():                       # the served model and the folders' others (model_list)
+                    local = model_list.is_loopback(self.server.server_address[0])
+                    self._json(200, model_list.anthropic_list(svc, local) if model_list.wants_anthropic(self.headers)
+                               else model_list.openai_list(svc, local))
+            elif path.startswith(("/v1/models/", "/models/")):
                 if self._authorized():
-                    loaded = svc.loaded()
-                    model = {"id": svc.model, "object": "model", "status": {"value": "loaded"},
-                             "meta": {"n_ctx": svc.engine.max_context},
-                             "architecture": {"input_modalities": ["text", "image"] if svc.vision is not None else ["text"],
-                                              "output_modalities": ["text"]}}
-                    if not loaded and (svc.idle_unload_s or getattr(svc.engine, "unloaded", False)):
-                        model["status"] = {"value": "unloaded"}   # listed, loads on use
-                        loaded = True
-                    self._json(200, {"object": "list", "data": [model] if loaded else []})
+                    local = model_list.is_loopback(self.server.server_address[0])
+                    anthropic = model_list.wants_anthropic(self.headers)
+                    model_id = unquote(path.split("/models/", 1)[1])
+                    m = model_list.find(svc, model_id, local)
+                    if m is None:
+                        self._json(404, model_list.not_found(model_id, anthropic))
+                    else:
+                        self._json(200, model_list.anthropic_one(m) if anthropic else m)
             elif path == "/props":
                 if self._authorized():
                     self._props()
@@ -464,6 +471,14 @@ def make_handler(svc: Service):
                     return
                 svc.request_ctx.path = path
                 svc.request_ctx.model = req.get("model") if isinstance(req.get("model"), str) else None
+                if path in ("/v1/chat/completions", "/v1/messages", "/v1/responses"):
+                    # a listed model that is not loaded: say so instead of answering with the loaded one
+                    refused = model_list.refusal(svc, req.get("model"),
+                                                 model_list.is_loopback(self.server.server_address[0]))
+                    if refused:
+                        self._json(404, model_list.refused_body(
+                            refused, "anthropic" if path == "/v1/messages" else "openai"))
+                        return
                 if path == "/v1/responses":
                     self._responses(req)
                 elif path == "/v1/chat/completions":
@@ -781,6 +796,8 @@ def make_handler(svc: Service):
             try:
                 if what == "dirs":
                     models.set_dirs(req.get("dirs"))
+                    if getattr(svc, "model_catalog", None) is not None:
+                        svc.model_catalog.invalidate()       # GET /v1/models scans the new folders
                     self._json(200, self._models_listing(True))
                 elif what == "plan":
                     self._json(200, models.convert_plan(str(req.get("id") or ""), req.get("out_dir")))

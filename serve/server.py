@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # also runnable as a script
-from serve import ROOT, loader, loader_api, service, settings, supervisor  # noqa: E402
+from serve import ROOT, loader, loader_api, model_list, service, settings, supervisor  # noqa: E402
 from serve.config import (RELAUNCH_EXIT_CODE, build_parser, check_engine_flags, engine_flags_of,  # noqa: E402
                           engine_line, engine_settings, parse_settings, sampling_defaults_from_config)
 from serve.engine import process as engine_process  # noqa: E402
@@ -212,6 +212,8 @@ def main() -> int:
         import os
         os.environ["BASALT_FAKE_SYSTEM_OK"] = "1"        # BASALT_FAKE_SYSTEM: demo memory readings for the mock
     svc.supervisor = supervisor.Supervisor(svc, sys.argv[1:], mock=bool(a.mock_engine), facts=facts)
+    svc.model_catalog = model_list.Catalog()            # GET /v1/models lists the folders' other models too
+    svc.model_catalog.items()                           # the first scan starts now, on a thread
     if loaded_memory:
         supervisor.record_memory(facts, svc.settings_info.get("running") or {}, *loaded_memory)
     if any(x == "--api-key" and i + 1 < len(used_argv) and not used_argv[i + 1].strip() or x.strip() == "--api-key="

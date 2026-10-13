@@ -79,11 +79,14 @@ def _write(data: dict) -> None:
     os.replace(tmp, p)
 
 
-def safe_values(port: int = DEFAULT_PORT, facts: dict | None = None, system: dict | None = None) -> dict:
-    """Valori sicuri for this PC now and the model (`facts`; the demo sizes without one), computed by loader.safe()."""
+def safe_values(port: int = DEFAULT_PORT, facts: dict | None = None, system: dict | None = None,
+                holds: dict | None = None, holds_vram: int = 0) -> dict:
+    """Valori sicuri for this PC now and the model (`facts`; the demo sizes without one), computed by loader.safe()
+    (with the memory the running engine gives back when a load stops it: `holds`, `holds_vram`)."""
     facts = facts or loader.DEMO_FACTS
     system = loader.system_now() if system is None else system
-    return {**{k: v for k, v in loader.safe(facts, system).items() if v is not None}, "server.port": port}
+    return {**{k: v for k, v in loader.safe(facts, system, holds, holds_vram).items() if v is not None},
+            "server.port": port}
 
 
 def check_name(name) -> str:
@@ -140,19 +143,22 @@ def check_inference(values) -> dict:
     return out
 
 
-def listing(system: dict | None = None, facts: dict | None = None) -> dict:
-    """Both kinds, the built-in first, each load profile with a one-line summary (context, KV, spec, VRAM, speed)."""
+def listing(system: dict | None = None, facts: dict | None = None, holds: dict | None = None,
+            holds_vram: int = 0) -> dict:
+    """Both kinds, the built-in first, each load profile with a one-line summary (context, KV, spec, VRAM, speed).
+    The summaries are the plans of a load: with the model loaded, its engine's memory (`holds`, `holds_vram`:
+    loader_api._holds) counts as free, as in the Loader's own plan, since the load stops that engine first."""
     data = _read()
     facts = facts or loader.DEMO_FACTS
-    loads = [{"name": SAFE_NAME, "values": safe_values(facts=facts, system=system or {}), "builtin": True,
-              "model": None}]
+    loads = [{"name": SAFE_NAME, "values": safe_values(facts=facts, system=system or {}, holds=holds,
+                                                       holds_vram=holds_vram), "builtin": True, "model": None}]
     loads += [{"name": n, "values": p.get("values", {}), "builtin": False, "saved": p.get("saved"),
                "model": p.get("model") if isinstance(p.get("model"), str) else None}
               for n, p in sorted(data["load"].items(), key=lambda kv: kv[0].lower())]
     default = default_of(data)
     for p in loads:
         p["default"] = p["name"] == default
-        p["summary"] = summary(p["values"], _model_facts(p["model"], facts), system)
+        p["summary"] = summary(p["values"], _model_facts(p["model"], facts), system, holds, holds_vram)
         if p["model"]:
             p["summary"]["model"] = Path(p["model"]).stem
             p["summary"]["model_missing"] = not os.path.isfile(p["model"])
@@ -163,7 +169,7 @@ def listing(system: dict | None = None, facts: dict | None = None) -> dict:
             "machine": MACHINE_NAME, "file": str(path())}
 
 
-def summary(values: dict, facts: dict, system: dict | None) -> dict:
+def summary(values: dict, facts: dict, system: dict | None, holds: dict | None = None, holds_vram: int = 0) -> dict:
     v = loader.effective(values)
     ctx = int(v["engine.max-context"])
     parts = [f"{ctx // 1024}K" if ctx >= 1024 and ctx % 1024 == 0 else str(ctx), str(v["engine.kv"]),
@@ -172,8 +178,8 @@ def summary(values: dict, facts: dict, system: dict | None) -> dict:
         parts.append(f"{v['server.parallel']} slots")
     out = {"text": " · ".join(parts), "port": values.get("server.port", DEFAULT_PORT)}
     if system:
-        p = loader.plan(values, facts, system)
-        s = loader.predict_speed(p)
+        p = loader.plan(values, facts, system, holds, holds_vram)
+        s = loader.predict_speed(p, loader.best_calibration(facts, values))   # as the Loader's own prediction
         out.update(vram_gb=round(p["vram"]["need"] / 1e9, 1), tok_s=round(s["decode"]), fits=p["fits"])
     return out
 
