@@ -48,7 +48,7 @@ DIRS_MAX = 8
 WALK_DEPTH_MAX = 8                     # folders below a models folder
 WALK_FILES_MAX = 20000                 # entries looked at per folder, so a whole disk cannot stall the page
 META_MAX = 64 << 20                    # a .basalt meta section larger than this is not read
-CACHE_VERSION = 4
+CACHE_VERSION = 5                      # 5: the vision projector checked against the engine's encoder
 COMMIT_MAX = 0.75                      # a conversion starts only below this share of the commit limit
 DISK_MARGIN = 2 * GiB                  # free space left on the disk after a conversion
 MTP_SECTION_BYTES = 116099072 + 707788800      # mtp/dense + mtp/experts in a converted file
@@ -248,8 +248,10 @@ def suggestions() -> list[str]:
 class _Header:
     """A GGUF v2/v3 header read through a buffered file: arrays larger than 64 items are skipped, not kept."""
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, offset: int = 0):
         self.f = open(path, "rb", buffering=1 << 20)
+        if offset:                                      # a GGUF inside another file (a .basalt's vision/mmproj)
+            self.f.seek(offset)
 
     def close(self):
         self.f.close()
@@ -303,10 +305,11 @@ class _Header:
         return v if keep else None
 
 
-def read_gguf(path: str) -> dict:
-    """The key/value block (big arrays as {"len": n}) and the tensor directory of one GGUF file."""
+def read_gguf(path: str, offset: int = 0) -> dict:
+    """The key/value block (big arrays as {"len": n}) and the tensor directory of one GGUF file (at `offset` of the
+    file: a GGUF stored inside another; data_start is then relative to it)."""
     from gguf_reader import GGUF_MAGIC
-    h = _Header(path)
+    h = _Header(path, offset)
     try:
         if struct.unpack("<I", h.read(4))[0] != GGUF_MAGIC:
             raise ValueError("not a GGUF file")
@@ -330,11 +333,91 @@ def read_gguf(path: str) -> dict:
             t, off = h.u32(), h.u64()
             tensors.append((name, shape, t, off))
         align = meta.get("general.alignment") if isinstance(meta.get("general.alignment"), int) else 32
-        pos = h.f.tell()
+        pos = h.f.tell() - offset
         data_start = (pos + align - 1) // align * align
     finally:
         h.close()
     return {"version": version, "meta": meta, "tensors": tensors, "data_start": data_start}
+
+
+# the image encoder's own checks (src/vision/mmproj.cpp open() and need(), encoder_cpu.cpp / encoder_cuda.cu init()):
+# a qwen3vl_merger projector of these sizes, its vectors in F32 and its matrices in BF16; anything else and the engine
+# stops at start ("tensor mm.2.weight has an unexpected type or size", the last of the failed checks)
+VISION_EMBD, VISION_FFN = 1152, 4304
+VISION_HPARAMS = (("clip.vision.embedding_length", VISION_EMBD), ("clip.vision.attention.head_count", 16),
+                  ("clip.vision.patch_size", 16), ("clip.vision.feed_forward_length", VISION_FFN))
+_F32, _BF16 = 0, 30
+
+
+def _projector_wants(layers: int, proj: int) -> dict:
+    E, F = VISION_EMBD, VISION_FFN
+    want = {"v.patch_embd.weight": (_F32, E * 768), "v.patch_embd.weight.1": (_F32, E * 768),
+            "v.patch_embd.bias": (_F32, E), "v.position_embd.weight": (_F32, E * 2304),
+            "v.post_ln.weight": (_F32, E), "v.post_ln.bias": (_F32, E), "mm.0.bias": (_F32, 4 * E),
+            "mm.2.bias": (_F32, proj), "mm.0.weight": (_BF16, 16 * E * E), "mm.2.weight": (_BF16, 4 * E * proj)}
+    for n in range(layers):
+        p = f"v.blk.{n}."
+        want.update({p + "ln1.weight": (_F32, E), p + "ln1.bias": (_F32, E), p + "ln2.weight": (_F32, E),
+                     p + "ln2.bias": (_F32, E), p + "attn_qkv.bias": (_F32, 3 * E), p + "attn_out.bias": (_F32, E),
+                     p + "ffn_up.bias": (_F32, F), p + "ffn_down.bias": (_F32, E),
+                     p + "attn_qkv.weight": (_BF16, 3 * E * E), p + "attn_out.weight": (_BF16, E * E),
+                     p + "ffn_up.weight": (_BF16, F * E), p + "ffn_down.weight": (_BF16, E * F)})
+    return want
+
+
+def projector_problem(g: dict) -> dict | None:
+    """Why the engine's image encoder would refuse this projector (read_gguf() of it), as {"it", "en"}; None when it
+    reads it. The same checks as the engine, from the header alone."""
+    m = g.get("meta") or {}
+    arch, kind = m.get("general.architecture"), m.get("clip.projector_type")
+    if arch != "clip" or kind != "qwen3vl_merger":
+        return {"it": f"non è un proiettore qwen3vl_merger (architettura {arch}, proiettore {kind})",
+                "en": f"not a qwen3vl_merger projector (architecture {arch}, projector {kind})"}
+    for key, want in VISION_HPARAMS + (("clip.vision.spatial_merge_size", 2),):
+        have = m.get(key, 2 if key.endswith("merge_size") else None)
+        if have != want:
+            return {"it": f"dimensioni inattese: {key} = {have}, il motore legge {want}",
+                    "en": f"unexpected sizes: {key} = {have}, the engine reads {want}"}
+    layers, proj = m.get("clip.vision.block_count"), m.get("clip.vision.projection_dim")
+    if not isinstance(layers, int) or layers < 1 or not isinstance(proj, int) or proj < 1:
+        return {"it": "mancano block_count o projection_dim", "en": "block_count or projection_dim is missing"}
+    for key in ("clip.vision.image_mean", "clip.vision.image_std"):
+        if not (isinstance(m.get(key), list) and len(m[key]) == 3):
+            return {"it": f"manca {key}", "en": f"{key} is missing"}
+    have = {name: (int(t), _elements(shape)) for name, shape, t, _ in g.get("tensors") or []}
+    want = _projector_wants(layers, proj)
+    missing = [n for n in want if n not in have]
+    if missing:
+        more = f" (+{len(missing) - 1})" if len(missing) > 1 else ""
+        return {"it": f"manca il tensore {missing[0]}{more}", "en": f"the tensor {missing[0]} is missing{more}"}
+    sized = [n for n in want if have[n][1] != want[n][1]]
+    if sized:
+        n = sized[0]
+        return {"it": f"il tensore {n} ha {have[n][1]} elementi, il motore ne legge {want[n][1]}",
+                "en": f"the tensor {n} has {have[n][1]} elements, the engine reads {want[n][1]}"}
+    typed = [n for n in want if have[n][0] != want[n][0]]
+    if typed:
+        kinds = sorted({type_name(have[n][0]) for n in typed})
+        example = next((n for n in ("mm.2.weight", "mm.0.weight") if n in typed), typed[0])
+        return {"it": f"{len(typed)} tensori sono {'/'.join(kinds)} (per esempio {example}): il motore legge le "
+                      "matrici in BF16 e i vettori in F32. Serve un proiettore esportato in BF16 (mmproj-…-BF16.gguf)",
+                "en": f"{len(typed)} tensors are {'/'.join(kinds)} (for example {example}): the engine reads the "
+                      "matrices in BF16 and the vectors in F32. A projector exported in BF16 (mmproj-…-BF16.gguf) "
+                      "is needed"}
+    return None
+
+
+def embedded_projector_problem(path: str) -> dict | None:
+    """projector_problem() of the vision/mmproj section of a .basalt; None without one, or when it reads."""
+    from model_file import ModelFile
+    try:
+        mf = ModelFile(path)
+        if "vision/mmproj" not in mf.sections:
+            return None
+        off, _ = mf.section("vision/mmproj")
+        return projector_problem(read_gguf(path, off))
+    except (OSError, ValueError, struct.error, UnicodeDecodeError) as e:
+        return {"it": f"il proiettore nel file non si legge ({e})", "en": f"the projector in the file cannot be read ({e})"}
 
 
 def _tensor_bytes(shape, t) -> int | None:
@@ -374,6 +457,8 @@ def gguf_info(path: str, size: int) -> dict:
             "n_embd": k("embedding_length"), "n_ff": k("expert_feed_forward_length"), "n_layer": k("block_count"),
             "n_expert": k("expert_count"), "nextn": k("nextn_predict_layers"),
             "proj_dim": m.get("clip.vision.projection_dim"), "tensors": len(g["tensors"])}
+    if arch == "clip":                                   # a vision projector: would the engine's encoder read it?
+        info["vision_problem"] = projector_problem(g)
     experts, unknown, end = [], [], 0
     dense_bytes, compat, quant_dense = 0, False, False
     from_types = {}
@@ -438,6 +523,8 @@ def basalt_info(path: str, size: int) -> dict:
     info = {"kind": "basalt", "sections": len(sec), "experts_bytes": sec.get("experts", 0),
             "has_mtp": "mtp/dense" in sec, "has_vision": "vision/mmproj" in sec,
             "mmproj_bytes": sec.get("vision/mmproj", 0), "has_meta": "meta" in sec}
+    if info["has_vision"]:                               # a projector the engine would refuse: no image input
+        info["vision_problem"] = embedded_projector_problem(path)
     missing = [n for n in ("meta", "dense", "experts", "experts.layout") if n not in sec]
     if missing:
         info["error"] = "sections"
@@ -628,6 +715,14 @@ def _basalt_item(path: str, size: int, info: dict) -> dict:
     if info.get("meta_unreadable"):
         item["notes"].append(_say("La sezione meta non si legge: usa «Verifica».", "The meta section cannot be read: "
                                   "use Verify."))
+    bad = info.get("vision_problem")
+    if bad:                                             # the file has a projector the engine would refuse at start
+        item["vision"] = False
+        item["vision_problem"] = bad
+        item["notes"].append(_say(f"Il proiettore visivo nel file non è leggibile dal motore ({bad['it']}): carica "
+                                  "con immagini «off».",
+                                  f"The vision projector in the file is not one the engine reads ({bad['en']}): load "
+                                  "with image input “off”."))
     return item
 
 
@@ -754,16 +849,29 @@ def _attach(models: list, extras: list) -> None:
         x["attached_to"] = owner
         if x["role"] == "mmproj":
             fits = x.get("proj_dim") in (None, GEOMETRY["n_embd"])
-            if owner and fits:
+            bad = x.get("vision_problem")                # the engine's encoder would refuse it
+            if owner and fits and bad:
+                x["reason"] = _say(f"Proiettore visivo (mmproj) di «{owner}» che il motore non legge: {bad['it']}. "
+                                   "La conversione lo lascia fuori (niente immagini).",
+                                   f"Vision projector (mmproj) of “{owner}” the engine does not read: {bad['en']}. "
+                                   "The conversion leaves it out (no image input).")
+            elif owner and fits:
                 x["reason"] = _say(f"Proiettore visivo (mmproj) di «{owner}»: entra nel .basalt con la conversione.",
                                    f"Vision projector (mmproj) of “{owner}”: it goes into the .basalt when converted.")
             else:
                 x["reason"] = _say("Proiettore visivo (mmproj): non è un modello da caricare da solo.",
                                    "Vision projector (mmproj): not a model to load on its own.")
             for m in owners:
-                if fits and not m.get("mmproj"):
+                if fits and bad and not m.get("mmproj"):
+                    m["vision_problem"] = bad
+                    m["notes"].append(_say(f"Il proiettore visivo della cartella non è leggibile dal motore "
+                                           f"({bad['it']}): si converte senza immagini.",
+                                           f"The folder's vision projector is not one the engine reads ({bad['en']}): "
+                                           "it is converted without image input."))
+                elif fits and not m.get("mmproj"):
                     m["mmproj"] = x["path"]
                     m["vision"] = True
+                    m.pop("vision_problem", None)
         else:
             x["reason"] = _say(f"File del drafter MTP{f' di «{owner}»' if owner else ''}: non è un modello da solo; "
                                "Basalt usa il drafter MTP originale di Qwen.",
@@ -842,6 +950,7 @@ def scan(folders: list[str] | None = None, rescan: bool = False) -> dict:
                            "name": first_info.get("name") or g["stem"], "size_bytes": sum(g["sizes"]),
                            "role": role, "status": "incompatible", "arch": first_info.get("arch"),
                            "proj_dim": first_info.get("proj_dim"), "notes": [],
+                           "vision_problem": first_info.get("vision_problem"),
                            "quant": _quant(g["stem"], file_type=first_info.get("file_type"))})
     _attach(models, extras)
     order = {"ready": 0, "convert": 1, "incompatible": 2}

@@ -32,15 +32,16 @@ GiB = 1 << 30
 ROOMY = {"ram_total": 128 * GiB, "ram_available": 120 * GiB, "commit_limit": 144 * GiB, "commit_used": 10 * GiB,
          "vram_total": 32 * GiB, "vram_free": 31 * GiB}
 SMALL = {"arch": "qwen4exp", "n_embd": 256, "n_ff": 64, "n_layer": 2, "n_expert_max": 4}
-IQ3_XXS, IQ4_NL, Q2_K, Q4_0, Q8_0, F32, F16 = 18, 20, 10, 2, 8, 0, 1
+IQ3_XXS, IQ4_NL, Q2_K, Q4_0, Q8_0, F32, F16, BF16 = 18, 20, 10, 2, 8, 0, 1, 30
 BLOCK = {IQ3_XXS: (256, 98), IQ4_NL: (32, 18), Q2_K: (256, 84), Q4_0: (32, 18), Q8_0: (32, 34), F32: (1, 4),
-         F16: (1, 2)}
+         F16: (1, 2), BF16: (1, 2)}
 
 
 # ------------------------------------------------------------------------------------------------ synthetic files
-def write_gguf(path, meta: dict, tensors: list, cut: int = 0) -> Path:
-    """A GGUF v3 file: `meta` {key: value} (str, int as u32, float as f32, lists of str / int), `tensors`
-    [(name, shape, ggml type)] with zero data of the right size; `cut` bytes are left off the end."""
+def write_gguf(path, meta: dict, tensors: list, cut: int = 0, header_only: bool = False) -> Path:
+    """A GGUF v3 file: `meta` {key: value} (str, int as u32, float as f32, lists of str / int / float), `tensors`
+    [(name, shape, ggml type)] with zero data of the right size; `cut` bytes are left off the end; `header_only`
+    writes no data at all (for checks that read the header alone)."""
     def s(x):
         b = x.encode()
         return struct.pack("<Q", len(b)) + b
@@ -57,6 +58,8 @@ def write_gguf(path, meta: dict, tensors: list, cut: int = 0) -> Path:
             return out + struct.pack("<If", 6, v)
         if isinstance(v, list) and v and isinstance(v[0], str):
             return out + struct.pack("<IIQ", 9, 8, len(v)) + b"".join(s(x) for x in v)
+        if isinstance(v, list) and v and isinstance(v[0], float):
+            return out + struct.pack("<IIQ", 9, 6, len(v)) + struct.pack(f"<{len(v)}f", *v)
         if isinstance(v, list):
             return out + struct.pack("<IIQ", 9, 5, len(v)) + struct.pack(f"<{len(v)}i", *v)
         raise TypeError(v)
@@ -72,12 +75,34 @@ def write_gguf(path, meta: dict, tensors: list, cut: int = 0) -> Path:
         data.append(nb)
         off += (nb + 31) // 32 * 32
     body += b"\0" * ((-len(body)) % 32)
-    total = len(body) + off
+    total = len(body) if header_only else len(body) + off
     p = Path(path)
     with open(p, "wb") as f:
         f.write(body)
         f.truncate(total - cut)
     return p
+
+
+def projector_gguf(path, mat=BF16, vec=F32, proj=256, **meta) -> Path:
+    """The header of a qwen3vl_merger vision projector (one block) as the engine's encoder reads it: matrices `mat`,
+    vectors `vec` (BF16 / F32 is what the engine accepts); no data."""
+    E, F = 1152, 4304
+    t = [("v.patch_embd.weight", [16, 16, 3, E], vec), ("v.patch_embd.weight.1", [16, 16, 3, E], vec),
+         ("v.patch_embd.bias", [E], vec), ("v.position_embd.weight", [E, 2304], vec), ("v.post_ln.weight", [E], vec),
+         ("v.post_ln.bias", [E], vec), ("mm.0.weight", [4 * E, 4 * E], mat), ("mm.0.bias", [4 * E], vec),
+         ("mm.2.weight", [4 * E, proj], mat), ("mm.2.bias", [proj], vec)]
+    p = "v.blk.0."
+    t += [(p + "ln1.weight", [E], vec), (p + "ln1.bias", [E], vec), (p + "ln2.weight", [E], vec),
+          (p + "ln2.bias", [E], vec), (p + "attn_qkv.weight", [E, 3 * E], mat), (p + "attn_qkv.bias", [3 * E], vec),
+          (p + "attn_out.weight", [E, E], mat), (p + "attn_out.bias", [E], vec), (p + "ffn_up.weight", [E, F], mat),
+          (p + "ffn_up.bias", [F], vec), (p + "ffn_down.weight", [F, E], mat), (p + "ffn_down.bias", [E], vec)]
+    m = {"general.architecture": "clip", "general.type": "mmproj", "clip.projector_type": "qwen3vl_merger",
+         "clip.vision.embedding_length": E, "clip.vision.attention.head_count": 16, "clip.vision.patch_size": 16,
+         "clip.vision.feed_forward_length": F, "clip.vision.block_count": 1, "clip.vision.projection_dim": proj,
+         "clip.vision.spatial_merge_size": 2, "clip.vision.image_mean": [0.5, 0.5, 0.5],
+         "clip.vision.image_std": [0.5, 0.5, 0.5]}
+    m.update(meta)
+    return write_gguf(path, m, t, header_only=True)
 
 
 def qwen_meta(**extra) -> dict:
@@ -114,8 +139,14 @@ def tiny_qwen(folder: Path, name="Tiny-Flash-Next-IQ3_XXS", shards=2, gu=IQ3_XXS
     return paths
 
 
-def tiny_basalt(path, name="Tiny basalt", mtp=True, vision=True) -> Path:
+def tiny_basalt(path, name="Tiny basalt", mtp=True, vision=True, projector=BF16) -> Path:
+    """A small .basalt; `vision` embeds a projector header with `projector` matrices (BF16: one the engine reads)."""
     path = Path(path)
+    proj_bytes = b""
+    if vision:
+        tmp = path.with_name(path.name + ".mmproj.tmp")
+        proj_bytes = projector_gguf(tmp, mat=projector).read_bytes()
+        tmp.unlink()
     w = ModelWriter(str(path))
     meta = {"format": "basalt", "version": 1, "name": name, "gguf_kv": {"general.file_type": 23},
             "sources": [{"path": "Tiny-IQ3_XXS-00001-of-00002.gguf"}],
@@ -132,7 +163,7 @@ def tiny_basalt(path, name="Tiny basalt", mtp=True, vision=True) -> Path:
         w.add_bytes("mtp/dense", b"\3" * 100)
         w.add_bytes("mtp/experts", b"\4" * 100)
     if vision:
-        w.add_bytes("vision/mmproj", b"\5" * 300)
+        w.add_bytes("vision/mmproj", proj_bytes)
     w.close()
     return path
 
@@ -200,9 +231,7 @@ class Scan(Base):
 
     def test_a_compatible_sharded_gguf_with_its_projector_and_drafter(self):
         tiny_qwen(self.models)
-        write_gguf(self.models / "mmproj-Tiny-f16.gguf", {"general.architecture": "clip", "general.type": "mmproj",
-                                                          "clip.vision.projection_dim": 256},
-                   [("v.patch_embd.weight", [16, 16], F16)])
+        projector_gguf(self.models / "mmproj-Tiny-f16.gguf")              # one the engine reads (BF16 / F32)
         write_gguf(self.models / "Tiny-MTP-draft.gguf", qwen_meta(**{"qwen4exp.nextn_predict_layers": 1,
                                                                      "qwen4exp.block_count": 3}),
                    layer_tensors(2, Q8_0, Q8_0))
@@ -356,7 +385,7 @@ class Jobs(Base):
         for p in self.patches:
             p.start()
         tiny_qwen(self.models)
-        write_gguf(self.models / "mmproj-Tiny-f16.gguf", {"general.architecture": "clip"}, [("v.w", [16], F16)])
+        projector_gguf(self.models / "mmproj-Tiny-f16.gguf")
         models.set_dirs([str(self.models)])
         (self.model,) = [m for m in models.scan()["models"] if m["role"] == "model"]
         self.out = self.root / "out"

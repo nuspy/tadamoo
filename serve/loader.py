@@ -112,6 +112,10 @@ def model_facts(path: str | None) -> dict:
     head = tensors.get("output.weight") or {}
     shape = head.get("shape") or [0, 0]
     profile = meta.get("profile") if isinstance(meta.get("profile"), dict) else {}
+    vision_problem = None
+    if "vision/mmproj" in mf.sections:                  # a projector the engine's encoder would refuse at start
+        from serve import models
+        vision_problem = models.embedded_projector_problem(str(path))
     return {"name": meta.get("name") or Path(path).stem, "path": str(path), "experts_bytes": size("experts"),
             "n_layers": len(blobs), "n_expert": n_expert, "max_blob": max(blobs) if blobs else 0,
             "dense_bytes": size("dense"), "head_bytes": tb("output.weight"),
@@ -119,7 +123,8 @@ def model_facts(path: str | None) -> dict:
             "n_vocab": int(shape[-1]) if shape else 0, "token_embd_bytes": tb("token_embd.weight"),
             "ple_bytes": tb("per_layer_token_embd.weight"), "mmproj_bytes": size("vision/mmproj"),
             "profile_slots": int(profile.get("slots") or 0), "has_profile": "profile" in mf.sections,
-            "meta_hash": mf.sections["meta"][2].hex()[:16], "sampling": meta_sampling(meta)[0]}
+            "meta_hash": mf.sections["meta"][2].hex()[:16], "sampling": meta_sampling(meta)[0],
+            "vision_problem": vision_problem}
 
 
 # ------------------------------------------------------------------------------------------------ this PC now
@@ -360,6 +365,8 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     if commit_avail is not None and commit_need > commit_avail - commit_keep:
         problems.append({"code": "commit", "need": commit_need, "have": commit_avail, "keep": commit_keep,
                          "share": share})
+    if mode != "off" and facts.get("vision_problem"):   # the engine would stop at start on this projector
+        problems.append({"code": "vision", "it": facts["vision_problem"]["it"], "en": facts["vision_problem"]["en"]})
     return {
         "values": v, "slot_context": ctx, "parallel": par,
         "vram": {"items": [_item("dense", dense), _item("drafter", drafter), _item("kv", kv),
@@ -383,6 +390,12 @@ def problem_text(p: dict, lang: str = "en") -> str:
     """A refusal in words, with the figures."""
     g = lambda n: f"{n / GiB:.1f}".replace(".", "," if lang == "it" else ".")   # noqa: E731
     sh = pct(p.get("share", FREE_SHARE))
+    if p["code"] == "vision":
+        return (f"Immagini: il motore non legge il proiettore visivo di questo file ({p['it']}) e si fermerebbe "
+                "all'avvio. Metti le immagini su «off»."
+                if lang == "it" else
+                f"Image input: the engine does not read this file's vision projector ({p['en']}) and would stop at "
+                "start. Set image input to “off”.")
     if p["code"] == "vram":
         return (f"Non entra in VRAM: servono {g(p['need'])} GiB (riserva compresa), ne sono liberi {g(p['have'])}. "
                 "Riduci il contesto, usa una cache KV più piccola (q4_0), abbassa la riserva o spegni il drafter."
@@ -476,7 +489,7 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
         r_en = tuple(r_en)
     workers, w_en, w_it = hardware.pool_workers(cpu)
     mtp = bool(facts.get("has_mtp"))
-    vision = "dynamic" if facts.get("mmproj_bytes") else "off"
+    vision = "dynamic" if facts.get("mmproj_bytes") and not facts.get("vision_problem") else "off"
     out = {"engine.max-context": CONTEXT_STEPS[-1], "engine.kv": "q4_0", "engine.prefill": "auto",
            "engine.spec": 7 if mtp else 0, "engine.spec-min-p": 0.5 if mtp else None, "engine.expert-cache": "auto",
            "engine.resident-experts": True, "engine.vram-reserve-mib": reserve, "engine.ple-io": "direct",
@@ -550,8 +563,12 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
                             "1: una richiesta alla volta ha tutto il contesto e tutta la velocità."),
         "server.slot-full-context": ("off: with one slot it changes nothing.", "spento: con un solo slot non cambia nulla."),
         "server.vision": (("dynamic: images are read inside the engine, no VRAM kept for them." if vision == "dynamic"
+                           else f"off: the engine does not read this file's vision projector "
+                                f"({facts['vision_problem']['en']})." if facts.get("vision_problem")
                            else "off: this model file has no vision projector."),
                           ("dynamic: le immagini si leggono dentro il motore, nessuna VRAM fissa." if vision == "dynamic"
+                           else f"off: il motore non legge il proiettore visivo di questo file "
+                                f"({facts['vision_problem']['it']})." if facts.get("vision_problem")
                            else "off: questo file non ha il proiettore visivo.")),
     })
     return out
