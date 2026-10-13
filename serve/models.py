@@ -407,6 +407,34 @@ def projector_problem(g: dict) -> dict | None:
     return None
 
 
+def profile_plain(path: str) -> bool | None:
+    """True when the .basalt's expert profile is the plain fill order (expert 0 of every layer, then expert 1, ...):
+    what convert.py writes without --profile / --profile-from. The GPU cache then starts with the low-numbered
+    experts, not the most routed ones, and the hit rate (and the speed) stay low until the adaptive swaps learn the
+    routing. None without a profile, or when it cannot be read."""
+    from model_file import ModelFile
+    try:
+        mf = ModelFile(path)
+        if "profile" not in mf.sections:
+            return None
+        blob = mf.read("profile")
+        _, n_layer, n_expert, _, n_pairs = struct.unpack_from("<5I", blob, 0)
+        if not (0 < n_pairs <= n_layer * n_expert) or len(blob) < 20 + 4 * n_pairs:
+            return None
+        pairs = struct.unpack_from(f"<{2 * n_pairs}H", blob, 20)
+        k = 0
+        for e in range(n_expert):
+            for layer in range(n_layer):
+                if k == n_pairs:
+                    return True
+                if pairs[2 * k] != layer or pairs[2 * k + 1] != e:
+                    return False
+                k += 1
+        return True
+    except (OSError, ValueError, struct.error):
+        return None
+
+
 def embedded_projector_problem(path: str) -> dict | None:
     """projector_problem() of the vision/mmproj section of a .basalt; None without one, or when it reads."""
     from model_file import ModelFile
@@ -525,6 +553,7 @@ def basalt_info(path: str, size: int) -> dict:
             "mmproj_bytes": sec.get("vision/mmproj", 0), "has_meta": "meta" in sec}
     if info["has_vision"]:                               # a projector the engine would refuse: no image input
         info["vision_problem"] = embedded_projector_problem(path)
+    info["profile_plain"] = profile_plain(path)          # converted without a routing profile: a slow GPU cache
     missing = [n for n in ("meta", "dense", "experts", "experts.layout") if n not in sec]
     if missing:
         info["error"] = "sections"
@@ -715,6 +744,15 @@ def _basalt_item(path: str, size: int, info: dict) -> dict:
     if info.get("meta_unreadable"):
         item["notes"].append(_say("La sezione meta non si legge: usa «Verifica».", "The meta section cannot be read: "
                                   "use Verify."))
+    if info.get("profile_plain"):
+        item["profile_plain"] = True
+        item["notes"].append(_say(
+            "Convertito senza profilo degli esperti: la cache in VRAM parte dagli esperti con il numero più basso, non "
+            "dai più usati, e la velocità resta molto sotto la previsione finché gli scambi adattivi non imparano "
+            "l'instradamento. Riconverti con un profilo (convert.py --profile o --profile-from).",
+            "Converted without an expert profile: the VRAM cache starts with the lowest-numbered experts, not the most "
+            "used ones, and the speed stays well below the prediction until the adaptive swaps learn the routing. "
+            "Convert again with a profile (convert.py --profile or --profile-from)."))
     bad = info.get("vision_problem")
     if bad:                                             # the file has a projector the engine would refuse at start
         item["vision"] = False
@@ -1131,6 +1169,12 @@ def convert_plan(model_id: str, out_dir: str | None = None, folders: list[str] |
         f"({gb(free).replace(',', '.') if free is not None else '?'} GB free)"
         + (f", after downloading Qwen's original MTP drafter (about {gb(MTP_FETCH_BYTES).replace(',', '.')} GB) to "
            f"{fetch_dir}" if fetch else "") + ".")
+    # no routing profile is passed: the converter writes the plain fill order (profile_plain())
+    plan["warnings"] = [_say("Senza profilo degli esperti: la cache in VRAM partirà dagli esperti con il numero più "
+                             "basso, e la velocità resterà bassa finché il motore non impara l'instradamento.",
+                             "Without an expert profile: the VRAM cache will start with the lowest-numbered experts, "
+                             "and the speed will stay low until the engine learns the routing.")]
+    plan["summary"] = {k: v + " " + plan["warnings"][0][k] for k, v in plan["summary"].items()}
     return plan
 
 
