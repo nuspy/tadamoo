@@ -71,6 +71,7 @@ class Language(Isolated):
         try:
             with mock.patch.dict(os.environ, {"BASALT_LANG": ""}), mock.patch.object(lang, "system_lang", return_value="en"):
                 self.assertIn(b'data-server-lang="en"', req("GET", "/")[1])
+                self.assertIs(json.loads(req("GET", "/health")[1])["mock"], True)    # a test server says so
                 code, body = req("POST", "/api/prefs", {"lang": "it"})
                 self.assertEqual(code, 200, body)
                 self.assertIn(b'<html lang="it" data-server-lang="it">', req("GET", "/")[1])
@@ -174,12 +175,21 @@ class RunningServer(Isolated):
         self.server.wait(timeout=20)
         super().tearDown()
 
-    def avvia(self, *args, lang_code="it"):
+    def avvia(self, *args, lang_code="it", **env):
         p = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                             str(ROOT / "Avvia-Basalt.ps1"), "-server", "--file", str(self.cfg), *args],
                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180,
-                           stdin=subprocess.DEVNULL, env={**self.envs, "BASALT_LANG": lang_code})
+                           stdin=subprocess.DEVNULL, env={**self.envs, "BASALT_LANG": lang_code, **env})
         return p.returncode, p.stdout + p.stderr
+
+    def test_a_mock_server_is_not_basalt_running(self):
+        # a real start (no BASALT_SCAN_MOCK) never attaches to a test server: it goes on as a new start, which finds
+        # the port taken
+        code, out = self.avvia("--config", "Uguale", "--model", str(self.model), "-prova", BASALT_SCAN_MOCK="0")
+        self.assertNotIn("mi collego a quello", out)
+        self.assertIn(f"La porta {PORT} è occupata", out)
+        self.assertEqual(code, 1, out)
+        self.assertTrue(self.alive())
 
     def alive(self) -> bool:
         return self.server.poll() is None

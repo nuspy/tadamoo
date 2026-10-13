@@ -266,6 +266,9 @@ class Startup(unittest.TestCase):
     """The server process itself: the checks of main() apply to values from the file."""
 
     def run_server(self, cfg, *argv):
+        # a test port unless the case sets one: the server's fail-fast port check must never touch a real one (7232)
+        server = cfg.get("server", {})
+        cfg = {**cfg, "server": server if "port" in server else {**server, "port": 7286}}
         r = subprocess.run([sys.executable, "-m", "serve.server", "--config", conf(cfg), *argv], cwd=ROOT,
                            capture_output=True, text=True, timeout=60, env=os.environ)
         return r.returncode, r.stderr

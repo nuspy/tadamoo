@@ -198,9 +198,11 @@ static class Native
         catch { return false; }
     }
 
-    /// <summary>The ports where a Basalt server answers /health (python or basalt processes only).</summary>
+    /// <summary>The ports where a Basalt server answers /health (python or basalt processes only). A test server
+    /// (/health "mock": true) is not Basalt running, unless BASALT_SCAN_MOCK=1 asks for it.</summary>
     public static List<(int port, JsonElement health)> RunningServers()
     {
+        bool mocks = Environment.GetEnvironmentVariable("BASALT_SCAN_MOCK") == "1";
         var found = new List<(int, JsonElement)>();
         foreach (var (port, pid) in Listeners().DistinctBy(x => x.port))
         {
@@ -208,7 +210,11 @@ static class Native
             try { name = Process.GetProcessById(pid).ProcessName.ToLowerInvariant(); } catch { continue; }
             if (!name.StartsWith("python") && name != "basalt") continue;
             var h = GetJson($"http://127.0.0.1:{port}/health");
-            if (h is JsonElement e && e.TryGetProperty("service", out var s) && s.GetString() == "basalt") found.Add((port, e));
+            if (h is JsonElement e && e.TryGetProperty("service", out var s) && s.GetString() == "basalt")
+            {
+                if (!mocks && e.TryGetProperty("mock", out var m) && m.ValueKind == JsonValueKind.True) continue;
+                found.Add((port, e));
+            }
         }
         return found;
     }

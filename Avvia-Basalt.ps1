@@ -222,6 +222,13 @@ function Get-ServerAccesi {
     foreach ($c in @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue)) {
         $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)" -ErrorAction SilentlyContinue
         if (-not ($p -and $p.CommandLine -and $p.CommandLine -match 'serve\.server')) { continue }
+        # un server di prova (motore finto, o configurazione in una cartella temporanea) non è "Basalt già acceso":
+        # lo si guarda solo se lo chiede BASALT_SCAN_MOCK=1 (i test)
+        if ($env:BASALT_SCAN_MOCK -ne '1') {
+            $tmp = [System.IO.Path]::GetTempPath().TrimEnd('\').ToLowerInvariant()
+            $cl = $p.CommandLine.ToLowerInvariant()
+            if ($cl -match '--mock-engine' -or $cl.Contains($tmp) -or $cl -match '\\temp\\') { continue }
+        }
         # the venv's python.exe starts the base interpreter as its child: look at the parent too
         $padre = Get-CimInstance Win32_Process -Filter "ProcessId=$($p.ParentProcessId)" -ErrorAction SilentlyContinue
         $tracce = @($p.CommandLine, $p.ExecutablePath)
@@ -248,7 +255,10 @@ function Get-ServerAccesi {
     $accesi = @()
     foreach ($porta in ($porte | Sort-Object -Unique)) {
         $h = Get-Json "http://127.0.0.1:$porta/health"
-        if ($h -and $h.service -eq 'basalt') { $accesi += [pscustomobject]@{ Porta = $porta; Salute = $h } }
+        if ($h -and $h.service -eq 'basalt') {
+            if ($env:BASALT_SCAN_MOCK -ne '1' -and $h.PSObject.Properties['mock'] -and $h.mock) { continue }   # un server di prova
+            $accesi += [pscustomobject]@{ Porta = $porta; Salute = $h }
+        }
     }
     return $accesi
 }

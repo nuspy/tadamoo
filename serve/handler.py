@@ -311,6 +311,9 @@ def make_handler(svc: Service):
                 self._json(200, {"status": "ok", "max_context": svc.engine.max_context, "model": svc.model,
                                  "images": svc.vision is not None, "api_key": bool(svc.api_key),
                                  "loaded": svc.loaded(), "standby": bool(getattr(svc, "standby", False)),
+                                 # a test server (--mock-engine): the scripts and the app never take it for Basalt
+                                 "mock": type(svc.engine).__name__ == "MockEngine"
+                                 or bool(getattr(getattr(svc, "supervisor", None), "mock", False)),
                                  "service": "basalt"})
             elif path == "/status":
                 if not self._authorized():                  # it shows the last answer's tail
