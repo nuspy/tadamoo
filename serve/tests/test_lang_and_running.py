@@ -185,7 +185,8 @@ class RunningServer(Isolated):
     def test_a_mock_server_is_not_basalt_running(self):
         # a real start (no BASALT_SCAN_MOCK) never attaches to a test server: it goes on as a new start, which finds
         # the port taken
-        code, out = self.avvia("--config", "Uguale", "--model", str(self.model), "-prova", BASALT_SCAN_MOCK="0")
+        code, out = self.avvia("--config", "Uguale", "--model", str(self.model), "--port", str(PORT), "-prova",
+                               BASALT_SCAN_MOCK="0")
         self.assertNotIn("mi collego a quello", out)
         self.assertIn(f"La porta {PORT} è occupata", out)
         self.assertEqual(code, 1, out)
