@@ -234,6 +234,17 @@ function Get-ServerAccesi {
     if (Test-Path $pidFile) {
         try { $info = Get-Content -Raw $pidFile | ConvertFrom-Json; if ($info.PSObject.Properties['port']) { $porte += [int]$info.port } } catch { }
     }
+    # BASALT_SCAN_PORTS (per i test: "7280-7289" o "7283,7285"): si guardano solo quelle porte, mai le altre
+    if ($env:BASALT_SCAN_PORTS) {
+        $ammesse = @()
+        foreach ($pezzo in ($env:BASALT_SCAN_PORTS -split ',')) {
+            if ($pezzo.Trim() -match '^(\d+)(?:-(\d+))?$') {
+                $da = [int]$Matches[1]; $a = if ($Matches[2]) { [int]$Matches[2] } else { $da }
+                $ammesse += $da..$a
+            }
+        }
+        $porte = @($porte | Where-Object { $ammesse -contains $_ })
+    }
     $accesi = @()
     foreach ($porta in ($porte | Sort-Object -Unique)) {
         $h = Get-Json "http://127.0.0.1:$porta/health"
@@ -519,7 +530,7 @@ Scrivi "  $(T 'indirizzo:      ' 'address:        ') $url"
 
 $asc = Get-Ascoltatore $porta
 if ($asc) { Scrivi (T "La porta $porta è occupata da $($asc.Name) (PID $($asc.ProcessId)): non avvio Basalt Win+GUI (--port N per un'altra)." "Port $porta is taken by $($asc.Name) (PID $($asc.ProcessId)): Basalt Win+GUI is not started (--port N for another).") Red; Esci 1 }
-if (Test-Path $pidFile) {
+if ((Test-Path $pidFile) -and -not $env:BASALT_SCAN_PORTS) {               # con BASALT_SCAN_PORTS può essere di un altro server
     if (-not $Prova) { Remove-Item $pidFile -ErrorAction SilentlyContinue }   # di un avvio finito male
     Scrivi "  $(T '(basalt.pid di un avvio precedente: rimosso)' '(basalt.pid of an earlier start: removed)')" DarkGray
 }
