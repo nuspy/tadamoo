@@ -24,7 +24,8 @@ async function get(path) {
 
 /* ---- views: Chat, Monitor (stats), Hardware, Settings ---- */
 const VIEWS = ["chat", "stats", "hardware", "loader", "settings"];
-applyT($(".tabs"));
+applyT($(".tabs"));                                   // the tab names in the page's language
+$(".tabs").setAttribute("aria-label", T("tab.nav"));
 let viewOn = "";
 function view(v, focus) {
   if (!VIEWS.includes(v)) v = "chat";

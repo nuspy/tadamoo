@@ -434,7 +434,8 @@ fieldset:disabled input, fieldset:disabled select { opacity: .7; }
 }
 @media (max-width: 640px) {
   .tabs { order: 5; flex: 1 0 100%; margin-left: 0; gap: 8px; }
-  .tabs .tab { flex: 1 1 0; padding: 8px 4px; min-width: 0; }
+  /* five equal tabs: a long label (Italian "Impostazioni") wraps, hyphenated where the browser can */
+  .tabs .tab { flex: 1 1 0; padding: 8px 4px; min-width: 0; text-align: center; line-height: 1.15; hyphens: auto; overflow-wrap: anywhere; }
   .auth { flex-wrap: wrap; }
   .auth input { min-width: 0; max-width: none; }
   .auth input, .auth button { min-height: 44px; font-size: 16px; }

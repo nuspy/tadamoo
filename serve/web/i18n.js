@@ -18,7 +18,9 @@ document.documentElement.lang = LANG;
 
 const STRINGS = {
   en: {
-    "tab.loader": "Loader",
+    // the tabs
+    "tab.nav": "Views", "tab.chat": "Chat", "tab.stats": "Monitor", "tab.hardware": "Hardware", "tab.loader": "Loader",
+    "tab.settings": "Settings",
     // chat settings
     "cs.open": "Settings", "cs.title": "Chat settings", "cs.close": "Close",
     "cs.preset": "Preset", "cs.preset.none": "Current settings", "cs.preset.name": "Preset name",
@@ -148,7 +150,8 @@ const STRINGS = {
     "st.wizard.help": "Kept in this browser and in the app's window. The wizard is always in the Loader.",
   },
   it: {
-    "tab.loader": "Carica modello",
+    "tab.nav": "Viste", "tab.chat": "Chat", "tab.stats": "Monitor", "tab.hardware": "Hardware",
+    "tab.loader": "Carica modello", "tab.settings": "Impostazioni",
     "cs.open": "Impostazioni", "cs.title": "Impostazioni chat", "cs.close": "Chiudi",
     "cs.preset": "Preset", "cs.preset.none": "Impostazioni correnti", "cs.preset.name": "Nome del preset",
     "cs.preset.save": "Salva preset", "cs.preset.delete": "Elimina", "cs.preset.saved": "Preset «{0}» salvato.",
