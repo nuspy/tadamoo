@@ -240,5 +240,52 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(self.req("GET", "/fonts/geist-latin-wght.woff2")[0], 200)
 
 
+class Tabs(unittest.TestCase):
+    """Every value decided when the model loads is in the Loader only; Settings holds the app's preferences and a way
+    to the Loader (no second form, no second VRAM slider, no second Reload)."""
+    WEB = ROOT / "serve" / "web"
+
+    def text(self, name):
+        return (self.WEB / name).read_text(encoding="utf-8")
+
+    def settings_view(self):
+        html = self.text("index.html")
+        start = html.index('id="view-settings"')
+        return html[start:html.index("</main>", start)]
+
+    def test_settings_has_no_loading_parameter(self):
+        view = self.settings_view()
+        for gone in ('id="set-form"', 'id="st-reload"', 'id="st-rsv"', 'id="st-prof"', 'id="st-side"',
+                     'id="f-max-context"', 'id="f-kv"', 'id="f-spec"', 'id="f-port"', 'type="range"'):
+            self.assertNotIn(gone, view)
+        for kept in ('id="st-lang"', 'id="st-load"', 'id="st-run"', 'id="st-open-loader"', 'id="st-models"',
+                     'id="st-share"', 'id="st-wizard"'):
+            self.assertIn(kept, view)
+        js = self.text("settings.js")
+        self.assertNotIn("api/settings", js)                     # the old "Settings file" form wrote it
+        self.assertIn('fetch("api/prefs", { method: "POST"', js)
+
+    def test_the_loader_has_every_loading_field(self):
+        loader_js = self.text("loader.js")
+        for _section, key in settings.LOADER_FIELDS:
+            self.assertIn(f'name: "{_section}.{key}"', loader_js, key)
+        self.assertNotIn("#st-", loader_js.replace("#st-run", "").replace("#st-open-loader", ""))
+        models_js = self.text("models.js")
+        self.assertNotIn('data-m="default"', models_js)         # the default server model is chosen in Settings
+        self.assertIn('id="st-defmodel"', models_js)
+        self.assertNotIn('dirsEditor("ldx"', models_js)          # the folders are edited in Settings
+
+    def test_every_new_string_in_english_and_italian(self):
+        i18n = self.text("i18n.js")
+        en, it = i18n.index("  en: {"), i18n.index("  it: {")
+        for key in ("st.load.title", "st.load.help", "st.load.running", "st.load.none", "st.load.next", "st.load.nomtp",
+                    "st.load.slots", "st.load.free", "st.load.profile", "st.load.custom", "st.load.file",
+                    "st.prefs.title", "st.share", "st.share.help", "st.share.save", "st.share.saved", "st.share.bad",
+                    "st.share.fail", "st.wizard", "st.wizard.help", "ld.open"):
+            self.assertIn(f'"{key}":', i18n[en:it], key)
+            self.assertIn(f'"{key}":', i18n[it:], key)
+        self.assertNotIn("st.reload", i18n)
+
+
 if __name__ == "__main__":
     unittest.main()

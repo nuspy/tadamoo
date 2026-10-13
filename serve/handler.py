@@ -296,7 +296,7 @@ def make_handler(svc: Service):
                                      "standby": bool(getattr(svc, "standby", False)),
                                      "max_context": svc.engine.max_context})
             elif path == "/api/prefs":
-                self._json(200, lang_mod.info())
+                self._json(200, self._prefs())
             elif path == "":
                 # the page opens in the user's language (serve/lang.py) unless this browser chose another
                 code = lang_mod.lang()
@@ -369,7 +369,7 @@ def make_handler(svc: Service):
             if path.startswith("/api/wizard/"):
                 self._wizard_post(path[len("/api/wizard/"):])
                 return
-            if path == "/api/prefs":                          # the user's language, shared with the app and the scripts
+            if path == "/api/prefs":   # the user's language and the RAM/commit share kept free: this PC's, every page's
                 if not settings.is_loopback(self.client_address[0]):
                     self._json(403, {"error": {"type": "forbidden",
                                                "message": "preferences can be changed only from the PC the server runs on"}})
@@ -378,8 +378,14 @@ def make_handler(svc: Service):
                     return
                 try:
                     req = json.loads(self._body(1 << 16) or b"{}")
-                    lang_mod.set_lang(req.get("lang") if isinstance(req, dict) else None)
-                    self._json(200, lang_mod.info())
+                    if not isinstance(req, dict):
+                        raise ValueError('send {"lang": "it" | "en" | null} and/or {"free_share": 0.15}')
+                    share = loader.check_free_share(req["free_share"]) if "free_share" in req else None
+                    if "lang" in req or "free_share" not in req:     # an empty body is "auto", as before
+                        lang_mod.set_lang(req.get("lang"))
+                    if share is not None:
+                        loader.save_machine_settings({"free_share": share})
+                    self._json(200, self._prefs())
                 except BadBody as e:
                     self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
                 except ValueError as e:
@@ -562,6 +568,14 @@ def make_handler(svc: Service):
                 self._json(403, {"error": {"message": f"{what} only from the server's own page"}})
                 return False
             return True
+
+        def _prefs(self) -> dict:
+            """GET /api/prefs: the language (serve/lang.py) and the share of the RAM and of the commit limit every
+            plan keeps free (loader.free_share: the Settings view's or the wizard's, else 15%)."""
+            return {**lang_mod.info(),
+                    "free_share": {"value": loader.free_share(), "default": loader.FREE_SHARE,
+                                   "min": loader.FREE_SHARE_MIN, "max": loader.FREE_SHARE_MAX,
+                                   "floor_bytes": loader.FREE_FLOOR}}
 
         def _settings_get(self):
             """GET /api/settings: the config file's main fields, what the server runs with, and whether this client
