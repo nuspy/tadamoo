@@ -54,6 +54,14 @@ RESIDENT_SPARE_BLOBS = 96               # spare places of the resident copy
 PROMPT_CHECKPOINTS = 6 * 118 * MiB      # --prompt-cache 6 checkpoints of the recurrent state
 PLE_ROW_CACHE = 1048576 * 90            # --ple-io direct: the row cache
 HOST_OTHER = 2 * GiB                    # estimate: the server, the engine heap and CUDA's host runtime
+# the prompt path's lend region (generate.cpp plan_lend: at most kAutoLendPct of the cache's slots, 128 left): with
+# resident experts the engine also keeps the lent slots' experts in RAM, as far as RAM allows down to its own margin
+# (platform ram_margin(): 15% of the RAM, at least 2 GiB, plus kLateHostBytes) of min(free RAM, commit left)
+LEND_PCT = 85
+LEND_BYTES_PER_TOKEN = 340 * 1024       # the lend region per token of the chunk (measured: 4845 slots of 2.18 MB for
+                                        # a 30976-token chunk on the 3-bit file)
+ENGINE_LATE_HOST = 2 * GiB
+MEMORY_PLAN_VERSION = 2                 # memory records measured against an older plan are not added (plan())
 MTP_EXPERT_BLOB = 1382400
 
 # what the engine does without the key (generate.cpp option defaults)
@@ -283,6 +291,20 @@ def prefill_chunk(v: dict, resident: bool | None = None) -> int:
     return min(2048, ctx)
 
 
+def lend_tokens(v: dict) -> int:
+    """The largest chunk the prompt path may lend cache slots for, with resident experts (generate.cpp: --prefill auto
+    goes up to 32768 tokens, auto:N up to N, a number is the chunk; never past the context)."""
+    p, ctx = v["engine.prefill"], slot_context(v)
+    if isinstance(p, int):
+        return max(0, min(p, ctx))
+    p = str(p or "")
+    if p == "auto":
+        return min(32768, ctx)
+    if p.startswith("auto:") and p[5:].isdigit():
+        return min(int(p[5:]), ctx)
+    return min(2048, ctx)
+
+
 # ------------------------------------------------------------------------------------------------ the plan
 def _item(key, nbytes, estimate=False):
     return {"key": key, "bytes": int(max(0, nbytes)), "estimate": estimate}
@@ -342,14 +364,28 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     corr = memory_correction(facts) if correction is None else correction
     if corr.get("ram"):                                 # measured at an earlier load of this model, above the plan
         host.append(_item("measured", corr["ram"]))
-    ram_need = sum(h["bytes"] for h in host)
-    commit_need = ram_need - ple_ram + vram_need        # the PLE map is file-backed; VRAM is charged to the commit
-    commit_need += max(0, corr.get("commit", 0) - corr.get("ram", 0))
     # ---- available and the rules
     total, avail = system.get("ram_total"), system.get("ram_available")
     limit, used = system.get("commit_limit"), system.get("commit_used")
     ram_avail = None if avail is None else avail + holds["ram"]
     commit_avail = None if limit is None or used is None else limit - used + holds["commit"]
+    # the lent slots' RAM copies: elastic (the engine keeps what fits above its own margin), so they are shown in the
+    # need but not held against the share kept free
+    lend = 0
+    if v["engine.resident-experts"] and facts.get("has_profile") and slots > 128 and prefill_chunk(v) > 0:
+        cap = min(max(0, min(slots * LEND_PCT // 100, slots - 128)) * blob, lend_tokens(v) * LEND_BYTES_PER_TOKEN)
+        before = sum(h["bytes"] for h in host)          # taken before the copies are sized (the PLE table in RAM too)
+        rooms = [x for x in (None if ram_avail is None else ram_avail - before,     # the PLE map takes no commit
+                             None if commit_avail is None else commit_avail - vram_need - (before - ple_ram))
+                 if x is not None]
+        if rooms and total:
+            margin = max(2 * GiB, total * 15 // 100) + ENGINE_LATE_HOST
+            lend = max(0, min(cap, min(rooms) - margin))
+        if lend:
+            host.insert(1, _item("lend", lend, True))
+    ram_need = sum(h["bytes"] for h in host)
+    commit_need = ram_need - ple_ram + vram_need        # the PLE map is file-backed; VRAM is charged to the commit
+    commit_need += max(0, corr.get("commit", 0) - corr.get("ram", 0))
     ram_keep = keep_bytes(total, share)
     commit_keep = keep_bytes(limit, share)
     problems = []
@@ -359,11 +395,11 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
                 problems.append({"code": "vram", "need": fixed + MIN_CACHE_SLOTS * blob + reserve, "have": vram_avail})
         elif vram_need + reserve > vram_avail:
             problems.append({"code": "vram", "need": vram_need + reserve, "have": vram_avail})
-    if ram_avail is not None and ram_need > ram_avail - ram_keep:
-        problems.append({"code": "ple_ram" if ple_ram and ram_need - ple_ram <= ram_avail - ram_keep else "ram",
-                         "need": ram_need, "have": ram_avail, "keep": ram_keep, "share": share})
-    if commit_avail is not None and commit_need > commit_avail - commit_keep:
-        problems.append({"code": "commit", "need": commit_need, "have": commit_avail, "keep": commit_keep,
+    if ram_avail is not None and ram_need - lend > ram_avail - ram_keep:
+        problems.append({"code": "ple_ram" if ple_ram and ram_need - lend - ple_ram <= ram_avail - ram_keep else "ram",
+                         "need": ram_need - lend, "have": ram_avail, "keep": ram_keep, "share": share})
+    if commit_avail is not None and commit_need - lend > commit_avail - commit_keep:
+        problems.append({"code": "commit", "need": commit_need - lend, "have": commit_avail, "keep": commit_keep,
                          "share": share})
     if mode != "off" and facts.get("vision_problem"):   # the engine would stop at start on this projector
         problems.append({"code": "vision", "it": facts["vision_problem"]["it"], "en": facts["vision_problem"]["en"]})
@@ -375,10 +411,10 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
                  "need": vram_need, "reserve": reserve, "available": vram_avail, "free_now": vram_free,
                  "total": system.get("vram_total"), "expert_slots": slots, "expert_slots_total": total_slots},
         "ram": {"items": host, "need": ram_need, "available": ram_avail, "free_now": avail, "total": total,
-                "keep": ram_keep, "keep_share": share},
+                "keep": ram_keep, "keep_share": share, "elastic": lend},
         "commit": {"need": commit_need, "available": commit_avail, "free_now": None if limit is None or used is None
                    else limit - used, "limit": limit, "used": used, "keep": commit_keep, "keep_share": share,
-                   "ram_part": ram_need - ple_ram, "vram_part": vram_need},
+                   "ram_part": ram_need - ple_ram, "vram_part": vram_need, "elastic": lend},
         "engine_holds": {"ram": holds["ram"], "commit": holds["commit"], "vram": holds_vram},
         "unknown": [k for k, x in (("vram", vram_avail), ("ram", ram_avail), ("commit", commit_avail)) if x is None],
         "fits": not problems, "problems": problems,
@@ -750,6 +786,8 @@ def memory_correction(facts: dict) -> dict:
     key = (str(p), st.st_mtime_ns, st.st_size)
     if _memory_cache.get(str(p), (None,))[0] != key:
         m = read_calibrations(facts).get("memory") or {}
+        if int(m.get("plan_version") or 1) < MEMORY_PLAN_VERSION:     # measured against a plan that counted less
+            m = {}
         _memory_cache[str(p)] = (key, {"ram": max(0, int(m.get("ram_extra") or 0)),
                                        "commit": max(0, int(m.get("commit_extra") or 0))})
     return dict(_memory_cache[str(p)][1])
@@ -769,7 +807,8 @@ def record_load_memory(facts: dict, values: dict, before: dict, after: dict) -> 
     if ram_real <= 0 and commit_real <= 0:
         return None
     p = plan(values, facts, before, correction={"ram": 0, "commit": 0})
-    record = {"at": now_iso(), "fingerprint": fingerprint(values), "ram_real": ram_real, "ram_planned": p["ram"]["need"],
+    record = {"at": now_iso(), "plan_version": MEMORY_PLAN_VERSION, "fingerprint": fingerprint(values),
+              "ram_real": ram_real, "ram_planned": p["ram"]["need"],
               "commit_real": commit_real, "commit_planned": p["commit"]["need"],
               "ram_extra": max(0, ram_real - p["ram"]["need"]), "commit_extra": max(0, commit_real - p["commit"]["need"])}
     path = calibration_path(facts)
