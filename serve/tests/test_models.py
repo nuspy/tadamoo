@@ -414,6 +414,40 @@ class Jobs(Base):
             self.assertIn(flag, p["args"])
         self.assertIsNotNone(p["free_bytes"])
 
+    def test_the_plan_passes_an_expert_profile_when_one_exists(self):
+        import struct
+        n_layer, n_expert = SMALL["n_layer"], 4
+
+        def blob(pairs, magic=b""):
+            table = [-1] * (n_layer * n_expert)
+            for rank, (layer, e) in enumerate(pairs):
+                table[layer * n_expert + e] = rank
+            return (magic + struct.pack("<5I", 1, n_layer, n_expert, len(pairs), len(pairs))
+                    + b"".join(struct.pack("<HH", layer, e) for layer, e in pairs)
+                    + struct.pack(f"<{len(table)}i", *table))
+
+        pairs = [(1, 2), (0, 3), (0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 3)]
+        p = models.convert_plan(self.model["id"], str(self.out))
+        self.assertIsNone(p["profile"])                                   # none: the plain fill order, and a warning
+        self.assertNotIn("--profile", p["args"])
+        self.assertIn("lowest-numbered", p["summary"]["en"])
+        user = self.cache / models.PROFILE_DIR / "Tiny-Flash-Next-IQ3_XXS.bin"
+        user.parent.mkdir(parents=True)
+        user.write_bytes(blob(pairs, b"STRP"))                             # Strata's file in the user data folder
+        p = models.convert_plan(self.model["id"], str(self.out))
+        self.assertEqual(p["profile"], user.as_posix())
+        self.assertEqual(p["args"][p["args"].index("--profile") + 1], user.as_posix())
+        self.assertNotIn("lowest-numbered", p["summary"]["en"])
+        beside = self.models / "Tiny-Flash-Next-IQ3_XXS.expert-profile.bin"
+        beside.write_bytes(blob(pairs)[:-4])                               # beside the GGUF wins, but this one is cut
+        p = models.convert_plan(self.model["id"], str(self.out))
+        self.assertEqual(p["profile"], user.as_posix())
+        self.assertTrue(any("not used" in w["en"] for w in p["warnings"]))
+        beside.write_bytes(blob(pairs))
+        p = models.convert_plan(self.model["id"], str(self.out))
+        self.assertEqual(p["profile"], beside.as_posix())
+        self.assertEqual(p["warnings"], [])
+
     def test_a_conversion_needs_the_confirmation_of_the_plan(self):
         p = models.convert_plan(self.model["id"], str(self.out))
         for token, confirm, code in ((p["token"], None, "confirm"), (None, True, "confirm"),

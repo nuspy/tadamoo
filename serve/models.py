@@ -858,6 +858,7 @@ def _classify(group: dict, mtp_sources: list[str]) -> dict:
                   "In some layers gate and up differ in format: the converter needs them equal.")
     # convertible
     item.update(status="convert", reason=_say("Si può convertire in .basalt.", "Can be converted to .basalt."))
+    item["n_expert"] = first.get("n_expert") if isinstance(first.get("n_expert"), int) else None
     item["compat_bf16"] = any(i.get("compat_bf16") for i in infos)
     item["dense_bytes"] = sum(i.get("dense_bytes") or 0 for i in infos)
     if item["compat_bf16"]:
@@ -1082,6 +1083,38 @@ def out_name(model: dict) -> str:
     return stem + ".basalt"
 
 
+PROFILE_DIR = "expert-profiles"         # in the user data folder: <model>.bin, a profile a conversion uses
+
+
+def profile_candidates(model: dict) -> list[Path]:
+    """Where a conversion looks for the model's expert profile, first match wins: <model>.expert-profile.bin and
+    expert-profile.bin beside the GGUF, then expert-profiles/<model>.bin in the user data folder (<model>: the .basalt
+    name without its extension). Each is a Basalt profile (--expert-profile-save's file) or Strata's
+    data/expert-profile.bin for the same model."""
+    from serve import userdata
+    stem = Path(out_name(model)).stem
+    here = Path(model["path"]).parent
+    return [here / f"{stem}.expert-profile.bin", here / "expert-profile.bin",
+            userdata.user_data_dir() / PROFILE_DIR / f"{stem}.bin"]
+
+
+def find_profile(model: dict) -> tuple[str | None, list[dict]]:
+    """(the expert profile a conversion of `model` passes as --profile, or None; a note for each candidate that exists
+    but cannot be used). A profile is checked whole (tools/model_file.py check_profile): the model's 48 layers and,
+    when the GGUF says, its expert count."""
+    from model_file import check_profile
+    skipped = []
+    for p in profile_candidates(model):
+        if not p.is_file():
+            continue
+        try:
+            check_profile(p.read_bytes(), GEOMETRY["n_layer"], model.get("n_expert"))
+            return _posix(p), skipped
+        except (OSError, ValueError) as e:
+            skipped.append(_say(f"Profilo degli esperti {p} non usato: {e}.", f"Expert profile {p} not used: {e}."))
+    return None, skipped
+
+
 class Refused(Exception):
     """A request the jobs cannot take: the HTTP status and the body."""
 
@@ -1150,6 +1183,9 @@ def convert_plan(model_id: str, out_dir: str | None = None, folders: list[str] |
         args += ["--compat-bf16"]
     mtp_dir = model.get("mtp_source") or (_posix(fetch_dir) if fetch_dir else "")
     args += ["--mtp-source", mtp_dir]
+    profile, profile_notes = find_profile(model)
+    if profile:
+        args += ["--profile", profile]
     steps = (["fetch", "check", "convert"] if fetch else ["convert"])
     plan = {"model": {k: model.get(k) for k in ("id", "name", "path", "files", "quant", "size_bytes", "experts_bytes",
                                                 "vision", "mmproj", "mtp", "mtp_source", "compat_bf16", "status")},
@@ -1157,7 +1193,7 @@ def convert_plan(model_id: str, out_dir: str | None = None, folders: list[str] |
             "estimate_bytes": estimate, "fetch_bytes": MTP_FETCH_BYTES if fetch else 0,
             "fetch_dir": _posix(fetch_dir) if fetch and fetch_dir else None, "disk": _disk_of(out_dir) if out_dir else "",
             "free_bytes": free, "need_bytes": need, "commit_share": share, "commit_max": COMMIT_MAX,
-            "args": args, "steps": steps, "problems": problems, "ok": not problems}
+            "args": args, "steps": steps, "problems": problems, "ok": not problems, "profile": profile}
     plan["token"] = hashlib.sha256(json.dumps([model["id"], plan["out_path"], estimate, args, steps],
                                               sort_keys=True).encode()).hexdigest()[:16]
     plan["summary"] = _say(
@@ -1169,12 +1205,19 @@ def convert_plan(model_id: str, out_dir: str | None = None, folders: list[str] |
         f"({gb(free).replace(',', '.') if free is not None else '?'} GB free)"
         + (f", after downloading Qwen's original MTP drafter (about {gb(MTP_FETCH_BYTES).replace(',', '.')} GB) to "
            f"{fetch_dir}" if fetch else "") + ".")
-    # no routing profile is passed: the converter writes the plain fill order (profile_plain())
-    plan["warnings"] = [_say("Senza profilo degli esperti: la cache in VRAM partirà dagli esperti con il numero più "
-                             "basso, e la velocità resterà bassa finché il motore non impara l'instradamento.",
-                             "Without an expert profile: the VRAM cache will start with the lowest-numbered experts, "
-                             "and the speed will stay low until the engine learns the routing.")]
-    plan["summary"] = {k: v + " " + plan["warnings"][0][k] for k, v in plan["summary"].items()}
+    plan["warnings"] = list(profile_notes)
+    if profile:
+        plan["summary"] = {k: v + " " + t for (k, v), t in zip(plan["summary"].items(), (
+            f"Profilo degli esperti: {profile}.", f"Expert profile: {profile}."))}
+    else:
+        # no routing profile is passed: the converter writes the plain fill order (profile_plain())
+        where = ", ".join(str(p) for p in profile_candidates(model))
+        plan["warnings"].append(_say(
+            "Senza profilo degli esperti: la cache in VRAM partirà dagli esperti con il numero più basso, e la "
+            f"velocità resterà bassa finché il motore non impara l'instradamento. Un profilo si mette in: {where}.",
+            "Without an expert profile: the VRAM cache will start with the lowest-numbered experts, and the speed "
+            f"will stay low until the engine learns the routing. A profile goes in: {where}."))
+        plan["summary"] = {k: v + " " + plan["warnings"][-1][k] for k, v in plan["summary"].items()}
     return plan
 
 

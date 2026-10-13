@@ -67,6 +67,32 @@ class PlainProfile(unittest.TestCase):
         self.assertFalse(items["ranked.basalt"].get("profile_plain"))
         self.assertEqual(items["plain.basalt"]["status"], "ready")
 
+    def test_set_profile_in_place(self):
+        """tools/model_file.py set-profile: a ranked profile (or Strata's, with its STRP magic) replaces the plain one
+        in place, the old bytes go to a backup that restores them, and every section still verifies."""
+        from model_file import ModelFile, main, set_profile
+        plain = [(layer, e) for e in range(N_EXPERT) for layer in range(N_LAYER)]
+        ranked = [(1, 5), (0, 3)] + [p for p in plain if p not in ((1, 5), (0, 3))]
+        path = with_profile(self.root / "m" / "x.basalt", profile_blob(plain))
+        old = ModelFile(str(path)).read("profile")
+        out = set_profile(str(path), b"STRP" + profile_blob(ranked))
+        self.assertTrue(out["changed"])
+        mf = ModelFile(str(path))
+        self.assertEqual(mf.read("profile"), profile_blob(ranked))
+        self.assertTrue(all(mf.verify(n) for n in mf.names()))
+        self.assertEqual(Path(out["backup"]).read_bytes(), old)
+        self.assertIs(models.profile_plain(str(path)), False)
+        self.assertFalse(set_profile(str(path), profile_blob(ranked))["changed"])     # the same bytes: nothing to do
+        for bad in (profile_blob(plain[:12]),                                         # another size
+                    profile_blob([(0, 0)] + plain[:-1]),                              # a pair ranked twice
+                    struct.pack("<5I", 1, N_LAYER + 1, N_EXPERT, 0, 0) + b"\0" * 4 * (N_LAYER + 1) * N_EXPERT):
+            with self.assertRaises(ValueError):
+                set_profile(str(path), bad)
+        self.assertEqual(ModelFile(str(path)).read("profile"), profile_blob(ranked))  # a refusal writes nothing
+        self.assertEqual(main(["set-profile", str(path), out["backup"]]), 0)          # the backup restores it
+        self.assertEqual(ModelFile(str(path)).read("profile"), old)
+        self.assertEqual(main(["verify", str(path)]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

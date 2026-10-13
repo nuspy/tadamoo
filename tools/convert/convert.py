@@ -11,7 +11,7 @@ Inputs
   --mtp-dense FILE   a tuned `mtp/dense` section (raw bytes, same layout as the source; needs --mtp-source); the packs
                      with a self-distilled MTP layer carry one. Its size is checked and its SHA-256 goes to meta.mtp
   --draft-vocab FILE the token subset the draft head may propose (int32 ids; needs --mtp-source)
-  --profile FILE     an expert profile stored as is (`--expert-profile-save`'s file)
+  --profile FILE     an expert profile stored as is (`--expert-profile-save`'s file, or Strata's expert-profile.bin)
   --profile-from TRACE ...  `--dump-routing` traces: routed experts first, most frequent first, then the rest;
                      with neither option the ranking is the plain fill order
   --hc8 FILE         8-bit hyper-connection copies from `--dump-hc8`; without them the engine quantizes at every start
@@ -195,6 +195,8 @@ def convert(a) -> None:
         draft_vocab = S.draft_vocab_bytes(a.draft_vocab, n_vocab) if a.draft_vocab else None
         if a.profile:
             profile_blob = Path(a.profile).read_bytes()
+            if profile_blob[:4] == b"STRP":             # Strata's data/expert-profile.bin: the same layout after it
+                profile_blob = profile_blob[4:]
         else:
             freq = {}
             for t in a.profile_from or []:

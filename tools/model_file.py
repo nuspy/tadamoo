@@ -10,6 +10,8 @@
     m.names(); m.section("meta") -> (offset, bytes); m.read("meta") -> bytes; m.verify("dense") -> bool
 
     python tools/model_file.py verify FILE.basalt      # every section, with progress lines (exit 3: a bad one)
+    python tools/model_file.py set-profile FILE.basalt PROFILE [--backup PATH]
+                                                       # replace the expert profile in place (same size), see set_profile
 """
 from __future__ import annotations
 
@@ -218,17 +220,118 @@ class ModelFile:
         return h.digest() == digest
 
 
+PROFILE_HEADER = struct.Struct("<5I")         # version, n_layer, n_expert, slots, n_pairs (tools/convert/model_sections.py)
+STRATA_PROFILE_MAGIC = b"STRP"                 # Strata's data/expert-profile.bin: the same layout after these 4 bytes
+
+
+def check_profile(blob: bytes, n_layer: int | None = None, n_expert: int | None = None) -> bytes:
+    """An expert profile as the `profile` section stores it, checked: ValueError says what is wrong. A Strata profile
+    (STRP + the same layout) is accepted and returned without its magic. Every pair is in range and ranked once, and
+    the rank table agrees with the ranked list."""
+    if blob[:4] == STRATA_PROFILE_MAGIC:
+        blob = blob[4:]
+    if len(blob) < PROFILE_HEADER.size:
+        raise ValueError("profile: too short to hold a header")
+    _, nl, ne, slots, n = PROFILE_HEADER.unpack_from(blob, 0)
+    if (n_layer is not None and nl != n_layer) or (n_expert is not None and ne != n_expert):
+        raise ValueError(f"profile: {nl}x{ne}, but the model is {n_layer}x{n_expert}")
+    if n > slots:
+        raise ValueError("profile: more ranked pairs than slots")
+    want = PROFILE_HEADER.size + 4 * n + 4 * nl * ne
+    if len(blob) != want:
+        raise ValueError(f"profile: {len(blob)} bytes, expected {want} for {n} pairs of {nl}x{ne}")
+    pairs = struct.unpack_from(f"<{2 * n}H", blob, PROFILE_HEADER.size)
+    table = struct.unpack_from(f"<{nl * ne}i", blob, PROFILE_HEADER.size + 4 * n)
+    seen = set()
+    for r in range(n):
+        layer, e = pairs[2 * r], pairs[2 * r + 1]
+        if layer >= nl or e >= ne:
+            raise ValueError(f"profile: pair {r} is (layer {layer}, expert {e}), out of range")
+        if (layer, e) in seen:
+            raise ValueError(f"profile: (layer {layer}, expert {e}) is ranked twice")
+        seen.add((layer, e))
+        if table[layer * ne + e] != r:
+            raise ValueError(f"profile: the rank table says {table[layer * ne + e]} for pair {r}")
+    if sum(1 for x in table if x != -1) != n:
+        raise ValueError("profile: the rank table ranks pairs the list does not")
+    return blob
+
+
+def set_profile(path: str, profile: bytes, backup: str | None = None) -> dict:
+    """Replace the `profile` section of a .basalt in place: the new profile (checked against the old one's geometry)
+    must have the old one's size, so nothing else moves and the meta's description of it stays true. The old bytes go
+    to `backup` first (default: PATH.profile-<old sha256 prefix>.bin, a profile this command takes back). The section
+    is written, then its SHA-256 in the table; both are read back and checked."""
+    m = ModelFile(path)
+    if "profile" not in m.sections:
+        raise ValueError(f"{path}: no profile section (convert again with --profile)")
+    off, size, old_digest = m.sections["profile"]
+    old = m.read("profile")
+    if hashlib.sha256(old).digest() != old_digest:
+        raise ValueError(f"{path}: the profile section does not match its SHA-256 now; restore it first")
+    _, nl, ne, _, _ = PROFILE_HEADER.unpack_from(old, 0)
+    new = check_profile(profile, nl, ne)
+    if len(new) != size:
+        raise ValueError(f"profile: {len(new)} bytes, the section holds {size}: convert again with --profile")
+    digest = hashlib.sha256(new).digest()
+    if digest == old_digest:
+        return {"changed": False, "backup": None, "sha256": digest.hex()}
+    backup = backup or f"{path}.profile-{old_digest.hex()[:16]}.bin"
+    if not os.path.exists(backup):
+        with open(backup, "wb") as f:
+            f.write(old)
+    with open(backup, "rb") as f:
+        kept = f.read()
+    if kept != old:
+        raise ValueError(f"{backup} exists and is not this file's profile")
+    index = list(m.sections).index("profile")
+    entry_at = HEADER.size + index * ENTRY.size
+    with open(path, "r+b") as f:
+        f.seek(entry_at)
+        name, e_off, e_size, e_digest, _ = ENTRY.unpack(f.read(ENTRY.size))
+        if name.rstrip(b"\0") != b"profile" or (e_off, e_size, e_digest) != (off, size, old_digest):
+            raise ValueError(f"{path}: the section table changed while it was read")
+        f.seek(off)
+        f.write(new)
+        f.flush()
+        os.fsync(f.fileno())
+        f.seek(entry_at + 64 + 8 + 8)                  # name, offset, bytes, then the digest
+        f.write(digest)
+        f.flush()
+        os.fsync(f.fileno())
+    after = ModelFile(path)
+    if after.read("profile") != new or not after.verify("profile"):
+        raise ValueError(f"{path}: the profile did not read back; the old one is in {backup}")
+    return {"changed": True, "backup": backup, "sha256": digest.hex(), "old_sha256": old_digest.hex()}
+
+
 def main(argv=None) -> int:
     """python tools/model_file.py verify FILE: every section's SHA-256 against the table, through one reused 16 MiB
     buffer. Prints `progress DONE TOTAL` about every GiB, one line per section and a last JSON line; exit 0 when all
-    match, 3 when a section does not, 2 when the file cannot be read."""
+    match, 3 when a section does not, 2 when the file cannot be read.
+
+    python tools/model_file.py set-profile FILE PROFILE [--backup PATH]: replace the expert profile in place
+    (set_profile; a Strata data/expert-profile.bin is accepted); one JSON line, exit 2 when refused."""
     import argparse
     import json
     import sys
     ap = argparse.ArgumentParser(prog="python tools/model_file.py")
-    ap.add_argument("cmd", choices=["verify"])
+    ap.add_argument("cmd", choices=["verify", "set-profile"])
     ap.add_argument("file")
+    ap.add_argument("profile", nargs="?", help="set-profile: the expert profile file")
+    ap.add_argument("--backup", help="set-profile: where the old profile goes (default: FILE.profile-<sha>.bin)")
     a = ap.parse_args(argv)
+    if a.cmd == "set-profile":
+        if not a.profile:
+            ap.error("set-profile needs the profile file")
+        try:
+            with open(a.profile, "rb") as f:
+                out = set_profile(a.file, f.read(), a.backup)
+        except (OSError, ValueError) as e:
+            print(json.dumps({"ok": False, "error": str(e)}), flush=True)
+            return 2
+        print(json.dumps({"ok": True, **out}), flush=True)
+        return 0
     try:
         m = ModelFile(a.file)
     except (OSError, ValueError) as e:
