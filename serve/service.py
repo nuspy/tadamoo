@@ -416,7 +416,10 @@ class Service:
             "service": "basalt", "model": self.model,
             "loaded": self.loaded(), "loading": self.loading, "auto_load": hasattr(self.engine, "restart"),
             "structured_output": {"formats": ["json_object", "json_schema"], "method": "prompt_validate_retry", "retries": 2,
-                                  "constrained_decoding": False, "stream_buffered": True},
+                                  "constrained_decoding": False,
+                                  # the validated answer is held until the check (older clients read this one); the
+                                  # reasoning is not held: it streams while the answer is written
+                                  "stream_buffered": True, "content_buffered": True, "reasoning_streamed": True},
             "engine": (getattr(self.engine, "info", {}) or {}).get("version"),
             "started": int(self.started_at), "uptime_s": int(time.time() - self.started_at),
             "cache_max_tokens": ctx,

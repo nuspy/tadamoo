@@ -100,7 +100,11 @@ class Structured(unittest.TestCase):
                 self.assertEqual(reply["error"]["code"], "structured_output_failed")
                 _, raw = self.chat(script, stream=True)
                 self.assertIn('"structured_output_failed"', raw)
-                self.assertNotIn('"delta"', raw)
+                chunks = [json.loads(line[6:]) for line in raw.splitlines() if line.startswith("data: {")]
+                for c in chunks:                                # no content of a rejected try is ever sent
+                    for choice in c.get("choices", []):
+                        self.assertFalse(choice["delta"].get("content"), c)
+                self.assertTrue(any((c.get("structured_output") or {}).get("discarded") for c in chunks))
                 self.assertIn("data: [DONE]", raw)
 
     def test_object_mode_strict_json_and_truncation(self):
@@ -132,10 +136,11 @@ class Structured(unittest.TestCase):
         code, reply = self.chat(["## Not JSON", json.dumps(STORY)])
         self.assertEqual(code, 200, reply)
         self.assertEqual(json.loads(reply["choices"][0]["message"]["content"]), STORY)
-        self.assertEqual(reply["structured_output"], {"validated": True, "constrained": False, "attempts": 2})
+        self.assertEqual(reply["structured_output"]["attempts"], 2)
+        self.assertEqual([d["attempt"] for d in reply["structured_output"]["discarded"]], [1])
         second = self.tok.decode(self.engine.requests[1][0])
-        self.assertIn("## Not JSON", second)                   # the rejected answer and why, then the request again
-        self.assertIn("Your previous answer was rejected", second)
+        self.assertNotIn("## Not JSON", second)                # the rejected text is not sent back, only why it failed
+        self.assertIn("Your previous answer was rejected: model did not return valid JSON", second)
         code, raw = self.chat(["## Not JSON", json.dumps(STORY)], stream=True)
         chunks = [json.loads(line[6:]) for line in raw.splitlines() if line.startswith("data: {")]
         self.assertEqual(json.loads("".join(c["choices"][0]["delta"].get("content", "") for c in chunks)), STORY)

@@ -7,6 +7,7 @@ import uuid
 
 from serve.frontend import Event
 from serve.service import Service
+from serve.api.repair import Repair, build_repair
 from serve.api.structured import validated_json
 
 
@@ -72,6 +73,11 @@ def openai_collect(chunks) -> dict:
     for c in chunks:
         if c is None:                              # a heartbeat
             continue
+        if (c.get("structured_output") or {}).get("discarded") is True:
+            content.clear()                        # a rejected try: only the last one is the answer
+            reasoning.clear()
+            by_index.clear()
+            continue
         d = c["choices"][0]["delta"]
         content.append(d.get("content") or "")
         reasoning.append(d.get("reasoning_content") or "")
@@ -103,8 +109,6 @@ def openai_collect(chunks) -> dict:
 
 STRUCTURED_RETRIES = 2              # extra tries after an answer that fails its JSON check
 STRUCTURED_RETRIES_MAX = 5
-RETRY_TEXT = ("Your previous answer was rejected: {error}. Answer again with only the corrected JSON object that "
-              "matches the required JSON Schema: no Markdown, no code fences, no text outside the JSON.")
 
 
 def structured_retries(req: dict) -> int:
@@ -115,46 +119,106 @@ def structured_retries(req: dict) -> int:
     return n
 
 
-def retry_messages(messages: list[dict], bad: str, error: str) -> list[dict]:
-    """The conversation with the rejected answer and the reason, for the next try."""
-    return [*messages, {"role": "assistant", "content": bad},
-            {"role": "user", "content": RETRY_TEXT.format(error=error)}]
+def retry_messages(messages: list[dict], bad: str, error: str, repair: Repair | None = None) -> list[dict]:
+    """The conversation plus one user message for the next try: the error and where the answer went wrong. The
+    rejected text itself is never sent back, so a model that looped is not shown its loop again."""
+    return [*messages, {"role": "user", "content": (repair or build_repair(error, bad)).message}]
 
 
-def structured_retry_chunks(start, validator, retries: int):
-    """Buffer each try, validate it, and on a rejected answer start again with the error fed back (at most `retries`
-    more times). `start(feedback)` gives a try's chunks: feedback is None first, then (rejected text, error). The
-    final chunk says how many tries it took (`structured_output`); generation itself is not constrained."""
+def repair_note(repair: Repair) -> str:
+    """Where a rejected answer broke and what it repeated, in a few words for the server window."""
+    note = f"at {repair.path}"
+    if repair.repeat:
+        note += f", {repair.repeat['kind']} written {repair.repeat['count']} times"
+    return note
+
+
+def repeat_facts(repair: Repair) -> dict | None:
+    """The worst repetition of a rejected answer, without the list of every position."""
+    r = repair.repeat
+    if not r:
+        return None
+    facts = {k: r[k] for k in ("text", "count", "path", "kind", "total")}
+    if r["positions"]:
+        facts["first"], facts["last"] = r["positions"][0], r["positions"][-1]
+    return facts
+
+
+def _chunk_of(base: dict, delta: dict, **extra) -> dict:
+    return {"id": base["id"], "object": base["object"], "created": base["created"], "model": base["model"],
+            "choices": [{"index": 0, "delta": delta, "finish_reason": None}], **extra}
+
+
+def structured_retry_chunks(start, validator, retries: int, note=None):
+    """Hold each try's answer, validate it, and on a rejected answer start again with the error fed back (at most
+    `retries` more times). `start(feedback)` gives a try's chunks: feedback is None first, then (rejected text, error,
+    repair). Only the answer is held; reasoning chunks go to the client as they arrive. A rejected try is announced by
+    a chunk with an empty delta and `structured_output.discarded`; the final chunk carries only the validated answer
+    and says how many tries it took (`structured_output`). Generation itself is not constrained.
+    `note(kind, data, text)` is told each try's outcome ("attempt") and each repair message ("repair")."""
     from serve.api.structured import StructuredOutputError
-    feedback, attempt = None, 0
+    feedback, attempt, first, discarded = None, 0, None, []
+
+    def stamp(chunk):                          # every chunk of the stream carries the first try's id and time
+        return chunk if chunk["id"] == first["id"] else {**chunk, "id": first["id"], "created": first["created"]}
+
     while True:
         attempt += 1
         chunks = start(feedback)
-        buffered, heartbeat = [], time.monotonic()
+        held, heartbeat = [], time.monotonic()
         try:
             for chunk in chunks:
                 if chunk is not None:
-                    buffered.append(chunk)
+                    delta = chunk["choices"][0]["delta"]
+                    if first is None:
+                        first = chunk
+                        held.append(chunk)
+                        yield chunk                                       # the role chunk opens the stream
+                    elif delta.get("reasoning_content"):
+                        yield stamp(_chunk_of(chunk, {"reasoning_content": delta["reasoning_content"]}))
+                        rest = {k: v for k, v in delta.items() if k != "reasoning_content"}
+                        if rest:
+                            held.append({**chunk, "choices": [{**chunk["choices"][0], "delta": rest}]})
+                    else:
+                        held.append(chunk)
                 if chunk is None or time.monotonic() - heartbeat >= 1:
                     heartbeat = time.monotonic()
                     yield None
         finally:
             chunks.close()
-        result = openai_collect(buffered)
+        result = openai_collect(held)
         choice = result["choices"][0]
+        reply = choice["message"]["content"] or ""
         try:
-            content = validated_json(choice["message"]["content"], validator, choice["finish_reason"])
+            content = validated_json(reply, validator, choice["finish_reason"])
         except StructuredOutputError as e:
-            if attempt > retries or choice["finish_reason"] != "stop":
+            retrying = attempt <= retries and choice["finish_reason"] == "stop"
+            info = {"attempt": attempt, "ok": False, "error": str(e), "finish_reason": choice["finish_reason"],
+                    "discarded": True, "retrying": retrying}
+            if not retrying:
+                if note:
+                    note("attempt", info, "")
+                yield stamp(_chunk_of(first, {}, structured_output={"attempt": attempt, "discarded": True,
+                                                                    "reason": str(e), "retrying": False}))
                 raise StructuredOutputError(f"{e} (after {attempt} tr{'y' if attempt == 1 else 'ies'})") from None
-            print(f"[server] structured output try {attempt} rejected ({e}); trying again", flush=True)
-            feedback = (choice["message"]["content"] or "", str(e))
+            repair = build_repair(str(e), reply)
+            print(f"[server] structured output try {attempt} rejected ({e}; {repair_note(repair)}); trying again",
+                  flush=True)
+            if note:
+                note("attempt", info, "")
+                note("repair", {"attempt": attempt, "path": repair.path, "cut": repair.cut,
+                                "valid_json": repair.valid_json, "repeated": repeat_facts(repair)}, repair.message)
+            discarded.append({"attempt": attempt, "reason": str(e)})
+            feedback = (reply, str(e), repair)
+            yield stamp(_chunk_of(first, {}, structured_output={"attempt": attempt, "discarded": True,
+                                                                "reason": str(e), "retrying": True}))
             continue
-        yield buffered[0]
-        delta = {"content": content}
-        if choice["message"].get("reasoning_content"):
-            delta["reasoning_content"] = choice["message"]["reasoning_content"]
-        yield {**buffered[0], "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}
-        yield {**buffered[-1], "structured_output": {"validated": True, "constrained": False, "attempts": attempt}}
+        if note:
+            note("attempt", {"attempt": attempt, "ok": True, "error": None, "finish_reason": choice["finish_reason"],
+                             "discarded": False, "retrying": False}, "")
+        yield stamp(_chunk_of(held[-1], {"content": content}))
+        facts = {"validated": True, "constrained": False, "attempts": attempt}
+        if discarded:
+            facts["discarded"] = discarded
+        yield stamp({**held[-1], "structured_output": facts})
         return
-
