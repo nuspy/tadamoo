@@ -363,11 +363,11 @@ class EngineRestart(unittest.TestCase):
         svc.fifo = Watch()
         cfg = {"engine_bin": "new-bin", "args": ["--model", "m", "--kv", "q4_0"], "log": "log2"}
         a = mock.Mock(model="m", engine_bin="new-bin", gpu=None, vision="off", parallel=None, slot_full_context=False,
-                      port=7232, config=None, shared_context=None)
+                      port=7232, config=None, shared_context=None, sampling_launch={}, sampling_cli=set())
         sup = supervisor.Supervisor(svc, [], mock=False)
         sup.auto_calibrate = False
         with mock.patch.object(supervisor, "engine_config", return_value=cfg), \
-                mock.patch.object(sup, "_parse", return_value=(a, {"--kv": "q4_0"})), \
+                mock.patch.object(sup, "_parse", return_value=(a, ["--kv", "q4_0"])), \
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertTrue(sup.reload(wait=True))
         self.assertEqual(sup.status()["phase"], "ready", sup.status())

@@ -23,9 +23,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # also runnable as a script
 from serve import ROOT, loader, loader_api, model_list, service, settings, supervisor  # noqa: E402
 from serve.config import (RELAUNCH_EXIT_CODE, build_parser, check_engine_flags, engine_flags_of,  # noqa: E402
-                          engine_line, engine_settings, parse_settings, sampling_defaults_from_config)
+                          engine_line, parse_settings, sampling_defaults_from_config, sampling_line)
 from serve.engine import process as engine_process  # noqa: E402
 from serve.engine.errors import EngineStartError  # noqa: E402
+from serve.engine.flags import flag_index, flag_value  # noqa: E402
 from serve.engine.mock import MockEngine, NoEngine  # noqa: E402
 from serve.engine.process import ProcessEngine  # noqa: E402
 from serve.engine.vision import (EngineVision, Vision, child_env, engine_args, gpu_list, gpus_in_play,  # noqa: E402
@@ -35,7 +36,7 @@ from serve.handler import Server, serve  # noqa: E402
 from serve.security import (LOOPBACK_NAMES, allowed_hosts_of, api_key_of, exposed_without_key,  # noqa: E402
                             lan_addresses, origins_of)
 from serve.service import Service  # noqa: E402
-from serve.util.logbuf import LogBuffer, TeeStream, tail_file  # noqa: E402
+from serve.util.logbuf import ColorStream, LogBuffer, TeeStream, tail_file  # noqa: E402
 from serve.util.reqlog import RequestLog  # noqa: E402
 from serve.util.text import ByteTokenizer  # noqa: E402
 
@@ -57,12 +58,12 @@ def warn_tight_ram(arena_mib) -> None:
         return
     left = total / 2**30 - arena_mib / 1024
     if left < 6:
-        print(f"[server] warning: low RAM, {left:.1f} of {total / 2**30:.0f} GB left after the experts", flush=True)
+        print(f"[server] warning: low RAM: {left:.1f} of {total / 2**30:.0f} GB left after experts", flush=True)
 
 
-def settings_info(a, flags: dict) -> dict:
+def settings_info(a, words: list[str]) -> dict:
     """What the settings page shows (supervisor.settings_info over this process's command line)."""
-    return supervisor.settings_info(a, flags, sys.argv[1:])
+    return supervisor.settings_info(a, words, sys.argv[1:])
 
 
 def main() -> int:
@@ -73,7 +74,8 @@ def main() -> int:
         fail(f"--config: {e}")
     service.DEBUG, engine_process.REQUEST_LINES = a.debug, a.request_lines
     logs = LogBuffer()                                  # this process's and the engine's output
-    sys.stdout, sys.stderr = TeeStream(sys.stdout, logs, "srv"), TeeStream(sys.stderr, logs, "srv")
+    sys.stdout, sys.stderr = (TeeStream(ColorStream.wrap(sys.stdout), logs, "srv"),
+                              TeeStream(ColorStream.wrap(sys.stderr), logs, "srv"))
     cfg = {}                                            # what the model file implies
     listen_first = False
     loaded_memory = None                                # (system before, after) the engine loaded at start
@@ -88,7 +90,7 @@ def main() -> int:
         fail("the server needs --model and the engine binary: run it as basalt serve --config FILE (or --mock-engine)")
     if (file_engine or cli_engine) and not a.model:
         fail("engine flags need --model")
-    flags: dict = {}                                    # the engine flags in force (config file, then command line)
+    words: list[str] = []                               # the engine words in force (config file, then command line)
     if a.model:
         if not a.engine_bin:
             fail("--model needs --engine-bin BINARY")
@@ -100,21 +102,18 @@ def main() -> int:
             check_engine_flags(cli_engine, known, "command line")
         except ValueError as e:
             fail(str(e))
-        flags, sources = engine_settings(file_engine, cli_engine)
+        words = file_engine + cli_engine
         mode = a.vision
         vision_arg = False if a.mock_engine or mode == "off" else mode
         try:
             cfg.update({k: v for k, v in modelfile.model_config(
                 a.model, a.engine_bin, gpus=len(listed) if listed else None, vision=vision_arg,
-                overrides={f: v for f, v in flags.items() if v is not False}).items()
+                engine_words=file_engine + cli_engine).items()
                 if k not in cfg})
         except (OSError, ValueError, KeyError) as e:
             fail(f"{a.model}: {e}")
-        off = {f for f, v in flags.items() if v is False}
-        if off and cfg.get("args"):
-            cfg["args"] = [x for x in cfg["args"] if x not in off]
         if not a.mock_engine:
-            print(engine_line(flags, sources, bool(a.config),
+            print(engine_line(file_engine, cli_engine, bool(a.config),
                                     (a.shared_context, a.parallel) if getattr(a, "shared_context", None) else None), flush=True)
     if a.alias:
         cfg["model_name"] = a.alias
@@ -144,18 +143,16 @@ def main() -> int:
     elif not a.mock_engine:
         vision = None
         env = child_env(cfg)
-        sampling_defaults = sampling_defaults_from_config(cfg)
+        sampling_defaults = {**sampling_defaults_from_config(cfg), **a.sampling_launch}
         if sampling_defaults:
-            pretty = ", ".join(f"{k}={v}" for k, v in sampling_defaults.items())
-            print(f"[server] sampling defaults: {pretty}", flush=True)
+            print(sampling_line(sampling_defaults, a.sampling_cli, set(a.sampling_launch) - a.sampling_cli), flush=True)
         lazy = a.lazy or standby
         if standby:                                     # the Loader's Load starts the engine and the encoder
             cfg = {**cfg, "vision": None}
             print("[server] standby: the engine starts when the Loader loads the model", flush=True)
         if lazy and cfg.get("vision"):
             print("[server] warning: lazy loading is text-only, vision off", flush=True)
-            if "--vision-mmproj" in cfg["args"]:
-                at = cfg["args"].index("--vision-mmproj")
+            while (at := flag_index(cfg["args"], "--vision-mmproj")) is not None:
                 del cfg["args"][at:at + 2]
             del cfg["vision"]
         if cfg.get("vision"):
@@ -194,7 +191,7 @@ def main() -> int:
     else:
         engine, vision, sampling_defaults = MockEngine(tok, a.script or [
             "Thinking about it.</think>\n\nHello from the mock engine."], batch=a.parallel or 0,
-            max_context=int(flags.get("--max-context") or 32768)), None, {}
+            max_context=int(flag_value(words, "--max-context") or 32768)), None, dict(a.sampling_launch)
     # the model's exported template, else the bundled one
     tpl = tpath / "chat_template.jinja"
     svc = Service(engine, tok, ChatTemplate(tpl if tpl.exists() else ROOT / "serve/chat_template.jinja"),
@@ -206,7 +203,7 @@ def main() -> int:
     svc.reqlog = RequestLog(max_chars=int(a.request_log_mib * (1 << 20)), enabled=a.request_log != "off")
     state = f"on, up to {a.request_log_mib:g} MiB in memory" if svc.reqlog.enabled else "off"
     print(f"[server] request log: {state} (--request-log on|off, --request-log-mib N)", flush=True)
-    svc.settings_info = settings_info(a, flags)
+    svc.settings_info = settings_info(a, words)
     svc.standby = standby
     svc.relaunch_on_model_change = bool(a.relaunch_on_model_change)
     try:
@@ -337,7 +334,7 @@ def main() -> int:
     except KeyboardInterrupt:
         print("[server] stopping (Ctrl+C again to force)", flush=True)
     engine = svc.engine
-    closers = [httpd.shutdown, getattr(engine, "close", None), svc.vision.close if svc.vision else None]
+    closers = [svc.stop, httpd.shutdown, getattr(engine, "close", None), svc.vision.close if svc.vision else None]
     for close in filter(None, closers):
         try:
             close()

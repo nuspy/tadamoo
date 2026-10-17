@@ -74,9 +74,11 @@ struct HostMemory {
 };
 
 /// This reads `meminfo`, `self_cgroup` and the cgroup tree under `cgroup_root` (the parameters are for tests; the
-/// defaults are the real files).  cgroup v2 as before (an unreadable limit of a group that has one fails); cgroup v1's
-/// memory controller (`<root>/memory/<path>`: memory.limit_in_bytes - memory.usage_in_bytes); no cgroup line at all is
-/// MemAvailable alone.  False when the RAM cannot be determined.
+/// defaults are the real files).  A v1 memory controller line wins over the unified line (the hybrid layout): v1 reads
+/// `<root>/memory/<path>` (memory.limit_in_bytes - memory.usage_in_bytes, clean inactive file cache counted as free),
+/// v2 reads `<root>/<path>` (memory.max, memory.current, memory.stat).  A group not visible here is read at the mount's
+/// root (a container's own namespace); groups without a readable limit add none; no cgroup file or line is MemAvailable
+/// alone.  False when MemAvailable is missing or a visible v2 limit or its memory.stat is malformed.
 bool host_available_memory(HostMemory& m, const std::string& meminfo = "/proc/meminfo",
                            const std::string& self_cgroup = "/proc/self/cgroup",
                            const std::string& cgroup_root = "/sys/fs/cgroup");
@@ -155,6 +157,10 @@ public:
     virtual const uint8_t* device_alias(int64_t layer, int64_t expert) const { (void) layer; (void) expert; return nullptr; }
     /// A file-backed source: start reading this expert's pages now (it will be needed by the CPU); no-op elsewhere.
     virtual void prefetch(int64_t layer, int64_t expert) { (void) layer; (void) expert; }
+    /// A file-backed source: queue the read of these experts' file pages now (a helper thread issues it, the caller
+    /// does not wait), so a layer's CPU experts come off the disk together rather than one page fault at a time;
+    /// no-op for an expert held in RAM and elsewhere.
+    virtual void advise_cpu(int64_t layer, const int32_t* ids, int64_t n) const { (void) layer; (void) ids; (void) n; }
     /// A file-backed source: this expert lives in VRAM, so its pages need not stay in RAM - hand them back to the
     /// kernel (a later read re-reads the file; no result depends on it).  Returns the bytes released; 0 elsewhere.
     virtual uint64_t release(int64_t layer, int64_t expert) { (void) layer; (void) expert; return 0; }
@@ -373,7 +379,7 @@ void expert_hit_run(void* user, void* stream, HitPhase phase, const int32_t* ids
 /// IT IS NOT AN LRU, AN LFU OR A PREFETCHER: every read goes through the page cache.
 class FileExpertSource : public ExpertSource {
 public:
-    FileExpertSource() = default;
+    FileExpertSource();
     ~FileExpertSource() override;
     FileExpertSource(const FileExpertSource&) = delete;
     FileExpertSource& operator=(const FileExpertSource&) = delete;
@@ -426,6 +432,8 @@ public:
     // `in`'s place, so the copy keeps holding exactly the experts the GPU does not - with no read of the file.
     /// Whether the compact copy holds `(layer, expert)`.
     bool has_resident(int64_t layer, int64_t expert) const;
+    /// Whether `(layer, expert)` sits in the region added after the load (the RAM top-up) rather than the loaded copy.
+    bool resident_in_top_up(int64_t layer, int64_t expert) const;
     /// Host room for `n` evicted blobs (page-locked when possible).  Idempotent for the same or a smaller `n`.
     bool reserve_exchanges(int64_t n, std::string& err);
     int64_t exchange_capacity() const { return xstage_cap_; }
@@ -477,6 +485,7 @@ public:
     bool advise_pairs(const std::pair<int32_t, int32_t>* pairs, int64_t n) const override;
 
     const uint8_t* blob(int64_t layer, int64_t expert) override;
+    void advise_cpu(int64_t layer, const int32_t* ids, int64_t n) const override;
     bool pinned(int64_t layer, int64_t expert) const override;
     bool file_extent(int64_t layer, int64_t expert, int& fd, uint64_t& offset) const override;
     const uint8_t* device_alias(int64_t layer, int64_t expert) const override;
@@ -488,6 +497,9 @@ public:
     int64_t reads() const override { return reads_; }
 
 private:
+    struct AdviseWorker;
+    mutable std::unique_ptr<AdviseWorker> advise_worker_;
+    mutable std::once_flag advise_once_;
     const uint8_t* mapped_blob(int64_t layer, int64_t expert) const;
     /// The blob's bytes from the mapped file into `dst`.
     bool copy_from_files(int64_t layer, int64_t expert, uint8_t* dst) const;

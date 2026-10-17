@@ -277,7 +277,7 @@ def slot_context(v: dict) -> int:
 
 
 def prefill_chunk(v: dict, resident: bool | None = None) -> int:
-    """The chunk the prompt is read in: auto has an 8192 ceiling, auto:N has N (reads are cut at 12288)."""
+    """The chunk the prompt is read in: auto has an 8192 ceiling, auto:N has N (reads are cut at 16384)."""
     p, ctx = v["engine.prefill"], slot_context(v)
     if p is None:
         return min(2048, ctx)
@@ -287,7 +287,7 @@ def prefill_chunk(v: dict, resident: bool | None = None) -> int:
     if p == "auto":
         return min(8192, ctx)
     if p.startswith("auto:"):
-        return min(int(p[5:]), 12288, ctx)
+        return min(int(p[5:]), 16384, ctx)
     return min(2048, ctx)
 
 
@@ -880,9 +880,10 @@ def wizard_proposal(hw: dict, facts: dict, answers: dict | None = None, holds: d
     proposal = reserve_proposal(hw["system"], monitor, holds_vram)
     reserve = proposal[0]
     if a.get("vram_reserve_mib") is not None:
+        from serve import settings
         r = a["vram_reserve_mib"]
-        if isinstance(r, bool) or not isinstance(r, (int, float)) or not 0 <= r <= 1 << 20:
-            raise ValueError(f"vram_reserve_mib: a whole number of MiB, not {r!r}")
+        if isinstance(r, bool) or not isinstance(r, (int, float)) or not settings.VRAM_RESERVE_MIN_MIB <= r <= 1 << 20:
+            raise ValueError(f"vram_reserve_mib: a whole number of MiB from {settings.VRAM_RESERVE_MIN_MIB}, not {r!r}")
         reserve = int(r)
     why = {}
     values = safe(facts, hw["system"], holds, holds_vram, cpu=hw.get("cpu"), why=why, reserve_mib=reserve,

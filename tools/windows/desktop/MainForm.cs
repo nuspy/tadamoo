@@ -30,8 +30,8 @@ sealed class MainForm : Form
     readonly ComboBox modelBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Width = 560, Font = new Font("Segoe UI", 12f), Margin = new Padding(0, 0, 12, 0) };
     readonly Label modelInfo = new() { AutoSize = true, ForeColor = Fg2, Font = new Font("Segoe UI", 10.5f), Margin = new Padding(0, 4, 0, 8) };
     readonly NumericUpDown port = new() { Minimum = 1, Maximum = 65535, Value = 7232, Width = 140, Font = new Font("Segoe UI", 12f) };
-    readonly TrackBar reserveBar = new() { Minimum = 0, Maximum = 128, Value = 24, TickFrequency = 8, SmallChange = 1, LargeChange = 4, Width = 360, Height = 48, AutoSize = false };
-    readonly NumericUpDown reserve = new() { Minimum = 0, Maximum = 32, DecimalPlaces = 2, Increment = 0.25m, Value = 6, Width = 110, Font = new Font("Segoe UI", 12f) };
+    readonly TrackBar reserveBar = new() { Minimum = 1, Maximum = 128, Value = 24, TickFrequency = 8, SmallChange = 1, LargeChange = 4, Width = 360, Height = 48, AutoSize = false };
+    readonly NumericUpDown reserve = new() { Minimum = 0.25m, Maximum = 32, DecimalPlaces = 2, Increment = 0.25m, Value = 6, Width = 110, Font = new Font("Segoe UI", 12f) };
     readonly Label check = new() { AutoSize = true, ForeColor = Fg2, Font = new Font("Consolas", 10.5f), Margin = new Padding(0, 8, 0, 8) };
     readonly Label reasonLabel = new() { AutoSize = true, ForeColor = Color.FromArgb(255, 143, 163), Font = new Font("Consolas", 10f), Margin = new Padding(0, 0, 0, 12), Visible = false };
     readonly FlowLayoutPanel startBar = new() { Dock = DockStyle.Bottom, AutoSize = false, Height = 84, WrapContents = false, Padding = new Padding(32, 12, 32, 16), BackColor = Color.FromArgb(21, 26, 31) };

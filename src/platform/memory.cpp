@@ -234,13 +234,11 @@ void start_memory_watchdog(uint64_t floor_bytes) {
                     // the copy shrunk by what the margin is short of leaves the margin free again
                     const uint64_t copy = g_resident_copy.load(), margin = ram_margin();
                     const uint64_t keep = copy - std::min(copy, margin > avail ? margin - avail : 0);
-                    std::fprintf(stderr, "basalt error: RAM ran out while loading (%llu MiB available): the RAM copy of "
-                                         "the experts left too little room; cap it with --resident-budget-gib %llu, or "
-                                         "free memory\n", mib, (unsigned long long) std::max<uint64_t>(1, keep >> 30));
+                    std::fprintf(stderr, "basalt error: RAM ran out loading (%llu MiB free); use "
+                                         "--resident-budget-gib %llu\n", mib, (unsigned long long) std::max<uint64_t>(1, keep >> 30));
                 } else {
-                    std::fprintf(stderr, "basalt error: RAM ran out while loading (%llu MiB available); stopped to keep "
-                                         "the machine usable. Use --resident-experts or --mmap-experts, or free "
-                                         "memory\n", mib);
+                    std::fprintf(stderr, "basalt error: RAM ran out loading (%llu MiB free); use "
+                                         "--resident-experts or --mmap-experts\n", mib);
                 }
                 std::fflush(stderr);
                 _exit(1);
@@ -253,6 +251,40 @@ void start_memory_watchdog(uint64_t floor_bytes) {
 void stop_memory_watchdog() {
     g_watch_stop = true;
     g_watch_on = false;
+}
+
+namespace {
+std::atomic<bool> g_guard_on{false};
+std::atomic<bool> g_guard_low{false};
+std::atomic<uint64_t> g_guard_avail{0};
+std::atomic<uint64_t> g_guard_floor{0};
+}  // namespace
+
+void start_ram_guard(uint64_t floor_bytes) {
+    g_guard_floor = floor_bytes;
+    if (g_guard_on.exchange(true)) return;
+    std::thread([] {
+        bool was_low = false;
+        for (;;) {
+            const uint64_t avail = available_memory(), floor = g_guard_floor.load();
+            const bool low = ram_below_floor(avail, floor);
+            g_guard_avail = avail;
+            g_guard_low = low;
+            if (low && !was_low) {
+                std::fprintf(stderr, "basalt warning: RAM low: %llu MiB free < %llu MiB guard\n",
+                             (unsigned long long) (avail >> 20), (unsigned long long) (floor >> 20));
+                std::fflush(stderr);
+            }
+            was_low = low;
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }).detach();   // runs for the life of the process
+}
+
+bool ram_guard_low(uint64_t* avail, uint64_t* floor) {
+    if (avail) *avail = g_guard_avail.load();
+    if (floor) *floor = g_guard_floor.load();
+    return g_guard_low.load(std::memory_order_relaxed);
 }
 
 #if !defined(_WIN32)

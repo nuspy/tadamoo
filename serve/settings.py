@@ -15,6 +15,7 @@ from serve.engine.vision import VISION_MODES, vision_mode
 KV_MODES = ("fp16", "int8", "q4_0", "k8v4")          # the engine's --kv (q4 is read as q4_0)
 SPEC_MAX = 8                                         # kVerifyMaxT: the longest verify window
 CONTEXT_MAX = 2147483647 - 8                         # the engine keeps positions below 2^31
+VRAM_RESERVE_MIN_MIB = 256                         # the engine refuses a smaller reserve
 PREFILL_CEILINGS = (8192, 16384, 32768)              # --prefill auto:N
 BODY_MAX = 64 << 10
 _write_lock = threading.Lock()                       # one save at a time
@@ -103,7 +104,7 @@ def check_value(section: str, key: str, value):
             raise ValueError(f"{what}: true or false, not {value!r}")
         return value
     if key == "vram-reserve-mib":
-        return _whole(value, what, 0, 1 << 20)
+        return _whole(value, what, VRAM_RESERVE_MIN_MIB, 1 << 20)
     if key == "pool-workers":
         return _whole(value, what, 1, POOL_WORKERS_MAX)
     if key == "ple-io":

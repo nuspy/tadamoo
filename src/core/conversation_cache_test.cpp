@@ -82,6 +82,21 @@ int main() {
         check(cache.retained_bytes() == 0 && cache.size() == 1 && cache.evictions() == 0,
               "pressure drops retained storage before evicting parked conversations");
     }
+    {   // retained K/V belongs to the session it was restored into
+        int s0 = 0, s1 = 0;
+        auto one_layer = [] { ConversationKv layer; layer.k.resize(64); std::vector<ConversationKv> v; v.push_back(std::move(layer)); return v; };
+        ConversationCache cache(1 << 20, 4);
+        cache.retain(one_layer(), 16, {}, &s0);
+        check(cache.take_reuse(&s1).kv.empty(), "buffers restored into one session are not handed to another's capture");
+        cache.retain(one_layer(), 16, {}, &s0);
+        check(cache.take_reuse(&s0).unchanged_tokens == 16, "the owning session still gets its buffers");
+        cache.retain(one_layer(), 16, {}, &s1);
+        cache.limit_reuse(0);
+        check(cache.take_reuse(&s1).kv.empty(), "a session overwritten from a slot keeps no retained buffers");
+        cache.retain(one_layer(), 16, {}, &s0);
+        cache.drop_reuse_unless(&s1);
+        check(cache.retained_bytes() == 0, "a request on another session drops the retained buffers");
+    }
     const std::vector<int64_t> a = {1, 2, 3, 4}, b = {9, 8, 7, 6};
     {
         ConversationCache cache(1024, 2);
@@ -300,6 +315,24 @@ int main() {
         cache.retain(kv(500), 40);
         r = cache.take_reuse();
         check(r.kv.size() == 2 && r.stages.empty(), "no layer split: no stage reuse, as before");
+    }
+    {
+        // a large checkpoint buffer returns to the pool and comes back at the same size, with its contents intact
+        const size_t big = (size_t(3) << 20) + 5;
+        const uint8_t* first = nullptr;
+        {
+            CheckpointBytes a;
+            a.resize(big);
+            first = a.data();
+            a[0] = 9;
+            a[big - 1] = 4;
+        }
+        CheckpointBytes b;
+        b.resize(big);
+        check(b.data() == first, "a freed large checkpoint buffer is handed out again");
+        check(b[0] == 9 && b[big - 1] == 4, "a reused buffer is not zeroed");
+        CheckpointBytes small(100, 3), copy = small;
+        check(copy.size() == 100 && copy[99] == 3, "small buffers still copy and fill");
     }
     std::printf("conversation_cache_test: %d checks passed\n", checks);
 }

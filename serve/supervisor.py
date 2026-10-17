@@ -11,8 +11,9 @@ import time
 from pathlib import Path
 
 from serve import loader, settings
-from serve.config import build_parser, engine_settings, parse_settings
+from serve.config import build_parser, parse_settings, sampling_defaults_from_config, sampling_line
 from serve.engine.errors import EngineStartError
+from serve.engine.flags import flag_index, flag_value
 from serve.engine.vision import EngineVision, Vision, child_env, engine_args, gpu_list, gpus_in_play, vision_env
 
 RELOAD_WAIT_S = 300.0          # how long a reload waits for the running request to finish
@@ -25,7 +26,23 @@ CALIBRATION_THINKING = 1024    # tokens of the reasoning-on answer
 CALIBRATION_PROMPT = 8192      # tokens of the long prompt
 
 
-def settings_info(a, flags: dict, argv: list[str]) -> dict:
+def flag_setting(words: list[str], flag: str):
+    """The last `flag` in `words` as a setting: a number, a string, True for a bare switch, None when absent."""
+    at = flag_index(words, flag)
+    if at is None:
+        return None
+    value = words[at + 1] if at + 1 < len(words) else None
+    if value is None or value.startswith("--"):
+        return True
+    for kind in (int, float):
+        try:
+            return kind(value)
+        except ValueError:
+            pass
+    return value
+
+
+def settings_info(a, words: list[str], argv: list[str]) -> dict:
     """What the settings page shows: the --config file, the model, the values this run uses and the fields the
     command line set (they win over the file)."""
     given = lambda name: any(w == f"--{name}" or w.startswith(f"--{name}=") for w in argv)   # noqa: E731
@@ -33,8 +50,7 @@ def settings_info(a, flags: dict, argv: list[str]) -> dict:
                "server.slot-full-context": bool(a.slot_full_context)}
     for name in ("max-context", "kv", "spec", "spec-min-p", "expert-cache", "prefill", "resident-experts",
                  "vram-reserve-mib", "ple-io", "pool-workers"):
-        value = flags.get(f"--{name}")
-        running[f"engine.{name}"] = None if value is False else value
+        running[f"engine.{name}"] = flag_setting(words, f"--{name}")
     if getattr(a, "shared_context", None):              # the total, before it was divided among the slots
         running["engine.max-context"] = a.shared_context
     fields = {f"{s}.{k}" for s, k in (*settings.FIELDS, *settings.LOADER_FIELDS)}
@@ -42,9 +58,9 @@ def settings_info(a, flags: dict, argv: list[str]) -> dict:
             "cli": sorted(n for n in fields if given(n.split(".", 1)[1]))}
 
 
-def engine_config(a, flags: dict, mock: bool = False) -> dict:
-    """The engine's spawn settings for a model and its flags (modelfile.model_config with the switches set off
-    removed); ValueError when the model file cannot be read."""
+def engine_config(a, words: list[str], mock: bool = False) -> dict:
+    """The engine's spawn settings for a model and its engine words (modelfile.model_config); ValueError when the
+    model file cannot be read."""
     from serve.engine import modelfile
     cfg = {}
     if a.gpu is not None:
@@ -54,13 +70,19 @@ def engine_config(a, flags: dict, mock: bool = False) -> dict:
     try:
         cfg.update({k: v for k, v in modelfile.model_config(
             a.model, a.engine_bin, gpus=len(listed) if listed else None, vision=vision_arg,
-            overrides={f: v for f, v in flags.items() if v is not False}).items() if k not in cfg})
+            engine_words=words).items() if k not in cfg})
     except (OSError, KeyError) as e:
         raise ValueError(f"{a.model}: {e}") from None
-    off = {f for f, v in flags.items() if v is False}
-    if off and cfg.get("args"):
-        cfg["args"] = [x for x in cfg["args"] if x not in off]
     return cfg
+
+
+def sampling_defaults_of(a, cfg: dict) -> dict:
+    """The sampling defaults in force once the engine runs `cfg`: the model file's, and over them the launch options
+    (as at start); ValueError for a bad value, before anything is stopped."""
+    try:
+        return {**sampling_defaults_from_config(cfg), **a.sampling_launch}
+    except SystemExit as e:
+        raise ValueError(str(e).removeprefix("[server] error: ")) from None
 
 
 def record_memory(facts: dict, values: dict, before: dict, after: dict) -> None:
@@ -137,13 +159,12 @@ class Supervisor:
             raise ValueError(message)
         ap.error = error
         a, used, file_engine, cli_engine = parse_settings(ap, self.argv)
-        flags, _ = engine_settings(file_engine, cli_engine)
-        return a, flags
+        return a, file_engine + cli_engine
 
     def _reload_now(self, phase: str = "stopping"):
         """Restart the engine with the config file's settings on this thread; raises when it does not start."""
         svc = self.svc
-        a, flags = self._parse()
+        a, words = self._parse()
         if not svc.fifo.acquire(timeout=RELOAD_WAIT_S):
             raise RuntimeError("a request kept the model busy; try again when it has finished")
         try:
@@ -151,10 +172,10 @@ class Supervisor:
             self._set(phase=phase)
             print("[server] reloading the engine with the settings of the config file", flush=True)
             if self.mock:
-                self._reload_mock(a, flags)
+                self._reload_mock(a, words)
             else:
-                self._reload_engine(a, flags)
-            svc.settings_info = settings_info(a, flags, self.argv)
+                self._reload_engine(a, words)
+            svc.settings_info = settings_info(a, words, self.argv)
             svc.standby = False                          # the Loader loaded the model: requests may run now
         finally:
             svc.loading = False
@@ -177,17 +198,19 @@ class Supervisor:
         if self.auto_calibrate and not loader.read_calibrations(self.facts)["runs"]:
             self.calibrate()                             # the first load of this model
 
-    def _reload_mock(self, a, flags):
+    def _reload_mock(self, a, words):
         self._set(phase="starting")
         time.sleep(self.mock_delay)
-        ctx = int(flags.get("--max-context") or 4096)
+        ctx = int(flag_value(words, "--max-context") or 4096)
         self.svc.engine.max_context = ctx
         par = a.parallel or 1
         self.svc.engine.batch = par if par >= 2 else 0
+        self.svc.sampling_defaults = dict(a.sampling_launch)
 
-    def _reload_engine(self, a, flags):
+    def _reload_engine(self, a, words):
         svc, engine = self.svc, self.svc.engine
-        cfg = engine_config(a, flags)
+        cfg = engine_config(a, words)
+        defaults = sampling_defaults_of(a, cfg)         # a bad value refuses the reload while the engine still runs
         env = child_env(cfg)
         old = svc.vision
         if old is not None and not getattr(old, "in_engine", False):
@@ -199,7 +222,10 @@ class Supervisor:
         engine.spawn = tuple(spawn)
         before = loader.system_now(getattr(svc, "gpu_index", 0))
         engine.restart(tries=1)
-        record_memory(self.facts, settings_info(a, flags, self.argv)["running"], before,
+        svc.sampling_defaults = defaults
+        if defaults:
+            print(sampling_line(defaults, a.sampling_cli, set(a.sampling_launch) - a.sampling_cli), flush=True)
+        record_memory(self.facts, settings_info(a, words, self.argv)["running"], before,
                       loader.system_now(getattr(svc, "gpu_index", 0)))
         vision = make_vision(cfg, env)
         if isinstance(vision, EngineVision):

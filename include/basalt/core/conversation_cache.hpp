@@ -9,10 +9,70 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <mutex>
+#include <new>
 #include <utility>
 #include <vector>
 
 namespace basalt::core {
+
+/// Byte storage for a checkpoint's running state.  Large blocks go back to a small shared pool instead of the OS and
+/// are handed out again without being zeroed: a fresh block of this size costs more in page faults and zero-fill
+/// than the device copy into it, and a checkpoint is saved on the request path.
+template <class T>
+struct PooledAlloc {
+    using value_type = T;
+    static constexpr size_t kMinBytes = size_t(1) << 20;   // smaller blocks are not worth pooling
+    static constexpr size_t kMaxBlocks = 4;                // blocks kept; the rest are freed
+    PooledAlloc() = default;
+    template <class U>
+    PooledAlloc(const PooledAlloc<U>&) noexcept {}
+    T* allocate(size_t n) {
+        const size_t bytes = n * sizeof(T);
+        if (bytes >= kMinBytes) {
+            Pool& p = pool();
+            std::lock_guard<std::mutex> lk(p.mu);
+            for (size_t i = 0; i < p.blocks.size(); ++i)
+                if (p.blocks[i].second == bytes) {
+                    T* r = static_cast<T*>(p.blocks[i].first);
+                    p.blocks.erase(p.blocks.begin() + (std::ptrdiff_t) i);
+                    return r;
+                }
+        }
+        return static_cast<T*>(::operator new(bytes));
+    }
+    void deallocate(T* ptr, size_t n) noexcept {
+        const size_t bytes = n * sizeof(T);
+        if (bytes >= kMinBytes) {
+            Pool& p = pool();
+            std::lock_guard<std::mutex> lk(p.mu);
+            if (p.blocks.size() < kMaxBlocks) {
+                p.blocks.emplace_back(ptr, bytes);
+                return;
+            }
+        }
+        ::operator delete(ptr);
+    }
+    template <class U>
+    void construct(U* p) noexcept { ::new (static_cast<void*>(p)) U; }   // resize leaves new bytes as they are
+    template <class U, class... A>
+    void construct(U* p, A&&... a) { ::new (static_cast<void*>(p)) U(std::forward<A>(a)...); }
+    template <class U>
+    bool operator==(const PooledAlloc<U>&) const noexcept { return true; }
+    template <class U>
+    bool operator!=(const PooledAlloc<U>&) const noexcept { return false; }
+
+private:
+    struct Pool {
+        std::mutex mu;
+        std::vector<std::pair<void*, size_t>> blocks;
+    };
+    static Pool& pool() {
+        static Pool* p = new Pool;   // never destroyed: checkpoints may outlive static destruction
+        return *p;
+    }
+};
+using CheckpointBytes = std::vector<uint8_t, PooledAlloc<uint8_t>>;
 
 struct ConversationImageKey {
     int64_t start = 0;
@@ -23,7 +83,7 @@ struct ConversationImageKey {
 struct ConversationCheckpoint {
     std::vector<int32_t> ids;
     std::vector<ConversationImageKey> imgs;
-    std::vector<uint8_t> gdn, ple, tails, dead, block_pos;
+    CheckpointBytes gdn, ple, tails, dead, block_pos;
     uint64_t used = 0; // upstream root-pinned/LRU checkpoint retention
     // Ordinary layer-split checkpoints retain each device's running state.
     // Whole-session parking is currently single-GPU and rejects these parts.
@@ -173,9 +233,11 @@ public:
     // Retain only the restored K/V buffers, not duplicate running checkpoints.
     // This optimization never evicts a parked conversation to make itself fit.
     // `stage_kv`: with a layer split, the later stages' restored K/V (one per stage), retained with the first's.
+    // `owner`: the session the buffers were restored into; only that session's own state may be captured with them.
     void retain(std::vector<ConversationKv>&& kv, int64_t tokens,
-                std::vector<std::vector<ConversationKv>>&& stage_kv = {}) {
+                std::vector<std::vector<ConversationKv>>&& stage_kv = {}, const void* owner = nullptr) {
         reuse_ = {};
+        reuse_owner_ = owner;
         ConversationKvReuse candidate{std::move(kv), tokens, tokens, {}};
         for (auto& k : stage_kv) candidate.stages.push_back(ConversationKvReuse{std::move(k), tokens, tokens, {}});
         if (enabled() && candidate.bytes() <= budget_ - bytes_) reuse_ = std::move(candidate);
@@ -185,7 +247,15 @@ public:
         for (auto& s : reuse_.stages) s.unchanged_tokens = std::min(s.unchanged_tokens, first_dirty);
         if (reuse_.unchanged_tokens <= 0) reuse_ = {};
     }
-    ConversationKvReuse take_reuse() { return std::exchange(reuse_, {}); }
+    // Buffers retained for another session (a batch slot's, or the one a slot's copy has since overwritten) hold
+    // another conversation's K/V: they are dropped, never handed to this session's capture.
+    void drop_reuse_unless(const void* owner) {
+        if (owner != reuse_owner_) reuse_ = {};
+    }
+    ConversationKvReuse take_reuse(const void* owner = nullptr) {
+        drop_reuse_unless(owner);
+        return std::exchange(reuse_, {});
+    }
     size_t retained_bytes() const { return reuse_.bytes(); }
     bool can_fit(size_t incoming, size_t held = 0) const {
         return enabled() && held <= budget_ && incoming <= budget_ - held &&
@@ -278,6 +348,7 @@ private:
     size_t budget_ = 0, slots_ = 0, bytes_ = 0, evictions_ = 0, superseded_ = 0;
     std::deque<SavedConversation> entries_; // least recently active first
     ConversationKvReuse reuse_;
+    const void* reuse_owner_ = nullptr;
 };
 
 } // namespace basalt::core

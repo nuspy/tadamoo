@@ -156,6 +156,7 @@ for ($i = 0; $i -lt $Altri.Count; $i++) {
         { $_ -in 'vram-reserve-mib', 'riservamib' } {
             $v = & $val
             if (-not ($v -match '^\d+$')) { Scrivi (T "--vram-reserve-mib vuole un numero di MiB, non '$v'" "--vram-reserve-mib needs a number of MiB, not '$v'") Red; Esci 1 }
+            if ([int]$v -lt 256) { Scrivi (T "--vram-reserve-mib vuole almeno 256 MiB (il motore rifiuta meno), non '$v'" "--vram-reserve-mib needs at least 256 MiB (the engine refuses less), not '$v'") Red; Esci 1 }
             $RiservaMib = [int]$v
         }
         default { if (-not ($nome -like 'lang=*')) { Scrivi "$(T 'Argomento sconosciuto' 'Unknown argument'): $a ($Uso)" Red; Esci 1 } }
@@ -169,6 +170,7 @@ if ($VramLibera) {
     }
     if ($RiservaMib -ge 0) { Scrivi (T '--vram-libera e --vram-reserve-mib dicono la stessa cosa: usane uno solo' '--vram-libera and --vram-reserve-mib say the same thing: use only one') Red; Esci 1 }
     $RiservaMib = [int][math]::Round($gb * 1024)
+    if ($RiservaMib -lt 256) { Scrivi (T '--vram-libera vuole almeno 0,25 GB (il motore rifiuta meno)' '--vram-libera needs at least 0.25 GB (the engine refuses less)') Red; Esci 1 }
 }
 if ($Riusa -and $Riavvia) { Scrivi (T '-riusa e -riavvia si escludono: scegline uno' '-riusa and -riavvia exclude each other: choose one') Red; Esci 1 }
 $ApriDopo = $false                         # -Sfondo apriva il browser quando il server rispondeva

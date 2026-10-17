@@ -76,8 +76,8 @@
   /* ---- the VRAM left free: a slider and a number in GB (GiB, as Windows shows them), engine.vram-reserve-mib ---- */
   function reserveHtml(prefix, id, help) {
     return `<label for="${id}" class="${prefix === "lf" ? "sr" : ""}">${esc(T("rsv.title"))}</label>
-      <div class="rsv-row"><input type="range" id="${prefix}-rsv-range" min="0" max="32" step="0.25" aria-label="${esc(T("rsv.title"))}" aria-describedby="${help}">
-        <span class="rsv-num"><input id="${id}" type="number" inputmode="decimal" min="0" max="64" step="0.25" aria-describedby="${help}"><span aria-hidden="true">GB</span></span></div>
+      <div class="rsv-row"><input type="range" id="${prefix}-rsv-range" min="0.25" max="32" step="0.25" aria-label="${esc(T("rsv.title"))}" aria-describedby="${help}">
+        <span class="rsv-num"><input id="${id}" type="number" inputmode="decimal" min="0.25" max="64" step="0.25" aria-describedby="${help}"><span aria-hidden="true">GB</span></span></div>
       <p class="help" id="${help}">${esc(T("rsv.help"))}</p>
       <div class="rsv-live" id="${prefix}-rsv-live" aria-live="polite"></div>`;
   }

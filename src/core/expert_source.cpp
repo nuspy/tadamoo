@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -206,6 +207,25 @@ bool read_cgroup_memory_stat(const std::filesystem::path& path, uint64_t current
     return true;
 }
 
+// cgroup v1's memory.stat: the group's hierarchical counters (total_*), the same allowance as v2's.  False when the
+// file or total_inactive_file is missing (the usage is then taken as it is).
+bool read_cgroup_v1_memory_stat(const std::filesystem::path& path, uint64_t usage, detail::CgroupMemoryStat& stat) {
+    std::ifstream input(path / "memory.stat");
+    if (!input) return false;
+    bool inactive_file = false;
+    std::string key;
+    uint64_t value = 0;
+    while (input >> key >> value) {
+        if (key == "total_inactive_file") { stat.inactive_file = value; inactive_file = true; }
+        else if (key == "total_dirty") stat.file_dirty = value;
+        else if (key == "total_writeback") stat.file_writeback = value;
+    }
+    if (!inactive_file) return false;
+    stat.current = usage;
+    stat.valid = true;
+    return true;
+}
+
 }  // namespace
 
 namespace detail {
@@ -232,35 +252,62 @@ bool host_available_memory(HostMemory& m, const std::string& meminfo, const std:
             value <= std::numeric_limits<uint64_t>::max() / 1024) bytes = value * 1024;
     }
     if (bytes == 0) return false;
-    // Account for the tightest cgroup ancestor limit when its normal mount is visible.
+    // The tightest cgroup limit of this process's group and its ancestors.  A group whose path is not visible here
+    // (a container's own cgroup namespace shows its group as the mount's root) is read at that root; a group without
+    // a readable limit has none of its own.  No cgroup file or line: MemAvailable alone.
     // This is a point-in-time guard, not a reservation against concurrent allocations.
-    std::ifstream groups(self_cgroup);
-    if (!groups) return false;
     const std::filesystem::path root(cgroup_root);
     bool v2 = false;
-    std::string v1_path;   // the memory controller's group (cgroup v1), when there is no v2 line
-    while (std::getline(groups, line)) {
-        if (line.rfind("0::/", 0) != 0) {
+    std::string v2_path, v1_path;   // the unified group; the v1 memory controller's group
+    if (std::ifstream groups(self_cgroup); groups) {
+        while (std::getline(groups, line)) {
+            if (line.rfind("0::/", 0) == 0) {
+                v2 = true;
+                v2_path = line.substr(4);
+                continue;
+            }
             // v1: "N:controller[,controller]:/path"
             const size_t c1 = line.find(':'), c2 = c1 == std::string::npos ? c1 : line.find(':', c1 + 1);
             if (c2 == std::string::npos) continue;
             std::istringstream ctl(line.substr(c1 + 1, c2 - c1 - 1));
             for (std::string c; std::getline(ctl, c, ',');)
                 if (c == "memory") v1_path = line.substr(c2 + 1);
-            continue;
         }
-        auto path = (root / line.substr(4)).lexically_normal();
-        if (path.string().rfind(root.string(), 0) != 0 || !std::filesystem::is_directory(path)) return false;
-        v2 = true;
-        while (path.string().rfind(root.string(), 0) == 0) {
+    }
+    // the group's directory under `top`, or `top` itself when the group is not visible there
+    auto visible_group = [](const std::filesystem::path& top, const std::string& rel) {
+        const std::string sub = rel.substr(rel.rfind('/', 0) == 0 ? 1 : 0);
+        if (sub.empty()) return top;
+        auto path = (top / sub).lexically_normal();
+        if (path.string().rfind(top.string(), 0) != 0 || !std::filesystem::is_directory(path)) return top;
+        return path;
+    };
+    if (!v1_path.empty()) {
+        // cgroup v1 (also the hybrid layout, where the unified line carries no memory controller): the memory
+        // controller's memory.limit_in_bytes - memory.usage_in_bytes, with the clean inactive file cache counted as
+        // free as for v2.  An unlimited group says a number near 2^63 (rounded to its page size).
+        const std::filesystem::path mroot = root / "memory";
+        for (auto path = visible_group(mroot, v1_path); path.string().rfind(mroot.string(), 0) == 0;
+             path = path.parent_path()) {
+            std::ifstream limit_file(path / "memory.limit_in_bytes"), usage_file(path / "memory.usage_in_bytes");
+            uint64_t cap = 0, usage = 0;
+            if (limit_file >> cap && usage_file >> usage && cap < (1ull << 62)) {
+                uint64_t room = usage < cap ? cap - usage : 0;
+                CgroupMemoryStat stat;
+                if (read_cgroup_v1_memory_stat(path, usage, stat) && !cgroup_available_bytes(cap, stat, room)) return false;
+                bytes = std::min(bytes, room);
+                m.cgroup_limit = std::min(m.cgroup_limit, cap);
+            }
+            if (path == mroot) break;
+        }
+    } else if (v2) {
+        for (auto path = visible_group(root, v2_path); path.string().rfind(root.string(), 0) == 0;
+             path = path.parent_path()) {
             std::ifstream limit_file(path / "memory.max"), current_file(path / "memory.current");
             std::string limit;
             uint64_t current = 0;
-            const bool readable = bool(limit_file >> limit) && bool(current_file >> current);
-            // The host's root cgroup has no memory.max; ordinary child groups must expose their limits.
-            if (!readable && !(path == root && !std::filesystem::exists(path / "memory.max") &&
-                               std::filesystem::exists(path / "cgroup.controllers"))) return false;
-            if (readable && limit != "max") {
+            // the host's root group, and a group whose parent does not enable the memory controller, have no limit
+            if (limit_file >> limit && current_file >> current && limit != "max") {
                 try {
                     size_t consumed = 0;
                     const uint64_t cap = std::stoull(limit, &consumed);
@@ -274,24 +321,6 @@ bool host_available_memory(HostMemory& m, const std::string& meminfo, const std:
                 } catch (...) { return false; }
             }
             if (path == root) break;
-            path = path.parent_path();
-        }
-    }
-    if (!v2 && !v1_path.empty()) {
-        // cgroup v1: the memory controller's group and its ancestors.  An unlimited group says a number near 2^63
-        // (rounded to its page size); a group whose files are not visible (no mount in this namespace) is skipped -
-        // MemAvailable alone, as with no cgroup at all.
-        const std::filesystem::path mroot = root / "memory";
-        auto path = (mroot / v1_path.substr(v1_path.rfind('/', 0) == 0 ? 1 : 0)).lexically_normal();
-        while (path.string().rfind(mroot.string(), 0) == 0) {
-            std::ifstream limit_file(path / "memory.limit_in_bytes"), usage_file(path / "memory.usage_in_bytes");
-            uint64_t cap = 0, usage = 0;
-            if (limit_file >> cap && usage_file >> usage && cap < (1ull << 62)) {
-                bytes = std::min(bytes, usage < cap ? cap - usage : 0);
-                m.cgroup_limit = std::min(m.cgroup_limit, cap);
-            }
-            if (path == mroot) break;
-            path = path.parent_path();
         }
     }
     m.available = bytes;
@@ -314,7 +343,8 @@ bool available_memory_bytes(uint64_t& bytes) {
 
 // ================================ THE FILE-BACKED SOURCE ================================
 
-FileExpertSource::~FileExpertSource() { close(); }
+FileExpertSource::FileExpertSource() = default;
+FileExpertSource::~FileExpertSource() { advise_worker_.reset(); close(); }
 
 bool FileExpertSource::open(const FileRange& experts, int64_t n_layers, int64_t n_expert, std::string& err) {
     close();
@@ -1087,6 +1117,11 @@ bool FileExpertSource::has_resident(int64_t layer, int64_t expert) const {
     return index < complement_offsets_.size() && complement_offsets_[index] != kNoComplement;
 }
 
+bool FileExpertSource::resident_in_top_up(int64_t layer, int64_t expert) const {
+    if (!has_resident(layer, expert)) return false;
+    return complement_offsets_[(size_t) layer * (size_t) n_expert_ + (size_t) expert] >= complement_bytes_;
+}
+
 bool FileExpertSource::reserve_exchanges(int64_t n, std::string& err) {
     err.clear();
     if (n <= xstage_cap_) return true;
@@ -1246,6 +1281,49 @@ const uint8_t* FileExpertSource::blob(int64_t layer, int64_t expert) {
     return result;
 }
 
+// A helper thread issues the read-ahead so the caller never waits on the kernel.  The queue is bounded; a request
+// that does not fit is dropped (the pages are then read on first touch, as without the advice).
+struct FileExpertSource::AdviseWorker {
+    explicit AdviseWorker(const FileExpertSource* s) : src(s), th([this] { run(); }) {}
+    ~AdviseWorker() {
+        { std::lock_guard<std::mutex> g(mu); stop = true; }
+        cv.notify_one();
+        th.join();
+    }
+    void run() {
+        std::vector<std::pair<int32_t, int32_t>> batch;
+        for (;;) {
+            {
+                std::unique_lock<std::mutex> g(mu);
+                cv.wait(g, [this] { return stop || !q.empty(); });
+                if (q.empty()) return;
+                batch.swap(q);
+            }
+            (void) src->advise_pairs(batch.data(), (int64_t) batch.size());
+            batch.clear();
+        }
+    }
+    static constexpr size_t kMaxQueued = 512;
+    const FileExpertSource* src;
+    std::mutex mu;
+    std::condition_variable cv;
+    std::vector<std::pair<int32_t, int32_t>> q;
+    bool stop = false;
+    std::thread th;
+};
+
+void FileExpertSource::advise_cpu(int64_t layer, const int32_t* ids, int64_t n) const {
+    if (base_ == nullptr || ids == nullptr || n <= 0 || !basalt::platform::read_ahead_enabled()) return;
+    std::call_once(advise_once_, [this] { advise_worker_.reset(new AdviseWorker(this)); });
+    AdviseWorker& w = *advise_worker_;
+    {
+        std::lock_guard<std::mutex> g(w.mu);
+        if (w.q.size() + (size_t) n > AdviseWorker::kMaxQueued) return;
+        for (int64_t i = 0; i < n; ++i) w.q.emplace_back((int32_t) layer, ids[i]);
+    }
+    w.cv.notify_one();
+}
+
 bool FileExpertSource::pinned(int64_t layer, int64_t expert) const {
     if (!complement_ready_ || layer < 0 || expert < 0 || layer >= n_layers_ || expert >= n_expert_) return false;
     const size_t index = (size_t) layer * (size_t) n_expert_ + (size_t) expert;
@@ -1273,6 +1351,22 @@ bool FileExpertSource::pcie_layer(int64_t layer) const {
 
 // ================================ THE ADAPTER ================================
 
+// Read-ahead for what the CPU tier may read from the file: every routed id that no GPU holds.
+static void advise_routed(ExpertDispatch& d, const int32_t* ids, int64_t n) {
+    int32_t want[128];
+    int64_t m = 0;
+    for (int64_t i = 0; i < n && m < 128; ++i) {
+        const int32_t e = ids[i];
+        if (e < 0 || e >= d.n_expert) continue;
+        if (d.host_res != nullptr && d.host_res[(size_t) d.layers * (size_t) d.n_expert + (size_t) e] >= 0) continue;
+        if (d.peer != nullptr && d.peer->has(d.layers, e)) continue;
+        bool seen = false;
+        for (int64_t j = 0; j < m && !seen; ++j) seen = want[j] == e;
+        if (!seen) want[m++] = e;
+    }
+    if (m > 0) d.src->advise_cpu(d.layers, want, m);
+}
+
 void expert_pool_dispatch(void* user, const float* x_f, const int32_t* ids, const float* weights, int64_t n_embd,
                           int64_t k, float* out) {
     (void) weights;   // clause 2: `moe_combine` applies it on the device.  Not an oversight.
@@ -1296,6 +1390,7 @@ void expert_pool_dispatch(void* user, const float* x_f, const int32_t* ids, cons
         d.fail_layer = d.layers;
         return;
     }
+    advise_routed(d, ids, k);
     if (k > (int64_t) d.jobs.size()) d.jobs.resize((size_t) k);
 
     // Clause 1: rebuilt from `x_f` on EVERY call.  `x_f` is mapped pinned memory whose address never changes,
@@ -1430,6 +1525,7 @@ void expert_pool_dispatch_multi(ExpertDispatch& d, const float* x_f, const int32
     // ---- the GPU's share, decided and published FIRST so the GPU starts while the CPU works.  Distinct experts in
     // routing order; resident ones and the last pcie_num/256 of the missed ones go to the GPU.
     const int64_t n = n_tok * k;
+    if (n <= kMaxWindowEntries) advise_routed(d, ids, n);
     int32_t kind[kMaxWindowEntries];       // per entry: -1 CPU, 0 VRAM, 1 PCIe
     // the device planned the layer; only its CPU entries are the pool's
     const bool ext = d.plan != nullptr && d.plan->ext_kind != nullptr && n <= kMaxWindowEntries;

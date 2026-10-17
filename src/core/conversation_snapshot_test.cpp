@@ -1,4 +1,6 @@
+#include <algorithm>
 #include "basalt/core/conversation_snapshot.hpp"
+#include "basalt/core/kv_arena.hpp"
 #include "basalt/kernels/kv_q4.hpp"
 #include <cuda_runtime.h>
 
@@ -137,6 +139,25 @@ void full_session(int fmt, int mode, int experts) {
     ConversationCheckpoint checkpoint;
     checkpoint.ids.assign(ids.begin(),ids.begin()+3);
     check(conversation_checkpoint_save(checkpoint,ss,g,err),"save complete running checkpoint");
+    {   // a deferred save equals the plain one, though the device state changes right after it is issued
+        ConversationCheckpointDeferral deferral;
+        check(deferral.reserve(sizes.gdn,err),"reserve the deferred checkpoint buffer");
+        ConversationCheckpoint deferred;
+        deferred.ids=checkpoint.ids;
+        check(deferral.save(deferred,ss,g,err) && deferral.pending()==deferred.gdn.data(),"issue deferred checkpoint save");
+        cuda_check(cudaMemset(ss.gdn_state,0x5a,sizes.gdn));
+        cuda_check(cudaDeviceSynchronize());
+        check(deferral.finish(err) && deferral.pending()==nullptr,"finish deferred checkpoint save");
+        check(deferred.gdn.size()==checkpoint.gdn.size() &&
+              std::equal(deferred.gdn.begin(),deferred.gdn.end(),checkpoint.gdn.begin()) &&
+              std::equal(deferred.ple.begin(),deferred.ple.end(),checkpoint.ple.begin()) &&
+              std::equal(deferred.tails.begin(),deferred.tails.end(),checkpoint.tails.begin()) &&
+              std::equal(deferred.dead.begin(),deferred.dead.end(),checkpoint.dead.begin()) &&
+              std::equal(deferred.block_pos.begin(),deferred.block_pos.end(),checkpoint.block_pos.begin()),
+              "deferred checkpoint bytes match the plain save");
+        cuda_check(cudaMemset(ss.gdn_state,13,sizes.gdn));
+        cuda_check(cudaDeviceSynchronize());
+    }
     checkpoint.used = 17;
     checkpoints.push_back(std::move(checkpoint));
     const ConversationView view{ids,images,checkpoints,true};
@@ -231,14 +252,40 @@ void full_session(int fmt, int mode, int experts) {
     check(conversation_checkpoint_restore(a.checkpoints[0],ss,g,err),"restore early running checkpoint");
     std::vector<uint8_t> spare(sizes.dead);
     cuda_check(cudaMemcpy(spare.data(),main.state.idx_pooled,sizes.dead,cudaMemcpyDeviceToHost));
-    check(spare==a.checkpoints[0].dead,"checkpoint rebuilds spare row over a later completed block");
+    check(std::equal(spare.begin(),spare.end(),a.checkpoints[0].dead.begin(),a.checkpoints[0].dead.end()),"checkpoint rebuilds spare row over a later completed block");
     check(ss.ple_prev[0]==2 && ss.ple_prev[1]==3,"checkpoint PLE token window");
+}
+
+// An elastic state backs a prefix of its cells: a snapshot longer than that is refused, not copied past it.
+void elastic_backing() {
+    KvArena arena;
+    std::string err;
+    constexpr int64_t kMiB = 1 << 20;
+    if (!arena.open({(uint64_t) kMiB}, 24, 4, err)) {
+        std::printf("elastic backing: skipped (%s)\n", err.c_str());
+        return;
+    }
+    check(arena.map(4, err) && arena.cells() >= 4 && arena.cells() < 65,"back a short prefix");
+    Fixture f(kKvInt8,0);
+    f.fill(13);
+    cuda_check(cudaDeviceSynchronize());
+    ConversationKv image;
+    check(conversation_kv_save(image,f.state,f.g,65,true,err),"snapshot a long conversation");
+    f.state.kv_arena=&arena;
+    check(!conversation_kv_restore(image,f.state,f.g,65,true,err) && err.find("backed")!=std::string::npos,
+          "restore past the backed cells is refused");
+    ConversationKv again;
+    check(!conversation_kv_save(again,f.state,f.g,65,true,err),"save past the backed cells is refused");
+    check(arena.map(65,err) && conversation_kv_restore(image,f.state,f.g,65,true,err),"restore once the cells are backed");
+    check(conversation_kv_restore(image,f.state,f.g,3,true,err)==false,"a shorter extent than the image is incompatible");
+    f.state.kv_arena=nullptr;
 }
 }
 
 int main() {
     int devices=0;
     if (cudaGetDeviceCount(&devices)!=cudaSuccess || !devices) return 77;
+    elastic_backing();
     for (int fmt : std::array<int,4>{kKvF16,kKvInt8,kKvQ4,3}) for (int mode : {0,1,2}) {
         if (fmt==3 && mode!=0) continue;
         Fixture f(fmt,mode);
