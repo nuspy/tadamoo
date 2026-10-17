@@ -26,11 +26,15 @@ from serve.api.responses import ResponsesError
 from serve.security import host_allowed, host_names_for, key_matches, origin_allowed
 from serve.service import LOG_FIRST_LINES, LOG_MAX_LINES, Service, _debug_req
 from serve.api.structured import StructuredOutputError, prepare_format, validated_json
+from serve.util.reqlog import export_jsonl, export_text
+from serve.util.reqtrace import RequestTrace
 from serve.util.text import stop_strings
 
 
 BODY_MAX = 256 << 20                        # the most a JSON request body may hold (read into memory)
 CONTROL_BODY_MAX = 64 << 10                 # the unused body of /load and /unload
+API_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")      # the requests the request log records
+REQLOG_CHARS_MAX = 64 << 20                 # the most one GET /api/reqlog answer may hold
 
 
 class BadBody(Exception):
@@ -50,6 +54,7 @@ def make_handler(svc: Service):
         protocol_version = "HTTP/1.0"                       # SSE ends by closing the connection
 
         watch_done = None                                   # stops this request's disconnect watcher
+        trace = None                                        # this request's entries in the request log
 
         def log_message(self, fmt, *args):
             pass
@@ -200,6 +205,8 @@ def make_handler(svc: Service):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            if self.trace is not None and code >= 400:
+                self.trace.error_body(code, obj)
 
         def _authorized(self) -> bool:
             if not svc.api_key:
@@ -250,6 +257,12 @@ def make_handler(svc: Service):
             elif path == "/api/logs":
                 if self._authorized():
                     self._logs()
+            elif path == "/api/reqlog":
+                if self._authorized():
+                    self._reqlog()
+            elif path == "/api/reqlog/export":
+                if self._authorized():
+                    self._reqlog_export()
             elif path == "/api/settings":
                 if self._authorized():
                     self._settings_get()
@@ -370,6 +383,9 @@ def make_handler(svc: Service):
             if path == "/api/chat/context":
                 self._chat_context()
                 return
+            if path == "/api/reqlog/clear":
+                self._reqlog_clear()
+                return
             if path.startswith("/api/loader/"):
                 self._loader_post(path[len("/api/loader/"):])
                 return
@@ -426,10 +442,22 @@ def make_handler(svc: Service):
                 except (GpuBusy, EngineDied, EngineStarting) as e:
                     self._json(503, {"error": {"type": "server_error", "message": str(e)}})
                 return
+            trace = None
+            if path in API_PATHS and svc.reqlog.enabled:
+                trace = self.trace = svc.request_ctx.trace = RequestTrace(
+                    svc, path, "POST", ":".join(str(x) for x in self.client_address[:2]))
             try:
-                req = json.loads(self._body() or b"{}")
-                if not isinstance(req, dict):
-                    raise ValueError("send a JSON object")
+                raw = self._body() or b"{}"
+                try:
+                    req = json.loads(raw)
+                    if not isinstance(req, dict):
+                        raise ValueError("send a JSON object")
+                except ValueError:
+                    if trace is not None:
+                        trace.request(raw=raw)
+                    raise
+                if trace is not None:
+                    trace.request(req)
                 if path.startswith("/v1/responses/"):        # nothing is stored
                     self._json(404, responses_error_body("this server keeps no responses (stateless); send the "
                                                          "whole conversation to POST /v1/responses", code="not_found"))
@@ -514,6 +542,9 @@ def make_handler(svc: Service):
             finally:
                 if self.watch_done is not None:
                     self.watch_done.set()
+                if trace is not None:
+                    trace.end()
+                    self.trace = svc.request_ctx.trace = None
 
         def _props(self):
             model = parse_qs(urlsplit(self.path).query).get("model", [svc.model])[0]
@@ -853,6 +884,44 @@ def make_handler(svc: Service):
             lines, last = svc.logs.since(after or 0, limit)
             self._json(200, {"lines": lines, "last": last})
 
+        def _reqlog(self):
+            """GET /api/reqlog?after=<id>&max_chars=<n>: the request log's events after that id (serve/util/reqlog.py).
+            With the log off the answer is 200 with "enabled": false and no events."""
+            query = parse_qs(urlsplit(self.path).query)
+
+            def number(name, default, high):
+                try:
+                    return min(high, max(0, int(query.get(name, [default])[0])))
+                except ValueError:
+                    return default
+            after = number("after", 0, 1 << 62)
+            self._json(200, svc.reqlog.since(after, max(1024, number("max_chars", 2 << 20, REQLOG_CHARS_MAX))))
+
+        def _reqlog_export(self):
+            """GET /api/reqlog/export?format=text|jsonl: everything the request log holds, as a downloaded file."""
+            fmt = parse_qs(urlsplit(self.path).query).get("format", ["text"])[0]
+            if fmt not in ("text", "jsonl"):
+                self._json(400, {"error": {"type": "invalid_request_error", "message": "format: text or jsonl"}})
+                return
+            name = f"basalt-requests-{time.strftime('%Y%m%d-%H%M%S')}." + ("log" if fmt == "text" else "jsonl")
+            self.send_response(200)
+            self.send_header("Content-Type", ("text/plain" if fmt == "text" else "application/x-ndjson") + "; charset=utf-8")
+            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()                                  # the length is not known: the connection ends it
+            try:
+                for piece in (export_text if fmt == "text" else export_jsonl)(svc.reqlog):
+                    self.wfile.write(piece.encode("utf-8"))
+            except OSError:
+                pass
+
+        def _reqlog_clear(self):
+            """POST /api/reqlog/clear: empty the request log. Only as JSON from the server's own page."""
+            if not self._control_body() or not self._own_page("the request log can be cleared"):
+                return
+            svc.reqlog.clear()
+            self._json(200, {"cleared": True})
+
         def _sse(self):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -867,6 +936,7 @@ def make_handler(svc: Service):
             if validator is not None and tools:
                 raise ValueError("structured response_format with tools is not supported")
             retries = structured_retries(req) if validator is not None else 0
+            trace = self.trace
             svc.load()
             asked = int(req.get("max_completion_tokens") or req.get("max_tokens") or 0)   # 0/-1: the rest of the context
             svc.reasoning_budget(req)                         # a bad value is a 400 before streaming
@@ -879,12 +949,14 @@ def make_handler(svc: Service):
                 chunks = openai_chunks(svc, req, ids, thinking, tools, max_new, cancel)
             else:                                             # validated, and tried again with the error fed back
                 def start(feedback):
+                    if trace is not None:
+                        trace.attempt = (trace.attempt or 0) + 1
                     if feedback is None:
                         return openai_chunks(svc, req, ids, thinking, tools, max_new, cancel)
                     again = retry_messages(messages, *feedback)
                     ids2, thinking2, max_new2 = svc.prepare(again, tools, kw, asked)
                     return openai_chunks(svc, req, ids2, thinking2, tools, max_new2, cancel)
-                chunks = structured_retry_chunks(start, validator, retries)
+                chunks = structured_retry_chunks(start, validator, retries, trace.note if trace is not None else None)
             if not req.get("stream"):
                 return self._json(200, openai_collect(chunks))
             self._sse()
@@ -899,15 +971,27 @@ def make_handler(svc: Service):
             except OSError:
                 cancel.set()                                 # client left: stop the engine
                 chunks.close()
+                self._left()
             except EngineDied as e:                          # mid-stream
                 err = {"error": {"type": "server_error", "message": f"{e}; the next request restarts it"}}
-                self.wfile.write(b"data: " + json.dumps(err).encode() + b"\n\ndata: [DONE]\n\n")
+                self._stream_failed(err, b"data: " + json.dumps(err).encode() + b"\n\ndata: [DONE]\n\n")
             except StructuredOutputError as e:
                 err = {"error": {"type": "structured_output_failed", "code": "structured_output_failed", "message": str(e)}}
-                self.wfile.write(b"data: " + json.dumps(err).encode() + b"\n\ndata: [DONE]\n\n")
+                self._stream_failed(err, b"data: " + json.dumps(err).encode() + b"\n\ndata: [DONE]\n\n")
             except ValueError as e:                          # engine ERR after the stream started: no 400 now
                 err = {"error": {"type": "server_error", "message": str(e)}}
-                self.wfile.write(b"data: " + json.dumps(err).encode() + b"\n\ndata: [DONE]\n\n")
+                self._stream_failed(err, b"data: " + json.dumps(err).encode() + b"\n\ndata: [DONE]\n\n")
+
+        def _left(self) -> None:
+            """The client closed the connection while the answer was being sent."""
+            if self.trace is not None:
+                self.trace.cancel("the client closed the connection")
+
+        def _stream_failed(self, body: dict, wire: bytes) -> None:
+            """An error after the stream started: told to the client in the stream, and to the request log."""
+            if self.trace is not None:
+                self.trace.error_body(None, body)
+            self.wfile.write(wire)
 
         def _responses(self, req):
             """POST /v1/responses (serve/api/responses.py); after the stream starts, errors are response.failed."""
@@ -973,6 +1057,7 @@ def make_handler(svc: Service):
             except OSError:
                 cancel.set()                                 # client left: stop the engine
                 items.close()
+                self._left()
             except EngineDied as e:                          # mid-stream: response.failed
                 self._responses_failed(asm, f"{e}; the next request restarts it", "server_error", send)
             except StructuredOutputError as e:
@@ -982,6 +1067,8 @@ def make_handler(svc: Service):
 
         def _responses_failed(self, asm, message, code, send):
             e = asm.failed(message, code)
+            if self.trace is not None:
+                self.trace.error(code, message)
             try:
                 send(e)
                 self.wfile.flush()
@@ -1058,12 +1145,13 @@ def make_handler(svc: Service):
             except OSError:
                 cancel.set()
                 events.close()
+                self._left()
             except EngineDied as e:                          # mid-stream: an Anthropic error event
                 err = {"type": "error", "error": {"type": "api_error", "message": f"{e}; the next request restarts it"}}
-                self.wfile.write(b"event: error\ndata: " + json.dumps(err).encode() + b"\n\n")
+                self._stream_failed(err, b"event: error\ndata: " + json.dumps(err).encode() + b"\n\n")
             except ValueError as e:                          # engine ERR after the stream started
                 err = {"type": "error", "error": {"type": "api_error", "message": str(e)}}
-                self.wfile.write(b"event: error\ndata: " + json.dumps(err).encode() + b"\n\n")
+                self._stream_failed(err, b"event: error\ndata: " + json.dumps(err).encode() + b"\n\n")
 
     return Handler
 

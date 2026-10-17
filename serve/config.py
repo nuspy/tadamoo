@@ -97,6 +97,9 @@ def load_config_file(path: str, ap: argparse.ArgumentParser) -> tuple[list[str],
                 raise ValueError(f"server.{key}: {e}") from None
             argv += ["--vision", mode]
             continue
+        if name == "request-log" and isinstance(value, bool):    # true or false in the file; on or off on the line
+            argv += [flag, "on" if value else "off"]
+            continue
         if act.nargs == 0:                                 # a switch
             if not isinstance(value, bool):
                 raise ValueError(f"server.{key}: true or false")
@@ -336,4 +339,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="unload the model after this many seconds without requests; the next request loads it again")
     ap.add_argument("--min-free-vram-mib", type=int, default=None,
                     help="load an unloaded model only when this much VRAM is free, else answer 503")
+    ap.add_argument("--request-log", choices=("on", "off"), default="on",
+                    help="keep every request's prompt, reasoning, answer, tries and timings in memory for the web "
+                         "page's LOGS tab (default on; in a config file: true or false). Never written to disk "
+                         "unless you save it from the page")
+    ap.add_argument("--request-log-mib", type=float, default=32.0, metavar="MIB",
+                    help="memory the request log may use (default 32); the oldest entries are dropped beyond it")
     return ap

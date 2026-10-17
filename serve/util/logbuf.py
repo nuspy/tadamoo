@@ -29,6 +29,7 @@ class LogBuffer:
         self.lock = threading.Lock()
         self.lines: collections.deque = collections.deque(maxlen=capacity)
         self.last = 0
+        self.sink = None                                # called with (src, level, message) for each line added
 
     def add(self, src: str, text: str) -> None:
         """Add each non-empty line of `text` (ANSI codes removed, long lines cut) from source `src`."""
@@ -37,9 +38,16 @@ class LogBuffer:
             msg = raw.rstrip()[:MAX_LINE]
             if not msg.strip():
                 continue
+            lvl = level(msg)
             with self.lock:
                 self.last += 1
-                self.lines.append({"id": self.last, "t": now, "src": src, "lvl": level(msg), "msg": msg})
+                self.lines.append({"id": self.last, "t": now, "src": src, "lvl": lvl, "msg": msg})
+            sink = self.sink
+            if sink is not None:
+                try:
+                    sink(src, lvl, msg)
+                except Exception:  # noqa: BLE001 - a log copy must never break the log
+                    pass
 
     def since(self, after_id: int = 0, limit: int = 500) -> tuple[list[dict], int]:
         """Return (the newest `limit` lines above `after_id`, oldest first; the newest id)."""

@@ -15,6 +15,8 @@ from serve.engine.errors import EngineDied, EngineSilent, EngineStartError, Engi
 from serve.engine.mock import Engine
 from serve.frontend import ChatTemplate, Event, OutputParser, images_of, literal_tags, mark_think_literals, unmark_think_literals
 from serve.util.logbuf import LogBuffer
+from serve.util.reqlog import RequestLog
+from serve.util.reqtrace import GpuTicker
 from serve.security import LOOPBACK_NAMES
 from serve.util.text import Detokenizer, IM_END, StopMatcher, control_literals, stop_strings
 from serve.engine.vision import Vision
@@ -60,6 +62,8 @@ class Service:
         self.api_key = ""                              # when set, /v1/* requires it
         # put a non-default reasoning effort in a system turn before the answer so the cached prefix survives
         self.effort_end = False
+        self.reqlog = RequestLog()                      # what each request sent, the model wrote and the server did
+        self.gpu_ticker = GpuTicker(self)               # hardware figures into reqlog while requests run
         self.logs = LogBuffer()                         # server and engine output
         # origins allowed to call /v1/* (CORS; "*" = any); empty: no CORS headers
         self.cors_origins: list[str] = []
@@ -93,6 +97,46 @@ class Service:
         self.anthropic_think_unasked = True               # "anthropic_thinking": "on_request" -> False
         self.stop_ids = set(tokenizer.encode(IM_END, parse_special=True) +
                             tokenizer.encode("<|endoftext|>", parse_special=True))
+
+    @property
+    def logs(self) -> LogBuffer:
+        return self._logs
+
+    @logs.setter
+    def logs(self, buffer: LogBuffer) -> None:
+        """The buffer behind GET /api/logs; every line added to it is copied to the request log."""
+        self._logs = buffer
+        buffer.sink = self.log_line
+
+    def log_line(self, src: str, lvl: str, msg: str) -> None:
+        """A server or engine line, for the request log (no request: it is the server's own doing)."""
+        self.reqlog.add(None, "engine" if src == "eng" else "server", {"level": lvl}, msg)
+
+    def hardware_now(self) -> dict | None:
+        """The hardware figures the sampler last read (cards, RAM, CPU), or None when there are none."""
+        tel = getattr(self, "telemetry", None)
+        if tel is None:
+            return None
+        snap = tel.snapshot()
+        now = snap.get("now") or {}
+        names = {g.get("index"): g.get("name") for g in (snap.get("static") or {}).get("gpus") or []}
+
+        def mib(v):
+            return round(v / 2 ** 20) if isinstance(v, (int, float)) else None
+        gpus = []
+        for g in now.get("gpus") or []:
+            card = {"index": g.get("index"), "name": names.get(g.get("index")), "used_mib": mib(g.get("mem_used")),
+                    "total_mib": mib(g.get("mem_total")), "util_pct": g.get("util"), "temp_c": g.get("temp"),
+                    "power_w": g.get("power")}
+            gpus.append({k: v for k, v in card.items() if v is not None})
+        out = {}
+        if gpus:
+            out["gpus"] = gpus
+        if isinstance(now.get("ram_used"), (int, float)) and isinstance(now.get("ram_total"), (int, float)):
+            out["ram"] = {"used_mib": mib(now["ram_used"]), "total_mib": mib(now["ram_total"])}
+        if isinstance(now.get("cpu"), (int, float)):
+            out["cpu_pct"] = round(now["cpu"], 1)
+        return out or None
 
     def loaded(self) -> bool:
         if getattr(self, "standby", False):
@@ -420,6 +464,7 @@ class Service:
                                   # the validated answer is held until the check (older clients read this one); the
                                   # reasoning is not held: it streams while the answer is written
                                   "stream_buffered": True, "content_buffered": True, "reasoning_streamed": True},
+            "request_log": {"enabled": self.reqlog.enabled, "capacity_chars": self.reqlog.max_chars},
             "engine": (getattr(self.engine, "info", {}) or {}).get("version"),
             "started": int(self.started_at), "uptime_s": int(time.time() - self.started_at),
             "cache_max_tokens": ctx,
@@ -577,6 +622,14 @@ class Service:
         thinking_n = 0                                  # tokens written while thinking
         stop_list = stop_strings(sampling)
         stops = StopMatcher(stop_list) if stop_list else None
+        trace = getattr(self.request_ctx, "trace", None)    # the request log's entries for this request, if any
+
+        def logged(evs):
+            """The events as they are handed on, copied to the request log."""
+            if trace is not None:
+                for ev in evs:
+                    trace.event(ev)
+            return evs
 
         def cut(evs):
             """The events with the answer text cut at a stop string."""
@@ -630,6 +683,8 @@ class Service:
                         self.last_request_at = time.time()
                         rate.clear()                    # drop the previous request's samples
                     before = getattr(self.engine, "last", None)
+                    if trace is not None:
+                        trace.run_started(len(ids))
                     last_print = time.time()
                     prompt, thought = ids, 0            # reasoning tokens so far
                     closed_early = False                # the thinking was already closed once
@@ -665,7 +720,7 @@ class Service:
                                 evs = cut(parser.feed(detok.push(t)))
                                 self._note(n, evs, st, rate)
                                 last_print = self._progress(last_print, st=st)
-                                for ev in evs:
+                                for ev in logged(evs):
                                     yield "event", ev
                                 if stops is not None and stops.hit is not None:
                                     finish = "stop"         # gen.close() below STOPs the engine
@@ -723,7 +778,7 @@ class Service:
                             thinking_n += parser.state == "reasoning"
                             evs = cut(parser.feed(detok.push(t)))
                             self._note(n, evs, st, rate)
-                            for ev in evs:
+                            for ev in logged(evs):
                                 yield "event", ev
                         if stops is not None and stops.hit is not None:
                             finish = "stop"
@@ -800,14 +855,17 @@ class Service:
         finally:
             if emb:
                 Path(emb).unlink(missing_ok=True)
-        for ev in cut(parser.finish()):
+        for ev in logged(cut(parser.finish())):
             yield "event", ev
         if stops is not None and stops.hit is None and stops.held:
-            yield "event", Event("content", stops.flush())     # the held tail was not a stop string
+            tail = logged([Event("content", stops.flush())])    # the held tail was not a stop string
+            yield "event", tail[0]
         done = {"finish": finish, "completion_tokens": n, "reused": (timings or {}).get("cache_n", 0),
                 "timings": timings, "reasoning_tokens": thinking_n}
         if stops is not None and stops.hit is not None:
             done["stop_sequence"] = stops.hit
+        if trace is not None:
+            trace.run_done(done)
         yield "done", done
 
 

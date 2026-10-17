@@ -18,6 +18,7 @@
 <script defer src="web/models.js"></script>
 <script defer src="web/loader.js"></script>
 <script defer src="web/wizard.js"></script>
+<script defer src="web/reqlog.js"></script>
 </head>
 <body>
 
@@ -30,6 +31,7 @@
     <button class="tab" role="tab" id="tab-hardware" data-view="hardware" aria-controls="view-hardware" aria-selected="false" tabindex="-1" data-t="tab.hardware">Hardware</button>
     <button class="tab" role="tab" id="tab-loader" data-view="loader" aria-controls="view-loader" aria-selected="false" tabindex="-1" data-t="tab.loader">Loader</button>
     <button class="tab" role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1" data-t="tab.settings">Settings</button>
+    <button class="tab" role="tab" id="tab-logs" data-view="logs" aria-controls="view-logs" aria-selected="false" tabindex="-1" data-t="tab.logs">LOGS</button>
   </nav>
   <span class="grow"></span>
   <span class="state" id="state" data-s="offline">Connecting</span>
@@ -368,6 +370,52 @@
           <p class="help" id="st-wizard-h" data-t="st.wizard.help"></p>
         </div>
       </form>
+    </section>
+  </div>
+  <div class="view logs" id="view-logs" role="tabpanel" aria-labelledby="tab-logs" hidden>
+    <svg class="rl-sprite" width="0" height="0" aria-hidden="true" focusable="false">
+      <symbol id="rl-i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="rl-i-save" viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="rl-i-up" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="rl-i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="rl-i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></symbol>
+      <symbol id="rl-i-play" viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+    </svg>
+    <section class="sec rl" id="rl" aria-label="Request log" data-t-aria="lg.region">
+      <div class="rl-off" id="rl-off" hidden>
+        <h2 data-t="lg.off.title">The request log is off</h2>
+        <p data-t="lg.off.body"></p>
+        <p><code>--request-log on</code></p>
+        <p><code>"request_log": true</code></p>
+      </div>
+      <div class="rl-main" id="rl-main">
+        <div class="rl-tools" id="rl-tools" role="group" aria-label="Log tools" data-t-aria="lg.tools">
+          <button type="button" class="btn rl-pause" id="rl-pause"><svg class="rl-ic" aria-hidden="true" focusable="false"><use href="#rl-i-pause"/></svg><span class="rl-pt" id="rl-pause-t" data-t="lg.pause">Pause</span><span class="rl-pill" id="rl-pending" hidden></span></button>
+          <button type="button" class="btn rl-iconbtn" id="rl-clear" aria-label="Clear the log" data-t-aria="lg.clear" title="Clear the log"><svg class="rl-ic" aria-hidden="true" focusable="false"><use href="#rl-i-trash"/></svg><span class="sr" data-t="lg.clear">Clear the log</span></button>
+          <div class="rl-save">
+            <button type="button" class="btn" id="rl-save"><svg class="rl-ic" aria-hidden="true" focusable="false"><use href="#rl-i-save"/></svg><span data-t="lg.save">Save log</span></button>
+            <label class="sr" for="rl-format" data-t="lg.format">File format</label>
+            <select id="rl-format"><option value="text" data-t="lg.fmt.text">Text</option><option value="jsonl" data-t="lg.fmt.jsonl">JSONL</option></select>
+          </div>
+          <div class="rl-find">
+            <label class="sr" for="rl-q" data-t="lg.find">Find in the log</label>
+            <input id="rl-q" type="search" autocomplete="off" spellcheck="false" placeholder="Find" data-t-ph="lg.find.ph">
+            <button type="button" class="btn rl-iconbtn" id="rl-prev" aria-label="Previous match" data-t-aria="lg.prev" title="Previous match"><svg class="rl-ic" aria-hidden="true" focusable="false"><use href="#rl-i-up"/></svg></button>
+            <button type="button" class="btn rl-iconbtn" id="rl-next" aria-label="Next match" data-t-aria="lg.next" title="Next match"><svg class="rl-ic" aria-hidden="true" focusable="false"><use href="#rl-i-down"/></svg></button>
+            <span class="rl-count" id="rl-count" aria-live="polite" aria-atomic="true"></span>
+          </div>
+        </div>
+        <div class="rl-status" id="rl-statusline">
+          <span class="rl-state" id="rl-state" data-s="wait">Connecting</span>
+          <span id="rl-kept"></span>
+          <span class="rl-msg" id="rl-msg" role="status" aria-live="polite"></span>
+          <span class="rl-note" id="rl-info"></span>
+        </div>
+        <div class="rl-wrap">
+          <div class="rl-log" id="rl-log" role="log" aria-live="off" aria-label="Request log" data-t-aria="lg.region" tabindex="0"></div>
+          <button type="button" class="btn rl-latest" id="rl-latest" hidden data-t="lg.latest">Latest</button>
+        </div>
+      </div>
     </section>
   </div>
 </main>

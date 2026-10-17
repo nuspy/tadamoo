@@ -36,6 +36,7 @@ from serve.security import (LOOPBACK_NAMES, allowed_hosts_of, api_key_of, expose
                             lan_addresses, origins_of)
 from serve.service import Service  # noqa: E402
 from serve.util.logbuf import LogBuffer, TeeStream, tail_file  # noqa: E402
+from serve.util.reqlog import RequestLog  # noqa: E402
 from serve.util.text import ByteTokenizer  # noqa: E402
 
 
@@ -200,6 +201,11 @@ def main() -> int:
                   model_name=cfg.get("model_name", "qwen3.8-flash-next"), vision=vision,
                   sampling_defaults=sampling_defaults, fit_max_tokens=a.fit_max_tokens)
     svc.logs = logs
+    if not a.request_log_mib > 0 or a.request_log_mib == float("inf"):
+        fail(f"--request-log-mib {a.request_log_mib:g}: expected a number of MiB above 0")
+    svc.reqlog = RequestLog(max_chars=int(a.request_log_mib * (1 << 20)), enabled=a.request_log != "off")
+    state = f"on, up to {a.request_log_mib:g} MiB in memory" if svc.reqlog.enabled else "off"
+    print(f"[server] request log: {state} (--request-log on|off, --request-log-mib N)", flush=True)
     svc.settings_info = settings_info(a, flags)
     svc.standby = standby
     svc.relaunch_on_model_change = bool(a.relaunch_on_model_change)

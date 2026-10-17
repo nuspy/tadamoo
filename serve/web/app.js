@@ -22,8 +22,8 @@ async function get(path) {
   return r.json();
 }
 
-/* ---- views: Chat, Monitor (stats), Hardware, Settings ---- */
-const VIEWS = ["chat", "stats", "hardware", "loader", "settings"];
+/* ---- views: Chat, Monitor (stats), Hardware, Loader, Settings, Logs ---- */
+const VIEWS = ["chat", "stats", "hardware", "loader", "settings", "logs"];
 applyT($(".tabs"));                                   // the tab names in the page's language
 $(".tabs").setAttribute("aria-label", T("tab.nav"));
 let viewOn = "";
