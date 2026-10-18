@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT, chatctx, loader, loader_api, model_list, models, profiles, settings
+from serve import ROOT, catalog, chatctx, downloads, loader, loader_api, model_list, models, profiles, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
@@ -307,6 +307,15 @@ def make_handler(svc: Service):
             elif path == "/api/models/job":
                 if self._authorized():
                     self._json(200, models.JOBS.status())
+            elif path == "/api/models/catalog":
+                if self._authorized():
+                    self._json(200, self._catalog())
+            elif path == "/api/models/download":
+                if self._authorized():
+                    self._json(200, downloads.DOWNLOADS.status())
+            elif path == "/api/models/hf":
+                if self._authorized():
+                    self._hf_status()
             elif path == "/api/loader/status":
                 if self._authorized():
                     self._json(200, {**loader_api.sup_of(svc).status(), "loaded": svc.loaded(), "loading": svc.loading,
@@ -798,18 +807,38 @@ def make_handler(svc: Service):
             except (OSError, ValueError):
                 current = None
             out = models.listing(rescan, current or (getattr(svc, "settings_info", None) or {}).get("model"))
+            for m in out.get("models") or []:                    # the Download catalog's entry for a file it knows
+                found = catalog.describe(m.get("path") or "")
+                m["catalog"] = found["id"] if found else None
             out["editable"] = settings.is_loopback(self.client_address[0])
             return out
 
+        def _catalog(self) -> dict:
+            """GET /api/models/catalog: the models the Download panel offers (serve/catalog.py); nothing secret, no network."""
+            return {"entries": [catalog.public(e) for e in catalog.CATALOG], "families": catalog.FAMILIES,
+                    "licenses": catalog.LICENSES, "generic": catalog.GENERIC,
+                    "uncensored_warning": catalog.UNCENSORED_WARNING, "reviewed": catalog.REVIEWED,
+                    "dirs": models.dirs(), "default_dest": models.default_output_dir(),
+                    "editable": settings.is_loopback(self.client_address[0])}
+
+        def _hf_status(self) -> None:
+            """GET /api/models/hf: where the Hugging Face token comes from and whose it is (asks Hugging Face)."""
+            if not settings.is_loopback(self.client_address[0]):
+                self._json(403, {"error": {"type": "forbidden", "message": "only from the PC the server runs on"}})
+                return
+            self._json(200, downloads.hf_status())
+
         def _models_post(self, what: str):
-            """POST /api/models/dirs | plan | convert | verify | cancel | default: only from this PC, as JSON from the server's
-            own page (serve/models.py). A conversion needs the plan's token and confirm: true."""
+            """POST /api/models/dirs | plan | convert | verify | cancel | default | download-plan | download |
+            download-cancel | hf-token: only from this PC, as JSON from the server's own page (serve/models.py,
+            serve/downloads.py). A conversion or a download needs the plan's token and confirm: true."""
             try:                                            # read first: a refusal then reaches the client whole
                 raw = self._body(settings.BODY_MAX)
             except BadBody as e:
                 self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
                 return
-            if what not in ("dirs", "plan", "convert", "verify", "cancel", "default"):
+            if what not in ("dirs", "plan", "convert", "verify", "cancel", "default", "download-plan", "download",
+                            "download-cancel", "hf-token"):
                 self._json(404, {"error": {"message": "not found"}})
                 return
             if not settings.is_loopback(self.client_address[0]):
@@ -838,6 +867,15 @@ def make_handler(svc: Service):
                                                               req.get("token"), req.get("confirm")))
                 elif what == "verify":
                     self._json(202, models.JOBS.start_verify(req.get("path")))
+                elif what == "download-plan":
+                    self._json(200, downloads.plan(str(req.get("id") or ""), req.get("dest")))
+                elif what == "download":
+                    self._json(202, downloads.DOWNLOADS.start(str(req.get("id") or ""), req.get("dest"),
+                                                              req.get("token"), req.get("confirm"), req.get("ack")))
+                elif what == "download-cancel":
+                    self._json(200, {"cancelled": downloads.DOWNLOADS.cancel(), **downloads.DOWNLOADS.status()})
+                elif what == "hf-token":
+                    self._json(200, downloads.set_session_token(req.get("token")))
                 elif what == "default":
                     try:
                         models.set_default_model(req.get("path") or None)
@@ -851,6 +889,9 @@ def make_handler(svc: Service):
                 self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}, "fields": e.errors})
             except models.Refused as e:
                 self._json(e.status, e.body)
+            except downloads.DownloadError as e:
+                self._json(502 if e.code in ("network", "gone") else 400,
+                           {"error": {"type": "download_error", "code": e.code, "message": e.en, "message_it": e.it}})
             except OSError as e:
                 self._json(500, {"error": {"type": "server_error", "message": f"{e.strerror or e}"}})
 
