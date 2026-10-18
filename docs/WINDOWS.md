@@ -208,6 +208,13 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
 * **Models** (`serve/models.py`): the models folders and the default server model in `models.json`. The Loader's model
   section lists every model with its status and runs Verifica / Converti in the background (a conversion only after
   its plan was shown and confirmed, with free space and the commit below 75%).
+* **Model downloads** (`serve/catalog.py`, `serve/downloads.py`, `serve/web/download.js`): the Loader's "Scarica modelli"
+  panel downloads the catalog's Qwen3.8-Flash-Next files from Hugging Face with the standard library only: a plan first
+  (files at a pinned revision with their SHA-256, disk, access, license), then `.part` files with HTTP range resume,
+  renamed once the SHA-256 matches. A GGUF set lands in the models folder as "Da convertire"; a ready `.basalt` as
+  "Pronto". The Hugging Face token (for a gated repository) comes from `HF_TOKEN`, the `huggingface-cli login` file or
+  the page (memory only); it goes to Hugging Face only and is dropped on a redirect to another host. The tests
+  (`serve/tests/test_downloads.py`) use a local server standing in for Hugging Face and never read the real token.
 * **The Loader** (web UI, tab "Carica modello") edits the engine settings by hand or from a profile, shows the VRAM,
   RAM and commit the plan needs next to what is free now (what the running engine gives back included) and the
   predicted speed, and loads (`POST /api/loader/load`: checked, written to the config file with a `.bak`, applied by
