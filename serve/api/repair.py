@@ -227,6 +227,8 @@ class Repair:
     valid_json: bool = False                # the text parsed completely (the fault is the schema, not the syntax)
     repeat: dict | None = None              # {"text", "count", "positions", "path"} of the worst repetition
     keys: list = field(default_factory=list)
+    resend: bool = False                    # the rejected text goes back, as the assistant's turn, before the message
+    instruction: str = ""                   # the one change asked of a schema fault
 
 
 def find_repeat(text: str, scan: _Scan | None = None) -> dict | None:
@@ -256,32 +258,49 @@ def find_repeat(text: str, scan: _Scan | None = None) -> dict | None:
     return best
 
 
-def _summary(text: str, scan: _Scan) -> tuple[str, list]:
-    """One short line on the top-level keys produced, without the content of any list."""
-    parts, names = [], []
-    for key, kind, a, b in scan.top[:SUMMARY_KEYS]:
-        names.append(key)
-        if b is None:
-            parts.append(f"{key} (cut off here)")
-        elif kind == "list":
-            spans = scan.items.get((key,), [])
-            distinct = len({_norm(text[x:y]) for x, y in spans})
-            parts.append(f"{key} (list of {len(spans)}, {distinct} different)")
-        elif kind == "string":
-            value = _entry_text(text[a:b])
-            parts.append(f"{key} (text, {len(value)} chars)")
-        elif kind == "object":
-            parts.append(f"{key} (object)")
-        else:
-            parts.append(f"{key}: {_shorten(text[a:b], 40)}")
-    if len(scan.top) > SUMMARY_KEYS:
-        parts.append(f"... and {len(scan.top) - SUMMARY_KEYS} more")
-    line = ", ".join(parts)
-    return (line[:SUMMARY_CHARS].rstrip() + "...") if len(line) > SUMMARY_CHARS else line, names
+_SCHEMA_AT = re.compile(r"JSON Schema at (/\S*?): (.*)$", re.S)
+_REQUIRED = re.compile(r"'([^']+)' is a required property")
+_TYPE = re.compile(r"is not of type (.+)$", re.S)
+_EXTRA = re.compile(r"Additional properties are not allowed \((.+?) (?:was|were) unexpected\)", re.S)
+
+
+def _top_keys(scan: _Scan) -> list:
+    return [row[0] for row in scan.top[:SUMMARY_KEYS]]
+
+
+def fix_instruction(error: str) -> str:
+    """What to change to satisfy a validator's error, and nothing more, read from the error's own words."""
+    found = _SCHEMA_AT.search(error)
+    where = found.group(1) if found else ""
+    what = found.group(2) if found else error
+    at = f" in {where}" if where and where != "/" else ""
+    if m := _REQUIRED.search(what):
+        return (f'Add the missing key "{m.group(1)}"{at}; if its value is not known, give it a neutral value of the '
+                'type the schema asks for (an empty string "" for text).')
+    if m := _TYPE.search(what):
+        return f"Change the value{at} to the type the schema asks for: {m.group(1).strip()}."
+    if m := _EXTRA.search(what):
+        return f"Remove the extra key {m.group(1)}{at}."
+    if "is not one of" in what or "was expected" in what:
+        return f"Use, for the value{at}, one of the values the error allows."
+    if "is too short" in what or "is too long" in what or "non-unique" in what:
+        return f"Change the number of entries or the length{at} as the limit named in the error requires."
+    if "minimum" in what or "maximum" in what or "does not match" in what:
+        return f"Change the value{at} so that it respects the limit or pattern named in the error."
+    if "not a JSON object" in what:
+        return "Reply with a JSON object at the top level."
+    if "duplicate JSON key" in what:
+        return "Write each key only once."
+    return f"Fix only the problem the error names{at}."
 
 
 def build_repair(error: str, bad: str) -> Repair:
-    """The message for the next try: the error first, where the fault is, what was repeated, what was kept."""
+    """The message for the next try.
+
+    A text that is valid JSON, or has one plain syntax fault, and repeats nothing is sent back with the error and the
+    one change it needs (`resend` is true: the caller puts the text before the message as the assistant's turn).
+    A text cut off, or degenerate with repetition, is never sent back; no count of characters or length appears
+    anywhere, and the message has only the error, where the text broke and what was repeated."""
     bad = bad or ""
     error = " ".join(str(error).split())
     if len(error) > ERROR_CHARS:
@@ -289,7 +308,8 @@ def build_repair(error: str, bad: str) -> Repair:
     scan = _Scan(bad).run()
     stop = scan.stop
     out = [f"Your previous answer was rejected: {error.rstrip('.')}."]
-    result = Repair(message="", valid_json=stop is None)
+    result = Repair(message="", valid_json=stop is None, keys=_top_keys(scan))
+    place = ""
     if stop is not None:
         path = list(scan.path)
         result.path, result.cut = pointer(path), stop.eof
@@ -297,24 +317,32 @@ def build_repair(error: str, bad: str) -> Repair:
             place = f"entry {path[-1] + 1} of the list {pointer(path[:-1])}"
         else:
             place = pointer(path) if path else "the start of the answer"
-        if scan.no_json:
-            out.append("The answer was empty." if not bad.strip() else "The text contained no JSON object.")
-        else:
-            out.append(f"The text {'ended unfinished' if stop.eof else 'stopped being valid JSON'} at {place}.")
     repeat = find_repeat(bad, scan)
     result.repeat = repeat
-    if repeat is not None and repeat["kind"] == "entry":
-        out.append(f'The entry "{repeat["text"]}" was written {repeat["count"]} times in the list {repeat["path"]} '
-                   f'(entries {_ranges(repeat["positions"])} of {repeat["total"]}).')
-    elif repeat is not None:
-        out.append(f'The text "{repeat["text"]}" was written {repeat["count"]} times.')
-    if scan.top:
-        line, result.keys = _summary(bad, scan)
-        out.append(f"Already produced, at the top level: {line}.")
-    ask = ("Answer again with only the corrected JSON object that matches the required JSON Schema: no Markdown, "
-           "no code fences, no text outside the JSON.")
-    if repeat is not None:
-        ask += " Do not repeat anything: write each list entry and each sentence at most once, and keep the lists short."
-    out.append(ask)
+    result.resend = not scan.no_json and repeat is None and not (stop is not None and stop.eof)
+    if result.resend:
+        if stop is None:
+            result.instruction = fix_instruction(error)
+            out.append(result.instruction)
+        else:
+            out.append(f"The text stopped being valid JSON at {place}. Fix that syntax fault.")
+        out.append("Change nothing else: keep every other key and value exactly as in your previous answer. Reply "
+                   "with the complete corrected JSON object only: no Markdown, no code fences, no text outside the "
+                   "JSON.")
+    else:
+        if scan.no_json:
+            out.append("The answer was empty." if not bad.strip() else "The text contained no JSON object.")
+        elif stop is not None:
+            out.append(f"The text {'ended unfinished' if stop.eof else 'stopped being valid JSON'} at {place}.")
+        if repeat is not None and repeat["kind"] == "entry":
+            out.append(f'The entry "{repeat["text"]}" was written {repeat["count"]} times in the list '
+                       f'{repeat["path"]} (entries {_ranges(repeat["positions"])} of {repeat["total"]}).')
+        elif repeat is not None:
+            out.append(f'The text "{repeat["text"]}" was written {repeat["count"]} times.')
+        out.append("Answer again with only the corrected JSON object that matches the required JSON Schema: no "
+                   "Markdown, no code fences, no text outside the JSON.")
+        if repeat is not None:
+            out.append("Do not repeat anything: write each list entry and each sentence at most once, and keep the "
+                       "lists short.")
     result.message = " ".join(out)
     return result

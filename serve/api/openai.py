@@ -120,9 +120,13 @@ def structured_retries(req: dict) -> int:
 
 
 def retry_messages(messages: list[dict], bad: str, error: str, repair: Repair | None = None) -> list[dict]:
-    """The conversation plus one user message for the next try: the error and where the answer went wrong. The
-    rejected text itself is never sent back, so a model that looped is not shown its loop again."""
-    return [*messages, {"role": "user", "content": (repair or build_repair(error, bad)).message}]
+    """The conversation for the next try. An answer that was valid JSON (or had one plain syntax fault) and repeated
+    nothing goes back as the assistant's turn, then one user message with the error and the one change it needs. A
+    cut-off or repeating answer is never sent back, so a model that looped is not shown its loop again: only the error
+    and where it broke are told."""
+    repair = repair or build_repair(error, bad)
+    return [*messages, *([{"role": "assistant", "content": bad}] if repair.resend else []),
+            {"role": "user", "content": repair.message}]
 
 
 def repair_note(repair: Repair) -> str:
@@ -207,7 +211,7 @@ def structured_retry_chunks(start, validator, retries: int, note=None):
             if note:
                 note("attempt", info, "")
                 note("repair", {"attempt": attempt, "path": repair.path, "cut": repair.cut,
-                                "valid_json": repair.valid_json, "repeated": repeat_facts(repair)}, repair.message)
+                                "valid_json": repair.valid_json, "resent": repair.resend, "repeated": repeat_facts(repair)}, repair.message)
             discarded.append({"attempt": attempt, "reason": str(e)})
             feedback = (reply, str(e), repair)
             yield stamp(_chunk_of(first, {}, structured_output={"attempt": attempt, "discarded": True,

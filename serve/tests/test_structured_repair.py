@@ -64,8 +64,42 @@ class BuildRepair(unittest.TestCase):
         self.assertIsNone(r.repeat)
         self.assertNotIn("times", r.message)
         self.assertNotIn("Do not repeat", r.message)
-        self.assertIn("title (text, 1 chars), items (list of 2, 2 different)", r.message)
+        self.assertTrue(r.resend)                                    # valid JSON: it goes back with the one change
+        self.assertNotIn("chars", r.message)
         self.assertEqual(r.path, "/")
+
+    def test_the_real_case_a_missing_key_resends_the_answer_and_asks_for_that_key(self):
+        good = json.dumps({"competitors": [{"name": "a", "year": 1}, {"name": "b"}], "recent": "x" * 221,
+                           "novelty": "y" * 252, "gaps": ["g1", "g2"]})
+        error = "model output failed the JSON Schema at /competitors/1: 'year' is a required property"
+        r = build_repair(error, good)
+        self.assertTrue(r.resend)
+        self.assertTrue(r.message.startswith("Your previous answer was rejected: " + error))
+        self.assertIn('Add the missing key "year" in /competitors/1', r.message)
+        self.assertIn('an empty string ""', r.message)
+        self.assertIn("Change nothing else", r.message)
+        for forbidden in ("chars", "characters", "Already produced", "different", "list of", "221", "252"):
+            self.assertNotIn(forbidden, r.message)
+        self.assertNotIn(good, r.message)                          # the text goes back as its own turn
+
+    def test_other_schema_faults_name_the_one_change(self):
+        text = json.dumps({"n": "four", "extra": 1})
+        cases = [("at /n: 'four' is not of type 'integer'", "type the schema asks for: 'integer'"),
+                 ("at /: Additional properties are not allowed ('extra' was unexpected)", "Remove the extra key 'extra'"),
+                 ("at /n: 'x' is not one of ['a', 'b']", "one of the values the error allows"),
+                 ("at /: the answer is not a JSON object", "JSON object at the top level")]
+        for tail, expected in cases:
+            r = build_repair("model output failed the JSON Schema " + tail, text)
+            self.assertTrue(r.resend, tail)
+            self.assertIn(expected, r.message)
+            self.assertNotIn("chars", r.message)
+
+    def test_a_repeating_or_cut_answer_is_never_resent_and_has_no_counts_of_length(self):
+        for bad in (incident(), '{"a": ["unfinis'):
+            r = build_repair("model did not return valid JSON: Unterminated string", bad)
+            self.assertFalse(r.resend)
+            for forbidden in ("chars", "characters", "Already produced", "different", "list of"):
+                self.assertNotIn(forbidden, r.message)
 
     def test_a_text_that_stops_being_json(self):
         r = build_repair("model did not return valid JSON: Expecting ',' delimiter", '{"a": [1,2, {"b": nope}]}')
@@ -195,12 +229,15 @@ class RetryOverHttp(Server):
         code, reply = self.chat()
         self.assertEqual(code, 200, reply)
         second = self.prompt(1)
-        repair = second[second.index("Your previous answer was rejected: "):]
+        before, repair = second[:second.index("Your previous answer was rejected: ")], \
+            second[second.index("Your previous answer was rejected: "):]
         self.assertIn("model output failed the JSON Schema at /: 'implicit_syllabus' is a required property", repair)
+        self.assertIn('Add the missing key "implicit_syllabus"', repair)
         self.assertNotIn("times", repair)
         self.assertNotIn("Do not repeat", repair)
-        self.assertIn("Already produced, at the top level: title (text, 5 chars)", repair)
-        self.assertNotIn('"title"', repair)
+        self.assertNotIn("chars", repair)
+        self.assertNotIn("Already produced", repair)
+        self.assertIn('"title": "Corso"', before)                    # the answer went back, before the message
         self.assertEqual(reply["structured_output"]["attempts"], 2)
 
     def test_a_cut_answer_without_closing_text_is_repaired_too(self):

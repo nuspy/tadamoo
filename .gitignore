@@ -20,3 +20,6 @@ __pycache__/
 /tools/windows/desktop/bin/
 /tools/windows/desktop/obj/
 /tools/windows/desktop/publish/
+/tools/windows/setup/bin/
+/tools/windows/setup/obj/
+/dist/

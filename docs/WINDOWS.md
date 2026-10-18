@@ -273,8 +273,8 @@ powershell -ExecutionPolicy Bypass -File .\Ferma-Basalt.ps1 --port 7240
 The API is OpenAI- and Anthropic-compatible at `http://127.0.0.1:<port>/v1` (`/v1/chat/completions`, `/v1/responses`,
 `/v1/messages`, `/v1/messages/count_tokens`; examples with curl, the Python SDKs and Claude Code in the
 [README](../README.md#using-it-as-a-server-api)). `response_format` (`json_object`, `json_schema`) is validated, not constrained during generation
-(the engine has no grammar sampler): a rejected answer is generated again with the error and the place where it went
-wrong fed back (never the rejected text itself), up to `structured_retries` times (default 2); reasoning streams while
+(the engine has no grammar sampler): a rejected answer is generated again with the error and the one change it needs
+fed back (the answer goes back only when it was valid JSON and repeated nothing), up to `structured_retries` times (default 2); reasoning streams while
 only the validated answer is held, a rejected try is announced by a `structured_output.discarded` chunk, and the final
 chunk carries `"structured_output": {"attempts": n}`. Every request is also kept, in memory, in the request log behind
 the LOGS tab (`GET /api/reqlog`; `--request-log off` turns it off, see the [README](../README.md#request-log---request-log)).
