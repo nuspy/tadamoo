@@ -871,3 +871,26 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
   body[data-view="logs"] main { padding-inline: 8px; }
   .rl-off { padding-inline: 16px; }
 }
+
+/* ---- Download models panel (serve/web/download.js) ---- */
+.lddownload.sec { display: block; margin-bottom: 16px; min-width: 0; }
+.dlpanel > summary { min-height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 20px; cursor: pointer; font: 600 16px/1.4 var(--font-sans); }
+.dl-count { color: var(--fg-2); font-weight: 400; font-size: 14px; }
+.dl-body { display: flex; flex-direction: column; gap: 12px; padding: 0 20px 16px; min-width: 0; }
+.dl-body .setnote, .dl-foot { padding: 0; font-size: 15px; }
+.dl-filter select { min-height: 48px; padding: 8px 12px; max-width: 100%; }
+.dl-more > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font: 600 15px/1.4 var(--font-sans); }
+.badge[data-s="unc"] { color: var(--warn); }
+.dl-warn { color: var(--warn); }
+.dl-files { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 14px; }
+.dl-files li { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.dl-files code { overflow-wrap: anywhere; }
+.dl-ack { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; line-height: 1.5; }
+.dl-ack input { width: 24px; height: 24px; flex: none; margin-top: 2px; }
+.dl-steps { margin: 0; padding-left: 22px; display: grid; gap: 14px; font-size: 15px; line-height: 1.5; }
+.dl-cmd { margin: 4px 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: 400 13px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.mdl-tip { padding: 0; font-size: 14px; }
+.dl-list .btn:focus-visible, .dlpanel > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dl-steps li > b { display: block; margin-bottom: 6px; }
+.dl-steps a.btn { display: inline-flex; align-items: center; text-decoration: none; }
+.dl-steps .field { margin-top: 6px; }

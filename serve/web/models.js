@@ -65,6 +65,7 @@
   const GB = n => nfmt((n || 0) / 2 ** 30, 1);
   const same = (a, b) => !!a && !!b && a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
   const say = it => (it && (it[LANG] || it.en)) || "";
+  const tip = m => (window.BasaltCatalog && window.BasaltCatalog.tip(m)) || "";     // what the Download catalog says of it
   let M = null, selected = null, listeners = [], poll = 0, plan = null, planSeq = 0, lastJob = null;
 
   async function api(path, body) {
@@ -154,6 +155,7 @@
       <p class="mdl-path"><code>${esc(m.path)}</code>${m.files && m.files.length > 1 ? ` <span>+${m.files.length - 1}</span>` : ""}${m.outside ? ` · ${esc(t("outside"))}` : ""}</p>
       <ul class="chips">${chips(m)}</ul>
       <p class="mdl-why">${esc(say(m.reason))}</p>
+      ${tip(m) ? `<p class="mdl-note">${esc(tip(m))}</p>` : ""}
       ${(m.notes || []).map(n => `<p class="mdl-note">${esc(say(n))}</p>`).join("")}
       ${acts ? `<div class="mdl-act">${acts}</div>` : ""}
     </li>`;
@@ -190,11 +192,12 @@
     const sel = r.find(m => same(m.path, selected));
     return `<div class="mdl-pick">
         <label for="ld-mdl-sel">${esc(t("pick"))}</label>
-        <div class="pfrow"><select id="ld-mdl-sel">${r.length ? r.map(m => `<option value="${esc(m.path)}">${esc(`✓ ${m.name}${m.quant && !m.name.includes(m.quant) ? " · " + m.quant : ""} · ${GB(m.size_bytes)} GB`)}</option>`).join("")
+        <div class="pfrow"><select id="ld-mdl-sel">${r.length ? r.map(m => `<option value="${esc(m.path)}" title="${esc(tip(m))}">${esc(`✓ ${m.name}${m.quant && !m.name.includes(m.quant) ? " · " + m.quant : ""} · ${GB(m.size_bytes)} GB`)}</option>`).join("")
           : `<option value="">${esc(t("none"))}</option>`}</select>
           <button type="button" class="btn ghost" data-m="rescan">${esc(t("rescan"))}</button></div>
       </div>
       ${sel ? `<ul class="chips mdl-sel-chips" aria-live="polite">${chips(sel)}</ul>
+        ${tip(sel) ? `<p class="setnote mdl-tip">${esc(tip(sel))}</p>` : ""}
         <div class="pfrow wrap">${same(sel.path, M.default_model) ? `<span class="badge" data-s="def">★ ${esc(t("isDefault"))}</span>` : ""}
           <button type="button" class="btn ghost" data-m="verify" data-path="${esc(sel.path)}">${esc(t("verify"))}</button></div>` : ""}
       <div class="pfrow wrap mdl-def"><span>${esc(M.default_model ? t("defIs", nameOf(M.default_model)) : t("defNoneShort"))}</span>
@@ -376,7 +379,7 @@
   }
 
   window.BasaltModels = {
-    refresh, selected: () => selected, data: () => M,
+    refresh, rerender: render, selected: () => selected, data: () => M,
     select(path) { if (path && readyOnes().some(m => same(m.path, path))) choose(path); },
     onChange(fn) { listeners.push(fn); },
     name(path) { const m = (M && M.models || []).find(x => same(x.path, path)); return m ? m.name : (path || "").split(/[\\/]/).pop(); },
