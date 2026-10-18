@@ -1,21 +1,166 @@
-MIT License
+Basalt Win+GUI Community and Commercial License
+Version 1.0, October 2026
 
-Copyright (c) 2026 Jesús Gulfo
+Copyright (c) 2026 Andrea Taini. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+================================================================================
+PREAMBLE & SCOPE OF THIS LICENSE
+================================================================================
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+This software repository ("Basalt Win+GUI" or the "Software") is a fork and
+derivative work based on the upstream Basalt project (originally authored by
+Jesús Gulfo) and the Strata project (originally authored by Niko1221 and
+contributors).
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+1. PRE-EXISTING UPSTREAM CODE: Code, files, and libraries originating from Strata,
+   upstream Basalt, ggml, llama.cpp, and other third parties remain governed by
+   their respective original open-source licenses (primarily the MIT License), as
+   detailed in the file THIRD_PARTY_LICENSES. Nothing in this License alters,
+   revokes, or restricts your rights under those pre-existing third-party licenses
+   with respect to the original, unmodified third-party code.
+
+2. NEW AND MODIFIED CODE: All new files, enhancements, graphical user interfaces,
+   Windows compatibility layers, tools, configurations, and all modifications to
+   pre-existing code made in this repository ("New and Modified Code") are the
+   exclusive intellectual property and copyright of Andrea Taini ("Licensor").
+   The New and Modified Code is licensed exclusively under the terms of this
+   License and is NOT licensed under the MIT License.
+
+================================================================================
+TERMS AND CONDITIONS
+================================================================================
+
+1. DEFINITIONS
+
+"Affiliate" means any entity that directly or indirectly controls, is controlled
+by, or is under common control with Licensee. "Control" means beneficial ownership
+of fifty percent (50%) or more of the voting equity, voting securities, or equivalent
+managerial control.
+
+"Annual Gross Revenue" means the total aggregate gross revenue, billings, turnover,
+or receipts received or accrued by Licensee from all business activities and sources
+worldwide (before deducting any taxes, costs, operating expenses, or write-offs),
+consolidated with the Annual Gross Revenue of all of Licensee's Affiliates, during
+the most recently completed fiscal year or the preceding twelve (12) consecutive months.
+
+"Commercial Use" means any use of the Software in connection with any commercial,
+business, operational, production, or revenue-generating activity, including but not
+limited to hosting, deployment in enterprise infrastructure, running workloads for
+internal operations, or offering services to third parties.
+
+"Licensee" (or "You") means the individual or single legal entity exercising rights
+under this License.
+
+"Managed Service" means any service where the Software, or a substantial portion of
+its functionality (such as model execution, inference, or text generation), is hosted
+by or on behalf of Licensee and made accessible to third parties as a service
+(e.g., Inference-as-a-Service, Model-as-a-Service, or hosted API), whether for a
+direct fee, as part of a subscription, or bundled with other commercial offerings.
+
+"Revenue Threshold" means ten million United States Dollars ($10,000,000 USD), or
+its equivalent in other currencies based on official foreign exchange rates.
+
+2. GRANT OF FREE LICENSE (QUALIFYING USERS)
+
+Subject to the terms, conditions, and restrictions of this License, Licensor grants
+Licensee a non-exclusive, worldwide, non-transferable, royalty-free license to download,
+install, execute, display, reproduce, and internally modify the New and Modified Code,
+provided that Licensee meets at least one of the following criteria:
+
+  (a) Individual / Personal Use: Licensee is an individual natural person using the
+      Software solely for personal, research, hobby, educational, or experimental
+      purposes; OR
+
+  (b) Small and Medium Business / Organization: Licensee is a legal entity, company,
+      institution, or self-employed entity whose consolidated Annual Gross Revenue
+      (including all Affiliates) is STRICTLY LESS THAN the Revenue Threshold
+      ($10,000,000 USD).
+
+3. ENTERPRISE COMMERCIAL LICENSE REQUIREMENT (ENTITIES AT OR OVER $10M REVENUE)
+
+If Licensee's aggregate Annual Gross Revenue (including all Affiliates) is EQUAL TO
+OR EXCEEDS the Revenue Threshold ($10,000,000 USD):
+
+  (a) No Production or Operational Use: Licensee is expressly NOT licensed or permitted
+      to use, deploy, execute, or integrate the New and Modified Code for any commercial,
+      production, or internal operational purpose under this License.
+
+  (b) Commercial License Required: To use, deploy, or run the New and Modified Code,
+      Licensee must obtain a separate, valid, written Enterprise Commercial License
+      executed by Licensor. For licensing inquiries, contact: a.taini@gmail.com.
+
+  (c) Limited Evaluation Right: Licensee may use the Software solely for internal,
+      non-production technical evaluation and benchmarking for a period of up to
+      thirty (30) calendar days from the date of initial installation. Any continued
+      or production use thereafter requires an Enterprise Commercial License.
+
+4. RESTRICTIONS AND PROHIBITIONS
+
+Regardless of revenue or status, the following restrictions apply to all Licensees:
+
+  (a) No Managed Services / Anti-SaaS: Licensee may NOT offer the Software, its API,
+      or its inference capabilities as a Managed Service, cloud-hosted API, or hosted
+      solution to third parties for commercial gain or fee without a separate written
+      commercial agreement from Licensor.
+
+  (b) Preservation of Notices: Licensee must retain, in all copies, reproductions,
+      and distributions of the Software or any portion thereof, all copyright notices,
+      patent notices, trademark notices, and this complete License text.
+
+  (c) No Circumvention: Licensee shall not restructure operations, partition revenue,
+      incorporate intermediary entities, or use technical or organizational schemes
+      designed to circumvent the Revenue Threshold or the licensing requirements.
+
+  (d) No Trademark Rights: This License does not grant any rights to use the trade names,
+      trademarks, service marks, or product names of Licensor, except as necessary to
+      provide standard attribution.
+
+5. MODIFICATIONS AND REDISTRIBUTION
+
+  (a) Internal Modifications: Qualifying Licensees may modify the New and Modified Code
+      for internal use, subject to the conditions of this License. Ownership of all
+      intellectual property rights in the original New and Modified Code remains with
+      the Licensor.
+
+  (b) Redistribution: Any redistribution of the Software, whether in source or binary
+      form, modified or unmodified, must:
+      (i) Include this complete License file and the THIRD_PARTY_LICENSES file;
+      (ii) Clearly indicate all modifications made;
+      (iii) Not impose any further restrictions on recipients that would conflict with
+            this License;
+      (iv) Not be used to grant rights to entities exceeding the Revenue Threshold
+            without an Enterprise Commercial License.
+
+6. AUDIT AND VERIFICATION
+
+Upon reasonable written request by Licensor (no more than once per calendar year),
+Licensee shall certify in writing that its aggregate Annual Gross Revenue during the
+relevant period complies with the Revenue Threshold required for the free license grant.
+
+7. TERMINATION
+
+This License and the rights granted hereunder will terminate automatically and
+immediately, without notice, if Licensee breaches any provision of this License
+(including, without limitation, using the Software in production while having Annual
+Gross Revenue at or above $10,000,000 USD without an Enterprise Commercial License).
+Upon termination, Licensee must immediately cease all use of the New and Modified
+Code and destroy all copies in its possession.
+
+8. DISCLAIMER OF WARRANTY
+
+THE NEW AND MODIFIED CODE AND THE SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY
+OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE LICENSOR OR COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES,
+OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+9. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL LICENSOR BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, PUNITIVE, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
