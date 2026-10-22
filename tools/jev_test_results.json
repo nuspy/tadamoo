@@ -1,0 +1,518 @@
+{
+  "individual_tests": [
+    {
+      "id": "CAT1-DIR-1",
+      "category": "CAT 1 (Diretti)",
+      "label": "Gianni polmonite acuta",
+      "event": "Gianni ha avuto un malore improvviso e gli è stata diagnosticata una polmonite acuta: il medico gli ha prescritto un mese intero di riposo a letto.",
+      "relevance": 0.97,
+      "impact": "CRITICAL",
+      "confidence": 0.33,
+      "probabilities": {
+        "NO": 0.0,
+        "POCO": 0.01,
+        "MOLTO": 0.49,
+        "CRITICAL": 0.5
+      },
+      "elapsed_ms": 257.25429999874905,
+      "tokens": {
+        "input_tokens": 971,
+        "output_tokens": 72
+      }
+    },
+    {
+      "id": "CAT1-DIR-2",
+      "category": "CAT 1 (Diretti)",
+      "label": "Cancellazione Hotel Cervinia",
+      "event": "L'Hotel di Cervinia invia una comunicazione urgente: per un grave guasto all'impianto idraulico la struttura rimarrà chiusa per tutto il weekend e le prenotazioni sono annullate.",
+      "relevance": 0.98,
+      "impact": "CRITICAL",
+      "confidence": 0.88,
+      "probabilities": {
+        "NO": 0.0,
+        "POCO": 0.0,
+        "MOLTO": 0.09,
+        "CRITICAL": 0.91
+      },
+      "elapsed_ms": 285.96700000343844,
+      "tokens": {
+        "input_tokens": 977,
+        "output_tokens": 72
+      }
+    },
+    {
+      "id": "CAT1-DIR-3",
+      "category": "CAT 1 (Diretti)",
+      "label": "Strada Regionale Chiusa",
+      "event": "Protezione Civile: a causa di un cedimento della carreggiata, l'unica strada regionale che sale a Cervinia è chiusa al traffico fino a martedì prossimo.",
+      "relevance": 0.97,
+      "impact": "CRITICAL",
+      "confidence": 0.76,
+      "probabilities": {
+        "NO": 0.01,
+        "POCO": 0.01,
+        "MOLTO": 0.16,
+        "CRITICAL": 0.82
+      },
+      "elapsed_ms": 223.13179999764543,
+      "tokens": {
+        "input_tokens": 970,
+        "output_tokens": 72
+      }
+    },
+    {
+      "id": "CAT2-NEG-1",
+      "category": "CAT 2 (Negativi)",
+      "label": "Farfalla Amazzonia",
+      "event": "Entomologi hanno classificato una nuova specie di farfalla variopinta nella foresta pluviale amazzonica.",
+      "relevance": 0.04,
+      "impact": "NO",
+      "confidence": 1.0,
+      "probabilities": {
+        "NO": 1.0,
+        "POCO": 0.0,
+        "MOLTO": 0.0,
+        "CRITICAL": 0.0
+      },
+      "elapsed_ms": 306.8419999908656,
+      "tokens": {
+        "input_tokens": 956,
+        "output_tokens": 70
+      }
+    },
+    {
+      "id": "CAT2-NEG-2",
+      "category": "CAT 2 (Negativi)",
+      "label": "Esopianeta James Webb",
+      "event": "Il telescopio spaziale James Webb ha confermato la presenza di vapore acqueo nell'atmosfera di un esopianeta a 120 anni luce.",
+      "relevance": 0.06,
+      "impact": "NO",
+      "confidence": 0.96,
+      "probabilities": {
+        "NO": 0.97,
+        "POCO": 0.01,
+        "MOLTO": 0.02,
+        "CRITICAL": 0.0
+      },
+      "elapsed_ms": 242.19680001260713,
+      "tokens": {
+        "input_tokens": 965,
+        "output_tokens": 70
+      }
+    },
+    {
+      "id": "CAT2-NEG-3",
+      "category": "CAT 2 (Negativi)",
+      "label": "Croissant al pistacchio",
+      "event": "La pasticceria all'angolo della via di casa ha introdotto nel menù colazioni i nuovi croissant ripieni al pistacchio di Bronte.",
+      "relevance": 0.1,
+      "impact": "NO",
+      "confidence": 0.85,
+      "probabilities": {
+        "NO": 0.89,
+        "POCO": 0.04,
+        "MOLTO": 0.06,
+        "CRITICAL": 0.01
+      },
+      "elapsed_ms": 259.0385000075912,
+      "tokens": {
+        "input_tokens": 966,
+        "output_tokens": 70
+      }
+    },
+    {
+      "id": "CAT3-IND-1-BREVE",
+      "category": "CAT 3 (Indiretti)",
+      "label": "Sciopero Corrieri (Breve)",
+      "event": "Da giovedì a sabato proclamato sciopero nazionale di tutti i corrieri espresso e degli addestratori cinofili.",
+      "relevance": 0.68,
+      "impact": "POCO",
+      "confidence": 0.25,
+      "probabilities": {
+        "NO": 0.41,
+        "POCO": 0.44,
+        "MOLTO": 0.12,
+        "CRITICAL": 0.03
+      },
+      "elapsed_ms": 259.9640999978874,
+      "tokens": {
+        "input_tokens": 959,
+        "output_tokens": 71
+      }
+    },
+    {
+      "id": "CAT3-IND-1-LUNGA",
+      "category": "CAT 3 (Indiretti)",
+      "label": "Sciopero Corrieri (Lunga)",
+      "event": "Notiziario sindacale: mentre gli addestratori cinofili protestano per le concessioni dei parchi urbani, i sindacati della logistica hanno indetto un blocco generale di 48 ore delle consegne di Amazon, DHL e GLS tra giovedì e sabato pomeriggio.",
+      "relevance": 0.93,
+      "impact": "MOLTO",
+      "confidence": 0.53,
+      "probabilities": {
+        "NO": 0.05,
+        "POCO": 0.08,
+        "MOLTO": 0.65,
+        "CRITICAL": 0.22
+      },
+      "elapsed_ms": 293.08239999227226,
+      "tokens": {
+        "input_tokens": 998,
+        "output_tokens": 72
+      }
+    },
+    {
+      "id": "CAT3-IND-2-BREVE",
+      "category": "CAT 3 (Indiretti)",
+      "label": "Madre di Diana in partenza (Breve)",
+      "event": "La madre di Diana è dovuta partire d'urgenza per la Sicilia perché sua madre anziana ha avuto un grave problema di salute.",
+      "relevance": 0.88,
+      "impact": "MOLTO",
+      "confidence": 0.39,
+      "probabilities": {
+        "NO": 0.14,
+        "POCO": 0.19,
+        "MOLTO": 0.54,
+        "CRITICAL": 0.13
+      },
+      "elapsed_ms": 236.34499999752734,
+      "tokens": {
+        "input_tokens": 957,
+        "output_tokens": 72
+      }
+    },
+    {
+      "id": "CAT3-IND-2-LUNGA",
+      "category": "CAT 3 (Indiretti)",
+      "label": "Madre di Diana in partenza (Lunga)",
+      "event": "Messaggio ricevuto in famiglia: 'Cara Diana, mi dispiace immensamente ma la zia mi ha chiamato: la nonna è stata ricoverata d'urgenza a Palermo. Ho dovuto fare la valigia e prendere il primo aereo; non sarò a casa per tutto il fine settimana'.",
+      "relevance": 0.75,
+      "impact": "MOLTO",
+      "confidence": 0.39,
+      "probabilities": {
+        "NO": 0.22,
+        "POCO": 0.08,
+        "MOLTO": 0.54,
+        "CRITICAL": 0.16
+      },
+      "elapsed_ms": 257.0086999912746,
+      "tokens": {
+        "input_tokens": 996,
+        "output_tokens": 72
+      }
+    },
+    {
+      "id": "CAT3-IND-3-BREVE",
+      "category": "CAT 3 (Indiretti)",
+      "label": "Sagra dell'Ovino a Cervinia (Breve)",
+      "event": "Nel weekend a Cervinia si terrà la fiera dell'artigianato e la storica fiera dell'ovino con pascolo aperto nelle vie del centro.",
+      "relevance": 0.93,
+      "impact": "MOLTO",
+      "confidence": 0.69,
+      "probabilities": {
+        "NO": 0.01,
+        "POCO": 0.05,
+        "MOLTO": 0.77,
+        "CRITICAL": 0.17
+      },
+      "elapsed_ms": 264.60409999708645,
+      "tokens": {
+        "input_tokens": 966,
+        "output_tokens": 72
+      }
+    },
+    {
+      "id": "CAT3-IND-3-LUNGA",
+      "category": "CAT 3 (Indiretti)",
+      "label": "Sagra dell'Ovino a Cervinia (Lunga)",
+      "event": "Turismo Valle d'Aosta: grande attesa questo fine settimana nel borgo di Cervinia per la tradizionale transumanza e festa dell'ovino: oltre 600 pecore sfileranno tra i negozi accompagnate da stand gastronomici e lavorazione dal vivo della lana grezza.",
+      "relevance": 0.94,
+      "impact": "MOLTO",
+      "confidence": 0.67,
+      "probabilities": {
+        "NO": 0.0,
+        "POCO": 0.02,
+        "MOLTO": 0.75,
+        "CRITICAL": 0.23
+      },
+      "elapsed_ms": 262.6903000054881,
+      "tokens": {
+        "input_tokens": 998,
+        "output_tokens": 72
+      }
+    },
+    {
+      "id": "CAT3-IND-4-BREVE",
+      "category": "CAT 3 (Indiretti)",
+      "label": "Guerra Russia-Austria (Breve)",
+      "event": "Crisi bellica tra Russia e Austria: stazioni piene di profughi, il Ministero emette precettazione obbligatoria per tutti i ferrovieri con turni h24.",
+      "relevance": 0.93,
+      "impact": "MOLTO",
+      "confidence": 0.44,
+      "probabilities": {
+        "NO": 0.02,
+        "POCO": 0.02,
+        "MOLTO": 0.58,
+        "CRITICAL": 0.38
+      },
+      "elapsed_ms": 283.96230000362266,
+      "tokens": {
+        "input_tokens": 973,
+        "output_tokens": 72
+      }
+    },
+    {
+      "id": "CAT3-IND-4-LUNGA",
+      "category": "CAT 3 (Indiretti)",
+      "label": "Guerra Russia-Austria (Lunga)",
+      "event": "Aggiornamento geopolitico: dopo l'improvviso scontro al confine tra Russia e Austria, migliaia di sfollati si stanno riversando verso l'Italia. Il governo ha decretato lo stato di mobilitazione e la precettazione straordinaria del personale ferroviario per garantire i treni speciali, mentre i cittadini russi residenti affrontano forti restrizioni.",
+      "relevance": 0.94,
+      "impact": "MOLTO",
+      "confidence": 0.61,
+      "probabilities": {
+        "NO": 0.01,
+        "POCO": 0.03,
+        "MOLTO": 0.71,
+        "CRITICAL": 0.25
+      },
+      "elapsed_ms": 248.3434000023408,
+      "tokens": {
+        "input_tokens": 1022,
+        "output_tokens": 72
+      }
+    },
+    {
+      "id": "CAT3-IND-5-BREVE",
+      "category": "CAT 3 (Indiretti)",
+      "label": "Superstizione Erica 13 Specchi (Breve)",
+      "event": "Erica è in lacrime e sotto shock: suo figlio giocando a pallone in casa ha fatto cadere una credenza rompendo 13 specchi in un colpo solo.",
+      "relevance": 0.85,
+      "impact": "MOLTO",
+      "confidence": 0.44,
+      "probabilities": {
+        "NO": 0.08,
+        "POCO": 0.31,
+        "MOLTO": 0.58,
+        "CRITICAL": 0.03
+      },
+      "elapsed_ms": 269.38030000019353,
+      "tokens": {
+        "input_tokens": 970,
+        "output_tokens": 72
+      }
+    },
+    {
+      "id": "CAT3-IND-5-LUNGA",
+      "category": "CAT 3 (Indiretti)",
+      "label": "Superstizione Erica 13 Specchi (Lunga)",
+      "event": "Erica scrive disperata sul gruppo: 'Ragazzi, non so cosa fare... mio figlio tirando un pallone ha travolto la vetrina con i 13 specchi antichi, sono tutti in frantumi. Per me è un presagio orribile, con 13 specchi rotti ho il terrore persino di mettere piede fuori dalla porta questo weekend'.",
+      "relevance": 0.95,
+      "impact": "MOLTO",
+      "confidence": 0.57,
+      "probabilities": {
+        "NO": 0.04,
+        "POCO": 0.22,
+        "MOLTO": 0.6799999999999999,
+        "CRITICAL": 0.06
+      },
+      "elapsed_ms": 298.64749999251217,
+      "tokens": {
+        "input_tokens": 1016,
+        "output_tokens": 72
+      }
+    },
+    {
+      "id": "CAT3-IND-6-BREVE",
+      "category": "CAT 3 (Indiretti)",
+      "label": "Hacking Radar Meteo (Breve)",
+      "event": "Il collettivo hacker Umbrella Corporation ha manomesso i radar e i database dei modelli previsionali meteorologici italiani.",
+      "relevance": 0.9,
+      "impact": "MOLTO",
+      "confidence": 0.8,
+      "probabilities": {
+        "NO": 0.01,
+        "POCO": 0.01,
+        "MOLTO": 0.85,
+        "CRITICAL": 0.13
+      },
+      "elapsed_ms": 270.9946000104537,
+      "tokens": {
+        "input_tokens": 958,
+        "output_tokens": 72
+      }
+    },
+    {
+      "id": "CAT3-IND-6-LUNGA",
+      "category": "CAT 3 (Indiretti)",
+      "label": "Hacking Radar Meteo (Lunga)",
+      "event": "Comunicato sicurezza informatica: un attacco hacker della Umbrella Corporation ha compromesso i server dell'Aeronautica e dei principali servizi meteo, iniettando perturbazioni fittizie e rendendo prive di attendibilità tutte le previsioni di nevicate per il nord Italia.",
+      "relevance": 0.94,
+      "impact": "MOLTO",
+      "confidence": 0.71,
+      "probabilities": {
+        "NO": 0.0,
+        "POCO": 0.0,
+        "MOLTO": 0.78,
+        "CRITICAL": 0.22
+      },
+      "elapsed_ms": 240.4411000024993,
+      "tokens": {
+        "input_tokens": 995,
+        "output_tokens": 72
+      }
+    },
+    {
+      "id": "CAT4-FALSE-1",
+      "category": "CAT 4 (Falsi Positivi)",
+      "label": "Impianti chiusi a Cortina",
+      "event": "A causa di un cedimento strutturale della fune portante, tutti gli impianti da sci della conca di Cortina d'Ampezzo resteranno chiusi per il weekend.",
+      "relevance": 0.16,
+      "impact": "NO",
+      "confidence": 0.99,
+      "probabilities": {
+        "NO": 0.99,
+        "POCO": 0.01,
+        "MOLTO": 0.0,
+        "CRITICAL": 0.0
+      },
+      "elapsed_ms": 262.38590000139084,
+      "tokens": {
+        "input_tokens": 970,
+        "output_tokens": 70
+      }
+    },
+    {
+      "id": "CAT4-FALSE-2",
+      "category": "CAT 4 (Falsi Positivi)",
+      "label": "Prezzi degli sci +300%",
+      "event": "Mercato sportivo: da oggi tutti i produttori di sci alpino hanno aumentato il prezzo di listino del 300% a causa della carenza globale di materiali.",
+      "relevance": 0.86,
+      "impact": "POCO",
+      "confidence": 0.28,
+      "probabilities": {
+        "NO": 0.43,
+        "POCO": 0.45999999999999996,
+        "MOLTO": 0.1,
+        "CRITICAL": 0.01
+      },
+      "elapsed_ms": 302.3278000036953,
+      "tokens": {
+        "input_tokens": 969,
+        "output_tokens": 71
+      }
+    },
+    {
+      "id": "CAT4-FALSE-3",
+      "category": "CAT 4 (Falsi Positivi)",
+      "label": "Sciopero ferrovie Germania",
+      "event": "Germania: i macchinisti della Deutsche Bahn hanno indetto uno sciopero totale di 48 ore bloccando tutto il traffico ferroviario tedesco.",
+      "relevance": 0.5,
+      "impact": "NO",
+      "confidence": 0.44,
+      "probabilities": {
+        "NO": 0.58,
+        "POCO": 0.18,
+        "MOLTO": 0.23,
+        "CRITICAL": 0.01
+      },
+      "elapsed_ms": 262.51430000411347,
+      "tokens": {
+        "input_tokens": 969,
+        "output_tokens": 70
+      }
+    },
+    {
+      "id": "CAT4-FALSE-4",
+      "category": "CAT 4 (Falsi Positivi)",
+      "label": "Sagra del Bovino Cervinia",
+      "event": "Cervinia: questo sabato si terrà la tradizionale sagra del bovino di razza valdostana e della fontina con degustazioni in piazza.",
+      "relevance": 0.88,
+      "impact": "POCO",
+      "confidence": 0.63,
+      "probabilities": {
+        "NO": 0.09,
+        "POCO": 0.72,
+        "MOLTO": 0.17,
+        "CRITICAL": 0.02
+      },
+      "elapsed_ms": 238.6164000054123,
+      "tokens": {
+        "input_tokens": 966,
+        "output_tokens": 71
+      }
+    },
+    {
+      "id": "CAT4-FALSE-5",
+      "category": "CAT 4 (Falsi Positivi)",
+      "label": "Specchi rotti a Milano",
+      "event": "Milano: incidente durante il trasloco di una vetreria, un furgone urta il marciapiede distruggendo decine di grandi specchi in esposizione.",
+      "relevance": 0.56,
+      "impact": "NO",
+      "confidence": 0.49,
+      "probabilities": {
+        "NO": 0.62,
+        "POCO": 0.26,
+        "MOLTO": 0.11,
+        "CRITICAL": 0.01
+      },
+      "elapsed_ms": 265.66900000034366,
+      "tokens": {
+        "input_tokens": 968,
+        "output_tokens": 70
+      }
+    }
+  ],
+  "batch_a": {
+    "status": "ok",
+    "elapsed_ms": 254.3961999908788,
+    "data": {
+      "model": "jev-1.13.0",
+      "answers": {
+        "has_blocker_or_critical": {
+          "type": "noul",
+          "noul": 0.94
+        },
+        "critical_event_detection": {
+          "type": "choice",
+          "choice": "SINGLE_CRITICAL_EVENT_FOUND",
+          "confidence": 0.94,
+          "probabilities": {
+            "NO_CRITICAL_EVENT": 0.01,
+            "SINGLE_CRITICAL_EVENT_FOUND": 0.96,
+            "PREVALENT_OR_MULTIPLE_CRITICAL_EVENTS": 0.03
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 1144,
+        "output_tokens": 92
+      }
+    }
+  },
+  "batch_b": {
+    "status": "ok",
+    "elapsed_ms": 309.78709999180865,
+    "data": {
+      "model": "jev-1.13.0",
+      "answers": {
+        "has_blocker_or_critical": {
+          "type": "noul",
+          "noul": 0.99
+        },
+        "critical_event_detection": {
+          "type": "choice",
+          "choice": "PREVALENT_OR_MULTIPLE_CRITICAL_EVENTS",
+          "confidence": 1.0,
+          "probabilities": {
+            "NO_CRITICAL_EVENT": 0.0,
+            "SINGLE_CRITICAL_EVENT_FOUND": 0.0,
+            "PREVALENT_OR_MULTIPLE_CRITICAL_EVENTS": 1.0
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 1156,
+        "output_tokens": 96
+      }
+    }
+  }
+}

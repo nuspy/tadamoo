@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>BasaltSetup</AssemblyName>
+    <AssemblyTitle>Basalt Win+GUI Setup</AssemblyTitle>
+    <RootNamespace>BasaltSetup</RootNamespace>
+    <ApplicationIcon>..\desktop\basalt.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <SelfContained>false</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Product>Basalt Win+GUI</Product>
+    <Description>Basalt Win+GUI: the step the installer runs after copying the files (Python, virtual environment, packages, permissions)</Description>
+  </PropertyGroup>
+
+</Project>
