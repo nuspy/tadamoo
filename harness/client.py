@@ -15,19 +15,34 @@ from typing import Any, Dict, List, Optional, Tuple
 THINK_REGEX = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 
 
+class BasaltError(RuntimeError):
+    """The server refused or failed a request; `status` is the HTTP status (0 when unreachable)."""
+
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 def extract_reasoning_and_content(message: Dict[str, Any]) -> Tuple[str, str]:
     """Extracts reasoning and pure content from a message dict.
 
-    Supports both explicit `reasoning_content` (OpenAI format) and inline `<think>...</think>` tags.
+    Supports explicit `reasoning_content` (OpenAI format), inline `<think>...</think>` tags, and the
+    template form where the opening tag is part of the prompt and only `</think>` is generated.
     """
     reasoning = message.get("reasoning_content") or ""
     content = message.get("content") or ""
 
-    if not reasoning and "<think>" in content:
-        match = THINK_REGEX.search(content)
-        if match:
-            reasoning = match.group(1).strip()
-            content = THINK_REGEX.sub("", content).strip()
+    if not reasoning:
+        if "<think>" in content:
+            match = THINK_REGEX.search(content)
+            if match:
+                reasoning = match.group(1).strip()
+                content = THINK_REGEX.sub("", content).strip()
+            else:  # opened and never closed: everything after the tag is unfinished reasoning
+                before, _, after = content.partition("<think>")
+                reasoning, content = after.strip(), before.strip()
+        elif "</think>" in content:
+            reasoning, _, content = content.partition("</think>")
 
     return reasoning.strip(), content.strip()
 
@@ -51,8 +66,17 @@ class BasaltClient:
     def metrics(self, timeout: float = 5.0) -> Dict[str, Any]:
         """Fetches telemetry and engine status from /metrics."""
         req = urllib.request.Request(f"{self.base_url}/metrics", headers=self._headers(), method="GET")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            try:
+                detail = json.loads(e.read().decode("utf-8")).get("error", {}).get("message", "")
+            except Exception:
+                detail = ""
+            raise BasaltError(e.code, detail or f"HTTP {e.code}") from None
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+            raise BasaltError(0, f"cannot reach the Basalt server at {self.base_url}: {e}") from None
 
     def chat_completion(
         self,
@@ -82,5 +106,14 @@ class BasaltClient:
             headers=self._headers(),
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            try:
+                detail = json.loads(e.read().decode("utf-8")).get("error", {}).get("message", "")
+            except Exception:
+                detail = ""
+            raise BasaltError(e.code, detail or f"HTTP {e.code}") from None
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+            raise BasaltError(0, f"cannot reach the Basalt server at {self.base_url}: {e}") from None
