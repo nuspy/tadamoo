@@ -1,0 +1,33 @@
+{
+  "_schema": "1.0",
+  "description": "Swarm blueprints. Members share the stable prefix anchor to leverage Basalt prefix caching.",
+  "swarms": [
+    {
+      "id": "search_and_synthesize",
+      "description": "Parallel multi-angle web and local search with critical synthesis",
+      "members": [
+        {"role": "planner", "count": 1, "share": 0.15},
+        {"role": "searcher", "count": 3, "share": 0.70},
+        {"role": "critic", "count": 1, "share": 0.15}
+      ]
+    },
+    {
+      "id": "code_review",
+      "description": "Multi-perspective code review (syntax, performance, security)",
+      "members": [
+        {"role": "architect", "count": 1, "share": 0.20},
+        {"role": "security_auditor", "count": 1, "share": 0.40},
+        {"role": "performance_auditor", "count": 1, "share": 0.40}
+      ]
+    },
+    {
+      "id": "document_generation",
+      "description": "Section outline, draft parallel writing, editorial review",
+      "members": [
+        {"role": "planner", "count": 1, "share": 0.20},
+        {"role": "writer", "count": 3, "share": 0.65},
+        {"role": "editor", "count": 1, "share": 0.15}
+      ]
+    }
+  ]
+}
