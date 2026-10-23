@@ -95,8 +95,26 @@ def test_secrets_broker():
     assert broker.mask_secrets(text) == "Error connecting with key [REDACTED:API_KEY]"
 
     # Resolve token
-    expanded = broker.resolve_tokens("Bearer $SECRET:API_KEY")
+    expanded = broker.resolve_tokens("Bearer {{secret:API_KEY}}")
     assert expanded == "Bearer supersecret123"
+    assert broker.references("a {{secret:API_KEY}} b {{secret:OTHER}}") == ["API_KEY", "OTHER"]
+
+
+def test_secrets_broker_never_reads_the_environment(monkeypatch):
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "env-only-value")
+    monkeypatch.setenv("ALLOWED_TOKEN", "allowed-value")
+    broker = SecretsBroker()
+    assert broker.get_secret("AWS_SECRET_ACCESS_KEY") is None
+    assert broker.resolve_tokens("{{secret:AWS_SECRET_ACCESS_KEY}}") == "{{secret:AWS_SECRET_ACCESS_KEY}}"
+
+    scoped = SecretsBroker.from_environment(["ALLOWED_TOKEN", "MISSING"])
+    assert scoped.names() == ["ALLOWED_TOKEN"]
+    assert scoped.get_secret("AWS_SECRET_ACCESS_KEY") is None
+
+
+def test_secrets_broker_masks_longest_value_first():
+    broker = SecretsBroker({"SHORT": "abcd", "LONG": "abcdefgh"})
+    assert broker.mask_secrets("x abcdefgh y") == "x [REDACTED:LONG] y"
 
 
 def test_payments_broker_rejects_invalid_limit():
