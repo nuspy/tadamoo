@@ -18,6 +18,7 @@ class TriageResult:
     reasons: List[str]
     latency_ms: float
     token_usage: int = 0
+    source: str = "offline"  # "cloud", "offline" or "error"
 
 
 class EventBuffer:
@@ -157,22 +158,38 @@ class JevTriageGatekeeper:
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-                latency = (time.time() - t0) * 1000
+            latency = (time.time() - t0) * 1000
+            return self.parse_response(data, latency)
+        except Exception as exc:
+            # Network, HTTP or malformed answer: fall back to the local heuristic, flagged.
+            res = self.triage_offline(plan_card, events)
+            res.source = "error"
+            res.reasons = [f"jev unavailable: {type(exc).__name__}"] + res.reasons
+            return res
 
-                answers = data.get("answers", {})
-                blocker_ans = answers.get("has_blocker", {})
-                prob = float(blocker_ans.get("probability", blocker_ans.get("score", 0.0)))
-                scope = answers.get("batch_impact_scope", {}).get("choice", "ZERO_EVENTS_IMPACTFUL")
+    def parse_response(self, data: Dict[str, Any], latency_ms: float = 0.0) -> TriageResult:
+        """Maps a System One answer onto a TriageResult; raises ValueError if it is malformed."""
+        answers = data.get("answers")
+        if not isinstance(answers, dict):
+            raise ValueError("missing answers")
+        blocker = answers.get("has_blocker")
+        scope_ans = answers.get("batch_impact_scope")
+        if not isinstance(blocker, dict) or not isinstance(scope_ans, dict):
+            raise ValueError("missing triage answers")
+        prob = float(blocker["noul"])
+        scope = scope_ans["choice"]
+        if not 0.0 <= prob <= 1.0 or not isinstance(scope, str):
+            raise ValueError("out-of-range triage answer")
 
-                wake = prob >= self.blocker_threshold or scope == "ALL_EVENTS_IMPACTFUL"
-                return TriageResult(
-                    wake_system_2=wake,
-                    has_blocker_prob=prob,
-                    impact_scope=scope,
-                    reasons=[f"Jev confidence: {prob:.2f}"],
-                    latency_ms=round(latency, 2),
-                    token_usage=data.get("usage", {}).get("total_tokens", 0),
-                )
-        except Exception:
-            # Fallback to local heuristic if network/API fails
-            return self.triage_offline(plan_card, events)
+        usage = data.get("usage") or {}
+        tokens = int(usage.get("input_tokens", 0)) + int(usage.get("output_tokens", 0))
+        wake = prob >= self.blocker_threshold or scope == "ALL_EVENTS_IMPACTFUL"
+        return TriageResult(
+            wake_system_2=wake,
+            has_blocker_prob=prob,
+            impact_scope=scope,
+            reasons=[f"Jev confidence: {prob:.2f}"],
+            latency_ms=round(latency_ms, 2),
+            token_usage=tokens,
+            source="cloud",
+        )

@@ -95,6 +95,50 @@ def test_jev_gatekeeper_triage():
     assert res_neutral.impact_scope == "ZERO_EVENTS_IMPACTFUL"
 
 
+def _jev_answer(noul, choice, input_tokens=1144, output_tokens=120):
+    return {
+        "model": "jev-1.13.0",
+        "answers": {
+            "has_blocker": {"type": "noul", "noul": noul},
+            "batch_impact_scope": {"type": "choice", "choice": choice, "confidence": 0.96},
+        },
+        "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+    }
+
+
+def test_jev_parse_real_response_shape():
+    gate = JevTriageGatekeeper(api_key="k")
+
+    # One critical event among harmless ones: Noul alone must wake System 2
+    res = gate.parse_response(_jev_answer(0.94, "MIXED_SOME_IMPACTFUL"), latency_ms=254.0)
+    assert res.wake_system_2 is True
+    assert res.has_blocker_prob == 0.94
+    assert res.token_usage == 1264
+    assert res.source == "cloud"
+
+    # Background noise stays silent
+    quiet = gate.parse_response(_jev_answer(0.06, "ZERO_EVENTS_IMPACTFUL"))
+    assert quiet.wake_system_2 is False
+
+
+def test_jev_malformed_response_is_rejected_and_flagged(monkeypatch):
+    gate = JevTriageGatekeeper(api_key="k")
+    for bad in ({}, {"answers": {}}, {"answers": {"has_blocker": {"type": "noul"}}},
+                _jev_answer(1.7, "ZERO_EVENTS_IMPACTFUL")):
+        with pytest.raises((ValueError, KeyError)):
+            gate.parse_response(bad)
+
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'{"answers": {}}'
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _Resp())
+    res = gate.triage_event_batch({"title": "t"}, ["Nuovo museo aperto a Parigi"])
+    assert res.source == "error"
+    assert "jev unavailable" in res.reasons[0]
+
+
 def test_call_api_client_graceful_offline():
     client = CallAPICallClient(endpoint="http://127.0.0.1:59998", timeout=0.1)
     assert not client.is_available()
