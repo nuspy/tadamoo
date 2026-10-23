@@ -1,12 +1,18 @@
 """Tool package providing registry, workspace sandboxing and shell execution."""
 from pathlib import Path
+from typing import Optional
+
+from harness.secrets_broker import SecretsBroker
 from .registry import ToolRegistry, ToolDefinition, EffectClass
 from .filesystem import WorkspaceSandbox
 from .shell import execute_shell_command
 from .search import search_web, browse_url
 
 
-def create_standard_tool_registry(workspace_path: str | Path) -> tuple[ToolRegistry, WorkspaceSandbox]:
+def create_standard_tool_registry(
+    workspace_path: str | Path,
+    secrets: Optional[SecretsBroker] = None,
+) -> tuple[ToolRegistry, WorkspaceSandbox]:
     sandbox = WorkspaceSandbox(workspace_path)
     registry = ToolRegistry()
 
@@ -66,7 +72,7 @@ def create_standard_tool_registry(workspace_path: str | Path) -> tuple[ToolRegis
 
     registry.register(
         name="shell_command",
-        description="Executes a shell command inside the workspace.",
+        description="Executes a shell command inside the workspace. Write {{secret:NAME}} where a stored credential is needed.",
         parameters={
             "type": "object",
             "properties": {
@@ -76,7 +82,8 @@ def create_standard_tool_registry(workspace_path: str | Path) -> tuple[ToolRegis
             "required": ["command"],
         },
         effect=EffectClass.IRREVERSIBLE,
-        handler=lambda command, timeout=30.0: execute_shell_command(command, cwd=sandbox.root, timeout=timeout),
+        handler=lambda command, timeout=30.0: execute_shell_command(
+            command, cwd=sandbox.root, timeout=timeout, secrets=secrets),
     )
 
     registry.register(
@@ -92,6 +99,7 @@ def create_standard_tool_registry(workspace_path: str | Path) -> tuple[ToolRegis
         },
         effect=EffectClass.PURE,
         handler=search_web,
+        untrusted=True,
     )
 
     registry.register(
@@ -104,6 +112,7 @@ def create_standard_tool_registry(workspace_path: str | Path) -> tuple[ToolRegis
         },
         effect=EffectClass.PURE,
         handler=browse_url,
+        untrusted=True,
     )
 
     return registry, sandbox

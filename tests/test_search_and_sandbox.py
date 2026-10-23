@@ -1,7 +1,8 @@
 import pytest
 from pathlib import Path
 
-from harness.tools.search import load_providers, search_web, browse_url
+from harness.tools.search import (ProviderUnavailable, browse_url, clear_backends, load_providers,
+                                  register_backend, search_web)
 from harness.sandbox import ProcessSandbox
 
 
@@ -14,14 +15,40 @@ def test_search_providers_config():
     assert "firecrawl" in ids
 
 
-def test_search_and_browse():
-    results = search_web("Basalt Blackwell sm_120", provider="local_mock")
-    assert len(results) > 0
-    assert results[0]["untrusted"] is True
+@pytest.fixture(autouse=True)
+def _no_backends():
+    clear_backends()
+    yield
+    clear_backends()
 
-    page = browse_url("https://example.com/docs")
-    assert page["url"] == "https://example.com/docs"
-    assert page["untrusted"] is True
+
+def test_unconnected_provider_is_an_error_not_fake_data(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "k")
+    with pytest.raises(ProviderUnavailable, match="not connected"):
+        search_web("Basalt Blackwell", provider="tavily")
+    with pytest.raises(ProviderUnavailable, match="not connected"):
+        browse_url("https://example.com/docs")
+    with pytest.raises(ProviderUnavailable, match="unknown provider"):
+        search_web("x", provider="nope")
+
+
+def test_connected_backend_results_are_marked_untrusted(monkeypatch):
+    register_backend("local_mock", search=lambda q, n: [{"title": q, "snippet": "s"}])
+    results = search_web("Basalt Blackwell sm_120", provider="local_mock")
+    assert results[0]["untrusted"] is True and results[0]["source"] == "local_mock"
+
+    monkeypatch.delenv("EXA_API_KEY", raising=False)
+    register_backend("exa", search=lambda q, n: [])
+    with pytest.raises(ProviderUnavailable, match="EXA_API_KEY"):
+        search_web("x", provider="exa")
+
+
+def test_browse_refuses_local_and_non_http_targets(monkeypatch):
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "k")
+    register_backend("firecrawl", browse=lambda u: {"content": "x"})
+    for bad in ("file:///etc/passwd", "http://127.0.0.1:7232/props", "http://localhost/x", "ftp://example.com/x"):
+        with pytest.raises(ValueError):
+            browse_url(bad)
 
 
 def test_sandbox_default_deny(tmp_path: Path):

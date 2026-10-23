@@ -1,9 +1,11 @@
-"""Shell command execution tool with timeout and directory confinement."""
+"""Shell command tool: runs through the process sandbox, with an optional secrets broker."""
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+
+from harness.sandbox import ProcessSandbox
+from harness.secrets_broker import SecretsBroker
 
 
 def execute_shell_command(
@@ -11,36 +13,14 @@ def execute_shell_command(
     cwd: str | Path,
     timeout: float = 30.0,
     max_output_bytes: int = 50_000,
+    secrets: Optional[SecretsBroker] = None,
 ) -> Dict[str, Any]:
-    cwd_path = Path(cwd).resolve()
-    try:
-        proc = subprocess.run(
-            command,
-            shell=True,
-            cwd=cwd_path,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout,
-        )
-        stdout = proc.stdout.decode("utf-8", errors="replace")[:max_output_bytes]
-        stderr = proc.stderr.decode("utf-8", errors="replace")[:max_output_bytes]
-        return {
-            "exit_code": proc.returncode,
-            "stdout": stdout,
-            "stderr": stderr,
-            "success": proc.returncode == 0,
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "exit_code": -1,
-            "stdout": "",
-            "stderr": f"Command timed out after {timeout} seconds",
-            "success": False,
-        }
-    except Exception as exc:
-        return {
-            "exit_code": -1,
-            "stdout": "",
-            "stderr": str(exc),
-            "success": False,
-        }
+    """Runs `command` in `cwd`. {{secret:NAME}} placeholders are filled in only here, at the boundary,
+    and the secret values are masked again in everything returned to the model."""
+    sandbox = ProcessSandbox(cwd, timeout=timeout, max_output_bytes=max_output_bytes)
+    to_run = secrets.resolve_tokens(command) if secrets else command
+    res = sandbox.run(to_run, timeout=timeout)
+    if secrets:
+        res["stdout"] = secrets.mask_secrets(res["stdout"])
+        res["stderr"] = secrets.mask_secrets(res["stderr"])
+    return {k: res[k] for k in ("exit_code", "stdout", "stderr", "success", "blocked", "timed_out", "truncated")}

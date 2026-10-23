@@ -4,10 +4,14 @@
       "id": "tavily",
       "capability": "search",
       "transport": "stdio",
-      "base_url": "http://127.0.0.1:8811/mcp",
       "auth_env": "TAVILY_API_KEY",
       "network_egress": true,
-      "notes": "npm tavily-mcp"
+      "notes": "npm tavily-mcp",
+      "command": [
+        "npx",
+        "-y",
+        "tavily-mcp"
+      ]
     },
     {
       "id": "exa",
@@ -31,10 +35,10 @@
       "id": "local_mock",
       "capability": "search",
       "transport": "stdio",
-      "base_url": "http://127.0.0.1:8812/mcp",
       "auth_env": "",
       "network_egress": false,
-      "notes": "local mock search for offline tests"
+      "notes": "test double; a backend is registered by the test, never by default",
+      "command": []
     }
   ]
 }
