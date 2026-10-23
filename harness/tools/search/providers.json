@@ -1,0 +1,40 @@
+{
+  "endpoints": [
+    {
+      "id": "tavily",
+      "capability": "search",
+      "transport": "stdio",
+      "base_url": "http://127.0.0.1:8811/mcp",
+      "auth_env": "TAVILY_API_KEY",
+      "network_egress": true,
+      "notes": "npm tavily-mcp"
+    },
+    {
+      "id": "exa",
+      "capability": "search",
+      "transport": "streamable-http",
+      "base_url": "https://mcp.exa.ai/mcp",
+      "auth_env": "EXA_API_KEY",
+      "network_egress": true,
+      "notes": "remote hosted search"
+    },
+    {
+      "id": "firecrawl",
+      "capability": "browse",
+      "transport": "streamable-http",
+      "base_url": "https://mcp.firecrawl.dev/v2/mcp",
+      "auth_env": "FIRECRAWL_API_KEY",
+      "network_egress": true,
+      "notes": "web scraping and markdown conversion"
+    },
+    {
+      "id": "local_mock",
+      "capability": "search",
+      "transport": "stdio",
+      "base_url": "http://127.0.0.1:8812/mcp",
+      "auth_env": "",
+      "network_egress": false,
+      "notes": "local mock search for offline tests"
+    }
+  ]
+}

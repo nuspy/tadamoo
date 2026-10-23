@@ -3,6 +3,7 @@ from pathlib import Path
 from .registry import ToolRegistry, ToolDefinition, EffectClass
 from .filesystem import WorkspaceSandbox
 from .shell import execute_shell_command
+from .search import search_web, browse_url
 
 
 def create_standard_tool_registry(workspace_path: str | Path) -> tuple[ToolRegistry, WorkspaceSandbox]:
@@ -76,6 +77,33 @@ def create_standard_tool_registry(workspace_path: str | Path) -> tuple[ToolRegis
         },
         effect=EffectClass.IRREVERSIBLE,
         handler=lambda command, timeout=30.0: execute_shell_command(command, cwd=sandbox.root, timeout=timeout),
+    )
+
+    registry.register(
+        name="search_web",
+        description="Searches the web using configured search providers.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query keywords"},
+                "provider": {"type": "string", "description": "Search provider id", "default": "tavily"},
+            },
+            "required": ["query"],
+        },
+        effect=EffectClass.PURE,
+        handler=search_web,
+    )
+
+    registry.register(
+        name="browse_url",
+        description="Extracts content from a public webpage.",
+        parameters={
+            "type": "object",
+            "properties": {"url": {"type": "string", "description": "URL to browse"}},
+            "required": ["url"],
+        },
+        effect=EffectClass.PURE,
+        handler=browse_url,
     )
 
     return registry, sandbox
