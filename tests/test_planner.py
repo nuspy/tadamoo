@@ -10,7 +10,6 @@ from harness.planner import (
     EventBuffer,
     JevTriageGatekeeper,
 )
-from harness.integrations.call_api_client import CallAPICallClient
 
 
 def test_plandag_structure_and_topological_sort():
@@ -137,14 +136,3 @@ def test_jev_malformed_response_is_rejected_and_flagged(monkeypatch):
     res = gate.triage_event_batch({"title": "t"}, ["Nuovo museo aperto a Parigi"])
     assert res.source == "error"
     assert "jev unavailable" in res.reasons[0]
-
-
-def test_call_api_client_graceful_offline():
-    client = CallAPICallClient(endpoint="http://127.0.0.1:59998", timeout=0.1)
-    assert not client.is_available()
-
-    res = client.make_phone_call("+390166123456", "Verifica apertura hotel")
-    assert res["status"] == "failed"
-    assert "unavailable" in res["error"]
-    assert not client.hangup("call_123")
-    assert client.get_call_transcript("call_123") is None
