@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, List, Optional
 from harness.audit import AuditLedger
 from harness.checkpoints import CheckpointManager
 from harness.client import BasaltClient, BasaltError, extract_reasoning_and_content
+from harness.context import ContextManager, wire_messages
 from harness.hooks import HookManager
 from harness.permissions import PermissionManager
 from harness.secrets_broker import SecretsBroker
@@ -99,6 +100,7 @@ class AgentLoop:
         max_seconds: Optional[float] = None,
         cancel: Optional[threading.Event] = None,
         max_loop_strikes: int = 2,
+        context: Optional[ContextManager] = None,
     ) -> None:
         self.client = client
         self.tools = tool_registry
@@ -115,14 +117,18 @@ class AgentLoop:
         self.max_seconds = max_seconds
         self.cancel = cancel or threading.Event()
         self.max_loop_strikes = max_loop_strikes
+        self.context = context
         self.loop_detector = LoopDetector()
-        self.messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+        self.messages: List[Dict[str, Any]] = [self._system_message()]
         self.turns: List[AgentTurn] = []
         self.stop_reason = ""
         self.error = ""
         self.total_tokens = 0
         self._started = False
         self._loop_strikes = 0
+
+    def _system_message(self) -> Dict[str, Any]:
+        return {"role": "system", "content": self.system_prompt, "pinned": True, "pin_category": "system_core"}
 
     # -- parsing ---------------------------------------------------------------------------------
 
@@ -263,7 +269,7 @@ class AgentLoop:
 
     def reset(self) -> None:
         """Forgets the conversation (the permission and audit state stay)."""
-        self.messages = [{"role": "system", "content": self.system_prompt}]
+        self.messages = [self._system_message()]
         self.turns = []
         self.loop_detector = LoopDetector()
         self.total_tokens = 0
@@ -273,7 +279,7 @@ class AgentLoop:
             self.hooks.trigger_event("session_end", {"turns": len(self.turns), "stop_reason": self.stop_reason})
         self._started = False
 
-    def run(self, user_goal: str) -> List[AgentTurn]:
+    def run(self, user_goal: str, retrieved: Optional[Dict[str, Any]] = None) -> List[AgentTurn]:
         """Runs until the model answers without tool calls, a budget ends, it is cancelled or a loop persists.
 
         The conversation continues across calls; `stop_reason` and `error` tell why this call ended."""
@@ -284,6 +290,8 @@ class AgentLoop:
             if self.hooks:
                 self.hooks.trigger_event("session_start", {"goal": user_goal})
         self.messages.append({"role": "user", "content": user_goal})
+        if retrieved:
+            self.messages.append(retrieved)     # memories and wiki text go after the goal, at the tail
         run_turns: List[AgentTurn] = []
 
         for turn_idx in range(1, self.max_turns + 1):
@@ -296,7 +304,10 @@ class AgentLoop:
 
             t0 = time.monotonic()
             try:
-                resp = self.client.chat_completion(messages=self.messages, tools=self.tools.schemas(), temperature=0.0)
+                if self.context:
+                    self.messages = self.context.prepare(self.messages)
+                resp = self.client.chat_completion(messages=wire_messages(self.messages), tools=self.tools.schemas(),
+                                                   temperature=0.0)
                 msg = resp["choices"][0]["message"]
             except (BasaltError, KeyError, IndexError, TypeError) as exc:
                 self.stop_reason, self.error = ERROR, str(exc) or type(exc).__name__

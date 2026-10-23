@@ -282,3 +282,28 @@ def test_lifecycle_events_fire(ws):
     agent.run("goal")
     agent.close()
     assert events == [("start", "goal"), ("turn", 1), ("end", FINAL)]
+
+
+def test_bookkeeping_keys_never_reach_the_server_and_old_results_are_masked(ws, tmp_path):
+    from harness.context import ContextManager, TokenJuiceCompactor
+    for i in range(3):
+        (ws / f"big{i}.txt").write_text(f"{i}" * 6000, encoding="utf-8")
+    compactor = TokenJuiceCompactor(tmp_path / "artifacts")
+    mgr = ContextManager(compactor, budget_tokens=2000, mask_at=0.5, keep_recent=1)
+    steps = [call("read_file", {"path": f"big{i}.txt"}, f"c{i}") for i in range(3)] + [say("ok")]
+    client = ScriptedClient(*steps)
+    agent, _ = make(ws, client, context=mgr, max_turns=6)
+    agent.run("read it")
+    for sent in client.sent:
+        assert all(not ({"pinned", "pin_category", "masked"} & set(m)) for m in sent)
+    last_tools = [m["content"] for m in client.sent[-1] if m["role"] == "tool"]
+    assert any("masked to save context" in c for c in last_tools) and "masked" not in last_tools[-1][:10]
+    assert list((tmp_path / "artifacts").glob("read_file_*.txt"))
+
+
+def test_retrieved_memories_follow_the_goal(ws):
+    client = ScriptedClient(say("ok"))
+    agent, _ = make(ws, client)
+    agent.run("goal", retrieved={"role": "user", "content": "<untrusted_data source=\"memory\">x</untrusted_data>"})
+    assert [m["role"] for m in client.sent[0]] == ["system", "user", "user"]
+    assert client.sent[0][1]["content"] == "goal"
