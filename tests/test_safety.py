@@ -99,6 +99,12 @@ def test_secrets_broker():
     assert expanded == "Bearer supersecret123"
 
 
+def test_payments_broker_rejects_invalid_limit():
+    for bad in (float("nan"), float("inf"), -1.0):
+        with pytest.raises(ValueError):
+            PaymentsBroker(max_limit_usd=bad)
+
+
 def test_payments_broker_and_waiver(tmp_path: Path):
     ledger = AuditLedger(tmp_path / "audit.jsonl")
     pb = PaymentsBroker(max_limit_usd=100.0, audit_ledger=ledger)
@@ -118,6 +124,12 @@ def test_payments_broker_and_waiver(tmp_path: Path):
     # Exceed limit
     with pytest.raises(PermissionError, match="exceeds remaining"):
         pb.authorize_transaction(80.0, "vendor", "expensive item")
+
+    # Non-finite or non-numeric amounts never reach the cap check
+    for bad in (float("nan"), float("inf"), -float("inf"), 0, -1.0, True, "5"):
+        with pytest.raises(ValueError):
+            pb.authorize_transaction(bad, "vendor", "bad amount")
+    assert pb.spent_usd == 30.0
 
     # Revoke stops transactions and preserves spent record
     pb.revoke()

@@ -1,6 +1,7 @@
 """Payments broker (Level 4): enforces strict spending limits and waiver compliance."""
 from __future__ import annotations
 
+import math
 import time
 from typing import Any, Dict, Optional
 from harness.audit import AuditLedger
@@ -12,6 +13,8 @@ class PaymentsBroker:
         max_limit_usd: float = 50.0,
         audit_ledger: Optional[AuditLedger] = None,
     ) -> None:
+        if not math.isfinite(max_limit_usd) or max_limit_usd < 0:
+            raise ValueError(f"Spending limit must be finite and non-negative, got {max_limit_usd}")
         self.max_limit_usd = max_limit_usd
         self.spent_usd: float = 0.0
         self.waiver_accepted: bool = False
@@ -41,8 +44,10 @@ class PaymentsBroker:
             raise PermissionError("Payments have been revoked")
         if not self.waiver_accepted:
             raise PermissionError("Level 4 payment waiver has not been accepted by user")
-        if amount_usd <= 0:
-            raise ValueError(f"Transaction amount must be positive, got {amount_usd}")
+        if isinstance(amount_usd, bool) or not isinstance(amount_usd, (int, float)):
+            raise ValueError(f"Transaction amount must be a number, got {amount_usd!r}")
+        if not math.isfinite(amount_usd) or amount_usd <= 0:
+            raise ValueError(f"Transaction amount must be positive and finite, got {amount_usd}")
 
         new_total = self.spent_usd + amount_usd
         if new_total > self.max_limit_usd:
