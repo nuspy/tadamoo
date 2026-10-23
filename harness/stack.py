@@ -53,12 +53,15 @@ class AgentConfig:
     allow: List[str] = field(default_factory=list)
     deny: List[str] = field(default_factory=list)
     secret_names: List[str] = field(default_factory=list)
+    secret_hosts: Dict[str, List[str]] = field(default_factory=dict)   # secret name -> hosts it may be sent to
     context_window: int = 32768
     max_output_tokens: int = 4096
     max_total_tokens: Optional[int] = None
     max_seconds: Optional[float] = None
     use_memory: bool = True
     use_checkpoints: bool = True
+    phone: bool = False                 # offer the phone tools (callAPIcall from the environment)
+    phone_on_behalf_of: str = ""
     skill_paths: List[str] = field(default_factory=list)
     data_dir: Optional[str] = None
     confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None
@@ -97,7 +100,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None) -> Buil
     data = Path(cfg.data_dir) if cfg.data_dir else data_dir_for(workspace)
     data.mkdir(parents=True, exist_ok=True)
 
-    secrets = SecretsBroker.from_environment(cfg.secret_names)
+    secrets = SecretsBroker.from_environment(cfg.secret_names, cfg.secret_hosts)
     level, plan = PERMISSION_MODES[cfg.permission_mode]
     permissions = PermissionManager(level=level, plan_mode=plan, confirm_callback=cfg.confirm,
                                     sensitive_data=bool(secrets.names()))
@@ -126,6 +129,11 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None) -> Buil
         if catalog.skills:
             builder.set_skills_catalog(catalog.format_catalog_prompt())
             register_skill_tool(registry, catalog)
+
+    if cfg.phone:
+        from harness.integrations.call_api_client import CallAPICallClient
+        from harness.integrations.telephony_tools import register_phone_tools
+        register_phone_tools(registry, CallAPICallClient.from_environment(), permissions, cfg.phone_on_behalf_of)
 
     memory = MemoryStore(default_db_path(workspace) if not cfg.data_dir else data / "memory.db") if cfg.use_memory else None
     cancel = threading.Event()

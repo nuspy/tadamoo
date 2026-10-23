@@ -30,9 +30,13 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--allow", action="append", default=[], metavar="PATTERN", help='allow rule, e.g. "shell_command:pytest*"')
     parser.add_argument("--deny", action="append", default=[], metavar="PATTERN", help="deny rule")
     parser.add_argument("--secret-env", action="append", default=[], metavar="NAME",
-                        help="environment variable the agent may use as {{secret:NAME}}")
+                        help="environment variable the agent may use as {{secret:NAME}}; NAME=host1,host2 limits "
+                             "where it can be sent (without hosts it is for local commands only)")
     parser.add_argument("--skills", action="append", default=[], metavar="DIR", help="folder with SKILL.md skills")
     parser.add_argument("--interactive", action="store_true", help="ask on the terminal before risky actions")
+    parser.add_argument("--phone", action="store_true",
+                        help="offer the phone tools (callAPIcall; CALLAPICALL_URL and CALLAPICALL_TOKEN); every call asks you")
+    parser.add_argument("--on-behalf-of", default="", help="name the phone assistant gives when it calls")
     parser.add_argument("--no-memory", action="store_true")
     parser.add_argument("--no-checkpoints", action="store_true")
     parser.add_argument("--json", action="store_true", help="print the result as JSON")
@@ -47,12 +51,25 @@ def _ask_on_terminal(tool: str, arguments: Dict[str, Any]) -> bool:
     return sys.stdin.readline().strip().lower() in ("y", "yes")
 
 
+def split_secret_specs(specs: List[str]) -> tuple[List[str], Dict[str, List[str]]]:
+    names, hosts = [], {}
+    for spec in specs:
+        name, _, rest = spec.partition("=")
+        names.append(name)
+        if rest:
+            hosts[name] = [h.strip() for h in rest.split(",") if h.strip()]
+    return names, hosts
+
+
 def config_from_args(args: argparse.Namespace) -> AgentConfig:
+    secret_names, secret_hosts = split_secret_specs(args.secret_env)
     return AgentConfig(
         workspace=args.workspace, endpoint=args.endpoint, api_key=args.api_key, max_turns=args.max_turns,
-        permission_mode=args.permission_mode, allow=args.allow, deny=args.deny, secret_names=args.secret_env,
+        permission_mode=args.permission_mode, allow=args.allow, deny=args.deny, secret_names=secret_names,
+        secret_hosts=secret_hosts,
         max_total_tokens=args.max_tokens_budget, max_seconds=args.timeout_seconds, use_memory=not args.no_memory,
         use_checkpoints=not args.no_checkpoints, skill_paths=args.skills,
+        phone=args.phone, phone_on_behalf_of=args.on_behalf_of,
         confirm=_ask_on_terminal if args.interactive else None,
     )
 

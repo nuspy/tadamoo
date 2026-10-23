@@ -154,3 +154,23 @@ def test_payments_broker_and_waiver(tmp_path: Path):
     assert pb.spent_usd == 30.0
     with pytest.raises(PermissionError, match="revoked"):
         pb.authorize_transaction(5.0, "vendor", "small item")
+
+
+def test_secret_destinations_by_host():
+    from harness.secrets_broker import SecretDestinationError, url_hosts
+    broker = SecretsBroker({"GH": "ghp_value1234", "LOCAL": "local-value1234"}, allowed_hosts={"GH": ["API.github.com"]})
+    assert url_hosts("curl https://a.example:8443/x?y=http://b.example http://c.example") == ["a.example", "c.example"]
+
+    broker.check_destinations("curl https://api.github.com/user -H {{secret:GH}}", ["api.github.com"])
+    with pytest.raises(SecretDestinationError, match="not to evil.example"):
+        broker.check_destinations("x {{secret:GH}}", ["api.github.com", "evil.example"])
+    with pytest.raises(SecretDestinationError, match="local use only"):
+        broker.check_destinations("x {{secret:LOCAL}}", ["x.example"])
+    with pytest.raises(SecretDestinationError):
+        broker.check_destinations("x {{secret:LOCAL}}", [], ["curl"])
+    broker.check_destinations("python build.py {{secret:LOCAL}}", [])           # local use is fine
+    broker.check_destinations("curl http://anything.example", ["anything.example"])   # no secret in it
+
+    assert broker.resolve_tokens("a {{secret:GH}}", destinations=["api.github.com"]) == "a ghp_value1234"
+    with pytest.raises(SecretDestinationError):
+        broker.resolve_tokens("a {{secret:GH}}", destinations=["evil.example"])
