@@ -1,0 +1,31 @@
+{
+  "name": "core-baseline",
+  "version": "1.0",
+  "description": "Deterministic baseline task set for Basalt Harness evaluation",
+  "tasks": [
+    {
+      "id": "code_reverse_words",
+      "category": "coding",
+      "prompt": "Write a Python function `reverse_words(s: str) -> str` that reverses the words in a string. Only output valid Python code.",
+      "expected_keyword": "def reverse_words"
+    },
+    {
+      "id": "json_parse_extract",
+      "category": "extraction",
+      "prompt": "Extract the user name and city from this text into a JSON object with keys 'name' and 'city': 'Hello my name is Alice and I live in Paris.' Output only the JSON.",
+      "expected_keyword": "\"city\": \"Paris\""
+    },
+    {
+      "id": "math_primes",
+      "category": "reasoning",
+      "prompt": "What is the product of the first 3 prime numbers? Answer with only the number.",
+      "expected_keyword": "30"
+    },
+    {
+      "id": "tool_call_read",
+      "category": "tool_calling",
+      "prompt": "Read the contents of 'config.json' using the available tool.",
+      "expected_tool": "read_file"
+    }
+  ]
+}
