@@ -246,6 +246,8 @@ def make_handler(svc: Service):
                 if "/" in name or "\\" in name or ext not in types or not f.is_file():
                     self._json(404, {"error": {"message": "not found"}})
                     return
+                if ext == ".json" and not self._authorized():     # data files hold task and change records
+                    return
                 body = f.read_bytes()
                 self.send_response(200)
                 self.send_header("Content-Type", types[ext])
@@ -401,8 +403,12 @@ def make_handler(svc: Service):
                 self._settings_post()
                 return
             if path == "/api/tasks":
+                if not self._own_page("tasks can be changed"):
+                    return
                 try:
                     req = json.loads(self._body(1 << 16) or b"{}")
+                    if not isinstance(req, dict):
+                        raise ValueError("send a JSON object")
                     task_id = req.get("id")
                     if not task_id:
                         raise ValueError("task 'id' is required")
@@ -417,7 +423,9 @@ def make_handler(svc: Service):
                         metadata = req.get("metadata")
                         saved = _TASKS.record(task_id, status=status, result=result, children=children, metadata=metadata)
                         self._json(200, {"status": "ok", "task": saved})
-                except Exception as e:
+                except BadBody as e:
+                    self._json(e.status, {"error": {"message": str(e)}})
+                except (ValueError, TypeError) as e:
                     self._json(400, {"error": {"message": str(e)}})
                 return
             if path == "/api/chat/context":

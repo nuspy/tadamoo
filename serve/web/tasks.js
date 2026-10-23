@@ -3,12 +3,12 @@
 // Shows open, running, completed, and failed tasks with hierarchical dependencies.
 
 (function () {
-  const TASKS_URL = "/web/tasks.json";
+  const TASKS_URL = "api/tasks";
   const POLL_INTERVAL_MS = 2500;
 
   async function fetchTasks() {
     try {
-      const res = await fetch(`${TASKS_URL}?t=${Date.now()}`, { cache: "no-store" });
+      const res = await fetch(`${TASKS_URL}?t=${Date.now()}`, { cache: "no-store", headers: authHeaders() });
       if (!res.ok) return null;
       return await res.json();
     } catch {

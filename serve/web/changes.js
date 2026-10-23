@@ -6,7 +6,7 @@
 // Diff text renders at 2/3 base body font size.
 
 (function () {
-  const CHANGES_URL = "/web/changes.json";
+  const CHANGES_URL = "api/changes";
   const POLL_INTERVAL_MS = 2500;
 
   const COLORS = {
@@ -24,7 +24,7 @@
 
   async function fetchChanges() {
     try {
-      const res = await fetch(`${CHANGES_URL}?t=${Date.now()}`, { cache: "no-store" });
+      const res = await fetch(`${CHANGES_URL}?t=${Date.now()}`, { cache: "no-store", headers: authHeaders() });
       if (!res.ok) return null;
       return await res.json();
     } catch {
