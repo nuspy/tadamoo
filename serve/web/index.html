@@ -20,6 +20,8 @@
 <script defer src="web/loader.js"></script>
 <script defer src="web/wizard.js"></script>
 <script defer src="web/reqlog.js"></script>
+<script defer src="web/tasks.js"></script>
+<script defer src="web/changes.js"></script>
 </head>
 <body>
 
@@ -230,6 +232,14 @@
             <span style="--c:var(--fg-3)">Peer <b id="tl-peer">—</b></span>
             <span style="--c:var(--basalt-500)">CPU <b id="tl-cpu">—</b></span>
           </div>
+        </div>
+      </section>
+
+      <section class="sec" id="sec-tasks" aria-labelledby="h-tasks">
+        <div class="sh"><b id="h-tasks">Agent Tasks & Modifiche</b></div>
+        <div class="pad">
+          <div id="task-root"></div>
+          <div id="changes-root" style="margin-top: 8px;"></div>
         </div>
       </section>
 

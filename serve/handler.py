@@ -238,7 +238,7 @@ def make_handler(svc: Service):
             if path.startswith("/web/"):
                 name = path[len("/web/"):]
                 types = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-                         ".svg": "image/svg+xml", ".png": "image/png"}
+                         ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json; charset=utf-8"}
                 f = ROOT / "serve" / "web" / name
                 ext = os.path.splitext(name)[1]
                 if "/" in name or "\\" in name or ext not in types or not f.is_file():
