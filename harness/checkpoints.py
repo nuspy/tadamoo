@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-IGNORED_DIRS = {".git", ".venv", "__pycache__", "node_modules", ".basalt_checkpoints"}
+IGNORED_DIRS = {".git", ".venv", "__pycache__", "node_modules", ".basalt_checkpoints", ".basalt"}
 _CHECKPOINT_ID = re.compile(r"^cp_\d+_\d+$")
 
 

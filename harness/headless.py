@@ -1,62 +1,102 @@
-"""Headless CLI runner for Basalt Harness (basalt-agent -p)."""
+"""Headless runner: `python -m harness -p "task"`.
+
+Exit codes: 0 finished, 1 error (server, setup or crash), 2 bad usage, 3 turn limit, 4 token or time
+budget, 5 stuck in a loop, 130 cancelled.
+"""
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
-from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from harness.client import BasaltClient
-from harness.tools import create_standard_tool_registry
-from harness.agent_loop import AgentLoop
+from harness import agent_loop as al
+from harness.stack import AgentConfig, build_agent
+
+EXIT_CODES = {al.FINAL: 0, al.ERROR: 1, al.MAX_TURNS: 3, al.BUDGET: 4, al.LOOP: 5, al.CANCELLED: 130}
 
 
-def parse_args(args=None):
-    parser = argparse.ArgumentParser(description="Basalt Autonomous Agent Headless CLI")
-    parser.add_argument("-p", "--prompt", required=True, help="User goal/prompt to execute")
-    parser.add_argument("--workspace", default=".", help="Workspace working directory")
-    parser.add_argument("--endpoint", default="http://127.0.0.1:7232", help="Basalt HTTP endpoint")
-    parser.add_argument("--max-turns", type=int, default=10, help="Maximum execution turns")
-    parser.add_argument("--json", action="store_true", help="Output execution results as JSON")
+def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="python -m harness", description="Basalt autonomous agent, headless")
+    parser.add_argument("-p", "--prompt", required=True, help="goal for the agent")
+    parser.add_argument("--workspace", default=".", help="folder the agent works in")
+    parser.add_argument("--endpoint", default="http://127.0.0.1:7232", help="Basalt server address")
+    parser.add_argument("--api-key", default=os.environ.get("BASALT_API_KEY"), help="server API key (or BASALT_API_KEY)")
+    parser.add_argument("--max-turns", type=int, default=10, help="most model turns")
+    parser.add_argument("--max-tokens-budget", type=int, default=None, help="stop after this many prompt+completion tokens")
+    parser.add_argument("--timeout-seconds", type=float, default=None, help="stop after this much time")
+    parser.add_argument("--permission-mode", choices=["plan", "read_only", "default", "auto"], default="default")
+    parser.add_argument("--allow", action="append", default=[], metavar="PATTERN", help='allow rule, e.g. "shell_command:pytest*"')
+    parser.add_argument("--deny", action="append", default=[], metavar="PATTERN", help="deny rule")
+    parser.add_argument("--secret-env", action="append", default=[], metavar="NAME",
+                        help="environment variable the agent may use as {{secret:NAME}}")
+    parser.add_argument("--skills", action="append", default=[], metavar="DIR", help="folder with SKILL.md skills")
+    parser.add_argument("--interactive", action="store_true", help="ask on the terminal before risky actions")
+    parser.add_argument("--no-memory", action="store_true")
+    parser.add_argument("--no-checkpoints", action="store_true")
+    parser.add_argument("--json", action="store_true", help="print the result as JSON")
     return parser.parse_args(args)
 
 
-def run_headless(prompt: str, workspace: str = ".", endpoint: str = "http://127.0.0.1:7232", max_turns: int = 10) -> dict:
-    client = BasaltClient(base_url=endpoint)
-    registry, sandbox = create_standard_tool_registry(workspace)
-    agent = AgentLoop(client=client, tool_registry=registry, max_turns=max_turns)
-    turns = agent.run(prompt)
-
-    final_content = turns[-1].assistant_content if turns else ""
-    return {
-        "status": "success",
-        "turns_count": len(turns),
-        "final_output": final_content,
-        "changes": sandbox.changes,
-    }
+def _ask_on_terminal(tool: str, arguments: Dict[str, Any]) -> bool:
+    if not sys.stdin or not sys.stdin.isatty():
+        return False
+    shown = json.dumps(arguments, ensure_ascii=False)[:300]
+    print(f"\nAllow {tool} {shown}? [y/N] ", end="", file=sys.stderr, flush=True)
+    return sys.stdin.readline().strip().lower() in ("y", "yes")
 
 
-def main():
-    args = parse_args()
+def config_from_args(args: argparse.Namespace) -> AgentConfig:
+    return AgentConfig(
+        workspace=args.workspace, endpoint=args.endpoint, api_key=args.api_key, max_turns=args.max_turns,
+        permission_mode=args.permission_mode, allow=args.allow, deny=args.deny, secret_names=args.secret_env,
+        max_total_tokens=args.max_tokens_budget, max_seconds=args.timeout_seconds, use_memory=not args.no_memory,
+        use_checkpoints=not args.no_checkpoints, skill_paths=args.skills,
+        confirm=_ask_on_terminal if args.interactive else None,
+    )
+
+
+def run_headless(cfg: AgentConfig, prompt: str, client: Any = None) -> Dict[str, Any]:
+    built = build_agent(cfg, client=client)
     try:
-        result = run_headless(
-            prompt=args.prompt,
-            workspace=args.workspace,
-            endpoint=args.endpoint,
-            max_turns=args.max_turns,
-        )
-        if args.json:
-            print(json.dumps(result, indent=2, ensure_ascii=False))
-        else:
-            print(result["final_output"])
-        sys.exit(0)
+        turns = built.agent.run(prompt, retrieved=built.retrieved_message(prompt))
+        agent = built.agent
+        final = next((t.assistant_content for t in reversed(turns) if not t.tool_calls), "")
+        return {
+            "status": "success" if agent.stop_reason == al.FINAL else agent.stop_reason,
+            "stop_reason": agent.stop_reason,
+            "error": agent.error,
+            "turns_count": len(turns),
+            "final_output": final,
+            "changes": built.sandbox.changes,
+            "tokens": {
+                "prompt": sum(t.prompt_tokens for t in turns),
+                "completion": sum(t.completion_tokens for t in turns),
+                "cached": sum(t.cached_tokens for t in turns),
+            },
+            "audit_log": str(built.audit.path),
+        }
+    finally:
+        built.close()
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = parse_args(argv)
+    try:
+        result = run_headless(config_from_args(args), args.prompt)
     except Exception as exc:
         if args.json:
-            print(json.dumps({"status": "error", "error": str(exc)}))
+            print(json.dumps({"status": "error", "stop_reason": al.ERROR, "error": str(exc)}))
         else:
             print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        return 1
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(result["final_output"] or result["error"] or f"[{result['stop_reason']}]")
+    return EXIT_CODES.get(result["stop_reason"], 1)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
