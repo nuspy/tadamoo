@@ -28,6 +28,8 @@ from serve.security import host_allowed, host_names_for, key_matches, origin_all
 from serve.service import LOG_FIRST_LINES, LOG_MAX_LINES, Service, _debug_req
 from serve.api.structured import StructuredOutputError, prepare_format, validated_json
 from serve.util.reqlog import export_jsonl, export_text
+from serve.tasks import TaskJournal
+_TASKS = TaskJournal(ROOT / "serve" / "web")
 from serve.util.reqtrace import RequestTrace
 from serve.util.text import stop_strings
 
@@ -321,6 +323,14 @@ def make_handler(svc: Service):
                     self._json(200, {**loader_api.sup_of(svc).status(), "loaded": svc.loaded(), "loading": svc.loading,
                                      "standby": bool(getattr(svc, "standby", False)),
                                      "max_context": svc.engine.max_context})
+            elif path == "/api/tasks":
+                if self._authorized():
+                    self._json(200, _TASKS.load())
+            elif path == "/api/changes":
+                if self._authorized():
+                    f = ROOT / "serve" / "web" / "changes.json"
+                    data = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {"schema": "1.0", "edits": []}
+                    self._json(200, data)
             elif path == "/api/prefs":
                 self._json(200, self._prefs())
             elif path == "":
@@ -389,6 +399,26 @@ def make_handler(svc: Service):
             path = self.path.split("?")[0].rstrip("/")   # clients post /v1/messages?beta=true
             if path == "/api/settings":
                 self._settings_post()
+                return
+            if path == "/api/tasks":
+                try:
+                    req = json.loads(self._body(1 << 16) or b"{}")
+                    task_id = req.get("id")
+                    if not task_id:
+                        raise ValueError("task 'id' is required")
+                    action = req.get("action", "record")
+                    if action == "close":
+                        _TASKS.close(task_id)
+                        self._json(200, {"status": "closed", "id": task_id})
+                    else:
+                        status = req.get("status", "running")
+                        result = req.get("result", "")
+                        children = req.get("children")
+                        metadata = req.get("metadata")
+                        saved = _TASKS.record(task_id, status=status, result=result, children=children, metadata=metadata)
+                        self._json(200, {"status": "ok", "task": saved})
+                except Exception as e:
+                    self._json(400, {"error": {"message": str(e)}})
                 return
             if path == "/api/chat/context":
                 self._chat_context()
