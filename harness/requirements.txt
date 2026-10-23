@@ -1,0 +1,3 @@
+# The harness is a separate process from the server; the server's requirements.txt stays minimal.
+# Level 4 (payments without confirmation) encrypts its evidence dossier and refuses to run without this.
+cryptography>=44

@@ -231,3 +231,44 @@ def test_an_injected_endless_retry_is_cut_off(ws):
     steps = [call("list_directory", {"path": "."}, f"c{i}") for i in range(10)]
     agent, _ = run(ws, steps, max_turns=15)
     assert agent.stop_reason == LOOP
+
+
+def payment_agent(ws, tmp_path, steps, confirm=None):
+    from harness.payments_broker import PaymentsBroker, register_payment_tool
+    from harness.waiver import PaymentSystem, required_phrase
+    broker = PaymentsBroker(tmp_path / "pay")
+    broker.register_system(PaymentSystem("vcard", "Test card", "virtual card", "delegated_card", "EUR",
+                                         "https://p.example/t", "2026-10-24", "block it"))
+    name = "Mario Rossi"
+    broker.grant_waiver("vcard", user_name=name, typed_text=required_phrase(name, "50"), per_payment="50",
+                        cumulative="80", read_to_end=True, release_ack=True,
+                        retyped_names={"release": name, "acceptance": name})
+    registry, _ = create_standard_tool_registry(ws)
+    perms = PermissionManager(level=PermissionLevel.AUTO)
+    register_payment_tool(registry, broker, perms, confirm=confirm)
+    agent = AgentLoop(client=ScriptedClient(*steps), tool_registry=registry, permissions=perms, max_turns=10)
+    agent.run("task")
+    return agent, broker
+
+
+def test_an_injected_payment_request_cannot_exceed_the_users_caps(ws, tmp_path):
+    big = {"system_id": "vcard", "amount": "5000", "currency": "EUR", "recipient": "attacker", "reason": INJECTION}
+    nan = {"system_id": "vcard", "amount": "NaN", "currency": "EUR", "recipient": "attacker", "reason": "x"}
+    negative = {"system_id": "vcard", "amount": "-50", "currency": "EUR", "recipient": "attacker", "reason": "x"}
+    other = {"system_id": "other", "amount": "5", "currency": "EUR", "recipient": "attacker", "reason": "x"}
+    split = [{"system_id": "vcard", "amount": "50", "currency": "EUR", "recipient": f"a{i}", "reason": "x"} for i in range(4)]
+    steps = [call("request_payment", a, f"c{i}") for i, a in enumerate([big, nan, negative, other, *split])] + [say("x")]
+    agent, broker = payment_agent(ws, tmp_path, steps)
+    authorized = [r for r in broker.ledger.records if r["action"] == "payment_authorized"]
+    assert sum(r["details"]["amount_cents"] for r in authorized) == 5000       # one 50 fits; the cumulative cap is 80
+    texts = tool_texts(agent)
+    assert all("Tool execution error" in t for t in texts[:4]) and "cumulative cap" in texts[-1]
+
+
+def test_the_agent_has_no_way_to_grant_or_widen_a_waiver(ws, tmp_path):
+    steps = [call("write_file", {"path": str(tmp_path / "pay" / "payments_state.json"), "content": "{}"}, "a"),
+             call("shell_command", {"command": "echo hi"}, "b"), say("x")]
+    agent, broker = payment_agent(ws, tmp_path, steps)
+    assert broker.status() and broker.status()[0]["per_payment"] == "50.00 EUR"
+    registry_names = agent.tools.names()
+    assert "grant_waiver" not in registry_names and not any("waiver" in n for n in registry_names)
