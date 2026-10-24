@@ -194,7 +194,45 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
             res = client.event(plan_id, {"type": "plan:mark", "node_id": node_id, "status": status, "base_rev": seen[plan_id]})
         except Exception as exc:
             return failure(exc)
+        if status in ("completed", "failed", "skipped"):
+            link_task(plan_id, node, {"completed": "done", "failed": "failed", "skipped": "closed"}[status])
         return f"Step {node_id} marked {status} ({how}). Ready now: {', '.join(res.get('ready', [])) or 'nothing'}."
+
+    def link_task(plan_id: str, node: Dict[str, Any], status: str, result: str = "") -> None:
+        """The Tasks panel shows the step with its plan; a panel that cannot be reached never stops the work."""
+        try:
+            client.task(f"plan:{plan_id}:{node['id']}", status, result, {"plan": plan_id, "step": node["id"], "title": node.get("title", "")})
+        except Exception:
+            pass
+
+    def plan_step_start(plan_id: str, node_id: str, quote: str = "") -> str:
+        """Starts a step the agent is to do: it must be ready, and the person says yes. The work is then done with the usual tools in
+        this conversation, and the step is marked done or failed after the result is read."""
+        if (msg := need_read(plan_id)):
+            return msg
+        try:
+            snap = client.snapshot(plan_id)
+        except Exception as exc:
+            return failure(exc)
+        node = snap["plan"]["nodes"].get(node_id)
+        if node is None:
+            return f"The plan has no step '{node_id}'."
+        if node_id not in (snap.get("ready") or []):
+            return f"Step {node_id} is not ready: it is {node.get('status')} or waits for an earlier step."
+        if node.get("assignee") != "agent" or node.get("type", "action") != "action":
+            return f"Step {node_id} is for {node.get('assignee')} and is not an action the agent can do: tell the user."
+        ok, how = confirmer.check({"kind": "plan_step_start", "plan": snap["plan"]["title"], "step": node["title"]},
+                                  f'In the plan "{snap["plan"]["title"]}", start the step "{node["title"]}" now?', quote)
+        if not ok:
+            return how
+        try:
+            client.event(plan_id, {"type": "plan:mark", "node_id": node_id, "status": "in_progress", "base_rev": seen[plan_id]})
+            seen[plan_id] = int(client.snapshot(plan_id).get("rev") or seen[plan_id])
+        except Exception as exc:
+            return failure(exc)
+        link_task(plan_id, node, "running")
+        return (f'Step {node_id} started ({how}): "{node["title"]}". {node.get("description") or ""}\n'
+                "Do it with your tools, read the result, then mark the step completed or failed with plan_mark.")
 
     def plan_propose_change(plan_id: str, title: str, rationale: str, diff: Dict[str, Any], quote: str = "") -> str:
         if (msg := need_read(plan_id)):
@@ -252,6 +290,8 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
     registry.register("plan_mark", "Marks a step of a plan (pending, in_progress, completed, failed, blocked, skipped). Needs the user's yes.",
                       obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}, "status": {"type": "string", "enum": list(STATUSES)}, "quote": quote_param},
                           ["plan_id", "node_id", "status"]), EffectClass.REVERSIBLE, plan_mark)
+    registry.register("plan_step_start", "Starts a step that is ready and is for the agent; the user must say yes. Then do the step with your tools and mark it.",
+                      obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}, "quote": quote_param}, ["plan_id", "node_id"]), EffectClass.REVERSIBLE, plan_step_start)
     registry.register("plan_propose_change", "Changes the structure of a plan (add, remove or change steps and links) with a diff. Needs the user's yes.",
                       obj({"plan_id": {"type": "string"}, "title": {"type": "string"}, "rationale": {"type": "string"},
                            "diff": {"type": "object", "description": "{add_nodes: [node], remove_nodes: [id], update_nodes: {id: fields}, add_edges: [[parent, child]], remove_edges: [[parent, child]]}"},

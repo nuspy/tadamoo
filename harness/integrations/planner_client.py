@@ -44,6 +44,13 @@ class PlannerClient:
         """One bridge event (plan:mark, plan:propose_diff, plan:approve, ...), sent as the Chat."""
         return self._call("POST", f"/api/plans/{self._id(plan_id)}/events", {**event, "actor": ACTOR})
 
+    def task(self, task_id: str, status: str, result: str = "", metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """The Tasks panel's line for a step being carried out (running, done, failed)."""
+        body: Dict[str, Any] = {"id": task_id, "status": status, "result": result[:500]}
+        if metadata is not None:
+            body["metadata"] = metadata
+        return self._call("POST", "/api/tasks", body)
+
     def archive(self, plan_id: str) -> Dict[str, Any]:
         return self._call("POST", f"/api/plans/{self._id(plan_id)}/archive", {"actor": ACTOR})
 

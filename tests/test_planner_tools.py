@@ -258,3 +258,27 @@ def test_the_summary_shows_the_most_recent_plans_and_says_how_many_are_left_out(
     assert lines[0].startswith("- p11") and len(lines) == 9 and lines[-1] == "- and 4 more: plan_list shows all of them"
     assert "p03" not in text and "p04" in text
     assert plans_summary(Many()) == text                                                  # the same text twice
+
+
+def test_a_ready_step_for_the_agent_starts_after_the_yes_and_shows_in_the_tasks_panel(world, start_server):  # noqa: F811
+    client, agent, build = world
+    reg, ask = build()
+    t = title()
+    out = create_with_quote(reg, agent, t, [{"title": "Cerca i voli"}, {"title": "Paga", "assignee": "user"}, {"title": "Prepara la valigia", "after": [1]}])
+    pid = next(p["plan_id"] for p in client.list() if p["title"] == t)
+    reg.execute("plan_get", {"plan_id": pid})
+    assert "waits for an earlier step" in reg.execute("plan_step_start", {"plan_id": pid, "node_id": "s3", "quote": ""}) and ask.asked == []     # not ready: no question either
+    agent.last_user_text = "inizia il primo passo, cerca i voli"
+    res = reg.execute("plan_step_start", {"plan_id": pid, "node_id": "s1", "quote": "inizia il primo passo"})
+    assert "Step s1 started (quoted)" in res and "mark the step completed or failed" in res
+    assert client.snapshot(pid)["plan"]["nodes"]["s1"]["status"] == "in_progress"
+    tasks = client._call("GET", "/api/tasks")["tasks"]
+    row = next(x for x in tasks if x["id"] == f"plan:{pid}:s1")
+    assert row["status"] == "running" and row["metadata"]["plan"] == pid
+    agent.last_user_text = "segnalo fatto il passo, completalo"
+    reg.execute("plan_get", {"plan_id": pid})
+    reg.execute("plan_mark", {"plan_id": pid, "node_id": "s1", "status": "completed", "quote": "completalo"})
+    assert next(x for x in client._call("GET", "/api/tasks")["tasks"] if x["id"] == f"plan:{pid}:s1")["status"] == "done"
+    # a step for the person is not for the agent
+    reg.execute("plan_get", {"plan_id": pid})
+    assert "is for user" in reg.execute("plan_step_start", {"plan_id": pid, "node_id": "s2", "quote": ""}) or "not ready" in reg.execute("plan_step_start", {"plan_id": pid, "node_id": "s2", "quote": ""})

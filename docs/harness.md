@@ -104,7 +104,7 @@ An urgent request is not put aside for another urgent one: they go in order.
 ### The Chat and the planner
 
 A conversation has the planner's tools (`harness/planner_tools.py`), unless it is started `ask_only`: `plan_list` and
-`plan_get` read; `plan_create`, `plan_propose_change`, `plan_mark` and `plan_archive` change; `ask_user` asks a question with
+`plan_get` read; `plan_create`, `plan_propose_change`, `plan_mark`, `plan_step_start` and `plan_archive` change (`plan_step_start` starts a ready step for the agent: the step is marked in progress and shows in the Tasks panel with its plan, and is marked done or failed after the result is read); `ask_user` asks a question with
 buttons. The plans live in the server, in the one store the Plans view uses, and every change made from the Chat names the
 Chat as its author in the plan's history.
 
