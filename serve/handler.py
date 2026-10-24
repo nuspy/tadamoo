@@ -29,6 +29,7 @@ from serve.service import LOG_FIRST_LINES, LOG_MAX_LINES, Service, _debug_req
 from serve.api.structured import StructuredOutputError, prepare_format, validated_json
 from serve.util.reqlog import export_jsonl, export_text
 from serve import plans as plans_mod, userdata
+from serve import review as review_mod
 from serve.tasks import ChangeJournal, TaskJournal
 _TASKS = TaskJournal(userdata.path("journal"))        # runtime state lives in the user's data folder, not in the assets
 _CHANGES = ChangeJournal(userdata.path("journal"))
@@ -333,7 +334,7 @@ def make_handler(svc: Service):
                     self._json(200, _TASKS.load())
             elif path == "/api/changes":
                 if self._authorized():
-                    self._json(200, _CHANGES.load())
+                    self._json(200, _CHANGES.view())
             elif path == "/api/planner/settings" or path == "/api/plans" or path.startswith("/api/plans/"):
                 if self._authorized():
                     self._plans_get(path)
@@ -449,11 +450,31 @@ def make_handler(svc: Service):
                 except (ValueError, TypeError) as e:
                     self._json(400, {"error": {"message": str(e)}})
                 return
+            if path == "/api/changes/review":
+                if not settings.is_loopback(self.client_address[0]):
+                    self._discard_body()
+                    self._json(403, {"error": {"type": "forbidden",
+                                               "message": "changes can be reviewed only from the PC the server runs on"}})
+                    return
+                if not self._own_page("changes can be reviewed"):
+                    return
+                try:
+                    req = json.loads(self._body(1 << 12) or b"{}")
+                    if not isinstance(req, dict) or not isinstance(req.get("id"), str):
+                        raise ValueError("send the change's id and an action")
+                    self._json(200, {"edit": _CHANGES.review_action(req["id"], req.get("action", ""), req.get("block"))})
+                except review_mod.ReviewError as e:
+                    self._json(409, {"error": {"type": "review", "message": str(e)}})
+                except BadBody as e:
+                    self._json(e.status, {"error": {"message": str(e)}})
+                except (ValueError, TypeError) as e:
+                    self._json(400, {"error": {"message": str(e)}})
+                return
             if path == "/api/changes":
                 if not self._own_page("changes can be recorded"):
                     return
                 try:
-                    req = json.loads(self._body(1 << 20) or b"{}")
+                    req = json.loads(self._body(4 << 20) or b"{}")
                     if not isinstance(req, dict):
                         raise ValueError("send a JSON object")
                     if req.get("clear"):

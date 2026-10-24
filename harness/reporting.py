@@ -73,7 +73,13 @@ class PanelReporter:
         fresh = changes[self._sent_changes:]
         if not fresh:
             return
-        edits = [{k: c[k] for k in ("file", "kind", "added", "removed", "diff") if k in c} for c in fresh]
+        edits = []
+        for c in fresh:
+            edit = {k: c[k] for k in ("file", "kind", "added", "removed", "diff") if k in c}
+            if isinstance(c.get("old_text"), str) and isinstance(c.get("new_text"), str):
+                # the texts let the person keep or undo single blocks from the Monitor
+                edit["review"] = {"root": str(getattr(self.sandbox, "root", "")), "old_text": c["old_text"], "new_text": c["new_text"]}
+            edits.append(edit)
         if self._post("/api/changes", {"edits": edits}):
             self._sent_changes = len(changes)
 

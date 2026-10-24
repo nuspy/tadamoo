@@ -12,7 +12,7 @@ from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.handler import serve
 from serve.service import Service
-from serve.tasks import TaskJournal
+from serve.tasks import ChangeJournal, TaskJournal
 from serve.util.text import ByteTokenizer
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -35,6 +35,8 @@ class _Server(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.patch = mock.patch.object(handler, "_TASKS", TaskJournal(Path(cls.tmp.name)))
         cls.patch.start()
+        cls.patch_changes = mock.patch.object(handler, "_CHANGES", ChangeJournal(Path(cls.tmp.name)))
+        cls.patch_changes.start()
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
 
@@ -43,6 +45,7 @@ class _Server(unittest.TestCase):
         cls.httpd.shutdown()
         cls.httpd.server_close()
         cls.patch.stop()
+        cls.patch_changes.stop()
         cls.tmp.cleanup()
 
     def call(self, method, path, payload=None, headers=None, raw=None):
