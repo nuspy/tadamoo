@@ -313,6 +313,8 @@ Oggi la Chat accetta solo immagini (`chat.js`, `attachments`).
 
 ### Fase 6 — Modelli, Providers e Qwen Loader (XL) · *decisioni principali prese (E, K); parte in parallelo alle Fasi 2–4*
 
+**Avanzamento (2026-10-24).** Fatto: llmswitch copiato in `harness/llmswitch/` (con `UPSTREAM.md`); `harness/llm/` con registro sicuro (chiavi nel gestore credenziali di Windows), funzioni, consenso per i dati personali, ripiego solo verso rotte altrettanto o più locali, tetti giornalieri, client instradato, **giudice** (modello caricato o Jev, con estratto breve e solo https), router e triage che prendono la rotta da qui, rotte `/api/llm/*` e sottoschede **Providers / Qwen Loader** (prova su Edge: tabella, aggiunta, rifiuto senza il sì, chiave mai nella pagina). Resta: caricamento automatico di Qwen (punto 4), tabella dei livelli di ragionamento (5), regole di ricarica del Loader, abbonamenti con le loro cautele (9) nella pagina.
+
 **Perimetro (vincolo A):** riguarda solo le funzioni **interne** di Basalt. Le app esterne vedono solo il modello caricato; per loro esiste al più il **preset di inferenza di default**, che una richiesta può comunque sovrascrivere.
 
 1. **Scheda Modelli** con due sottoschede (decisione K): **Providers** (in alto la tabella delle funzioni, sotto i provider e i modelli, con una striscia di stato comune: che cosa è caricato, VRAM, chi lo usa) e **Qwen Loader** (la scheda Loader attuale, spostata).

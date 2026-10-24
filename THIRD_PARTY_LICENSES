@@ -134,3 +134,17 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+llmswitch (harness/llmswitch/, the maintainer's own package, nuspy)
+================================================================================
+
+MIT License. Copyright (c) 2026 nuspy. The terms are those of the MIT License
+printed above for Strata.
+
+================================================================================
+requests (https://github.com/psf/requests)
+================================================================================
+
+Apache License 2.0. Copyright (c) Kenneth Reitz and the requests contributors.
+The licence text is at https://www.apache.org/licenses/LICENSE-2.0.

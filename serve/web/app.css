@@ -919,3 +919,28 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .chathead .effort { min-width: 0; max-width: 100%; }
 .chathead .effort select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
 #asessions { width: min(100%, 30ch); }
+
+/* Models: the two sub-tabs and the Providers page */
+.subtabs { display: flex; gap: 8px; padding: 0 0 12px; flex-wrap: wrap; }
+.subtab[aria-selected="true"] { background: var(--surface); border-color: var(--accent); color: var(--fg); }
+.pv { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.pv-strip { padding: 12px 16px; }
+.pv-note[data-bad="1"], .pv-bad { color: var(--bad, #FF8FA3); }
+.pv-scroll { overflow-x: auto; }
+.pv-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.pv-table th, .pv-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+.pv-table select { min-height: 44px; max-width: 100%; }
+.pv-table input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+.pv-list { list-style: none; margin: 0; padding: 0 16px 8px; display: flex; flex-direction: column; gap: 10px; }
+.pv-card { border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 14px; background: var(--bg); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pv-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.pv-badge { font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; color: var(--fg-2); }
+.pv-meta { margin: 0; overflow-wrap: anywhere; }
+.pv-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.pv-actions .btn { min-height: 44px; }
+.pv-form { display: grid; gap: 10px; padding: 8px 0; }
+.pv-field { display: flex; flex-direction: column; gap: 4px; }
+.pv-field input, .pv-field select { min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; min-width: 0; }
+.pv-add { padding: 0 16px 12px; }
+.pv-add summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+.pv-import { padding: 0 16px 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }

@@ -32,6 +32,7 @@ from serve import plans as plans_mod, userdata
 from serve import review as review_mod
 from serve.agent_runs import AgentRunner, RunBusy, RunError
 from serve.agent_sessions import SessionManager
+from serve.llm_api import LlmApi, LlmError
 from serve.approvals import ApprovalBoard, ApprovalError
 from serve.tasks import ChangeJournal, TaskJournal
 _TASKS = TaskJournal(userdata.path("journal"))        # runtime state lives in the user's data folder, not in the assets
@@ -39,6 +40,7 @@ _CHANGES = ChangeJournal(userdata.path("journal"))
 _APPROVALS = ApprovalBoard()
 _RUNNER = None                                        # made on first use: it needs this server's address
 _SESSIONS = None                                      # the Chat's conversations with the agent, made on first use
+_LLM = None                                           # the Providers page's side of llmswitch, made on first use
 
 
 def stop_sessions() -> None:
@@ -354,6 +356,9 @@ def make_handler(svc: Service):
             elif path.startswith("/api/agent/"):
                 if self._authorized():
                     self._agent_get(path)
+            elif path == "/api/llm":
+                if self._authorized():
+                    self._json(200, self._llm().overview())
             elif path == "/api/planner/settings" or path == "/api/plans" or path.startswith("/api/plans/"):
                 if self._authorized():
                     self._plans_get(path)
@@ -471,6 +476,9 @@ def make_handler(svc: Service):
                 return
             if path.startswith("/api/agent/"):
                 self._agent_post(path)
+                return
+            if path.startswith("/api/llm/"):
+                self._llm_post(path)
                 return
             if path == "/api/changes/review":
                 if not settings.is_loopback(self.client_address[0]):
@@ -1089,6 +1097,8 @@ def make_handler(svc: Service):
             from harness.client import BasaltClient
             port = self.server.server_address[1]
             _PLANS.client_factory = lambda: BasaltClient(base_url=f"http://127.0.0.1:{port}", api_key=svc.api_key or None)
+            if _LLM is not None:
+                _PLANS.registry = _LLM.registry
             return _PLANS
 
         def _plan_error(self, exc):
@@ -1107,6 +1117,54 @@ def make_handler(svc: Service):
                 _RUNNER = AgentRunner(userdata.path("journal"), f"http://127.0.0.1:{self.server.server_address[1]}",
                                       svc.api_key or "", tasks=_TASKS, board=_APPROVALS)
             return _RUNNER
+
+        def _llm(self) -> LlmApi:
+            global _LLM
+            if _LLM is None:
+                from harness import llm
+                _LLM = LlmApi(llm.registry())
+                plans_mod_registry = _LLM.registry
+                if _PLANS is not None:
+                    _PLANS.registry = plans_mod_registry
+            return _LLM
+
+        def _llm_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "providers can be changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 16)                              # read first: a refusal must not leave a body unread
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            if not self._own_page("providers can be changed"):
+                return
+            parts = path[len("/api/llm/"):].split("/")
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                api = self._llm()
+                if parts == ["providers"]:
+                    return self._json(200, {"provider": api.add_provider(req)})
+                if len(parts) == 2 and parts[0] == "providers":
+                    return self._json(200, {"provider": api.update_provider(parts[1], req)})
+                if len(parts) == 3 and parts[0] == "providers" and parts[2] == "remove":
+                    return self._json(200, api.remove_provider(parts[1]))
+                if len(parts) == 3 and parts[0] == "providers" and parts[2] == "test":
+                    return self._json(200, api.test(parts[1]))
+                if parts == ["assign"]:
+                    return self._json(200, api.assign(req.get("function"), req.get("provider")))
+                if parts == ["consent"]:
+                    return self._json(200, api.consent(req.get("function"), req.get("allowed")))
+                if parts == ["import"]:
+                    return self._json(200, api.import_shared(req.get("path")))
+            except LlmError as e:
+                return self._json(409 if e.code in ("not_allowed", "gone") else 400, {"error": {"type": "llm", "message": str(e), "code": e.code}})
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"message": str(e)}})
+            self._json(404, {"error": {"message": "not found"}})
 
         def _agent_sessions(self) -> SessionManager:
             global _SESSIONS

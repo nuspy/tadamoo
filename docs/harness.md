@@ -242,6 +242,32 @@ and the bridge the page talks to.
   `POST /api/plans/<id>/events`, `POST /api/plans/<id>/triage`, `POST /api/plans/<id>/archive` and `/restore`,
   `GET /api/plans/<id>/events?after=N` and `/stream` (server-sent events), `GET/POST /api/planner/settings`.
 
+## Providers: which model each function uses
+
+Basalt's own functions (the Chat, the agent's loop, the planner, the judges) can each use a different model: the one loaded in
+this Basalt, another one on this PC, a cloud service, a command-line agent, or Jev for judging. The choice is made on the
+Models page, sub-tab Providers; other programs that use this server still see only the loaded model.
+
+- `harness/llmswitch/` is the vendored llmswitch package (see its `UPSTREAM.md`); `harness/llm/` is Basalt's layer over it.
+- Keys and tokens are kept in the Windows credential manager (the registry file holds only a reference). The page can send
+  a key but is never told it back.
+- A function that handles personal data (`harness/llm/functions.py`) cannot be pointed at a provider outside this PC unless
+  the person says yes for that function; taking the yes back puts the function on the loaded model again. The same check runs
+  at every call, so a registry edited by hand does not get past it.
+- A provider can have a cap of tokens a day; when it is used up the call goes on with the loaded model. A fall-back goes
+  only to a route that is as local as, or more local than, the one that failed.
+- Command-line agents answer text only: they are not offered to functions that need tools.
+- **Jev** does not chat: it answers typed questions. `harness/llm/judge.py` asks it a *choice* question with a short excerpt
+  (at most 1,500 characters), over https only. If it fails, is over its cap or has no key, the loaded model judges instead.
+- The session's router judge (steer, queue or urgent for a message written while the agent works) and the planner's triage
+  take their provider from here.
+
+Routes: `GET /api/llm`; `POST /api/llm/providers`, `/providers/<id>`, `/providers/<id>/remove`, `/providers/<id>/test`,
+`/assign`, `/consent`, `/import`. Changes are accepted only from this PC and from the server's own page.
+
+Not done: loading Qwen automatically when a function is pointed at it, the table that translates reasoning levels, and the
+Qwen Loader's own rules for reloading.
+
 ## The web pages
 
 The pages are what `BasaltWinGUI.exe` shows in its window. They are built for windows from 1024 pixels up to about 3600

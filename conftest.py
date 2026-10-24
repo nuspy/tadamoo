@@ -8,4 +8,5 @@ import tempfile
 
 _DATA = tempfile.mkdtemp(prefix="basalt-test-data-")
 os.environ["BASALT_DATA"] = _DATA
+os.environ["BASALT_CREDENTIALS"] = "file"        # never the person's own credential manager
 atexit.register(shutil.rmtree, _DATA, True)

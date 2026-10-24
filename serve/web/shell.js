@@ -68,7 +68,7 @@
       ...["agent", "ask", "direct"].map(m => ({ label: T("pal.chat.mode", T("ch.mode." + m)), group: T("pal.g.actions"), run: () => goto("chat", () => {
         const s = document.getElementById("chatmode"); if (s && !s.querySelector(`option[value="${m}"]`)?.disabled) { s.value = m; s.dispatchEvent(new Event("change")); }
       }) })),
-      { label: T("pal.model.load"), group: T("pal.g.actions"), run: () => goto("loader") },
+      { label: T("pal.model.load"), group: T("pal.g.actions"), run: () => goto("loader", () => { const q = document.getElementById("sub-qwen"); if (q) q.click(); }) },
       { label: T("pal.agent.run"), group: T("pal.g.actions"), run: () => goto("agent", () => { const g = document.getElementById("ag-goal"); if (g && !g.disabled) g.focus(); }) },
       { label: T("pal.agent.stop"), group: T("pal.g.actions"), run: () => goto("agent", () => { const b = document.getElementById("ag-stop"); if (b && !b.hidden) b.click(); }) },
       { label: T("pal.plan.new"), group: T("pal.g.actions"), run: () => goto("plans", () => { const d = document.getElementById("pl-new"); if (d) { d.open = true; const i = document.getElementById("pl-new-title"); if (i) i.focus(); } }) },
@@ -201,7 +201,7 @@
   document.addEventListener("DOMContentLoaded", () => {
     ["nomodel", "palette", "pal-open", "view-settings"].forEach(id => { const n = document.getElementById(id); if (n) applyT(n); });
     notice = document.getElementById("nomodel");
-    if (notice) notice.querySelector("button").addEventListener("click", () => view("loader"));
+    if (notice) notice.querySelector("button").addEventListener("click", () => { view("loader"); const q = document.getElementById("sub-qwen"); if (q) q.click(); });
     buildScaleControl();
     applyScale();
     buildPalette();

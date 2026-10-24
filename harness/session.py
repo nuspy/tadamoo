@@ -37,7 +37,7 @@ from typing import Any, Callable, Dict, List, Optional, TextIO
 
 from harness import agent_loop as al
 from harness.client import StreamCancelled
-from harness.router import QUEUE, STEER, STRONG_URGENT, URGENT, Router, judge_with_model
+from harness.router import QUEUE, STEER, STRONG_URGENT, URGENT, Router
 from harness.stack import AgentConfig, BuiltAgent, build_agent, data_dir_for
 
 HEARTBEAT_S = 5.0
@@ -739,8 +739,12 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                       permission_mode=args.permission_mode, allow=args.allow, deny=args.deny, secret_names=secret_names,
                       secret_hosts=secret_hosts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
                       skill_paths=args.skills, confirm=confirm, run_id=sid)
+    from harness.client import BasaltClient
+    from harness.llm import client_for, judge_for
+    from harness.llm.judge import router_judge
+    here = BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key)          # the model loaded in this Basalt
     try:
-        built = build_agent(cfg)
+        built = build_agent(cfg, client=client_for("executor", here))        # or the provider the person chose for the agent
     except Exception as exc:
         emit({"event": "error", "code": "start", "message": f"{type(exc).__name__}: {exc}"})
         return 1
@@ -749,7 +753,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         built.agent.tools = ToolRegistry()
     history = Path(args.history_dir) if args.history_dir else data_dir_for(Path(args.workspace).resolve()) / "sessions" / sid
     store = SessionStore(history, redact=built.agent.secrets.mask_secrets if built.agent.secrets else None)
-    router = Router(judge_with_model(built.agent.client) if args.router == "model" else None)
+    router = Router(router_judge(judge_for("router", here)) if args.router == "model" else None)
     session = Session(built, store, emit, session_id=sid, health=lambda: server_health(cfg.endpoint, cfg.api_key), router=router)
     if not args.ask_server:
         built.permissions.confirm_callback = session.permission_confirm      # the questions are put in the conversation

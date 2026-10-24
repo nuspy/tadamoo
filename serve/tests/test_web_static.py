@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "serve" / "web"
-NEW_SCRIPTS = ("plans.js", "tasks.js", "changes.js", "shell.js", "agent.js", "agentchat.js")
+NEW_SCRIPTS = ("plans.js", "tasks.js", "changes.js", "shell.js", "agent.js", "agentchat.js", "providers.js")
 # keys the scripts build at run time, as prefix + each value
 DYNAMIC = {
     "pl.type.": ["action", "sensor", "decision", "merge"],
@@ -27,6 +27,8 @@ DYNAMIC = {
     "ch.tool.": ["running", "ok", "failed"],
     "ch.q.": ["plan_create", "plan_mark", "plan_change", "plan_archive", "permission"],
     "ch.routed.": ["steer", "queue", "urgent", "parallel"],
+    "pv.data.": ["personal", "general"],
+    "pv.e.": ["offline", "bad_type", "bad_cap", "gone", "not_allowed", "bad_function"],
     "ch.blocked.": ["refused", "error", "model_unavailable", "model_not_loaded", "process_unstable", "interrupted_irreversible", "crash", "start_failed", "other"],
     "pl.h.": ["create", "archive", "restore", "update_node", "mark", "rewind", "apply", "fallback", "update_meta"],
     "tk.status.": ["running", "done", "failed", "closed", "pending", "blocked"],

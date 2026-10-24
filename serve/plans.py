@@ -54,7 +54,7 @@ class PlanService:
         except (OSError, json.JSONDecodeError):
             saved = {}
         merged = {**DEFAULTS, **{k: v for k, v in saved.items() if k in DEFAULTS}}
-        return {**merged, "key_present": bool(os.environ.get("TYPESAFE_API_KEY"))}
+        return {**merged, "key_present": bool(os.environ.get("TYPESAFE_API_KEY")) or self._jev_from_registry() is not None}
 
     def update_settings(self, changes: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(changes, dict):
@@ -79,10 +79,33 @@ class PlanService:
         os.replace(tmp, self._settings_path)
         return self.settings()
 
+    registry = None                                        # Basalt's providers (harness.llm): set by the server
+
     def gatekeeper(self):
         s = self.settings()
-        return _planner().JevTriageGatekeeper.from_environment(
-            cloud_consent=bool(s["cloud_triage"]), pseudonymize=bool(s["pseudonymize"]), card_fields=s["card_fields"])
+        kw = dict(cloud_consent=bool(s["cloud_triage"]), pseudonymize=bool(s["pseudonymize"]), card_fields=s["card_fields"])
+        found = self._jev_from_registry()
+        if found:
+            key, endpoint, model = found
+            return _planner().JevTriageGatekeeper(api_key=key, endpoint=endpoint, model=model, **kw)
+        return _planner().JevTriageGatekeeper.from_environment(**kw)
+
+    def _jev_from_registry(self):
+        """(key, address, model) of the Jev provider the person pointed the triage at, when the registry allows it."""
+        try:
+            from harness import llm
+            reg = self.registry if self.registry is not None else llm.registry()
+        except Exception:
+            return None
+        try:
+            data = reg.load()
+            pid = (data.get("assignments") or {}).get("triage")
+            prov = reg._find(data, pid) if pid else None
+            if not prov or prov.get("type") != "jev" or not reg.check("triage", pid)[0] or not prov.get("api_key"):
+                return None
+            return prov["api_key"], (prov.get("base_url") or "https://api.typesafe.ai/v1").rstrip("/") + "/systemone", prov.get("model") or "jev-latest"
+        except Exception:
+            return None
 
     # -- plans -----------------------------------------------------------------------------------
 

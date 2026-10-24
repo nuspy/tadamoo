@@ -23,6 +23,7 @@
 <script defer src="web/models.js"></script>
 <script defer src="web/download.js"></script>
 <script defer src="web/loader.js"></script>
+<script defer src="web/providers.js"></script>
 <script defer src="web/wizard.js"></script>
 <script defer src="web/reqlog.js"></script>
 <script defer src="web/tasks.js"></script>
@@ -445,6 +446,12 @@
   </div>
 
   <div class="view loader" id="view-loader" role="tabpanel" aria-labelledby="tab-loader" hidden>
+    <div class="subtabs" role="tablist" aria-label="Models">
+      <button type="button" class="btn subtab" role="tab" id="sub-providers" aria-selected="false" aria-controls="ld-providers" data-t="pv.sub.providers">Providers</button>
+      <button type="button" class="btn subtab" role="tab" id="sub-qwen" aria-selected="true" aria-controls="ld-qwen" data-t="pv.sub.qwen">Qwen Loader</button>
+    </div>
+    <div class="pv" id="ld-providers" role="tabpanel" aria-labelledby="sub-providers" hidden></div>
+    <div id="ld-qwen" role="tabpanel" aria-labelledby="sub-qwen">
     <p class="sec setnote warnnote ldgpu" id="ld-gpu" role="alert" hidden></p>
     <p class="sec setnote ldstandby" id="ld-standby" data-t="ld.standby" role="status" hidden></p>
     <section class="sec ldmodels" id="ld-models" aria-label="Model"></section>
@@ -460,6 +467,7 @@
         <details class="ldsafe" id="ld-safe-why"><summary data-t="ld.safe.title">Why these safe values</summary><dl id="ld-safe-list"></dl></details>
       </form>
       <aside class="ldside" id="ld-side"></aside>
+    </div>
     </div>
   </div>
 
