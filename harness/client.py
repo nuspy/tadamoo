@@ -86,6 +86,7 @@ class BasaltClient:
         temperature: float = 0.0,
         max_tokens: Optional[int] = None,
         timeout: float = 60.0,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Sends a request to /v1/chat/completions."""
         payload: Dict[str, Any] = {
@@ -98,6 +99,8 @@ class BasaltClient:
             payload["tools"] = tools
         if tool_choice is not None:
             payload["tool_choice"] = tool_choice
+        if response_format is not None:
+            payload["response_format"] = response_format
 
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(

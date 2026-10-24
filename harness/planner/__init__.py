@@ -1,16 +1,18 @@
 """Proactive Dual-Process Planner package for Basalt Harness.
 
-Implements PlanDAG workflow graphs and Jev System 1 causal triage.
+PlanDAG workflow graphs, the plan insight card, System 1 triage of incoming events (Jev, with consent
+and pseudonymized names), System 2 re-planning with the local model, and the bridge a plan view talks to.
 """
-from .dag import PlanDAG, PlanNode, NodeType, Assignee
-from .triage import JevTriageGatekeeper, EventBuffer, TriageResult
+from .bridge import PlanCanvasBridge, PlanStore, Proposal, classify_diff
+from .card import PlanInsightCard, Pseudonymizer, share_card
+from .dag import Assignee, NodeType, PlanDAG, PlanError, PlanNode, safe_eval
+from .replan import Replanner, ReplanProposal
+from .triage import EventBuffer, EventPump, JevTriageGatekeeper, TriageResult, TriageTelemetry
 
 __all__ = [
-    "PlanDAG",
-    "PlanNode",
-    "NodeType",
-    "Assignee",
-    "JevTriageGatekeeper",
-    "EventBuffer",
-    "TriageResult",
+    "PlanDAG", "PlanNode", "NodeType", "Assignee", "PlanError", "safe_eval",
+    "PlanInsightCard", "Pseudonymizer", "share_card",
+    "JevTriageGatekeeper", "EventBuffer", "EventPump", "TriageResult", "TriageTelemetry",
+    "Replanner", "ReplanProposal",
+    "PlanCanvasBridge", "PlanStore", "Proposal", "classify_diff",
 ]
