@@ -548,6 +548,17 @@
   }
   const lines = text => text.split("\n").map(l => l.trim()).filter(Boolean);
 
+  async function copyMermaid() {
+    const r = await fetch(`api/plans/${encodeURIComponent(S.id)}/mermaid`, { cache: "no-store", headers: authHeaders() });
+    if (!r.ok) { say(T("pl.mermaid.fail")); return; }
+    const text = (await r.json()).mermaid || "";
+    try { await navigator.clipboard.writeText(text); say(T("pl.mermaid.copied")); }
+    catch (e) {                                           // no clipboard here: show the text to copy by hand
+      const box = el("textarea", { class: "pl-mermaid", rows: "10", readonly: true, "aria-label": T("pl.mermaid"), text });
+      ui.manage.append(box); box.focus(); box.select(); say(T("pl.mermaid.manual"));
+    }
+  }
+
   function drawManage() {
     if (!S.snap) return;
     const key = `${S.id}:${S.snap.rev}`;
@@ -572,6 +583,9 @@
         field("pl-m-c-prof", T("pl.card.profilo_e_vincoli_partecipanti"), el("textarea", { id: "pl-m-c-prof", rows: "3", spellcheck: "false", text: toLines(card.profilo_e_vincoli_partecipanti) })),
         el("p", { class: "help", text: T("pl.meta.lines.help") }),
         el("button", { class: "btn primary pl-btn", text: T("pl.save") })),
+      el("div", { class: "pad" },
+        el("p", { class: "help", text: T("pl.mermaid.help") }),
+        el("button", { type: "button", class: "btn pl-btn", text: T("pl.mermaid"), onclick: copyMermaid })),
       el("div", { class: "pad pl-archive-zone" },
         el("p", { class: "help", text: T("pl.archive.help") }),
         twiceButton(T("pl.archive"), T("pl.archive.sure"), archivePlan, "btn pl-btn pl-danger")));

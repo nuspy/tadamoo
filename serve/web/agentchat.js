@@ -305,6 +305,7 @@
           if (it.files && it.files.length) bubble.append(mk("div", "achips", it.files.map(f => f.name).join(" · ")));
           bubble.append(mk("div", "", it.text));
           it.el.append(bubble);
+          it.el.append(backButton(it));
         }
         else { it.body = mk("div", "ablocks"); it.metaEl = mk("div", "meta"); it.el.append(it.body, it.metaEl); }
         box.insertBefore(it.el, null);
@@ -318,6 +319,22 @@
     });
     scrollDown();
     setControls();
+  }
+
+  /* ---- going back: the conversation returns to just after one of the person's requests (what came later is taken off, a copy is kept) ---- */
+  function backButton(it) {
+    let armed = false, timer = 0;
+    const b = btn(T("ch.back"), "ghost aback", async () => {
+      if (busyNow || state === "busy" || state === "asking") { status(T("ch.back.busy")); return; }
+      if (!armed) { armed = true; b.textContent = T("ch.back.sure"); timer = setTimeout(() => { armed = false; b.textContent = T("ch.back"); }, 5000); return; }
+      clearTimeout(timer); armed = false; b.textContent = T("ch.back");
+      const turn = items.filter(x => x.kind === "user").indexOf(it) + 1;
+      const r = await api("POST", `/${sid}/back`, { turn });
+      if (!r.ok) { status(errText(r)); return; }
+      const keep = sid; await openSession(keep); status(T("ch.back.done"));
+    });
+    b.setAttribute("aria-label", T("ch.back.n", it.text.slice(0, 60)));
+    return b;
   }
 
   /* ---- files to attach: uploaded to this conversation as they are picked ---- */

@@ -993,3 +993,5 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .aatt-i .btn { min-height: 44px; }
 .achips { font-size: 14px; opacity: .85; margin-bottom: 4px; overflow-wrap: anywhere; }
 .asave { margin: 6px 0; min-height: 48px; }
+
+.aback { min-height: 44px; font-size: 14px; align-self: flex-end; opacity: .85; }

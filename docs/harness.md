@@ -316,6 +316,10 @@ own record of it stays whole; a request the model saw in the template is shown a
 model (structured and incremental summaries) use the provider chosen for the compaction function and fall back to the extract
 when it fails.
 
+Going back: each request of the person in the conversations Chat has a "Back to here" button (two presses); the conversation returns to just after
+that request, a copy of what came later is kept in its folder, and the files the agent changed are not touched (the Changes panel undoes them).
+A plan can be copied as a Mermaid diagram from the Plans view (`GET /api/plans/<id>/mermaid`).
+
 Not done: a rewriting that the model proposes and the person approves, candidates written in parallel, named versions of
 the system prompt, and the measure that picks the best strategy (it needs the real model).
 

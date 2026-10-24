@@ -363,6 +363,8 @@ Sezione **Giudici** nelle impostazioni: una riga per caso d'uso con un elenco *S
 
 ### Fase 7 — Ciò che resta delle specifiche (intercalata)
 
+**Avanzamento (2026-10-24).** Fatti: **7d** in parte (ripresa e ramo della sessione già c'erano; aggiunto il **ritorno indietro nella conversazione** «Torna qui», distinto dal rewind dei file, con copia di sicurezza di ciò che si toglie, `POST /api/agent/sessions/<id>/back`) e **7e** in parte (la vista Piani aveva già il grafo con decisioni e unioni; aggiunto l'**export Mermaid** `GET /api/plans/<id>/mermaid` con pulsante «Copia come diagramma Mermaid», titoli a prova di uscita dall'etichetta). **Non fatti, con la ragione**: **7a** (trattenere le modifiche fino al via) contrasta con il lavoro in corso: un comando di prova dopo una modifica trattenuta vedrebbe il file vecchio; la via sicura già c'è (regole `ask`/`deny` sui permessi e annullamento a blocchi dal pannello delle modifiche), una cartella ombra sarebbe un'altra funzione; **7b** e **7f** chiedono te al PC; **7c** (OAuth per MCP) chiede prima la lettura delle specifiche; **7d** LSP e worktree paralleli e il **council** con misura A/B del **7e** non sono stati iniziati (il council non si dichiara utile senza la misura sul modello vero); **7g**, **7h**, **7i** sono tue decisioni.
+
 | ID | Lavoro | Taglia | Chi lo sblocca |
 |---|---|---|---|
 | 7a | **Modifiche trattenute fino al via**: oggi si applicano e poi si annullano per blocco; tenerle in sospeso finché non sono approvate | M | codice |

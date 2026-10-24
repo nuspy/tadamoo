@@ -1401,6 +1401,8 @@ def make_handler(svc: Service):
                                                                       req.get("confirm_auto") is True, req.get("max_turns", 15),
                                                                       req.get("context_patterns"), req.get("context_policy", "stop"),
                                                                       req.get("context_threshold", 0.8))})
+                    if len(parts) == 3 and parts[2] == "back":
+                        return self._json(200, {"session": mgr.go_back(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "branch":
                         return self._json(200, {"session": mgr.branch(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "send":
@@ -1432,7 +1434,7 @@ def make_handler(svc: Service):
             except RunBusy as e:
                 return self._json(409, {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except RunError as e:
-                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint", "not_blocked", "closed", "not_asking", "asking") else 400,
+                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint", "not_blocked", "closed", "not_asking", "asking", "busy") else 400,
                                   {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except ApprovalError as e:
                 return self._json(409 if "already" in str(e) or "not there" in str(e) else 400,
@@ -1456,6 +1458,9 @@ def make_handler(svc: Service):
                 after = int(query.get("after", ["0"])[0] or 0)
                 if action == "":
                     return self._json(200, service.snapshot(plan_id))
+                if action == "mermaid":
+                    from harness.planner.mermaid import to_mermaid
+                    return self._json(200, {"mermaid": to_mermaid(service.snapshot(plan_id)["plan"])})
                 if action == "events":
                     events = service.events_since(plan_id, after)
                     return self._json(200, {"events": events, "seq": events[-1]["seq"] if events else after})

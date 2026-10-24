@@ -371,3 +371,33 @@ def test_the_policy_for_a_full_context_is_kept_and_given_to_the_process(make, ws
     for bad in ({"context_policy": "sometimes"}, {"context_threshold": 0.1}, {"context_threshold": True}, {"context_threshold": "high"}):
         with pytest.raises(RunError):
             mgr.create(ws, **bad)
+
+
+def test_going_back_takes_off_what_came_after_keeps_a_copy_and_wakes_from_there(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    for i, text in enumerate(("uno", "due", "tre"), 1):
+        mgr.send(sid, text)
+        until(lambda: kinds(mgr, sid).count("done") == i)
+    for bad in (0, "1", True, 9):
+        with pytest.raises(RunError):
+            mgr.go_back(sid, bad)
+    rec = mgr.go_back(sid, 2)
+    assert rec["state"] == "dormant" and rec["turns"] == 2
+    assert [m["content"] for m in mgr.history(sid)["messages"]] == ["uno", "echo: uno", "due", "echo: due"]
+    folder = mgr.history_dir(sid)
+    copies = list(folder.glob("before-going-back-*.json"))
+    assert len(copies) == 1 and "tre" in copies[0].read_text(encoding="utf-8")                  # nothing is lost
+    mgr.send(sid, "quattro")                                                                     # it goes on from there
+    until(lambda: kinds(mgr, sid).count("done") == 4)
+    assert [m["content"] for m in mgr.history(sid)["messages"]][-2:] == ["quattro", "echo: quattro"] and "tre" not in json.dumps(mgr.history(sid)["messages"])
+
+
+def test_going_back_is_refused_while_the_agent_works(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "hang")                                   # the stand-in goes on working
+    until(lambda: mgr.get(sid)["state"] == "busy")
+    with pytest.raises(RunError) as err:
+        mgr.go_back(sid, 1)
+    assert err.value.code == "busy"

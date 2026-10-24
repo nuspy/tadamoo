@@ -202,6 +202,50 @@ class SessionManager:
             self._save()
         return dict(child)
 
+    def go_back(self, sid: str, turn: Any) -> Dict[str, Any]:
+        """The conversation goes back to the end of the person's `turn`-th request: what came after is taken off (a copy is kept in the
+        conversation's folder). It is the conversation only: files the agent changed are put back from the Changes panel, not from here."""
+        if not isinstance(turn, int) or isinstance(turn, bool) or turn < 1:
+            raise RunError("Say which request to go back to: a number from 1.", "bad_turn")
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] in ("busy", "starting", "asking"):
+                raise RunError("Wait for the agent to finish, or stop it, before going back.", "busy")
+            live = self._live.get(sid)
+            if live is not None:
+                live.ending = True
+                self._write(sid, live, {"cmd": "close"})
+                self._set(rec, state="dormant", blocked=None)
+        if live is not None:
+            self._end(live)
+        data = self._read_history(sid)
+        if data is None:
+            raise RunError("That conversation has nothing to go back in.", "empty")
+        kept: List[Dict[str, Any]] = []
+        users = 0
+        for msg in self._transcript(sid, data):
+            if msg.get("role") == "user":
+                users += 1
+                if users > turn:
+                    break
+            kept.append({k: v for k, v in msg.items() if k not in ("masked", "stripped")})
+        if users < turn:
+            raise RunError(f"That conversation has only {users} requests.", "bad_turn")
+        folder = self.history_dir(sid)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        (folder / f"before-going-back-{stamp}.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        for name in ("archive.jsonl", "inflight.json"):
+            try:
+                (folder / name).replace(folder / f"{name}.{stamp}") if name == "archive.jsonl" else (folder / name).unlink()
+            except OSError:
+                pass
+        _write_json(folder / "history.json", {**{k: v for k, v in data.items() if k not in ("messages", "pending", "announced")},
+                                              "turns": turn, "saved": time.time(), "messages": kept, "pending": []})
+        with self._lock:
+            self._set(self._record(sid), state="dormant", blocked=None, question=None, ask=None, turns=turn, waiting_requests=0, put_aside=0)
+        self._push(sid, {"event": "went_back", "turn": turn})
+        return self.get(sid)
+
     def snapshots(self, sid: str) -> Dict[str, Any]:
         with self._lock:
             self._record(sid)

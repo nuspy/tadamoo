@@ -113,6 +113,14 @@ class PlansApiTest(PlansApiBase):
         self.assertEqual(self.call("POST", "/api/plans", raw=b"[1]")[0], 400)
         self.assertEqual(self.call("POST", "/api/plans", {"plan": {"title": "no id"}})[0], 400)
 
+    def test_the_plan_as_a_mermaid_diagram(self):
+        self.call("POST", "/api/plans", {"plan": {**PLAN, "plan_id": "mermaid-one"}, "card": CARD})
+        code, body = self.call("GET", "/api/plans/mermaid-one/mermaid")
+        self.assertEqual(code, 200)
+        self.assertTrue(body["mermaid"].startswith("%% Weekend a Cervinia\nflowchart TD\n"))
+        self.assertIn("n_hotel --> n_partenza", body["mermaid"])
+        self.assertEqual(self.call("GET", "/api/plans/missing/mermaid")[0], 404)
+
     def test_events_edit_the_plan_are_saved_and_can_be_followed(self):
         plan = {**PLAN, "plan_id": "edits"}
         self.call("POST", "/api/plans", {"plan": plan, "card": CARD})
