@@ -391,12 +391,12 @@ code { font-family: var(--font-mono); font-size: .92em; }
 .answer .wait { color: var(--fg-2); }
 .dots::after { content: "…"; display: inline-block; animation: blink 1.2s steps(2, start) infinite; }
 @keyframes blink { to { visibility: hidden; } }
-.think { border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg); }
+.think { border: 1px solid var(--line-soft); border-left: 3px solid #B38CF0; border-radius: 8px; background: var(--bg); }
 .think summary { min-height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px; cursor: pointer; color: var(--fg-2); font-size: 14.5px; list-style: none; }
 .think summary::-webkit-details-marker { display: none; }
 .think summary::before { content: ""; width: 0; height: 0; border-left: 6px solid currentColor; border-top: 5px solid transparent; border-bottom: 5px solid transparent; transition: transform .15s; }
 .think[open] summary::before { transform: rotate(90deg); }
-.think-b { padding: 4px 12px 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg-2); font-size: 15px; max-height: 320px; overflow-y: auto; }
+.think-b { padding: 4px 12px 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg-2); font: 400 14px/1.55 var(--font-mono); max-height: calc(20 * 1.55em + 16px); overflow-y: auto; overscroll-behavior: contain; }
 .composer { border-top: 1px solid var(--line); padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; background: var(--panel); flex: none; }
 .composer textarea { width: 100%; resize: none; padding: 10px 12px; min-height: 52px; max-height: 40vh; display: block; }
 .crow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

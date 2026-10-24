@@ -294,7 +294,7 @@ const chatSettings = (() => {
   $("#cs-close").onclick = () => { openPanel(false); $("#cs-open").focus(); };
   $("#chatset").addEventListener("keydown", e => { if (e.key === "Escape") { openPanel(false); $("#cs-open").focus(); } });
   // a setting changed by hand (not the preset controls): kept as it is on the next opening
-  const byHand = e => e.target.closest && !e.target.closest("#cs-preset-box");
+  const byHand = e => e.target.closest && !e.target.closest("#cs-preset-box") && e.target.id !== "cs-show-reasoning";
   $("#cs-form").addEventListener("input", e => {
     const f = fieldsOf().find(x => x.id === e.target.id);
     if (f) { const p = mark(f); say(p ? T("cs.bad", T(f.label), p) : "", p ? "err" : ""); }
@@ -334,10 +334,19 @@ const chatSettings = (() => {
   });
   document.addEventListener("basalt:view", e => { if (e.detail === "chat") defaults(); });
 
+  // whether the chat shows the model's reasoning: a display choice of this client, not part of a preset
+  const SHOW = "basalt.showreasoning";
+  const showReasoning = () => load(SHOW, true) !== false;
+  $("#cs-show-reasoning").checked = showReasoning();
+  $("#cs-show-reasoning").addEventListener("change", e => {
+    keep(SHOW, e.target.checked);
+    document.dispatchEvent(new CustomEvent("basalt:showreasoning"));
+  });
+
   write(load(STORE, {}));
   drawPresets("");
   defaults();
   fetchPresets();
   if (load("basalt.chatset.open", false) && innerWidth > 980) openPanel(true);
-  return { body, system, policy, threshold, structured };
+  return { body, system, policy, threshold, structured, showReasoning };
 })();

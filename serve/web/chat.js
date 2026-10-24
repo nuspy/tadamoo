@@ -119,21 +119,47 @@
       const b = document.createElement("div"); b.className = "bubble"; b.textContent = m.text; el.append(b);
       const meta = document.createElement("div"); meta.className = "meta"; meta.textContent = `You · ${time(m.time)}`; el.append(meta);
     } else {
-      el.innerHTML = `<details class="think" hidden><summary><span class="think-t"></span></summary><div class="think-b"></div></details>` +
+      el.innerHTML = `<details class="think" hidden><summary><span class="think-t"></span></summary><div class="think-b" tabindex="0" role="region" aria-label="Reasoning"></div></details>` +
         `<div class="answer"></div><div class="meta"><span class="meta-t"></span>` +
         `<button type="button" class="btn ghost copy" hidden>Copy</button></div>`;
+      watchThink(el);
       paint(el, m, false);
     }
     return el;
   }
-  function paint(el, m, streaming) {
+  /* the reasoning box: open while the model thinks and closed once it is done, unless the reader took over by
+     opening or closing it or by scrolling inside it; it shows 20 lines and scrolls for the rest */
+  function watchThink(el) {
+    const det = el.querySelector(".think"), body = el.querySelector(".think-b");
+    const touch = () => { det.dataset.touched = "1"; };
+    det.querySelector("summary").addEventListener("click", touch);
+    const scrolled = () => { if (body.scrollHeight > body.clientHeight) touch(); };
+    for (const ev of ["wheel", "touchmove", "pointerdown"]) body.addEventListener(ev, scrolled, { passive: true });
+    body.addEventListener("keydown", e => { if (/^(Arrow|Page|Home|End)/.test(e.key)) scrolled(); });
+  }
+  function paintThink(el, m, streaming) {
     const det = el.querySelector(".think");
-    if (m.reasoning) {
-      det.hidden = false;
-      const now = streaming && !m.text;
-      el.querySelector(".think-t").textContent = now ? "Thinking…" : m.thinkSecs != null ? `Thought for ${m.thinkSecs.toFixed(1)} s` : "Thinking";
-      if (det.open || now) el.querySelector(".think-b").textContent = m.reasoning;
+    if (!m.reasoning || !chatSettings.showReasoning()) { det.hidden = true; return; }
+    det.hidden = false;
+    const now = streaming && !m.text;
+    el.querySelector(".think-t").textContent = now ? "Thinking…" : m.thinkSecs != null ? `Thought for ${m.thinkSecs.toFixed(1)} s` : "Thinking";
+    const body = el.querySelector(".think-b"), shown = body.firstChild ? body.firstChild.length : 0;
+    if (!shown || shown > m.reasoning.length) {
+      body.textContent = m.reasoning;
+      body.scrollTop = body.scrollHeight;
+    } else if (shown < m.reasoning.length) {
+      const atEnd = body.scrollHeight - body.scrollTop - body.clientHeight < 8;      // only a reader at the end is followed
+      body.firstChild.appendData(m.reasoning.slice(shown));
+      if (atEnd) body.scrollTop = body.scrollHeight;
     }
+    if (now && !det.dataset.auto) { det.dataset.auto = "1"; det.open = true; }
+    else if (!now && det.dataset.auto === "1") { det.dataset.auto = "done"; if (!det.dataset.touched) det.open = false; }
+  }
+  document.addEventListener("basalt:showreasoning", () => {
+    msgs.querySelectorAll(".cmsg.assistant").forEach(e => { const m = messages[+e.dataset.i]; if (m) paintThink(e, m, !!busy && busy.el === e); });
+  });
+  function paint(el, m, streaming) {
+    paintThink(el, m, streaming);
     const a = el.querySelector(".answer");
     if (m.error) {
       a.replaceChildren(Object.assign(document.createElement("p"), { className: "err", textContent: `Error: ${m.error}` }));
@@ -177,10 +203,6 @@
     const done = ok => { b.textContent = ok ? "Copied" : "Copy failed"; setTimeout(() => { b.textContent = "Copy"; }, 1500); };
     if (navigator.clipboard) navigator.clipboard.writeText(m.text).then(() => done(true), () => done(false)); else done(false);
   });
-  msgs.addEventListener("toggle", e => {
-    const d = e.target;
-    if (d.tagName === "DETAILS" && d.open) { const m = messages[+d.closest(".cmsg").dataset.i]; if (m) d.querySelector(".think-b").textContent = m.reasoning; }
-  }, true);
 
   /* ---- sending ---- */
   // the conversation as API messages, with the system prompt first; `at[k]` is the conversation index of message k

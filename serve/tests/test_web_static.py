@@ -181,6 +181,29 @@ class MarkupTest(unittest.TestCase):
         self.assertIn('narrow() ? "list" : "graph"', js)
 
 
+class ReasoningBoxTest(unittest.TestCase):
+    """The chat's reasoning box: a setting of this client, 20 lines tall, closed by itself only when the reader left it."""
+
+    def test_the_setting_is_in_the_panel_and_the_chat_asks_it(self):
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="cs-show-reasoning"', html)
+        self.assertIn("showReasoning", (WEB / "chatset.js").read_text(encoding="utf-8"))
+        self.assertIn("chatSettings.showReasoning()", (WEB / "chat.js").read_text(encoding="utf-8"))
+
+    def test_the_box_shows_twenty_lines_and_scrolls_for_the_rest(self):
+        css = (WEB / "app.css").read_text(encoding="utf-8")
+        rule = re.search(r"\.think-b \{([^}]*)\}", css).group(1)
+        self.assertIn("max-height: calc(20 * 1.55em", rule)
+        self.assertIn("14px/1.55", rule)                                 # the 20 lines are counted in this line height
+        self.assertIn("overflow-y: auto", rule)
+
+    def test_reading_by_hand_stops_the_automatic_closing(self):
+        js = (WEB / "chat.js").read_text(encoding="utf-8")
+        for event in ("wheel", "touchmove", "pointerdown", "click"):
+            self.assertIn(event, js[js.index("function watchThink"):js.index("function paintThink")])
+        self.assertIn("if (!det.dataset.touched) det.open = false", js)
+
+
 class ContrastTest(unittest.TestCase):
     def test_text_colours_reach_4_5_to_1_on_their_surfaces(self):
         v = css_vars()
