@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TextIO
 
 from harness import agent_loop as al
+from harness.client import StreamCancelled
 from harness.stack import AgentConfig, BuiltAgent, build_agent, data_dir_for
 
 HEARTBEAT_S = 5.0
@@ -147,6 +148,8 @@ class Session:
     def _on_delta(self, kind: str, text: str) -> None:
         """The model's text as it is written, in pieces of a few hundred characters or a quarter of a second."""
         self.last_progress = time.monotonic()
+        if self.agent.cancel.is_set():
+            raise StreamCancelled()                      # the connection closes and the model stops writing
         with self._delta_lock:
             if self._delta_kind and self._delta_kind != kind:
                 self._flush_delta()

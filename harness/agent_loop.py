@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from harness.audit import AuditLedger
 from harness.checkpoints import CheckpointManager
-from harness.client import BasaltClient, BasaltError, extract_reasoning_and_content
+from harness.client import BasaltClient, BasaltError, StreamCancelled, extract_reasoning_and_content
 from harness.context import ContextManager, wire_messages
 from harness.hooks import HookManager
 from harness.permissions import PermissionManager
@@ -330,6 +330,9 @@ class AgentLoop:
                                                    temperature=temperature, **({"extra": opts} if opts else {}),
                                                    **({"on_delta": self.on_delta} if self.on_delta else {}))
                 msg = resp["choices"][0]["message"]
+            except StreamCancelled:                     # the person stopped the answer while it was being written
+                self.stop_reason = CANCELLED
+                break
             except (BasaltError, KeyError, IndexError, TypeError) as exc:
                 self.stop_reason, self.error = ERROR, str(exc) or type(exc).__name__
                 self.error_status = exc.status if isinstance(exc, BasaltError) else None

@@ -125,6 +125,28 @@ def test_the_text_is_handed_on_in_pieces_before_the_whole_message(tmp_path):
     assert order.index("delta") < order.index("agent") < order.index("done")
 
 
+def test_a_cancel_stops_the_answer_while_it_is_being_written(tmp_path):
+    written, gate = [], threading.Event()
+
+    class Slow:
+        def chat_completion(self, messages, tools=None, on_delta=None, **kw):
+            for i in range(1000):
+                on_delta("content", f"parola{i} ")        # raises once the person has cancelled
+                written.append(i)
+                if i == 2:
+                    gate.set()
+                time.sleep(0.01)
+            return say("mai arrivato")
+
+    session, ev, store, built = make(tmp_path, Slow())
+    session.send("m1", "racconta")
+    gate.wait(5)
+    session.cancel()
+    done = ev.wait("done", 5)
+    assert done["stop_reason"] == al.CANCELLED and len(written) < 100
+    assert not any(m["role"] == "assistant" for m in built.agent.messages)        # the half-written answer is not kept
+
+
 def test_a_second_message_while_one_runs_is_refused(tmp_path):
     gate = threading.Event()
     client = Scripted(lambda: (gate.wait(5), say("ok"))[1])

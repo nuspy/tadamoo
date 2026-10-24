@@ -47,6 +47,10 @@ def extract_reasoning_and_content(message: Dict[str, Any]) -> Tuple[str, str]:
     return reasoning.strip(), content.strip()
 
 
+class StreamCancelled(Exception):
+    """Raised by an `on_delta` callback to stop reading a stream: the connection is closed and the server stops writing."""
+
+
 def _is_json_text(text: str) -> bool:
     try:
         json.loads(text)
