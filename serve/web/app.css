@@ -894,3 +894,28 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .dl-steps li > b { display: block; margin-bottom: 6px; }
 .dl-steps a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 .dl-steps .field { margin-top: 6px; }
+
+/* the conversations mode of the Chat: what the agent wrote, did and asked, in order */
+.amsgs[hidden] { display: none; }
+.ablocks { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ablock, .ablocks > .answer { min-width: 0; }
+.atool { border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg); font-size: 14.5px; }
+.atool summary { min-height: 40px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; padding: 4px 12px; cursor: pointer; list-style: none; color: var(--fg-2); }
+.atool summary::-webkit-details-marker { display: none; }
+.atool-n { font-family: var(--font-mono); color: var(--fg); }
+.atool[data-s="running"] .atool-s { color: var(--accent); }
+.atool[data-s="failed"] { border-color: var(--bad, #FF8FA3); }
+.atool[data-s="failed"] .atool-s { color: var(--bad, #FF8FA3); }
+.atool pre { margin: 0; padding: 8px 12px; font: 400 13.5px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; border-top: 1px solid var(--line-soft); color: var(--fg-2); }
+.atool .chip { margin: 0 12px 8px; min-height: 44px; }
+.aask, .ablocked { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--surface); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+.ablocked { border-left-color: var(--bad, #FF8FA3); }
+.aask-q, .ablocked p { margin: 0; overflow-wrap: anywhere; }
+.aask-b { display: flex; flex-wrap: wrap; gap: 8px; }
+.aask-b .btn { min-height: 44px; }
+.aask-b .picked { outline: 2px solid var(--accent); }
+.aask-h { margin: 0; font-size: 14px; color: var(--fg-2); }
+.anote { font-size: 14px; color: var(--fg-2); font-style: italic; }
+.chathead .effort { min-width: 0; max-width: 100%; }
+.chathead .effort select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+#asessions { width: min(100%, 30ch); }

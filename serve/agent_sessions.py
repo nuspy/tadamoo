@@ -57,10 +57,12 @@ class SessionManager:
     def __init__(self, directory: str | Path, endpoint: str, api_key: str = "", board: Optional[ApprovalBoard] = None,
                  python: Optional[str] = None, root: Path = ROOT, command: Optional[Callable[[str, Dict[str, Any], Path], List[str]]] = None,
                  idle_s: float = 1800.0, hang_s: float = 1200.0, beat_timeout_s: float = 45.0, restart_cap: int = 3,
-                 restart_window_s: float = 600.0, tick_s: float = 1.0, start_wait_s: float = 60.0) -> None:
+                 restart_window_s: float = 600.0, tick_s: float = 1.0, start_wait_s: float = 60.0,
+                 default_workspace: Optional[Path] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
+        self.default_workspace = Path(default_workspace) if default_workspace else None     # where a conversation works when none is named
         self.python, self.root = python or sys.executable, Path(root)
         self.command = command or self._command
         self.idle_s, self.hang_s, self.beat_timeout_s = idle_s, hang_s, beat_timeout_s
@@ -142,6 +144,9 @@ class SessionManager:
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
                confirm_auto: bool = False, max_turns: Any = 15) -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
+        if (workspace is None or workspace == "") and self.default_workspace is not None:
+            self.default_workspace.mkdir(parents=True, exist_ok=True)
+            workspace = str(self.default_workspace)
         path = AgentRunner.check_workspace(workspace)
         if mode not in MODES:
             raise RunError("The mode must be one of: " + ", ".join(MODES) + ".", "bad_mode")

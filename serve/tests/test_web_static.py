@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "serve" / "web"
-NEW_SCRIPTS = ("plans.js", "tasks.js", "changes.js", "shell.js", "agent.js")
+NEW_SCRIPTS = ("plans.js", "tasks.js", "changes.js", "shell.js", "agent.js", "agentchat.js")
 # keys the scripts build at run time, as prefix + each value
 DYNAMIC = {
     "pl.type.": ["action", "sensor", "decision", "merge"],
@@ -23,6 +23,10 @@ DYNAMIC = {
     "pl.card.": ["titolo", "date", "destinazione", "partecipanti", "logistica_e_prenotazioni", "profilo_e_vincoli_partecipanti"],
     "pl.actor.": ["user", "chat", "planner", "system"],
     "pl.kind.": ["occasional", "constant"],
+    "ch.state.": ["dormant", "starting", "idle", "busy", "blocked", "asking", "closed"],
+    "ch.tool.": ["running", "ok", "failed"],
+    "ch.q.": ["plan_create", "plan_mark", "plan_change", "plan_archive", "permission"],
+    "ch.blocked.": ["refused", "error", "model_unavailable", "model_not_loaded", "process_unstable", "interrupted_irreversible", "crash", "start_failed", "other"],
     "pl.h.": ["create", "archive", "restore", "update_node", "mark", "rewind", "apply", "fallback", "update_meta"],
     "tk.status.": ["running", "done", "failed", "closed", "pending", "blocked"],
     "ag.status.": ["running", "done", "failed", "stopped", "interrupted"],
@@ -202,6 +206,27 @@ class ReasoningBoxTest(unittest.TestCase):
         for event in ("wheel", "touchmove", "pointerdown", "click"):
             self.assertIn(event, js[js.index("function watchThink"):js.index("function paintThink")])
         self.assertIn("if (!det.dataset.touched) det.open = false", js)
+
+
+class ConversationChatTest(unittest.TestCase):
+    """The Chat on conversations: a mode selector, its own message area, buttons for the questions, nothing from the agent as markup."""
+
+    def test_the_page_has_the_mode_the_list_and_the_message_area(self):
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        for needle in ('id="chatmode"', 'id="asessions"', 'id="amsgs"', 'src="web/agentchat.js"'):
+            self.assertIn(needle, html)
+        self.assertLess(html.index("web/chat.js"), html.index("web/agentchat.js"))          # it uses what chat.js shares
+
+    def test_the_questions_have_buttons_that_answer_or_send_and_the_stop_works(self):
+        js = (WEB / "agentchat.js").read_text(encoding="utf-8")
+        for needle in ("`/${sid}/answer`", "`/${sid}/cancel`", "send(value)", "ch.answered"):
+            self.assertIn(needle, js)
+        self.assertIn("agent()", (WEB / "chat.js").read_text(encoding="utf-8"))               # the composer is handed over in this mode
+
+    def test_what_the_agent_wrote_enters_the_page_as_text(self):
+        js = (WEB / "agentchat.js").read_text(encoding="utf-8")
+        for banned in ("innerHTML", "insertAdjacentHTML", "document.write", "eval("):
+            self.assertNotIn(banned, js)
 
 
 class CutReplyTest(unittest.TestCase):

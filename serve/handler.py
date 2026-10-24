@@ -1112,7 +1112,7 @@ def make_handler(svc: Service):
             global _SESSIONS
             if _SESSIONS is None:
                 _SESSIONS = SessionManager(userdata.path("journal"), f"http://127.0.0.1:{self.server.server_address[1]}",
-                                           svc.api_key or "", board=_APPROVALS)
+                                           svc.api_key or "", board=_APPROVALS, default_workspace=userdata.path("chat-workspace"))
             return _SESSIONS
 
         def _agent_get(self, path):

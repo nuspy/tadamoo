@@ -322,7 +322,12 @@
   }
   const status = t => { $("#chat-status").textContent = t; };
 
+  // the conversations mode (agentchat.js) takes the composer when it is on; this file keeps the model-only chat
+  const agent = () => (window.agentChat && window.agentChat.active() ? window.agentChat : null);
+
   async function send() {
+    const a = agent();
+    if (a) { const t = prompt.value.trim(); if (t) { prompt.value = ""; autosize(); a.send(t); } return; }
     const text = prompt.value.trim();
     if ((!text && !attachments.length) || busy) return;
     messages.push({ role: "user", text, images: attachments, time: Date.now() });
@@ -419,7 +424,7 @@
   }
 
   $("#composer").onsubmit = e => { e.preventDefault(); send(); };
-  $("#stop").onclick = () => { if (busy) busy.controller.abort(); };
+  $("#stop").onclick = () => { const a = agent(); if (a) a.stop(); else if (busy) busy.controller.abort(); };
   prompt.addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
     else if (e.key === "Escape" && busy) busy.controller.abort();
@@ -427,6 +432,8 @@
   function autosize() { prompt.style.height = "auto"; prompt.style.height = `${Math.min(prompt.scrollHeight + 2, innerHeight * 0.4)}px`; }
   prompt.addEventListener("input", autosize);
   $("#new-chat").onclick = () => {
+    const a = agent();
+    if (a) { a.newChat(); prompt.focus(); return; }
     if (busy) busy.controller.abort();
     messages = []; save(); render(); status("New chat"); prompt.focus(); meter();
   };
@@ -480,6 +487,13 @@
   }
   document.addEventListener("basalt:key", () => { capabilities(); meter(); });
   document.addEventListener("basalt:view", e => { if (e.detail === "chat") { scrollDown(true); meter(); } });
+
+  // what the conversations mode shares: the safe Markdown and the reasoning box, so both chats look and behave alike
+  window.chatUi = {
+    renderMarkdown: (el, text) => { el.innerHTML = markdown(text || ""); },
+    watchThink, paintThink, scrollDown, autosize,
+    setPrompt: t => { prompt.value = t; autosize(); prompt.focus(); },
+  };
 
   render();
   capabilities().then(meter);

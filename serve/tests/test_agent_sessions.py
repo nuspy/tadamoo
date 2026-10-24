@@ -256,3 +256,15 @@ def test_a_process_that_dies_while_it_waits_for_an_answer_is_started_again_and_t
     _kill_tree(mgr._live[sid].proc)
     until(lambda: kinds(mgr, sid).count("ready") == 2)
     assert mgr.get(sid)["state"] == "busy" and mgr.get(sid).get("ask") is None        # the question died with the process
+
+
+def test_a_conversation_without_a_named_folder_works_in_the_default_one(make, tmp_path):
+    mgr = make(default_workspace=tmp_path / "chat-workspace")
+    rec = mgr.create(None)
+    assert Path(rec["workspace"]) == (tmp_path / "chat-workspace").resolve() and Path(rec["workspace"]).is_dir()
+    bare = SessionManager(tmp_path / "j2", "http://127.0.0.1:1", command=stub_command(), tick_s=0.1)
+    try:
+        with pytest.raises(RunError):
+            bare.create("")                                                     # no default and no folder: still refused
+    finally:
+        bare.shutdown()

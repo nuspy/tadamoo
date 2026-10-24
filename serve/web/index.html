@@ -18,6 +18,7 @@
 <script defer src="web/shell.js"></script>
 <script defer src="web/chatset.js"></script>
 <script defer src="web/chat.js"></script>
+<script defer src="web/agentchat.js"></script>
 <script defer src="web/settings.js"></script>
 <script defer src="web/models.js"></script>
 <script defer src="web/download.js"></script>
@@ -96,6 +97,14 @@
       <div class="sh chathead">
         <b>Chat</b><span class="chatmodel" id="chat-model"></span>
         <span class="grow"></span>
+        <label class="effort" for="chatmode"><span data-t="ch.mode">Mode</span>
+          <select id="chatmode">
+            <option value="agent" data-t="ch.mode.agent">With tools</option>
+            <option value="ask" data-t="ch.mode.ask">Question only</option>
+            <option value="direct" data-t="ch.mode.direct">Model only</option>
+          </select>
+        </label>
+        <label class="effort" for="asessions"><span data-t="ch.sessions">Conversation</span><select id="asessions"></select></label>
         <label class="effort" for="effort"><span>Thinking</span>
           <select id="effort">
             <option value="">High (default)</option>
@@ -111,6 +120,12 @@
         <div class="chat-empty" id="chat-empty">
           <b>Ask the model anything.</b>
           <span>Answers stream from this server's own <code>/v1/chat/completions</code>. The conversation stays in this browser.</span>
+        </div>
+      </div>
+      <div class="msgs amsgs" id="amsgs" role="log" aria-label="Conversation" aria-live="polite" tabindex="0" hidden>
+        <div class="chat-empty" id="achat-empty">
+          <b data-t="ch.empty.t">Ask, or ask it to do something.</b>
+          <span data-t="ch.empty.b"></span>
         </div>
       </div>
       <form class="composer" id="composer">
