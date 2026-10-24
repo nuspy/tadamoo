@@ -1110,6 +1110,8 @@ def make_handler(svc: Service):
                 if len(parts) == 3 and parts[0] == "runs" and parts[2] == "log":
                     lines = int((parse_qs(urlsplit(self.path).query).get("lines", ["300"])[0]) or 300)
                     return self._json(200, self._agent_runner().log(parts[1], lines))
+                if len(parts) == 3 and parts[0] == "runs" and parts[2] == "checkpoints":
+                    return self._json(200, {"checkpoints": self._agent_runner().checkpoints(parts[1])})
                 if parts == ["approvals"]:
                     return self._json(200, _APPROVALS.view())
                 if len(parts) == 2 and parts[0] == "approvals":
@@ -1140,6 +1142,8 @@ def make_handler(svc: Service):
                     return self._json(200, {"run": run})
                 if len(parts) == 3 and parts[0] == "runs" and parts[2] == "stop":
                     return self._json(200, {"run": self._agent_runner().stop(parts[1])})
+                if len(parts) == 3 and parts[0] == "runs" and parts[2] == "rewind":
+                    return self._json(200, self._agent_runner().rewind(parts[1], req.get("checkpoint"), req.get("accept_irreversible") is True))
                 if parts == ["approvals"]:
                     return self._json(200, _APPROVALS.request(req.get("run", ""), req.get("tool"), req.get("arguments", {}), req.get("effect", "")))
                 if len(parts) == 2 and parts[0] == "approvals":
@@ -1149,7 +1153,7 @@ def make_handler(svc: Service):
             except RunBusy as e:
                 return self._json(409, {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except RunError as e:
-                return self._json(409 if e.code in ("not_running", "gone") else 400,
+                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint") else 400,
                                   {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except ApprovalError as e:
                 return self._json(409 if "already" in str(e) or "not there" in str(e) else 400,

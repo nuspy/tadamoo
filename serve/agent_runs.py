@@ -119,6 +119,40 @@ class AgentRunner:
         tail = text.splitlines()[-max(1, min(int(lines), 2000)):]
         return {"text": "\n".join(tail), "truncated": size > LOG_TAIL_BYTES or len(tail) < len(text.splitlines())}
 
+    # -- going back ------------------------------------------------------------------------------------
+
+    def _workspace_of(self, run_id: str) -> tuple:
+        run = self.get(run_id)
+        if run is None:
+            raise RunError("That run is not in the list any more.", "gone")
+        path = Path(run["workspace"])
+        if not path.is_dir():
+            raise RunError("The folder of that run is not there any more.", "folder_not_found")
+        from harness.stack import data_dir_for                # imported here: the pages do not need the agent to be installed
+        return path, data_dir_for(path)
+
+    def checkpoints(self, run_id: str) -> List[Dict[str, Any]]:
+        """The checkpoints of the folder a run worked in, with what happened after each (see harness.rewind)."""
+        from harness.rewind import checkpoint_report
+        path, data = self._workspace_of(run_id)
+        return [{**cp, "after": cp["after"][-8:]} for cp in checkpoint_report(data, path)]
+
+    def rewind(self, run_id: str, checkpoint_id: Any, accept_irreversible: bool = False) -> Dict[str, Any]:
+        from harness.rewind import checkpoint_report, rewind
+        path, data = self._workspace_of(run_id)
+        with self._lock:
+            if any(r["status"] == "running" for r in self.runs):
+                raise RunBusy("Stop the agent before going back: it is still working in a folder.", "busy")
+            target = next((c for c in checkpoint_report(data, path) if c["id"] == checkpoint_id), None)
+            if target is None:
+                raise RunError("That checkpoint is not there any more.", "no_checkpoint")
+            if target["not_undone"] and accept_irreversible is not True:
+                raise RunError("Some later actions cannot be undone by putting the files back.", "needs_yes")
+            try:
+                return {**rewind(data, path, checkpoint_id), "not_undone": target["not_undone"]}
+            except (OSError, ValueError) as exc:
+                raise RunError(f"Could not go back: {exc}", "rewind_failed") from None
+
     # -- starting and stopping -------------------------------------------------------------------------
 
     @staticmethod

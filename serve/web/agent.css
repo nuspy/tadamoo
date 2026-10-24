@@ -66,3 +66,9 @@
 
 @media (prefers-reduced-motion: reduce) { .agent * { transition: none !important; animation: none !important; } }
 .ag-waiting { border-color: var(--pl-block); }
+.ag-cp { display: grid; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; background: var(--surface); }
+.ag-cp-head { font-weight: 600; overflow-wrap: anywhere; }
+.ag-cp-sub, .ag-cp li { color: var(--fg-2); font-size: 13px; overflow-wrap: anywhere; }
+.ag-cp ul { margin: 0; padding-left: 18px; }
+.ag-cp .stays { color: var(--pl-block); }
+.ag-note { color: var(--pl-block); margin: 0; overflow-wrap: anywhere; }

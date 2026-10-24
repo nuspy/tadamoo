@@ -24,7 +24,7 @@ DYNAMIC = {
     "tk.status.": ["running", "done", "failed", "closed", "pending", "blocked"],
     "ag.status.": ["running", "done", "failed", "stopped", "interrupted"],
     "ag.mode.": ["plan", "read_only", "default", "auto"],
-    "ag.e.": ["folder_missing", "folder_relative", "folder_not_found", "folder_drive", "goal_missing", "goal_long", "bad_mode", "auto_confirm", "bad_rules", "bad_steps", "busy", "start_failed", "not_running", "gone", "approval", "offline", "key", "local"],
+    "ag.e.": ["folder_missing", "folder_relative", "folder_not_found", "folder_drive", "goal_missing", "goal_long", "bad_mode", "auto_confirm", "bad_rules", "bad_steps", "busy", "start_failed", "not_running", "gone", "approval", "offline", "key", "local", "needs_yes", "no_checkpoint", "rewind_failed"],
     "ch.state.": ["pending", "partial", "kept", "reverted", "superseded"],
     "tab.": ["chat", "agent", "plans", "stats", "loader", "hardware", "logs", "settings"],
 }

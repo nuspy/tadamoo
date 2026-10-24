@@ -215,3 +215,36 @@ def test_the_approval_board_expires_and_answers_once():
             break
     else:
         raise AssertionError("pending approvals are not capped")
+
+
+def test_going_back_from_the_page_restores_files_and_asks_before_leaving_actions_done(setup, ws):  # noqa: F811
+    (ws / "a.txt").write_text("one\n", encoding="utf-8")
+    s = setup([tool_call("write_file", path="a.txt", content="two\n"),
+               tool_call("shell_command", command=f'{PY} -c "print(1)"'), answer("Done.")])
+    run_id = start(s["api"], ws, "change and run", mode="auto", confirm_auto=True)[1]["run"]["id"]
+    wait_for(lambda: finished(s["api"], run_id))
+    status, body = s["api"]("GET", f"/api/agent/runs/{run_id}/checkpoints")
+    first = body["checkpoints"][0]
+    assert status == 200 and first["description"] == "before write_file" and [a["tool"] for a in first["not_undone"]] == ["shell_command"]
+    status, body = s["api"]("POST", f"/api/agent/runs/{run_id}/rewind", {"checkpoint": first["id"]})
+    assert status == 409 and body["error"]["code"] == "needs_yes"
+    assert (ws / "a.txt").read_text(encoding="utf-8") == "two\n"                       # nothing was touched
+    status, body = s["api"]("POST", f"/api/agent/runs/{run_id}/rewind", {"checkpoint": first["id"], "accept_irreversible": True})
+    assert status == 200 and body["restored"] == first["id"] and body["safety_checkpoint"]
+    assert (ws / "a.txt").read_text(encoding="utf-8") == "one\n"
+    assert s["api"]("POST", f"/api/agent/runs/{run_id}/rewind", {"checkpoint": body["safety_checkpoint"]})[0] == 200        # the rewind is undone
+    assert (ws / "a.txt").read_text(encoding="utf-8") == "two\n"
+
+
+def test_going_back_is_refused_while_the_agent_runs_and_for_unknown_things(setup, ws):  # noqa: F811
+    s = setup([tool_call("shell_command", command="echo hi"), answer("x")])
+    run_id = start(s["api"], ws, "wait", mode="default")[1]["run"]["id"]
+    wait_for(lambda: s["api"]("GET", "/api/agent/approvals")[1]["pending"])
+    status, body = s["api"]("POST", f"/api/agent/runs/{run_id}/rewind", {"checkpoint": "cp_1_1"})
+    assert status == 409 and body["error"]["code"] == "busy"
+    s["api"]("POST", f"/api/agent/runs/{run_id}/stop", {})
+    wait_for(lambda: finished(s["api"], run_id))
+    assert s["api"]("POST", f"/api/agent/runs/{run_id}/rewind", {"checkpoint": "cp_9_9"})[1]["error"]["code"] == "no_checkpoint"
+    assert s["api"]("POST", f"/api/agent/runs/nope/rewind", {"checkpoint": "cp_1_1"})[1]["error"]["code"] == "gone"
+    assert s["api"]("GET", "/api/agent/runs/nope/checkpoints")[0] == 404
+    assert s["api"]("POST", f"/api/agent/runs/{run_id}/rewind", {"checkpoint": "cp_1_1"}, headers={"Origin": "http://evil.example"})[0] == 403

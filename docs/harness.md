@@ -164,7 +164,9 @@ wide, not for phones.
   *Approve* and *Deny*; one nobody answers within 15 minutes, or whose run ended, counts as a refusal. Under *More options*:
   the most steps, and rules for commands it may run without asking. The page shows the run's status and a readable log (one
   line for each tool, then its answer) and a button to the Monitor, where its edits can be reviewed; *Stop* ends the
-  agent and everything it started. One run at a time. It works only from the PC the server runs on, with the API key if the
+  agent and everything it started. *Go back* lists the checkpoints of the folder, with what the agent did after each, and puts the
+  files back to one of them (press twice); actions that stay done, such as a command it ran, are listed and the button warns. The
+  state before the rewind is itself a checkpoint, so going back can be undone. One run at a time. It works only from the PC the server runs on, with the API key if the
   server has one. The agent is the same `python -m harness` as on the command line, started by the server with
   `--progress --result-file --ask-server`; the log and the result file are in the data folder (`journal/runs`).
 - **Plans**: the graph (drawn with status as icon and word as well as colour), an ordered list that works by keyboard,

@@ -193,6 +193,68 @@
     box.replaceChildren(list);
   }
 
+  /* ---- going back ---- */
+  let lastCheckpoints = "";
+
+  /* A button that asks twice before it acts: the first press changes its label, the second goes ahead. */
+  function undoButton(label, aria, act) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn";
+    b.textContent = label;
+    b.setAttribute("aria-label", aria);
+    let armed = null;
+    b.addEventListener("click", () => {
+      if (armed) { clearTimeout(armed); armed = null; act(); return; }
+      b.textContent = T("ag.back.confirm");
+      armed = setTimeout(() => { armed = null; b.textContent = label; }, 5000);
+    });
+    return b;
+  }
+
+  async function refreshCheckpoints() {
+    const run = runs.find(r => r.id === selected) || runs[0];
+    const box = $id("ag-checkpoints");
+    if (!run || run.status === "running") { lastCheckpoints = ""; box.replaceChildren(text("p", "dim ag-empty", run ? T("ag.back.running") : T("ag.back.none"))); return; }
+    const res = await call("GET", `api/agent/runs/${run.id}/checkpoints`);
+    if (!res.ok) { box.replaceChildren(text("p", "dim ag-empty", explain(res))); return; }
+    const list = (res.data.checkpoints || []).filter(c => c.description !== "" ).slice().reverse();
+    const sig = JSON.stringify([run.id, list.map(c => [c.id, c.after.length])]);
+    if (sig === lastCheckpoints) return;
+    lastCheckpoints = sig;
+    if (!list.length) { box.replaceChildren(text("p", "dim ag-empty", T("ag.back.none"))); return; }
+    const ul = document.createElement("ul");
+    ul.className = "ag-list";
+    list.forEach(cp => {
+      const li = document.createElement("li");
+      li.className = "ag-cp";
+      li.append(text("div", "ag-cp-head", cp.description), text("div", "ag-cp-sub", `${when(cp.time)} · ${T("ag.back.files", cp.files)}`));
+      if (cp.after.length) {
+        const after = document.createElement("ul");
+        cp.after.forEach(a => after.append(text("li", a.effect === "irreversible" ? "stays" : "", a.effect === "irreversible" ? `${a.what} — ${T("ag.back.stays")}` : a.what)));
+        li.append(text("div", "ag-cp-sub", T("ag.back.after")), after);
+      }
+      const warn = cp.not_undone.length > 0;
+      if (warn) li.append(text("p", "ag-note", T("ag.back.warn", cp.not_undone.length)));
+      const row = document.createElement("div");
+      row.className = "ag-actions";
+      const label = T("ag.back.go");
+      row.append(undoButton(label, `${label}: ${cp.description}`, () => goBack(run.id, cp, warn)));
+      li.append(row);
+      ul.append(li);
+    });
+    box.replaceChildren(ul);
+  }
+
+  async function goBack(runId, cp, accept) {
+    const note = $id("ag-back-msg");
+    const res = await call("POST", `api/agent/runs/${runId}/rewind`, { checkpoint: cp.id, accept_irreversible: accept });
+    note.classList.toggle("bad", !res.ok);
+    note.textContent = res.ok ? T("ag.back.done", cp.description) : explain(res);
+    lastCheckpoints = "";
+    await refreshCheckpoints();
+  }
+
   /* ---- what it asks ---- */
   async function decide(item, approve) {
     const res = await call("POST", `api/agent/approvals/${item.id}`, { decision: approve ? "approve" : "deny" });
@@ -274,6 +336,7 @@
     if (l.ok) loaded = !!l.data.loaded;
     renderAll();
     await refreshLog();
+    await refreshCheckpoints();
     schedule();
   }
 
