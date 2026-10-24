@@ -57,8 +57,9 @@ skills, connections) and the history is kept between messages. The server starts
 | `GET /api/agent/sessions` | the conversations, newest first, with their state: `dormant`, `starting`, `idle`, `busy`, `blocked`, `closed` |
 | `POST /api/agent/sessions` | creates one: `workspace`, `mode`, `allow`, `ask_only` (answers without tools), `title`, `max_turns` |
 | `POST .../<id>/send` | `{"text"}`; a dormant conversation wakes from its saved history; 409 while it is still answering |
-| `GET .../<id>/events?after=N` | what happened since event N: `user`, `ready`, `accepted`, `agent` (assistant text, tool start and end), `retrying`, `restarting`, `stalled`, `done`, `blocked` |
+| `GET .../<id>/events?after=N` | what happened since event N: `user`, `ready`, `accepted`, `agent` (assistant text, tool start and end), `retrying`, `restarting`, `stalled`, `ask`, `answered`, `done`, `blocked` |
 | `GET .../<id>/history` | the saved messages |
+| `POST .../<id>/answer` | `{"ask", "value"}`: the person's answer to a confirmation the conversation is waiting for (`asking`); the value must be one of the buttons |
 | `POST .../<id>/cancel`, `/resume`, `/close` | stop the turn; go on after a block; end the conversation |
 
 The history is saved after every model turn, and a message is on disk before the model sees it. Failures are handled in
@@ -76,6 +77,34 @@ person. A tool that cannot be undone is **never run again by a restart**: its st
 dies while it runs, the next start reports `interrupted_irreversible`, nothing goes on by itself, and the conversation
 gets a note that the tool may already have run. A conversation idle for 30 minutes loses its process (it is `dormant`; the
 history stays). The processes end with the server. Secrets are masked before the history reaches the disk.
+
+### The Chat and the planner
+
+A conversation has the planner's tools (`harness/planner_tools.py`), unless it is started `ask_only`: `plan_list` and
+`plan_get` read; `plan_create`, `plan_propose_change`, `plan_mark` and `plan_archive` change; `ask_user` asks a question with
+buttons. The plans live in the server, in the one store the Plans view uses, and every change made from the Chat names the
+Chat as its author in the plan's history.
+
+**Every change to a plan has the person's yes, in every permission mode**, and it is one of two things:
+
+* *their own words*: the call carries a literal quotation (`quote`) of what they asked for. It counts only when it is
+  at least 6 characters, is in their latest message, and nothing from outside (a page, a file, a memory, a plan read in this
+  turn) came in after that message. It is a brake for the common case, not a proof;
+* *a question from the harness*: the question is made from the call's real data (the plan's real title, the real steps, the
+  real diff), never from the model's words, and the person answers with a button. The turn waits.
+
+A plan must be read (`plan_get`) before it is changed; the change carries the revision that was read, and a plan that changed
+meanwhile is refused until it is read again. A proposed change to a plan's structure is shown to the person as what it adds,
+removes and changes, and a no rejects the proposal. With nobody to ask (a headless run) the tool says so plainly and changes
+nothing.
+
+`ask_user` ends the turn. The buttons are the question's options (a label and the text sent when it is pressed, at most 300
+characters), the person can always write instead, and whatever they press or write is their next message. Permission
+questions (a risky shell command, a phone call) are put in the conversation the same way.
+
+The conversation is told about the plans in a short note placed *before* the person's message and only when the plans changed
+since the last note (the most recently touched plans first, at most 8), so the server's cache is not disturbed and a claim
+about plans never follows a message from outside.
 
 ## How a tool call is decided
 

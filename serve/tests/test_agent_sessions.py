@@ -210,3 +210,49 @@ def test_what_the_page_can_ask_is_checked(make, ws, tmp_path):
             mgr.send(sid, bad)
     with pytest.raises(RunError):
         mgr.send("nope", "ciao")
+
+
+def test_a_confirmation_is_kept_with_its_buttons_until_the_person_answers(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "ask")
+    until(lambda: mgr.get(sid)["state"] == "asking")
+    ask = mgr.get(sid)["ask"]
+    assert ask["id"] == "a1" and ask["question"] == "Archive it?" and ask["facts"] == {"plan": "X"}
+    with pytest.raises(RunBusy, match="waiting for your answer"):
+        mgr.send(sid, "intanto scrivo")
+    with pytest.raises(RunError, match="not one of the answers"):
+        mgr.answer(sid, "a1", "forse")
+    with pytest.raises(RunError, match="not waiting"):
+        mgr.answer(sid, "zzz", "confirm")
+    mgr.answer(sid, "a1", "confirm")
+    done = until(lambda: next((e for e in mgr.events(sid)["events"] if e["event"] == "done"), None))
+    assert done["final"] == "answered: confirm"
+    assert mgr.get(sid)["state"] == "idle" and mgr.get(sid)["ask"] is None
+    with pytest.raises(RunError, match="not waiting"):
+        mgr.answer(sid, "a1", "confirm")                                         # answered once, not twice
+
+
+def test_a_question_that_ends_the_turn_stays_until_the_next_message(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "question")
+    until(lambda: "done" in kinds(mgr, sid))
+    rec = mgr.get(sid)
+    assert rec["state"] == "idle" and rec["question"]["options"] == [{"label": "Sat", "value": "Saturday"}]
+    mgr.send(sid, "Saturday")                                                   # the button is the next message
+    assert mgr.get(sid)["question"] is None                                     # it is gone as soon as it is answered
+    until(lambda: kinds(mgr, sid).count("done") == 2)
+    assert mgr.get(sid)["question"] is None
+    assert [m["content"] for m in mgr.history(sid)["messages"]][-2:] == ["Saturday", "echo: Saturday"]
+
+
+def test_a_process_that_dies_while_it_waits_for_an_answer_is_started_again_and_the_question_is_gone(make, ws):
+    mgr = make(command=stub_command(die_times=0))
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "ask")
+    until(lambda: mgr.get(sid)["state"] == "asking")
+    from serve.agent_runs import _kill_tree
+    _kill_tree(mgr._live[sid].proc)
+    until(lambda: kinds(mgr, sid).count("ready") == 2)
+    assert mgr.get(sid)["state"] == "busy" and mgr.get(sid).get("ask") is None        # the question died with the process

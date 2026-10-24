@@ -28,6 +28,7 @@ TOOL_CALL_REGEX = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL)
 FUNCTION_REGEX = re.compile(r"<function=([^>\s]+)>(.*?)</function>", re.DOTALL)
 PARAMETER_REGEX = re.compile(r"<parameter=([^>\s]+)>\n?(.*?)\n?</parameter>", re.DOTALL)
 FINAL, MAX_TURNS, CANCELLED, BUDGET, LOOP, ERROR = "final", "max_turns", "cancelled", "budget", "loop", "error"
+ASKED = "asked"       # the turn ended on a question for the person; their answer is the next message
 
 
 @dataclass
@@ -134,6 +135,13 @@ class AgentLoop:
         self.total_tokens = 0
         self._started = False
         self._loop_strikes = 0
+        self.last_user_text = ""                      # the words of the person's latest message
+        self.untrusted_since_user = False             # content from outside came in after that message
+        self._end_turn = False
+
+    def request_end_turn(self) -> None:
+        """For a tool: end this run when the tools of the current model turn are done (a question was put to the person)."""
+        self._end_turn = True
 
     def _emit(self, event: Dict[str, Any]) -> None:
         """Tells an observer what is happening (assistant text, tool start and end); it can never affect the run."""
@@ -308,8 +316,10 @@ class AgentLoop:
                 self.hooks.trigger_event("session_start", {"goal": user_goal})
         if user_goal is not None:
             self.messages.append({"role": "user", "content": user_goal})
+            self.last_user_text, self.untrusted_since_user = user_goal, False
         if retrieved:
             self.messages.append(retrieved)     # memories and wiki text go after the goal, at the tail
+            self.untrusted_since_user = True
         run_turns: List[AgentTurn] = []
 
         for turn_idx in range(1, self.max_turns + 1):
@@ -383,6 +393,7 @@ class AgentLoop:
                 text = self._stringify(call.name, result.output)
                 if tool is not None and tool.untrusted and result.decision == "executed" and not result.is_error:
                     text = _fence_untrusted(call.name, text)
+                    self.untrusted_since_user = True
                 self._emit({"type": "tool_end", "call_id": call.call_id, "name": call.name,
                             "status": "completed" if result.decision == "executed" and not result.is_error else "failed",
                             "decision": result.decision, "output": text})
@@ -390,6 +401,9 @@ class AgentLoop:
 
             turn.seconds = round(time.monotonic() - t0, 3)
             self._finish_turn(turn, run_turns)
+            if self._end_turn:                       # a tool asked the person something: nothing goes on until they answer
+                self._end_turn, self.stop_reason = False, ASKED
+                break
             if self._loop_strikes > self.max_loop_strikes:
                 self.stop_reason = LOOP
                 break

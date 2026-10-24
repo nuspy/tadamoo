@@ -1168,6 +1168,8 @@ def make_handler(svc: Service):
                                                                       req.get("confirm_auto") is True, req.get("max_turns", 15))})
                     if len(parts) == 3 and parts[2] == "send":
                         return self._json(200, mgr.send(parts[1], req.get("text")))
+                    if len(parts) == 3 and parts[2] == "answer":
+                        return self._json(200, {"session": mgr.answer(parts[1], req.get("ask"), req.get("value"))})
                     if len(parts) == 3 and parts[2] == "cancel":
                         return self._json(200, {"session": mgr.cancel(parts[1])})
                     if len(parts) == 3 and parts[2] == "resume":
@@ -1191,7 +1193,7 @@ def make_handler(svc: Service):
             except RunBusy as e:
                 return self._json(409, {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except RunError as e:
-                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint", "not_blocked", "closed") else 400,
+                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint", "not_blocked", "closed", "not_asking", "asking") else 400,
                                   {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except ApprovalError as e:
                 return self._json(409 if "already" in str(e) or "not there" in str(e) else 400,

@@ -92,3 +92,24 @@ def test_what_the_api_refuses(setup, ws):
     assert api("POST", f"/api/agent/sessions/{sid}/resume", {})[0] == 409
     code, _ = api("POST", "/api/agent/sessions", {"workspace": str(ws)}, headers={"Origin": "http://evil.example"})
     assert code == 403
+
+
+def test_a_confirmation_in_the_conversation_is_answered_through_the_api(setup, ws):
+    from harness.session import SessionStore  # noqa: F401  (the real process is used below)
+    plan = {"plan_id": "viaggio", "title": "Viaggio a Cervinia", "nodes": {"s1": {"id": "s1", "type": "action", "title": "Prenota", "description": "", "assignee": "agent",
+                                                                                     "dependencies": [], "outputs": [], "status": "pending"}}}
+    s = setup([tool_call("plan_archive", plan_id="viaggio"), answer("Archiviato."), answer("x")])
+    api = s["api"]
+    code, _ = api("POST", "/api/plans", {"plan": {**plan, "target_type": "occasional"}})
+    assert code == 201
+    sid = api("POST", "/api/agent/sessions", {"workspace": str(ws), "mode": "default"})[1]["session"]["id"]
+    api("POST", f"/api/agent/sessions/{sid}/send", {"text": "metti via il piano del viaggio"})
+    ask = wait_for(lambda: api("GET", f"/api/agent/sessions/{sid}")[1]["session"].get("ask"), seconds=60)
+    assert ask["facts"]["kind"] == "plan_archive" and "Viaggio a Cervinia" in ask["question"]
+    assert any(p["plan_id"] == "viaggio" for p in api("GET", "/api/plans")[1]["plans"])           # nothing archived yet
+    assert api("POST", f"/api/agent/sessions/{sid}/send", {"text": "intanto"})[0] == 409
+    assert api("POST", f"/api/agent/sessions/{sid}/answer", {"ask": ask["id"], "value": "boh"})[0] == 400
+    assert api("POST", f"/api/agent/sessions/{sid}/answer", {"ask": ask["id"], "value": "confirm"})[0] == 200
+    wait_for(lambda: any(e["event"] == "done" for e in events(api, sid)["events"]), seconds=60)
+    assert not any(p["plan_id"] == "viaggio" for p in api("GET", "/api/plans")[1]["plans"])
+    assert any(p["plan_id"] == "viaggio" for p in api("GET", "/api/plans?archived=1")[1]["plans"])

@@ -79,6 +79,15 @@ for line in sys.stdin:
         if text == "irreversible":
             (H / "inflight.json").write_text(json.dumps({"tool": "pay"}))
             os._exit(3)
+        if text == "ask":
+            emit({"event": "ask", "id": "a1", "mode": "confirm", "kind": "plan_archive", "question": "Archive it?", "facts": {"plan": "X"},
+                  "options": [{"label": "Confirm", "value": "confirm"}, {"label": "Cancel", "value": "cancel"}]})
+            continue                                                       # waits for the answer
+        if text == "question":
+            emit({"event": "ask", "id": "q1", "mode": "question", "question": "Which day?", "options": [{"label": "Sat", "value": "Saturday"}]})
+            busy["v"] = False
+            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "asked", "final": ""})
+            continue
         if text == "block":
             emit({"event": "blocked", "turn": cmd.get("id"), "reason": "refused", "detail": "no", "options": ["resume", "close"]})
             busy["v"] = False
@@ -88,10 +97,15 @@ for line in sys.stdin:
         save(data)
         busy["v"] = False
         emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "echo: " + text})
+    elif name == "answer":
+        busy["v"] = False
+        emit({"event": "done", "turn": "answered", "stop_reason": "final", "final": "answered: " + str(cmd.get("value"))})
     elif name == "resume":
         last = data["messages"][-1]["content"] if data["messages"] else ""
         if last == "die" and starts <= args.die_times:                      # the same message ends this process again
             os._exit(3)
+        if last == "ask":                                                    # it asks the same question again and waits
+            continue
         data["turns"] += 1
         save(data)
         emit({"event": "done", "turn": "resumed", "stop_reason": "final", "final": "resumed after %d messages" % len(data["messages"])})

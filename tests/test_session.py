@@ -354,3 +354,136 @@ def test_the_process_speaks_lines_of_json_and_closes_on_command(tmp_path, monkey
     assert "heartbeat" in kinds and any(e.get("code") == "bad_command" for e in events)
     assert next(e for e in events if e["event"] == "done")["final"] == "Ciao dal processo."
     assert json.loads((tmp_path / "h" / "history.json").read_text(encoding="utf-8"))["turns"] == 1
+
+
+# ---- questions to the person: confirmations that wait, questions that end the turn, the plans note ----------------
+
+class FakePlans:
+    """Stands in for the planner client: the plans live in a list."""
+
+    def __init__(self, plans=None):
+        self.plans = plans if plans is not None else [{"plan_id": "p1", "title": "Viaggio a Cervinia", "nodes": 2, "completed": 0}]
+        self.archived = []
+
+    def list(self, archived=False):
+        return list(self.plans)
+
+    def snapshot(self, plan_id):
+        p = next(x for x in self.plans if x["plan_id"] == plan_id)
+        return {"plan": {"plan_id": plan_id, "title": p["title"], "target_type": "occasional", "nodes": {}}, "rev": 1}
+
+    def archive(self, plan_id):
+        self.archived.append(plan_id)
+        self.plans = [p for p in self.plans if p["plan_id"] != plan_id]
+
+
+def with_planner(tmp_path, client, plans=None, mode="auto"):
+    ws = tmp_path / "ws"
+    ws.mkdir(exist_ok=True)
+    built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False,
+                                    permission_mode=mode, max_turns=6), client=client)
+    events = Events()
+    store = SessionStore(tmp_path / "hist", redact=built.agent.secrets.mask_secrets)
+    session = Session(built, store, events, session_id="s1", sleep=lambda s: None)
+    built.permissions.confirm_callback = session.permission_confirm
+    fake = plans or FakePlans()
+    session.enable_planner(fake)
+    return session, events, fake, built
+
+
+def test_a_confirmation_is_a_question_with_buttons_the_turn_waits_for(tmp_path):
+    client = Scripted(call("plan_archive", plan_id="p1"), say("Archiviato."))
+    session, ev, plans, built = with_planner(tmp_path, client)
+    session.send("m1", "metti via quel piano")
+    ask = ev.wait("ask")
+    assert ask["mode"] == "confirm" and "Viaggio a Cervinia" in ask["question"] and ask["facts"]["kind"] == "plan_archive"
+    assert [o["value"] for o in ask["options"]] == ["confirm", "cancel"]
+    time.sleep(0.3)
+    assert session.waiting and session.busy and plans.archived == []                  # waiting, and nothing done yet
+    assert session.answer(ask["id"], "confirm")
+    assert ev.wait("done")["final"] == "Archiviato." and plans.archived == ["p1"]
+    assert session.waiting is False
+
+
+def test_an_answer_that_is_not_one_of_the_buttons_is_ignored_and_a_cancel_ends_the_wait(tmp_path):
+    client = Scripted(call("plan_archive", plan_id="p1"))
+    session, ev, plans, built = with_planner(tmp_path, client)
+    session.send("m1", "metti via quel piano")
+    ask = ev.wait("ask")
+    assert session.answer(ask["id"], "forse") is False and ev.wait("error")["code"] == "bad_answer"
+    assert session.answer("nope", "confirm") is False
+    session.cancel()
+    assert ev.wait("done")["stop_reason"] == al.CANCELLED and plans.archived == []
+
+
+def test_a_question_tool_ends_the_turn_and_the_button_is_the_next_message(tmp_path):
+    client = Scripted(call("ask_user", question_text="Quale giorno?", options=[{"label": "Sabato", "value": "Parto sabato"}]), say("Va bene sabato."))
+    session, ev, plans, built = with_planner(tmp_path, client)
+    session.send("m1", "organizza il weekend")
+    ask = ev.wait("ask")
+    assert ask["mode"] == "question" and ask["options"] == [{"label": "Sabato", "value": "Parto sabato"}]
+    done = ev.wait("done")
+    assert done["stop_reason"] == al.ASKED and len(client.sent) == 1                  # the model was not called again
+    n = len(ev.items)
+    session.send("m2", ask["options"][0]["value"])                                      # the button is pressed
+    assert ev.wait("done", after=n)["final"] == "Va bene sabato."
+    assert [m["content"] for m in client.sent[1] if m["role"] == "user"][-1] == "Parto sabato"
+
+
+def test_the_permission_question_is_put_in_the_conversation(tmp_path):
+    ran = []
+    client = Scripted(call("pay", amount="5"), say("Fatto."))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="default")
+    built.agent.tools.register("pay", "pays", {"type": "object", "properties": {"amount": {"type": "string"}}}, EffectClass.IRREVERSIBLE,
+                               lambda **kw: ran.append(kw) or "paid")
+    session.send("m1", "paga")
+    ask = ev.wait("ask")
+    assert ask["kind"] == "permission" and ask["tool"] == "pay" and ask["arguments"] == {"amount": "5"}
+    session.answer(ask["id"], "confirm")
+    ev.wait("done")
+    assert ran == [{"amount": "5"}]
+
+
+def test_a_no_to_the_permission_question_runs_nothing(tmp_path):
+    ran = []
+    client = Scripted(call("pay", amount="5"), say("Non l'ho fatto."))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="default")
+    built.agent.tools.register("pay", "pays", {"type": "object", "properties": {"amount": {"type": "string"}}}, EffectClass.IRREVERSIBLE,
+                               lambda **kw: ran.append(kw) or "paid")
+    session.send("m1", "paga")
+    session.answer(ev.wait("ask")["id"], "cancel")
+    ev.wait("done")
+    assert ran == []
+
+
+def test_the_plans_note_comes_before_the_message_and_only_when_the_plans_changed(tmp_path):
+    client = Scripted(say("Uno."), say("Due."), say("Tre."))
+    session, ev, plans, built = with_planner(tmp_path, client)
+    session.send("m1", "ciao")
+    ev.wait("done")
+    first = [m["content"] for m in client.sent[0] if m["role"] == "user"]
+    assert first[0].startswith("[harness] The user's plans now:") and "Viaggio a Cervinia" in first[0] and first[1] == "ciao"
+    n = len(ev.items)
+    session.send("m2", "ancora")
+    ev.wait("done", after=n)
+    second = [m["content"] for m in client.sent[1] if m["role"] == "user"]
+    assert second == first + ["ancora"]                                                 # nothing new while nothing changed
+    plans.plans = []
+    n = len(ev.items)
+    session.send("m3", "e adesso?")
+    ev.wait("done", after=n)
+    third = [m["content"] for m in client.sent[2] if m["role"] == "user"]
+    assert third[-2] == "[harness] The user has no active plans now." and third[-1] == "e adesso?"
+    assert client.sent[1][:len(client.sent[0])] == client.sent[0]                      # the prefix did not change between two turns
+
+
+def test_a_turn_waiting_for_the_person_is_never_reported_as_stuck(tmp_path):
+    session, ev, plans, built = with_planner(tmp_path, Scripted(call("plan_archive", plan_id="p1"), say("Ok, niente.")))
+    session.send("m1", "metti via quel piano")
+    ask = ev.wait("ask")
+    session.last_progress -= 3600                          # an hour of silence from the model
+    assert session.waiting and session.idle_seconds() == 0.0
+    session.answer(ask["id"], "cancel")
+    ev.wait("done")
+    session.busy, session.last_progress = True, time.monotonic() - 100
+    assert 99 <= session.idle_seconds() <= 102             # a turn that is only silent does count

@@ -8,6 +8,8 @@ list of conversations, starts and stops the processes, buffers their events for 
   conversation is blocked and waits for the person;
 * a process whose turn makes no progress for `hang_s` is ended and started again;
 * a conversation idle for `idle_s` has its process closed (it is dormant: the history stays, the next message wakes it);
+* a confirmation the process asks (a change to a plan, a risky action) is kept with its buttons until the person answers; the
+  conversation is `asking` meanwhile and a turn waiting for the person is never taken for a stuck one;
 * when the process says it is blocked (a refusal, retries that ran out, an action that cannot be undone and was running
   when it died), the conversation waits for the person: nothing is decided for them and nothing is run again.
 """
@@ -35,6 +37,7 @@ EVENTS_KEPT = 3000
 SESSIONS_FILE = "agent_sessions.json"
 TITLE_CHARS = 80
 OPTIONS = ("resume", "close")
+ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments")
 
 
 class Live:
@@ -85,6 +88,7 @@ class SessionManager:
         for r in out:
             if r.get("state") not in ("closed",):
                 r["state"] = "dormant"                       # no process survives the server
+            r.pop("ask", None)                                # and a confirmation it was waiting for goes with it
         return out
 
     def _save(self) -> None:
@@ -162,7 +166,7 @@ class SessionManager:
 
     def _command(self, sid: str, rec: Dict[str, Any], history: Path) -> List[str]:
         cmd = [self.python, "-m", "harness", "session", "--session-id", sid, "--history-dir", str(history), "--workspace", rec["workspace"],
-               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--ask-server"]
+               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15))]
         for rule in rec.get("allow", []):
             cmd += ["--allow", rule]
         if rec.get("ask_only"):
@@ -241,11 +245,18 @@ class SessionManager:
                         self._write(sid, live, cmd)
             elif kind == "accepted":
                 self._unconfirmed.pop(sid, None)
-                self._set(rec, state="busy", blocked=None)
+                self._set(rec, state="busy", blocked=None, ask=None, question=None)
+            elif kind == "ask":
+                shown = {k: event.get(k) for k in ASK_FIELDS}
+                if event.get("mode") == "confirm":
+                    self._set(rec, state="asking", ask=shown)
+                else:
+                    self._set(rec, question=shown)
             elif kind == "done":
-                self._set(rec, state="idle", blocked=None, turns=rec.get("turns", 0) + 1)
+                asked = event.get("stop_reason") == "asked"
+                self._set(rec, state="idle", blocked=None, ask=None, turns=rec.get("turns", 0) + 1, **({} if asked else {"question": None}))
             elif kind == "blocked":
-                self._set(rec, state="blocked", blocked={k: event.get(k) for k in ("reason", "detail", "options", "tool", "arguments")})
+                self._set(rec, state="blocked", ask=None, blocked={k: event.get(k) for k in ("reason", "detail", "options", "tool", "arguments")})
             elif kind == "closed":
                 live.ending = True
         self._push(sid, event)
@@ -270,7 +281,8 @@ class SessionManager:
     def _died(self, sid: str, rec: Dict[str, Any], why: str) -> None:
         """A process that was meant to be there is gone: start it again from its history, or ask the person."""
         with self._lock:
-            was_busy = rec["state"] in ("busy", "starting")
+            was_busy = rec["state"] in ("busy", "starting", "asking")
+            rec.pop("ask", None)
             if rec["state"] == "blocked" or not was_busy:   # waiting for the person, or nothing running: it starts at the next message
                 self._set(rec, state="dormant")
                 return
@@ -316,6 +328,8 @@ class SessionManager:
             rec = self._record(sid)
             if rec["state"] == "closed":
                 raise RunError("That conversation is closed.", "closed")
+            if rec["state"] == "asking" and sid in self._live:
+                raise RunBusy("The agent is waiting for your answer to its question. Answer it, or stop it.", "asking")
             if rec["state"] in ("busy", "starting") and sid in self._live:
                 raise RunBusy("The agent is still answering the last message. Stop it or wait.", "busy")
             turn = secrets.token_hex(3)
@@ -324,13 +338,29 @@ class SessionManager:
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
                 rec["title"] = " ".join(text.split())[:TITLE_CHARS]
-            self._set(rec, state="starting" if not live.ready.is_set() else "busy", blocked=None)
+            self._set(rec, state="starting" if not live.ready.is_set() else "busy", blocked=None, question=None)
             if not live.ready.is_set():
                 live.after_ready.append(cmd)
             elif not self._write(sid, live, cmd):
                 raise RunError("The agent process did not take the message; try again.", "write_failed")
         self._push(sid, {"event": "user", "turn": turn, "text": text})
         return {"turn": turn, "session": self.get(sid)}
+
+    def answer(self, sid: str, ask_id: Any, value: Any) -> Dict[str, Any]:
+        """The person's answer to a confirmation: it must be one of the buttons of the question that is waiting."""
+        with self._lock:
+            rec = self._record(sid)
+            ask = rec.get("ask")
+            live = self._live.get(sid)
+            if not ask or live is None or ask.get("id") != ask_id:
+                raise RunError("That question is not waiting for an answer any more.", "not_asking")
+            if value not in [o.get("value") for o in ask.get("options") or []]:
+                raise RunError("That is not one of the answers.", "bad_answer")
+            self._set(rec, state="busy", ask=None)
+            if not self._write(sid, live, {"cmd": "answer", "id": ask_id, "value": value}):
+                raise RunError("The agent process did not take the answer; try again.", "write_failed")
+        self._push(sid, {"event": "answered", "ask": ask_id, "value": value})
+        return self.get(sid)
 
     def cancel(self, sid: str) -> Dict[str, Any]:
         with self._lock:

@@ -4,8 +4,10 @@ The server starts one of these for each conversation of the Chat and talks to it
 stdin, events out on stdout. The process builds the agent once (tools, skills, connections), so a message does not pay
 for the start, and saves the history after every model turn, so a process that dies can be started again from it.
 
-Commands: {"cmd": "send", "id", "text"}, {"cmd": "cancel"}, {"cmd": "resume"}, {"cmd": "close"}, {"cmd": "ping"}.
-Events: ready, accepted, agent (an assistant text or a tool start or end), retrying, done, blocked, heartbeat, error.
+Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd": "cancel"}, {"cmd": "resume"}, {"cmd": "close"},
+{"cmd": "ping"}.
+Events: ready, accepted, agent (an assistant text or a tool start or end), delta (text as it is written), ask (a question with
+buttons: a confirmation the turn waits for, or a question that ends the turn), retrying, done, blocked, heartbeat, error.
 
 A failed model call is retried here, with growing waits, while the model or the server is only slow or busy; a refusal
 that waiting cannot change, or retries that ran out, end the turn as `blocked` and the process waits for the person:
@@ -112,6 +114,11 @@ class Session:
         self._worker: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         self._pending_note: Optional[str] = None
+        self._asks: Dict[str, Dict[str, Any]] = {}              # confirmations the turn is waiting for, by id
+        self._ask_lock = threading.Lock()
+        self.waiting = False                                    # a turn waiting for the person is not stuck
+        self.planner: Any = None
+        self._summary = ""                                      # the plans summary the conversation last got
         self._delta_lock = threading.Lock()
         self._delta_kind, self._delta_text, self._delta_at = "", [], time.monotonic()
         self.agent.on_event = self._on_event
@@ -121,7 +128,7 @@ class Session:
     # -- the history -----------------------------------------------------------------------------------
 
     def _save(self) -> None:
-        self.store.save(self.agent.messages[1:], {"session": self.session_id, "turns": self.turns_done})
+        self.store.save(self.agent.messages[1:], {"session": self.session_id, "turns": self.turns_done, "plans_summary": self._summary})
 
     def restore(self) -> int:
         """Takes the saved history back. An action that cannot be undone and was running when the process died is
@@ -131,6 +138,7 @@ class Session:
         if data:
             self.agent.messages = [self.agent.messages[0], *data["messages"]]
             self.turns_done = int(data.get("turns") or 0)
+            self._summary = str(data.get("plans_summary") or "")
             count = len(data["messages"])
         lost = self.store.inflight()
         if lost:
@@ -178,6 +186,69 @@ class Session:
                 shown[key] = shown[key][:EVENT_CHARS] + f"\n[... {len(event[key]) - EVENT_CHARS} more characters]"
         self.emit({"event": "agent", "turn": self.turn_id, "data": shown})
 
+    # -- questions to the person -------------------------------------------------------------------------
+
+    def _ask(self, payload: Dict[str, Any]) -> str:
+        """A confirmation: shown with its buttons, and the turn waits for the answer ("confirm", "cancel" or "" if the turn
+        was cancelled). A turn waiting for the person is not stuck."""
+        aid = uuid.uuid4().hex[:8]
+        slot = {"event": threading.Event(), "value": "", "values": {o["value"] for o in payload.get("options", [])}}
+        with self._ask_lock:
+            self._asks[aid] = slot
+        self.emit({"event": "ask", "id": aid, "turn": self.turn_id, **payload})
+        self.waiting = True
+        try:
+            while not slot["event"].wait(0.25):
+                self.last_progress = time.monotonic()
+                if self.agent.cancel.is_set():
+                    return ""
+            return slot["value"]
+        finally:
+            self.waiting = False
+            with self._ask_lock:
+                self._asks.pop(aid, None)
+
+    def answer(self, aid: Any, value: Any) -> bool:
+        with self._ask_lock:
+            slot = self._asks.get(str(aid))
+        if slot is None or value not in slot["values"]:
+            self.emit({"event": "error", "code": "bad_answer", "message": "no such question, or not one of its answers"})
+            return False
+        slot["value"] = value
+        slot["event"].set()
+        return True
+
+    def _question(self, payload: Dict[str, Any]) -> bool:
+        """A question that ends the turn: the button the person presses is their next message."""
+        self.emit({"event": "ask", "id": uuid.uuid4().hex[:8], "turn": self.turn_id, **payload})
+        return True
+
+    def permission_confirm(self, tool: str, arguments: Dict[str, Any]) -> bool:
+        """The permission manager's question, put to the person in the conversation."""
+        shown = json.dumps(arguments, ensure_ascii=False)[:300]
+        return self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments,
+                          "question": f"Allow {tool} {shown}?",
+                          "options": [{"label": "Allow", "value": "confirm"}, {"label": "Deny", "value": "cancel"}]}) == "confirm"
+
+    def enable_planner(self, client: Any) -> None:
+        """Gives the conversation the planner's tools and the question tool; every change to a plan asks."""
+        from harness.planner_tools import Confirmer, register_ask_tool, register_planner_tools
+        self.planner = client
+        register_planner_tools(self.agent.tools, client, Confirmer(self.agent, ask=self._ask))
+        register_ask_tool(self.agent.tools, self.agent, self._question)
+
+    def _plans_note(self) -> Optional[str]:
+        """What the conversation should be told about the plans: only when they changed since it last was, and before the
+        person's message, so what follows a message from outside is never a claim about plans."""
+        if self.planner is None:
+            return None
+        from harness.planner_tools import plans_summary
+        summary = plans_summary(self.planner)
+        if summary == self._summary:
+            return None
+        self._summary = summary
+        return "[harness] The user's plans now:\n" + summary if summary else "[harness] The user has no active plans now."
+
     # -- commands --------------------------------------------------------------------------------------
 
     def send(self, turn_id: str, text: str) -> bool:
@@ -190,8 +261,13 @@ class Session:
         if self._pending_note:
             self.agent.messages.append({"role": "user", "content": self._pending_note})
             self._pending_note = None
+        note = self._plans_note()
+        if note:
+            self.agent.messages.append({"role": "user", "content": note})
         self.agent.messages.append({"role": "user", "content": text})
+        self.agent.last_user_text = text
         retrieved = self.built.retrieved_message(text)
+        self.agent.untrusted_since_user = bool(retrieved)
         if retrieved:
             self.agent.messages.append(retrieved)
         self._save()                                   # the message is kept before the model sees it
@@ -216,6 +292,12 @@ class Session:
 
     def cancel(self) -> None:
         self.agent.cancel.set()
+
+    def idle_seconds(self) -> float:
+        """How long the running turn has gone without news; a turn waiting for the person is not stuck, so 0."""
+        if not self.busy or self.waiting:
+            return 0.0
+        return round(time.monotonic() - self.last_progress, 1)
 
     def _start(self, first: bool) -> None:
         self._worker = threading.Thread(target=self._work, name="session-turn", daemon=True)
@@ -299,8 +381,9 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--deny", action="append", default=[], metavar="PATTERN")
     parser.add_argument("--secret-env", action="append", default=[], metavar="NAME")
     parser.add_argument("--skills", action="append", default=[], metavar="DIR")
-    parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages")
+    parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of in the conversation")
     parser.add_argument("--ask-only", action="store_true", help="answer without tools: a greeting does not become a loop")
+    parser.add_argument("--no-planner", action="store_true", help="do not offer the planner's tools")
     parser.add_argument("--no-memory", action="store_true")
     parser.add_argument("--no-checkpoints", action="store_true")
     parser.add_argument("--heartbeat", type=float, default=HEARTBEAT_S)
@@ -349,6 +432,11 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     history = Path(args.history_dir) if args.history_dir else data_dir_for(Path(args.workspace).resolve()) / "sessions" / sid
     store = SessionStore(history, redact=built.agent.secrets.mask_secrets if built.agent.secrets else None)
     session = Session(built, store, emit, session_id=sid, health=lambda: server_health(cfg.endpoint, cfg.api_key))
+    if not args.ask_server:
+        built.permissions.confirm_callback = session.permission_confirm      # the questions are put in the conversation
+    if not args.ask_only and not args.no_planner:
+        from harness.integrations.planner_client import PlannerClient
+        session.enable_planner(PlannerClient(cfg.endpoint, cfg.api_key))
     restored = session.restore()
     emit({"event": "ready", "session": sid, "restored": restored, "pid": os.getpid(), "blocked": session.blocked})
 
@@ -356,8 +444,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
 
     def beat() -> None:
         while not stop.wait(args.heartbeat):
-            emit({"event": "heartbeat", "busy": session.busy, "turn": session.turn_id,
-                  "idle_s": round(time.monotonic() - session.last_progress, 1) if session.busy else 0.0})
+            emit({"event": "heartbeat", "busy": session.busy, "turn": session.turn_id, "asking": session.waiting,
+                  "idle_s": session.idle_seconds()})
     threading.Thread(target=beat, name="session-heartbeat", daemon=True).start()
 
     try:
@@ -373,6 +461,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
             name = cmd.get("cmd") if isinstance(cmd, dict) else None
             if name == "send" and isinstance(cmd.get("text"), str) and cmd["text"].strip():
                 session.send(str(cmd.get("id") or uuid.uuid4().hex[:8]), cmd["text"])
+            elif name == "answer":
+                session.answer(cmd.get("id"), cmd.get("value"))
             elif name == "cancel":
                 session.cancel()
             elif name == "resume":
