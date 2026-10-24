@@ -14,6 +14,8 @@
   const W = 156, H = 56, GX = 54, GY = 28, PAD = 16;
   const ICON = { pending: "○", in_progress: "▶", completed: "✓", failed: "✕", blocked: "⏸", skipped: "↷" };
   const TYPES = ["action", "sensor", "decision", "merge"];
+  /* events that write into the plan carry the revision the page last read, so a late one cannot overwrite a newer one */
+  const DIRECT = ["plan:update_node", "plan:mark", "plan:rewind", "plan:update_meta", "plan:fallback_response"];
   const S = {
     plans: [], id: "", snap: null, selected: "", proposal: "", mode: "", seq: 0, running: false, ready: false,
     settings: null, refreshTimer: null, abort: null, flash: {},
@@ -91,17 +93,21 @@
     ui.proposals = el("section", { class: "sec pl-props", "aria-labelledby": "pl-props-h" });
     ui.offers = el("section", { class: "sec pl-offers", "aria-labelledby": "pl-offers-h" });
     ui.add = el("details", { class: "sec pl-add" });
+    ui.manage = el("details", { class: "sec pl-manage" });
+    ui.history = el("section", { class: "sec pl-history", "aria-labelledby": "pl-hist-h" });
+    ui.archived = el("details", { class: "sec pl-archived", ontoggle: e => { if (e.target.open) loadArchived(); } });
     ui.triage = el("details", { class: "sec pl-triage" });
     ui.empty = el("p", { class: "pl-empty dim", text: T("pl.none") });
     root.replaceChildren(
       el("div", { class: "pl-bar" },
         el("label", { for: "pl-select", text: T("pl.select") }), ui.select, connEl,
         el("div", { class: "pl-modes", role: "group", "aria-label": T("pl.view.label") }, ui.modeGraph, ui.modeList)),
-      ui.newForm, statusEl, ui.empty, ui.summary,
-      el("div", { class: "pl-main" }, el("div", { class: "pl-canvas" }, ui.graph, ui.list), el("div", { class: "pl-side" }, ui.detail, ui.proposals, ui.offers)),
-      ui.add, ui.triage);
+      ui.newForm, ui.archived, statusEl, ui.empty, ui.summary,
+      el("div", { class: "pl-main" }, el("div", { class: "pl-canvas" }, ui.graph, ui.list), el("div", { class: "pl-side" }, ui.detail, ui.proposals, ui.offers, ui.history)),
+      ui.add, ui.manage, ui.triage);
     buildAdd();
     buildTriage();
+    buildArchived();
     setMode(narrow() ? "list" : "graph", true);
   }
 
@@ -220,6 +226,13 @@
       showTriage(ev.result);
     } else if (ev.type === "plan:diff_applied") {
       say(T("pl.ev.applied"));
+    } else if (ev.type === "plan:archived") {
+      if (ev.plan_id !== S.id) return;                       // this page archived it itself and already moved on
+      say(T("pl.ev.archived", T("pl.actor." + ev.actor)));
+      S.id = "";
+      loadList(false);
+      if (ui.archived.open) loadArchived();
+      return;
     }
     refreshSoon();
   }
@@ -387,8 +400,12 @@
   }
 
   async function event(ev, okMsg) {
-    const r = await api(planPath("/events"), ev);
-    if (!r.ok) { say(errText(r.data) || (r.data && r.data.error) || T("pl.failed"), true); return r; }
+    const r = await api(planPath("/events"), S.snap && DIRECT.includes(ev.type) ? { ...ev, base_rev: S.snap.rev } : ev);
+    if (!r.ok) {
+      if (r.data && r.data.stale) { say(T("pl.stale"), true); await refresh(); return r; }
+      say(errText(r.data) || (r.data && r.data.error) || T("pl.failed"), true);
+      return r;
+    }
     if (okMsg) say(okMsg);
     await refresh();
     return r;
@@ -504,6 +521,127 @@
     say(T("pl.created", title));
   }
 
+  /* ---- the plan's own details, and archiving ---- */
+  /* A button that asks twice before it acts: the first press changes its label, the second goes ahead. */
+  function twiceButton(label, sure, act, cls) {
+    const b = el("button", { type: "button", class: cls, text: label });
+    let armed = false, t = 0;
+    b.addEventListener("click", () => {
+      if (!armed) { armed = true; b.textContent = sure; t = setTimeout(() => { armed = false; b.textContent = label; }, 5000); return; }
+      clearTimeout(t);
+      armed = false;
+      b.textContent = label;
+      act();
+    });
+    return b;
+  }
+  const toLines = obj => Object.entries(obj || {}).map(([k, v]) => `${k}: ${v}`).join("\n");
+  /* "name: text" on each line; null when a line has no name or no colon */
+  function fromLines(text) {
+    const out = {};
+    for (const line of text.split("\n").map(l => l.trim()).filter(Boolean)) {
+      const i = line.indexOf(":");
+      if (i < 1) return null;
+      out[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+    }
+    return out;
+  }
+  const lines = text => text.split("\n").map(l => l.trim()).filter(Boolean);
+
+  function drawManage() {
+    if (!S.snap) return;
+    const key = `${S.id}:${S.snap.rev}`;
+    if (ui.manage.dataset.key === key) return;
+    if (ui.manage.contains(document.activeElement) && document.activeElement.matches("input, textarea, select")) return;
+    ui.manage.dataset.key = key;
+    const p = plan(), card = S.snap.card || {};
+    const field = (id, label, node) => [el("label", { for: id, text: label }), node];
+    ui.manage.replaceChildren(el("summary", { text: T("pl.manage") }),
+      el("form", { class: "pad pl-dform", onsubmit: saveMeta },
+        el("p", { class: "help", text: T("pl.manage.help") }),
+        field("pl-m-title", T("pl.f.title"), el("input", { id: "pl-m-title", value: p.title, maxlength: "200", required: true, autocomplete: "off" })),
+        field("pl-m-kind", T("pl.f.kind"), el("select", { id: "pl-m-kind" },
+          ["occasional", "constant"].map(k => el("option", { value: k, text: T("pl.kind." + k), selected: k === p.target_type })))),
+        el("p", { class: "help", text: T("pl.kind.help") }),
+        field("pl-m-c-titolo", T("pl.meta.cardtitle"), el("input", { id: "pl-m-c-titolo", value: card.titolo || p.title, maxlength: "200", autocomplete: "off" })),
+        field("pl-m-c-date", T("pl.card.date"), el("input", { id: "pl-m-c-date", value: card.date || "", autocomplete: "off" })),
+        field("pl-m-c-dest", T("pl.card.destinazione"), el("input", { id: "pl-m-c-dest", value: card.destinazione || "", autocomplete: "off" })),
+        field("pl-m-c-people", T("pl.card.partecipanti"), el("textarea", { id: "pl-m-c-people", rows: "3", text: (card.partecipanti || []).join("\n") })),
+        el("p", { class: "help", text: T("pl.meta.people.help") }),
+        field("pl-m-c-logi", T("pl.card.logistica_e_prenotazioni"), el("textarea", { id: "pl-m-c-logi", rows: "3", spellcheck: "false", text: toLines(card.logistica_e_prenotazioni) })),
+        field("pl-m-c-prof", T("pl.card.profilo_e_vincoli_partecipanti"), el("textarea", { id: "pl-m-c-prof", rows: "3", spellcheck: "false", text: toLines(card.profilo_e_vincoli_partecipanti) })),
+        el("p", { class: "help", text: T("pl.meta.lines.help") }),
+        el("button", { class: "btn primary pl-btn", text: T("pl.save") })),
+      el("div", { class: "pad pl-archive-zone" },
+        el("p", { class: "help", text: T("pl.archive.help") }),
+        twiceButton(T("pl.archive"), T("pl.archive.sure"), archivePlan, "btn pl-btn pl-danger")));
+  }
+
+  async function saveMeta(e) {
+    e.preventDefault();
+    const val = id => document.getElementById(id).value;
+    const title = val("pl-m-title").trim();
+    if (!title) { say(T("pl.f.title.required"), true); return; }
+    const changes = { title, target_type: val("pl-m-kind") };
+    const logistics = fromLines(val("pl-m-c-logi")), profiles = fromLines(val("pl-m-c-prof"));
+    if (logistics === null || profiles === null) { say(T("pl.meta.badlines"), true); return; }
+    const card = { titolo: val("pl-m-c-titolo").trim() || title, date: val("pl-m-c-date").trim(), destinazione: val("pl-m-c-dest").trim(),
+      partecipanti: lines(val("pl-m-c-people")), logistica_e_prenotazioni: logistics, profilo_e_vincoli_partecipanti: profiles };
+    if (S.snap.card || card.date || card.destinazione || card.partecipanti.length || Object.keys(logistics).length || Object.keys(profiles).length) {
+      changes.card = card;
+    }
+    ui.manage.dataset.key = "";
+    await event({ type: "plan:update_meta", changes }, T("pl.meta.saved"));
+    await loadList(true);
+  }
+
+  async function archivePlan() {
+    const title = plan().title;
+    const r = await api(planPath("/archive"), { actor: "user" });
+    if (!r.ok) { say(errText(r.data) || T("pl.failed"), true); return; }
+    S.id = "";
+    await loadList(false);
+    if (ui.archived.open) await loadArchived();
+    say(T("pl.archived", title));
+  }
+
+  function buildArchived() {
+    ui.archivedBody = el("div", { class: "pad" });
+    ui.archived.replaceChildren(el("summary", { text: T("pl.archives") }), ui.archivedBody);
+  }
+  async function loadArchived() {
+    const r = await api("api/plans?archived=1");
+    if (!r.ok) { ui.archivedBody.replaceChildren(el("p", { class: "dim", text: errText(r.data) || T("pl.loadfail") })); return; }
+    const list = r.data.plans || [];
+    if (!list.length) { ui.archivedBody.replaceChildren(el("p", { class: "dim", text: T("pl.archives.none") })); return; }
+    ui.archivedBody.replaceChildren(el("ul", { class: "pl-plist" }, list.map(p => el("li", { class: "pl-prop" },
+      el("p", { class: "pl-ptitle" }, el("b", { text: `${p.title} (${p.completed}/${p.nodes})` })),
+      el("div", { class: "pl-acts" }, el("button", { type: "button", class: "btn pl-btn", text: T("pl.restore"),
+        "aria-label": `${T("pl.restore")}: ${p.title}`, onclick: () => restorePlan(p.plan_id, p.title) }))))));
+  }
+  async function restorePlan(id, title) {
+    const r = await api(`api/plans/${encodeURIComponent(id)}/restore`, { actor: "user" });
+    if (!r.ok) { say(errText(r.data) || T("pl.failed"), true); return; }
+    S.id = id;
+    await loadList(true);
+    await loadArchived();
+    say(T("pl.restored", title));
+  }
+
+  /* ---- who changed what ---- */
+  function drawHistory() {
+    ui.history.replaceChildren(el("div", { class: "sh" }, el("b", { id: "pl-hist-h", text: T("pl.hist") })));
+    const items = (S.snap.history || []).slice().reverse();
+    if (!items.length) { ui.history.append(el("p", { class: "pad dim", text: T("pl.hist.none") })); return; }
+    ui.history.append(el("ul", { class: "pl-hist" }, items.map(x => {
+      const when = new Date(x.t * 1000);
+      return el("li", {},
+        el("time", { datetime: when.toISOString(), text: when.toLocaleString() }),
+        el("span", { class: `pl-actor a-${x.actor}`, text: T("pl.actor." + x.actor) }),
+        el("span", { text: `${T("pl.h." + x.type)}: ${x.summary}` }));
+    })));
+  }
+
   /* ---- judge events ---- */
   let triageOut;
   function buildTriage() {
@@ -581,7 +719,7 @@
   function render() {
     ui.empty.hidden = S.plans.length > 0;
     const has = !!S.snap;
-    [ui.summary, ui.detail, ui.proposals, ui.offers, ui.add, ui.triage].forEach(n => { n.hidden = !has; });
+    [ui.summary, ui.detail, ui.proposals, ui.offers, ui.history, ui.add, ui.manage, ui.triage].forEach(n => { n.hidden = !has; });
     document.querySelector(".pl-main").hidden = !has;
     if (!has) return;
     const nodes = Object.values(S.snap.plan.nodes);
@@ -593,6 +731,8 @@
     if (!editing) drawDetail();
     drawProposals();
     drawOffers();
+    drawHistory();
+    drawManage();
     if (!ui.addForm.contains(document.activeElement)) drawAddForm();
   }
 

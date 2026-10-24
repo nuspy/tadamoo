@@ -137,7 +137,17 @@ and the bridge the page talks to.
   fields you tick are sent, with people's names replaced by labels; the answer says whether it came from the cloud, from
   the local keyword filter or from a failure. When the filter says wake, the local model proposes two or three alternatives
   as diffs; only the ones that apply cleanly are shown, and nothing changes until you approve.
-- API: `GET/POST /api/plans`, `GET /api/plans/<id>`, `POST /api/plans/<id>/events`, `POST /api/plans/<id>/triage`,
+- Every change to a plan raises its **revision** and adds a line to its **history** that says who made it (`user`, `chat`,
+  `planner` or `system`; the sender states it, so it is a note and not proof of identity). An edit that writes straight into
+  the plan (`plan:update_node`, `plan:mark`, `plan:rewind`, `plan:update_meta`, `plan:fallback_response`) may carry
+  `base_rev`, the revision the sender last read; if the plan has moved on it is refused with `stale: true` and nothing
+  changes. A proposal needs no revision: approving it fails, and marks it stale, when its diff no longer applies.
+  `plan:update_meta` changes a plan's title, its kind (`constant` or `occasional`) and its card, all or nothing.
+- A plan is archived, not erased: `POST /api/plans/<id>/archive` moves it out of the list and `POST /api/plans/<id>/restore`
+  brings it back with its history; an archived plan keeps its id. The Plans page shows the history with who made each
+  change, edits a plan's details, archives it after two presses and lists the archived plans with *Restore*.
+- API: `GET/POST /api/plans` (`GET /api/plans?archived=1` lists the archived ones), `GET /api/plans/<id>`,
+  `POST /api/plans/<id>/events`, `POST /api/plans/<id>/triage`, `POST /api/plans/<id>/archive` and `/restore`,
   `GET /api/plans/<id>/events?after=N` and `/stream` (server-sent events), `GET/POST /api/planner/settings`.
 
 ## The web pages
