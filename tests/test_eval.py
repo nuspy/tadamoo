@@ -329,3 +329,18 @@ def test_the_command_line_runs_a_task_against_the_real_server(tmp_path, monkeypa
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_a_task_the_server_failed_on_is_inconclusive_not_a_failure_of_the_model():
+    from harness.eval.report import inconclusive
+    from harness.eval.runner import EvalResult, Trial
+    broken = EvalResult("a", "editing", 2, 0.0, False, [Trial(1, False, ["x"], stop_reason="error"), Trial(2, False, ["x"], stop_reason="error")])
+    weak = EvalResult("b", "coding", 2, 0.0, False, [Trial(1, False, ["x"], stop_reason="max_turns"), Trial(2, False, ["x"], stop_reason="error")])
+    good = EvalResult("c", "coding", 2, 1.0, True, [Trial(1, True, stop_reason="final"), Trial(2, True, stop_reason="final")])
+    assert inconclusive(broken) and not inconclusive(weak) and not inconclusive(good)
+    s = summarize([broken, weak, good])
+    assert (s["inconclusive_tasks"], s["decided_tasks"], s["decided_pass_pow_k"]) == (["a"], 2, 1)
+    assert s["pass_pow_k"] == 1 and round(s["answered_trial_success"], 2) == 0.67          # 2 of the 3 trials the server answered
+    report = generate_eval_report([broken, weak, good])
+    assert "Inconclusive" in report and "`a`" in report and "| inconclusive |" in report
+    assert "Inconclusive" not in generate_eval_report([weak, good])
