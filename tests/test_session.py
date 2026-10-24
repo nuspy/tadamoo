@@ -102,6 +102,29 @@ def test_the_history_survives_the_process_and_the_prefix_does_not_change(tmp_pat
     assert client2.sent[0][:3] == [{k: v for k, v in m.items() if k not in ("pinned", "pin_category")} for m in saved[:3]]
 
 
+class Streamer:
+    """A client that writes its answer in pieces, as the server does."""
+
+    def __init__(self, pieces, final):
+        self.pieces, self.final = pieces, final
+
+    def chat_completion(self, messages, tools=None, on_delta=None, **kwargs):
+        for kind, text in self.pieces:
+            on_delta(kind, text)
+        return say(self.final)
+
+
+def test_the_text_is_handed_on_in_pieces_before_the_whole_message(tmp_path):
+    client = Streamer([("reasoning", "penso "), ("reasoning", "un po'"), ("content", "Ciao "), ("content", "mondo")], "Ciao mondo")
+    session, ev, *_ = make(tmp_path, client)
+    session.send("m1", "saluta")
+    ev.wait("done")
+    deltas = [e for e in ev.items if e["event"] == "delta"]
+    assert [(d["kind"], d["text"]) for d in deltas] == [("reasoning", "penso un po'"), ("content", "Ciao mondo")]
+    order = ev.kinds()
+    assert order.index("delta") < order.index("agent") < order.index("done")
+
+
 def test_a_second_message_while_one_runs_is_refused(tmp_path):
     gate = threading.Event()
     client = Scripted(lambda: (gate.wait(5), say("ok"))[1])

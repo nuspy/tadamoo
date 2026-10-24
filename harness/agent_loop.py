@@ -104,6 +104,7 @@ class AgentLoop:
         context: Optional[ContextManager] = None,
         on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
         sampling: Optional[Dict[str, Any]] = None,
+        on_delta: Optional[Callable[[str, str], None]] = None,
     ) -> None:
         self.client = client
         self.tools = tool_registry
@@ -122,6 +123,7 @@ class AgentLoop:
         self.max_loop_strikes = max_loop_strikes
         self.context = context
         self.on_event = on_event
+        self.on_delta = on_delta                  # the model's text as it is written ("content" or "reasoning"), when set
         self.sampling = dict(sampling or {})      # temperature, seed, top_p...; the default is greedy
         self.loop_detector = LoopDetector()
         self.messages: List[Dict[str, Any]] = [self._system_message()]
@@ -325,7 +327,8 @@ class AgentLoop:
                 opts = dict(self.sampling)
                 temperature = opts.pop("temperature", 0.0)
                 resp = self.client.chat_completion(messages=wire_messages(self.messages), tools=self.tools.schemas(),
-                                                   temperature=temperature, **({"extra": opts} if opts else {}))
+                                                   temperature=temperature, **({"extra": opts} if opts else {}),
+                                                   **({"on_delta": self.on_delta} if self.on_delta else {}))
                 msg = resp["choices"][0]["message"]
             except (BasaltError, KeyError, IndexError, TypeError) as exc:
                 self.stop_reason, self.error = ERROR, str(exc) or type(exc).__name__

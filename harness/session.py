@@ -30,6 +30,7 @@ from harness import agent_loop as al
 from harness.stack import AgentConfig, BuiltAgent, build_agent, data_dir_for
 
 HEARTBEAT_S = 5.0
+DELTA_CHARS, DELTA_S = 400, 0.25
 EVENT_CHARS = 20_000
 TRANSIENT_STATUS = frozenset({0, 408, 425, 429, 500, 502, 503, 504})
 BACKOFF_S = (2.0, 5.0, 15.0, 30.0, 60.0)
@@ -110,8 +111,11 @@ class Session:
         self._worker: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         self._pending_note: Optional[str] = None
+        self._delta_lock = threading.Lock()
+        self._delta_kind, self._delta_text, self._delta_at = "", [], time.monotonic()
         self.agent.on_event = self._on_event
         self.agent.on_turn_end = self._on_turn_end
+        self.agent.on_delta = self._on_delta
 
     # -- the history -----------------------------------------------------------------------------------
 
@@ -140,7 +144,25 @@ class Session:
         self.last_progress = time.monotonic()
         self._save()
 
+    def _on_delta(self, kind: str, text: str) -> None:
+        """The model's text as it is written, in pieces of a few hundred characters or a quarter of a second."""
+        self.last_progress = time.monotonic()
+        with self._delta_lock:
+            if self._delta_kind and self._delta_kind != kind:
+                self._flush_delta()
+            self._delta_kind = kind
+            self._delta_text.append(text)
+            if sum(map(len, self._delta_text)) >= DELTA_CHARS or time.monotonic() - self._delta_at >= DELTA_S:
+                self._flush_delta()
+
+    def _flush_delta(self) -> None:
+        if self._delta_text:
+            self.emit({"event": "delta", "turn": self.turn_id, "kind": self._delta_kind, "text": "".join(self._delta_text)})
+        self._delta_text, self._delta_at = [], time.monotonic()
+
     def _on_event(self, event: Dict[str, Any]) -> None:
+        with self._delta_lock:
+            self._flush_delta()                         # the pieces come before the whole message they belong to
         self.last_progress = time.monotonic()
         kind = event.get("type")
         if kind == "tool_start" and event.get("effect") == "irreversible":

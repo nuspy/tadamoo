@@ -9,7 +9,7 @@ import json
 import re
 import urllib.request
 import urllib.error
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 THINK_REGEX = re.compile(r"<think>(.*?)</think>", re.DOTALL)
@@ -45,6 +45,65 @@ def extract_reasoning_and_content(message: Dict[str, Any]) -> Tuple[str, str]:
             reasoning, _, content = content.partition("</think>")
 
     return reasoning.strip(), content.strip()
+
+
+def _is_json_text(text: str) -> bool:
+    try:
+        json.loads(text)
+        return True
+    except ValueError:
+        return False
+
+
+def _collect_stream(resp: Any, on_delta: Callable[[str, str], None]) -> Dict[str, Any]:
+    """Reads a chat completion stream, hands the text on as it comes and returns the whole answer."""
+    content: List[str] = []
+    reasoning: List[str] = []
+    calls: Dict[int, Dict[str, Any]] = {}
+    finish, usage, meta = None, None, {}
+    for raw in resp:
+        line = raw.decode("utf-8", errors="replace").strip()
+        if not line.startswith("data:"):
+            continue                                       # a keep-alive comment or a blank line
+        data = line[5:].strip()
+        if data == "[DONE]":
+            break
+        try:
+            chunk = json.loads(data)
+        except ValueError:
+            continue
+        if isinstance(chunk.get("error"), dict):
+            raise BasaltError(500, str(chunk["error"].get("message") or "the engine reported an error"))
+        if chunk.get("usage"):
+            usage = chunk["usage"]
+        if chunk.get("timings"):
+            meta["timings"] = chunk["timings"]
+        choice = (chunk.get("choices") or [{}])[0]
+        delta = choice.get("delta") or {}
+        if delta.get("reasoning_content"):
+            reasoning.append(delta["reasoning_content"])
+            on_delta("reasoning", delta["reasoning_content"])
+        if delta.get("content"):
+            content.append(delta["content"])
+            on_delta("content", delta["content"])
+        for tc in delta.get("tool_calls") or []:           # a call arrives in pieces: merge them by index
+            cur = calls.setdefault(tc.get("index", len(calls)), {"id": None, "type": "function", "function": {"name": "", "arguments": ""}})
+            cur["id"] = tc.get("id") or cur["id"]
+            fn = tc.get("function") or {}
+            cur["function"]["name"] += fn.get("name") or ""
+            cur["function"]["arguments"] += fn.get("arguments") or ""
+        finish = choice.get("finish_reason") or finish
+    if finish is None:
+        raise BasaltError(0, "the answer stopped before it was complete")
+    message: Dict[str, Any] = {"role": "assistant", "content": "".join(content) or None}
+    if reasoning:
+        message["reasoning_content"] = "".join(reasoning)
+    whole = [calls[i] for i in sorted(calls)]
+    if finish != "tool_calls":
+        whole = [c for c in whole if _is_json_text(c["function"]["arguments"])]       # a call the output ended inside
+    if whole:
+        message["tool_calls"] = whole
+    return {"choices": [{"index": 0, "message": message, "finish_reason": finish}], "usage": usage or {}, **meta}
 
 
 class BasaltClient:
@@ -88,8 +147,11 @@ class BasaltClient:
         timeout: float = 60.0,
         response_format: Optional[Dict[str, Any]] = None,
         extra: Optional[Dict[str, Any]] = None,
+        on_delta: Optional[Callable[[str, str], None]] = None,
     ) -> Dict[str, Any]:
-        """Sends a request to /v1/chat/completions."""
+        """Sends a request to /v1/chat/completions. With `on_delta(kind, text)` the answer is asked for as a stream
+        and each piece of text ("content" or "reasoning") is handed on as it arrives; the return value is the same
+        whole answer as without it."""
         payload: Dict[str, Any] = {
             "messages": messages,
             "temperature": temperature,
@@ -104,6 +166,8 @@ class BasaltClient:
             payload["response_format"] = response_format
         if extra:
             payload.update(extra)                  # sampling options such as seed or top_p
+        if on_delta is not None:
+            payload["stream"] = True
 
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
@@ -114,6 +178,8 @@ class BasaltClient:
         )
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if on_delta is not None:
+                    return _collect_stream(resp, on_delta)
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             try:
