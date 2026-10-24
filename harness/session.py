@@ -193,6 +193,9 @@ class Session:
         self._waiting_n = 0                                     # a task waiting for the person is not stuck
         self.planner: Any = None
         self._summary = ""                                      # the plans summary the conversation last got
+        self.attachment_store: Any = None                       # AttachmentStore of this conversation's files, when it has one
+        self.endpoint, self.api_key = "", None
+        self._window: Optional[Tuple[int, float]] = None
         self._announced: set = set()                            # what the planner already woke the conversation about
         self._delta_lock = threading.Lock()
         self._delta_kind, self._delta_turn, self._delta_text, self._delta_at = "", "", [], time.monotonic()
@@ -355,7 +358,7 @@ class Session:
 
     # -- commands --------------------------------------------------------------------------------------
 
-    def _begin_main(self, turn: str, text: str, origin: str = "user") -> Task:
+    def _begin_main(self, turn: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None) -> Task:
         """Starts a turn of the person's own conversation: what the agent should know first, then their message."""
         agent = self.agent
         agent.cancel.clear()
@@ -365,7 +368,7 @@ class Session:
         note = self._plans_note()
         if note:
             agent.messages.append({"role": "user", "content": note})
-        agent.add_user_message(text, origin)
+        self._add_message(agent, text, origin, attachments)
         retrieved = self.built.retrieved_message(text) if origin == "user" else None
         agent.untrusted_since_user = agent.untrusted_since_user or bool(retrieved)
         if retrieved:
@@ -376,10 +379,10 @@ class Session:
         self.tasks[turn] = task
         return task
 
-    def _begin_side(self, turn: str, text: str) -> Task:
+    def _begin_side(self, turn: str, text: str, attachments: Optional[List[str]] = None) -> Task:
         """A request with nothing to do with the main conversation: a fork with a conversation of its own."""
         agent = self.agent.fork()
-        agent.add_user_message(text)
+        self._add_message(agent, text, "user", attachments)
         task = Task(turn, text, agent, side=True)
         self._adopt(task)
         self.tasks[turn] = task
@@ -391,7 +394,7 @@ class Session:
             self.busy = True
         threading.Thread(target=self._work, args=(task,), name=f"session-task-{task.turn}", daemon=True).start()
 
-    def send(self, turn_id: str, text: str, origin: str = "user") -> bool:
+    def send(self, turn_id: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None) -> bool:
         with self._lock:
             busy = self._workers > 0
             if busy and origin != "user":
@@ -401,7 +404,7 @@ class Session:
                 self._workers += 1
                 self.busy, self.turn_id = True, turn_id
         if busy:                                       # a task is under way: the message is looked at before its next model call
-            msg = {"turn": turn_id, "text": text}
+            msg: Dict[str, Any] = {"turn": turn_id, "text": text, **({"attachments": attachments} if attachments else {})}
             self.emit({"event": "queued", "turn": turn_id, "text": text})
             if self.parallel_slots() > self._workers:  # the model can take another request now: no need to wait for the task's safe point
                 threading.Thread(target=self._route_now, args=(msg,), name="session-route", daemon=True).start()
@@ -412,10 +415,39 @@ class Session:
                 self._interrupt_for_urgent()
             self._save()
             return True
-        task = self._begin_main(turn_id, text, origin)
+        task = self._begin_main(turn_id, text, origin, attachments)
         self.emit({"event": "accepted", "turn": turn_id} if origin == "user" else {"event": "woke", "turn": turn_id, "text": text[:300]})
         threading.Thread(target=self._work, args=(task,), name="session-task", daemon=True).start()
         return True
+
+    def _add_message(self, agent: Any, text: str, origin: str, attachments: Optional[List[str]], steer: bool = False) -> None:
+        """Puts the person's message in the conversation: with files attached, they come first as data in blocks of their own and the
+        person's words after; what the person can confirm with is only their words."""
+        if origin == "user" and attachments and self.attachment_store is not None:
+            from harness.attachments import compose_message
+            full, inlined = compose_message(self.attachment_store, self.session_id, attachments, text, self.window_tokens())
+            agent.add_user_message(full, steer=steer, shown=text)
+            agent.untrusted_since_user = True               # a file can say anything: nothing confirms a change to a plan after it
+            return
+        agent.add_user_message(text, origin, steer=steer)
+
+    def window_tokens(self) -> int:
+        """The loaded model's context window, as the server says it (a default when it does not)."""
+        now = time.monotonic()
+        if self._window and now - self._window[1] < 120:
+            return self._window[0]
+        n = 32768
+        try:
+            req = urllib.request.Request(self.endpoint.rstrip("/") + "/v1/models", headers={"Authorization": f"Bearer {self.api_key}"} if self.api_key else {})
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            for m in data.get("data", []):
+                if (m.get("status") or {}).get("value") == "loaded" and int(m.get("context_length") or 0) > 0:
+                    n = int(m["context_length"])
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
+        self._window = (n, now)
+        return n
 
     def idle(self) -> bool:
         """Nothing under way, nothing waiting, nobody asked: a quiet moment."""
@@ -589,13 +621,13 @@ class Session:
     def _route(self, task: Task, msg: Dict[str, str], how: str, why: str) -> None:
         turn, text = msg["turn"], msg["text"]
         if how == STEER:
-            task.agent.add_user_message(text, steer=True)
+            self._add_message(task.agent, text, "user", msg.get("attachments"), steer=True)
             if not task.side:
                 self._save()
             self.emit({"event": "routed", "turn": turn, "how": STEER, "why": why})
             return
         if self.parallel_slots() > self._workers:        # the model answers several requests at once: no need to wait or to stop
-            side = self._begin_side(turn, text)
+            side = self._begin_side(turn, text, msg.get("attachments"))
             self.emit({"event": "routed", "turn": turn, "how": "parallel", "why": why})
             self._launch(side)
             return
@@ -676,7 +708,7 @@ class Session:
                         self.stack.append(task)
                         nxt = self.urgent.pop(0) if self.urgent else None
                     self.emit({"event": "suspended", "turn": task.turn, "by": nxt["turn"] if nxt else None})
-                    task = self._begin_side(nxt["turn"], nxt["text"]) if nxt else self._next_after(task)
+                    task = self._begin_side(nxt["turn"], nxt["text"], nxt.get("attachments")) if nxt else self._next_after(task)
                     continue
                 agent = task.agent
                 final = next((t.assistant_content for t in reversed(agent.turns) if not t.tool_calls and t.assistant_content), "")
@@ -724,9 +756,9 @@ class Session:
             else:
                 return None
         if side:
-            return self._begin_side(msg["turn"], msg["text"])
+            return self._begin_side(msg["turn"], msg["text"], msg.get("attachments"))
         self.emit({"event": "accepted", "turn": msg["turn"]})
-        return self._begin_main(msg["turn"], msg["text"])
+        return self._begin_main(msg["turn"], msg["text"], "user", msg.get("attachments"))
 
     def _block(self, task: Optional[Task], reason: str, detail: str) -> None:
         """The task cannot go on and waiting will not change it: the person decides what happens next."""
@@ -766,6 +798,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--pipeline", choices=["off", "light", "full"], default="full",
                         help="the check of an answer against what the request asked: nothing, measured only, or measured and judged")
     parser.add_argument("--context-patterns", default="", metavar="JSON", help="what shapes the context (harness/context_patterns.py)")
+    parser.add_argument("--attachments-dir", default="", help="where the conversation's attached files are kept (with --outputs-dir: the tools for them)")
+    parser.add_argument("--outputs-dir", default="", help="where the files the agent makes for the person are kept")
     parser.add_argument("--no-memory", action="store_true")
     parser.add_argument("--no-checkpoints", action="store_true")
     parser.add_argument("--heartbeat", type=float, default=HEARTBEAT_S)
@@ -806,6 +840,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                       secret_hosts=secret_hosts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
                       skill_paths=args.skills, confirm=confirm, run_id=sid,
                       context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, snapshot_dir=str(history / "snapshots"),
+                      attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
                       capabilities=args.capabilities and not args.ask_only)
     from harness.client import BasaltClient
     from harness.llm import client_for, judge_for
@@ -825,6 +860,10 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         built.agent.context.on_removed = store.archive
     built.agent.pipeline = Pipeline(args.pipeline, (lambda q, o, c, j=judge_for("pipeline", here): j.choose(q, o, c)) if args.pipeline == "full" else None)
     session = Session(built, store, emit, session_id=sid, health=lambda: server_health(cfg.endpoint, cfg.api_key), router=router)
+    if args.attachments_dir:
+        from harness.attachments import AttachmentStore
+        session.attachment_store = AttachmentStore(Path(args.attachments_dir))
+    session.endpoint, session.api_key = cfg.endpoint, cfg.api_key
     if not args.ask_server:
         built.permissions.confirm_callback = session.permission_confirm      # the questions are put in the conversation
     if not args.ask_only and not args.no_planner:
@@ -863,7 +902,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                 continue
             name = cmd.get("cmd") if isinstance(cmd, dict) else None
             if name == "send" and isinstance(cmd.get("text"), str) and cmd["text"].strip():
-                session.send(str(cmd.get("id") or uuid.uuid4().hex[:8]), cmd["text"])
+                ids = [i for i in cmd.get("attachments", []) if isinstance(i, str)][:20] if isinstance(cmd.get("attachments"), list) else []
+                session.send(str(cmd.get("id") or uuid.uuid4().hex[:8]), cmd["text"], attachments=ids or None)
             elif name == "answer":
                 session.answer(cmd.get("id"), cmd.get("value"))
             elif name == "promote":

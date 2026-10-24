@@ -134,10 +134,12 @@
       </div>
       <form class="composer" id="composer">
         <div class="attachments" id="attachments" aria-label="Attached images" hidden></div>
+        <div class="aatt" id="aatt" aria-label="Attached files" role="list" hidden></div>
         <label class="sr" for="prompt">Message</label>
         <textarea id="prompt" rows="2" placeholder="Message the model" autocomplete="off"></textarea>
         <div class="crow">
           <input type="file" id="file" accept="image/*" multiple hidden>
+          <input type="file" id="afile" multiple hidden>
           <button type="button" class="btn" id="attach" hidden>Attach image</button>
           <span class="hint" id="chat-hint">Enter sends, Shift+Enter adds a line</span>
           <span class="grow"></span>

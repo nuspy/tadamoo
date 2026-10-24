@@ -242,6 +242,31 @@ and the bridge the page talks to.
   `POST /api/plans/<id>/events`, `POST /api/plans/<id>/triage`, `POST /api/plans/<id>/archive` and `/restore`,
   `GET /api/plans/<id>/events?after=N` and `/stream` (server-sent events), `GET/POST /api/planner/settings`.
 
+## Attached files and files the agent makes
+
+In the conversations Chat the person attaches any file (button, drag and drop); each is uploaded to this conversation
+(`POST /api/attachments?session=&name=`, from this PC and the server's own page only) and kept as it came, with a card (what it is,
+decided by its first bytes, size, SHA-256). Limits are the normal inference settings: the model's context window and the policy for
+a full context; nothing else caps a file except the server's upload limit.
+
+- **How the model sees them** (`harness/attachments.py`): the documents come first, each in a `<document>` block with its source,
+  type and what part is shown, the text inside `<untrusted_data>`, and the person's question last. When the documents are long
+  (over 20,000 tokens) the model is asked to copy the passages that matter into `<quotes>` before answering. A file that does not
+  fit in 40% of the window shows its start and says so; a table shows its columns, row count and first rows. The model reads the
+  rest with `read_attachment` (line ranges), `search_attachment` (BM25, five passages with line numbers) and `list_attachments`.
+- **Formats**: text and code; csv, tsv, json; Word, Excel and PowerPoint (read with the standard library, no extra package); PDF (pypdf or
+  PyMuPDF when installed; otherwise the manifest says no reader is installed and the model asks the person to approve a PDF skill or install
+  one, and a scan with no text layer says it needs OCR); images (`analyze_image` with `attachment:<id>`); audio and video
+  (`transcribe_attachment` through callAPIcall, one recording at a time, the job kept so a second call picks it up).
+- **What a file cannot do**: what the person typed is all that can confirm a change to a plan or route a message (urgent, queued, steering); a
+  quote taken from a file never does. Text in a file cannot close its own fence.
+- **Files the agent makes**: `write_output_file` (text) and `publish_output_file` (a file made in the workspace) store it for the person, open it
+  again and check it (JSON parses, CSV rows have the same number of columns, Office files open, an image opens). Only a file that passes gets
+  its button; the Chat's "Save" button asks for a place with the system's Save as window when the browser has one, and downloads otherwise.
+
+Not done: the Windows app's own Save as window for downloads (to be checked on the PC), audio and video for a service that is not running (it
+says so and keeps the file), and the service's own summary of a recording (not used).
+
 ## Capabilities: skills, plugins and MCP servers found on this PC
 
 A conversation in the Chat can look up skills, plugins and MCP servers without carrying a list of them in its prompt

@@ -30,6 +30,7 @@ DYNAMIC = {
     "pv.data.": ["personal", "general"],
     "pt.": ["what", "pros", "cons", "when", "cache"],
     "cp.state.": ["pending", "approved", "off"],
+    "ch.fam.": ["text", "data", "document", "image", "audio", "video", "pdf", "other"],
     "cp.kind.": ["skill", "mcp", "builtin"],
     "cp.e.": ["offline", "gone", "changed", "needs_approval", "bad_choice", "bad_node"],
     "pv.e.": ["offline", "bad_type", "bad_cap", "gone", "not_allowed", "bad_function"],

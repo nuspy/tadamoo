@@ -157,7 +157,7 @@ class AgentLoop:
             cancel=threading.Event(), max_loop_strikes=self.max_loop_strikes, context=self.context, on_event=self.on_event,
             sampling=self.sampling, on_delta=self.on_delta, pipeline=self.pipeline)
 
-    def add_user_message(self, text: str, origin: str = "user", steer: bool = False) -> None:
+    def add_user_message(self, text: str, origin: str = "user", steer: bool = False, shown: Optional[str] = None) -> None:
         """Puts a message at the end of the conversation. From the person it is also what their next confirmation may quote and
         the request the answer is checked against (a steering message adds to the constraints already found); a note from the
         planner is neither: nothing in it can stand for the person's words."""
@@ -166,10 +166,11 @@ class AgentLoop:
             self.last_user_text, self.untrusted_since_user = "", True
             return
         rewrite = getattr(self.context, "rewrite", None)
-        self.messages.append({"role": "user", "content": rewrite(text) if rewrite and not steer else text})
-        self.last_user_text, self.untrusted_since_user = text, False
+        words = shown if shown is not None else text                     # `shown`: the person's own words, when `text` also holds their files
+        self.messages.append({"role": "user", "content": rewrite(text) if rewrite and not steer and shown is None else text})
+        self.last_user_text, self.untrusted_since_user = words, False
         if self.pipeline:
-            card = self.pipeline.card(text)
+            card = self.pipeline.card(words)
             if steer and self._card is not None:
                 have = {(c.kind, str(c.value)) for c in self._card.constraints}
                 card.constraints = self._card.constraints + [c for c in card.constraints if (c.kind, str(c.value)) not in have]

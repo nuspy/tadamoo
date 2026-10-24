@@ -42,7 +42,9 @@
     box.hidden = !on;
     list.parentElement.hidden = !on;
     $("#ctx-meter").hidden = on;
-    $("#attach").hidden = on || $("#attach").dataset.can !== "1";
+    $("#attach").hidden = on ? false : $("#attach").dataset.can !== "1";
+    $("#attach").textContent = on ? T("ch.att.btn") : "Attach image";
+    drawPend();
     if (on) { $("#chat-hint").textContent = T("ch.hint"); poll(true); } else { clearTimeout(timer); $("#chat-hint").textContent = T("ch.hint.direct"); }
     setControls();
   }
@@ -84,7 +86,7 @@
   document.addEventListener("basalt:chatset", () => setControls());
   list.onchange = () => { if (list.value) openSession(list.value); else newChat(); };
 
-  function forget() { sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(LAST_KEY, ""); }
+  function forget() { pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(LAST_KEY, ""); }
   function newChat() { forget(); list.value = ""; status(T("ch.new")); setControls(); }
   async function openSession(id) {
     forget();
@@ -105,7 +107,7 @@
 
   /* ---- the view model: the person's messages and, for each answer, blocks in the order things happened ---- */
   const byTurn = {};                                  // the answer of each task: tasks can take turns, and come back
-  function userItem(text) { const it = { kind: "user", text }; items.push(it); return it; }
+  function userItem(text, files) { const it = { kind: "user", text, files: files || [] }; items.push(it); return it; }
   function assistant(turn) {
     if (turn && byTurn[turn]) { current = byTurn[turn]; return current; }
     if (!turn && current && !current.done) return current;
@@ -126,7 +128,7 @@
 
   function apply(e) {
     switch (e.event) {
-      case "user": closeQuestions(); userItem(e.text); break;
+      case "user": closeQuestions(); userItem(e.text, e.attachments); break;
       case "accepted": assistant(e.turn); started(e.turn); break;
       case "started": assistant(e.turn); started(e.turn); break;
       case "woke": noteItem({ s: T("ch.woke", String(e.text || "").replace(/^\[planner\]\s*/, "").slice(0, 200)), route: e.turn }); assistant(e.turn); started(e.turn); break;
@@ -182,7 +184,7 @@
     for (const m of messages) {
       if (m.role === "user") {
         const text = typeof m.content === "string" ? m.content : "";
-        if (text.startsWith("[harness]")) { assistant(); addBlock({ t: "note", s: text.replace(/^\[harness\]\s*/, "") }); } else userItem(text);
+        if (text.startsWith("[harness]")) { assistant(); addBlock({ t: "note", s: text.replace(/^\[harness\]\s*/, "") }); } else userItem(text, (m.attachments || []).map(n => ({ name: n })));
       } else if (m.role === "assistant") {
         if (m.content) textBlock("text", m.content);
         (m.tool_calls || []).forEach(tc => {
@@ -245,6 +247,9 @@
       el.querySelector(".atool-a").textContent = JSON.stringify(b.args, null, 1);
       el.querySelector(".atool-o").textContent = b.output;
       el.querySelector(".atool-o").hidden = !b.output;
+      const made = /^\[file:([a-f0-9]{12}):([^\]]{1,120})\]/.exec(b.output || "");          // written by the tool, never by the model's own text
+      let save = el.querySelector(".asave");
+      if (made && !save) { save = btn(T("ch.out.save", made[2]), "primary asave", () => saveOutput(made[1], made[2], save)); el.querySelector("summary").after(save); }
       let chip = el.querySelector(".chip");
       const pid = b.name.startsWith("plan_") ? planIdOf(b) : "";
       if (pid && !chip) { chip = btn(T("ch.plan.open"), "ghost chip", () => openPlan(pid)); el.querySelector("summary").after(chip); }
@@ -295,7 +300,12 @@
       }
       if (!it.el) {
         it.el = mk("article", `cmsg ${it.kind}`);
-        if (it.kind === "user") { it.el.append(Object.assign(mk("div", "bubble"), { textContent: it.text })); }
+        if (it.kind === "user") {
+          const bubble = mk("div", "bubble");
+          if (it.files && it.files.length) bubble.append(mk("div", "achips", it.files.map(f => f.name).join(" · ")));
+          bubble.append(mk("div", "", it.text));
+          it.el.append(bubble);
+        }
         else { it.body = mk("div", "ablocks"); it.metaEl = mk("div", "meta"); it.el.append(it.body, it.metaEl); }
         box.insertBefore(it.el, null);
       }
@@ -310,6 +320,72 @@
     setControls();
   }
 
+  /* ---- files to attach: uploaded to this conversation as they are picked ---- */
+  let pend = [];                                      // [{id, name, family, size} | {name, uploading, pct}]
+  const sizeText = n => n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1e3)) + " kB";
+  function drawPend() {
+    const row = $("#aatt");
+    row.hidden = !pend.length || !active();
+    row.replaceChildren(...pend.map((f, k) => {
+      const d = mk("div", "aatt-i"); d.setAttribute("role", "listitem");
+      d.append(mk("span", "aatt-n", f.name), mk("span", "dim", f.uploading ? `${f.pct || 0}%` : f.error ? f.error : `${T("ch.fam." + f.family)} · ${sizeText(f.size)}`));
+      const rm = btn(T("ch.att.remove"), "ghost", async () => {
+        if (f.id) await api2("POST", `${sid}/${f.id}/remove`);
+        pend.splice(pend.indexOf(f), 1); drawPend(); $("#prompt").focus();
+      });
+      rm.setAttribute("aria-label", T("ch.att.remove.n", f.name));
+      d.append(rm); return d;
+    }));
+    setControls();
+  }
+  const api2 = async (method, path) => { try { const r = await fetch("api/attachments/" + path, { method, headers: { ...authHeaders(), "Content-Type": "application/json" }, body: method === "POST" ? "{}" : undefined }); return r.ok; } catch (e) { return false; } };
+  function upload(file) {
+    return new Promise(resolve => {
+      const f = { name: file.name || T("ch.att.pasted"), uploading: true, pct: 0 };
+      pend.push(f); drawPend();
+      const x = new XMLHttpRequest();
+      x.open("POST", `api/attachments?session=${encodeURIComponent(sid)}&name=${encodeURIComponent(f.name)}`);
+      const h = authHeaders(); Object.keys(h).forEach(k => x.setRequestHeader(k, h[k]));
+      x.upload.onprogress = e => { if (e.lengthComputable) { f.pct = Math.round(100 * e.loaded / e.total); drawPend(); } };
+      x.onload = () => {
+        let j = {}; try { j = JSON.parse(x.responseText); } catch (e) { /* no body */ }
+        if (x.status === 200 && j.attachment) Object.assign(f, j.attachment, { uploading: false });
+        else { f.uploading = false; f.error = (j.error && j.error.message) || `HTTP ${x.status}`; setTimeout(() => { pend = pend.filter(p => p !== f); drawPend(); }, 4000); }
+        drawPend(); resolve();
+      };
+      x.onerror = () => { f.uploading = false; f.error = T("ch.att.fail"); drawPend(); setTimeout(() => { pend = pend.filter(p => p !== f); drawPend(); }, 4000); resolve(); };
+      x.send(file);
+    });
+  }
+  async function attachFiles(files) {
+    if (!files.length || !(await ensure())) return;
+    for (const f of files) await upload(f);
+  }
+  document.getElementById("attach").addEventListener("click", e => { if (active()) { e.preventDefault(); e.stopImmediatePropagation(); $("#afile").click(); } }, true);
+  $("#afile").onchange = e => { attachFiles([...e.target.files]); e.target.value = ""; };
+  const dropZone = document.getElementById("view-chat");
+  dropZone.addEventListener("dragover", e => { if (active() && [...(e.dataTransfer || {}).types || []].includes("Files")) e.preventDefault(); });
+  dropZone.addEventListener("drop", e => { if (active() && e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); attachFiles([...e.dataTransfer.files]); } });
+
+  /* ---- a file the agent made: a button to save it where the person chooses ---- */
+  async function saveOutput(id, name, button) {
+    button.disabled = true;
+    try {
+      const r = await fetch(`api/outputs/${encodeURIComponent(sid)}/${encodeURIComponent(id)}`, { headers: authHeaders() });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      if (window.showSaveFilePicker) {                        // the system's "Save as" window, with the file's own name
+        const h = await window.showSaveFilePicker({ suggestedName: name });
+        const w = await h.createWritable(); await w.write(blob); await w.close();
+      } else {
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+      }
+      status(T("ch.out.saved", name));
+    } catch (e) { if (!(e && e.name === "AbortError")) status(T("ch.out.fail", name)); }
+    button.disabled = false;
+  }
+
   /* ---- talking to the conversation ---- */
   async function ensure() {
     if (sid) return true;
@@ -322,8 +398,11 @@
   async function send(text) {
     if (!text) return;
     if (!(await ensure())) { window.chatUi.setPrompt(text); return; }
-    const r = await api("POST", `/${sid}/send`, { text });
+    if (pend.some(f => f.uploading)) { status(T("ch.att.wait")); window.chatUi.setPrompt(text); return; }
+    const files = pend.filter(f => f.id);
+    const r = await api("POST", `/${sid}/send`, { text, ...(files.length ? { attachments: files.map(f => f.id) } : {}) });
     if (!r.ok) { status(errText(r)); window.chatUi.setPrompt(text); return; }
+    pend = []; drawPend();
     state = "busy"; busyNow = true; status(T("ch.working")); setControls(); poll(true);
   }
   async function answer(b, value) {
@@ -369,6 +448,7 @@
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(true); });
 
   window.agentChat = { active, send, stop, newChat };
+  window.chatUi.agentActive = active;
 
   applyT(box);                                        // the static texts, in the page's language
   (async () => {

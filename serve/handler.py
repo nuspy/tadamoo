@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import select
 import socket
 import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import urllib.parse
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
@@ -365,6 +367,9 @@ def make_handler(svc: Service):
             elif path == "/api/context/patterns":
                 if self._authorized():
                     self._json(200, context_patterns_catalog())
+            elif path in ("/api/attachments", "/api/outputs") or path.startswith(("/api/attachments/", "/api/outputs/")):
+                if self._authorized():
+                    self._files_get(path)
             elif path == "/api/llm":
                 if self._authorized():
                     self._json(200, self._llm().overview())
@@ -488,6 +493,9 @@ def make_handler(svc: Service):
                 return
             if path.startswith("/api/llm/"):
                 self._llm_post(path)
+                return
+            if path == "/api/attachments" or (path.startswith("/api/attachments/") and path.endswith("/remove")):
+                self._attachments_post(path)
                 return
             if path.startswith("/api/capabilities/"):
                 self._capabilities_post(path)
@@ -1130,6 +1138,108 @@ def make_handler(svc: Service):
                                       svc.api_key or "", tasks=_TASKS, board=_APPROVALS)
             return _RUNNER
 
+        def _own_origin(self) -> bool:
+            """No foreign Origin: another site's page cannot use what is on this PC through the browser."""
+            origin = (self.headers.get("Origin") or "").rstrip("/")
+            return not origin or origin.split("://", 1)[-1] == self.headers.get("Host", "") or origin in svc.trusted_origins
+
+        def _stores(self):
+            from harness.attachments import AttachmentStore, OutputStore
+            return AttachmentStore(userdata.path("attachments")), OutputStore(userdata.path("outputs"))
+
+        def _attachments_post(self, path):
+            """Upload (the file as the request body) or remove an attached file. Only from this PC and the server's own page."""
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "files can be attached only from the PC the server runs on"}})
+            if not self._own_origin():
+                self._discard_body()
+                return self._json(403, {"error": {"message": "files can be attached only from the server's own page"}})
+            from harness.attachments import MAX_STORED
+            store, _ = self._stores()
+            try:
+                if path.endswith("/remove"):
+                    _, _, session, att_id, _ = path.strip("/").split("/")
+                    self._discard_body()
+                    store.remove(session, att_id)
+                    return self._json(200, {"removed": att_id})
+                query = parse_qs(urlsplit(self.path).query)
+                session, name = (query.get("session") or [""])[0], (query.get("name") or ["file"])[0]
+                self._agent_sessions().get(session)                       # the conversation must exist
+                if self._chunked():
+                    self.close_connection = True
+                    return self._json(411, {"error": {"message": "send the file with its length"}})
+                try:
+                    length = int(self.headers.get("Content-Length", ""))
+                except ValueError:
+                    return self._json(411, {"error": {"message": "send the file with its length"}})
+                if length <= 0:
+                    return self._json(400, {"error": {"message": "the file is empty"}})
+                if length > MAX_STORED:
+                    self.close_connection = True
+                    return self._json(413, {"error": {"message": f"the file is larger than {_size_text(MAX_STORED)}"}})
+                tmp_dir = userdata.path("attachments") / ".incoming"
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                tmp = tmp_dir / ("up-" + secrets.token_hex(6))
+                got = 0
+                with tmp.open("wb") as f:
+                    while got < length:
+                        chunk = self.rfile.read(min(1 << 20, length - got))
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        got += len(chunk)
+                if got != length:
+                    tmp.unlink(missing_ok=True)
+                    self.close_connection = True
+                    return self._json(400, {"error": {"message": "the upload stopped before the end"}})
+                meta = store.add(session, name, tmp)
+                return self._json(200, {"attachment": meta})
+            except RunError as e:
+                return self._json(404, {"error": {"type": "agent", "message": str(e), "code": e.code}})
+            except KeyError:
+                return self._json(404, {"error": {"message": "That file is not there any more."}})
+            except ValueError as e:
+                return self._json(400, {"error": {"message": str(e)}})
+
+        def _files_get(self, path):
+            """The list of a conversation's files, a file itself (an image for preview), or a file the agent made (as a download)."""
+            store, outputs = self._stores()
+            try:
+                parts = path.strip("/").split("/")                       # api, attachments|outputs, [session, id, [file]]
+                kind = parts[1]
+                query = parse_qs(urlsplit(self.path).query)
+                if len(parts) == 2:
+                    session = (query.get("session") or [""])[0]
+                    return self._json(200, {"items": (store if kind == "attachments" else outputs).list(session)})
+                if kind == "attachments" and len(parts) == 5 and parts[4] == "file":
+                    meta, file = store.get(parts[2], parts[3]), store.path(parts[2], parts[3])
+                    types = {"png": "image/png", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp"}
+                    return self._send_file(file, types.get(meta["kind"], "application/octet-stream"), meta["name"], inline=meta["family"] == "image")
+                if kind == "outputs" and len(parts) == 4:
+                    meta, file = outputs.get(parts[2], parts[3])
+                    return self._send_file(file, "application/octet-stream", meta["name"], inline=False)
+            except KeyError:
+                return self._json(404, {"error": {"message": "That file is not there any more."}})
+            self._json(404, {"error": {"message": "not found"}})
+
+        def _send_file(self, file, ctype, name, inline):
+            size = file.stat().st_size
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Disposition", ("inline" if inline else "attachment") + "; filename*=UTF-8''" + urllib.parse.quote(name))
+            self.send_header("Content-Security-Policy", "sandbox")          # what was attached never runs as a page
+            self.send_header("Content-Length", str(size))
+            self._cors()
+            self.end_headers()
+            with file.open("rb") as f:
+                while True:
+                    block = f.read(1 << 20)
+                    if not block:
+                        break
+                    self.wfile.write(block)
+
         def _caps(self) -> CapabilityApi:
             global _CAPS
             if _CAPS is None:
@@ -1229,7 +1339,8 @@ def make_handler(svc: Service):
             global _SESSIONS
             if _SESSIONS is None:
                 _SESSIONS = SessionManager(userdata.path("journal"), f"http://127.0.0.1:{self.server.server_address[1]}",
-                                           svc.api_key or "", board=_APPROVALS, default_workspace=userdata.path("chat-workspace"))
+                                           svc.api_key or "", board=_APPROVALS, default_workspace=userdata.path("chat-workspace"),
+                                           attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"))
             return _SESSIONS
 
         def _agent_get(self, path):
@@ -1292,7 +1403,7 @@ def make_handler(svc: Service):
                     if len(parts) == 3 and parts[2] == "branch":
                         return self._json(200, {"session": mgr.branch(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "send":
-                        return self._json(200, mgr.send(parts[1], req.get("text")))
+                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments")))
                     if len(parts) == 3 and parts[2] in ("promote", "drop"):
                         return self._json(200, {"session": getattr(mgr, parts[2])(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "answer":

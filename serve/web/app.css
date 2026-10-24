@@ -985,3 +985,11 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .cp-actions .btn { min-height: 44px; }
 .cp-review { margin-top: 8px; padding: 8px 12px; border-left: 2px solid var(--accent); }
 .cp-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font: 400 14px/1.5 var(--font-mono); margin: 6px 0; padding: 8px; background: var(--surface); border-radius: 6px; }
+
+/* Chat: attached files and files the agent made */
+.aatt { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 0; }
+.aatt-i { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px 2px 12px; background: var(--surface); min-height: 48px; max-width: 100%; min-width: 0; }
+.aatt-n { font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.aatt-i .btn { min-height: 44px; }
+.achips { font-size: 14px; opacity: .85; margin-bottom: 4px; overflow-wrap: anywhere; }
+.asave { margin: 6px 0; min-height: 48px; }

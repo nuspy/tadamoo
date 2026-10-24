@@ -78,6 +78,8 @@ class AgentConfig:
     snapshot_dir: Optional[str] = None  # where the context of each turn is kept when versioning is on
     capabilities: bool = False          # offer find_capability, load_capability, call_capability and analyze_image (skills, plugins, MCP servers found on this PC)
     capabilities_dir: Optional[str] = None   # where their index and the person's approvals are kept (default: the user data folder)
+    attachments_dir: Optional[str] = None    # the conversation's attached files (harness/attachments.py); with outputs_dir, the tools for them are offered
+    outputs_dir: Optional[str] = None        # the files the agent made for the person
     capabilities_home: Optional[str] = None  # the home folder whose skills, plugins and MCP configs are looked at (default: this user's)
     confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None
 
@@ -159,7 +161,12 @@ def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builde
         return Server(command)
 
     register_capability_tools(registry, index, hub_factory=hub_for)
-    register_vision_tool(registry, index, sandbox.resolve_safe, cfg.endpoint, cfg.api_key, client)
+    def reader(path: str) -> Path:
+        if path.startswith("attachment:") and cfg.attachments_dir and cfg.run_id:
+            from harness.attachments import AttachmentStore
+            return AttachmentStore(Path(cfg.attachments_dir)).path(cfg.run_id, path.split(":", 1)[1])
+        return sandbox.resolve_safe(path)
+    register_vision_tool(registry, index, reader, cfg.endpoint, cfg.api_key, client)
     builder.pin("capabilities", index.top_of_tree())
     return index
 
@@ -225,6 +232,12 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         from harness.integrations.telephony_tools import register_phone_tools
         register_phone_tools(registry, CallAPICallClient.from_environment(), permissions, cfg.phone_on_behalf_of)
 
+    if cfg.attachments_dir and cfg.outputs_dir and cfg.run_id:
+        from harness.attachment_tools import register_attachment_tools
+        from harness.attachments import AttachmentStore, OutputStore
+        from harness.integrations.call_api_client import CallAPICallClient
+        register_attachment_tools(registry, AttachmentStore(Path(cfg.attachments_dir)), OutputStore(Path(cfg.outputs_dir)), cfg.run_id, sandbox.resolve_safe,
+                                  call_client=CallAPICallClient.from_environment(), read_chars=max(2000, int(budget * 3.5 * 0.15)))
     capability_index = None
     if cfg.capabilities:
         capability_index = _offer_capabilities(cfg, workspace, registry, builder, sandbox, client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key))

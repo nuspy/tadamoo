@@ -271,6 +271,8 @@ Dalla lista dei cinque livelli (P). Oggi un turno è **una sola inferenza** che 
 
 ### Fase 4b — Allegati nella Chat (XL) · *decisioni dell'utente prese; dopo la Fase 4 per gli strumenti*
 
+**Avanzamento (2026-10-24).** Fatto 4b-1 … 4b-4 nel codice: deposito (`POST /api/attachments`, famiglia dal contenuto, impronta), testi, dati e immagini, Word/Excel/PowerPoint con la sola libreria standard, PDF con pypdf o PyMuPDF se ci sono (altrimenti il manifesto lo dice), documenti in alto e domanda in fondo con blocchi `<document>` recintati, citazioni prima oltre soglia, file lunghi letti a pezzi (`read_attachment`, `search_attachment`), audio e video con callAPIcall (`transcribe_attachment`, lavoro ripreso se serve), file prodotti (`write_output_file`, `publish_output_file`, riaperti e controllati prima del pulsante), pulsante Allega nella Chat con avanzamento e trascinamento, pulsante «Salva» con la finestra di sistema (`showSaveFilePicker`) o scaricamento. **Provato su Edge** con il motore finto: allegato, risposta, cronologia con i nomi, pulsante e scaricamento. **Non provato**: la finestra «Salva con nome» dentro `BasaltWinGUI.exe` (se WebView2 non offre `showSaveFilePicker` serve il ponte `DownloadStarting` in C#), un PDF vero e una registrazione vera con callAPIcall (coda diurna).
+
 Oggi la Chat accetta solo immagini (`chat.js`, `attachments`).
 
 **Decisioni dell'utente**

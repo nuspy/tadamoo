@@ -481,7 +481,7 @@
         if (d) { model = d.id || model; images = ((d.architecture || {}).input_modalities || []).includes("image"); }
       }
     } catch (e) { /* /health is enough */ }
-    $("#attach").hidden = !images;
+    $("#attach").hidden = !images && !(window.chatUi && window.chatUi.agentActive && window.chatUi.agentActive());
     $("#chat-model").textContent = model;
     prompt.placeholder = images ? "Message the model, or attach an image" : "Message the model";
   }

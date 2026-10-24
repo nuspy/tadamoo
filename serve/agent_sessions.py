@@ -59,11 +59,13 @@ class SessionManager:
                  python: Optional[str] = None, root: Path = ROOT, command: Optional[Callable[[str, Dict[str, Any], Path], List[str]]] = None,
                  idle_s: float = 1800.0, hang_s: float = 1200.0, beat_timeout_s: float = 45.0, restart_cap: int = 3,
                  restart_window_s: float = 600.0, tick_s: float = 1.0, start_wait_s: float = 60.0,
-                 default_workspace: Optional[Path] = None, router: str = "model", pipeline: str = "full") -> None:
+                 default_workspace: Optional[Path] = None, router: str = "model", pipeline: str = "full",
+                 attachments_dir: Optional[Path] = None, outputs_dir: Optional[Path] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
         self.router = router                                    # how a message that comes during a task is judged: "model" or "rules"
+        self.attachments_dir, self.outputs_dir = attachments_dir, outputs_dir      # the conversation's attached files and the files the agent made
         self.pipeline = pipeline                                # the check of an answer against its request: "off", "light" or "full"
         self.default_workspace = Path(default_workspace) if default_workspace else None     # where a conversation works when none is named
         self.python, self.root = python or sys.executable, Path(root)
@@ -136,7 +138,7 @@ class SessionManager:
             return {"messages": [], "turns": 0, "session": dict(rec)}
         shown = []
         for m in self._transcript(sid, data):
-            shown.append({k: (v[:TEXT_CHARS] if isinstance(v, str) else v) for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id")})
+            shown.append({k: (v[:TEXT_CHARS] if isinstance(v, str) else v) for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments")})
         return {"messages": shown, "turns": data.get("turns", 0), "session": dict(rec)}
 
     def _read_history(self, sid: str) -> Optional[Dict[str, Any]]:
@@ -161,6 +163,10 @@ class SessionManager:
             text = m.get("content")
             if m.get("role") == "user" and isinstance(text, str) and text.startswith("<request>\n") and "\n</request>" in text:
                 m = {**m, "content": text[len("<request>\n"):text.index("\n</request>")]}
+            if m.get("role") == "user" and isinstance(text, str) and text.startswith("<documents>\n"):
+                from harness.attachments import split_documents
+                words, names = split_documents(text)
+                m = {**m, "content": words, "attachments": names}
             out.append(m)
         return out
 
@@ -251,6 +257,10 @@ class SessionManager:
             cmd.append("--ask-only")
         if rec.get("context_patterns"):
             cmd += ["--context-patterns", json.dumps(rec["context_patterns"])]
+        if self.attachments_dir and self.outputs_dir and not rec.get("ask_only"):
+            cmd += ["--attachments-dir", str(self.attachments_dir), "--outputs-dir", str(self.outputs_dir)]
+        elif self.attachments_dir:
+            cmd += ["--attachments-dir", str(self.attachments_dir)]
         return cmd
 
     def _spawn(self, sid: str) -> Live:
@@ -398,7 +408,7 @@ class SessionManager:
                 self._push(sid, {"event": "blocked", **blocked})
                 return
             self._set(rec, state="starting")
-            live.after_ready = [{"cmd": "send", "id": unconfirmed["id"], "text": unconfirmed["text"]}] if unconfirmed else [{"cmd": "resume"}]
+            live.after_ready = [dict(unconfirmed)] if unconfirmed else [{"cmd": "resume"}]
 
     def _write(self, sid: str, live: Live, cmd: Dict[str, Any]) -> bool:
         try:
@@ -411,9 +421,23 @@ class SessionManager:
 
     # -- the page's commands -----------------------------------------------------------------------------
 
-    def send(self, sid: str, text: Any) -> Dict[str, Any]:
+    def _check_attachments(self, sid: str, ids: Any) -> List[Dict[str, Any]]:
+        """The cards of the files a message names; each must be attached to this conversation."""
+        if not ids:
+            return []
+        if not isinstance(ids, list) or len(ids) > 20 or any(not isinstance(i, str) for i in ids) or self.attachments_dir is None:
+            raise RunError("Attach up to 20 files that were uploaded to this conversation.", "bad_attachments")
+        from harness.attachments import AttachmentStore
+        store = AttachmentStore(self.attachments_dir)
+        try:
+            return [store.get(sid, i) for i in ids]
+        except KeyError:
+            raise RunError("One of the attached files is not there any more: attach it again.", "bad_attachments") from None
+
+    def send(self, sid: str, text: Any, attachments: Any = None) -> Dict[str, Any]:
         if not isinstance(text, str) or not text.strip():
             raise RunError("Write a message.", "text_missing")
+        cards = self._check_attachments(sid, attachments)
         if len(text) > TEXT_CHARS:
             raise RunError(f"The message is too long ({len(text)} characters; at most {TEXT_CHARS}).", "text_long")
         with self._lock:
@@ -422,7 +446,7 @@ class SessionManager:
                 raise RunError("That conversation is closed.", "closed")
             turn = secrets.token_hex(3)              # a message that comes while the agent works is looked at by the agent itself
             live = self._ensure(sid)
-            cmd = {"cmd": "send", "id": turn, "text": text}
+            cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {})}
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
                 rec["title"] = " ".join(text.split())[:TITLE_CHARS]
@@ -432,7 +456,7 @@ class SessionManager:
                 live.after_ready.append(cmd)
             elif not self._write(sid, live, cmd):
                 raise RunError("The agent process did not take the message; try again.", "write_failed")
-        self._push(sid, {"event": "user", "turn": turn, "text": text})
+        self._push(sid, {"event": "user", "turn": turn, "text": text, **({"attachments": [{k: c[k] for k in ("id", "name", "family", "size")} for c in cards]} if cards else {})})
         return {"turn": turn, "session": self.get(sid)}
 
     def answer(self, sid: str, ask_id: Any, value: Any) -> Dict[str, Any]:
