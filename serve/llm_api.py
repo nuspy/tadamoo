@@ -36,7 +36,8 @@ class LlmApi:
 
     def _provider_view(self, prov: Dict[str, Any], public: Dict[str, Any]) -> Dict[str, Any]:
         cap = int(prov.get("daily_token_cap") or 0)
-        return {**public, "daily_token_cap": cap, "used_today": self.ledger.used(prov["id"]),
+        return {**public, "daily_token_cap": cap, "profile": prov.get("profile") or "",
+                "this_server": bool(TYPES.get(prov.get("type") or "", {}).get("this_server")), "used_today": self.ledger.used(prov["id"]),
                 "is_local": is_local(prov, self.registry.local_hosts),
                 "agent_only": TYPES.get(prov.get("type") or "", {}).get("api") == "cli",
                 "judge_only": TYPES.get(prov.get("type") or "", {}).get("api") == "judge"}
@@ -93,6 +94,8 @@ class LlmApi:
             raise LlmError(str(exc), "bad_provider") from None
         if body.get("daily_token_cap"):
             self.registry.set_cap(prov["id"], self._cap(body["daily_token_cap"]))
+        if body.get("profile") and TYPES[body["type"]].get("this_server"):
+            self.registry.set_profile(prov["id"], str(body["profile"]))
         return self._public(prov["id"])
 
     @staticmethod
@@ -115,6 +118,8 @@ class LlmApi:
             raise LlmError("That provider is not there any more.", "gone") from None
         if "daily_token_cap" in body:
             self.registry.set_cap(pid, self._cap(body["daily_token_cap"]))
+        if "profile" in body:
+            self.registry.set_profile(pid, str(body["profile"] or ""))
         return self._public(pid)
 
     def remove_provider(self, pid: str) -> Dict[str, Any]:

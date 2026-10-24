@@ -216,3 +216,19 @@ def test_injection_off_or_on_request_asks_for_no_retrieval(tmp_path):
         built.memory.add_memory("the build uses cmake and ninja", "note")
         assert (built.retrieved_message("how does the build use cmake") is not None) is expected, patterns
         built.close()
+
+
+def test_the_chats_policy_for_a_full_context_becomes_patterns_unless_the_person_chose_one():
+    assert cp.with_policy({}, "stop") == cp.defaults()
+    assert cp.with_policy({}, "rolling")["pruning"] == {"on": True, "strategy": "oldest_first"}
+    assert cp.with_policy({}, "compact")["summary"] == {"on": True, "strategy": "structured"}
+    mine = {"pruning": {"on": True, "strategy": "relevance"}}
+    assert cp.with_policy(mine, "rolling")["pruning"]["strategy"] == "relevance"                  # their own choice stands
+    assert cp.with_policy(mine, "compact")["summary"]["on"] is True and cp.with_policy(mine, "compact")["pruning"]["strategy"] == "relevance"
+
+
+def test_the_threshold_decides_when_pruning_starts(tmp_path):
+    early = cp.PatternContext(TokenJuiceCompactor(tmp_path / "a", display_dir=".a"), budget_tokens=2000, patterns={"pruning": {"on": True, "strategy": "oldest_first"}}, mask_at=0.3, keep_recent=1)
+    late = cp.PatternContext(TokenJuiceCompactor(tmp_path / "b", display_dir=".b"), budget_tokens=2000, patterns={"pruning": {"on": True, "strategy": "oldest_first"}}, mask_at=0.95, keep_recent=1)
+    msgs = convo(6, 300)
+    assert any(m.get("note") for m in early.prepare(msgs)) and not any(m.get("note") for m in late.prepare(msgs))

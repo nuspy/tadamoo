@@ -360,3 +360,14 @@ def test_snapshots_are_listed_diffed_and_checked_from_the_conversations_folder(m
     assert [m["text"] for m in mgr.snapshot_diff(sid, 1, "2")["added"]] == ["b"]
     with pytest.raises(RunError):
         mgr.snapshot_diff(sid, 1, 7)
+
+
+def test_the_policy_for_a_full_context_is_kept_and_given_to_the_process(make, ws):
+    mgr = make()
+    rec = mgr.create(ws, context_policy="compact", context_threshold=0.6)
+    assert rec["context_patterns"]["summary"] == {"on": True, "strategy": "structured"} and rec["context_threshold"] == 0.6
+    cmd = mgr._command(rec["id"], rec, mgr.history_dir(rec["id"]))
+    assert cmd[cmd.index("--context-threshold") + 1] == "0.6"
+    for bad in ({"context_policy": "sometimes"}, {"context_threshold": 0.1}, {"context_threshold": True}, {"context_threshold": "high"}):
+        with pytest.raises(RunError):
+            mgr.create(ws, **bad)

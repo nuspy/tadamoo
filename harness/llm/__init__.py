@@ -26,9 +26,12 @@ def registry(path: Optional[str] = None) -> SecureRegistry:
     return _registry
 
 
-def client_for(function: str, local: Any, reg: Optional[SecureRegistry] = None, level: str = "inherit"):
+def client_for(function: str, local: Any, reg: Optional[SecureRegistry] = None, level: str = "inherit", load_if_needed: bool = True):
     from harness.llm.client import RoutedClient
-    return RoutedClient(function, reg or registry(), local, Ledger(), level=level)
+    from harness.llm.qwen_loader import QwenLoader
+    base = getattr(local, "base_url", "")
+    loader = QwenLoader(base, getattr(local, "api_key", None)) if base and load_if_needed else None
+    return RoutedClient(function, reg or registry(), local, Ledger(), level=level, loader=loader)
 
 
 def judge_for(function: str, local: Any, reg: Optional[SecureRegistry] = None):

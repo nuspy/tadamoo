@@ -389,7 +389,7 @@
   /* ---- talking to the conversation ---- */
   async function ensure() {
     if (sid) return true;
-    const r = await api("POST", "", { mode: "default", ask_only: mode === "ask", context_patterns: chatSettings.patterns() });
+    const r = await api("POST", "", { mode: "default", ask_only: mode === "ask", context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold() });
     if (!r.ok) { status(errText(r)); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(LAST_KEY, sid); after = 0;
     await refreshList(); list.value = sid;

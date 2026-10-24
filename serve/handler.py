@@ -1399,7 +1399,8 @@ def make_handler(svc: Service):
                         return self._json(200, {"session": mgr.create(req.get("workspace"), req.get("mode", "default"), req.get("allow"),
                                                                       req.get("ask_only") is True, req.get("title", ""),
                                                                       req.get("confirm_auto") is True, req.get("max_turns", 15),
-                                                                      req.get("context_patterns"))})
+                                                                      req.get("context_patterns"), req.get("context_policy", "stop"),
+                                                                      req.get("context_threshold", 0.8))})
                     if len(parts) == 3 and parts[2] == "branch":
                         return self._json(200, {"session": mgr.branch(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "send":

@@ -125,6 +125,20 @@ class SecureRegistry(Registry):
                 if ref:
                     self.credentials.delete(ref)
 
+    def set_profile(self, pid: str, profile: str) -> Dict[str, Any]:
+        """The Loader's load profile a route to this server uses when the model has to be loaded (empty: the default one)."""
+        with self._lock:
+            data = self.load()
+            prov = self._find(data, pid)
+            if prov is None:
+                raise KeyError(pid)
+            if profile:
+                prov["profile"] = str(profile)[:60]
+            else:
+                prov.pop("profile", None)
+            self.save(data)
+            return prov
+
     def set_cap(self, pid: str, tokens: int) -> Dict[str, Any]:
         """The most tokens a day that this provider may be asked for (0: no cap)."""
         with self._lock:

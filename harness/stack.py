@@ -75,6 +75,7 @@ class AgentConfig:
     skill_paths: List[str] = field(default_factory=list)
     data_dir: Optional[str] = None
     context_patterns: Dict[str, Any] = field(default_factory=dict)   # harness/context_patterns.py: what shapes the context
+    context_threshold: float = 0.7      # the share of the context window at which pruning or a summary starts
     snapshot_dir: Optional[str] = None  # where the context of each turn is kept when versioning is on
     capabilities: bool = False          # offer find_capability, load_capability, call_capability and analyze_image (skills, plugins, MCP servers found on this PC)
     capabilities_dir: Optional[str] = None   # where their index and the person's approvals are kept (default: the user data folder)
@@ -198,7 +199,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     budget = available_budget(cfg.context_window, 0.1, cfg.max_output_tokens)
     patterns = normalize_config(cfg.context_patterns)
     snapshots = Snapshots(Path(cfg.snapshot_dir) if cfg.snapshot_dir else data / "snapshots" / (cfg.run_id or "default")) if patterns["versioning"]["on"] else None
-    context = PatternContext(compactor, budget_tokens=max(budget, 1024), patterns=patterns, snapshots=snapshots,
+    context = PatternContext(compactor, budget_tokens=max(budget, 1024), patterns=patterns, snapshots=snapshots, mask_at=min(0.95, max(0.3, cfg.context_threshold)),
                              summarize=_summarizer(summarizer or client) if patterns["summary"]["on"] else None)
 
     builder = ContextBuilder(SYSTEM_CORE)

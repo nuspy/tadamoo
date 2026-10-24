@@ -106,8 +106,9 @@ def from_anthropic(data: Dict[str, Any]) -> Dict[str, Any]:
 
 class RoutedClient:
     def __init__(self, function: str, registry: SecureRegistry, local: Any, ledger: Optional[Ledger] = None,
-                 level: str = reasoning.INHERIT, session: Optional[requests.Session] = None) -> None:
+                 level: str = reasoning.INHERIT, session: Optional[requests.Session] = None, loader: Any = None) -> None:
         functions.spec(function)
+        self.loader = loader                                 # QwenLoader: makes sure the model is there before this server is used
         self.function, self.registry, self.local = function, registry, local
         self.ledger = ledger or Ledger()
         self.level = level
@@ -146,6 +147,8 @@ class RoutedClient:
             try:
                 if pid is None:
                     self.last_provider = None
+                    if self.loader is not None:
+                        self.loader.ensure(self._route_here())
                     return self.local.chat_completion(messages=messages, tools=tools, tool_choice=tool_choice, temperature=temperature,
                                                       max_tokens=max_tokens, timeout=timeout, response_format=response_format,
                                                       extra=extra, **({"on_delta": stream} if stream else {}))
@@ -156,6 +159,12 @@ class RoutedClient:
                 if spoken[0] or n == len(chain) - 1:        # what was written cannot be taken back; and the last route has no other
                     raise
         raise failure or NotAllowed(f"{self.function} has no route")
+
+    def _route_here(self) -> Optional[Dict[str, Any]]:
+        """The provider record this function is pointed at when it is this server (it may carry a load profile)."""
+        data = self.registry.load()
+        prov = self.registry._find(data, (data.get("assignments") or {}).get(self.function) or "")
+        return prov if prov and TYPES.get(prov.get("type") or "", {}).get("this_server") else None
 
     def _call_provider(self, pid: str, messages, tools, tool_choice, temperature, max_tokens, timeout, response_format, extra, on_delta) -> Dict[str, Any]:
         data = self.registry.load()

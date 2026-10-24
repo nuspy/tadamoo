@@ -220,7 +220,8 @@ class SessionManager:
     # -- creating ----------------------------------------------------------------------------------------
 
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
-               confirm_auto: bool = False, max_turns: Any = 15, context_patterns: Any = None) -> Dict[str, Any]:
+               confirm_auto: bool = False, max_turns: Any = 15, context_patterns: Any = None,
+               context_policy: Any = "stop", context_threshold: Any = 0.8) -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         if (workspace is None or workspace == "") and self.default_workspace is not None:
             self.default_workspace.mkdir(parents=True, exist_ok=True)
@@ -235,9 +236,15 @@ class SessionManager:
             raise RunError(f"Allow rules are lines of text, at most {MAX_ALLOW}.", "bad_rules")
         if not isinstance(max_turns, int) or isinstance(max_turns, bool) or not 1 <= max_turns <= 50:
             raise RunError("The number of steps must be between 1 and 50.", "bad_steps")
+        if context_policy not in ("stop", "rolling", "compact"):
+            raise RunError("The policy for a full context is stop, rolling or compact.", "bad_policy")
+        if isinstance(context_threshold, bool) or not isinstance(context_threshold, (int, float)) or not 0.3 <= context_threshold <= 1.0:
+            raise RunError("The threshold is a share of the context window from 0.3 to 1.", "bad_policy")
         patterns = context_patterns_mod.check_config(context_patterns) if context_patterns else {}
+        if context_policy != "stop":
+            patterns = context_patterns_mod.with_policy(context_patterns or {}, context_policy)
         sid = secrets.token_hex(4)
-        rec = {"id": sid, "context_patterns": patterns, "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode,
+        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode,
                "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         with self._lock:
@@ -257,6 +264,8 @@ class SessionManager:
             cmd.append("--ask-only")
         if rec.get("context_patterns"):
             cmd += ["--context-patterns", json.dumps(rec["context_patterns"])]
+        if rec.get("context_threshold"):
+            cmd += ["--context-threshold", str(rec["context_threshold"])]
         if self.attachments_dir and self.outputs_dir and not rec.get("ask_only"):
             cmd += ["--attachments-dir", str(self.attachments_dir), "--outputs-dir", str(self.outputs_dir)]
         elif self.attachments_dir:

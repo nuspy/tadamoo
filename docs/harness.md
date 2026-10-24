@@ -368,8 +368,23 @@ Models page, sub-tab Providers; other programs that use this server still see on
 Routes: `GET /api/llm`; `POST /api/llm/providers`, `/providers/<id>`, `/providers/<id>/remove`, `/providers/<id>/test`,
 `/assign`, `/consent`, `/import`. Changes are accepted only from this PC and from the server's own page.
 
-Not done: loading Qwen automatically when a function is pointed at it, the table that translates reasoning levels, and the
-Qwen Loader's own rules for reloading.
+**Reasoning levels.** A function or provider can say how much to reason with one of seven levels (or inherit). Each kind of provider
+gets them in its own words (`reasoning_effort` for OpenAI-like servers, a budget for NIM and Claude), never two spellings at once. This
+server takes all seven and maps them: `none` and `minimal` turn thinking off, `low` and `medium` stay, `high`, `xhigh` and `max` are the
+highest level the model has.
+
+**Loading Qwen for a function.** A route to this server may name one of the Loader's load profiles (`harness/llm/qwen_loader.py`):
+a model already loaded is used as it is (a profile is never applied over it: a reload loses the conversation); one that is loading is
+waited for; with nothing loaded the route's profile is loaded, and a server that loads by itself on the first request is left to do so
+unless the route names a profile; if the Loader refuses (another program holds the GPU memory, a load is running) its words are the
+answer. Nothing is ever unloaded from here.
+
+**The Chat's policy for a full context** (stop, sliding window, compact) is the same thing as two context patterns: a conversation
+started with `rolling` prunes oldest turns first and one started with `compact` writes a structured summary, at the share of the window
+the threshold says. A pattern the person chose in the settings is not overridden.
+
+Not done: reloading a model with another profile when a function wants one (it needs the engine to be idle, which the server does not report yet),
+and the spending report per function.
 
 ## The web pages
 

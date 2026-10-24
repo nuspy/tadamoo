@@ -234,6 +234,18 @@ def check_config(value: Any) -> Dict[str, Dict[str, Any]]:
     return normalize_config(value)
 
 
+def with_policy(patterns: Any, policy: str) -> Dict[str, Dict[str, Any]]:
+    """The Chat's old setting for a full context (stop, rolling, compact) as patterns, so there is one way the context is kept in bounds:
+    `rolling` drops the oldest turns, `compact` writes a structured summary. A pattern the person chose themselves is left as they chose it."""
+    cfg = normalize_config(patterns)
+    chosen = patterns if isinstance(patterns, dict) else {}
+    if policy == "rolling" and "pruning" not in chosen:
+        cfg["pruning"] = {"on": True, "strategy": "oldest_first"}
+    elif policy == "compact" and "summary" not in chosen:
+        cfg["summary"] = {"on": True, "strategy": "structured"}
+    return cfg
+
+
 def catalog() -> Dict[str, Any]:
     """What the settings page needs to build its table, in the fixed order."""
     return {"order": list(ORDER), "patterns": {p: CATALOG[p] for p in ORDER}, "defaults": defaults()}

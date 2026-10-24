@@ -19,7 +19,7 @@
   };
   const btn = (text, cls, onclick) => { const b = h("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; return b; };
 
-  let state = null, busy = false, editing = "", note = "", noteBad = false;
+  let state = null, busy = false, editing = "", note = "", noteBad = false, loadProfiles = [];
 
   async function call(method, path, body) {
     try {
@@ -54,7 +54,12 @@
   /* ---- reading ---- */
   async function refresh() {
     const r = await call("GET", "api/llm");
-    if (r.ok) { state = r.data; draw(); } else if (!state) { panel.replaceChildren(h("p", "setnote warnnote", explain(r))); }
+    if (r.ok) {
+      state = r.data;
+      const pr = await call("GET", "api/profiles");                              // the Loader's load profiles, for a route to this server
+      loadProfiles = pr.ok ? (pr.data.load || []).map(p => p.name) : [];
+      draw();
+    } else if (!state) { panel.replaceChildren(h("p", "setnote warnnote", explain(r))); }
   }
 
   /* ---- the strip: what is loaded and who uses it ---- */
@@ -140,18 +145,21 @@
   function form(existing) {
     const f = h("form", "pv-form"); f.noValidate = true;
     const type = h("select", "", state.types.map(t => Object.assign(h("option", "", t.label), { value: t.type })));
+    const profile = h("select", "", [Object.assign(h("option", "", T("pv.f.profile.default")), { value: "" }), ...loadProfiles.map(n => Object.assign(h("option", "", n), { value: n }))]);
     const name = h("input"), url = h("input"), model = h("input"), key = h("input"), cap = h("input"), level = h("select", "", state.reasoning_levels.map(l => Object.assign(h("option", "", l.label || l.value), { value: l.value })));
     key.type = "password"; key.autocomplete = "off"; key.spellcheck = false;
     cap.type = "number"; cap.min = "0"; cap.step = "1000"; cap.inputMode = "numeric";
     [name, url, model].forEach(i => { i.type = "text"; i.autocomplete = "off"; i.spellcheck = false; });
-    if (existing) { type.value = existing.type; type.disabled = true; name.value = existing.name || ""; url.value = existing.base_url || ""; model.value = existing.model || ""; cap.value = existing.daily_token_cap || ""; level.value = existing.reasoning_level || "inherit"; }
+    if (existing) { profile.value = existing.profile || ""; type.value = existing.type; type.disabled = true; name.value = existing.name || ""; url.value = existing.base_url || ""; model.value = existing.model || ""; cap.value = existing.daily_token_cap || ""; level.value = existing.reasoning_level || "inherit"; }
     const hint = () => { const t = state.types.find(x => x.type === type.value) || {}; url.placeholder = t.base_url || ""; key.placeholder = existing && existing.has_key ? T("pv.key.keep") : ""; };
-    type.onchange = hint; hint();
+    const profileField = field("pv-profile", T("pv.f.profile"), profile, T("pv.f.profile.help"));
+    const here = () => type.value === "basalt";
+    type.onchange = () => { hint(); profileField.hidden = !here(); }; hint(); profileField.hidden = !here();
     f.append(field("pv-type", T("pv.f.type"), type), field("pv-name", T("pv.f.name"), name), field("pv-url", T("pv.f.url"), url, T("pv.f.url.help")),
       field("pv-model", T("pv.f.model"), model), field("pv-key", T("pv.f.key"), key, T("pv.f.key.help")),
-      field("pv-level", T("pv.f.level"), level), field("pv-cap", T("pv.f.cap"), cap, T("pv.f.cap.help")));
+      profileField, field("pv-level", T("pv.f.level"), level), field("pv-cap", T("pv.f.cap"), cap, T("pv.f.cap.help")));
     f.append(h("div", "pv-actions", btn(existing ? T("pv.save") : T("pv.add"), "primary", async () => {
-      const body = { type: type.value, name: name.value, base_url: url.value, model: model.value, api_key: key.value, reasoning_level: level.value, daily_token_cap: cap.value === "" ? 0 : cap.value };
+      const body = { type: type.value, name: name.value, base_url: url.value, model: model.value, api_key: key.value, reasoning_level: level.value, daily_token_cap: cap.value === "" ? 0 : cap.value, profile: here() ? profile.value : "" };
       const r = existing ? await call("POST", `api/llm/providers/${existing.id}`, body) : await call("POST", "api/llm/providers", body);
       if (r.ok) { editing = ""; key.value = ""; say(T("pv.saved")); await refresh(); } else say(explain(r), true);
     }), existing ? btn(T("pv.cancel"), "ghost", () => { editing = ""; draw(); }) : null));

@@ -205,3 +205,12 @@ def test_the_anthropic_translation_alone():
     body = to_anthropic([{"role": "system", "content": "a"}, {"role": "system", "content": "b"}, {"role": "user", "content": "x"}, {"role": "user", "content": "y"}], None)
     assert body["system"] == "a\n\nb" and body["messages"] == [{"role": "user", "content": "x\n\ny"}] and "tools" not in body
     assert from_anthropic({"content": [{"type": "text", "text": "ok"}], "stop_reason": "max_tokens"})["choices"][0]["finish_reason"] == "length"
+
+
+def test_this_server_takes_every_reasoning_level_llmswitch_offers():
+    from harness.llmswitch import reasoning
+    from serve.frontend import effort_kwargs
+    shown = {level: effort_kwargs(level) for level in reasoning.LEVELS}
+    assert shown["none"] == shown["minimal"] == {"enable_thinking": False}
+    assert shown["low"] == {"reasoning_effort": "low"} and shown["medium"] == {"reasoning_effort": "medium"}
+    assert shown["high"] == shown["xhigh"] == shown["max"] == {"reasoning_effort": "xhigh"}
