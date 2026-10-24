@@ -3,12 +3,20 @@ from __future__ import annotations
 
 import difflib
 import os
+import stat
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 MAX_RECORDED_TEXT = 200_000        # larger files keep their diff but not the full before/after text
 MAX_LISTED = 500
+# what a shell command may have changed is found by comparing the workspace's text files before and after it
+SKIP_DIRS = frozenset({".git", ".basalt", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache",
+                       ".idea", ".vscode"})
+MAX_WATCHED_FILES = 5000
+MAX_WATCHED_BYTES = 30_000_000     # the text kept in memory to compare against
+MAX_SHELL_CHANGES = 50             # recorded for one command; a command that writes more is a build, not an edit
 
 
 class WorkspaceSandbox:
@@ -16,6 +24,8 @@ class WorkspaceSandbox:
         self.root = Path(root_dir).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.changes: List[Dict[str, Any]] = []
+        self._known: Dict[str, Tuple[int, int, Optional[str]]] = {}
+        self.watch_off = False                       # set when the workspace is too large to compare around a command
 
     def resolve_safe(self, rel_path: str | Path) -> Path:
         """Resolves path and enforces that it remains strictly inside self.root."""
@@ -103,6 +113,84 @@ class WorkspaceSandbox:
         new_content = old_content.replace(target, replacement, 1)
         self._write_text(safe_path, new_content)
         return self._record(path, "modified", old_content, new_content)
+
+    # -- edits made by a shell command ----------------------------------------------------------
+
+    def _scan(self) -> Optional[Dict[str, Tuple[int, int, Optional[str]]]]:
+        """The workspace's files as (modified time, size, text or None for binary and large files); None when there are
+        too many files or too much text to compare. Files that did not change since the last scan are not read again."""
+        seen: Dict[str, Tuple[int, int, Optional[str]]] = {}
+        kept = 0
+        for folder, dirs, names in os.walk(self.root):
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not os.path.islink(os.path.join(folder, d))]
+            for name in names:
+                if name.startswith(".basalt-") and name.endswith(".tmp"):
+                    continue
+                full = os.path.join(folder, name)
+                try:
+                    st = os.lstat(full)
+                except OSError:
+                    continue
+                if not stat.S_ISREG(st.st_mode):
+                    continue
+                if len(seen) >= MAX_WATCHED_FILES:
+                    return None
+                rel = Path(full).relative_to(self.root).as_posix()
+                known = self._known.get(rel)
+                if known and known[0] == st.st_mtime_ns and known[1] == st.st_size:
+                    entry = known
+                else:
+                    text = None
+                    if st.st_size <= MAX_RECORDED_TEXT:
+                        try:
+                            data = Path(full).read_bytes()
+                        except OSError:
+                            continue
+                        if b"\x00" not in data[:8000]:
+                            text = data.decode("utf-8", errors="replace")
+                    entry = (st.st_mtime_ns, st.st_size, text)
+                if entry[2] is not None:
+                    kept += entry[1]
+                    if kept > MAX_WATCHED_BYTES:
+                        return None
+                seen[rel] = entry
+        return seen
+
+    @contextmanager
+    def watching(self) -> Iterator[None]:
+        """Around a command: the text files it added, changed or deleted are recorded like the file tools' edits."""
+        before = None if self.watch_off else self._scan()
+        if before is None:
+            self.watch_off = True
+            self._known = {}
+        else:
+            self._known = before
+        try:
+            yield
+        finally:
+            if before is not None:
+                after = self._scan()
+                if after is None:
+                    self.watch_off, self._known = True, {}
+                else:
+                    self._record_shell_changes(before, after)
+                    self._known = after
+
+    def _record_shell_changes(self, before: Dict[str, Tuple[int, int, Optional[str]]],
+                              after: Dict[str, Tuple[int, int, Optional[str]]]) -> None:
+        recorded = 0
+        for rel in sorted(set(before) | set(after)):
+            b, a = before.get(rel), after.get(rel)
+            if b and a and (b[0], b[1]) == (a[0], a[1]):
+                continue
+            old = b[2] if b else ""
+            new = a[2] if a else ""
+            if old is None or new is None or (b and a and old == new):
+                continue                                              # binary or large, or only the time changed
+            if recorded >= MAX_SHELL_CHANGES:
+                break
+            self._record(rel, "added" if b is None else "deleted" if a is None else "modified", old, new)
+            recorded += 1
 
     def list_directory(self, path: str = ".") -> List[Dict[str, Any]]:
         safe_path = self.resolve_safe(path)

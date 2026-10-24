@@ -34,7 +34,11 @@ python -m harness.acp_agent --workspace D:\work\proj          # the same agent f
 | `--max-tokens-budget`, `--timeout-seconds`, `--max-turns` | stop after this much |
 
 The run and its file edits appear in the Monitor (tasks and changes) while it works, unless `--no-report`; the reporting
-never changes the run, and stops after two failed attempts.
+never changes the run, and stops after two failed attempts. An edit made by a shell command (`sed -i`, a script that rewrites
+a file) is recorded too: the workspace's text files are compared before and after each command, so it can be reviewed block
+by block like the file tools' edits. Binary files, files over 200 000 characters, `.git`, `node_modules` and similar folders
+are left out, as are the changes of a command that writes more than 50 files; a workspace of more than 5 000 files or
+30 MB of text is not watched.
 
 Exit codes: 0 finished, 1 error, 2 bad usage, 3 turn limit, 4 budget, 5 stuck in a loop, 130 cancelled. With `--json` the
 result has the stop reason, the changes, token and cache counts and the path of the audit log.

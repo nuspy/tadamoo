@@ -16,6 +16,10 @@ def create_standard_tool_registry(
     sandbox = WorkspaceSandbox(workspace_path)
     registry = ToolRegistry()
 
+    def run_shell(command: str, timeout: float = 30.0):
+        with sandbox.watching():                       # a command that edits files is reviewed like the file tools
+            return execute_shell_command(command, cwd=sandbox.root, timeout=timeout, secrets=secrets)
+
     registry.register(
         name="read_file",
         description="Reads the content of a file within the workspace.",
@@ -82,8 +86,7 @@ def create_standard_tool_registry(
             "required": ["command"],
         },
         effect=EffectClass.IRREVERSIBLE,
-        handler=lambda command, timeout=30.0: execute_shell_command(
-            command, cwd=sandbox.root, timeout=timeout, secrets=secrets),
+        handler=run_shell,
     )
 
     registry.register(
