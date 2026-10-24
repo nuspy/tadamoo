@@ -54,9 +54,11 @@ the Rule of Two is broken**: once the session has read untrusted content (web, M
 sensitive data (secrets), irreversible actions ask again.
 
 What this is **not**: an OS sandbox. A command runs with your files and network rights, with a scrubbed environment, no
-stdin, a time limit, capped output and its whole process tree killed on timeout. The deny list stops the obvious
-system-changing tools wherever they appear as a command word. Real isolation (a dedicated Windows user, firewall rules, a
-VM for untrusted code) is not provided; until it is, `auto` should only be used in a folder you can lose. Hooks, rules and
+stdin, a time limit and capped output. On Windows each command also runs in its own job object, created before the command
+executes anything: 4 GiB of memory and 64 processes for all of it together, and everything it started is killed when it ends
+or times out (a server a command leaves running does not survive it). The deny list stops the obvious system-changing tools
+wherever they appear as a command word. File and network isolation (a dedicated Windows user, firewall rules, a VM for
+untrusted code) is not provided; until it is, `auto` should only be used in a folder you can lose. Hooks, rules and
 the secrets check read what a command *says*: a command that builds its address at run time needs a firewall.
 
 Checkpoints are stored outside the workspace; a rewind takes a safety snapshot of the current state first. The audit log
@@ -76,7 +78,7 @@ Checkpoints are stored outside the workspace; a rewind takes a safety snapshot o
   `harness/requirements.txt`; without it no waiver is given). The agent can only *ask* (`request_payment`); nothing it can
   call grants or widens a waiver. **No payment connector exists**: an authorization is a recorded decision, nothing is charged.
   Decisions still yours: whether the declaration's amount is the per-payment or the cumulative cap (it is the per-payment
-  cap now), the default 30-day expiry, and a lawyer's review of the three dialogs.
+  cap, confirmed), the default 30-day expiry, and a lawyer's review of the three dialogs.
 - **Phone calls** (`--phone`): `phone_call` always asks, even at the `auto` level and with an allow rule; the call opens by
   saying it is an AI assistant calling for you; what the other person says is untrusted. Tests of real calls are skipped
   and queued in `tests/QUEUE_live_calls.md` until you authorize them (`BASALT_LIVE_CALLS=1`).
@@ -162,6 +164,6 @@ harnesses against the same endpoint is not automated.
 are skipped. Seven server tests (`test_config`, `test_lang_and_running`, `test_metrics`) fail on Windows with or without
 these changes.
 
-Not done: real OS isolation for commands; OAuth and the stateless revision of MCP; `fs/*` and `session/load` in ACP;
+Not done: file and network isolation for commands (the job object limits resources only); OAuth and the stateless revision of MCP; `fs/*` and `session/load` in ACP;
 applying or rejecting a change hunk by hunk (edits are applied when the agent makes them and shown as diffs); a payment
 connector; the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.

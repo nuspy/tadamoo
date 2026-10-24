@@ -1,7 +1,8 @@
 """Process runner for the agent's shell commands.
 
 This is containment of resources and of the environment, not an isolation boundary: a command still
-runs with the user's file and network rights. The deny list stops the obvious system-changing tools
+runs with the user's file and network rights. On Windows each command runs in its own job object with a memory
+and process cap, and everything it started is killed when it ends or times out. The deny list stops the obvious system-changing tools
 wherever they appear as a command word (after `&&`, `|`, `cmd /c`, `powershell -c`, ...), and every
 decision to run a command belongs to the permission layer in front of it.
 """
@@ -15,10 +16,7 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-try:  # keeps children from outliving the process on Windows
-    from serve.util.winjob import contain as _contain
-except Exception:  # pragma: no cover - the harness also runs without the server package
-    _contain = None
+from .jobs import CREATE_SUSPENDED, CommandJob
 
 DEFAULT_DENY_COMMANDS = {"reg", "regedit", "schtasks", "sc", "netsh", "runas", "bcdedit", "diskpart", "vssadmin", "wmic"}
 WRAPPERS = {"cmd", "powershell", "pwsh", "bash", "sh", "wsl", "start", "call", "env", "sudo", "nohup", "command", "time"}
@@ -28,6 +26,8 @@ SAFE_ENV_KEYS = {
     "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS",
 }
 MAX_TIMEOUT = 600.0
+DEFAULT_MAX_MEMORY = 4 << 30      # per command, all its processes together (Windows)
+DEFAULT_MAX_PROCESSES = 64
 _SEGMENT_SPLIT = re.compile(r"&&|\|\||[;&|\n\r`<>]|\$\(")
 
 
@@ -94,10 +94,13 @@ class _Capped(threading.Thread):
 
 
 class ProcessSandbox:
-    def __init__(self, workspace_root: str | Path, timeout: float = 30.0, max_output_bytes: int = 50_000) -> None:
+    def __init__(self, workspace_root: str | Path, timeout: float = 30.0, max_output_bytes: int = 50_000,
+                 max_memory_bytes: Optional[int] = DEFAULT_MAX_MEMORY, max_processes: Optional[int] = DEFAULT_MAX_PROCESSES) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.timeout = timeout
         self.max_output_bytes = max_output_bytes
+        self.max_memory_bytes = max_memory_bytes
+        self.max_processes = max_processes
 
     def run(
         self,
@@ -115,8 +118,10 @@ class ProcessSandbox:
 
         limit = min(max(float(timeout if timeout is not None else self.timeout), 1.0), MAX_TIMEOUT)
         popen_args: Dict[str, Any] = {}
+        job = CommandJob(self.max_memory_bytes, self.max_processes)
         if os.name == "nt":
-            popen_args["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+            popen_args["creationflags"] = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+                                           | (CREATE_SUSPENDED if job.active else 0))
         else:
             popen_args["start_new_session"] = True
         try:
@@ -125,12 +130,10 @@ class ProcessSandbox:
                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **popen_args,
             )
         except Exception as exc:
+            job.close()
             return {**result, "exit_code": -1, "stderr": str(exc), "success": False}
-        if _contain is not None:
-            try:
-                _contain(proc)
-            except Exception:
-                pass
+        if job.active:
+            job.attach(proc)
         out = _Capped(proc.stdout, self.max_output_bytes)
         err = _Capped(proc.stderr, self.max_output_bytes)
         out.start()
@@ -138,9 +141,11 @@ class ProcessSandbox:
         try:
             proc.wait(timeout=limit)
         except subprocess.TimeoutExpired:
+            job.kill()
             kill_tree(proc)
             result["timed_out"] = True
             proc.wait()
+        job.close()                                   # whatever the command left running ends here
         out.join(5)
         err.join(5)
         stderr = err.data.decode("utf-8", errors="replace")

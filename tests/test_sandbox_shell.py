@@ -89,3 +89,62 @@ def test_shell_tool_fills_secrets_at_the_boundary_and_masks_the_output(tmp_path:
     assert res["success"], res
     assert "s3cr3t-value" not in res["stdout"]
     assert "[REDACTED:TOKEN]" in res["stdout"]
+
+
+windows_only = pytest.mark.skipif(sys.platform != "win32", reason="job objects are a Windows feature")
+
+
+@windows_only
+def test_a_command_cannot_take_more_memory_than_its_cap(tmp_path: Path):
+    marker = tmp_path / "allocated.txt"
+    (tmp_path / "hog.py").write_text(f"x = bytearray(600 * 1024 * 1024)\nx[::4096] = b'1' * len(x[::4096])\nopen(r'{marker}', 'w').write('ok')\n", encoding="utf-8")
+    capped = ProcessSandbox(tmp_path, max_memory_bytes=200 << 20).run(f"{PY} hog.py", timeout=60)
+    assert not capped["success"] and not marker.exists()
+    free = ProcessSandbox(tmp_path, max_memory_bytes=2 << 30).run(f"{PY} hog.py", timeout=60)
+    assert free["success"] and marker.exists()
+
+
+@windows_only
+def test_a_command_cannot_start_more_processes_than_its_cap(tmp_path: Path):
+    (tmp_path / "fork.py").write_text(
+        "import subprocess, sys\n"
+        "kids = []\n"
+        "try:\n"
+        "    for _ in range(12):\n"
+        "        kids.append(subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(20)']))\n"
+        "    print('started', len(kids))\n"
+        "except OSError:\n"
+        "    print('refused', len(kids))\n"
+        "finally:\n"
+        "    [k.kill() for k in kids]\n", encoding="utf-8")
+    res = ProcessSandbox(tmp_path, max_processes=5).run(f"{PY} fork.py", timeout=60)
+    assert "refused" in res["stdout"], res
+    assert "started 12" in ProcessSandbox(tmp_path, max_processes=64).run(f"{PY} fork.py", timeout=60)["stdout"]
+
+
+@windows_only
+def test_a_process_left_running_dies_with_the_command(tmp_path: Path):
+    marker = tmp_path / "late.txt"
+    (tmp_path / "late.py").write_text(f"import time\ntime.sleep(3)\nopen(r'{marker}', 'w').write('left behind')\n", encoding="utf-8")
+    (tmp_path / "leave.py").write_text("import subprocess, sys\nsubprocess.Popen([sys.executable, 'late.py'])\nprint('parent done')\n", encoding="utf-8")
+    res = ProcessSandbox(tmp_path).run(f"{PY} leave.py", timeout=30)
+    assert res["success"] and "parent done" in res["stdout"]
+    time.sleep(4.5)
+    assert not marker.exists(), "a background process outlived its command"
+
+
+@windows_only
+def test_the_command_runs_nothing_before_it_is_in_the_job(tmp_path: Path):
+    # created suspended and put in the job first: a command that forks at once is still counted against the cap
+    (tmp_path / "burst.py").write_text(
+        "import subprocess, sys\n"
+        "n = 0\n"
+        "for _ in range(8):\n"
+        "    try:\n"
+        "        subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)']); n += 1\n"
+        "    except OSError:\n"
+        "        break\n"
+        "print('forks', n)\n", encoding="utf-8")
+    res = ProcessSandbox(tmp_path, max_processes=3).run(f"{PY} burst.py", timeout=30)
+    forks = int(res["stdout"].split("forks")[1].split()[0])
+    assert forks <= 2, res                          # the shell and the interpreter already use the first slots
