@@ -137,7 +137,13 @@ wide, not for phones.
 - **Tabs**: Chat, Plans, Monitor, Models, Hardware, LOGS, Settings; **Alt+1…7** open them. **Ctrl+K** opens a palette that
   reaches every view and the common actions and settings.
 - A notice under the top bar says when no model is loaded and opens Models. Settings has an index of its sections and
-  holds the cloud-filter consent. The Monitor shows the agent's tasks and edits under the requests.
+  holds the cloud-filter consent. The Monitor shows the agent's tasks and edits: under the requests, or in a column of
+  their own on windows from 1700 pixels.
+- **Reviewing the agent's edits**: the agent applies an edit when it makes it. In the Monitor each edit lists its blocks
+  with *Keep* and *Undo* (and *Keep all*, *Undo all*); undoing asks to be pressed twice. A block is undone only while the
+  file on disk is exactly what the agent wrote, so nothing you did since is overwritten; if you changed the file, or
+  a later edit touched it, the panel says so and does nothing. Only the latest 30 edits can be undone, only for text
+  files up to 200 000 characters, and only from the PC the server runs on.
 - **Plans**: the graph (drawn with status as icon and word as well as colour), an ordered list that works by keyboard,
   proposed changes shown on the graph before they are applied, approve and reject, tasks handed to you, a box to judge events.
 
@@ -168,5 +174,5 @@ are skipped. Seven server tests (`test_config`, `test_lang_and_running`, `test_m
 these changes.
 
 Not done: file and network isolation for commands (the job object limits resources only); OAuth and the stateless revision of MCP; `fs/*` and `session/load` in ACP;
-applying or rejecting a change hunk by hunk (edits are applied when the agent makes them and shown as diffs); a payment
+holding an edit back until it is approved (it is applied first and can then be undone block by block); a payment
 connector; the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.

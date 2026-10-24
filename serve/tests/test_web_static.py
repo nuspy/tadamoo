@@ -22,6 +22,7 @@ DYNAMIC = {
     "pl.t.source.": ["cloud", "offline", "error"],
     "pl.card.": ["titolo", "date", "destinazione", "partecipanti", "logistica_e_prenotazioni", "profilo_e_vincoli_partecipanti"],
     "tk.status.": ["running", "done", "failed", "closed", "pending", "blocked"],
+    "ch.state.": ["pending", "partial", "kept", "reverted", "superseded"],
     "tab.": ["chat", "plans", "stats", "loader", "hardware", "logs", "settings"],
 }
 NODE = shutil.which("node")
@@ -137,6 +138,18 @@ class MarkupTest(unittest.TestCase):
             text = (WEB / name).read_text(encoding="utf-8")
             self.assertIn("authHeaders()", text, name)
             self.assertNotRegex(text, r'fetch\(\s*["`]/', name)          # an absolute path breaks behind a path prefix
+
+    def test_diff_lines_do_not_borrow_the_downloads_list_class(self):
+        css = (WEB / "app.css").read_text(encoding="utf-8")
+        self.assertRegex(css, r"(?m)^\.dl \{")                             # the downloads list owns .dl
+        self.assertNotRegex((WEB / "changes.js").read_text(encoding="utf-8"), r'className = "dl[ "-]')
+
+    def test_undoing_asks_twice_and_posts_to_the_review_route(self):
+        text = (WEB / "changes.js").read_text(encoding="utf-8")
+        self.assertIn('"api/changes/review"', text)
+        self.assertIn("ch.confirm", text)
+        self.assertEqual(text.count("undoButton("), 3)                      # its definition, the block's and the whole edit's
+        self.assertNotIn("confirm(", text.replace("T(\"ch.confirm\")", ""))   # no browser dialog
 
     def test_polling_stops_when_the_view_is_hidden(self):
         for name in ("tasks.js", "changes.js"):

@@ -117,8 +117,16 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .chg-added { border-left-color: var(--pl-add); } .chg-modified { border-left-color: var(--pl-upd); } .chg-deleted { border-left-color: var(--pl-del); }
 .chg-row summary { cursor: pointer; min-height: 36px; color: var(--fg-2); padding-top: 4px; }
 .chg-diff { margin: 6px 0 0; max-height: 220px; overflow: auto; font: 12.5px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel); padding: 8px; border-radius: 4px; }
-.dl-add { color: var(--pl-add); } .dl-del { color: var(--pl-del); } .dl-hunk { color: var(--pl-run); }
+.dfl-add { color: var(--pl-add); } .dfl-del { color: var(--pl-del); } .dfl-hunk { color: var(--pl-run); }
 .tk-empty, .chg-empty { margin: 0; padding: 8px 0; }
+.chg-state { margin: 4px 0 0; color: var(--fg-2); overflow-wrap: anywhere; }
+.chg-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.chg-block { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; }
+.chg-blockhead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: var(--fg-2); font: 12.5px/1.4 var(--font-mono); }
+.chg-kept { color: var(--pl-done); font: 600 13px/1.4 var(--font-mono); padding: 0 8px; }
+.chg-undo.armed { border-color: var(--pl-del); color: var(--pl-del); }
+.chg-note { margin: 6px 0 0; color: var(--pl-fail); overflow-wrap: anywhere; }
+.chg-st-reverted .chg-file { text-decoration: line-through; }
 
 @media (max-width: 640px) {
   .pl-newform { grid-template-columns: minmax(0, 1fr); }
