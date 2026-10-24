@@ -1,7 +1,7 @@
 """Starts the agent from the server's pages, watches it and stops it.
 
 The agent is the separate process `python -m harness`; this only launches it with the choices made on the page,
-keeps its output in a log, and records how it ended. One run at a time: the model serves one conversation at a time
+keeps its progress lines in a log, reads its result file, and records how it ended. One run at a time: the model serves one conversation at a time
 and two agents in one folder would undo each other. A run that is still going when the server ends is killed with it.
 """
 from __future__ import annotations
@@ -33,7 +33,11 @@ SAFE_ENV_KEYS = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "COMSPEC", "PATH
 
 
 class RunError(ValueError):
-    """A run that cannot be started or stopped, with a message fit for the person."""
+    """A run that cannot be started or stopped: a message fit for the person, and a code the page can translate."""
+
+    def __init__(self, message: str, code: str = "") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class RunBusy(RunError):
@@ -53,18 +57,6 @@ def _kill_tree(proc: "subprocess.Popen[bytes]") -> None:
         proc.kill()
     except Exception:
         pass
-
-
-def _final_json(text: str) -> Dict[str, Any]:
-    """The result the agent prints when it ends: the last top-level JSON object of its output, or {}."""
-    pos = text.rfind("\n{")
-    for start in ([pos + 1] if pos >= 0 else []) + ([0] if text.lstrip().startswith("{") else []):
-        try:
-            data = json.loads(text[start:])
-            return data if isinstance(data, dict) else {}
-        except json.JSONDecodeError:
-            continue
-    return {}
 
 
 class AgentRunner:
@@ -101,6 +93,9 @@ class AgentRunner:
     def _log_path(self, run_id: str) -> Path:
         return self.directory / "runs" / f"{run_id}.log"
 
+    def _result_path(self, run_id: str) -> Path:
+        return self.directory / "runs" / f"{run_id}.json"
+
     def view(self) -> Dict[str, Any]:
         with self._lock:
             runs = [dict(r) for r in reversed(self.runs)]
@@ -112,7 +107,7 @@ class AgentRunner:
 
     def log(self, run_id: str, lines: int = 300) -> Dict[str, Any]:
         if self.get(run_id) is None:
-            raise RunError("That run is not in the list any more.")
+            raise RunError("That run is not in the list any more.", "gone")
         path = self._log_path(run_id)
         try:
             size = path.stat().st_size
@@ -129,42 +124,43 @@ class AgentRunner:
     @staticmethod
     def check_workspace(workspace: Any) -> Path:
         if not isinstance(workspace, str) or not workspace.strip():
-            raise RunError("Choose the folder the agent works in.")
+            raise RunError("Choose the folder the agent works in.", "folder_missing")
         path = Path(workspace.strip()).expanduser()
         if not path.is_absolute():
-            raise RunError("Give the full path of the folder, for example D:\\projects\\site.")
+            raise RunError("Give the full path of the folder, for example D:\\projects\\site.", "folder_relative")
         if not path.is_dir():
-            raise RunError(f"That folder does not exist: {path}")
+            raise RunError(f"That folder does not exist: {path}", "folder_not_found")
         path = path.resolve()
         if len(path.parts) <= 1:
-            raise RunError("Choose a folder, not a whole drive.")
+            raise RunError("Choose a folder, not a whole drive.", "folder_drive")
         return path
 
     def start(self, workspace: Any, goal: Any, mode: Any = "default", allow: Any = None, max_turns: Any = 15,
               confirm_auto: bool = False) -> Dict[str, Any]:
         path = self.check_workspace(workspace)
         if not isinstance(goal, str) or not goal.strip():
-            raise RunError("Write what the agent should do.")
+            raise RunError("Write what the agent should do.", "goal_missing")
         if len(goal) > GOAL_CHARS:
-            raise RunError(f"The task is too long ({len(goal)} characters; at most {GOAL_CHARS}).")
+            raise RunError(f"The task is too long ({len(goal)} characters; at most {GOAL_CHARS}).", "goal_long")
         if mode not in MODES:
-            raise RunError("The mode must be one of: " + ", ".join(MODES) + ".")
+            raise RunError("The mode must be one of: " + ", ".join(MODES) + ".", "bad_mode")
         if mode == "auto" and confirm_auto is not True:
-            raise RunError("Automatic mode runs commands without asking. Confirm that you want that, in a folder you can lose.")
+            raise RunError("Automatic mode runs commands without asking. Confirm that you want that, in a folder you can lose.", "auto_confirm")
         rules = allow if isinstance(allow, list) else []
         if len(rules) > MAX_ALLOW or any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
-            raise RunError(f"Allow rules are lines of text, at most {MAX_ALLOW}.")
+            raise RunError(f"Allow rules are lines of text, at most {MAX_ALLOW}.", "bad_rules")
         if not isinstance(max_turns, int) or isinstance(max_turns, bool) or not 1 <= max_turns <= 50:
-            raise RunError("The number of steps must be between 1 and 50.")
+            raise RunError("The number of steps must be between 1 and 50.", "bad_steps")
 
         with self._lock:
             if any(r["status"] == "running" for r in self.runs):
-                raise RunBusy("An agent is already running. Stop it or wait for it to finish.")
+                raise RunBusy("An agent is already running. Stop it or wait for it to finish.", "busy")
             run_id = secrets.token_hex(3)
             log_path = self._log_path(run_id)
             log_path.parent.mkdir(parents=True, exist_ok=True)
             command = [self.python, "-m", "harness", f"--prompt={goal.strip()}", "--workspace", str(path), "--endpoint", self.endpoint,
-                       "--permission-mode", mode, "--max-turns", str(max_turns), "--json", "--run-id", run_id, "--ask-server"]
+                       "--permission-mode", mode, "--max-turns", str(max_turns), "--progress", "--result-file", str(self._result_path(run_id)),
+                       "--run-id", run_id, "--ask-server"]
             for rule in rules:
                 command += ["--allow", rule.strip()]
             env = {k: v for k, v in os.environ.items() if k.upper() in SAFE_ENV_KEYS}
@@ -177,7 +173,7 @@ class AgentRunner:
                     proc = subprocess.Popen(command, cwd=str(self.root), env=env, stdin=subprocess.DEVNULL, stdout=log,
                                             stderr=subprocess.STDOUT, creationflags=flags, start_new_session=(os.name != "nt"))
                 except OSError as exc:
-                    raise RunError(f"The agent could not be started: {exc.strerror or exc}") from None
+                    raise RunError(f"The agent could not be started: {exc.strerror or exc}", "start_failed") from None
             contain(proc)
             run = {"id": run_id, "workspace": str(path), "goal": goal.strip()[:SHOWN_CHARS], "mode": mode, "status": "running",
                    "started": time.time(), "ended": None, "exit_code": None, "summary": "", "stop_reason": "", "pid": proc.pid,
@@ -193,9 +189,9 @@ class AgentRunner:
             run = next((r for r in self.runs if r["id"] == run_id), None)
             proc = self._procs.get(run_id)
             if run is None:
-                raise RunError("That run is not in the list any more.")
+                raise RunError("That run is not in the list any more.", "gone")
             if run["status"] != "running" or proc is None:
-                raise RunError("That run is not running.")
+                raise RunError("That run is not running.", "not_running")
             run["stop_requested"] = True
         _kill_tree(proc)
         return self.get(run_id) or {}
@@ -206,7 +202,11 @@ class AgentRunner:
             text = self._log_path(run_id).read_bytes()[-LOG_TAIL_BYTES:].decode("utf-8", errors="replace")
         except OSError:
             text = ""
-        result = _final_json(text)
+        try:
+            result = json.loads(self._result_path(run_id).read_text(encoding="utf-8"))
+            result = result if isinstance(result, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            result = {}
         with self._lock:
             run = next((r for r in self.runs if r["id"] == run_id), None)
             self._procs.pop(run_id, None)

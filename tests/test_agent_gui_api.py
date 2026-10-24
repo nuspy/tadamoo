@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from serve import handler
-from serve.agent_runs import AgentRunner, _final_json
+from serve.agent_runs import AgentRunner
 from serve.approvals import ApprovalBoard, ApprovalError
 from serve.tasks import ChangeJournal, TaskJournal
 from test_e2e_mock_server import answer, start_server, tool_call, ws  # noqa: F401  (fixtures)
@@ -89,7 +89,7 @@ def test_a_run_started_from_the_page_works_in_the_folder_and_shows_up_everywhere
     (edit,) = s["changes"].view()["edits"]
     assert (edit["file"], edit["review"]) == ("hello.txt", "pending")
     log = s["api"]("GET", f"/api/agent/runs/{run['id']}/log")[1]["text"]
-    assert '"status": "success"' in log
+    assert log.splitlines() == ["> write_file hello.txt", "  ok", "Wrote hello.txt."]      # readable lines, not a JSON dump
 
 
 def test_a_command_waits_for_the_person_and_runs_once_approved(setup, ws):  # noqa: F811
@@ -187,12 +187,6 @@ def test_a_run_that_was_going_when_the_server_ended_is_marked_interrupted(tmp_pa
     first._save()
     again = AgentRunner(tmp_path, "http://127.0.0.1:1")
     assert again.view()["runs"][0]["status"] == "interrupted" and again.view()["active"] is None
-
-
-def test_the_agents_final_result_is_found_at_the_end_of_its_output():
-    text = 'noise\nmore noise\n{\n  "status": "success",\n  "final_output": "done"\n}\n'
-    assert _final_json(text)["final_output"] == "done"
-    assert _final_json("no json here") == {} and _final_json('{"a": 1}') == {"a": 1} and _final_json("x\n{broken") == {}
 
 
 def test_the_approval_board_expires_and_answers_once():

@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "serve" / "web"
-NEW_SCRIPTS = ("plans.js", "tasks.js", "changes.js", "shell.js")
+NEW_SCRIPTS = ("plans.js", "tasks.js", "changes.js", "shell.js", "agent.js")
 # keys the scripts build at run time, as prefix + each value
 DYNAMIC = {
     "pl.type.": ["action", "sensor", "decision", "merge"],
@@ -22,8 +22,11 @@ DYNAMIC = {
     "pl.t.source.": ["cloud", "offline", "error"],
     "pl.card.": ["titolo", "date", "destinazione", "partecipanti", "logistica_e_prenotazioni", "profilo_e_vincoli_partecipanti"],
     "tk.status.": ["running", "done", "failed", "closed", "pending", "blocked"],
+    "ag.status.": ["running", "done", "failed", "stopped", "interrupted"],
+    "ag.mode.": ["plan", "read_only", "default", "auto"],
+    "ag.e.": ["folder_missing", "folder_relative", "folder_not_found", "folder_drive", "goal_missing", "goal_long", "bad_mode", "auto_confirm", "bad_rules", "bad_steps", "busy", "start_failed", "not_running", "gone", "approval", "offline", "key", "local"],
     "ch.state.": ["pending", "partial", "kept", "reverted", "superseded"],
-    "tab.": ["chat", "plans", "stats", "loader", "hardware", "logs", "settings"],
+    "tab.": ["chat", "agent", "plans", "stats", "loader", "hardware", "logs", "settings"],
 }
 NODE = shutil.which("node")
 
@@ -119,7 +122,7 @@ class MarkupTest(unittest.TestCase):
 
     def test_navigation_order_and_the_palette_and_the_notice_exist(self):
         tabs = re.findall(r'<button class="tab" role="tab" id="tab-(\w+)" data-view=', self.html)
-        self.assertEqual(tabs, ["chat", "plans", "stats", "loader", "hardware", "logs", "settings"])
+        self.assertEqual(tabs, ["chat", "agent", "plans", "stats", "loader", "hardware", "logs", "settings"])
         for needle in ('id="palette"', 'id="pal-input"', 'id="pal-list"', 'id="pal-open"', 'id="nomodel"', 'id="st-index"',
                        'id="st-ui-scale"', 'id="st-planner-body"', 'aria-keyshortcuts="Control+K"'):
             self.assertIn(needle, self.html, needle)
@@ -143,6 +146,10 @@ class MarkupTest(unittest.TestCase):
         css = (WEB / "app.css").read_text(encoding="utf-8")
         self.assertRegex(css, r"(?m)^\.dl \{")                             # the downloads list owns .dl
         self.assertNotRegex((WEB / "changes.js").read_text(encoding="utf-8"), r'className = "dl[ "-]')
+
+    def test_the_agent_view_translates_its_own_static_texts(self):
+        text = (WEB / "agent.js").read_text(encoding="utf-8")
+        self.assertIn('applyT($id("view-agent"))', text)
 
     def test_undoing_asks_twice_and_posts_to_the_review_route(self):
         text = (WEB / "changes.js").read_text(encoding="utf-8")

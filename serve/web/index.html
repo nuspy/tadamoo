@@ -11,6 +11,7 @@
 <link rel="preload" href="fonts/geist-mono-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="web/app.css">
 <link rel="stylesheet" href="web/plans.css">
+<link rel="stylesheet" href="web/agent.css">
 <link rel="stylesheet" href="web/shell.css">
 <script defer src="web/i18n.js"></script>
 <script defer src="web/app.js"></script>
@@ -26,6 +27,7 @@
 <script defer src="web/tasks.js"></script>
 <script defer src="web/changes.js"></script>
 <script defer src="web/plans.js"></script>
+<script defer src="web/agent.js"></script>
 </head>
 <body>
 
@@ -34,6 +36,7 @@
   <span class="model" id="model"></span>
   <nav class="tabs" role="tablist" aria-label="Views">
     <button class="tab" role="tab" id="tab-chat" data-view="chat" aria-controls="view-chat" aria-selected="false" tabindex="-1" data-t="tab.chat" aria-keyshortcuts="Alt+1">Chat</button>
+    <button class="tab" role="tab" id="tab-agent" data-view="agent" aria-controls="view-agent" aria-selected="false" tabindex="-1" data-t="tab.agent">Agent</button>
     <button class="tab" role="tab" id="tab-plans" data-view="plans" aria-controls="view-plans" aria-selected="false" tabindex="-1" data-t="tab.plans">Plans</button>
     <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats" aria-selected="true" data-t="tab.stats">Monitor</button>
     <button class="tab" role="tab" id="tab-loader" data-view="loader" aria-controls="view-loader" aria-selected="false" tabindex="-1" data-t="tab.loader">Models</button>
@@ -310,6 +313,66 @@
           <div><h3 class="subh" data-t="ch.title">Changes</h3><div id="changes-root"></div></div>
         </div>
       </section>
+    </div>
+  </div>
+
+  <div class="view agent" id="view-agent" role="tabpanel" aria-labelledby="tab-agent" hidden>
+    <div class="ag-grid">
+      <div class="ag-col">
+        <section class="sec" aria-labelledby="ag-h">
+          <div class="sh"><b id="ag-h" data-t="ag.title">Run the agent</b></div>
+          <form class="pad ag-form" id="ag-form" novalidate>
+            <p class="ag-lead" data-t="ag.lead">The agent works on a task in a folder of this PC, using the model that is loaded. What it does shows under Monitor, where you can undo its edits.</p>
+            <p class="ag-nomodel" id="ag-nomodel" hidden><span data-t="ag.nomodel">No model is loaded, so the agent cannot start.</span> <button type="button" class="btn" id="ag-nomodel-go" data-t="ag.nomodel.go">Open Models</button></p>
+            <label for="ag-folder" data-t="ag.folder">Folder the agent works in</label>
+            <input id="ag-folder" type="text" list="ag-folders" autocomplete="off" spellcheck="false" aria-describedby="ag-folder-help" data-t-ph="ag.folder.ph" placeholder="D:\projects\site">
+            <datalist id="ag-folders"></datalist>
+            <p class="help" id="ag-folder-help" data-t="ag.folder.help">The full path. Its file tools stay inside this folder; the commands it runs are not limited to it.</p>
+            <label for="ag-goal" data-t="ag.goal">What should it do?</label>
+            <textarea id="ag-goal" rows="5" maxlength="4000" data-t-ph="ag.goal.ph" placeholder="For example: add a test for the date parser and make it pass"></textarea>
+            <fieldset class="ag-modes">
+              <legend data-t="ag.mode">How much may it do on its own?</legend>
+              <label class="ag-mode"><input type="radio" name="ag-mode" value="plan"><span><b data-t="ag.mode.plan">Plan only</b><small data-t="ag.mode.plan.d">Reads and proposes a plan. Changes nothing and runs nothing.</small></span></label>
+              <label class="ag-mode"><input type="radio" name="ag-mode" value="read_only"><span><b data-t="ag.mode.read_only">Read only</b><small data-t="ag.mode.read_only.d">Reads files. Asks you before anything else.</small></span></label>
+              <label class="ag-mode"><input type="radio" name="ag-mode" value="default" checked><span><b data-t="ag.mode.default">Ask first</b><small data-t="ag.mode.default.d">Edits files in the folder. Asks you before it runs a command.</small></span></label>
+              <label class="ag-mode"><input type="radio" name="ag-mode" value="auto"><span><b data-t="ag.mode.auto">Automatic</b><small data-t="ag.mode.auto.d">Runs commands without asking. Use it only in a folder you can lose.</small></span></label>
+            </fieldset>
+            <label class="ag-check" id="ag-auto-row" hidden><input type="checkbox" id="ag-auto"><span data-t="ag.auto.confirm">I understand that the agent will run commands on this PC without asking me.</span></label>
+            <details class="ag-adv">
+              <summary data-t="ag.adv">More options</summary>
+              <label for="ag-steps" data-t="ag.steps">Most steps</label>
+              <input id="ag-steps" type="number" inputmode="numeric" min="1" max="50" step="1" value="15" aria-describedby="ag-steps-help">
+              <p class="help" id="ag-steps-help" data-t="ag.steps.help">The run stops after this many turns of the model.</p>
+              <label for="ag-allow" data-t="ag.allow">Commands it may run without asking</label>
+              <textarea id="ag-allow" rows="3" spellcheck="false" aria-describedby="ag-allow-help" data-t-ph="ag.allow.ph" placeholder="shell_command:python -m pytest*"></textarea>
+              <p class="help" id="ag-allow-help" data-t="ag.allow.help">One rule per line. A rule never covers a command that chains others.</p>
+            </details>
+            <p class="ag-msg" id="ag-msg" role="alert"></p>
+            <div class="ag-buttons">
+              <button type="submit" class="btn primary" id="ag-start" data-t="ag.start">Start</button>
+              <button type="button" class="btn ag-stop" id="ag-stop" data-t="ag.stop" hidden>Stop</button>
+            </div>
+          </form>
+        </section>
+      </div>
+      <div class="ag-col">
+        <section class="sec" id="ag-ap-sec" aria-labelledby="ag-ap-h">
+          <div class="sh"><b id="ag-ap-h" data-t="ag.ap.title">Waiting for you</b></div>
+          <div class="pad" id="ag-approvals" aria-live="polite"></div>
+        </section>
+        <section class="sec" aria-labelledby="ag-run-h">
+          <div class="sh"><b id="ag-run-h" tabindex="-1" data-t="ag.run.title">Current run</b></div>
+          <div class="pad">
+            <div id="ag-run"></div>
+            <h3 class="subh ag-logh" data-t="ag.log">What it printed</h3>
+            <pre class="ag-log" id="ag-log" role="log" aria-live="off" tabindex="0"></pre>
+          </div>
+        </section>
+        <section class="sec" aria-labelledby="ag-hist-h">
+          <div class="sh"><b id="ag-hist-h" data-t="ag.hist.title">Earlier runs</b></div>
+          <div class="pad" id="ag-history"></div>
+        </section>
+      </div>
     </div>
   </div>
 

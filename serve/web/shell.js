@@ -66,6 +66,8 @@
       { label: T("pal.chat.new"), group: T("pal.g.actions"), run: () => goto("chat", click("new-chat")) },
       { label: T("pal.chat.set"), group: T("pal.g.actions"), run: () => goto("chat", click("cs-open")) },
       { label: T("pal.model.load"), group: T("pal.g.actions"), run: () => goto("loader") },
+      { label: T("pal.agent.run"), group: T("pal.g.actions"), run: () => goto("agent", () => { const g = document.getElementById("ag-goal"); if (g && !g.disabled) g.focus(); }) },
+      { label: T("pal.agent.stop"), group: T("pal.g.actions"), run: () => goto("agent", () => { const b = document.getElementById("ag-stop"); if (b && !b.hidden) b.click(); }) },
       { label: T("pal.plan.new"), group: T("pal.g.actions"), run: () => goto("plans", () => { const d = document.getElementById("pl-new"); if (d) { d.open = true; const i = document.getElementById("pl-new-title"); if (i) i.focus(); } }) },
       { label: T("pal.set.lang"), group: T("pal.g.settings"), run: settingsAt("st-lang-h") },
       { label: T("pal.set.ui"), group: T("pal.g.settings"), run: settingsAt("st-ui-h") },

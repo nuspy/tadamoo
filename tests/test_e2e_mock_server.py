@@ -164,3 +164,23 @@ def test_a_missing_workspace_is_a_clear_error(tmp_path):
         build_agent(AgentConfig(workspace=str(tmp_path / "nope"), data_dir=str(tmp_path / "d")))
     with pytest.raises(ValueError, match="permission mode"):
         build_agent(AgentConfig(workspace=str(tmp_path), permission_mode="yolo", data_dir=str(tmp_path / "d")))
+
+
+def test_progress_lines_and_a_result_file_without_the_edited_texts(start_server, ws, tmp_path):
+    url = start_server([tool_call("write_file", path="a.txt", content="one\n"),
+                        tool_call("shell_command", command="python -c \"import sys; sys.exit(3)\""), answer("Finished.")])
+    result_file = tmp_path / "result.json"
+    out = io.StringIO()
+    with redirect_stdout(out):
+        code = main(["-p", "go", "--workspace", str(ws), "--endpoint", url, "--no-memory", "--no-checkpoints", "--no-report",
+                     "--permission-mode", "auto", "--progress", "--result-file", str(result_file)])
+    assert code == 0
+    lines = [l for l in out.getvalue().splitlines() if not l.startswith("[server]")]            # the server runs in this process
+    assert lines == ["> write_file a.txt", "  ok", "> shell_command python -c \"import sys; sys.exit(3)\"", "  ok", "Finished."]
+    data = json.loads(result_file.read_text(encoding="utf-8"))
+    assert data["status"] == "success" and data["final_output"] == "Finished."
+    assert data["changes"] == [{"file": "a.txt", "kind": "added", "added": 1, "removed": 0}]
+    bad = tmp_path / "bad.json"
+    with redirect_stdout(io.StringIO()):
+        assert main(["-p", "go", "--workspace", str(ws / "missing"), "--no-report", "--result-file", str(bad)]) == 1
+    assert json.loads(bad.read_text(encoding="utf-8"))["status"] == "error"

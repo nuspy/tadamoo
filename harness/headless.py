@@ -35,6 +35,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
                              "where it can be sent (without hosts it is for local commands only)")
     parser.add_argument("--skills", action="append", default=[], metavar="DIR", help="folder with SKILL.md skills")
     parser.add_argument("--interactive", action="store_true", help="ask on the terminal before risky actions")
+    parser.add_argument("--progress", action="store_true", help="print one line for each tool the agent uses and how it went")
+    parser.add_argument("--result-file", default=None, metavar="PATH", help="write the result as JSON here, without the edited texts")
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of the terminal")
     parser.add_argument("--run-id", default="", help="the name of this run in the server's Monitor")
     parser.add_argument("--phone", action="store_true",
@@ -50,6 +52,36 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--no-checkpoints", action="store_true")
     parser.add_argument("--json", action="store_true", help="print the result as JSON")
     return parser.parse_args(args)
+
+
+SHOWN_ARGS = ("command", "path", "query", "url", "number", "name")
+
+
+def _progress_line(event: Dict[str, Any]) -> Optional[str]:
+    """A line for the person to read about a tool call starting or ending, or None for events that need none."""
+    kind = event.get("type")
+    if kind == "tool_start":
+        args = event.get("arguments") or {}
+        key = next((k for k in SHOWN_ARGS if k in args), None)
+        detail = " ".join(str(args[key]).split())[:100] if key else ""
+        return f"> {event.get('name')} {detail}".rstrip()
+    if kind == "tool_end":
+        if event.get("status") == "completed":
+            return "  ok"
+        first = next((l.strip() for l in str(event.get("output", "")).splitlines() if l.strip()), "")
+        return f"  failed ({event.get('decision')}): {first[:140]}"
+    return None
+
+
+def _on_event(cfg: AgentConfig, reporter: Any):
+    def handle(event: Dict[str, Any]) -> None:
+        if cfg.progress:
+            line = _progress_line(event)
+            if line:
+                print(line, flush=True)
+        if reporter is not None:
+            reporter.on_event(event)
+    return handle
 
 
 def _confirmer(args: argparse.Namespace):
@@ -98,7 +130,7 @@ def config_from_args(args: argparse.Namespace) -> AgentConfig:
         use_checkpoints=not args.no_checkpoints, skill_paths=args.skills,
         phone=args.phone, phone_on_behalf_of=args.on_behalf_of, reference_docs=read_reference(args.reference),
         report=not args.no_report, reference_strategy=args.reference_strategy, wiki=args.wiki, wiki_project=args.wiki_project,
-        confirm=_confirmer(args), run_id=args.run_id,
+        confirm=_confirmer(args), run_id=args.run_id, progress=args.progress,
     )
 
 
@@ -108,8 +140,8 @@ def run_headless(cfg: AgentConfig, prompt: str, client: Any = None) -> Dict[str,
         if cfg.report:
             from harness.reporting import PanelReporter
             built.reporter = PanelReporter(cfg.endpoint, cfg.api_key, built.sandbox, prompt, session=cfg.run_id or None)
-            built.agent.on_event = built.reporter.on_event
             built.reporter.start()
+        built.agent.on_event = _on_event(cfg, built.reporter)
         try:
             turns = built.agent.run(prompt, retrieved=built.retrieved_message(prompt))
         except BaseException as exc:
@@ -138,11 +170,20 @@ def run_headless(cfg: AgentConfig, prompt: str, client: Any = None) -> Dict[str,
         built.close()
 
 
+def _write_result(path: str, result: Dict[str, Any]) -> None:
+    slim = {**result, "changes": [{k: v for k, v in c.items() if k not in ("old_text", "new_text", "diff")} for c in result.get("changes", [])]}
+    Path(path).write_text(json.dumps(slim, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
     try:
         result = run_headless(config_from_args(args), args.prompt)
+        if args.result_file:
+            _write_result(args.result_file, result)
     except Exception as exc:
+        if args.result_file:
+            _write_result(args.result_file, {"status": "error", "stop_reason": al.ERROR, "error": str(exc)})
         if args.json:
             print(json.dumps({"status": "error", "stop_reason": al.ERROR, "error": str(exc)}))
         else:

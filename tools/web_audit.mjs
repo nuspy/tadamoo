@@ -15,7 +15,7 @@ const flag = k => args.includes("--" + k);
 const url = opt("url");
 if (!url) { console.error("usage: node tools/web_audit.mjs --url URL [--out DIR] [--views a,b] [--sizes WxH,...] [--interact] [--strict]"); process.exit(2); }
 const out = opt("out") || mkdtempSync(join(tmpdir(), "basalt-audit-"));
-const VIEWS = (opt("views") || "chat,plans,stats,loader,hardware,logs,settings").split(",");
+const VIEWS = (opt("views") || "chat,agent,plans,stats,loader,hardware,logs,settings").split(",");
 const SIZES = (opt("sizes") || "1024x768,1920x1080,3600x1400").split(",").map(s => s.split("x").map(Number));
 mkdirSync(out, { recursive: true });
 
@@ -115,7 +115,7 @@ for (const [w, h] of SIZES) {
     await sleep(600);
     await key("2", "Digit2", 50, 1);                                  // Alt+2 = the second tab
     await sleep(500);
-    note((await evaluate(`document.body.dataset.view`)) === "plans", `${w}: Alt+2 did not open the second view`);
+    note((await evaluate(`document.body.dataset.view`)) === "agent", `${w}: Alt+2 did not open the second view`);
     await key("k", "KeyK", 75, 2);                                    // Ctrl+K
     await sleep(500);
     const open = await evaluate(`(() => { const d = document.getElementById("palette"); return { open: !!d && d.open, items: document.querySelectorAll("#pal-list .pal-item").length, focus: document.activeElement && document.activeElement.id }; })()`);

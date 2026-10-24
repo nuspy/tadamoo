@@ -1118,7 +1118,7 @@ def make_handler(svc: Service):
                         return self._json(404, {"error": {"message": "That request is not there any more."}})
                     return self._json(200, {"status": item["status"]})
             except RunError as e:
-                return self._json(404, {"error": {"type": "agent", "message": str(e)}})
+                return self._json(404, {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except ValueError as e:
                 return self._json(400, {"error": {"message": str(e)}})
             self._json(404, {"error": {"message": "not found"}})
@@ -1147,10 +1147,13 @@ def make_handler(svc: Service):
                         raise ValueError('decision must be "approve" or "deny"')
                     return self._json(200, {"approval": _APPROVALS.decide(parts[1], req["decision"] == "approve")})
             except RunBusy as e:
-                return self._json(409, {"error": {"type": "agent", "message": str(e)}})
-            except (RunError, ApprovalError) as e:
-                return self._json(409 if "already" in str(e) or "not running" in str(e) or "not there" in str(e) else 400,
-                                  {"error": {"type": "agent", "message": str(e)}})
+                return self._json(409, {"error": {"type": "agent", "message": str(e), "code": e.code}})
+            except RunError as e:
+                return self._json(409 if e.code in ("not_running", "gone") else 400,
+                                  {"error": {"type": "agent", "message": str(e), "code": e.code}})
+            except ApprovalError as e:
+                return self._json(409 if "already" in str(e) or "not there" in str(e) else 400,
+                                  {"error": {"type": "agent", "message": str(e), "code": "approval"}})
             except BadBody as e:
                 return self._json(e.status, {"error": {"message": str(e)}})
             except (ValueError, TypeError) as e:

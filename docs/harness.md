@@ -147,7 +147,7 @@ wide, not for phones.
 
 - **Interface size**: automatic on very wide windows (zoom 1.25 from 2400 pixels up to 2 from 5000), or a fixed
   percentage in Settings.
-- **Tabs**: Chat, Plans, Monitor, Models, Hardware, LOGS, Settings; **Alt+1…7** open them. **Ctrl+K** opens a palette that
+- **Tabs**: Chat, Agent, Plans, Monitor, Models, Hardware, LOGS, Settings; **Alt+1…8** open them. **Ctrl+K** opens a palette that
   reaches every view and the common actions and settings.
 - A notice under the top bar says when no model is loaded and opens Models. Settings has an index of its sections and
   holds the cloud-filter consent. The Monitor shows the agent's tasks and edits: under the requests, or in a column of
@@ -157,6 +157,16 @@ wide, not for phones.
   file on disk is exactly what the agent wrote, so nothing you did since is overwritten; if you changed the file, or
   a later edit touched it, the panel says so and does nothing. Only the latest 30 edits can be undone, only for text
   files up to 200 000 characters, and only from the PC the server runs on.
+- **Agent**: the way to run the agent from the app. Choose the folder and write the task; the mode sets how much it may do
+  on its own: *Plan only*, *Read only*, *Ask first* (it edits files in the folder and asks before it runs a command) or
+  *Automatic* (it runs commands without asking; needs a tick that says so, and belongs in a folder you can lose). A question
+  from the agent (a command to run, an MCP tool) appears at the top of the right column and on the tab as a count, with
+  *Approve* and *Deny*; one nobody answers within 15 minutes, or whose run ended, counts as a refusal. Under *More options*:
+  the most steps, and rules for commands it may run without asking. The page shows the run's status and a readable log (one
+  line for each tool, then its answer) and a button to the Monitor, where its edits can be reviewed; *Stop* ends the
+  agent and everything it started. One run at a time. It works only from the PC the server runs on, with the API key if the
+  server has one. The agent is the same `python -m harness` as on the command line, started by the server with
+  `--progress --result-file --ask-server`; the log and the result file are in the data folder (`journal/runs`).
 - **Plans**: the graph (drawn with status as icon and word as well as colour), an ordered list that works by keyboard,
   proposed changes shown on the graph before they are applied, approve and reject, tasks handed to you, a box to judge events.
 
@@ -185,6 +195,10 @@ harnesses against the same endpoint is not automated.
 `python -m pytest tests` (harness) and `python -m pytest serve/tests` (server and pages). Tests that would place a real call
 are skipped. Seven server tests (`test_config`, `test_lang_and_running`, `test_metrics`) fail on Windows with or without
 these changes.
+
+An approval from the page asks the server for an answer, and any process on this PC that can reach the server can post
+one, so it matters that an agent which can run arbitrary code (an allow rule such as `python *`, or Automatic mode) can approve
+its own later requests: such a rule already grants that power, and only the isolation below would take it away.
 
 Not done: file and network isolation for commands (the job object limits resources only); OAuth for MCP; `fs/*` and `session/load` in ACP;
 holding an edit back until it is approved (it is applied first and can then be undone block by block); a payment
