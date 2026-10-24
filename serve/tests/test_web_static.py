@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "serve" / "web"
-NEW_SCRIPTS = ("plans.js", "tasks.js", "changes.js")
+NEW_SCRIPTS = ("plans.js", "tasks.js", "changes.js", "shell.js")
 # keys the scripts build at run time, as prefix + each value
 DYNAMIC = {
     "pl.type.": ["action", "sensor", "decision", "merge"],
@@ -22,6 +22,7 @@ DYNAMIC = {
     "pl.t.source.": ["cloud", "offline", "error"],
     "pl.card.": ["titolo", "date", "destinazione", "partecipanti", "logistica_e_prenotazioni", "profilo_e_vincoli_partecipanti"],
     "tk.status.": ["running", "done", "failed", "closed", "pending", "blocked"],
+    "tab.": ["chat", "plans", "stats", "loader", "hardware", "logs", "settings"],
 }
 NODE = shutil.which("node")
 
@@ -114,6 +115,16 @@ class MarkupTest(unittest.TestCase):
         for tab in re.findall(r'data-view="(\w+)"', self.html):
             self.assertIn(f'"{tab}"', views, tab)
             self.assertIn(f'id="view-{tab}"', self.html, tab)
+
+    def test_navigation_order_and_the_palette_and_the_notice_exist(self):
+        tabs = re.findall(r'<button class="tab" role="tab" id="tab-(\w+)" data-view=', self.html)
+        self.assertEqual(tabs, ["chat", "plans", "stats", "loader", "hardware", "logs", "settings"])
+        for needle in ('id="palette"', 'id="pal-input"', 'id="pal-list"', 'id="pal-open"', 'id="nomodel"', 'id="st-index"',
+                       'id="st-ui-scale"', 'id="st-planner-body"', 'aria-keyshortcuts="Control+K"'):
+            self.assertIn(needle, self.html, needle)
+        css = (WEB / "shell.css").read_text(encoding="utf-8")
+        self.assertIn("calc(100vh / var(--z, 1))", css)                    # the zoomed body still fills the window exactly
+        self.assertIn("prefers-reduced-motion", css)
 
     def test_plan_text_is_never_inserted_as_markup(self):
         for name in NEW_SCRIPTS:

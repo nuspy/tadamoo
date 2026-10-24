@@ -11,8 +11,10 @@
 <link rel="preload" href="fonts/geist-mono-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="web/app.css">
 <link rel="stylesheet" href="web/plans.css">
+<link rel="stylesheet" href="web/shell.css">
 <script defer src="web/i18n.js"></script>
 <script defer src="web/app.js"></script>
+<script defer src="web/shell.js"></script>
 <script defer src="web/chatset.js"></script>
 <script defer src="web/chat.js"></script>
 <script defer src="web/settings.js"></script>
@@ -31,19 +33,25 @@
   <div class="brand"><img src="web/icon-256.png" alt="" width="28" height="28"><span class="wordmark">Basalt <span class="wm-sub">Win+GUI</span></span></div>
   <span class="model" id="model"></span>
   <nav class="tabs" role="tablist" aria-label="Views">
-    <button class="tab" role="tab" id="tab-chat" data-view="chat" aria-controls="view-chat" aria-selected="false" tabindex="-1" data-t="tab.chat">Chat</button>
-    <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats" aria-selected="true" data-t="tab.stats">Monitor</button>
+    <button class="tab" role="tab" id="tab-chat" data-view="chat" aria-controls="view-chat" aria-selected="false" tabindex="-1" data-t="tab.chat" aria-keyshortcuts="Alt+1">Chat</button>
     <button class="tab" role="tab" id="tab-plans" data-view="plans" aria-controls="view-plans" aria-selected="false" tabindex="-1" data-t="tab.plans">Plans</button>
+    <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats" aria-selected="true" data-t="tab.stats">Monitor</button>
+    <button class="tab" role="tab" id="tab-loader" data-view="loader" aria-controls="view-loader" aria-selected="false" tabindex="-1" data-t="tab.loader">Models</button>
     <button class="tab" role="tab" id="tab-hardware" data-view="hardware" aria-controls="view-hardware" aria-selected="false" tabindex="-1" data-t="tab.hardware">Hardware</button>
-    <button class="tab" role="tab" id="tab-loader" data-view="loader" aria-controls="view-loader" aria-selected="false" tabindex="-1" data-t="tab.loader">Loader</button>
-    <button class="tab" role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1" data-t="tab.settings">Settings</button>
     <button class="tab" role="tab" id="tab-logs" data-view="logs" aria-controls="view-logs" aria-selected="false" tabindex="-1" data-t="tab.logs">LOGS</button>
+    <button class="tab" role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1" data-t="tab.settings">Settings</button>
   </nav>
   <span class="grow"></span>
+  <button type="button" class="pal-open" id="pal-open" aria-haspopup="dialog" aria-keyshortcuts="Control+K"><span data-t="pal.open">Find a command</span> <kbd>Ctrl K</kbd></button>
   <span class="state" id="state" data-s="offline">Connecting</span>
   <span class="where" id="host"></span>
   <span class="where" id="keyed" hidden>API key</span>
 </header>
+
+<div class="nomodel" id="nomodel" role="status" hidden>
+  <span></span>
+  <button type="button" class="btn primary" data-t="nm.open">Open Models</button>
+</div>
 
 <form class="auth" id="auth" hidden>
   <label for="key">API key</label>
@@ -72,6 +80,12 @@
   <span>Disk read <b id="s-disk">—</b></span>
 </div>
 </div>
+
+<dialog class="palette" id="palette" aria-label="Commands">
+  <input class="pal-input" id="pal-input" type="text" role="combobox" aria-expanded="true" aria-controls="pal-list" aria-autocomplete="list" autocomplete="off" spellcheck="false" data-t-ph="pal.ph" placeholder="Type a command or a place">
+  <ul class="pal-list" id="pal-list" role="listbox" aria-label="Commands"></ul>
+  <div class="pal-foot" data-t="pal.foot">Up and down choose, Enter runs, Esc closes.</div>
+</dialog>
 
 <main>
   <div class="view chat" id="view-chat" role="tabpanel" aria-labelledby="tab-chat" hidden>
@@ -238,14 +252,6 @@
         </div>
       </section>
 
-      <section class="sec" id="sec-tasks" aria-labelledby="h-tasks">
-        <div class="sh"><b id="h-tasks" data-t="tk.heading">Agent tasks and changes</b></div>
-        <div class="pad">
-          <div id="task-root"></div>
-          <div id="changes-root"></div>
-        </div>
-      </section>
-
       <section class="sec qsec" id="queue" hidden>
         <div class="sh"><b>Queue</b><span id="q-count">0</span><span class="grow"></span><span>Waiting for a free slot</span></div>
         <div class="tw">
@@ -294,6 +300,14 @@
             <div class="log" id="log" role="log" aria-live="off" tabindex="0"></div>
             <button class="jump" id="jump" hidden>Latest</button>
           </div>
+        </div>
+      </section>
+
+      <section class="sec" id="sec-tasks" aria-labelledby="h-tasks">
+        <div class="sh"><b id="h-tasks" data-t="tk.heading">Agent tasks and changes</b></div>
+        <div class="pad tkgrid">
+          <div><h3 class="subh" data-t="tk.tasks">Tasks</h3><div id="task-root"></div></div>
+          <div><h3 class="subh" data-t="ch.title">Changes</h3><div id="changes-root"></div></div>
         </div>
       </section>
     </div>
@@ -355,6 +369,7 @@
   </div>
 
   <div class="view settings" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <nav class="stindex" id="st-index" aria-label="Settings sections"></nav>
     <section class="sec stlang" aria-labelledby="st-lang-h">
       <div class="sh"><b id="st-lang-h" data-t="st.lang.title">Language</b></div>
       <div class="stlang-body">
@@ -367,6 +382,15 @@
         <p class="setstatus" id="st-lang-msg" role="status" aria-live="polite"></p>
       </div>
     </section>
+    <section class="sec stui" aria-labelledby="st-ui-h">
+      <div class="sh"><b id="st-ui-h" data-t="ui.title">Interface size</b></div>
+      <div class="st-ui-body">
+        <label for="st-ui-scale" data-t="ui.scale">Size of text and controls</label>
+        <select id="st-ui-scale"></select>
+        <p class="help" data-t="ui.help">Automatic enlarges everything on very wide screens. You can also zoom with Ctrl and the mouse wheel.</p>
+        <p class="help" id="st-ui-note" role="status" aria-live="polite"></p>
+      </div>
+    </section>
     <section class="sec stload" id="st-load" aria-labelledby="st-load-h">
       <div class="sh"><b id="st-load-h" data-t="st.load.title">Loading parameters</b></div>
       <div class="stload-body">
@@ -377,6 +401,10 @@
       </div>
     </section>
     <section class="sec stmodels" id="st-models" aria-label="Models folders"></section>
+    <section class="sec stplanner" id="st-planner" aria-labelledby="st-planner-h">
+      <div class="sh"><b id="st-planner-h" data-t="pl.set">Cloud filter and privacy</b></div>
+      <div id="st-planner-body"></div>
+    </section>
     <section class="sec stprefs" id="st-prefs" aria-labelledby="st-prefs-h">
       <div class="sh"><b id="st-prefs-h" data-t="st.prefs.title">Memory and start</b></div>
       <form class="stprefs-body" id="st-share-form" novalidate>

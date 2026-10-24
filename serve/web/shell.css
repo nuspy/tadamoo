@@ -1,0 +1,58 @@
+/* The app shell: interface size, command palette, no-model notice, Settings index, wide-screen reading column. */
+
+/* Interface size: the whole page is zoomed (Chromium/WebView2 zoom), and the full-height body is divided by the
+   same factor so it still fills the window exactly. */
+body { min-height: calc(100vh / var(--z, 1)); }
+@media (min-width: 981px) { body { height: calc(100vh / var(--z, 1)); } }
+body[data-view="logs"] { height: calc(100dvh / var(--z, 1)); }
+.plans { overflow: auto; }
+.mdl-dlg, .wz { zoom: 1; }
+
+/* the top bar: navigation first, a visible way into the palette on the right */
+.pal-open { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 6px; color: var(--fg-2); font: 13px/1 var(--font-sans); }
+.pal-open:hover { color: var(--fg); border-color: var(--fg-3); }
+kbd { font: 12px/1 var(--font-mono); padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--fg-2); background: var(--surface); }
+
+.nomodel { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 28px 8px; padding: 10px 16px; border: 1px solid var(--pl-block, #E9C341); border-radius: 8px; background: var(--surface); color: var(--fg); }
+.nomodel span { flex: 1 1 320px; }
+.nomodel .btn { min-height: 36px; }
+
+/* command palette */
+.palette { width: min(680px, calc(100vw - 48px)); max-height: min(560px, calc(100vh - 96px)); margin-top: 12vh; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--fg); overflow: hidden; }
+.palette[open] { display: flex; flex-direction: column; }
+.palette::backdrop { background: rgba(0, 0, 0, .55); }
+.pal-input { width: 100%; padding: 16px 18px; font-size: 16px; color: var(--fg); background: var(--surface); border: 0; border-bottom: 1px solid var(--line); outline: none; }
+.pal-input:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.pal-list { list-style: none; margin: 0; padding: 6px; overflow: auto; min-height: 0; }
+.pal-group { padding: 10px 12px 4px; color: var(--fg-2); font: 600 12px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; }
+.pal-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; padding: 8px 12px; border-radius: 6px; cursor: pointer; }
+.pal-item.on { background: var(--raised); }
+.pal-none { padding: 16px; color: var(--fg-2); }
+.pal-foot { padding: 8px 14px; border-top: 1px solid var(--line-soft); color: var(--fg-2); font-size: 12.5px; }
+
+/* Settings: an index of its sections, sticky while the page scrolls */
+.stindex { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0; margin-bottom: 8px; background: var(--bg); }
+.st-link { min-height: 36px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg-2); font: 500 13.5px/1 var(--font-sans); }
+.st-link:hover { color: var(--fg); border-color: var(--fg-3); background: var(--panel); }
+.st-ui-body { display: grid; gap: 8px; padding: 16px 20px; max-width: 720px; }
+.st-ui-body select { max-width: 280px; }
+
+
+/* Chat: a reading column on wide windows, so lines stay short and the input lines up with the messages */
+.msgs { padding-inline: max(16px, calc((100% - 1040px) / 2)); }
+.composer { padding-inline: max(16px, calc((100% - 1040px) / 2 + 0px)); }
+.cmsg { max-width: 1040px; }
+
+@media (prefers-reduced-motion: reduce) { .palette, .palette * { transition: none !important; } }
+
+/* Settings: sections side by side when the window is wide, the index across the top */
+#view-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 640px), 1fr)); gap: 16px; align-content: start; align-items: start; }
+#view-settings > .stindex { grid-column: 1 / -1; }
+#view-settings > .sec { min-width: 0; }
+
+/* Monitor: the agent's tasks and edits sit under the requests, where the activity is */
+#sec-tasks { align-self: stretch; flex: none; min-height: 150px; max-height: calc(40vh / var(--z, 1)); }
+#sec-tasks .tkgrid { flex: 1; min-height: 0; overflow: auto; }
+.tkgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+.subh { margin: 0 0 8px; font: 600 12.5px/1 var(--font-sans); color: var(--fg-2); letter-spacing: .04em; text-transform: uppercase; }
+@media (max-width: 980px) { #sec-tasks { max-height: none; } }

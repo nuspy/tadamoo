@@ -65,6 +65,7 @@
     statusEl.classList.toggle("bad", !!bad);
   }
   function conn(state) {
+    if (!connEl) return;
     connEl.dataset.s = state;
     connEl.textContent = T("pl.conn." + state);
   }
@@ -75,10 +76,12 @@
     statusEl = el("p", { class: "pl-status", role: "status", "aria-live": "polite" });
     connEl = el("span", { class: "pl-conn", "data-s": "off" });
     ui.select = el("select", { id: "pl-select", onchange: e => choose(e.target.value) });
-    ui.newForm = el("form", { class: "pl-newform", onsubmit: createPlan },
-      el("label", { for: "pl-new-title", text: T("pl.new.title") }),
-      el("input", { id: "pl-new-title", required: true, maxlength: "120", autocomplete: "off" }),
-      el("button", { class: "btn primary pl-btn", text: T("pl.create") }));
+    ui.newForm = el("details", { class: "pl-new", id: "pl-new" },
+      el("summary", { class: "btn pl-btn", text: T("pl.new") }),
+      el("form", { class: "pl-newform", onsubmit: createPlan },
+        el("label", { for: "pl-new-title", text: T("pl.new.title") }),
+        el("input", { id: "pl-new-title", required: true, maxlength: "120", autocomplete: "off" }),
+        el("button", { class: "btn primary pl-btn", text: T("pl.create") })));
     ui.modeGraph = el("button", { type: "button", class: "btn pl-btn", "aria-pressed": "false", text: T("pl.view.graph"), onclick: () => setMode("graph") });
     ui.modeList = el("button", { type: "button", class: "btn pl-btn", "aria-pressed": "false", text: T("pl.view.list"), onclick: () => setMode("list") });
     ui.summary = el("p", { class: "pl-summary" });
@@ -89,7 +92,6 @@
     ui.offers = el("section", { class: "sec pl-offers", "aria-labelledby": "pl-offers-h" });
     ui.add = el("details", { class: "sec pl-add" });
     ui.triage = el("details", { class: "sec pl-triage" });
-    ui.settings = el("details", { class: "sec pl-set" });
     ui.empty = el("p", { class: "pl-empty dim", text: T("pl.none") });
     root.replaceChildren(
       el("div", { class: "pl-bar" },
@@ -97,10 +99,9 @@
         el("div", { class: "pl-modes", role: "group", "aria-label": T("pl.view.label") }, ui.modeGraph, ui.modeList)),
       ui.newForm, statusEl, ui.empty, ui.summary,
       el("div", { class: "pl-main" }, el("div", { class: "pl-canvas" }, ui.graph, ui.list), el("div", { class: "pl-side" }, ui.detail, ui.proposals, ui.offers)),
-      ui.add, ui.triage, ui.settings);
+      ui.add, ui.triage);
     buildAdd();
     buildTriage();
-    buildSettings();
     setMode(narrow() ? "list" : "graph", true);
   }
 
@@ -538,9 +539,11 @@
 
   /* ---- planner settings: the cloud consent ---- */
   function buildSettings() {
-    ui.settings.replaceChildren(el("summary", { text: T("pl.set") }));
+    const host = document.getElementById("st-planner-body");
+    if (!host) return false;
     ui.setBody = el("form", { class: "pad pl-dform", onsubmit: saveSettings });
-    ui.settings.append(ui.setBody);
+    host.replaceChildren(ui.setBody);
+    return true;
   }
   const FIELDS = ["titolo", "date", "destinazione", "partecipanti", "logistica_e_prenotazioni", "profilo_e_vincoli_partecipanti"];
   function drawSettings() {
@@ -557,6 +560,7 @@
       el("button", { class: "btn primary pl-btn", text: T("pl.save") }));
   }
   async function loadSettings() {
+    if (!ui.setBody && !buildSettings()) return;
     const r = await api("api/planner/settings");
     S.settings = r.ok ? r.data : null;
     drawSettings();
@@ -594,13 +598,15 @@
 
   /* ---- start when the view is shown; stop the stream when it is left ---- */
   async function enter() {
-    if (!S.ready) { build(); S.ready = true; await loadSettings(); await loadList(false); return; }
+    if (!S.ready) { build(); S.ready = true; await loadList(false); return; }
     await loadList(true);
   }
   document.addEventListener("basalt:view", e => {
+    if (e.detail === "settings") loadSettings();
     if (e.detail === "plans") enter();
-    else stopStream();
+    else if (S.ready) stopStream();
   });
+  document.addEventListener("DOMContentLoaded", loadSettings);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopStream();
     else if (document.body.dataset.view === "plans" && S.id) startStream();
