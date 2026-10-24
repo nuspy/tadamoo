@@ -11,6 +11,8 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, Optional
 
+from harness import control_secret
+
 POLL_SECONDS = 1.0
 WAIT_SECONDS = 900.0
 FAILURES_BEFORE_REFUSING = 3
@@ -31,6 +33,7 @@ class ServerApprover:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+        headers.update(control_secret.header_for(self.base_url))
         data = json.dumps(body).encode("utf-8") if body is not None else None
         req = urllib.request.Request(self.base_url + path, data=data, headers=headers, method=method)
         with urllib.request.urlopen(req, timeout=10) as resp:

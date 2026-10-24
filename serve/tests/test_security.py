@@ -118,7 +118,7 @@ class OverHttp(unittest.TestCase):
     def req(self, method, path, body=None, headers=None, host=None):
         """(status, JSON, what the server printed); `host` replaces the Host header http.client sends."""
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
-        h = {"X-Basalt-Control": self.svc.control_token, **(headers or {})} if path.startswith("/api/control/") else dict(headers or {})
+        h = {"X-Basalt-Control": self.svc.control_token, **(headers or {})} if path.startswith("/api/") else dict(headers or {})
         if host is not None:
             h["Host"] = host
         data = body if isinstance(body, (bytes, type(None))) else json.dumps(body).encode()

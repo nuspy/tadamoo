@@ -15,6 +15,21 @@ try { apiKey = sessionStorage.getItem("basalt.key") || ""; } catch (e) { /* stor
 let M = null;          // the last /metrics reading
 const authHeaders = () => apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 
+/* A change needs the secret the server gave this page as a cookie when it loaded. A server that restarted has a new one:
+   the page is fetched again (its answer sets the cookie) and the change is sent once more. */
+const rawFetch = window.fetch.bind(window);
+window.fetch = async (input, init) => {
+  const r = await rawFetch(input, init);
+  const url = typeof input === "string" ? input : (input && input.url) || "";
+  const method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
+  if (r.status !== 403 || method !== "POST" || !/(^|\/)api\//.test(url.split("?")[0])) return r;
+  let code = "";
+  try { code = ((await r.clone().json()).error || {}).code; } catch (e) { /* not JSON: not this refusal */ }
+  if (code !== "control_secret") return r;
+  await rawFetch("./", { cache: "no-store" });
+  return rawFetch(input, init);
+};
+
 async function get(path) {
   const r = await fetch(path, { cache: "no-store", headers: authHeaders() });
   if (r.status === 401) throw Object.assign(new Error("locked"), { locked: true });

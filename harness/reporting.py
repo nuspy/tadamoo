@@ -12,6 +12,8 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, Optional
 
+from harness import control_secret
+
 RESULT_CHARS = 300
 FAILURES_BEFORE_GIVING_UP = 2
 FILE_TOOLS = ("write_file", "edit_file")
@@ -42,6 +44,7 @@ class PanelReporter:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+        headers.update(control_secret.header_for(self.base_url))
         req = urllib.request.Request(self.base_url + path, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:

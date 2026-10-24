@@ -190,6 +190,13 @@ option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and 
   process tree of the server on that port is ended. Processes are found by PID file, by the listening port's owner and
   its children, or by full path under this `bin\`, never by name alone.
 
+Every change through `/api/*` (settings, profiles, models, plans, tasks, the agent, providers) needs that same secret, not the API key alone: the
+page receives it as an `HttpOnly`, `SameSite=Strict` cookie (`basalt_control_<port>`) when it loads `/`, and a program on this PC sends it in
+`X-Basalt-Control` (the harness reads it from `control-<port>.token`). A page of another site, or a program that only reaches the port, changes
+nothing. Reading stays open, `/v1/*` is as it was and `/v1/vram` stays open for programs that lend VRAM. This keeps out what does not look for the
+secret; a program of the same Windows user that reads the file can still use it, as it could the control routes before. The secret is new at every
+start: a page that held the old one fetches itself again and sends the change once more.
+
 ### Where the settings live
 
 The user's settings are in the user data folder (`serve/userdata.py`): `%APPDATA%\BasaltPannello\` (or

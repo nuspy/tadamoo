@@ -1914,7 +1914,7 @@ class OwnPage(unittest.TestCase):
         cls.httpd.server_close()
 
     def req(self, path, body, headers=None, raw=None):
-        secret = {"X-Basalt-Control": self.svc.control_token} if path.startswith("/api/control/") else {}
+        secret = {"X-Basalt-Control": self.svc.control_token} if path.startswith("/api/") else {}
         h = {"Content-Type": "application/json", **secret, **(headers or {})}
         r = urllib.request.Request(self.base + path, data=raw if raw is not None else json.dumps(body).encode(), headers=h)
         try:
@@ -2308,7 +2308,7 @@ class SharingTheGpu(unittest.TestCase):
         self.httpd.server_close()
 
     def req(self, path, body=None):
-        secret = {"X-Basalt-Control": self.svc.control_token} if path.startswith("/api/control/") else {}
+        secret = {"X-Basalt-Control": self.svc.control_token} if path.startswith("/api/") else {}
         r = urllib.request.Request(self.base + path, data=None if body is None else json.dumps(body).encode(),
                                    headers={"Content-Type": "application/json", **secret}, method="GET" if body is None else "POST")
         try:

@@ -86,7 +86,7 @@ class Route(unittest.TestCase):
         self.httpd.server_close()
 
     def request(self, path, body=None, headers=None):
-        secret = {"X-Basalt-Control": self.svc.control_token} if path.startswith("/api/control/") else {}
+        secret = {"X-Basalt-Control": self.svc.control_token} if path.startswith("/api/") else {}
         req = urllib.request.Request(self.base + path, data=json.dumps(body).encode() if body is not None else None,
                                      headers={"Content-Type": "application/json", **secret, **(headers or {})})
         try:

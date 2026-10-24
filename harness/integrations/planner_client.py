@@ -10,6 +10,7 @@ import urllib.parse
 from typing import Any, Dict, List, Optional
 
 from ._http import ServiceError, request_json
+from harness import control_secret
 
 ACTOR = "chat"
 
@@ -22,6 +23,7 @@ class PlannerClient:
 
     def _call(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None) -> Any:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        headers.update(control_secret.header_for(self.endpoint))
         return request_json(method, self.endpoint + path, payload, headers, self.timeout)
 
     @staticmethod

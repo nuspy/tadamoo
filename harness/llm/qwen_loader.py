@@ -19,6 +19,7 @@ import urllib.request
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from harness.client import BasaltError
+from harness import control_secret
 
 
 class QwenNotReady(BasaltError):
@@ -36,6 +37,7 @@ class QwenLoader:
 
     def _call(self, method: str, path: str, body: Optional[Dict[str, Any]] = None, timeout: float = 10.0) -> Tuple[int, Dict[str, Any]]:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        headers.update(control_secret.header_for(self.endpoint))
         data = None
         if body is not None:
             data, headers["Content-Type"] = json.dumps(body).encode("utf-8"), "application/json"

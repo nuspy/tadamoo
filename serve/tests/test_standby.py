@@ -69,7 +69,7 @@ class InProcess(unittest.TestCase):
         try:
             with contextlib.redirect_stdout(io.StringIO()):
                 headers = {"Content-Type": "application/json"} if body is not None else {}
-                if path.startswith("/api/control/"):
+                if path.startswith("/api/"):
                     headers["X-Basalt-Control"] = self.svc.control_token
                 c.request(method, path, body=None if body is None else json.dumps(body).encode(), headers=headers)
                 r = c.getresponse()

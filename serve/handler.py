@@ -11,6 +11,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import urllib.parse
+from http.cookies import CookieError, SimpleCookie
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
@@ -386,6 +387,8 @@ def make_handler(svc: Service):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
+                if svc.control_token:                       # the page changes things with this; its own code never reads it
+                    self.send_header("Set-Cookie", f"{self._control_cookie()}={svc.control_token}; Path=/; HttpOnly; SameSite=Strict")
                 self.end_headers()
                 self.wfile.write(body)
             elif path in ("/health", "/api/health"):
@@ -459,6 +462,8 @@ def make_handler(svc: Service):
                 self._discard_body()
                 return
             path = self.path.split("?")[0].rstrip("/")   # clients post /v1/messages?beta=true
+            if path.startswith("/api/") and path not in CONTROL_PATHS and not self._write_secret():
+                return
             if path == "/api/settings":
                 self._settings_post()
                 return
@@ -723,6 +728,31 @@ def make_handler(svc: Service):
                 self._json(403, {"error": {"type": "forbidden", "message": f"the {CONTROL_HEADER} header is missing or wrong"}})
                 return False
             return True
+
+        def _control_cookie(self) -> str:
+            """One cookie name for each port: cookies are shared by every port of an address, and each server has its own secret."""
+            return f"basalt_control_{self.server.server_address[1]}"
+
+        def _write_secret(self) -> bool:
+            """Whatever /api/* changes needs the server's secret, in the header (programs) or in the cookie the page got when it
+            loaded: a program that merely reaches the port, or a page of another site, changes nothing. With no secret set (an
+            embedded service) only the checks of each route apply."""
+            token = svc.control_token
+            if not token:
+                return True
+            given = self.headers.get(CONTROL_HEADER, "")
+            if not given:
+                try:
+                    jar = SimpleCookie(self.headers.get("Cookie", ""))
+                except CookieError:
+                    jar = {}
+                given = jar[self._control_cookie()].value if self._control_cookie() in jar else ""
+            if key_matches(given, token):
+                return True
+            if self._control_body():
+                self._json(403, {"error": {"type": "forbidden", "code": "control_secret",
+                                           "message": "this change needs the server's secret: reload the page (the server may have restarted)"}})
+            return False
 
         def _control_body(self) -> bool:
             """Read the unused body before replying so the client sees no TCP reset."""
