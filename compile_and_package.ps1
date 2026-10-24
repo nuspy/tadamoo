@@ -1,34 +1,47 @@
 <#
 .SYNOPSIS
-    Builds Basalt Win+GUI and prepares the InstallForge setup: engine, desktop app, setup helper, Python assets,
-    the staged program folder and the InstallForge project (.ifp). The setup .exe itself is built by hand in InstallForge
-    (load dist\Basalt-WinGUI.ifp), unless -BuildSetup asks this script to run InstallForge's command-line builder.
+    One command that does everything: builds Basalt Win+GUI, stages the program folder, builds the setup, updates the
+    app on this PC and raises the version. Run it as it is: .\compile_and_package.ps1
 
 .DESCRIPTION
-    Everything is written under dist\ (ignored by git):
+    In order, and stopping at the first failure (the version is raised only when everything worked):
 
-      dist\stage\BasaltWinGUI\   the program as it will be installed (tracked files, bin\, app, setup helper, setup\)
-      dist\Basalt-WinGUI.ifp     the InstallForge project, ready to load; created, or updated if it already exists
-      dist\Basalt-WinGUI-<version>-setup.exe   the setup (only with -BuildSetup; otherwise built by hand from the .ifp)
-      dist\cache\                downloads kept between runs (Python installer, wheels)
+      1. the version: it grows by itself, as <name>_(v_<version>_<subversion>), for example chunky-pasta_(v_1_3)
+      2. the engine (CMake, incremental: nothing is rebuilt when nothing changed)
+      3. the program folder, the desktop app and the setup helper, the Python installer and wheels for PCs without Python
+      4. the InstallForge project (.ifp), updated and not rewritten: what you edited in InstallForge is kept
+      5. the setup .exe (InstallForge's command-line builder) and its SHA256SUMS.txt
+      6. the app on this PC (tools\windows\desktop\publish), so the app you start is the one just built
+      7. the file VERSION in the repository, with the new numbers
+
+    Everything it makes is under dist\ (ignored by git) except VERSION, which you commit when you like. Nothing is
+    uploaded or published anywhere.
+
+      dist\stage\BasaltWinGUI\   the program as it will be installed
+      dist\Basalt-WinGUI.ifp     the InstallForge project
+      dist\Basalt-WinGUI-<name>_(v_<version>_<subversion>)-setup.exe   the setup
+      dist\cache\                downloads kept between runs (Python installer, wheels, the name generator)
+
+    The version. The subversion goes up by one at every successful run. The name belongs to the version: it is made
+    once, with unique-namer (MIT, https://github.com/aziele/unique-namer, used only here and not shipped), never
+    repeats one used before and stays the same while the subversion goes up. To start a new version (the version goes
+    up by one, the subversion starts again and a new name is made) run it once with -NewVersion. VERSION holds the
+    numbers and the names used; the setup, the app (window title, tray, file properties) and the file names show them.
 
     The installer puts the folder in C:\Program Files\Tadamoo\BasaltWinGUI and runs
     tools\windows\desktop\publish\BasaltSetup.exe once the files are copied: it finds Python (or installs the bundled
     one), creates .venv, installs requirements.txt from the bundled wheels (else the internet), checks the server
     imports and sets the write permissions. The user starts BasaltWinGUI.exe from the shortcut.
 
-    The .ifp is updated, not rewritten, when it exists: the version, the folder, the commands, the shortcuts and the
-    build paths are set from this script; everything else (images, texts, languages, the license page you edited in
-    InstallForge) is kept.
-
-.PARAMETER Version
-    The product version written to the .ifp and to the setup's file name. Default: the one already in the .ifp, else 1.0.
+.PARAMETER NewVersion
+    Start a new version instead of a new subversion.
 .PARAMETER SkipEngine
-    Do not run the CMake build; use the binaries already in bin\.
+    Rare. Do not run the CMake build; use the binaries already in bin\ (needed while the engine is running, because a
+    running program keeps its file locked).
 .PARAMETER SkipDownloads
-    Do not touch the network: the Python installer and the wheels must already be in dist\cache.
-.PARAMETER BuildSetup
-    Also run InstallForge's command-line builder and write the setup .exe and SHA256SUMS.txt.
+    Rare. Do not touch the network: the Python installer, the wheels and the name generator must already be in dist\cache.
+.PARAMETER NoSetup
+    Rare. Stop after the .ifp: the setup is then built by hand in InstallForge.
 .PARAMETER PythonMinor
     The Python minor version bundled for machines that have none (default 3.13); its newest patch release is used.
 .PARAMETER InstallForge
@@ -36,17 +49,15 @@
 .EXAMPLE
     .\compile_and_package.ps1
 .EXAMPLE
-    .\compile_and_package.ps1 -Version 1.0 -SkipEngine
-.EXAMPLE
-    .\compile_and_package.ps1 -BuildSetup
+    .\compile_and_package.ps1 -NewVersion
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '',
+    [switch]$NewVersion,
     [string]$OutDir = 'dist',
     [switch]$SkipEngine,
     [switch]$SkipDownloads,
-    [switch]$BuildSetup,
+    [switch]$NoSetup,
     [string]$PythonMinor = '3.13',
     [string]$InstallForge = ''
 )
@@ -79,19 +90,49 @@ Push-Location $Root
 try {
     New-Item -ItemType Directory -Force $Dist, $Cache | Out-Null
 
-    # ------------------------------------------------------------------ version
+    # ------------------------------------------------------------------ version: it grows by itself and has a name
     $ifpXml = $null
     if (Test-Path $IfpPath) { $ifpXml = New-Object System.Xml.XmlDocument; $ifpXml.PreserveWhitespace = $false; $ifpXml.Load($IfpPath) }
-    if (-not $Version) {
-        $Version = '1.0'
-        if ($ifpXml) { $n = $ifpXml.SelectSingleNode('/InstallForgeProject/ProductInformation/Version'); if ($n -and $n.InnerText) { $Version = $n.InnerText } }
+    $VersionFile = Join-Path $Root 'VERSION'
+    $NamerDir = Join-Path $Cache 'namer'
+
+    function New-ReleaseName([string[]]$Used) {
+        $py = Join-Path $Root '.venv\Scripts\python.exe'
+        if (-not (Test-Path $py)) { $py = (Get-Command python -ErrorAction Stop).Source }
+        if (-not (Test-Path (Join-Path $NamerDir 'namer'))) {
+            if ($SkipDownloads) { throw "the name generator is not in $NamerDir (run without -SkipDownloads once)" }
+            Info 'installing unique-namer (MIT) into the cache, for the release names'
+            Run $py @('-m', 'pip', 'install', '--disable-pip-version-check', '--quiet', '--target', $NamerDir, 'unique-namer')
+        }
+        for ($i = 0; $i -lt 100; $i++) {
+            $env:PYTHONPATH = $NamerDir
+            try { $n = ((& $py -c 'import namer; print(namer.generate())') | Select-Object -Last 1).Trim() } finally { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue }
+            if ($LASTEXITCODE -ne 0) { throw 'the name generator failed' }
+            if ($n -match '^[a-z]+(-[a-z]+)+$' -and ($Used -notcontains $n)) { return $n }
+        }
+        throw 'could not make a name that was not used before'
     }
-    $SetupExe = Join-Path $Dist ("Basalt-WinGUI-{0}-setup.exe" -f $Version)
+
+    $curVersion = 1; $curSub = 0; $relName = ''; $usedNames = @()
+    if (Test-Path $VersionFile) {
+        try { $st = Get-Content -Raw -Encoding UTF8 $VersionFile | ConvertFrom-Json } catch { throw "VERSION is not valid JSON: $VersionFile" }
+        $curVersion = [int]$st.version; $curSub = [int]$st.subversion; $relName = [string]$st.name; $usedNames = @($st.names_used)
+    } elseif ($ifpXml) {
+        # the first run with this scheme continues the version number the project already had (1.0 -> version 1)
+        $n = $ifpXml.SelectSingleNode('/InstallForgeProject/ProductInformation/Version')
+        if ($n -and $n.InnerText -match '^(\d+)') { $curVersion = [int]$Matches[1] }
+    }
+    if ($NewVersion -and $relName) { $curVersion++; $curSub = 0; $relName = '' }
+    if (-not $relName) { $relName = New-ReleaseName $usedNames; $usedNames += $relName; $curSub = 0 }
+    $newSub = $curSub + 1
+    $ReleaseLabel = '{0}_(v_{1}_{2})' -f $relName, $curVersion, $newSub       # the name shown everywhere
+    $Version = '{0}.{1}' -f $curVersion, $newSub                              # the number InstallForge takes
+    $SetupExe = Join-Path $Dist ("Basalt-WinGUI-{0}-setup.exe" -f $ReleaseLabel)
 
     # ------------------------------------------------------------------ what is being packaged
-    Step "Source tree (version $Version)"
+    Step "Source tree (release $ReleaseLabel)"
     $commit = (& git rev-parse --short HEAD).Trim()
-    $changed = @(& git diff --name-only HEAD)
+    $changed = @(& git diff --name-only HEAD -- . ':!VERSION')
     Info "HEAD $commit; tracked files are taken from the working tree"
     if ($changed.Count) { Warn ("{0} tracked file(s) differ from HEAD and go into the package as they are now: {1}" -f $changed.Count, (($changed | Select-Object -First 8) -join ', ')) }
 
@@ -109,7 +150,7 @@ try {
         Run cmake @('--build', 'build-win', '--parallel', '4')
     }
     foreach ($exe in 'basalt.exe', 'basalt-vision.exe', 'basalt-bench.exe') {
-        if (-not (Test-Path (Join-Path $Root "bin\$exe"))) { throw "bin\$exe is missing: build the engine (drop -SkipEngine)" }
+        if (-not (Test-Path (Join-Path $Root "bin\$exe"))) { throw "bin\$exe is missing: build the engine (run without -SkipEngine)" }
     }
 
     # ------------------------------------------------------------------ stage: tracked files
@@ -159,7 +200,8 @@ try {
     Step 'Desktop app and setup helper (.NET 8, self-contained)'
     $pub = Join-Path $Stage 'tools\windows\desktop\publish'
     foreach ($proj in 'tools\windows\desktop\BasaltDesktop.csproj', 'tools\windows\setup\BasaltSetup.csproj') {
-        Run dotnet @('publish', (Join-Path $Root $proj), '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-o', $pub, '-nologo', '-v', 'q', '-p:DebugType=None', '-p:DebugSymbols=false', '-p:NoWarn=MSB3277')
+        Run dotnet @('publish', (Join-Path $Root $proj), '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-o', $pub, '-nologo', '-v', 'q', '-p:DebugType=None', '-p:DebugSymbols=false', '-p:NoWarn=MSB3277',
+            "-p:Version=$Version.0", "-p:InformationalVersion=$ReleaseLabel", '-p:IncludeSourceRevisionInInformationalVersion=false')
     }
     Get-ChildItem $pub -Recurse -Include *.pdb, *.xml | Remove-Item -Force
     foreach ($exe in 'BasaltWinGUI.exe', 'BasaltSetup.exe') { if (-not (Test-Path (Join-Path $pub $exe))) { throw "$exe was not published" } }
@@ -213,7 +255,7 @@ try {
 
     # ------------------------------------------------------------------ notes in the package
     @"
-Basalt Win+GUI $Version
+Basalt Win+GUI $ReleaseLabel
 built $(Get-Date -Format 'yyyy-MM-dd HH:mm') from $commit$(if ($changed.Count) { " (+$($changed.Count) uncommitted tracked file(s))" })
 
 Bundled third-party files that are not part of the repository:
@@ -223,6 +265,9 @@ Bundled third-party files that are not part of the repository:
   setup\wheels\                                the Python packages of requirements.txt (their own licenses)
 The setup\ folder is removed by the installer once everything is in place. The Qwen model has its own license.
 "@ | Set-Content -Encoding UTF8 (Join-Path $lic 'BUNDLED-FILES.txt')
+
+    [ordered]@{ version = $curVersion; subversion = $newSub; name = $relName; release = $ReleaseLabel; commit = $commit } |
+        ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $Stage 'VERSION')
 
     # check the staged folder with the setup helper itself (no change made: --dry-run)
     Step 'Checking the staged folder (BasaltSetup --dry-run)'
@@ -404,8 +449,8 @@ The setup\ folder is removed by the installer once everything is in place. The Q
     Info ("{0}: {1}" -f $(if ($created) { 'created' } else { 'updated' }), $IfpPath)
 
     # ------------------------------------------------------------------ the setup
-    if (-not $BuildSetup) {
-        Step 'Setup build: left to you; load the .ifp in InstallForge and build (or run this script with -BuildSetup)'
+    if ($NoSetup) {
+        Step 'Setup build: left to you (-NoSetup); load the .ifp in InstallForge and build'
     } else {
         Step 'Setup (InstallForge command-line builder)'
         $ifb = $InstallForge
@@ -416,7 +461,7 @@ The setup\ folder is removed by the installer once everything is in place. The Q
                 if (-not $ifb -and $d -and (Test-Path (Join-Path $d 'solicus\InstallForge\bin\ifbuildx86.exe'))) { $ifb = Join-Path $d 'solicus\InstallForge\bin\ifbuildx86.exe' }
             }
         }
-        if (-not $ifb -or -not (Test-Path $ifb)) { throw 'ifbuildx86.exe not found: install InstallForge, or pass -InstallForge <path>, or build from the InstallForge window instead (omit -BuildSetup)' }
+        if (-not $ifb -or -not (Test-Path $ifb)) { throw 'ifbuildx86.exe not found: install InstallForge, or pass -InstallForge <path>, or build from the InstallForge window instead (use -NoSetup)' }
         if (Test-Path $SetupExe) { Remove-Item -Force $SetupExe }
         & $ifb -i $IfpPath -o $SetupExe --no-color
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path $SetupExe)) { throw "InstallForge did not build the setup (exit $LASTEXITCODE)" }
@@ -425,10 +470,29 @@ The setup\ folder is removed by the installer once everything is in place. The Q
         Info ("{0}  {1:N0} MB  sha256 {2}" -f (Split-Path $SetupExe -Leaf), ((Get-Item $SetupExe).Length / 1MB), $h)
     }
 
-    Step 'Done'
+    # ------------------------------------------------------------------ the app on this PC
+    Step 'The app on this PC (tools\windows\desktop\publish)'
+    $local = Join-Path $Root 'tools\windows\desktop\publish'
+    $appUpdated = $false
+    if (Get-Process BasaltWinGUI -ErrorAction SilentlyContinue) {
+        Warn 'BasaltWinGUI is open, so the app on this PC was not updated: close it and the next run will update it (the setup is built anyway)'
+    } else {
+        New-Item -ItemType Directory -Force $local | Out-Null
+        Copy-Item (Join-Path $pub '*') $local -Recurse -Force
+        $appUpdated = $true
+        Info "updated: $local"
+    }
+
+    # ------------------------------------------------------------------ the new numbers are kept only now that everything worked
+    [ordered]@{ version = $curVersion; subversion = $newSub; name = $relName; names_used = @($usedNames); release = $ReleaseLabel;
+                built = (Get-Date -Format 's'); commit = $commit } | ConvertTo-Json | Set-Content -Encoding UTF8 $VersionFile
+
+    Step "Done: $ReleaseLabel"
     Info "program folder : $Stage"
     Info "InstallForge   : $IfpPath"
     if (Test-Path $SetupExe) { Info "setup          : $SetupExe" }
+    Info ("app on this PC : {0}" -f $(if ($appUpdated) { 'updated' } else { 'NOT updated (it was open)' }))
+    Info "VERSION        : $VersionFile (commit it when you like; nothing was uploaded)"
 }
 finally {
     Pop-Location

@@ -1,22 +1,35 @@
 # Building the Windows setup
 
-`compile_and_package.ps1` (repository root) builds everything and prepares the InstallForge project; the setup itself is
-built by hand: load `dist\Basalt-WinGUI.ifp` in InstallForge and build. The user gets **one setup file**; nothing is
-done by hand after it.
+`compile_and_package.ps1` (repository root) is the only command. It builds the engine, the desktop app and the setup
+helper, stages the program folder, updates the InstallForge project, builds the setup, updates the app on this PC and
+raises the version. The user gets **one setup file**; nothing is done by hand after it. Nothing is uploaded anywhere.
 
 ```powershell
-.\compile_and_package.ps1                    # engine, app, setup helper, Python assets, stage folder, .ifp
-.\compile_and_package.ps1 -BuildSetup        # and also the setup .exe, through InstallForge's command-line builder
-.\compile_and_package.ps1 -SkipEngine        # keep the binaries already in bin\
-.\compile_and_package.ps1 -SkipDownloads     # no network: Python installer and wheels from dist\cache
-.\compile_and_package.ps1 -Version 1.0       # the version written to the .ifp (default: the one already in it)
+.\compile_and_package.ps1                   # everything, in order, stopping at the first failure
+.\compile_and_package.ps1 -NewVersion       # the same, starting a new version instead of a new subversion
 ```
 
+Rare options: `-SkipEngine` (keep the binaries already in `bin\`: needed while the engine is running, because a running
+program keeps its file locked), `-SkipDownloads` (no network: the Python installer, the wheels and the name generator
+from `dist\cache`), `-NoSetup` (stop after the `.ifp` and build the setup by hand in InstallForge).
+
+## The version
+
+It grows by itself and has a name: `<name>_(v_<version>_<subversion>)`, for example `bizarre-smarttv_(v_1_1)`.
+The subversion goes up by one at every run that succeeds (a failed run uses no number); `-NewVersion` raises the version
+by one, starts the subversion again and makes a new name. The name belongs to the version, is made with
+[unique-namer](https://github.com/aziele/unique-namer) (MIT, used only while building, not shipped) and is never one
+used before. The numbers and the names used are in `VERSION` at the repository root; commit it when you like. The setup's
+file name, the InstallForge version (`<version>.<subversion>`), the app's window title, tray tip and file properties, and
+the `VERSION` file inside the installed folder all show it.
+
 Everything is written under `dist\` (ignored by git): `stage\BasaltWinGUI\` (the program as installed),
-`Basalt-WinGUI.ifp`, `cache\`, and with `-BuildSetup` also `Basalt-WinGUI-<version>-setup.exe` and `SHA256SUMS.txt`.
+`Basalt-WinGUI.ifp`, `Basalt-WinGUI-<release>-setup.exe`, `SHA256SUMS.txt` and `cache\`. The app in
+`tools\windows\desktop\publish\` is updated too (when the app is open it is left as it is, with a warning, and the next
+run updates it).
 
 Needs: Visual Studio with the C++ x64 tools and the v143 toolset, CUDA 13.1, CMake and Ninja (see `WINDOWS.md`), the
-.NET 8 SDK, InstallForge (to build the setup; the script uses its command-line builder `ifbuildx86.exe` only with `-BuildSetup`), a Python on the build PC (only to download wheels),
+.NET 8 SDK, InstallForge (to build the setup; the script uses its command-line builder `ifbuildx86.exe`), a Python on the build PC (only to download wheels),
 and the internet the first time (Python installer from python.org, wheels from PyPI; both are kept in `dist\cache`).
 
 ## What the installed program looks like

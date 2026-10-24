@@ -9,6 +9,11 @@ namespace BasaltDesktop;
 static class Program
 {
     public const string AppName = "Basalt Win+GUI";       // the name the window, the tray and the dialogs show
+    /// <summary>The release this build is, as compile_and_package.ps1 wrote it (name_(v_version_subversion)); empty when built by hand.</summary>
+    public static readonly string Release = System.Reflection.Assembly.GetExecutingAssembly()
+        .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+        .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "";
+    public static string TitleWithRelease => Release.Length == 0 || Release.StartsWith("1.0.0") ? AppName : AppName + " " + Release;
     const string MutexName = @"Local\BasaltWinGUI.Desktop";
     public const string ShowEventName = @"Local\BasaltWinGUI.Desktop.Show";
 

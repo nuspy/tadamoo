@@ -67,7 +67,7 @@ sealed class MainForm : Form
     {
         this.opt = opt;
         this.showEvent = showEvent;
-        Text = Program.AppName;
+        Text = Program.TitleWithRelease;
         Icon = LoadIcon();
         BackColor = Bg;
         ForeColor = Fg;
@@ -85,7 +85,7 @@ sealed class MainForm : Form
         menu.Items.Add(Tr.T("Avvia solo server (per gli agenti)…", "Start the server alone (for agents)…"), null, async (_, _) => await HeadlessFromTray());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(Tr.T("Spegni", "Turn off"), null, (_, _) => TurnOff(true));
-        tray = new NotifyIcon { Icon = Icon, Text = Program.AppName, ContextMenuStrip = menu, Visible = true };
+        tray = new NotifyIcon { Icon = Icon, Text = Program.TitleWithRelease.Length > 63 ? Program.AppName : Program.TitleWithRelease, ContextMenuStrip = menu, Visible = true };
         tray.DoubleClick += (_, _) => ShowWindow();
 
         BuildStartPanel();
