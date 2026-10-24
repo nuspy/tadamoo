@@ -28,6 +28,13 @@ Le dimensioni sono taglie relative (S/M/L/XL), senza date: come in §8 delle spe
 
 ---
 
+**Avanzamento (2026-10-24, seconda parte).** Fatto in questa sessione, oltre alle Fasi 0 e 1:
+- **Chat, riquadro del ragionamento** (`f44fb543`): impostazione "Mostra il ragionamento" (per client, fuori dai preset); riquadro alto 20 righe che scorre, aperto mentre il modello ragiona e chiuso a fine ragionamento, salvo che chi legge lo abbia aperto, chiuso o scorso.
+- **Chat, risposte tagliate senza ragionamento** (`e829fede`): diagnosi sul log e sulla conversazione vera. Il server si ferma solo quando il modello emette la fine del turno (`<|im_end|>` o `<|endoftext|>`), anche a metà parola (4–49 token). Sulla cronologia pulita 1 caso su 48; una risposta già tagliata nella cronologia fa salire i tagli al 20–40% e, con più tagli, al 100%; un messaggio brevissimo come "ua" ne provoca 8 su 12; col ragionamento acceso 0 su 3. Non è né la cache né il parsing della pagina. **Rimedio nella Chat** (avviso più "Chiedi di nuovo" che toglie la risposta tagliata); **causa non risolta**, vedi §6 e §7.
+- **Client di callAPIcall per audio e video** (`78e86d27`): invio a blocchi, attesa, trascrizione, cancellazione; contratto letto dal servizio vero, servizio finto nei test.
+- **Decisioni sugli allegati** (N) e disegno della Fase 4b.
+- **Verifica di allineamento ai cinque livelli di comprensione** (§10), con le fasi nuove **2c** (pipeline per turno) e **3b** (capacità ad albero, ricerca a richiesta, analisi visiva).
+
 ## 1. Decisioni dell'utente che il piano rispetta
 
 | # | Decisione | Conseguenza |
@@ -45,6 +52,9 @@ Le dimensioni sono taglie relative (S/M/L/XL), senza date: come in §8 delle spe
 | K | Sottoschede della scheda Modelli: **Providers** e **Qwen Loader**. | Fase 6. |
 | M | **Schemi di contesto** nelle impostazioni di inferenza: iniezione, riscrittura, potatura, riassunto, rami e versionamento, ciascuno con casella e selettore della strategia, e descrizioni (cosa fa, vantaggi, svantaggi, quando si usa) per ogni schema e ogni strategia. Dove ci sono più strategie si implementano le più efficaci, scelte con la misura. | Fase 2b. |
 | L | **Processo a vita lunga** per ogni conversazione, con gestione degli errori, nuovi tentativi per errori e passi falliti, e, a incapacità verificata di procedere, avviso all'utente con richiesta di intervento. | Fase 2. |
+| N | **Allegati**: primo rilascio testi, dati e immagini; audio e video tramite callAPIcall (client esteso, non un trascrittore nuovo); i tetti sono quelli delle impostazioni di inferenza; un file prodotto ha il pulsante in linea per salvarlo; una skill mancante si propone di installarla. | Fase 4b. |
+| O | **Capacità cercate a richiesta, non caricate nel prompt**: skill, plugin e MCP installati dall'utente si rilevano da soli, si ordinano ad **albero per capacità** (con etichette e ricerca) e arrivano al modello solo quando servono. **Analisi visiva** proposta nelle impostazioni: soluzione integrata oppure una voce dell'albero. | Fasi 3b e 4b. *Richiesta e disegno: da confermare (§7).* |
+| P | **Cinque livelli di comprensione** (letterale, semantico, contestuale, vincoli, operativo) come **lista di controllo** dell'harness, non come standard: comprendere, pianificare e recuperare sono capacità distinte, attivabili in fasi separate e controllabili dall'applicazione. Le **migliori pratiche** per documenti e contesto (fonti in §9) valgono per gli allegati e per gli schemi di contesto (M). | Fasi 2c, 2b, 4b; verifica in §10. |
 
 **Vocabolario** *(deciso)*: l'**harness** è l'insieme che la **Chat** usa per lavorare; contiene il **Planner** (scopi, piani, triage Jev,
 riesame System 2) e l'**Esecutore** (il ciclo con gli strumenti: file, shell, ricerca, wikibridge, MCP). `harness/` è anche il nome del pacchetto Python.
@@ -175,6 +185,17 @@ ramo è un'operazione della sessione, non una trasformazione. Tutto spento di pa
 - *Accettazione*: ogni casella accende e spegne il suo effetto in una conversazione vera; ogni selettore cambia la strategia;
   tutte le descrizioni sono presenti; i numeri delle valutazioni sono etichettati con il limite di potenza della GPU.
 
+### Fase 2c — Pipeline per turno: scheda dei requisiti, contesto e verifica (M) · *dopo la Fase 2; misurare prima (§6)*
+
+Dalla lista dei cinque livelli (P). Oggi un turno è **una sola inferenza** che il ciclo ripete con gli strumenti; nulla controlla che i vincoli siano rispettati. Non si aggiungono chiamate al modello per ogni turno: si separa ciò che il software sa fare con certezza.
+
+- **Scheda dei requisiti** (livelli 1, 2 e 4): per ogni richiesta l'harness tiene una scheda in `session state`: azione, contenuto, formato, **vincoli misurabili** (lunghezza, lingua, elenco, nome file), pubblico e scopo. I vincoli misurabili si estraggono con regole deterministiche (numeri, unità, formati); scopo e pubblico li propone il modello **nella stessa inferenza** che pianifica (un solo JSON), senza una chiamata in più. La scheda si fissa nel contesto e resta tra un turno e l'altro.
+- **Costruzione del contesto** (livello 3), in codice: scopi e piani attivi (Fase 3), memorie e wikibridge (già in `retrieved_message`, ma oggi solo in headless e ACP: portarlo alla Chat), manifesto degli allegati (4b), schemi di contesto (2b). Ordine fisso, prefisso stabile per la cache del server, in coda ciò che cambia.
+- **Verifica** (livello 4): prima di consegnare, controlli **deterministici** sulla scheda (parole, formato, lingua, file prodotto che si riapre) e, dove non bastano, un **giudizio** del modello o di Jev (tipo "giudice" in llmswitch). Se un controllo fallisce, **un solo** nuovo tentativo con l'elenco dei vincoli violati; poi si dice all'utente che cosa non è rispettato. Il ciclo non si ferma più soltanto "perché il modello non chiama strumenti".
+- **Pianificazione e scelta degli strumenti** (livello 5): resta al modello e al planner; **esecuzione, permessi e verifica restano all'applicazione** (già vero: permessi, sandbox, punti di ripristino, audit).
+- **Modi**: *leggero* (predefinito: scheda deterministica, contesto, verifica deterministica, nessuna chiamata in più) e *completo* (giudizio del modello sui vincoli non misurabili, nuovi tentativi). Selettore nelle impostazioni di inferenza, con le stesse descrizioni a quattro parti di 2b.
+- *Test*: scheda estratta da frasi con vincoli (parole, formato, lingua); verifica che fallisce e produce un solo secondo tentativo; con `MockEngine`; nessuna chiamata in più in modo leggero (si conta). *Misura*: tasso di vincoli rispettati con e senza verifica sullo stesso gruppo di compiti (§6).
+
 ### Fase 3 — Strumenti del planner per la Chat e regole di autonomia (L)
 
 - **Strumenti** registrati nel ciclo, con classe di effetto e marca di provenienza:
@@ -196,6 +217,22 @@ ramo è un'operazione della sessione, non una trasformazione. Tutto spento di pa
 - **Test avversariali** (estendono la suite di §4.8): un risultato di ricerca, un file o una pagina che chiedono di cancellare o riscrivere un piano **non devono** produrre un'azione senza approvazione; il tentativo si vede nell'audit.
 - **Insieme di valutazione `planner_chat`** (`harness/eval/sets/`): crea un piano da una richiesta; modifica un passo; riepiloga lo stato; non crea piani per un saluto; non cancella su istruzione dentro una pagina web.
 - *Accettazione*: la suite avversariale passa; nessuna operazione del planner parte senza conferma (dichiarazione verificata o domanda dell'harness); il riassunto dei piani non cambia il prefisso tra due turni senza modifiche (misurato).
+
+### Fase 3b — Capacità ad albero, ricerca a richiesta e analisi visiva (L) · *dopo la Fase 3; richiesta dell'utente (O)*
+
+**Il problema, misurato sul tuo PC.** Nei plugin installati ci sono **282 file `SKILL.md`** (173 nomi distinti, 3,2 MB di testo); elencarli con nome e descrizione nel prompt costerebbe, a stima, circa 17.000 token a ogni chiamata (da misurare), e `SkillCatalog.format_catalog_prompt` fa proprio questo. Con gli MCP si somma lo schema di ogni strumento, che oggi arriva intero a ogni turno (`ToolRegistry.schemas()`).
+
+**Disegno**
+1. **Rilevamento automatico, a sola lettura.** Fonti: `~/.claude/skills`, `<area di lavoro>/.claude/skills` e `.agents/skills`, i plugin in `~/.claude/plugins` (le loro `skills/*/SKILL.md` e il loro `.mcp.json`), i server MCP in `~/.claude.json` e nel `.mcp.json` del progetto e in `%APPDATA%\Claude\claude_desktop_config.json`. Si leggono **nomi, descrizioni e comandi, mai variabili d'ambiente né chiavi**. Una cartella che finisce in `.disabled` è spenta. Pulsante "Rileva di nuovo" e rilevamento all'avvio.
+2. **Nulla si attiva da solo.** Le voci trovate compaiono come "da approvare": per le skill vale l'`ApprovalStore` esistente (approvazione legata all'impronta del testo letto); un server MCP è codice e parte solo dopo l'approvazione.
+3. **Albero delle capacità** (`<dati utente>/capabilities/index.json`, indice generato; `skills.md` ne è la vista leggibile, vedi sotto). Radici di esempio: *visione* (analisi: OCR, grafici, schermate, foto; generazione), *documenti* (lettura, scrittura), *web* (ricerca, navigazione), *codice*, *audio e video* (trascrizione con callAPIcall), *conoscenza* (wikibridge, memoria), *comunicazione* (telefono, posta). Ogni voce: id, nome, tipo (integrata, skill, plugin, MCP), origine, riga di descrizione, **etichette**, nodo dell'albero, stato (da approvare, approvata, spenta).
+4. **Etichettatura.** Si usano le etichette dichiarate (`metadata.tags` o `category` nel front matter, se ci sono); in loro assenza, regole a parole chiave sulla descrizione (per la visione: immagine, screenshot, OCR, grafico, diagramma, foto, visual) e punteggio BM25; la correzione a mano dell'utente (sposta una voce) ha la precedenza e si conserva in un file a parte.
+5. **Nel prompt solo l'albero in cima**: i nomi delle radici con il numero di voci (poche righe, a stima circa 150 token) e lo strumento `find_capability(query, categoria?, tipo?)`, che restituisce al più 5 voci con id, riga e nodo. La ricerca è locale: **FTS5/BM25** (già usato dalla memoria) con etichette e nodo come campi; un secondo passo con incorporamenti è opzionale e non nel primo rilascio. Lettura del corpo con `load_skill`, come oggi.
+6. **Cache del server.** Lo strumento scoperto **non entra nel blocco degli strumenti** (cambierebbe il prefisso e farebbe rileggere il prompt): la sua descrizione arriva in coda alla conversazione e si usa con un solo strumento generico `call_capability(id, argomenti)` che passa dal gestore dei permessi.
+7. **Analisi visiva nelle impostazioni** (scheda Impostazioni, sezione "Analisi visiva"): un elenco a discesa alimentato dal nodo *visione/analisi* dell'albero. Prima voce **"Integrata: il proiettore del modello"** con il suo stato (oggi **spenta** sul tuo PC: `vision: off` in `basalt_config.json`; accenderla chiede il riavvio), poi le voci rilevate (skill, plugin, MCP) con origine e stato di approvazione, infine "Nessuna". La scelta alimenta lo strumento `analyze_image(allegato|percorso, domanda)`, che instrada all'integrata, alla skill (ne carica il corpo) o allo strumento MCP. Con l'integrata si aggiunge un **ritaglio e ingrandimento** dell'immagine (le prove di Anthropic mostrano un miglioramento costante quando il modello può ingrandire una zona).
+8. **`skills.md`**: **non esiste** né nel repository né sul tuo PC. Si genera da `index.json` in `<dati utente>/capabilities/skills.md`, con una sezione per radice (tra cui "Visual analysis"), per poterlo leggere e riordinare; se intendevi un altro file, indicami dove sta.
+
+*Test*: rilevamento su una cartella finta con skill, plugin e `.mcp.json` (nessuna chiave letta: prova con una chiave finta che non compare mai nell'indice); `.disabled` ignorato; voce "da approvare" mai eseguita; `find_capability` trova la skill giusta tra 300 finte; il prompt iniziale resta sotto un tetto di token (si conta); `call_capability` rifiutato per voce non approvata. *Misura*: token del prompt con elenco piatto e con albero sui 282 file reali; precisione dei primi 5 risultati su 20 richieste scritte a mano (§6).
 
 ### Fase 4 — La Chat come ingresso principale (L)
 
@@ -227,6 +264,17 @@ Oggi la Chat accetta solo immagini (`chat.js`, `attachments`).
    - **Privacy**: il servizio è locale (127.0.0.1), ma il suo passo di riassunto usa il cervello che l'utente ha scelto in callAPIcall. Richiesta di estensione a quel progetto, da fare solo se l'utente vuole: un campo `analyze=0` per saltare il riassunto e restituire solo la trascrizione. **Non modificato**: è un altro repository.
 6. **File prodotti**: lo strumento `write_output_file` scrive in `<dati utente>/outputs/<conversazione>/`; la Chat mostra il pulsante "Scarica" che porta a `GET /api/outputs/<id>` con `Content-Disposition: attachment`. Nel browser si usa il selettore di salvataggio quando c'è, altrimenti il download normale. In `BasaltWinGUI.exe` serve un **ponte WebView2** (`DownloadStarting` con finestra "Salva con nome" come predefinito): modifica dell'eseguibile, da verificare di giorno.
 7. **Sicurezza**: tutto ciò che esce da un file è **dato non fidato** (può contenere istruzioni per il modello); gli estrattori e le skill girano dal gestore dei permessi e dalla sandbox dell'harness, non dal browser; l'invio a callAPIcall è un'azione di rete verso un servizio locale, con il suo Bearer.
+
+**Strategie per i documenti nel prompt (migliori pratiche, fonti in §9)**
+- **Documenti in alto, domanda in fondo.** Nel turno dell'utente gli allegati vengono prima, poi la richiesta: le prove di Anthropic danno fino al 30% di qualità in più per ingressi lunghi con più documenti. Vale anche per la cache: ciò che precede non cambia nei turni successivi.
+- **Ogni documento in un blocco con i suoi dati**: `<documents><document index="1"><source>nome</source><document_content>…</document_content></document></documents>`, con in più tipo, dimensione, intervallo mostrato e se è **troncato** (`shown="1-400 of 5200 lines"`). Così il modello non confonde le fonti e sa che cosa non ha visto.
+- **Citare prima di rispondere.** Per documenti lunghi (oltre 20.000 token) la richiesta chiede prima le citazioni pertinenti (`<quotes>`) e poi la risposta; opzione nelle impostazioni, attiva da sola oltre soglia. Per le registrazioni, le citazioni portano l'istante `[mm:ss]`.
+- **Riferimenti leggeri e lettura a richiesta** (*just in time*): nel contesto entra il **manifesto** (id, nome, tipo, dimensione, indice dei titoli o schema delle colonne, prime righe) e il contenuto si legge con `read_attachment` (intervalli) e `search_attachment` (BM25 sulle parti). Per i dati tabellari: schema, prime righe e statistiche, non tutte le righe; i calcoli si fanno con uno strumento, non nella testa del modello.
+- **Intero o a pezzi**: la scelta tra caricare tutto e recuperare parti riusa `knowledge.choose_strategy` (oggi per i documenti di riferimento): se il totale sta in una frazione del contesto si carica intero, altrimenti si recuperano le parti con intestazione di contesto.
+- **Dato, non istruzione**: il contenuto di un file è racchiuso come dato non fidato (`<untrusted_data>`) e il prompt di sistema lo ripete; l'estrazione e le skill passano dai permessi.
+- **Con il passare dei turni**: un allegato vecchio si sostituisce con il suo manifesto (potatura per mascheramento, già nello schema di contesto 2b), mai riassunto in prosa; le citazioni e gli identificativi si conservano alla lettera.
+- **Immagini**: prima del testo della richiesta, ciascuna con un'etichetta (`Immagine 1: nome`), risoluzione limitata e conteggio dei token (oggi stima fissa di 1.280 in `chatctx.py`); per i dettagli, ritaglio e ingrandimento. Con la visione spenta la Chat lo dice, non ignora l'immagine.
+- **File prodotto**: dopo la scrittura si **riapre e si verifica** (si apre, ha ciò che era richiesto) prima di offrire il pulsante di salvataggio (Fase 2c).
 
 **Ordine di lavoro**
 - **4b-1** (senza strumenti, vale già nella Chat attuale): deposito, testi e dati diretti, immagini con avviso sulla visione, contatore del contesto che include gli allegati.
@@ -329,6 +377,12 @@ Ogni numero porta l'etichetta del limite di potenza della GPU; le valutazioni so
 
 ---
 
+**Misure aggiunte (24/10)**
+- **Arresti precoci senza ragionamento**: tasso su 100 richieste con e senza decodifica speculativa (`spec: 0` contro `spec: 7`, a parità di cronologia e parametri) e con parametri di campionamento diversi. Serve un riavvio del server con `spec: 0`.
+- **Pipeline per turno**: quota di vincoli rispettati con e senza verifica; chiamate e secondi in più.
+- **Capacità**: token del prompt con elenco piatto e con albero (282 file reali); precisione dei primi 5 risultati di `find_capability`.
+- **Allegati**: token e qualità con documento intero, a pezzi e con citazioni prima.
+
 ## 7. Decisioni aperte (all'utente)
 
 Le decisioni di §1 sono prese. Restano:
@@ -343,6 +397,10 @@ Le decisioni di §1 sono prese. Restano:
 6. **Allegati, tetti** (decisi: quelli delle impostazioni di inferenza) e **estrazione locale** per testi, dati e immagini (supposta): confermare.
 7. **callAPIcall, riassunto**: chiedere a quel progetto un campo `analyze=0` (solo trascrizione) perché il testo dell'utente non passi dal suo cervello? Altro repository: non si tocca senza un sì.
 8. **Ponte WebView2 per il salvataggio** (modifica di `BasaltWinGUI.exe`): da fare nella 4b-4.
+
+9. **Analisi visiva e capacità** (O): confermare il disegno della Fase 3b (rilevamento a sola lettura delle fonti elencate, nulla attivo senza approvazione, albero con ricerca BM25, strumento generico per le voci scoperte); dire dove sta, se esiste, il tuo `skills.md`; accendere la visione sul tuo PC (`vision: dynamic` se il file ha il proiettore) è una modifica di configurazione che chiede il riavvio.
+10. **Pipeline per turno** (2c): modo predefinito *leggero* (nessuna chiamata in più) e *completo* a scelta, confermare.
+11. **Prova con `spec: 0`** per cercare la causa degli arresti precoci: richiede di riavviare il tuo server.
 
 ## 8. Rischi
 
@@ -359,3 +417,27 @@ Le decisioni di §1 sono prese. Restano:
 - [llama-swap, configurazione](https://github.com/mostlygeek/llama-swap/wiki/Configuration) (gruppi, scarico per inattività, alias)
 - [LiteLLM, budget e ripiegamenti](https://docs.litellm.ai/docs/proxy/budget_fallbacks)
 - Interne: `the_way_to_the_moon.md` (§4.8, §4.20–4.24, §8), `conquer_of_the_moon.md`, README di `C:\projects\llmswitch`.
+- [Anthropic, prompt per contesti lunghi](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices) (documenti in alto, domanda in fondo, blocchi `<document>` con `<source>`, citare prima di rispondere, formati strutturati per lo stato, immagini e ingrandimento)
+- [Anthropic, Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) (contesto come risorsa finita, riferimenti leggeri e recupero *just in time*, rivelazione progressiva, compattazione, note strutturate, sotto-agenti)
+- [Anthropic, tool search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool) (definizioni caricate a richiesta; oltre 10 strumenti o 10.000 token di definizioni; la scelta peggiora oltre 30–50 strumenti; ricerca BM25 o regex; ricerca propria con incorporamenti; il prefisso resta intatto)
+- Skill con rivelazione progressiva: nel prompt solo nome e descrizione, il corpo con uno strumento di caricamento ([Vercel](https://vercel.com/academy/build-ai-agent-harness/skills-system), [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/agents/skills)); le fonti non primarie sono indicative.
+- Testo dell'utente: i **cinque livelli di comprensione** (modello concettuale per progettare agenti, non classificazione scientifica) e la pipeline interpretazione, intento, contesto, validazione, pianificazione, esecuzione.
+
+## 10. Verifica di allineamento ai principi (24/10/2026)
+
+Letto il codice di `harness/` e `serve/`, senza eseguire il modello. **Giudizio: l'harness è allineato sul principio di fondo** (il modello pianifica, l'applicazione esegue, controlla e può rifiutare: permessi, sandbox, punti di ripristino, audit, rilevatore di cicli, dati non fidati, prefisso stabile per la cache) **ma non separa le capacità in fasi e non verifica i vincoli**.
+
+| Livello | Dove sta oggi | Stato | Differenza | Si risolve in |
+|---|---|---|---|---|
+| 1 Letterale | il modello, dentro la sola inferenza del ciclo (`AgentLoop.run`) | non separato | nessuna scheda dei requisiti: numeri, formati e vincoli non vengono estratti né tenuti | 2c |
+| 2 Semantico (intento) | il modello; il triage Jev c'è solo per gli eventi del planner | assente per le richieste | scopo e pubblico non sono un dato dell'harness | 2c, 3 |
+| 3 Contestuale | `ContextBuilder` (blocchi fissati in ordine, memorie in coda e marcate non fidate), `MemoryStore` FTS5, `knowledge.choose_strategy` (intero o a pezzi), compattazione e mascheramento, `chatctx` (ferma, finestra, compatta) | **parziale** | il recupero (`retrieved_message`) vale solo in headless e ACP, non nella Chat; scopi e piani non entrano; allegati assenti; nessuna ricerca per capacità | 2, 2b, 3, 3b, 4b |
+| 4 Vincoli | permessi, hook, rilevatore di cicli; nel server la risposta strutturata con validazione e nuovi tentativi | **lacuna principale** | il ciclo termina quando il modello risponde senza strumenti: nessuna verifica di lunghezza, formato o requisiti, nessun secondo tentativo guidato | 2c |
+| 5 Operativo | pianificazione implicita nel ciclo, planner separato non collegato alla Chat; esecuzione e permessi nell'applicazione | allineato sul principio | tutti gli schemi degli strumenti a ogni turno; catalogo delle skill piatto; nessuna scelta a richiesta | 3, 3b |
+
+**Analisi visiva: la risposta.** *C'è* una lettura delle immagini nel motore (il proiettore del modello, modi `dynamic`, `on`, `peer`, `cpu`; con `dynamic` quando il file ha il proiettore). Le differenze rispetto a ciò che descrivi:
+1. **Sul tuo PC è spenta** (`vision: off` in `basalt_config.json`; `/v1/status` dice `vision.enabled: false`): la Chat oggi non può leggere immagini.
+2. **L'harness non la usa**: il client invia solo testo, ACP dichiara `image: false`, un'immagine restituita da un MCP diventa un segnaposto di testo; nessuno strumento `analyze_image`.
+3. **Non è un sistema di analisi**: niente ritaglio o ingrandimento, OCR, lettura di grafici e diagrammi, fotogrammi di video.
+4. **Nessuna impostazione** per scegliere tra la soluzione integrata e una skill, un plugin o un MCP; **nessun catalogo delle capacità**; **`skills.md` non esiste**.
+5. **Skill, plugin e MCP**: `SkillCatalog` legge solo le cartelle passate in `skill_paths`; non legge i plugin né le configurazioni MCP; le voci sono piatte, senza etichette né ricerca, e tutte nel prompt (282 file nei tuoi plugin).
