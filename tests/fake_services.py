@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,7 +20,9 @@ class _FakeServer:
 
             def _serve(self, method: str) -> None:
                 length = int(self.headers.get("Content-Length") or 0)
-                body = json.loads(self.rfile.read(length) or b"null") if length else None
+                raw_in = self.rfile.read(length) if length else b""
+                # a multipart upload reaches route() as the raw bytes
+                body = raw_in if self.headers.get("Content-Type", "").startswith("multipart/") else                     (json.loads(raw_in or b"null") if length else None)
                 headers = {k.lower(): v for k, v in self.headers.items()}
                 outer.requests.append((method, self.path, headers, body))
                 status, payload = outer.route(method, urlparse(self.path), parse_qs(urlparse(self.path).query), headers, body)
@@ -35,6 +38,9 @@ class _FakeServer:
 
             def do_POST(self) -> None:
                 self._serve("POST")
+
+            def do_DELETE(self) -> None:
+                self._serve("DELETE")
 
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}"
@@ -80,12 +86,51 @@ class FakeCallAPICall(_FakeServer):
         self.placed: List[Dict[str, Any]] = []
         self.said: List[str] = []
         self.ended = False
+        self.uploads: List[Dict[str, Any]] = []
+        self.busy = False                  # the analysis service runs one job at a time
+        self.no_ffmpeg = False
+        self.job_polls = 0
+        self.deleted: List[str] = []
         super().__init__()
+
+    def _analysis(self, method, path, body):
+        parts = path.split("/")[2:]
+        if parts == ["start"] and method == "POST":
+            if self.no_ffmpeg:
+                return 501, {"error": "ffmpeg non trovato"}
+            if self.busy:
+                return 409, {"error": "un'analisi è già in corso"}
+            name = re.search(rb'filename="([^"]*)"', body)
+            fname = name.group(1).decode("utf-8") if name else ""
+            if not fname.lower().endswith((".mp3", ".wav", ".mp4", ".m4a", ".mkv")):
+                return 400, {"error": f"estensione non supportata: {fname.rsplit('.', 1)[-1]}"}
+            fields = dict(re.findall(rb'name="(speakers|title)"\r\n\r\n([^\r]*)', body))
+            self.uploads.append({"filename": fname, "size_seen": len(body), "fields": {k.decode(): v.decode() for k, v in fields.items()},
+                                 "has_payload": b"AUDIOBYTES" in body})
+            self.job_polls = 0
+            return 202, {"id": "20261024-101500-ab12cd", "state": "queued"}
+        if parts and parts[0] != "20261024-101500-ab12cd":
+            return 404, {"error": "analisi non trovata"}
+        if len(parts) == 1 and method == "GET":
+            self.job_polls += 1
+            if self.job_polls < 3:
+                return 200, {"id": parts[0], "state": "transcribing", "progress": {"phase": "transcribing", "percent": 40}}
+            return 200, {"id": parts[0], "state": "done", "progress": {"phase": "done", "percent": 100},
+                         "analysis": {"summary": "Riunione sul budget.", "highlights": [], "tasks": []}}
+        if len(parts) == 2 and parts[1] == "transcript":
+            return 200, {"segments": [{"start_s": 0, "end_s": 4, "text": "Buongiorno a tutti.", "speaker": "Speaker 1"},
+                                      {"start_s": 65, "end_s": 70, "text": "Parliamo del budget.", "speaker": "Speaker 2"}]}
+        if len(parts) == 1 and method == "DELETE":
+            self.deleted.append(parts[0])
+            return 200, {"deleted": parts[0]}
+        return 404, {"error": "not found"}
 
     def route(self, method, url, query, headers, body):
         if headers.get("authorization") != f"Bearer {self.token}":
             return 401, {"error": "unauthorized"}
         path = url.path
+        if path.startswith("/analysis/"):
+            return self._analysis(method, path, body)
         if path == "/external/call" and method == "POST":
             if not (body or {}).get("greeting"):
                 return 400, {"error": "campo 'greeting' mancante"}

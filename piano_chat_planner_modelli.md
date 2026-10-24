@@ -207,19 +207,35 @@ ramo è un'operazione della sessione, non una trasformazione. Tutto spento di pa
 - *Test*: audit con Edge headless (`tools/web_audit.mjs` aggiornato), controlli statici (`serve/tests/test_web_static.py`), nessun `innerHTML`, tutte le stringhe tradotte, nessuno scroll orizzontale da 1024 px in su.
 - *Accettazione*: dalla sola Chat si crea un piano, lo si modifica, se ne avvia un passo, si approva un'azione e si legge il resoconto, senza aprire altre schede; **da verificare dal vivo con Qwen** (coda di giorno).
 
-### Fase 4b — Allegati di ogni natura nella Chat (XL) · *richiesta dell'utente; dopo la Fase 4, dipende dalla Fase 3 (strumenti) e dalle skill*
+### Fase 4b — Allegati nella Chat (XL) · *decisioni dell'utente prese; dopo la Fase 4 per gli strumenti*
 
-Oggi la Chat accetta solo immagini (`chat.js`, `attachments`). La richiesta: allegare file di ogni natura ed estrarne o gestirne il contenuto.
+Oggi la Chat accetta solo immagini (`chat.js`, `attachments`).
 
-- **Famiglie**: testi (pdf, md, docx, txt, …), dati (xlsx, csv, json, …), audio (wav, mp3, …), immagini (png, jpg, gif, …), video (mp4, mpg, …), qualunque altro.
-- **Gestione diretta, senza conversione**: i formati che il modello legge già come testo (txt, md, csv, json, codice, log) vanno nel contesto così come sono, con nome e dimensione, entro un tetto di token; oltre il tetto, estratto più strumento per leggere il resto.
-- **Gestione con elaborazione**: per gli altri formati l'harness sceglie un'**estrazione** (pdf e docx in testo, xlsx in tabelle, audio in trascrizione, video in fotogrammi e trascrizione) oppure una **skill**. Se la skill che serve **non è installata, la Chat propone di installarla** (conferma dell'utente, come per ogni modifica).
-- **Risultato che è un file** (modificato o creato): la Chat offre un **pulsante in linea per scaricarlo e salvarlo in locale**, con la finestra di salvataggio di sistema come predefinito (nell'app `BasaltWinGUI.exe` serve un ponte verso la finestra "Salva con nome" di WebView2; nel browser, `showSaveFilePicker` o il download).
-- **Dove vivono i file**: l'allegato non entra nel `localStorage` (limite di spazio); sta in una cartella di sessione dell'harness, con riferimento nella conversazione; l'originale non si modifica mai (la modifica produce una copia).
-- **Sicurezza**: tutto ciò che viene estratto da un file è **dato non fidato** (può contenere istruzioni rivolte al modello); l'esecuzione di convertitori e skill passa dal gestore dei permessi e dalla sandbox dell'harness, non dal browser.
-- *Test*: un file per famiglia con il `MockEngine`; prova di iniezione dentro un pdf e un docx; salvataggio con la finestra di sistema da verificare dal vivo (coda di giorno).
-- *Accettazione*: allegare un pdf e uno xlsx, chiedere una sintesi e una modifica, scaricare il file modificato con la finestra di salvataggio.
-- *Da decidere* (§7, voci 6–8): elenco dei formati del primo rilascio, strumenti di estrazione ammessi (locali o servizi), tetti di dimensione.
+**Decisioni dell'utente**
+- **Primo rilascio: testi, dati e immagini.** Audio e video passano da **callAPIcall**, che li gestisce già: Basalt non porta dentro trascrizione né elaborazione video; si **estende il client esistente** (`harness/integrations/call_api_client.py`).
+- **Tetti**: nessun tetto proprio degli allegati. Valgono quelli delle **impostazioni di inferenza**: finestra di contesto, politica di superamento (ferma, finestra scorrevole, compatta) e token massimi in uscita. Ciò che non entra nel contesto si legge a pezzi con gli strumenti.
+- Un risultato che è un file ha un **pulsante in linea per scaricarlo e salvarlo in locale** (finestra di salvataggio di sistema come predefinito). Un formato che serve una skill non installata: la Chat **propone di installarla**.
+- *Supposizione da confermare*: per testi, dati e immagini l'estrazione è **locale**; nulla dell'utente va a servizi esterni.
+
+**Come funziona (disegno)**
+1. **Deposito**: `POST /api/attachments` (solo da questo PC e dalla pagina propria) salva in `<dati utente>/attachments/<conversazione>/<id>/` l'originale (mai modificato) e una scheda (nome, famiglia riconosciuta dal contenuto e non dal tipo dichiarato, dimensione, impronta). Niente nel `localStorage`: la conversazione conserva solo il riferimento.
+2. **Testi e dati letti direttamente** (txt, md, csv, tsv, json, codice, log): entrano nel contesto così come sono, con nome e dimensione. Se superano ciò che il contesto permette (conteggio del server, `/api/chat/context`), entra l'inizio e il resto si legge con lo strumento `read_attachment` (intervalli di righe o di caratteri).
+3. **Formati che chiedono estrazione**: docx e xlsx sono archivi OOXML, leggibili in locale con la sola libreria standard (nessuna dipendenza); pdf richiede una libreria o una skill. Ogni estrattore è una voce del catalogo delle skill: se manca, la Chat dice quale serve e **chiede il permesso di installarla**; senza il sì, il file resta allegato ma illeggibile, e lo si dice.
+4. **Immagini**: percorso attuale (`image_url`). Con il modello avviato senza visione (`"vision": "off"`) la Chat lo dice invece di far ignorare l'immagine in silenzio.
+5. **Audio e video con callAPIcall** (client già esteso): `start_media_analysis` (invio a blocchi, mai in memoria intera) → `wait_media_analysis` (la Chat mostra fase e percentuale) → `media_transcript` → `format_transcript` ("[mm:ss] Speaker: testo"). Il testo entra come qualsiasi altro allegato di testo; il riassunto del servizio è un di più, non una fonte.
+   - Il servizio fa **un lavoro alla volta**: se risponde "occupato" la Chat lo dice e riprova; se non risponde, propone di avviarlo. Dal video prende solo il suono (ffmpeg): i fotogrammi non vengono letti.
+   - **Privacy**: il servizio è locale (127.0.0.1), ma il suo passo di riassunto usa il cervello che l'utente ha scelto in callAPIcall. Richiesta di estensione a quel progetto, da fare solo se l'utente vuole: un campo `analyze=0` per saltare il riassunto e restituire solo la trascrizione. **Non modificato**: è un altro repository.
+6. **File prodotti**: lo strumento `write_output_file` scrive in `<dati utente>/outputs/<conversazione>/`; la Chat mostra il pulsante "Scarica" che porta a `GET /api/outputs/<id>` con `Content-Disposition: attachment`. Nel browser si usa il selettore di salvataggio quando c'è, altrimenti il download normale. In `BasaltWinGUI.exe` serve un **ponte WebView2** (`DownloadStarting` con finestra "Salva con nome" come predefinito): modifica dell'eseguibile, da verificare di giorno.
+7. **Sicurezza**: tutto ciò che esce da un file è **dato non fidato** (può contenere istruzioni per il modello); gli estrattori e le skill girano dal gestore dei permessi e dalla sandbox dell'harness, non dal browser; l'invio a callAPIcall è un'azione di rete verso un servizio locale, con il suo Bearer.
+
+**Ordine di lavoro**
+- **4b-1** (senza strumenti, vale già nella Chat attuale): deposito, testi e dati diretti, immagini con avviso sulla visione, contatore del contesto che include gli allegati.
+- **4b-2** (dopo la Fase 3): `read_attachment`, estrattori docx/xlsx (libreria standard), catalogo delle skill con proposta di installazione (pdf).
+- **4b-3**: audio e video con callAPIcall nella Chat (avanzamento visibile, "occupato", "non avviato").
+- **4b-4**: file prodotti, pulsante "Scarica", ponte WebView2.
+- *Fatto*: il **client di callAPIcall per audio e video** con servizio finto nei test (contratto letto dal servizio vero: `api_analysis.py`).
+- *Test*: un file per famiglia con il `MockEngine`; prova di iniezione dentro un pdf e un docx; file troppo grande per il contesto; servizio occupato e spento; salvataggio con la finestra di sistema (coda di giorno).
+- *Accettazione*: allegare un pdf, uno xlsx e una registrazione, chiedere una sintesi e una modifica, scaricare il file modificato con la finestra di salvataggio.
 
 ### Fase 5 — Una GPU, più chiamanti (M) · *prima misurare*
 
@@ -324,9 +340,9 @@ Le decisioni di §1 sono prese. Restano:
 5. **`/v1/vram` e le rotte `/api/*` di scrittura** (impostazioni, profili, piani, agente, giornali): chiudere anche queste ai client con lo
    stesso segreto (la pagina lo riceverebbe come cookie `HttpOnly` quando carica `/`, senza che il suo codice lo legga) oppure
    lasciarle come sono. `/v1/vram` serve ai programmi che prestano VRAM: chiuderla li interrompe.
-6. **Allegati, formati del primo rilascio**: quali famiglie subito (proposta: testi, dati e immagini; audio e video dopo) e quali omettere.
-7. **Allegati, strumenti di estrazione**: solo locali (più sicuro, più lavoro: librerie per pdf, docx, xlsx, trascrizione con un modello locale) oppure anche servizi esterni (mai con dati dell'utente senza il suo consenso per ogni invio).
-8. **Allegati, tetti**: dimensione massima per file e per conversazione, e token massimi inseriti direttamente nel contesto.
+6. **Allegati, tetti** (decisi: quelli delle impostazioni di inferenza) e **estrazione locale** per testi, dati e immagini (supposta): confermare.
+7. **callAPIcall, riassunto**: chiedere a quel progetto un campo `analyze=0` (solo trascrizione) perché il testo dell'utente non passi dal suo cervello? Altro repository: non si tocca senza un sì.
+8. **Ponte WebView2 per il salvataggio** (modifica di `BasaltWinGUI.exe`): da fare nella 4b-4.
 
 ## 8. Rischi
 

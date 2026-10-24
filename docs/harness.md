@@ -93,6 +93,11 @@ and its safety snapshot can be rewound to as well. The audit log
 - **Phone calls** (`--phone`): `phone_call` always asks, even at the `auto` level and with an allow rule; the call opens by
   saying it is an AI assistant calling for you; what the other person says is untrusted. Tests of real calls are skipped
   and queued in `tests/QUEUE_live_calls.md` until you authorize them (`BASALT_LIVE_CALLS=1`).
+- **Recordings** (audio and video attachments): the same callAPIcall client sends a file to the service's analysis routes in
+  chunks, follows the job and reads back the transcript (`start_media_analysis`, `wait_media_analysis`, `media_transcript`,
+  `format_transcript`). The service runs one job at a time (the client says `busy`), takes only the sound of a video and needs
+  ffmpeg; a file it would refuse, or one over the caller's limit, never leaves the machine. The transcript is untrusted text.
+  The Chat does not use this yet: the plan is in `piano_chat_planner_modelli.md` (Fase 4b).
 
 ## Context, memory, skills and reference documents
 

@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fake_services import FakeCallAPICall, FakeWikibridge  # noqa: E402
 from harness.integrations import CallAPICallClient, WikiBridgeClient  # noqa: E402
-from harness.integrations.call_api_client import build_greeting, has_ai_disclosure  # noqa: E402
+from harness.integrations.call_api_client import build_greeting, format_transcript, has_ai_disclosure  # noqa: E402
 
 
 @pytest.fixture
@@ -114,3 +114,72 @@ def test_call_client_offline_degrades_without_raising():
     assert res["status"] == "failed" and "unavailable" in res["error"]
     assert not c.hangup("call_123")
     assert c.get_call_transcript("call_123") is None
+
+
+# ---- recordings: audio and video attachments go through the analysis routes of the same service ----------------
+
+@pytest.fixture
+def recording(tmp_path):
+    f = tmp_path / "riunione.mp3"
+    f.write_bytes(b"ID3AUDIOBYTES" * 1000)
+    return f
+
+
+def test_a_recording_is_sent_in_chunks_and_followed_to_the_end(phone, recording):
+    c = CallAPICallClient(phone.url, token="t0ken")
+    started = c.start_media_analysis(str(recording), title="Budget", speakers=2)
+    assert started == {"status": "queued", "id": "20261024-101500-ab12cd"}
+    sent = phone.uploads[0]
+    assert sent["filename"] == "riunione.mp3" and sent["has_payload"] and sent["size_seen"] > recording.stat().st_size
+    assert sent["fields"] == {"speakers": "2", "title": "Budget"}
+    naps = []
+    final = c.wait_media_analysis(started["id"], poll_s=0.5, sleep=naps.append)
+    assert final["state"] == "done" and final["analysis"]["summary"] == "Riunione sul budget."
+    assert naps == [0.5, 0.5]                                       # two polls were still running
+    segments = c.media_transcript(started["id"])
+    assert format_transcript(segments) == "[00:00] Speaker 1: Buongiorno a tutti.\n[01:05] Speaker 2: Parliamo del budget."
+    assert c.delete_media_analysis(started["id"]) and phone.deleted == [started["id"]]
+
+
+def test_a_recording_the_service_would_refuse_never_leaves(phone, tmp_path):
+    c = CallAPICallClient(phone.url, token="t0ken")
+    doc = tmp_path / "nota.pdf"
+    doc.write_bytes(b"%PDF")
+    big = tmp_path / "grande.wav"
+    big.write_bytes(b"x" * 100)
+    for path, why in ((doc, "audio or video"), (tmp_path / "manca.mp3", "not a file"), (big, "limit")):
+        with pytest.raises(ValueError, match=why):
+            c.start_media_analysis(str(path), max_bytes=50)
+    assert phone.uploads == [] and not any(r[1] == "/analysis/start" for r in phone.requests)
+
+
+def test_a_busy_or_unready_service_is_said_plainly(phone, recording):
+    c = CallAPICallClient(phone.url, token="t0ken")
+    phone.busy = True
+    assert c.start_media_analysis(str(recording))["status"] == "busy"
+    phone.busy, phone.no_ffmpeg = False, True
+    res = c.start_media_analysis(str(recording))
+    assert res["status"] == "failed" and "ffmpeg" in res["error"]
+    assert CallAPICallClient(phone.url, token="wrong").start_media_analysis(str(recording))["status"] == "failed"
+    assert phone.uploads == []
+
+
+def test_waiting_gives_up_on_a_dead_service_and_on_a_job_that_never_ends():
+    dead = CallAPICallClient("http://127.0.0.1:59998", timeout=0.1)
+    assert dead.wait_media_analysis("20261024-101500-ab12cd", sleep=lambda s: None)["state"] == "unavailable"
+    assert dead.media_transcript("20261024-101500-ab12cd") is None and not dead.delete_media_analysis("x")
+    with pytest.raises(ValueError):
+        dead.media_analysis("../x")
+
+
+def test_waiting_times_out_on_a_job_that_keeps_running(phone):
+    c = CallAPICallClient(phone.url, token="t0ken")
+    now = [0.0]
+    res = c.wait_media_analysis("20261024-101500-ab12cd", timeout_s=0.3, poll_s=0.4,
+                                sleep=lambda s: now.__setitem__(0, now[0] + s), clock=lambda: now[0])
+    assert res["state"] == "timeout" and res["progress"]["phase"] == "transcribing"
+
+
+def test_the_transcript_text_is_readable_even_when_the_service_is_sparse():
+    assert format_transcript([{"text": " ciao "}, {"text": ""}, {"start_s": 3725, "text": "tardi", "speaker": "A"}]) == (
+        "[00:00] ciao\n[1:02:05] A: tardi")
