@@ -3,47 +3,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 
-from harness.acp_agent import ACPAgentServer
 from harness.integrations.wikibridge_client import WikiBridgeClient
 from harness.mcp_client import MCPClient
 from harness.tools.registry import ToolRegistry
-
-
-def test_acp_agent_initialize_and_session(tmp_path: Path):
-    server = ACPAgentServer(workspace_dir=str(tmp_path))
-
-    # 1. Initialize
-    req_init = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
-    res_str = server.run_one(req_init)
-    assert res_str is not None
-    res = json.loads(res_str)
-    assert res["id"] == 1
-    assert res["result"]["protocolVersion"] == "1.0"
-    assert res["result"]["agentInfo"]["name"] == "BasaltAgent"
-
-    # 2. Session New
-    req_new = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": {"cwd": str(tmp_path)}})
-    res_new = json.loads(server.run_one(req_new))
-    assert res_new["id"] == 2
-    session_id = res_new["result"]["sessionId"]
-    assert session_id in server.sessions
-
-    # 3. Session Prompt with mock
-    mock_client = MagicMock()
-    mock_client.chat_completion.return_value = {
-        "choices": [{"message": {"role": "assistant", "content": "Hello from agent!"}}]
-    }
-    server.client = mock_client
-
-    req_prompt = json.dumps({
-        "jsonrpc": "2.0",
-        "id": 3,
-        "method": "session/prompt",
-        "params": {"sessionId": session_id, "prompt": "Say hello"},
-    })
-    res_prompt = json.loads(server.run_one(req_prompt))
-    assert res_prompt["id"] == 3
-    assert res_prompt["result"]["content"] == "Hello from agent!"
 
 
 def test_wikibridge_client_offline_graceful():

@@ -102,6 +102,7 @@ class AgentLoop:
         cancel: Optional[threading.Event] = None,
         max_loop_strikes: int = 2,
         context: Optional[ContextManager] = None,
+        on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> None:
         self.client = client
         self.tools = tool_registry
@@ -119,6 +120,7 @@ class AgentLoop:
         self.cancel = cancel or threading.Event()
         self.max_loop_strikes = max_loop_strikes
         self.context = context
+        self.on_event = on_event
         self.loop_detector = LoopDetector()
         self.messages: List[Dict[str, Any]] = [self._system_message()]
         self.turns: List[AgentTurn] = []
@@ -127,6 +129,14 @@ class AgentLoop:
         self.total_tokens = 0
         self._started = False
         self._loop_strikes = 0
+
+    def _emit(self, event: Dict[str, Any]) -> None:
+        """Tells an observer what is happening (assistant text, tool start and end); it can never affect the run."""
+        if self.on_event:
+            try:
+                self.on_event(event)
+            except Exception:
+                pass
 
     def _system_message(self) -> Dict[str, Any]:
         return {"role": "system", "content": self.system_prompt, "pinned": True, "pin_category": "system_core"}
@@ -326,6 +336,7 @@ class AgentLoop:
             )
             self.total_tokens += turn.prompt_tokens + turn.completion_tokens
 
+            self._emit({"type": "assistant", "reasoning": reasoning, "content": content})
             calls = self.parse_calls(msg, content)
             if not calls:
                 self.messages.append({"role": "assistant", "content": content})
@@ -349,12 +360,18 @@ class AgentLoop:
                     self.messages.append({"role": "tool", "tool_call_id": call.call_id, "name": call.name,
                                           "content": "Cancelled before it ran."})
                     continue
+                tool = self.tools.get(call.name)
+                self._emit({"type": "tool_start", "call_id": call.call_id, "name": call.name,
+                            "arguments": call.arguments if isinstance(call.arguments, dict) else {},
+                            "effect": tool.effect.value if tool else None})
                 result = self._execute(call, checkpointed)
                 turn.tool_calls.append(result)
                 text = self._stringify(call.name, result.output)
-                tool = self.tools.get(call.name)
                 if tool is not None and tool.untrusted and result.decision == "executed" and not result.is_error:
                     text = _fence_untrusted(call.name, text)
+                self._emit({"type": "tool_end", "call_id": call.call_id, "name": call.name,
+                            "status": "completed" if result.decision == "executed" and not result.is_error else "failed",
+                            "decision": result.decision, "output": text})
                 self.messages.append({"role": "tool", "tool_call_id": call.call_id, "name": call.name, "content": text})
 
             turn.seconds = round(time.monotonic() - t0, 3)
