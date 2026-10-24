@@ -65,6 +65,9 @@
       ...tabs().map(t => go(t.dataset.view, "Alt+" + nth[t.dataset.view])),
       { label: T("pal.chat.new"), group: T("pal.g.actions"), run: () => goto("chat", click("new-chat")) },
       { label: T("pal.chat.set"), group: T("pal.g.actions"), run: () => goto("chat", click("cs-open")) },
+      ...["agent", "ask", "direct"].map(m => ({ label: T("pal.chat.mode", T("ch.mode." + m)), group: T("pal.g.actions"), run: () => goto("chat", () => {
+        const s = document.getElementById("chatmode"); if (s && !s.querySelector(`option[value="${m}"]`)?.disabled) { s.value = m; s.dispatchEvent(new Event("change")); }
+      }) })),
       { label: T("pal.model.load"), group: T("pal.g.actions"), run: () => goto("loader") },
       { label: T("pal.agent.run"), group: T("pal.g.actions"), run: () => goto("agent", () => { const g = document.getElementById("ag-goal"); if (g && !g.disabled) g.focus(); }) },
       { label: T("pal.agent.stop"), group: T("pal.g.actions"), run: () => goto("agent", () => { const b = document.getElementById("ag-stop"); if (b && !b.hidden) b.click(); }) },

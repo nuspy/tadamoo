@@ -21,6 +21,8 @@
   let timer = null;
   let starting = false;
   let logSig = "";
+  let sessions = [];
+  let plans = [];
 
   const text = (tag, cls, value) => {
     const el = document.createElement(tag);
@@ -318,7 +320,70 @@
   }
 
   /* ---- polling ---- */
+  /* ---- the Chat's conversations and the plans: what the Chat is doing, and what waits for the person ---- */
+  async function answerAsk(sessionId, ask, value) {
+    const res = await call("POST", `api/agent/sessions/${sessionId}/answer`, { ask: ask.id, value });
+    if (!res.ok) showMessage(explain(res));
+    tick();
+  }
+  function openInChat(id) {
+    try { localStorage.setItem("basalt.chat.session", id); } catch (e) { /* the Chat opens its last one anyway */ }
+    location.hash = "chat";
+    location.reload();
+  }
+  function renderConversations() {
+    const box = $id("ag-conversations");
+    const open = sessions.filter(s => s.state !== "closed");
+    if (!open.length) { box.replaceChildren(text("p", "dim ag-empty", T("ag.cv.none"))); return; }
+    const list = document.createElement("ul");
+    list.className = "ag-list";
+    open.slice(0, 8).forEach(s => {
+      const li = document.createElement("li");
+      li.className = `ag-item cv-${s.state}`;
+      const info = document.createElement("div");
+      info.append(text("div", "ag-item-goal", s.title || s.id), text("div", "ag-item-sub", `${T("ch.state." + s.state)} · ${s.workspace}`));
+      li.append(info);
+      if (s.ask) {                                              // the question the conversation waits on, answerable from here too
+        li.append(text("p", "ag-ask-title", s.ask.question));
+        const row = document.createElement("div");
+        row.className = "ag-actions";
+        (s.ask.options || []).forEach(o => {
+          const b = text("button", "btn" + (o.value === "confirm" ? " primary" : ""), o.value === "confirm" ? T("ch.yes") : o.value === "cancel" ? T("ch.no") : o.label);
+          b.type = "button"; b.onclick = () => answerAsk(s.id, s.ask, o.value);
+          row.append(b);
+        });
+        li.append(row);
+      }
+      if (s.blocked) li.append(text("p", "ag-note", `${T("ch.blocked." + s.blocked.reason) === "ch.blocked." + s.blocked.reason ? T("ch.blocked.other") : T("ch.blocked." + s.blocked.reason)} — ${s.blocked.detail || ""}`));
+      const go = text("button", "btn ghost", T("ag.cv.open"));
+      go.type = "button"; go.onclick = () => openInChat(s.id);
+      li.append(go);
+      list.append(li);
+    });
+    box.replaceChildren(list);
+  }
+  function renderPlans() {
+    const box = $id("ag-plans");
+    if (!plans.length) { box.replaceChildren(text("p", "dim ag-empty", T("ag.pl.none"))); return; }
+    const list = document.createElement("ul");
+    list.className = "ag-list";
+    plans.slice(0, 8).forEach(p => {
+      const li = document.createElement("li");
+      li.className = "ag-item";
+      const info = document.createElement("div");
+      info.append(text("div", "ag-item-goal", p.title), text("div", "ag-item-sub", T("ag.pl.progress", p.completed || 0, p.nodes || 0)));
+      const go = text("button", "btn ghost", T("ch.plan.open"));
+      go.type = "button";
+      go.onclick = () => { try { sessionStorage.setItem("basalt.openplan", p.plan_id); } catch (e) { /* the view opens anyway */ } location.hash = "plans"; };
+      li.append(info, go);
+      list.append(li);
+    });
+    box.replaceChildren(list);
+  }
+
   function renderAll() {
+    renderConversations();
+    renderPlans();
     renderRun();
     renderHistory();
     renderApprovals();
@@ -326,7 +391,10 @@
   }
 
   async function tick() {
-    const [r, a, l] = await Promise.all([call("GET", "api/agent/runs"), call("GET", "api/agent/approvals"), call("GET", "api/loader/status")]);
+    const [r, a, l, cv, pl] = await Promise.all([call("GET", "api/agent/runs"), call("GET", "api/agent/approvals"), call("GET", "api/loader/status"),
+                                                  call("GET", "api/agent/sessions"), call("GET", "api/plans")]);
+    if (cv.ok) sessions = cv.data.sessions || [];
+    if (pl.ok) plans = pl.data.plans || [];
     if (r.ok) {
       runs = r.data.runs || [];
       active = r.data.active || null;
@@ -345,8 +413,9 @@
     timer = null;
     if (document.hidden) return;
     const onPage = document.body.dataset.view === "agent";
-    if (!onPage && !active) return;                       // off the page and nothing running: nothing to watch
-    timer = setTimeout(tick, active ? POLL_BUSY_MS : POLL_IDLE_MS);
+    const working = sessions.some(s => s.state === "busy" || s.state === "asking" || s.state === "starting");
+    if (!onPage && !active && !working) return;           // off the page and nothing running: nothing to watch
+    timer = setTimeout(tick, active || working ? POLL_BUSY_MS : POLL_IDLE_MS);
   }
 
   function datalist() {

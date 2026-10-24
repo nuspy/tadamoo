@@ -737,9 +737,16 @@
   }
 
   /* ---- start when the view is shown; stop the stream when it is left ---- */
+  // the Chat links to a plan it touched: the id waits in the session storage until this view opens
+  function wanted() {
+    let id = "";
+    try { id = sessionStorage.getItem("basalt.openplan") || ""; sessionStorage.removeItem("basalt.openplan"); } catch (e) { /* no link */ }
+    return id;
+  }
   async function enter() {
-    if (!S.ready) { build(); S.ready = true; await loadList(false); return; }
-    await loadList(true);
+    if (!S.ready) { build(); S.ready = true; await loadList(false); } else await loadList(true);
+    const id = wanted();
+    if (id && id !== S.id && [...ui.select.options].some(o => o.value === id)) { ui.select.value = id; await choose(id); }
   }
   document.addEventListener("basalt:view", e => {
     if (e.detail === "settings") loadSettings();
