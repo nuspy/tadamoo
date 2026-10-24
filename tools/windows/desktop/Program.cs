@@ -198,6 +198,25 @@ static class Native
         catch { return false; }
     }
 
+    /// <summary>Asks the server on this port to unload its model, so the engine ends cleanly and frees its memory. The
+    /// control route needs the secret the server wrote to the user data folder when it started; without it (an older
+    /// server, no file) the caller ends the processes anyway.</summary>
+    public static bool UnloadServer(int port)
+    {
+        try
+        {
+            string data = Environment.GetEnvironmentVariable("BASALT_DATA");
+            string dir = string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello") : data;
+            string secret = File.ReadAllText(Path.Combine(dir, $"control-{port}.token")).Trim();
+            using var c = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(90) };
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{port}/api/control/unload") { Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json") };
+            req.Headers.Add("X-Basalt-Control", secret);
+            using var r = c.SendAsync(req).GetAwaiter().GetResult();
+            return r.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
     /// <summary>The ports where a Basalt server answers /health (python or basalt processes only). A test server
     /// (/health "mock": true) is not Basalt running, unless BASALT_SCAN_MOCK=1 asks for it.</summary>
     public static List<(int port, JsonElement health)> RunningServers()

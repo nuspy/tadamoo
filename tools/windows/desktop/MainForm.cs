@@ -855,7 +855,7 @@ sealed class MainForm : Form
                 Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         if (ours)
         {
-            Native.PostJson($"http://127.0.0.1:{p}/unload", "{}");
+            Native.UnloadServer(p);
             exiting = true;                                // this app's server ends on purpose
             BasaltLauncher.KillAll();
             BasaltLauncher.Wait(15000);
@@ -980,7 +980,7 @@ sealed class MainForm : Form
         double before = Native.AvailableRamGiB();
         if (serverPort != 0)
         {
-            Native.PostJson($"http://127.0.0.1:{serverPort}/unload", "{}");
+            Native.UnloadServer(serverPort);
             if (ours)
             {
                 BasaltLauncher.KillAll();
