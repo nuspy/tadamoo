@@ -212,6 +212,7 @@ class CutReplyTest(unittest.TestCase):
         self.assertIn("finish_reason", js)
         self.assertIn("m.cut = looksCut(m)", js)
         self.assertIn('class="btn ghost retry"', js)
+        self.assertIn("if (m.cut) return;", js)                        # a cut reply is not sent back with the conversation
         self.assertIn("messages.splice(i - 1, 2)", js)                 # the question and the cut reply go, then it is sent again
 
     def test_both_languages_have_the_texts(self):

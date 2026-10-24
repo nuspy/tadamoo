@@ -176,8 +176,9 @@
     if (m.cut && !streaming) el.querySelector(".meta-t").textContent = `${m.meta ? m.meta + " · " : ""}${T("chat.cut")}`;
     retry.textContent = T("chat.retry");
   }
-  /* a reply the model ended in the middle of a word: no stop, no length limit, no error. Left in the conversation it
-     teaches the model to end the next ones the same way, so the reader can ask again with the cut reply removed */
+  /* a reply the model ended in the middle of a word: no stop, no length limit, no error. Sent back with the
+     conversation it teaches the model to end the next replies the same way, so it is kept on the page but not sent;
+     the reader can ask again with it removed */
   const looksCut = m => m.finish === "stop" && !m.error && !m.stopped && /[\p{L}\p{N}]$/u.test((m.text || "").trimEnd());
   function render() {
     msgs.querySelectorAll(".cmsg").forEach(e => e.remove());
@@ -240,6 +241,7 @@
         out.push({ role: "user", content: m.content || m.text || "" });
       } else {
         if (m.error && !m.text) return;                 // a failed reply is not part of the conversation
+        if (m.cut) return;                              // nor is one the model ended mid-word: it would teach the next ones to stop short
         out.push({ role: "assistant", content: m.text || "" });
       }
       at.push(i);
