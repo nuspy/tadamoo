@@ -121,7 +121,8 @@
     } else {
       el.innerHTML = `<details class="think" hidden><summary><span class="think-t"></span></summary><div class="think-b" tabindex="0" role="region" aria-label="Reasoning"></div></details>` +
         `<div class="answer"></div><div class="meta"><span class="meta-t"></span>` +
-        `<button type="button" class="btn ghost copy" hidden>Copy</button></div>`;
+        `<button type="button" class="btn ghost copy" hidden>Copy</button>` +
+        `<button type="button" class="btn ghost retry" hidden></button></div>`;
       watchThink(el);
       paint(el, m, false);
     }
@@ -170,7 +171,14 @@
     }
     el.querySelector(".meta-t").textContent = m.meta || (streaming ? "" : m.stopped ? "Stopped" : "");
     el.querySelector(".copy").hidden = streaming || !m.text;
+    const retry = el.querySelector(".retry");
+    retry.hidden = streaming || !m.cut;
+    if (m.cut && !streaming) el.querySelector(".meta-t").textContent = `${m.meta ? m.meta + " · " : ""}${T("chat.cut")}`;
+    retry.textContent = T("chat.retry");
   }
+  /* a reply the model ended in the middle of a word: no stop, no length limit, no error. Left in the conversation it
+     teaches the model to end the next ones the same way, so the reader can ask again with the cut reply removed */
+  const looksCut = m => m.finish === "stop" && !m.error && !m.stopped && /[\p{L}\p{N}]$/u.test((m.text || "").trimEnd());
   function render() {
     msgs.querySelectorAll(".cmsg").forEach(e => e.remove());
     $("#chat-empty").hidden = messages.length > 0;
@@ -194,6 +202,18 @@
       if (s && s.role === "summary") {
         messages.splice(i, 1, ...(s.originals || []));
         save(); render(); status(T("compact.undone")); meter();
+      }
+      return;
+    }
+    const rt = e.target.closest(".retry");
+    if (rt && !busy) {
+      const i = +rt.closest(".cmsg").dataset.i, u = messages[i - 1];
+      if (u && u.role === "user") {
+        messages.splice(i - 1, 2);
+        attachments = u.images || [];
+        drawAttachments();
+        prompt.value = u.text || "";
+        render(); save(); send();
       }
       return;
     }
@@ -359,6 +379,7 @@
           try { j = JSON.parse(data); } catch (e) { continue; }
           if (j.error) throw new Error(j.error.message || "the engine reported an error");
           if (j.usage) usage = j.usage;
+          if (j.choices && j.choices[0] && j.choices[0].finish_reason) m.finish = j.choices[0].finish_reason;
           if (j.structured_output) m.structured = j.structured_output;
           const d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
           if (d.reasoning_content) { first = first || performance.now(); thinkStart = thinkStart || performance.now(); m.reasoning += d.reasoning_content; }
@@ -385,6 +406,7 @@
       m.meta = `${m.meta ? m.meta + " · " : ""}${T("cs.validated", m.structured.attempts)}`;
       try { m.text = "```json\n" + JSON.stringify(JSON.parse(m.text), null, 2) + "\n```"; } catch (e) { /* left as sent */ }
     }
+    m.cut = looksCut(m);
     busy = null;
     setBusy(false);
     paint(el, m, false);

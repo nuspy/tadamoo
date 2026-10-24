@@ -204,6 +204,22 @@ class ReasoningBoxTest(unittest.TestCase):
         self.assertIn("if (!det.dataset.touched) det.open = false", js)
 
 
+class CutReplyTest(unittest.TestCase):
+    """A reply the model ended in the middle of a word is flagged, and the reader can ask again without it."""
+
+    def test_the_chat_flags_it_and_offers_to_ask_again(self):
+        js = (WEB / "chat.js").read_text(encoding="utf-8")
+        self.assertIn("finish_reason", js)
+        self.assertIn("m.cut = looksCut(m)", js)
+        self.assertIn('class="btn ghost retry"', js)
+        self.assertIn("messages.splice(i - 1, 2)", js)                 # the question and the cut reply go, then it is sent again
+
+    def test_both_languages_have_the_texts(self):
+        text = (WEB / "i18n.js").read_text(encoding="utf-8")
+        self.assertEqual(text.count('"chat.cut"'), 2)
+        self.assertEqual(text.count('"chat.retry"'), 2)
+
+
 class ContrastTest(unittest.TestCase):
     def test_text_colours_reach_4_5_to_1_on_their_surfaces(self):
         v = css_vars()
