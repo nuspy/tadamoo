@@ -760,6 +760,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of in the conversation")
     parser.add_argument("--ask-only", action="store_true", help="answer without tools: a greeting does not become a loop")
     parser.add_argument("--no-planner", action="store_true", help="do not offer the planner's tools")
+    parser.add_argument("--capabilities", action="store_true", help="offer the search for skills, plugins and MCP servers found on this PC, and the visual analysis")
     parser.add_argument("--router", choices=["model", "rules"], default="model",
                         help="how a message that comes during a task is judged when its words do not decide: by the model, or not at all")
     parser.add_argument("--pipeline", choices=["off", "light", "full"], default="full",
@@ -804,7 +805,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                       permission_mode=args.permission_mode, allow=args.allow, deny=args.deny, secret_names=secret_names,
                       secret_hosts=secret_hosts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
                       skill_paths=args.skills, confirm=confirm, run_id=sid,
-                      context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, snapshot_dir=str(history / "snapshots"))
+                      context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, snapshot_dir=str(history / "snapshots"),
+                      capabilities=args.capabilities and not args.ask_only)
     from harness.client import BasaltClient
     from harness.llm import client_for, judge_for
     from harness.llm.judge import router_judge

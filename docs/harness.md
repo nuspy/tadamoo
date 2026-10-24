@@ -242,6 +242,32 @@ and the bridge the page talks to.
   `POST /api/plans/<id>/events`, `POST /api/plans/<id>/triage`, `POST /api/plans/<id>/archive` and `/restore`,
   `GET /api/plans/<id>/events?after=N` and `/stream` (server-sent events), `GET/POST /api/planner/settings`.
 
+## Capabilities: skills, plugins and MCP servers found on this PC
+
+A conversation in the Chat can look up skills, plugins and MCP servers without carrying a list of them in its prompt
+(`harness/capabilities.py`). On a PC with 193 skills and 50 servers that list would be about 15,800 tokens on every call; the tree's
+top and the four tools cost about 400.
+
+- **Discovery only reads.** Sources: `~/.claude/skills`, the workspace's `.claude/skills` and `.agents/skills`, the plugins in
+  `~/.claude/plugins` (their skills and `.mcp.json`), `~/.claude.json`, the project's `.mcp.json` and
+  `%APPDATA%\Claude\claude_desktop_config.json`. It keeps names, descriptions, tags and the command of a server with anything that
+  looks like a key blanked out; it never reads a server's environment variables. A folder named `*.disabled` is off.
+- **Nothing found is active.** An entry is *to approve* until the person opens it in Settings, reads its text (a skill) or its command
+  (a server) and approves; the approval is tied to the hash they were shown, and a file that changes afterwards is *to approve* again.
+- **The tree**: vision (analysis, generation), documents, data, web, code, audio and video, knowledge, communication, other. A declared
+  `tags`/`category` decides; else the words of the description; the person's correction wins and is kept.
+- **Tools**: `find_capability` (local FTS5/BM25, five results at most, results are untrusted text), `load_capability` (the text of an
+  approved skill, read again and checked against its hash), `call_capability` (a tool of an approved MCP server; it asks the person
+  like any action that cannot be undone; the server is started with no environment from the config). The prompt holds one line:
+  the roots and how many entries each has.
+- **Visual analysis** (Settings): the loaded model's own vision, an approved skill or MCP server from the vision/analysis branch, or
+  none. `analyze_image(path, question, crop)` crops and enlarges a region for fine detail, limits the image's size, and says so
+  when the model's vision is off instead of pretending.
+- `skills.md` in the capabilities folder is generated from the index, for reading.
+
+Not done: a second, embedding-based search pass, and a server that needs environment variables or a remote address
+(these are listed but not started from here).
+
 ## Context patterns
 
 Six ways to shape what the model reads, chosen in the Chat settings (each with a checkbox, a strategy and a description with

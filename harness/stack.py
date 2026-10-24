@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,6 +76,9 @@ class AgentConfig:
     data_dir: Optional[str] = None
     context_patterns: Dict[str, Any] = field(default_factory=dict)   # harness/context_patterns.py: what shapes the context
     snapshot_dir: Optional[str] = None  # where the context of each turn is kept when versioning is on
+    capabilities: bool = False          # offer find_capability, load_capability, call_capability and analyze_image (skills, plugins, MCP servers found on this PC)
+    capabilities_dir: Optional[str] = None   # where their index and the person's approvals are kept (default: the user data folder)
+    capabilities_home: Optional[str] = None  # the home folder whose skills, plugins and MCP configs are looked at (default: this user's)
     confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None
 
 
@@ -91,6 +95,7 @@ class BuiltAgent:
     kb: Optional[LocalKnowledge] = None
     reporter: Any = None
     patterns: Dict[str, Any] = field(default_factory=dict)
+    capabilities: Optional[Any] = None
 
     def retrieved_message(self, goal: str, limit: int = 4) -> Optional[Dict[str, Any]]:
         """Memories relevant to a goal, as an untrusted-data message for the tail of the conversation."""
@@ -118,6 +123,45 @@ def _summarizer(client: Optional[Any]):
                                        temperature=0.0, max_tokens=900, extra={"reasoning_effort": "none"})
         return (reply["choices"][0]["message"].get("content") or "").strip()
     return summarize
+
+
+def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builder: Any, sandbox: Any, client: Any) -> Any:
+    """The three capability tools and `analyze_image`; only the top of the tree goes into the prompt."""
+    from harness.capabilities import CapabilityIndex, register_capability_tools
+    from harness.mcp_client import MCPClient, MCPHub
+    from harness.vision_tool import register_vision_tool
+    if cfg.capabilities_dir:
+        directory = Path(cfg.capabilities_dir)
+    else:
+        try:
+            from serve.userdata import user_data_dir
+            directory = user_data_dir() / "capabilities"
+        except Exception:
+            directory = Path.home() / ".basalt" / "capabilities"
+    index = CapabilityIndex(directory, workspace, home=Path(cfg.capabilities_home) if cfg.capabilities_home else None,
+                            appdata=Path(cfg.capabilities_home) / "appdata" if cfg.capabilities_home else None)
+
+    class Server:
+        """One approved server, started when first used, with the arguments of a call checked against the tool's schema."""
+
+        def __init__(self, command: List[str]) -> None:
+            self.hub = MCPHub()
+            self.hub.add("s", MCPClient(command, cwd=str(workspace)))
+            self.hub.connect_all()
+            if self.hub.errors:
+                raise RuntimeError("; ".join(self.hub.errors.values()))
+            self.tools = self.hub.catalog.get("s", [])
+
+        def call(self, tool: str, arguments: Dict[str, Any]) -> str:
+            return self.hub.call("s", tool, arguments)
+
+    def hub_for(name: str, command: List[str]) -> Any:
+        return Server(command)
+
+    register_capability_tools(registry, index, hub_factory=hub_for)
+    register_vision_tool(registry, index, sandbox.resolve_safe, cfg.endpoint, cfg.api_key, client)
+    builder.pin("capabilities", index.top_of_tree())
+    return index
 
 
 def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summarizer: Optional[Any] = None) -> BuiltAgent:
@@ -181,6 +225,10 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         from harness.integrations.telephony_tools import register_phone_tools
         register_phone_tools(registry, CallAPICallClient.from_environment(), permissions, cfg.phone_on_behalf_of)
 
+    capability_index = None
+    if cfg.capabilities:
+        capability_index = _offer_capabilities(cfg, workspace, registry, builder, sandbox, client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key))
+
     memory = MemoryStore(default_db_path(workspace) if not cfg.data_dir else data / "memory.db") if cfg.use_memory else None
     cancel = threading.Event()
     agent = AgentLoop(
@@ -199,4 +247,4 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         max_seconds=cfg.max_seconds,
         cancel=cancel,
     )
-    return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns)
+    return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index)

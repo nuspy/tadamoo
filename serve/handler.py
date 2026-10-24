@@ -33,6 +33,7 @@ from serve import review as review_mod
 from serve.agent_runs import AgentRunner, RunBusy, RunError
 from serve.agent_sessions import SessionManager
 from harness.context_patterns import catalog as context_patterns_catalog
+from serve.capabilities_api import CapabilityApi, CapabilityError
 from serve.llm_api import LlmApi, LlmError
 from serve.approvals import ApprovalBoard, ApprovalError
 from serve.tasks import ChangeJournal, TaskJournal
@@ -41,6 +42,7 @@ _CHANGES = ChangeJournal(userdata.path("journal"))
 _APPROVALS = ApprovalBoard()
 _RUNNER = None                                        # made on first use: it needs this server's address
 _SESSIONS = None                                      # the Chat's conversations with the agent, made on first use
+_CAPS = None                                          # the Settings page's side of capabilities, made on first use
 _LLM = None                                           # the Providers page's side of llmswitch, made on first use
 
 
@@ -357,6 +359,9 @@ def make_handler(svc: Service):
             elif path.startswith("/api/agent/"):
                 if self._authorized():
                     self._agent_get(path)
+            elif path == "/api/capabilities" or path == "/api/capabilities/review":
+                if self._authorized():
+                    self._capabilities_get(path)
             elif path == "/api/context/patterns":
                 if self._authorized():
                     self._json(200, context_patterns_catalog())
@@ -483,6 +488,9 @@ def make_handler(svc: Service):
                 return
             if path.startswith("/api/llm/"):
                 self._llm_post(path)
+                return
+            if path.startswith("/api/capabilities/"):
+                self._capabilities_post(path)
                 return
             if path == "/api/changes/review":
                 if not settings.is_loopback(self.client_address[0]):
@@ -1121,6 +1129,53 @@ def make_handler(svc: Service):
                 _RUNNER = AgentRunner(userdata.path("journal"), f"http://127.0.0.1:{self.server.server_address[1]}",
                                       svc.api_key or "", tasks=_TASKS, board=_APPROVALS)
             return _RUNNER
+
+        def _caps(self) -> CapabilityApi:
+            global _CAPS
+            if _CAPS is None:
+                _CAPS = CapabilityApi(userdata.path("capabilities"), userdata.path("chat-workspace"))
+            return _CAPS
+
+        def _capabilities_get(self, path):
+            try:
+                api = self._caps()
+                if path == "/api/capabilities/review":
+                    return self._json(200, api.review((parse_qs(urlsplit(self.path).query).get("id") or [""])[0]))
+                return self._json(200, api.overview())
+            except CapabilityError as e:
+                return self._json(404, {"error": {"type": "capabilities", "message": str(e), "code": e.code}})
+
+        def _capabilities_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "capabilities can be changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 16)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            if not self._own_page("capabilities can be changed"):
+                return
+            action = path[len("/api/capabilities/"):]
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                api = self._caps()
+                if action == "rescan":
+                    return self._json(200, api.rescan())
+                if action == "approve":
+                    return self._json(200, api.approve(req.get("id"), req.get("sha")))
+                if action == "revoke":
+                    return self._json(200, api.revoke(req.get("id")))
+                if action == "move":
+                    return self._json(200, api.move(req.get("id"), req.get("node")))
+                if action == "settings":
+                    return self._json(200, api.settings(req))
+            except CapabilityError as e:
+                return self._json(409 if e.code in ("gone", "changed", "needs_approval") else 400, {"error": {"type": "capabilities", "message": str(e), "code": e.code}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"message": str(e)}})
+            self._json(404, {"error": {"message": "not found"}})
 
         def _llm(self) -> LlmApi:
             global _LLM

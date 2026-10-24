@@ -964,3 +964,24 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .pv-add { padding: 0 16px 12px; }
 .pv-add summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
 .pv-import { padding: 0 16px 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+
+/* Settings: capabilities */
+.stcaps-body { padding: 0 16px 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.cp-visual label { display: flex; flex-direction: column; gap: 4px; }
+.cp-visual select, .cp-bar input, .cp-actions select { min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; max-width: 100%; min-width: 0; }
+.cp-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+.cp-bar input { flex: 1 1 200px; }
+.cp-note[data-bad="1"] { color: var(--bad, #FF8FA3); }
+.cp-root { border: 1px solid var(--line-soft); border-radius: 8px; margin-bottom: 8px; background: var(--bg); }
+.cp-root > summary { min-height: 48px; display: flex; align-items: center; padding: 0 14px; cursor: pointer; font-weight: 600; }
+.cp-list { list-style: none; margin: 0; padding: 0 14px 10px; display: flex; flex-direction: column; gap: 10px; }
+.cp-entry { border-top: 1px solid var(--line-soft); padding-top: 8px; min-width: 0; }
+.cp-head { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.cp-badge { font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; color: var(--fg-2); }
+.cp-pending { border-color: var(--accent); color: var(--fg); }
+.cp-off { opacity: .7; }
+.cp-desc { margin: 4px 0; overflow-wrap: anywhere; }
+.cp-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cp-actions .btn { min-height: 44px; }
+.cp-review { margin-top: 8px; padding: 8px 12px; border-left: 2px solid var(--accent); }
+.cp-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font: 400 14px/1.5 var(--font-mono); margin: 6px 0; padding: 8px; background: var(--surface); border-radius: 6px; }

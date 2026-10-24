@@ -243,6 +243,8 @@ Dalla lista dei cinque livelli (P). Oggi un turno è **una sola inferenza** che 
 
 ### Fase 3b — Capacità ad albero, ricerca a richiesta e analisi visiva (L) · *dopo la Fase 3; richiesta dell'utente (O)*
 
+**Avanzamento (2026-10-24).** Fatto: `harness/capabilities.py` (rilevamento a sola lettura, albero, FTS5/BM25, approvazioni legate all'impronta, `find_capability`/`load_capability`/`call_capability`, `skills.md` generato), `harness/vision_tool.py` (`analyze_image` con ritaglio e ingrandimento, avviso a visione spenta), collegamento allo stack e alla sessione della Chat, `GET/POST /api/capabilities`, sezione «Capacità e analisi visiva» nelle Impostazioni (prova su Edge a 1280 e 390 px). **Misura sul tuo PC**: 193 skill e 50 server MCP (245 voci con le 2 integrate); elenco piatto delle skill ≈ 15.800 token a ogni chiamata, albero in cima più i tre strumenti ≈ 400 token. Scoperta in 2,2 s. Dieci richieste a mano: le voci giuste compaiono tra le prime cinque nella maggior parte dei casi dove una skill adatta esiste. **Da decidere con te**: accendere la visione del modello (`vision: dynamic`, richiede il riavvio): non l'ho toccata.
+
 **Il problema, misurato sul tuo PC.** Nei plugin installati ci sono **282 file `SKILL.md`** (173 nomi distinti, 3,2 MB di testo); elencarli con nome e descrizione nel prompt costerebbe, a stima, circa 17.000 token a ogni chiamata (da misurare), e `SkillCatalog.format_catalog_prompt` fa proprio questo. Con gli MCP si somma lo schema di ogni strumento, che oggi arriva intero a ogni turno (`ToolRegistry.schemas()`).
 
 **Disegno**
