@@ -157,6 +157,24 @@ class AgentLoop:
             cancel=threading.Event(), max_loop_strikes=self.max_loop_strikes, context=self.context, on_event=self.on_event,
             sampling=self.sampling, on_delta=self.on_delta, pipeline=self.pipeline)
 
+    def add_user_message(self, text: str, origin: str = "user", steer: bool = False) -> None:
+        """Puts a message at the end of the conversation. From the person it is also what their next confirmation may quote and
+        the request the answer is checked against (a steering message adds to the constraints already found); a note from the
+        planner is neither: nothing in it can stand for the person's words."""
+        if origin != "user":
+            self.messages.append({"role": "user", "content": text})
+            self.last_user_text, self.untrusted_since_user = "", True
+            return
+        rewrite = getattr(self.context, "rewrite", None)
+        self.messages.append({"role": "user", "content": rewrite(text) if rewrite and not steer else text})
+        self.last_user_text, self.untrusted_since_user = text, False
+        if self.pipeline:
+            card = self.pipeline.card(text)
+            if steer and self._card is not None:
+                have = {(c.kind, str(c.value)) for c in self._card.constraints}
+                card.constraints = self._card.constraints + [c for c in card.constraints if (c.kind, str(c.value)) not in have]
+            self._card, self._retried = card, False
+
     def request_end_turn(self) -> None:
         """For a tool: end this run when the tools of the current model turn are done (a question was put to the person)."""
         self._end_turn = True
@@ -333,10 +351,7 @@ class AgentLoop:
             if self.hooks:
                 self.hooks.trigger_event("session_start", {"goal": user_goal})
         if user_goal is not None:
-            self.messages.append({"role": "user", "content": user_goal})
-            self.last_user_text, self.untrusted_since_user = user_goal, False
-            self._card = self.pipeline.card(user_goal) if self.pipeline else None
-            self._retried = False
+            self.add_user_message(user_goal)
         if retrieved:
             self.messages.append(retrieved)     # memories and wiki text go after the goal, at the tail
             self.untrusted_since_user = True

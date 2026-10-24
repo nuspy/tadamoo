@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional
 
+from harness import context_patterns as context_patterns_mod
 from serve import ROOT
 from serve.agent_runs import MAX_ALLOW, MODES, SAFE_ENV_KEYS, RunBusy, RunError
 from serve.approvals import ApprovalBoard
@@ -130,21 +131,90 @@ class SessionManager:
         """The saved messages of a conversation, for the page to show (the system prompt left out)."""
         with self._lock:
             rec = self._record(sid)
+        data = self._read_history(sid)
+        if data is None:
+            return {"messages": [], "turns": 0, "session": dict(rec)}
+        shown = []
+        for m in self._transcript(sid, data):
+            shown.append({k: (v[:TEXT_CHARS] if isinstance(v, str) else v) for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id")})
+        return {"messages": shown, "turns": data.get("turns", 0), "session": dict(rec)}
+
+    def _read_history(self, sid: str) -> Optional[Dict[str, Any]]:
         try:
             data = json.loads((self.history_dir(sid) / "history.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return {"messages": [], "turns": 0, "session": dict(rec)}
-        shown = []
-        for m in data.get("messages", []):
-            if not isinstance(m, dict) or m.get("role") == "system":
+            return None
+        return data if isinstance(data, dict) else None
+
+    def _transcript(self, sid: str, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """What the person said and was answered, whole: the turns pruned or summarized away for the model come back first,
+        a request the model saw reframed shows as the person wrote it, and the harness's own notes are left out."""
+        try:
+            archived = [m for m in (json.loads(ln) for ln in (self.history_dir(sid) / "archive.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip())
+                        if isinstance(m, dict)]
+        except (OSError, ValueError):
+            archived = []
+        out = []
+        for m in [*archived, *data.get("messages", [])]:
+            if not isinstance(m, dict) or m.get("role") == "system" or m.get("summary") or m.get("note"):
                 continue
-            shown.append({k: (v[:TEXT_CHARS] if isinstance(v, str) else v) for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id")})
-        return {"messages": shown, "turns": data.get("turns", 0), "session": dict(rec)}
+            text = m.get("content")
+            if m.get("role") == "user" and isinstance(text, str) and text.startswith("<request>\n") and "\n</request>" in text:
+                m = {**m, "content": text[len("<request>\n"):text.index("\n</request>")]}
+            out.append(m)
+        return out
+
+    def branch(self, sid: str, turn: Any) -> Dict[str, Any]:
+        """A new conversation with the same settings and the history up to the end of the person's `turn`-th request. The first
+        one is not touched."""
+        if not isinstance(turn, int) or isinstance(turn, bool) or turn < 1:
+            raise RunError("Say which request to branch after: a number from 1.", "bad_turn")
+        with self._lock:
+            rec = self._record(sid)
+        data = self._read_history(sid)
+        if data is None:
+            raise RunError("That conversation has nothing to copy yet.", "empty")
+        kept: List[Dict[str, Any]] = []
+        users = 0
+        for m in self._transcript(sid, data):
+            if m.get("role") == "user":
+                users += 1
+                if users > turn:
+                    break
+            kept.append({k: v for k, v in m.items() if k not in ("masked", "stripped")})
+        if users < turn:
+            raise RunError(f"That conversation has only {users} requests.", "bad_turn")
+        new = secrets.token_hex(4)
+        child = {**rec, "id": new, "title": ((rec.get("title") or "") + " (branch)").strip()[:TITLE_CHARS], "branched_from": {"session": sid, "turn": turn},
+                 "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": turn}
+        with self._lock:
+            target = self.history_dir(new)
+            target.mkdir(parents=True, exist_ok=True)
+            _write_json(target / "history.json", {"session": new, "turns": turn, "saved": time.time(), "messages": kept, "pending": []})
+            self.records.append(child)
+            self._events[new], self._seq[new] = collections.deque(maxlen=EVENTS_KEPT), 0
+            self._save()
+        return dict(child)
+
+    def snapshots(self, sid: str) -> Dict[str, Any]:
+        with self._lock:
+            self._record(sid)
+        snaps = context_patterns_mod.Snapshots(self.history_dir(sid) / "snapshots")
+        return {"snapshots": [{"n": r["n"], "time": r["time"], "hash": r["hash"][:16], "messages": len(r["messages"])} for r in snaps.list()],
+                "intact": snaps.verify()}
+
+    def snapshot_diff(self, sid: str, a: Any, b: Any) -> Dict[str, Any]:
+        with self._lock:
+            self._record(sid)
+        try:
+            return context_patterns_mod.Snapshots(self.history_dir(sid) / "snapshots").diff(int(a), int(b))
+        except (KeyError, TypeError, ValueError):
+            raise RunError("There is no such snapshot.", "gone") from None
 
     # -- creating ----------------------------------------------------------------------------------------
 
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
-               confirm_auto: bool = False, max_turns: Any = 15) -> Dict[str, Any]:
+               confirm_auto: bool = False, max_turns: Any = 15, context_patterns: Any = None) -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         if (workspace is None or workspace == "") and self.default_workspace is not None:
             self.default_workspace.mkdir(parents=True, exist_ok=True)
@@ -159,8 +229,9 @@ class SessionManager:
             raise RunError(f"Allow rules are lines of text, at most {MAX_ALLOW}.", "bad_rules")
         if not isinstance(max_turns, int) or isinstance(max_turns, bool) or not 1 <= max_turns <= 50:
             raise RunError("The number of steps must be between 1 and 50.", "bad_steps")
+        patterns = context_patterns_mod.check_config(context_patterns) if context_patterns else {}
         sid = secrets.token_hex(4)
-        rec = {"id": sid, "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode,
+        rec = {"id": sid, "context_patterns": patterns, "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode,
                "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         with self._lock:
@@ -178,6 +249,8 @@ class SessionManager:
             cmd += ["--allow", rule]
         if rec.get("ask_only"):
             cmd.append("--ask-only")
+        if rec.get("context_patterns"):
+            cmd += ["--context-patterns", json.dumps(rec["context_patterns"])]
         return cmd
 
     def _spawn(self, sid: str) -> Live:
@@ -253,7 +326,7 @@ class SessionManager:
                 if not blocked:                              # a block is the person's to lift, so nothing is given on
                     for cmd in pending:
                         self._write(sid, live, cmd)
-            elif kind == "accepted":
+            elif kind in ("accepted", "woke"):                        # a message of the person, or a note of the planner
                 self._unconfirmed.pop(sid, None)
                 self._set(rec, state="busy", blocked=None, ask=None, question=None)
             elif kind == "ask":

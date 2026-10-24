@@ -12,6 +12,7 @@ from harness.audit import AuditLedger
 from harness.checkpoints import CheckpointManager
 from harness.client import BasaltClient
 from harness.context import ContextBuilder, ContextManager, TokenJuiceCompactor, available_budget
+from harness.context_patterns import PatternContext, Snapshots, normalize_config
 from harness.hooks import HookManager
 from harness.knowledge import LocalKnowledge, cag_prefix, choose_strategy, register_local_search
 from harness.memory import MemoryStore, default_db_path
@@ -72,6 +73,8 @@ class AgentConfig:
     phone_on_behalf_of: str = ""
     skill_paths: List[str] = field(default_factory=list)
     data_dir: Optional[str] = None
+    context_patterns: Dict[str, Any] = field(default_factory=dict)   # harness/context_patterns.py: what shapes the context
+    snapshot_dir: Optional[str] = None  # where the context of each turn is kept when versioning is on
     confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None
 
 
@@ -87,11 +90,13 @@ class BuiltAgent:
     data_dir: Path
     kb: Optional[LocalKnowledge] = None
     reporter: Any = None
+    patterns: Dict[str, Any] = field(default_factory=dict)
 
     def retrieved_message(self, goal: str, limit: int = 4) -> Optional[Dict[str, Any]]:
         """Memories relevant to a goal, as an untrusted-data message for the tail of the conversation."""
-        if not self.memory:
-            return None
+        injection = self.patterns.get("injection") or {}
+        if not self.memory or not injection.get("on", True) or injection.get("strategy", "tail") != "tail":
+            return None                       # off, or the model asks for notes itself, or they are in the fixed start
         self.builder.set_memories([m["content"] for m in self.memory.search(goal, limit=limit)])
         return self.builder.memory_message()
 
@@ -103,7 +108,19 @@ class BuiltAgent:
             self.kb.close()
 
 
-def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None) -> BuiltAgent:
+def _summarizer(client: Optional[Any]):
+    """(instructions, text) -> summary, written by the model the compaction function is pointed at; None without a client."""
+    if client is None:
+        return None
+
+    def summarize(instructions: str, text: str) -> str:
+        reply = client.chat_completion(messages=[{"role": "system", "content": instructions}, {"role": "user", "content": text[:24000]}],
+                                       temperature=0.0, max_tokens=900, extra={"reasoning_effort": "none"})
+        return (reply["choices"][0]["message"].get("content") or "").strip()
+    return summarize
+
+
+def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summarizer: Optional[Any] = None) -> BuiltAgent:
     if cfg.permission_mode not in PERMISSION_MODES:
         raise ValueError(f"permission mode must be one of {sorted(PERMISSION_MODES)}")
     workspace = Path(cfg.workspace).resolve()
@@ -128,7 +145,10 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None) -> Buil
 
     compactor = TokenJuiceCompactor(workspace / ".basalt" / "artifacts", display_dir=".basalt/artifacts")
     budget = available_budget(cfg.context_window, 0.1, cfg.max_output_tokens)
-    context = ContextManager(compactor, budget_tokens=max(budget, 1024))
+    patterns = normalize_config(cfg.context_patterns)
+    snapshots = Snapshots(Path(cfg.snapshot_dir) if cfg.snapshot_dir else data / "snapshots" / (cfg.run_id or "default")) if patterns["versioning"]["on"] else None
+    context = PatternContext(compactor, budget_tokens=max(budget, 1024), patterns=patterns, snapshots=snapshots,
+                             summarize=_summarizer(summarizer or client) if patterns["summary"]["on"] else None)
 
     builder = ContextBuilder(SYSTEM_CORE)
     _, guidelines = find_project_guidelines(workspace)
@@ -179,4 +199,4 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None) -> Buil
         max_seconds=cfg.max_seconds,
         cancel=cancel,
     )
-    return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb)
+    return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns)

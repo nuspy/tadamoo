@@ -920,6 +920,26 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .chathead .effort select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
 #asessions { width: min(100%, 30ch); }
 
+/* Chat settings: context patterns */
+.pt { display: flex; flex-direction: column; gap: 6px; }
+.pt-row { border-bottom: 1px solid var(--line-soft); padding: 4px 0 8px; }
+.pt-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 48px; }
+.pt-line select { flex: 1 1 160px; }
+.pt-more { margin: 4px 0 4px 8px; padding: 4px 12px; border-left: 2px solid var(--line); }
+.pt-more h4 { margin: 8px 0 4px; font-size: 15px; }
+.pt-more .pt-text { margin: 0; padding: 0; border: 0; }
+.pt-name { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; min-width: 130px; font-weight: 600; }
+.pt-name input { width: 24px; height: 24px; accent-color: var(--accent); }
+.pt-line select { min-height: 44px; max-width: 100%; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.pt-info { width: 44px; height: 44px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--fg-2); font: italic 700 16px/1 var(--font-sans); cursor: pointer; }
+.pt-info[aria-expanded="true"] { border-color: var(--accent); color: var(--fg); }
+.pt-text { margin: 4px 0 4px 8px; padding: 8px 12px; border-left: 2px solid var(--line); display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 15px; }
+.pt-text dt { color: var(--fg-2); }
+.pt-text dd { margin: 0; overflow-wrap: anywhere; }
+.pt-new { margin: 0 0 0 4px; font-size: 14px; }
+.pt-line .pt-info { margin-left: auto; }
+@media (max-width: 520px) { .pt-text { grid-template-columns: 1fr; } .pt-text dd { margin-bottom: 6px; } }
+
 /* Models: the two sub-tabs and the Providers page */
 .subtabs { display: flex; gap: 8px; padding: 0 0 12px; flex-wrap: wrap; }
 .subtab[aria-selected="true"] { background: var(--surface); border-color: var(--accent); color: var(--fg); }

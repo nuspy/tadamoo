@@ -91,3 +91,14 @@ def test_only_this_pc_and_the_pages_own_origin_can_change_anything(api):
     code, body = call("POST", "/api/llm/providers", {"type": "openai"}, headers={"Origin": "http://evil.example"})
     assert code == 403 and reg.load()["providers"] == []
     assert call("POST", "/api/llm/nothing", {})[0] == 404
+
+
+def test_the_catalog_of_context_patterns_is_served_and_a_preset_keeps_a_checked_choice(api):
+    call, reg = api
+    code, cat = call("GET", "/api/context/patterns")
+    assert code == 200 and cat["order"][0] == "injection" and "mask_old" in cat["patterns"]["pruning"]["strategies"] and cat["defaults"]["pruning"]["on"] is True
+    from serve import profiles
+    ok = profiles.check_inference({"policy": "stop", "context_patterns": {"summary": {"on": True, "strategy": "incremental"}}})
+    assert ok["context_patterns"]["summary"] == {"on": True, "strategy": "incremental"} and ok["context_patterns"]["pruning"]["strategy"] == "mask_old"
+    with pytest.raises(ValueError):
+        profiles.check_inference({"context_patterns": {"summary": {"strategy": "poetry"}}})

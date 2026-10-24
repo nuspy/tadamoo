@@ -1,6 +1,7 @@
 """The manager of the Chat's conversations: starting, events, supervision, restarts, blocks, dormancy.
 
 It talks to a stand-in process (session_stub.py) that speaks the same lines of JSON as the real one."""
+import json
 import sys
 import time
 from pathlib import Path
@@ -300,3 +301,62 @@ def test_a_waiting_request_can_be_promoted_or_dropped_through_the_manager(make, 
     mgr.drop(sid, "t2")
     time.sleep(0.1)
     mgr.close(sid)
+
+
+# -- context patterns: the choice is kept, a conversation can be branched, snapshots are listed ----------------
+
+
+def test_the_choice_of_patterns_is_checked_kept_and_given_to_the_process(make, ws):
+    mgr = make()
+    with pytest.raises(ValueError):
+        mgr.create(ws, context_patterns={"pruning": {"strategy": "nonsense"}})
+    rec = mgr.create(ws, context_patterns={"summary": {"on": True, "strategy": "incremental"}})
+    assert rec["context_patterns"]["summary"] == {"on": True, "strategy": "incremental"} and rec["context_patterns"]["pruning"]["on"] is True
+    cmd = mgr._command(rec["id"], rec, mgr.history_dir(rec["id"]))
+    assert json.loads(cmd[cmd.index("--context-patterns") + 1])["summary"]["strategy"] == "incremental"
+    plain = mgr.create(ws)
+    assert "--context-patterns" not in mgr._command(plain["id"], plain, mgr.history_dir(plain["id"]))
+
+
+def test_a_request_the_model_saw_reframed_shows_as_the_person_wrote_it_and_pruned_turns_come_back(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    h = mgr.history_dir(sid)
+    h.mkdir(parents=True, exist_ok=True)
+    (h / "archive.jsonl").write_text(json.dumps({"role": "user", "content": "old question"}) + "\n" + json.dumps({"role": "assistant", "content": "old answer"}) + "\n", encoding="utf-8")
+    (h / "history.json").write_text(json.dumps({"turns": 2, "messages": [
+        {"role": "user", "content": "[Summary of the earlier part of this conversation]", "summary": True},
+        {"role": "user", "content": "<request>\nin 5 parole\n</request>\nLimits found in the request, to respect:\n- at most 5 words"},
+        {"role": "assistant", "content": "ok"}, {"role": "user", "content": "[1 earlier turns were left out]", "note": True}]}), encoding="utf-8")
+    assert [m["content"] for m in mgr.history(sid)["messages"]] == ["old question", "old answer", "in 5 parole", "ok"]
+
+
+def test_a_branch_copies_the_history_up_to_a_request_and_leaves_the_first_alone(make, ws):
+    mgr = make()
+    sid = mgr.create(ws, title="plan")["id"]
+    for text in ("uno", "due", "tre"):
+        mgr.send(sid, text)
+        until(lambda: kinds(mgr, sid).count("done") == ["uno", "due", "tre"].index(text) + 1)
+    child = mgr.branch(sid, 2)
+    assert child["id"] != sid and child["title"] == "plan (branch)" and child["branched_from"] == {"session": sid, "turn": 2}
+    assert [m["content"] for m in mgr.history(child["id"])["messages"]] == ["uno", "echo: uno", "due", "echo: due"]
+    assert len(mgr.history(sid)["messages"]) == 6
+    for bad in (0, -1, "2", True, 9):
+        with pytest.raises(RunError):
+            mgr.branch(sid, bad)
+    with pytest.raises(RunError):
+        mgr.branch("ghost", 1)
+
+
+def test_snapshots_are_listed_diffed_and_checked_from_the_conversations_folder(make, ws):
+    from harness.context_patterns import Snapshots
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    snaps = Snapshots(mgr.history_dir(sid) / "snapshots")
+    snaps.record([{"role": "user", "content": "a"}])
+    snaps.record([{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}])
+    listing = mgr.snapshots(sid)
+    assert [s["n"] for s in listing["snapshots"]] == [1, 2] and listing["intact"] is True
+    assert [m["text"] for m in mgr.snapshot_diff(sid, 1, "2")["added"]] == ["b"]
+    with pytest.raises(RunError):
+        mgr.snapshot_diff(sid, 1, 7)

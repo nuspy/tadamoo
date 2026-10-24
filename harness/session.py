@@ -33,7 +33,7 @@ import urllib.request
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, TextIO
+from typing import Any, Callable, Dict, List, Optional, TextIO, Tuple
 
 from harness import agent_loop as al
 from harness.client import StreamCancelled
@@ -46,7 +46,7 @@ DELTA_CHARS, DELTA_S = 400, 0.25
 EVENT_CHARS = 20_000
 TRANSIENT_STATUS = frozenset({0, 408, 425, 429, 500, 502, 503, 504})
 BACKOFF_S = (2.0, 5.0, 15.0, 30.0, 60.0)
-HISTORY_FILE, INFLIGHT_FILE = "history.json", "inflight.json"
+HISTORY_FILE, INFLIGHT_FILE, ARCHIVE_FILE = "history.json", "inflight.json", "archive.jsonl"
 RESUME_NOTE = "[harness] You were set aside for an urgent request, which is now done. Go on with what you were doing."
 INTERRUPTED_NOTE = ("[harness] The previous turn was interrupted while it was running {tool} with {arguments}. It may have "
                     "run already. Do not run it again without first checking what really happened, and tell the user.")
@@ -86,6 +86,22 @@ class SessionStore:
         except (OSError, ValueError):
             return None
         return data if isinstance(data, dict) and isinstance(data.get("messages"), list) else None
+
+    def archive(self, messages: List[Dict[str, Any]]) -> None:
+        """What left the model's view (pruned or summarized) stays in the person's record of the conversation."""
+        text = "".join(json.dumps(m, ensure_ascii=False) + "\n" for m in messages)
+        if self.redact:
+            text = self.redact(text)
+        with self._lock:
+            with (self.dir / ARCHIVE_FILE).open("a", encoding="utf-8") as f:
+                f.write(text)
+
+    def archived(self) -> List[Dict[str, Any]]:
+        try:
+            return [m for m in (json.loads(ln) for ln in (self.dir / ARCHIVE_FILE).read_text(encoding="utf-8").splitlines() if ln.strip())
+                    if isinstance(m, dict)]
+        except (OSError, ValueError):
+            return []
 
     def mark_inflight(self, info: Dict[str, Any]) -> None:
         self._write(INFLIGHT_FILE, {**info, "since": time.time()})
@@ -177,6 +193,7 @@ class Session:
         self._waiting_n = 0                                     # a task waiting for the person is not stuck
         self.planner: Any = None
         self._summary = ""                                      # the plans summary the conversation last got
+        self._announced: set = set()                            # what the planner already woke the conversation about
         self._delta_lock = threading.Lock()
         self._delta_kind, self._delta_turn, self._delta_text, self._delta_at = "", "", [], time.monotonic()
         self.current = _Current(self)
@@ -200,7 +217,7 @@ class Session:
         return [*self.urgent, *self.queue, *self.inbox]
 
     def _save(self) -> None:
-        self.store.save(self.agent.messages[1:], {"session": self.session_id, "turns": self.turns_done, "plans_summary": self._summary,
+        self.store.save(self.agent.messages[1:], {"session": self.session_id, "turns": self.turns_done, "plans_summary": self._summary, "announced": sorted(self._announced),
                                                   "pending": self._pending()})
 
     def restore(self) -> int:
@@ -212,6 +229,7 @@ class Session:
             self.agent.messages = [self.agent.messages[0], *data["messages"]]
             self.turns_done = int(data.get("turns") or 0)
             self._summary = str(data.get("plans_summary") or "")
+            self._announced = {str(k) for k in data.get("announced", [])}
             self.queue = [m for m in data.get("pending", []) if isinstance(m, dict) and m.get("text")]
             count = len(data["messages"])
         lost = self.store.inflight()
@@ -337,7 +355,7 @@ class Session:
 
     # -- commands --------------------------------------------------------------------------------------
 
-    def _begin_main(self, turn: str, text: str) -> Task:
+    def _begin_main(self, turn: str, text: str, origin: str = "user") -> Task:
         """Starts a turn of the person's own conversation: what the agent should know first, then their message."""
         agent = self.agent
         agent.cancel.clear()
@@ -347,10 +365,9 @@ class Session:
         note = self._plans_note()
         if note:
             agent.messages.append({"role": "user", "content": note})
-        agent.messages.append({"role": "user", "content": text})
-        agent.last_user_text = text
-        retrieved = self.built.retrieved_message(text)
-        agent.untrusted_since_user = bool(retrieved)
+        agent.add_user_message(text, origin)
+        retrieved = self.built.retrieved_message(text) if origin == "user" else None
+        agent.untrusted_since_user = agent.untrusted_since_user or bool(retrieved)
         if retrieved:
             agent.messages.append(retrieved)
         self._save()                                   # the message is kept before the model sees it
@@ -362,8 +379,7 @@ class Session:
     def _begin_side(self, turn: str, text: str) -> Task:
         """A request with nothing to do with the main conversation: a fork with a conversation of its own."""
         agent = self.agent.fork()
-        agent.messages.append({"role": "user", "content": text})
-        agent.last_user_text, agent.untrusted_since_user = text, False
+        agent.add_user_message(text)
         task = Task(turn, text, agent, side=True)
         self._adopt(task)
         self.tasks[turn] = task
@@ -375,9 +391,11 @@ class Session:
             self.busy = True
         threading.Thread(target=self._work, args=(task,), name=f"session-task-{task.turn}", daemon=True).start()
 
-    def send(self, turn_id: str, text: str) -> bool:
+    def send(self, turn_id: str, text: str, origin: str = "user") -> bool:
         with self._lock:
             busy = self._workers > 0
+            if busy and origin != "user":
+                return False                           # a note from the planner never interrupts a task: it waits for the next quiet moment
             if not busy:
                 self.blocked = None
                 self._workers += 1
@@ -394,10 +412,52 @@ class Session:
                 self._interrupt_for_urgent()
             self._save()
             return True
-        task = self._begin_main(turn_id, text)
-        self.emit({"event": "accepted", "turn": turn_id})
+        task = self._begin_main(turn_id, text, origin)
+        self.emit({"event": "accepted", "turn": turn_id} if origin == "user" else {"event": "woke", "turn": turn_id, "text": text[:300]})
         threading.Thread(target=self._work, args=(task,), name="session-task", daemon=True).start()
         return True
+
+    def idle(self) -> bool:
+        """Nothing under way, nothing waiting, nobody asked: a quiet moment."""
+        with self._lock:
+            return (self._workers == 0 and not self._waiting_n and not self.blocked and not (self.queue or self.inbox or self.urgent or self.stack))
+
+    def poll_plans(self) -> Optional[str]:
+        """Looks at the plans in a quiet moment and, for what is new and needs the person (a change proposed by the planner, a
+        step it cannot do, a step that failed), starts a turn that tells them. Each thing is announced once."""
+        if self.planner is None or not self.idle():
+            return None
+        try:
+            plans = self.planner.list()
+        except Exception:
+            return None
+        for plan in sorted(plans, key=lambda x: str(x.get("updated_at") or ""), reverse=True):
+            pid = str(plan.get("plan_id"))
+            try:
+                snap = self.planner.snapshot(pid)
+            except Exception:
+                continue
+            title = str((snap.get("plan") or {}).get("title") or pid)
+            news: List[Tuple[str, str]] = []
+            for pr in snap.get("proposals", []):
+                if pr.get("source") != "chat":
+                    news.append((f"p:{pid}:{pr.get('proposal_id')}", f'the planner proposes a change: "{pr.get("title")}" ({str(pr.get("rationale") or "")[:200]}).'))
+            for of in snap.get("offers", []):
+                news.append((f"o:{pid}:{of.get('offer_id')}", f'a step needs the person: {str(of.get("reason") or "")[:200]}.'))
+            for node in ((snap.get("plan") or {}).get("nodes") or {}).values() if isinstance((snap.get("plan") or {}).get("nodes"), dict) else (snap.get("plan") or {}).get("nodes") or []:
+                if isinstance(node, dict) and node.get("status") == "failed":
+                    news.append((f"f:{pid}:{node.get('id')}", f'the step "{node.get("title")}" failed.'))
+            fresh = [(k, t) for k, t in news if k not in self._announced]
+            if fresh:
+                key, text = fresh[0]
+                self._announced.add(key)
+                self._save()
+                note = (f'[planner] Plan {pid} "{title}": {text} Tell the person briefly and ask what to do; change nothing in the plan '
+                        f'without their say. This note is from the system, not from the person.')
+                if self.send("w-" + uuid.uuid4().hex[:6], note, origin="planner"):
+                    return key
+                self._announced.discard(key)
+        return None
 
     def _route_now(self, msg: Dict[str, str]) -> None:
         """When the model can answer more requests at once, a request that is not about the task in hand starts beside it at once;
@@ -529,8 +589,7 @@ class Session:
     def _route(self, task: Task, msg: Dict[str, str], how: str, why: str) -> None:
         turn, text = msg["turn"], msg["text"]
         if how == STEER:
-            task.agent.messages.append({"role": "user", "content": text})
-            task.agent.last_user_text, task.agent.untrusted_since_user = text, False
+            task.agent.add_user_message(text, steer=True)
             if not task.side:
                 self._save()
             self.emit({"event": "routed", "turn": turn, "how": STEER, "why": why})
@@ -705,9 +764,11 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
                         help="how a message that comes during a task is judged when its words do not decide: by the model, or not at all")
     parser.add_argument("--pipeline", choices=["off", "light", "full"], default="full",
                         help="the check of an answer against what the request asked: nothing, measured only, or measured and judged")
+    parser.add_argument("--context-patterns", default="", metavar="JSON", help="what shapes the context (harness/context_patterns.py)")
     parser.add_argument("--no-memory", action="store_true")
     parser.add_argument("--no-checkpoints", action="store_true")
     parser.add_argument("--heartbeat", type=float, default=HEARTBEAT_S)
+    parser.add_argument("--watch-plans", type=float, default=15.0, metavar="SECONDS", help="how often the plans are looked at in a quiet moment (0: never)")
     return parser.parse_args(args)
 
 
@@ -738,25 +799,28 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     if args.ask_server:
         from harness.approval_client import ServerApprover
         confirm = ServerApprover(args.endpoint, args.api_key, sid)
+    history = Path(args.history_dir) if args.history_dir else data_dir_for(Path(args.workspace).resolve()) / "sessions" / sid
     cfg = AgentConfig(workspace=args.workspace, endpoint=args.endpoint, api_key=args.api_key, max_turns=args.max_turns,
                       permission_mode=args.permission_mode, allow=args.allow, deny=args.deny, secret_names=secret_names,
                       secret_hosts=secret_hosts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
-                      skill_paths=args.skills, confirm=confirm, run_id=sid)
+                      skill_paths=args.skills, confirm=confirm, run_id=sid,
+                      context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, snapshot_dir=str(history / "snapshots"))
     from harness.client import BasaltClient
     from harness.llm import client_for, judge_for
     from harness.llm.judge import router_judge
     here = BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key)          # the model loaded in this Basalt
     try:
-        built = build_agent(cfg, client=client_for("executor", here))        # or the provider the person chose for the agent
+        built = build_agent(cfg, client=client_for("executor", here), summarizer=client_for("compaction", here))
     except Exception as exc:
         emit({"event": "error", "code": "start", "message": f"{type(exc).__name__}: {exc}"})
         return 1
     if args.ask_only:
         from harness.tools.registry import ToolRegistry
         built.agent.tools = ToolRegistry()
-    history = Path(args.history_dir) if args.history_dir else data_dir_for(Path(args.workspace).resolve()) / "sessions" / sid
     store = SessionStore(history, redact=built.agent.secrets.mask_secrets if built.agent.secrets else None)
     router = Router(router_judge(judge_for("router", here)) if args.router == "model" else None)
+    if hasattr(built.agent.context, "on_removed"):
+        built.agent.context.on_removed = store.archive
     built.agent.pipeline = Pipeline(args.pipeline, (lambda q, o, c, j=judge_for("pipeline", here): j.choose(q, o, c)) if args.pipeline == "full" else None)
     session = Session(built, store, emit, session_id=sid, health=lambda: server_health(cfg.endpoint, cfg.api_key), router=router)
     if not args.ask_server:
@@ -775,6 +839,15 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                   "waiting_requests": len(session.queue) + len(session.inbox) + len(session.urgent), "put_aside": len(session.stack),
                   "idle_s": session.idle_seconds()})
     threading.Thread(target=beat, name="session-heartbeat", daemon=True).start()
+
+    def watch() -> None:
+        while not stop.wait(args.watch_plans):
+            try:
+                session.poll_plans()
+            except Exception:
+                pass                                     # a failed look is tried again at the next one
+    if args.watch_plans > 0 and session.planner is not None:
+        threading.Thread(target=watch, name="session-plans", daemon=True).start()
 
     try:
         for line in stdin:

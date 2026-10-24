@@ -32,7 +32,7 @@ LOAD_FIELDS = [f"{s}.{k}" for s, k in settings.LOADER_FIELDS]
 # the chat settings a preset keeps (serve/web/chatset.js)
 INFERENCE_KEYS = ("system", "stop", "policy", "threshold", "effort", "temperature", "top_p", "top_k", "min_p",
                   "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n", "seed",
-                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries")
+                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns")
 
 
 def path() -> Path:
@@ -138,6 +138,9 @@ def check_inference(values) -> dict:
     if not isinstance(values, dict):
         raise ValueError("settings: an object of chat settings")
     out = {k: v for k, v in values.items() if k in INFERENCE_KEYS}
+    if "context_patterns" in out:
+        from harness.context_patterns import check_config
+        out["context_patterns"] = check_config(out["context_patterns"])
     if len(json.dumps(out)) > 256 << 10:
         raise ValueError("settings: larger than 256 KiB")
     return out

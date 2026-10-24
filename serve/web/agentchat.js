@@ -50,6 +50,8 @@
     const on = active();
     if (!on) return;
     const asking = state === "asking";
+    const bp = chatSettings.patterns().branches;
+    $("#branch-chat").hidden = !(sid && bp && bp.on);
     $("#stop").hidden = !(busyNow || state === "busy" || state === "starting" || asking);
     $("#send").disabled = false;
     $("#prompt").placeholder = asking ? T("ch.hint.asking") : busyNow ? T("ch.ph.busy") : T("ch.ph");
@@ -67,6 +69,19 @@
       ...r.json.sessions.filter(s => s.state !== "closed").map(s => Object.assign(mk("option", "", `${s.title || s.id} · ${T("ch.state." + s.state)}`), { value: s.id })));
     list.value = [...list.options].some(o => o.value === sel) ? sel : "";
   }
+  async function branch() {
+    const h = await api("GET", `/${sid}/history`);
+    const turn = h.ok ? h.json.messages.filter(m => m.role === "user").length : 0;
+    if (!turn) { status(T("ch.branch.none")); return; }
+    const r = await api("POST", `/${sid}/branch`, { turn });
+    if (!r.ok) { status(errText(r)); return; }
+    await refreshList();
+    list.value = r.json.session.id;
+    await openSession(r.json.session.id);
+    status(T("ch.branch.done"));
+  }
+  $("#branch-chat").onclick = branch;
+  document.addEventListener("basalt:chatset", () => setControls());
   list.onchange = () => { if (list.value) openSession(list.value); else newChat(); };
 
   function forget() { sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(LAST_KEY, ""); }
@@ -114,6 +129,7 @@
       case "user": closeQuestions(); userItem(e.text); break;
       case "accepted": assistant(e.turn); started(e.turn); break;
       case "started": assistant(e.turn); started(e.turn); break;
+      case "woke": noteItem({ s: T("ch.woke", String(e.text || "").replace(/^\[planner\]\s*/, "").slice(0, 200)), route: e.turn }); assistant(e.turn); started(e.turn); break;
       case "delta": textBlock(e.kind === "reasoning" ? "reasoning" : "text", e.text || "", e.turn); break;
       case "queued": break;                                                    // the person's own bubble is already there
       case "routed": noteItem({ s: T("ch.routed." + e.how, e.position || 0), route: e.turn, how: e.how }); break;
@@ -297,7 +313,7 @@
   /* ---- talking to the conversation ---- */
   async function ensure() {
     if (sid) return true;
-    const r = await api("POST", "", { mode: "default", ask_only: mode === "ask" });
+    const r = await api("POST", "", { mode: "default", ask_only: mode === "ask", context_patterns: chatSettings.patterns() });
     if (!r.ok) { status(errText(r)); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(LAST_KEY, sid); after = 0;
     await refreshList(); list.value = sid;

@@ -16,6 +16,7 @@
 <script defer src="web/i18n.js"></script>
 <script defer src="web/app.js"></script>
 <script defer src="web/shell.js"></script>
+<script defer src="web/patterns.js"></script>
 <script defer src="web/chatset.js"></script>
 <script defer src="web/chat.js"></script>
 <script defer src="web/agentchat.js"></script>
@@ -116,6 +117,7 @@
         </label>
         <button type="button" class="btn" id="cs-open" aria-expanded="false" aria-controls="chatset" data-t="cs.open">Settings</button>
         <button type="button" class="btn" id="new-chat">New chat</button>
+        <button type="button" class="btn" id="branch-chat" data-t="ch.branch" hidden>Branch here</button>
       </div>
       <div class="msgs" id="msgs" role="log" aria-label="Messages" aria-live="polite" aria-busy="false" tabindex="0">
         <div class="chat-empty" id="chat-empty">
@@ -182,6 +184,11 @@
             <label for="cs-threshold" data-t="cs.threshold">Compact at (% of context)</label>
             <input id="cs-threshold" type="number" inputmode="numeric" min="30" max="100" step="5" placeholder="80">
           </div>
+        </fieldset>
+        <fieldset class="csgroup">
+          <legend data-t="pt.title">Context patterns</legend>
+          <p class="help" data-t="pt.help"></p>
+          <div id="cs-patterns" class="pt"></div>
         </fieldset>
         <fieldset class="csgroup">
           <legend data-t="cs.reasoning">Reasoning</legend>

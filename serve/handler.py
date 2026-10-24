@@ -32,6 +32,7 @@ from serve import plans as plans_mod, userdata
 from serve import review as review_mod
 from serve.agent_runs import AgentRunner, RunBusy, RunError
 from serve.agent_sessions import SessionManager
+from harness.context_patterns import catalog as context_patterns_catalog
 from serve.llm_api import LlmApi, LlmError
 from serve.approvals import ApprovalBoard, ApprovalError
 from serve.tasks import ChangeJournal, TaskJournal
@@ -356,6 +357,9 @@ def make_handler(svc: Service):
             elif path.startswith("/api/agent/"):
                 if self._authorized():
                     self._agent_get(path)
+            elif path == "/api/context/patterns":
+                if self._authorized():
+                    self._json(200, context_patterns_catalog())
             elif path == "/api/llm":
                 if self._authorized():
                     self._json(200, self._llm().overview())
@@ -1185,6 +1189,11 @@ def make_handler(svc: Service):
                         return self._json(200, mgr.events(parts[1], after))
                     if len(parts) == 3 and parts[2] == "history":
                         return self._json(200, mgr.history(parts[1]))
+                    if len(parts) == 3 and parts[2] == "snapshots":
+                        return self._json(200, mgr.snapshots(parts[1]))
+                    if len(parts) == 3 and parts[2] == "diff":
+                        q = parse_qs(urlsplit(self.path).query)
+                        return self._json(200, mgr.snapshot_diff(parts[1], (q.get("a") or [""])[0], (q.get("b") or [""])[0]))
                     if len(parts) == 2:
                         return self._json(200, {"session": mgr.get(parts[1])})
                 if parts == ["runs"]:
@@ -1223,7 +1232,10 @@ def make_handler(svc: Service):
                     if parts == ["sessions"]:
                         return self._json(200, {"session": mgr.create(req.get("workspace"), req.get("mode", "default"), req.get("allow"),
                                                                       req.get("ask_only") is True, req.get("title", ""),
-                                                                      req.get("confirm_auto") is True, req.get("max_turns", 15))})
+                                                                      req.get("confirm_auto") is True, req.get("max_turns", 15),
+                                                                      req.get("context_patterns"))})
+                    if len(parts) == 3 and parts[2] == "branch":
+                        return self._json(200, {"session": mgr.branch(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "send":
                         return self._json(200, mgr.send(parts[1], req.get("text")))
                     if len(parts) == 3 and parts[2] in ("promote", "drop"):

@@ -59,7 +59,8 @@ const chatSettings = (() => {
     const s = { system: $("#cs-system").value, stop: $("#cs-stop").value,
       policy: (document.querySelector('input[name="cs-policy"]:checked') || {}).value || "stop",
       threshold: $("#cs-threshold").value, effort: $("#effort").value,
-      format: $("#cs-format").value, schema: $("#cs-schema").value, schema_name: $("#cs-schema_name").value };
+      format: $("#cs-format").value, schema: $("#cs-schema").value, schema_name: $("#cs-schema_name").value,
+      context_patterns: window.ctxPatterns ? window.ctxPatterns.read() : {} };
     for (const f of fieldsOf()) s[f.key] = $("#" + f.id).value.trim();
     return s;
   }
@@ -73,6 +74,7 @@ const chatSettings = (() => {
     $("#cs-format").value = s.format || "";
     $("#cs-schema").value = s.schema || "";
     $("#cs-schema_name").value = s.schema_name || "";
+    if (window.ctxPatterns) window.ctxPatterns.write(s.context_patterns);
     if (s.effort != null) { $("#effort").value = s.effort; $("#effort").dispatchEvent(new Event("change")); }
     for (const f of fieldsOf()) $("#" + f.id).value = s[f.key] ?? "";
     show();
@@ -348,5 +350,6 @@ const chatSettings = (() => {
   defaults();
   fetchPresets();
   if (load("basalt.chatset.open", false) && innerWidth > 980) openPanel(true);
-  return { body, system, policy, threshold, structured, showReasoning };
+  const patterns = () => read().context_patterns || {};
+  return { body, system, policy, threshold, structured, showReasoning, patterns };
 })();

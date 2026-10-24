@@ -242,6 +242,41 @@ and the bridge the page talks to.
   `POST /api/plans/<id>/events`, `POST /api/plans/<id>/triage`, `POST /api/plans/<id>/archive` and `/restore`,
   `GET /api/plans/<id>/events?after=N` and `/stream` (server-sent events), `GET/POST /api/planner/settings`.
 
+## Context patterns
+
+Six ways to shape what the model reads, chosen in the Chat settings (each with a checkbox, a strategy and a description with
+four parts: what it does, advantages, drawbacks, when to use it, and what it does to the server's cache). They apply to the Chat's
+conversations with the agent and are kept in the preset under `context_patterns`; other programs that use the server pass only
+`policy` and `threshold`. The catalog is `GET /api/context/patterns` and comes from `harness/context_patterns.py`.
+
+Order: injection, rewriting, pruning, summary; versioning wraps them and a branch is an operation on a conversation.
+
+| Pattern | Strategies | Default |
+|---|---|---|
+| Injection | fixed prefix, retrieval at the end, on request | on, at the end |
+| Rewriting | fixed template (the request's words stay inside it, with the limits found in it) | off |
+| Pruning | mask old results, strip noise, oldest first, by relevance (BM25) | on, mask old results |
+| Summary | extract (no model), structured by the model, incremental | off |
+| Branches | copy at a point (`POST /api/agent/sessions/<id>/branch`) | off |
+| Versioning | snapshot per turn, hash-chained (`GET .../snapshots`, `.../diff?a=&b=`) | off |
+
+What pruning or a summary takes out of the model's view is kept in the conversation's folder (`archive.jsonl`) so the person's
+own record of it stays whole; a request the model saw in the template is shown as it was written. Strategies that need the
+model (structured and incremental summaries) use the provider chosen for the compaction function and fall back to the extract
+when it fails.
+
+Not done: a rewriting that the model proposes and the person approves, candidates written in parallel, named versions of
+the system prompt, and the measure that picks the best strategy (it needs the real model).
+
+## The planner wakes the conversation
+
+In a quiet moment (nothing running, nothing waiting, no open question) the session looks at the plans every 15 seconds
+(`--watch-plans`). For what is new and needs the person (a change proposed by the planner and not by the Chat, a step the software
+cannot do, a step that failed) it starts a turn with a note that begins `[planner]`. A note is announced once, even after a restart,
+and never interrupts a task. It is **not** the person's voice: nothing in it can be quoted to confirm a change to a plan, and what
+the model then does about a plan still asks the person first. It works while the conversation's process is alive (an idle
+conversation sleeps and is not woken).
+
 ## The check on an answer
 
 Before an answer is handed over, `harness/pipeline.py` measures it against the request. The request's *card* is made by rules,
