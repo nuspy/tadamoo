@@ -128,6 +128,7 @@ class AgentLoop:
         self.turns: List[AgentTurn] = []
         self.stop_reason = ""
         self.error = ""
+        self.error_status: Optional[int] = None       # the HTTP status of a failed model call (0: unreachable)
         self.total_tokens = 0
         self._started = False
         self._loop_strikes = 0
@@ -292,17 +293,19 @@ class AgentLoop:
             self.hooks.trigger_event("session_end", {"turns": len(self.turns), "stop_reason": self.stop_reason})
         self._started = False
 
-    def run(self, user_goal: str, retrieved: Optional[Dict[str, Any]] = None) -> List[AgentTurn]:
+    def run(self, user_goal: Optional[str], retrieved: Optional[Dict[str, Any]] = None) -> List[AgentTurn]:
         """Runs until the model answers without tool calls, a budget ends, it is cancelled or a loop persists.
 
-        The conversation continues across calls; `stop_reason` and `error` tell why this call ended."""
+        The conversation continues across calls; `stop_reason` and `error` tell why this call ended. With no goal
+        nothing is added to the conversation: it goes on from where it stands, as after a failed model call."""
         started = time.monotonic()
-        self.stop_reason, self.error, self._loop_strikes = "", "", 0
+        self.stop_reason, self.error, self.error_status, self._loop_strikes = "", "", None, 0
         if not self._started:
             self._started = True
             if self.hooks:
                 self.hooks.trigger_event("session_start", {"goal": user_goal})
-        self.messages.append({"role": "user", "content": user_goal})
+        if user_goal is not None:
+            self.messages.append({"role": "user", "content": user_goal})
         if retrieved:
             self.messages.append(retrieved)     # memories and wiki text go after the goal, at the tail
         run_turns: List[AgentTurn] = []
@@ -326,12 +329,13 @@ class AgentLoop:
                 msg = resp["choices"][0]["message"]
             except (BasaltError, KeyError, IndexError, TypeError) as exc:
                 self.stop_reason, self.error = ERROR, str(exc) or type(exc).__name__
+                self.error_status = exc.status if isinstance(exc, BasaltError) else None
                 break
             reasoning, content = extract_reasoning_and_content(msg)
             usage = resp.get("usage") or {}
             turn = AgentTurn(
                 turn_index=turn_idx,
-                user_input=user_goal if turn_idx == 1 else "",
+                user_input=(user_goal or "") if turn_idx == 1 else "",
                 reasoning=reasoning,
                 assistant_content=content,
                 prompt_tokens=int(usage.get("prompt_tokens") or 0),
