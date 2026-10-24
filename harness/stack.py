@@ -65,6 +65,7 @@ class AgentConfig:
     reference_strategy: str = "auto"   # auto, cag (a fixed block at the start), rag (searched passages) or none
     wiki: bool = False                 # offer the wikibridge tools (address and key from the environment)
     wiki_project: str = ""
+    report: bool = False               # tell the server's Monitor about the run and its edits
     phone: bool = False                 # offer the phone tools (callAPIcall from the environment)
     phone_on_behalf_of: str = ""
     skill_paths: List[str] = field(default_factory=list)
@@ -83,6 +84,7 @@ class BuiltAgent:
     cancel: threading.Event
     data_dir: Path
     kb: Optional[LocalKnowledge] = None
+    reporter: Any = None
 
     def retrieved_message(self, goal: str, limit: int = 4) -> Optional[Dict[str, Any]]:
         """Memories relevant to a goal, as an untrusted-data message for the tail of the conversation."""

@@ -33,6 +33,9 @@ python -m harness.acp_agent --workspace D:\work\proj          # the same agent f
 | `--interactive` | ask on the terminal before risky actions |
 | `--max-tokens-budget`, `--timeout-seconds`, `--max-turns` | stop after this much |
 
+The run and its file edits appear in the Monitor (tasks and changes) while it works, unless `--no-report`; the reporting
+never changes the run, and stops after two failed attempts.
+
 Exit codes: 0 finished, 1 error, 2 bad usage, 3 turn limit, 4 budget, 5 stuck in a loop, 130 cancelled. With `--json` the
 result has the stop reason, the changes, token and cache counts and the path of the audit log.
 

@@ -43,6 +43,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
                         help="cag: a fixed block at the start of the context; rag: searched passages; auto: by size")
     parser.add_argument("--wiki", action="store_true", help="offer the wikibridge tools (BASALT_WIKIBRIDGE_URL, BASALT_WIKIBRIDGE_KEY)")
     parser.add_argument("--wiki-project", default="", help="wikibridge project slug used when a call names none")
+    parser.add_argument("--no-report", action="store_true", help="do not show the run and its edits in the server's Monitor")
     parser.add_argument("--no-memory", action="store_true")
     parser.add_argument("--no-checkpoints", action="store_true")
     parser.add_argument("--json", action="store_true", help="print the result as JSON")
@@ -87,7 +88,7 @@ def config_from_args(args: argparse.Namespace) -> AgentConfig:
         max_total_tokens=args.max_tokens_budget, max_seconds=args.timeout_seconds, use_memory=not args.no_memory,
         use_checkpoints=not args.no_checkpoints, skill_paths=args.skills,
         phone=args.phone, phone_on_behalf_of=args.on_behalf_of, reference_docs=read_reference(args.reference),
-        reference_strategy=args.reference_strategy, wiki=args.wiki, wiki_project=args.wiki_project,
+        report=not args.no_report, reference_strategy=args.reference_strategy, wiki=args.wiki, wiki_project=args.wiki_project,
         confirm=_ask_on_terminal if args.interactive else None,
     )
 
@@ -95,9 +96,21 @@ def config_from_args(args: argparse.Namespace) -> AgentConfig:
 def run_headless(cfg: AgentConfig, prompt: str, client: Any = None) -> Dict[str, Any]:
     built = build_agent(cfg, client=client)
     try:
-        turns = built.agent.run(prompt, retrieved=built.retrieved_message(prompt))
+        if cfg.report:
+            from harness.reporting import PanelReporter
+            built.reporter = PanelReporter(cfg.endpoint, cfg.api_key, built.sandbox, prompt)
+            built.agent.on_event = built.reporter.on_event
+            built.reporter.start()
+        try:
+            turns = built.agent.run(prompt, retrieved=built.retrieved_message(prompt))
+        except BaseException as exc:
+            if built.reporter:
+                built.reporter.finish("error", error=f"{type(exc).__name__}: {exc}")
+            raise
         agent = built.agent
         final = next((t.assistant_content for t in reversed(turns) if not t.tool_calls), "")
+        if built.reporter:
+            built.reporter.finish(agent.stop_reason, final, agent.error)
         return {
             "status": "success" if agent.stop_reason == al.FINAL else agent.stop_reason,
             "stop_reason": agent.stop_reason,
