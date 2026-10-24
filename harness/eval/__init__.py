@@ -1,5 +1,7 @@
-"""Basalt Harness Evaluation Suite (Phase 0)."""
-from .runner import EvalRunner, EvalResult
-from .report import generate_eval_report
+"""Basalt harness evaluation: task sets, a runner with isolated trials, and reproducible reports."""
+from .report import generate_eval_report, results_to_json, summarize
+from .runner import EvalResult, EvalRunner, Trial, collect_environment
+from .tasks import Task, load_task_set
 
-__all__ = ["EvalRunner", "EvalResult", "generate_eval_report"]
+__all__ = ["EvalRunner", "EvalResult", "Trial", "Task", "load_task_set", "collect_environment",
+           "generate_eval_report", "results_to_json", "summarize"]

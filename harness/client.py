@@ -87,6 +87,7 @@ class BasaltClient:
         max_tokens: Optional[int] = None,
         timeout: float = 60.0,
         response_format: Optional[Dict[str, Any]] = None,
+        extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Sends a request to /v1/chat/completions."""
         payload: Dict[str, Any] = {
@@ -101,6 +102,8 @@ class BasaltClient:
             payload["tool_choice"] = tool_choice
         if response_format is not None:
             payload["response_format"] = response_format
+        if extra:
+            payload.update(extra)                  # sampling options such as seed or top_p
 
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
