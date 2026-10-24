@@ -17,11 +17,16 @@ Le dimensioni sono taglie relative (S/M/L/XL), senza date: come in §8 delle spe
 | B | La **Chat** è l'interfaccia principale con l'harness: conosce gli scopi, crea, modifica e cancella piani in autonomia interfacciandosi al planner. | La Chat diventa una conversazione a più turni sopra il ciclo dell'agente, con gli strumenti del planner (Fasi 2–4). |
 | C | La vista **Piani** è solo l'interfaccia specializzata per la gestione manuale (CRUD) dei piani, non l'ingresso principale. | Chat e vista Piani lavorano sullo stesso archivio (Fase 1). |
 | D | Il **loader di Qwen3.8-Flash-Next** resta attivo e a sé stante: da lì si caricano e si avviano i pesi; ogni componente sceglie quale modello usa. | Scheda **Modelli** con due sottoschede (Providers, Qwen Loader) e una tabella delle funzioni (Fase 6). |
-| E | **llmswitch** è ancora in riflessione dell'utente. | La Fase 6 resta in attesa; tutte le altre fasi non ne dipendono. |
+| E | **llmswitch** entra in Basalt come libreria con queste scelte: dipendenza `requests` aggiunta; registro **dedicato a Basalt** con importazione una tantum da quello condiviso; **abbonamenti nel primo rilascio**; **Jev** (TypeSafe AI) come tipo di provider, accanto a quelli di chat. | Fase 6. Restano da definire i dettagli elencati in §7. |
 | F | Regole permanenti: nessuna chiamata reale senza consenso, nessun push o pubblicazione, decisioni di rilascio (licenza, contenuti, nomi, versioni, pacchetti) chieste prima. | I test con modello vero e con telefonate restano nelle code `tests/QUEUE_daytime.md` e `tests/QUEUE_live_calls.md`. |
+| G | **Ogni** operazione del planner chiesta dalla Chat (creare, modificare, segnare, archiviare) va confermata dall'utente: con una sua dichiarazione diretta oppure con una domanda dell'harness. | Fase 3. |
+| H | **Pulsanti in linea nella Chat** per le domande (conferme del planner e domande a scelta multipla, come in Claude Code), insieme alla risposta libera: l'utente preme o scrive. Il pulsante ha come `value` la risposta e, premuto, la invia subito alla chat. | Fasi 3 e 4. |
+| I | La scheda **Agente non si riduce**: è subito dopo la Chat (ordine e scorciatoie invariati) ed è l'interfaccia più completa al planner; la Chat è la via più automatica. La vista **Piani** resta il dettaglio manuale. | Fase 4. |
+| J | **Canvas, council e Mermaid si fanno** (ultimi, con la misura A/B del council). | Fase 7e. |
+| K | Sottoschede della scheda Modelli: **Providers** e **Qwen Loader**. | Fase 6. |
 
-**Vocabolario del piano** *(proposta, da confermare)*: **Chat** (l'interlocutore), **Planner** (scopi, piani, triage Jev, riesame System 2),
-**Esecutore** (il ciclo con gli strumenti: file, shell, ricerca, wikibridge, MCP). `harness/` resta il nome del pacchetto Python che li contiene.
+**Vocabolario** *(deciso)*: l'**harness** è l'insieme che la **Chat** usa per lavorare; contiene il **Planner** (scopi, piani, triage Jev,
+riesame System 2) e l'**Esecutore** (il ciclo con gli strumenti: file, shell, ricerca, wikibridge, MCP). `harness/` è anche il nome del pacchetto Python.
 
 ---
 
@@ -97,7 +102,7 @@ Ogni fase si chiude con commit piccoli (`area: cosa fa`, mai amend né force-pus
 Oggi il ciclo sa continuare una conversazione, ma nessun processo lo fa vivere tra un messaggio e l'altro.
 
 - **Servizio di sessioni** nel server (estende `AgentRunner`, rotte `/api/agent/sessions`, solo pagina propria): crea, invia un messaggio, leggi la storia, ferma, riprendi, chiudi.
-- **Scelta di progetto** *(da misurare, vedi §6)*: un sottoprocesso per turno che riparte dalla storia salvata (robusto, già nel disegno di `AgentRunner`) oppure un processo a vita lunga con protocollo a righe JSON. Il consiglio è partire dal primo e passare al secondo solo se il costo di avvio per turno lo giustifica.
+- **Scelta di progetto** *(proposta, salvo obiezioni)*: **un processo a vita lunga per conversazione**, con protocollo a righe JSON, storia **salvata a ogni turno**, scadenza per inattività e ripartenza dalla storia se il processo muore. Motivi: l'avvio a ogni messaggio (import, server MCP, catalogo skill) si sentirebbe in una Chat che è l'ingresso principale; si conservano connessioni MCP e permessi di sessione; il planner può spingere un avviso. Il sottoprocesso per turno resta il ripiego. La misura 1 (§6), fattibile senza GPU, conferma o ribalta la scelta prima di costruire.
 - **Storia salvata** nella cartella dei dati utente, con la stessa disciplina di byte-stabilità del prefisso (la ripartenza non deve invalidare la cache del motore).
 - **Risposta a pezzi** (streaming): `chat_completion` con flusso e un evento di testo parziale, mostrato dalla pagina.
 - **Un'unica politica di contesto**: la compattazione dell'agente (TokenJuice, blocchi fissi, errori mai troncati) sostituisce quella della Chat; `chatctx.py` resta per le app esterne.
@@ -109,26 +114,30 @@ Oggi il ciclo sa continuare una conversazione, ma nessun processo lo fa vivere t
 
 - **Strumenti** registrati nel ciclo, con classe di effetto e marca di provenienza:
 
-  | Strumento | Effetto | Regola |
+  | Strumento | Effetto | Regola (decisione G) |
   |---|---|---|
-  | `plan_list`, `plan_get` | `PURE` | libero |
-  | `plan_create` | `REVERSIBLE` | libero: un piano è solo testo finché non gira |
-  | `plan_propose_change` | `REVERSIBLE` | libero se la richiesta viene dall'utente; **solo come proposta da approvare** se nello stesso turno è entrato contenuto non fidato (pagina, file, risposta di strumento): Rule of Two |
-  | `plan_mark` | `REVERSIBLE` | libero |
-  | `plan_archive` | `REVERSIBLE` | **conferma sempre**, in qualunque modalità, compresa `auto` |
+  | `plan_list`, `plan_get` | `PURE` | libero (sola lettura) |
+  | `plan_create`, `plan_propose_change`, `plan_mark`, `plan_archive` | `REVERSIBLE` | **sempre confermati dall'utente**, in qualunque modalità di permesso, compresa `auto` |
+  | `ask_user` | `PURE` | pone una domanda con opzioni (vedi sotto) |
+
+- **Come si dà la conferma.** Due vie, entrambe strutturali:
+  1. **Dichiarazione diretta:** la chiamata porta la citazione letterale delle parole dell'utente che chiedono l'operazione; il sistema verifica che la citazione sia nell'ultimo messaggio dell'utente e che dopo quel messaggio non sia entrato contenuto non fidato (pagina, file, risposta di strumento). Se i controlli passano, l'operazione parte. È un freno ai casi comuni, non una prova (una citazione banale lo supera), perciò ogni operazione eseguita compare subito nella conversazione con l'esito e un pulsante "Annulla" (l'archiviazione è recuperabile, `plan:rewind` esiste).
+  2. **Domanda dell'harness:** se manca la dichiarazione, **è il sistema, non il modello,** a comporre la domanda dai dati reali della chiamata ("Archiviare il piano X?") con i pulsanti Conferma e Annulla; il modello non può descrivere male ciò che sta per accadere.
+- **Domande con pulsanti (`ask_user`)**: domanda, opzioni con `label` e `value`, risposta libera sempre disponibile (come in Claude Code). Premuto, il pulsante **invia subito il `value` come messaggio dell'utente**; se l'utente scrive, la domanda si chiude. Solo un clic o la tastiera producono un messaggio dell'utente: il modello non può simulare una conferma. La pagina mostra il testo che verrà inviato e il `value` ha un tetto di lunghezza (un'etichetta "Sì" con un `value` diverso sarebbe un inganno). Si estende l'`ApprovalBoard` e `ServerApprover` già esistenti.
 
 - **Consapevolezza degli scopi**: un riassunto **breve e stabile** dei piani attivi (titolo, tipo, stato, passi aperti), ricalcolato solo quando cambia lo stato del planner; la Chat legge il dettaglio con `plan_get`. Un riassunto che cambia a ogni turno annullerebbe il prefisso in cache.
 - **Il planner sveglia la Chat**: un evento che blocca un piano, una proposta di riesame o una richiesta di fallback umano diventano un messaggio della sessione ("il piano X è bloccato perché…") alla prima occasione; nessun messaggio mentre un turno è in corso.
 - **Esecutore agganciato ai passi**: un passo di tipo azione si esegue come corsa, con l'identificativo del piano e del passo nel pannello dei compiti; è la Chat a segnare il passo come riuscito o fallito dopo aver letto l'esito (non in automatico nella prima versione).
 - **Test avversariali** (estendono la suite di §4.8): un risultato di ricerca, un file o una pagina che chiedono di cancellare o riscrivere un piano **non devono** produrre un'azione senza approvazione; il tentativo si vede nell'audit.
 - **Insieme di valutazione `planner_chat`** (`harness/eval/sets/`): crea un piano da una richiesta; modifica un passo; riepiloga lo stato; non crea piani per un saluto; non cancella su istruzione dentro una pagina web.
-- *Accettazione*: la suite avversariale passa; la cancellazione non parte mai senza conferma; il riassunto dei piani non cambia il prefisso tra due turni senza modifiche (misurato).
+- *Accettazione*: la suite avversariale passa; nessuna operazione del planner parte senza conferma (dichiarazione verificata o domanda dell'harness); il riassunto dei piani non cambia il prefisso tra due turni senza modifiche (misurato).
 
 ### Fase 4 — La Chat come ingresso principale (L)
 
-- **Pagina Chat** su sessioni: scelta "con strumenti" / "solo domanda", risposta a pezzi, **elenco di ciò che è stato fatto** (strumenti usati, esito, piani toccati con collegamento alla vista Piani), approvazioni **nella conversazione**, pulsante di arresto.
-- **Scheda Agente → "Corse"**: resta il pannello delle corse, delle approvazioni e del "Torna indietro" (non è più dove si parla); la scheda della Chat può aprirla.
-- **Ordine delle schede e scorciatoie** Alt+1…8 *(da decidere, §7)*; tavolozza Ctrl+K con i nuovi comandi; stringhe in italiano e inglese.
+- **Pagina Chat** su sessioni: scelta "con strumenti" / "solo domanda", risposta a pezzi, **elenco di ciò che è stato fatto** (strumenti usati, esito, piani toccati con collegamento alla scheda Agente e alla vista Piani), **domande e conferme con pulsanti in linea** insieme alla risposta libera (decisioni G e H), pulsante di arresto.
+- **Scheda Agente (decisione I): non si riduce.** Resta subito dopo la Chat, con ordine e scorciatoie invariati. Diventa il **cruscotto più completo del planner**: piani attivi con passi e stato, corse, approvazioni e domande in sospeso, punti di ripristino ("Torna indietro"), avvisi del planner, e la possibilità di avviare e correggere. La Chat è la via più automatica allo stesso insieme di dati.
+- **Vista Piani**: resta la gestione manuale di dettaglio (grafo, modifica dei passi), sullo stesso archivio (Fase 1).
+- Tavolozza Ctrl+K con i nuovi comandi; stringhe in italiano e inglese.
 - **La Chat senza strumenti** (oggi) resta raggiungibile come modalità, con le app esterne che continuano a usare `chatctx.py`.
 - *Test*: audit con Edge headless (`tools/web_audit.mjs` aggiornato), controlli statici (`serve/tests/test_web_static.py`), nessun `innerHTML`, tutte le stringhe tradotte, nessuno scroll orizzontale da 1024 px in su.
 - *Accettazione*: dalla sola Chat si crea un piano, lo si modifica, se ne avvia un passo, si approva un'azione e si legge il resoconto, senza aprire altre schede; **da verificare dal vivo con Qwen** (coda di giorno).
@@ -140,12 +149,19 @@ Oggi il ciclo sa continuare una conversazione, ma nessun processo lo fa vivere t
 - `prompt-cache` portata almeno al numero di funzioni locali attive, così alternarle non cancella le cache *(da misurare)*.
 - *Accettazione*: una corsa lunga dell'agente non fa attendere la Chat oltre un limite dichiarato; i numeri sono etichettati con il limite di potenza della GPU.
 
-### Fase 6 — Modelli, Providers e Qwen Loader (XL) · *in attesa della decisione su llmswitch*
+### Fase 6 — Modelli, Providers e Qwen Loader (XL) · *decisioni principali prese (E, K); parte in parallelo alle Fasi 2–4*
 
 **Perimetro (vincolo A):** riguarda solo le funzioni **interne** di Basalt. Le app esterne vedono solo il modello caricato; per loro esiste al più il **preset di inferenza di default**, che una richiesta può comunque sovrascrivere.
 
-1. **Scheda Modelli** con due sottoschede: **Providers** (in alto la tabella delle funzioni, sotto i provider e i modelli, con una striscia di stato comune: che cosa è caricato, VRAM, chi lo usa) e **Qwen Loader** (la scheda Loader attuale, spostata; il nome è da confermare, perché il modello può cambiare).
+1. **Scheda Modelli** con due sottoschede (decisione K): **Providers** (in alto la tabella delle funzioni, sotto i provider e i modelli, con una striscia di stato comune: che cosa è caricato, VRAM, chi lo usa) e **Qwen Loader** (la scheda Loader attuale, spostata).
 2. **Funzioni**: Chat, Esecutore, Planner (riesame), filtro Jev, compattazione del contesto, valutazione, App esterne (solo preset; rotta bloccata sul modello caricato). Ognuna ha rotta, preset (ragionamento, budget, `max_tokens`, comportamento a contesto pieno), classe di dati e priorità. Precedenza: richiesta, funzione, provider, modello.
+2b. **Jev (TypeSafe AI) come tipo di provider di llmswitch.** Non è un provider di chat: risponde a **domande tipizzate** (scelta, punteggio, probabilità `noul`) su `POST /v1/systemone` con il modello `jev-latest`. Quindi llmswitch riceve una capacità nuova, **"giudizio"**, accanto a "chat" e "embedding", e un consumatore "giudizio" non può essere puntato a un provider di sola chat (e viceversa). Regole che restano come ora:
+   - la funzione che lo usa è il **filtro Jev** del planner (triage); le soglie (0,80 sul `noul`), il consenso al cloud, la pseudonimizzazione e i campi della scheda restano nelle impostazioni del planner, non in llmswitch;
+   - **solo estratti**, mai documenti o pagine intere (il consumo è in token d'ingresso);
+   - la chiave sta nel gestore credenziali e non lascia questo PC, né nei log né nella pagina;
+   - il tetto di spesa per pagamento (già confermato) vale anche qui;
+   - se il servizio manca o la chiave non c'è, il triage ricade sul comportamento locale già esistente, con l'origine segnalata (`source`).
+   Il triage oggi chiama Jev con un client suo (`harness/planner/triage.py`): passa a llmswitch mantenendo gli stessi test, compresa la risposta reale registrata in `tools/jev_batch_extremes_results.json`.
 3. **Interfaccia stretta sul loader** (stato, "assicura caricato con questo profilo", "è inattivo?", scarico): il loader resta a sé stante.
 4. **Caricamento automatico** quando una funzione sceglie Qwen:
 
@@ -160,8 +176,12 @@ Oggi il ciclo sa continuare una conversazione, ma nessun processo lo fa vivere t
 5. **Livelli di ragionamento**: tabella di traduzione tra i 7 livelli di llmswitch e `effort` (nessuno, basso, medio, alto) più `reasoning_budget_tokens`.
 6. **Guardia sui dati**: una funzione che tratta dati personali (planner, memoria) non può avere una rotta cloud senza consenso esplicito, come già per il filtro Jev; i ripiegamenti vanno solo verso rotte altrettanto o più locali.
 7. **Tetto di spesa** per provider a pagamento (l'utente ha già confermato il tetto per pagamento e la soglia Jev 0,80), applicato dal chiamante interno.
-8. **Chiavi** nel gestore credenziali di Windows e non in un JSON in chiaro; registro con scrittura atomica e blocco (da aggiungere a llmswitch se condiviso).
-9. **Fuori dal primo rilascio**: abbonamenti e provider a riga di comando (i termini di servizio sono un rischio segnalato dal README di llmswitch; Basalt ha una licenza commerciale in preparazione).
+8. **Chiavi** nel gestore credenziali di Windows e non in un JSON in chiaro. Il **registro è dedicato a Basalt** (decisione E): llmswitch viene puntato a un file nella cartella dei dati utente di Basalt, con scrittura atomica; si può **importare una volta** dal registro condiviso (copia, non riferimento). Le scelte delle funzioni rimandano ai provider per nome.
+9. **Abbonamenti e provider a riga di comando nel primo rilascio** (decisione E), con tre cautele:
+   - **una porta per fornitore**: si abilita solo dopo che l'utente ha letto le condizioni, come i connettori di pagamento, con un avviso nella pagina; il README di llmswitch segnala il rischio con i termini di servizio e il testo di licenza va visto con l'avvocato (Fase 8);
+   - **capacità dichiarate**: un provider a riga di comando (Codex, Claude Code) è un agente, non un completamento: serve alle funzioni di testo (riassunti, compattazione) e non al ciclo dell'Esecutore;
+   - i token di accesso stanno nel gestore credenziali, mai nei log.
+9b. **Dipendenza `requests`** aggiunta a Basalt (decisione E), con le sue note di licenza in `THIRD_PARTY_LICENSES`; compare nel pacchetto di installazione (Fase 8).
 10. **Confronto con dati**: `harness.eval` esegue lo stesso insieme di compiti su due rotte e dice quale conviene (pass^k, costo, cache).
 - *Test*: ogni riga della tabella di caricamento; il contratto della Fase 0 invariato; chiave mai nei log né nella pagina; precedenza dei parametri.
 - *Accettazione*: cambiando la rotta di una funzione da una sola tabella cambia il modello che quella funzione usa, e le app esterne continuano a vedere solo il modello caricato.
@@ -174,7 +194,7 @@ Oggi il ciclo sa continuare una conversazione, ma nessun processo lo fa vivere t
 | 7b | **ACP in un client vero** (Zed o JetBrains): prova con diff e permessi; poi `fs/*`, `session/load`, reporting verso i pannelli | M | utente al PC, per la prova |
 | 7c | **MCP**: OAuth e `subscriptions/listen` | M | codice (OAuth, prima verifica delle specifiche) |
 | 7d | **LSP e diagnostica**; **worktree paralleli**; fork e ripresa della sessione; time-travel della conversazione (distinto dal rewind dei file) | L | codice |
-| 7e | **Canvas a nodi con ramificazioni**, council con misura A/B, Mermaid: opzionali, ultimi | L | decisione utente se vale la pena |
+| 7e | **Canvas a nodi con ramificazioni**, council con misura A/B, Mermaid: **si fanno** (decisione J), ultimi nell'ordine, con alternativa lineare accessibile e misura A/B del council prima di dichiararlo utile | L | codice, poi prova dal vivo |
 | 7f | **Misure vere**: sottoinsieme di SWE-bench Pro o Terminal-Bench, BFCL, baseline con altri harness (Claude Code, OpenCode, Goose) sul server di Basalt, metriche di cache e TTFT dal registro delle richieste | XL | utente al PC con GPU libera |
 | 7g | **Isolamento reale di file e rete (D5)**: utente Windows dedicato e regole del firewall | L | utente (amministratore, installatore) |
 | 7h | **Connettori di pagamento reali**, uno alla volta dopo la lettura delle condizioni del fornitore; documentare i limiti noti del livello 4 | L | utente, legale |
@@ -183,7 +203,7 @@ Oggi il ciclo sa continuare una conversazione, ma nessun processo lo fa vivere t
 ### Fase 8 — Prima di qualunque rilascio (S)
 
 - Ricostruire `dist/stage` (contiene codice vecchio).
-- Decidere se aggiungere `requests` alle dipendenze o isolare llmswitch in modo opzionale (contenuto del rilascio).
+- `requests` (deciso: aggiunta): inserirla nei requisiti e nel pacchetto, con le note di licenza.
 - Licenza (D3): attuazione dopo il testo dell'avvocato e la mappa di titolarità; scadenza e revisione legale del livello 4.
 - Versioni, nomi, pacchetto: decisioni dell'utente.
 - `docs/` aggiornati per le fasi chiuse; `docs/precision.md` invariato (nessuna modifica di motore).
@@ -216,18 +236,18 @@ Ogni numero porta l'etichetta del limite di potenza della GPU; le valutazioni so
 
 ## 7. Decisioni aperte (all'utente)
 
-1. **Vocabolario** Chat / Planner / Esecutore e regole di autonomia della tabella della Fase 3 (in particolare: conferma sempre per cancellare). *Proposta, da confermare.*
-2. **Scheda Agente** ridotta a "Corse"; **ordine delle schede** e scorciatoie.
-3. **Sessioni**: un sottoprocesso per turno oppure un processo a vita lunga (si decide dopo la misura 1).
-4. **llmswitch** *(in riflessione)*: `requests` come dipendenza o llmswitch opzionale; registro condiviso con gli altri progetti o dedicato a Basalt; abbonamenti e provider a riga di comando nel primo rilascio o dopo; scarico per inattività (proposta: mai di default).
-5. **Nome della seconda sottoscheda** ("Qwen Loader" invece di "Q3.8").
-6. **Canvas, council, Mermaid**: farli o no.
-7. **Benchmark pubblico** da usare (SWE-bench Pro o Terminal-Bench) e quali altri harness mettere a confronto.
-8. **Isolamento D5, connettori di pagamento, licenza, contenuti del rilascio**: decisioni dell'utente, non del codice.
+Le decisioni di §1 sono prese. Restano:
+
+1. **Sessioni**: conferma del processo a vita lunga per conversazione (proposta della Fase 2), dopo la misura 1.
+2. **llmswitch, dettagli**: scarico per inattività (proposta: mai di default); quali abbonamenti e provider a riga di comando nel primo rilascio, e in che ordine si abilitano; quali domande tipizzate di Jev oltre al triage (ad esempio pertinenza di estratti per la conoscenza).
+3. **Benchmark pubblico** da usare (SWE-bench Pro o Terminal-Bench) e quali altri harness mettere a confronto.
+4. **Isolamento D5, connettori di pagamento, licenza, contenuti del rilascio**: decisioni dell'utente, non del codice.
 
 ## 8. Rischi
 
 - **Iniezione nei piani**: una modifica nata da contenuto non fidato non si applica senza approvazione, e la cancellazione chiede sempre conferma. È struttura, non filtro; va provata con la suite avversariale.
+- **Conferma per dichiarazione diretta**: il controllo della citazione frena i casi comuni ma una citazione banale lo supera; la difesa vera è che ogni operazione sia visibile subito e annullabile.
+- **Pulsanti**: un'etichetta diversa dal `value` sarebbe un inganno; la pagina mostra sempre ciò che verrà inviato.
 - **Prefisso in cache**: un riassunto dei piani o una politica di contesto che cambiano a ogni turno annullano il riuso del motore; è una misura, non un'ipotesi.
 - **Chat più lenta** per le domande semplici se ogni messaggio entra nel ciclo con strumenti: la modalità "solo domanda" e la misura 5 servono a questo.
 - **Una sola GPU**: Chat, riesame e corse competono; senza la priorità della Fase 5 un compito lungo blocca la conversazione.
