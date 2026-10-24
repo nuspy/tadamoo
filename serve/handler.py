@@ -43,7 +43,9 @@ from serve.util.text import stop_strings
 
 
 BODY_MAX = 256 << 20                        # the most a JSON request body may hold (read into memory)
-CONTROL_BODY_MAX = 64 << 10                 # the unused body of /load and /unload
+CONTROL_BODY_MAX = 64 << 10                 # the unused body of the control routes
+CONTROL_PATHS = ("/api/control/load", "/api/control/unload")   # not part of the interfaces other applications use
+CONTROL_HEADER = "X-Basalt-Control"
 API_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")      # the requests the request log records
 REQLOG_CHARS_MAX = 64 << 20                 # the most one GET /api/reqlog answer may hold
 
@@ -151,11 +153,13 @@ def make_handler(svc: Service):
                                   [*svc.trusted_origins, *svc.cors_origins]):
                 print(f"[server] refused a request from web page {origin!r} "
                       f"(--api-key KEY, --allowed-host, --cors-origin)", flush=True)
+                self._discard_body()                         # an unread body would reset the connection on Windows
                 self._json(403, {"error": {"type": "forbidden", "message":
                                  f"web pages of {origin} may not use this server without an API key; start the server with --api-key KEY, "
                                  f"or add the page's host with --allowed-host (or its origin with --cors-origin)"}})
                 return True
             if not self.headers.get("Content-Type", "").startswith("application/json"):
+                self._discard_body()
                 self._json(415, {"error": {"message": "send application/json"}})
                 return True
             return False
@@ -542,12 +546,14 @@ def make_handler(svc: Service):
                 return
             if path.startswith("/v1/") and self._foreign_page():
                 return
-            if path in ("/unload", "/load") and not self._control_body():
+            if path in CONTROL_PATHS and not self._control_body():
                 return
-            # own page and JSON only: a form POST from any site must not control the model
-            if path in ("/unload", "/load") and not self._own_page("the model can be loaded or unloaded"):
+            # this PC, own page and JSON only, and the secret of this server: a form POST from any site, or an application
+            # that only knows the API key, must not control the model
+            if path in CONTROL_PATHS and not (self._control_local() and self._own_page("the model can be loaded or unloaded")
+                                              and self._control_secret()):
                 return
-            if path == "/unload":                            # unload between requests
+            if path == "/api/control/unload":                # unload between requests
                 try:
                     r = svc.unload()
                 except EngineStuck as e:
@@ -555,7 +561,7 @@ def make_handler(svc: Service):
                     return
                 self._json(409 if r == "busy" else 200, {"status": r})
                 return
-            if path == "/load":                              # load ahead of a request
+            if path == "/api/control/load":                  # load ahead of a request
                 try:
                     svc.load()
                     self._json(200, {"status": "loaded"})
@@ -581,30 +587,6 @@ def make_handler(svc: Service):
                 if path.startswith("/v1/responses/"):        # nothing is stored
                     self._json(404, responses_error_body("this server keeps no responses (stateless); send the "
                                                          "whole conversation to POST /v1/responses", code="not_found"))
-                    return
-                if path in ("/v1/load", "/v1/unload"):
-                    if not self._own_page("the model can be loaded or unloaded"):
-                        return
-                    if req.get("model") not in (None, svc.model):
-                        self._json(404, {"error": {"message": "model not found"}})
-                        return
-                    if path == "/v1/unload":
-                        result = svc.unload()
-                        if result == "busy":
-                            raise ModelBusy("a request is running or queued")
-                    else:
-                        if not svc.fifo.acquire(blocking=False):
-                            raise ModelBusy("a request is running or queued")
-                        try:
-                            with svc.status_lock:
-                                if svc.status.get("busy") or svc.status.get("queued"):
-                                    raise ModelBusy("a request is running or queued")
-                            svc.ensure_loaded()
-                            svc.last_request_at = time.time()
-                        finally:
-                            svc.fifo.release()
-                        result = "loaded"
-                    self._json(200, {"status": result, **svc.v1_status()})
                     return
                 if path == "/v1/vram":                       # resize the VRAM reserve
                     if not self._own_page("the VRAM reserve can be changed"):
@@ -689,6 +671,22 @@ def make_handler(svc: Service):
             if version:
                 props["build_info"] = "basalt " + str(version)
             self._json(200, props)
+
+        def _control_local(self) -> bool:
+            if settings.is_loopback(self.client_address[0]):
+                return True
+            self._json(403, {"error": {"type": "forbidden", "message": "the model can be controlled only from the PC the server runs on"}})
+            return False
+
+        def _control_secret(self) -> bool:
+            """The control routes need the secret the server wrote to its data folder at start; the API key is not enough."""
+            if not svc.control_token:
+                self._json(403, {"error": {"type": "forbidden", "message": "this server has no control secret"}})
+                return False
+            if not key_matches(self.headers.get(CONTROL_HEADER, ""), svc.control_token):
+                self._json(403, {"error": {"type": "forbidden", "message": f"the {CONTROL_HEADER} header is missing or wrong"}})
+                return False
+            return True
 
         def _control_body(self) -> bool:
             """Read the unused body before replying so the client sees no TCP reset."""

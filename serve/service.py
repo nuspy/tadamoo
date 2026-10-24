@@ -63,6 +63,7 @@ class Service:
         self.stopping = threading.Event()               # set at shutdown: nothing starts the engine again
         self.embeddings = threading.local()           # this request's image embeddings file
         self.api_key = ""                              # when set, /v1/* requires it
+        self.control_token = ""                        # the secret of /api/control/*; empty: those routes are off
         # put a non-default reasoning effort in a system turn before the answer so the cached prefix survives
         self.effort_end = False
         self.reqlog = RequestLog()                      # what each request sent, the model wrote and the server did

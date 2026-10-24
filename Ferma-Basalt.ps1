@@ -148,10 +148,14 @@ Scrivi (T "Fermo Basalt Win+GUI$chi. RAM disponibile ora: $(GiB $prima)." "Stopp
 
 # ------------------------------------------------------------------ 1. il motore esce in modo pulito
 try {
-    $req = [System.Net.HttpWebRequest]::Create("http://${hostIp}:$porta/unload")
+    # il server scrive il suo segreto di controllo nella cartella dei dati: senza, nessun client può scaricare il modello
+    $datiDir = if ($env:BASALT_DATA) { $env:BASALT_DATA } else { Join-Path $env:APPDATA 'BasaltPannello' }
+    $segreto = (Get-Content -Raw -ErrorAction Stop (Join-Path $datiDir "control-$porta.token")).Trim()
+    $req = [System.Net.HttpWebRequest]::Create("http://${hostIp}:$porta/api/control/unload")
     $req.Proxy = $null
     $req.Method = 'POST'
     $req.ContentType = 'application/json'
+    $req.Headers.Add('X-Basalt-Control', $segreto)
     $req.Timeout = 90000                        # QUIT al motore: fino a 20 s, poi terminate
     $corpo = [System.Text.Encoding]::UTF8.GetBytes('{}')
     $req.ContentLength = $corpo.Length

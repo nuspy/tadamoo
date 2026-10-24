@@ -53,6 +53,7 @@ class InProcess(unittest.TestCase):
         self.sup.mock_delay = 0.1
         self.system = mock.patch.object(loader, "system_now", return_value=dict(ROOMY))
         self.system.start()
+        self.svc.control_token = "control-secret"
         self.httpd = serve(self.svc, port=0)
         self.port = self.httpd.server_address[1]
 
@@ -67,8 +68,10 @@ class InProcess(unittest.TestCase):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
         try:
             with contextlib.redirect_stdout(io.StringIO()):
-                c.request(method, path, body=None if body is None else json.dumps(body).encode(),
-                          headers={"Content-Type": "application/json"} if body is not None else {})
+                headers = {"Content-Type": "application/json"} if body is not None else {}
+                if path.startswith("/api/control/"):
+                    headers["X-Basalt-Control"] = self.svc.control_token
+                c.request(method, path, body=None if body is None else json.dumps(body).encode(), headers=headers)
                 r = c.getresponse()
                 raw = r.read()
             return r.status, json.loads(raw) if raw[:1] in (b"{", b"[") else raw
@@ -88,7 +91,7 @@ class InProcess(unittest.TestCase):
         code, body = self.req("POST", "/v1/chat/completions", {"messages": [{"role": "user", "content": "hi"}]})
         self.assertEqual(code, 503, body)
         self.assertIn("Loader", body["error"]["message"])
-        self.assertEqual(self.req("POST", "/v1/load", {})[0], 503)
+        self.assertEqual(self.req("POST", "/api/control/load", {})[0], 503)
         info = self.req("GET", "/api/loader")[1]
         self.assertTrue(info["standby"])
         self.assertEqual(self.req("POST", "/api/loader/load", {"values": FITS, "model": str(self.a)})[0], 202)

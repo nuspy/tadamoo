@@ -1904,6 +1904,7 @@ class OwnPage(unittest.TestCase):
         tok = ByteTokenizer()
         cls.svc = Service(RecordingEngine(tok, "</think>\n\nhello", max_context=CTX), tok,
                           ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        cls.svc.control_token = "control-secret"
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
 
@@ -1913,7 +1914,8 @@ class OwnPage(unittest.TestCase):
         cls.httpd.server_close()
 
     def req(self, path, body, headers=None, raw=None):
-        h = {"Content-Type": "application/json", **(headers or {})}
+        secret = {"X-Basalt-Control": self.svc.control_token} if path.startswith("/api/control/") else {}
+        h = {"Content-Type": "application/json", **secret, **(headers or {})}
         r = urllib.request.Request(self.base + path, data=raw if raw is not None else json.dumps(body).encode(), headers=h)
         try:
             with urllib.request.urlopen(r, timeout=30) as resp:
@@ -1923,19 +1925,19 @@ class OwnPage(unittest.TestCase):
                 return e.code, json.loads(e.read())
 
     def test_only_server_s_own_page_may_control_the_model(self):
-        code, _ = self.req("/load", None, {"Content-Type": "text/plain"}, raw=b"{}")
+        code, _ = self.req("/api/control/load", None, {"Content-Type": "text/plain"}, raw=b"{}")
         self.assertEqual(code, 415)
-        code, _ = self.req("/load", {}, {"Origin": "http://evil.example"})
+        code, _ = self.req("/api/control/load", {}, {"Origin": "http://evil.example"})
         self.assertEqual(code, 403)
         host = self.base.split("://", 1)[1]
-        code, _ = self.req("/load", {}, {"Origin": "http://" + host})
+        code, _ = self.req("/api/control/load", {}, {"Origin": "http://" + host})
         self.assertEqual(code, 200)
 
     def test_they_need_the_key_when_one_is_set(self):
         self.svc.api_key = "secret"
         try:
-            self.assertEqual(self.req("/load", {})[0], 401)
-            self.assertEqual(self.req("/load", {}, {"Authorization": "Bearer secret"})[0], 200)
+            self.assertEqual(self.req("/api/control/load", {})[0], 401)
+            self.assertEqual(self.req("/api/control/load", {}, {"Authorization": "Bearer secret"})[0], 200)
         finally:
             self.svc.api_key = ""
 
@@ -1944,19 +1946,19 @@ class OwnPage(unittest.TestCase):
         # page behind any proxy would otherwise control the model
         for extra in ({"X-Forwarded-Host": "proxy.example.com"}, {"CF-Ray": "1234567890"},
                       {"X-Forwarded-For": "203.0.113.9"}, {"CF-Connecting-IP": "203.0.113.9"}):
-            code, _ = self.req("/load", {}, {"Origin": "https://proxy.example.com", **extra})
+            code, _ = self.req("/api/control/load", {}, {"Origin": "https://proxy.example.com", **extra})
             self.assertEqual(code, 403, extra)
         # another port on the same host is another site (a local dev server's page)
-        code, _ = self.req("/load", {}, {"Origin": "http://127.0.0.1:1"})
+        code, _ = self.req("/api/control/load", {}, {"Origin": "http://127.0.0.1:1"})
         self.assertEqual(code, 403)
 
     def test_a_trusted_origin_is_server_s_own_page(self):
         # the page behind a reverse proxy or tunnel: the config's trusted_origins
         self.svc.trusted_origins = ["https://host.example.com"]
         try:
-            code, _ = self.req("/load", {}, {"Origin": "https://host.example.com"})
+            code, _ = self.req("/api/control/load", {}, {"Origin": "https://host.example.com"})
             self.assertEqual(code, 200)
-            code, _ = self.req("/load", {}, {"Origin": "https://evil.example.com"})
+            code, _ = self.req("/api/control/load", {}, {"Origin": "https://evil.example.com"})
             self.assertEqual(code, 403)
         finally:
             self.svc.trusted_origins = []
@@ -2178,7 +2180,7 @@ class UsageAndStatus(unittest.TestCase):
             self.assertIsNone(self.preflight("/v1/chat/completions", "https://evil.example.com")[1]
                               .get("Access-Control-Allow-Origin"))
             # never on the server's own controls (/unload, ...)
-            self.assertIsNone(self.preflight("/unload")[1].get("Access-Control-Allow-Origin"))
+            self.assertIsNone(self.preflight("/api/control/unload")[1].get("Access-Control-Allow-Origin"))
             req = urllib.request.Request(self.base + "/v1/models", headers={"Origin": "https://chat.example.com"})
             with urllib.request.urlopen(req, timeout=10) as r:
                 self.assertEqual(r.headers.get("Access-Control-Allow-Origin"), "https://chat.example.com")
@@ -2291,12 +2293,13 @@ class UnloadableEngine(MockEngine):
 
 
 class SharingTheGpu(unittest.TestCase):
-    """Idle unload, POST /unload and /load, the free-VRAM guard and the before_load hook (all off by default)."""
+    """Idle unload, POST /api/control/unload and /load, the free-VRAM guard and the before_load hook (all off by default)."""
 
     def setUp(self):
         tok = ByteTokenizer()
         self.engine = UnloadableEngine(tok, "</think>\n\nok", max_context=CTX)
         self.svc = Service(self.engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.svc.control_token = "control-secret"
         self.httpd = serve(self.svc, port=0)
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
 
@@ -2305,8 +2308,9 @@ class SharingTheGpu(unittest.TestCase):
         self.httpd.server_close()
 
     def req(self, path, body=None):
+        secret = {"X-Basalt-Control": self.svc.control_token} if path.startswith("/api/control/") else {}
         r = urllib.request.Request(self.base + path, data=None if body is None else json.dumps(body).encode(),
-                                   headers={"Content-Type": "application/json"}, method="GET" if body is None else "POST")
+                                   headers={"Content-Type": "application/json", **secret}, method="GET" if body is None else "POST")
         try:
             with urllib.request.urlopen(r, timeout=30) as resp:
                 return resp.status, json.loads(resp.read())
@@ -2318,11 +2322,11 @@ class SharingTheGpu(unittest.TestCase):
         return self.req("/v1/chat/completions", {"model": "m", "messages": [{"role": "user", "content": "hi"}]})
 
     def test_unload_then_the_next_request_loads(self):
-        self.assertEqual(self.req("/unload", {}), (200, {"status": "unloaded"}))
+        self.assertEqual(self.req("/api/control/unload", {}), (200, {"status": "unloaded"}))
         self.assertFalse(self.engine.alive())
         self.assertEqual(self.req("/health")[1]["loaded"], False)
         self.assertEqual(self.req("/v1/models")[1]["data"][0]["status"]["value"], "unloaded")
-        self.assertEqual(self.req("/unload", {}), (200, {"status": "not loaded"}))
+        self.assertEqual(self.req("/api/control/unload", {}), (200, {"status": "not loaded"}))
         s, b = self.chat()
         self.assertEqual(s, 200)
         self.assertEqual(b["choices"][0]["message"]["content"], "ok")
@@ -2331,9 +2335,9 @@ class SharingTheGpu(unittest.TestCase):
 
     def test_load_endpoint(self):
         self.svc.unload()
-        self.assertEqual(self.req("/load", {}), (200, {"status": "loaded"}))
+        self.assertEqual(self.req("/api/control/load", {}), (200, {"status": "loaded"}))
         self.assertTrue(self.engine.alive())
-        self.assertEqual(self.req("/load", {}), (200, {"status": "loaded"}))
+        self.assertEqual(self.req("/api/control/load", {}), (200, {"status": "loaded"}))
         self.assertEqual(self.engine.starts, 1)
 
     def test_unload_refused_while_a_request_runs(self):

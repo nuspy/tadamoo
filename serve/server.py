@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # also runnable a
 from serve import ROOT, loader, loader_api, model_list, service, settings, supervisor  # noqa: E402
 from serve.config import (RELAUNCH_EXIT_CODE, build_parser, check_engine_flags, engine_flags_of,  # noqa: E402
                           engine_line, parse_settings, sampling_defaults_from_config, sampling_line)
+from serve.control import write_control_token  # noqa: E402
 from serve.engine import process as engine_process  # noqa: E402
 from serve.engine.errors import EngineStartError  # noqa: E402
 from serve.engine.flags import flag_index, flag_value  # noqa: E402
@@ -245,6 +246,7 @@ def main() -> int:
     svc.min_free_vram_mib = a.min_free_vram_mib or 0
     svc.gpu_indices = gpus_in_play(cfg, engine_args(cfg) if cfg.get("args") else [])   # the cards /metrics reads
     svc.gpu_index = svc.gpu_indices[0]
+    svc.control_token = write_control_token(a.port)
     httpd = serve(svc, host=a.host, port=a.port)
     svc.start_idle_unload()
     here = "127.0.0.1" if a.host in ("0.0.0.0", "", "::") else a.host

@@ -183,7 +183,9 @@ option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and 
   start time, port, profile). `-prova` runs every check (on a copy of the config) and prints the command without
   starting anything.
 * `Ferma-Basalt.ps1 [--port N] [--file FILE]` finds the server from `basalt.pid` (PID and start time) or from the port,
-  asks it to unload the model (`POST /unload`: the engine gets QUIT and frees RAM and VRAM), ends the process tree,
+  asks it to unload the model (`POST /api/control/unload`, with the secret the server wrote to `control-<port>.token` in
+  its data folder: the engine gets QUIT and frees RAM and VRAM; no other application can load or unload the model),
+  ends the process tree,
   checks that no process of this `bin\` is left and prints the RAM available before and after. With `--port` only the
   process tree of the server on that port is ended. Processes are found by PID file, by the listening port's owner and
   its children, or by full path under this `bin\`, never by name alone.

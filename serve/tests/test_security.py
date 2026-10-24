@@ -101,6 +101,7 @@ class OverHttp(unittest.TestCase):
         tok = ByteTokenizer()
         self.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=4096), tok,
                            ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.svc.control_token = "control-secret"
         self.httpd = None
 
     def start(self, **attrs):
@@ -117,7 +118,7 @@ class OverHttp(unittest.TestCase):
     def req(self, method, path, body=None, headers=None, host=None):
         """(status, JSON, what the server printed); `host` replaces the Host header http.client sends."""
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
-        h = dict(headers or {})
+        h = {"X-Basalt-Control": self.svc.control_token, **(headers or {})} if path.startswith("/api/control/") else dict(headers or {})
         if host is not None:
             h["Host"] = host
         data = body if isinstance(body, (bytes, type(None))) else json.dumps(body).encode()
@@ -244,7 +245,8 @@ class OverHttp(unittest.TestCase):
             c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
             try:
                 with mock.patch.object(self.svc, "unload", return_value="unloaded") as unload:
-                    c.putrequest("POST", "/unload")
+                    c.putrequest("POST", "/api/control/unload")
+                    c.putheader("X-Basalt-Control", self.svc.control_token)
                     c.putheader("Content-Type", "application/json")
                     c.putheader("Content-Length", "2")
                     c.endheaders()
@@ -266,13 +268,13 @@ class OverHttp(unittest.TestCase):
     def test_unload_and_load_need_json_from_the_own_page(self):
         self.start()
         form = {"Content-Type": "application/x-www-form-urlencoded"}
-        for path in ("/unload", "/load"):
+        for path in ("/api/control/unload", "/api/control/load"):
             self.assertEqual(self.req("POST", path, b"a=1", form)[0], 415, path)
             self.assertEqual(self.req("POST", path, b"", {})[0], 415, path)
             self.assertEqual(self.req("POST", path, {}, {"Content-Type": "application/json",
                                                          "Origin": "http://evil.example.com"})[0], 403, path)
-        self.assertEqual(self.req("POST", "/unload", {}, {"Content-Type": "application/json"})[0], 200)
-        self.assertEqual(self.req("POST", "/load", {}, {"Content-Type": "application/json",
+        self.assertEqual(self.req("POST", "/api/control/unload", {}, {"Content-Type": "application/json"})[0], 200)
+        self.assertEqual(self.req("POST", "/api/control/load", {}, {"Content-Type": "application/json",
                                                         "Origin": f"http://127.0.0.1:{self.port}"})[0], 200)
 
 

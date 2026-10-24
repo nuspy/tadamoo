@@ -32,6 +32,7 @@ class ChunkedBody(unittest.TestCase):
         tok = ByteTokenizer()
         cls.engine = MockEngine(tok, "hello there", max_context=4096)
         cls.svc = Service(cls.engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        cls.svc.control_token = "control-secret"
         cls.httpd = serve(cls.svc, port=0)
         cls.port = cls.httpd.server_address[1]
 
@@ -118,12 +119,12 @@ class ChunkedBody(unittest.TestCase):
                 self.assertEqual(status, 400, body)
 
     def test_a_chunked_control_body_is_consumed(self):
-        head = b"/unload HTTP/1.1" + CRLF + b"Content-Type: application/json" + CRLF + b"Transfer-Encoding: chunked" + CRLF
+        head = b"/api/control/unload HTTP/1.1" + CRLF + b"X-Basalt-Control: control-secret" + CRLF + b"Content-Type: application/json" + CRLF + b"Transfer-Encoding: chunked" + CRLF
         status, got = self.send(head, chunked(b"{}"))
         self.assertIn(status, (200, 409), got)
 
     def test_an_oversized_chunked_control_body_is_a_413(self):
-        head = b"/load HTTP/1.1" + CRLF + b"Content-Type: application/json" + CRLF + b"Transfer-Encoding: chunked" + CRLF
+        head = b"/api/control/load HTTP/1.1" + CRLF + b"X-Basalt-Control: control-secret" + CRLF + b"Content-Type: application/json" + CRLF + b"Transfer-Encoding: chunked" + CRLF
         status, got = self.send(head, b"FFFFFF" + CRLF)
         self.assertEqual(status, 413, got)
 

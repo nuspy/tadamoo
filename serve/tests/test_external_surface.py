@@ -20,16 +20,17 @@ ROOT = Path(__file__).resolve().parents[2]
 # the interfaces of the loaded model
 LLM_ROUTES = {"/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/messages/count_tokens", "/v1/models"}
 # control of the loaded model, for the server's own page
-CONTROL_ROUTES = {"/v1/status", "/v1/load", "/v1/unload", "/v1/vram"}
+CONTROL_ROUTES = {"/v1/status", "/v1/vram"}
 # prefixes of the above: one model's entry, and the refusal for stored responses; "/v1/" alone is the namespace test
 PREFIXES = {"/v1/models/", "/v1/responses/", "/v1/"}
 # routes outside /v1: the page, health, and the short forms of the model list and of the control routes
-TOP_LEVEL = {"/", "/health", "/metrics", "/slots", "/props", "/models", "/models/", "/status", "/load", "/unload"}
+TOP_LEVEL = {"/", "/health", "/metrics", "/slots", "/props", "/models", "/models/", "/status"}
 
 NOT_OFFERED = [
     "/v1/completions", "/v1/embeddings", "/v1/images/generations", "/v1/audio/transcriptions", "/v1/audio/speech",
     "/v1/files", "/v1/batches", "/v1/messages/batches", "/v1/assistants", "/v1/threads", "/v1/moderations",
     "/v1/fine_tuning/jobs", "/v1/providers", "/v1/routes", "/v1/keys", "/v1/aliases", "/v2/chat/completions",
+    "/v1/load", "/v1/unload", "/load", "/unload",                        # loading and unloading belong to the page, not to clients
 ]
 
 

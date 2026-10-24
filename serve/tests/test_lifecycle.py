@@ -98,6 +98,7 @@ class Lifecycle(unittest.TestCase):
         tok = ByteTokenizer()
         self.engine = ResidentEngine(tok)
         self.svc = Service(self.engine, tok, ChatTemplate(Path(__file__).resolve().parents[1] / "chat_template.jinja"))
+        self.svc.control_token = "control-secret"
         self.httpd = serve(self.svc, port=0)
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
 
@@ -106,8 +107,9 @@ class Lifecycle(unittest.TestCase):
         self.httpd.server_close()
 
     def request(self, path, body=None, headers=None):
+        secret = {"X-Basalt-Control": self.svc.control_token} if path.startswith("/api/control/") else {}
         req = urllib.request.Request(self.base + path, data=json.dumps(body).encode() if body is not None else None,
-                                     headers={"Content-Type": "application/json", **(headers or {})})
+                                     headers={"Content-Type": "application/json", **secret, **(headers or {})})
         try:
             response = urllib.request.urlopen(req, timeout=10)
         except urllib.error.HTTPError as error:
@@ -159,7 +161,7 @@ class Lifecycle(unittest.TestCase):
             self.assertEqual(code, 200)
             self.assertEqual(answer["choices"][0]["message"]["content"], "Hello.")
         self.assertEqual(self.engine.starts, 1)
-        self.assertFalse(self.request("/v1/unload", {})[1]["loaded"])
+        self.assertEqual(self.request("/api/control/unload", {})[1], {"status": "unloaded"})
         code, stream = self.request("/v1/chat/completions", {**chat, "stream": True})
         self.assertEqual(code, 200)
         self.assertIn("data: [DONE]", stream)
@@ -168,14 +170,14 @@ class Lifecycle(unittest.TestCase):
     def test_busy_auth_and_foreign_origin_cannot_unload(self):
         self.engine.loaded = True
         with self.svc.fifo:
-            self.assertEqual(self.request("/v1/unload", {})[0], 409)
+            self.assertEqual(self.request("/api/control/unload", {})[0], 409)
         self.svc.api_key = "local-secret"
-        self.assertEqual(self.request("/v1/unload", {})[0], 401)
-        self.assertEqual(self.request("/v1/unload", {}, {"Authorization": "Bearer local-secret",
+        self.assertEqual(self.request("/api/control/unload", {})[0], 401)
+        self.assertEqual(self.request("/api/control/unload", {}, {"Authorization": "Bearer local-secret",
                                                         "Origin": "https://other.example"})[0], 403)
         self.assertEqual(self.engine.closes, 0)
         self.assertTrue(self.engine.loaded)
-        self.assertEqual(self.request("/v1/unload", {}, {"Authorization": "Bearer local-secret"})[0], 200)
+        self.assertEqual(self.request("/api/control/unload", {}, {"Authorization": "Bearer local-secret"})[0], 200)
 
     def test_an_engine_that_died_on_load_is_reported_as_such(self):
         # EngineDied is a RuntimeError: it keeps its own answer ("the next request restarts it")
@@ -186,20 +188,22 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(code, 503)
         self.assertIn("the next request restarts it", body["error"]["message"])
 
-    def test_explicit_load_and_model_matching(self):
-        self.assertEqual(self.request("/v1/load", {"model": "other-model"})[0], 404)
+    def test_explicit_load_and_the_secret_of_the_control_routes(self):
         self.assertEqual(self.engine.starts, 0)
-        before = time.time()
-        code, status = self.request("/v1/load", {"model": self.svc.model})
-        self.assertEqual(code, 200)
-        self.assertTrue(status["loaded"])
+        code, status = self.request("/api/control/load", {})
+        self.assertEqual((code, status), (200, {"status": "loaded"}))
         self.assertEqual(self.engine.starts, 1)
-        self.assertGreaterEqual(self.svc.last_request_at, before)
-        self.svc.status["queued"] = 1
-        self.assertEqual(self.request("/v1/load", {})[0], 409)
-        self.assertEqual(self.request("/v1/unload", {})[0], 409)
+        self.assertEqual(self.request("/api/control/load", {}, {"Content-Type": "text/plain"})[0], 415)
+        for headers in ({"X-Basalt-Control": "wrong"}, {"X-Basalt-Control": ""}):
+            self.assertEqual(self.request("/api/control/unload", {}, headers)[0], 403, headers)
+        self.svc.control_token = ""                                  # a server that wrote no secret has the routes off
+        self.assertEqual(self.request("/api/control/unload", {}, {"X-Basalt-Control": "anything"})[0], 403)
         self.assertEqual(self.engine.closes, 0)
-        self.assertEqual(self.request("/v1/load", {}, {"Content-Type": "text/plain"})[0], 415)
+
+    def test_the_old_routes_are_gone_for_clients(self):
+        for path in ("/v1/load", "/v1/unload", "/load", "/unload"):
+            self.assertEqual(self.request(path, {})[0], 404, path)
+        self.assertEqual(self.request("/v1/status")[0], 200)
 
 
 if __name__ == "__main__":

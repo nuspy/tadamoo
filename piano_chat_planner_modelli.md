@@ -7,8 +7,12 @@ Le dimensioni sono taglie relative (S/M/L/XL), senza date: come in §8 delle spe
 **Avanzamento (2026-10-24).** Fasi 0 e 1 fatte nel codice (commit `87a14762`, `fd252e1f`, `1193e5c1`), con una riserva:
 - **Fase 0.** Il test di contratto della superficie esterna c'è e fallisce se compare una rotta nuova. Nel farlo ho trovato che
   `/v1/load`, `/v1/unload`, `/v1/vram` e le rotte `/api/*` si proteggono solo contro l'`Origin` di un sito estraneo (`_own_page`): un'app
-  locale che non manda `Origin` le raggiunge, con o senza chiave. Il vincolo A ("nient'altro") chiede quindi una scelta: separare la porta
-  della pagina da quella delle app esterne, oppure una chiave "solo modello" che non apre le rotte di controllo. Non l'ho toccato.
+  locale che non manda `Origin` le raggiunge, con o senza chiave. **Deciso dall'utente: load e unload non devono essere possibili da un
+  client.** Ora esistono solo come `POST /api/control/load` e `/api/control/unload`, riservate a questo PC e alla pagina propria e che
+  chiedono l'intestazione `X-Basalt-Control` con il segreto che il server scrive all'avvio in `control-<porta>.token` nella cartella dei
+  dati; `/v1/load`, `/v1/unload`, `/load` e `/unload` rispondono 404 (il test di contratto lo verifica). `Ferma-Basalt.ps1` legge il
+  segreto. **Restano aperti** `/v1/vram` (documentato per i programmi che prestano VRAM) e le altre rotte `/api/*` di scrittura: stessa
+  decisione da prendere (vedi §7).
   Il test intermittente non si è riprodotto in 12 esecuzioni (3 in parallelo sotto carico comprese) e resta non identificato.
   I 7 fallimenti di `serve/tests` sono differenze di Windows contro Linux (separatori di percorso, un eseguibile non Win32,
   quattro prove del server che si aspettano un modello predefinito) e non dipendono dalle mie modifiche.
@@ -303,6 +307,9 @@ Le decisioni di §1 sono prese. Restano:
 2. **llmswitch, dettagli**: scarico per inattività (proposta: mai di default); quali abbonamenti e provider a riga di comando nel primo rilascio, e in che ordine si abilitano; quali domande tipizzate di Jev oltre al triage (ad esempio pertinenza di estratti per la conoscenza).
 3. **Benchmark pubblico** da usare (SWE-bench Pro o Terminal-Bench) e quali altri harness mettere a confronto.
 4. **Isolamento D5, connettori di pagamento, licenza, contenuti del rilascio**: decisioni dell'utente, non del codice.
+5. **`/v1/vram` e le rotte `/api/*` di scrittura** (impostazioni, profili, piani, agente, giornali): chiudere anche queste ai client con lo
+   stesso segreto (la pagina lo riceverebbe come cookie `HttpOnly` quando carica `/`, senza che il suo codice lo legga) oppure
+   lasciarle come sono. `/v1/vram` serve ai programmi che prestano VRAM: chiuderla li interrompe.
 
 ## 8. Rischi
 

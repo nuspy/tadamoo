@@ -77,6 +77,7 @@ class Route(unittest.TestCase):
         tok = ByteTokenizer()
         self.engine = VramEngine(tok)
         self.svc = Service(self.engine, tok, ChatTemplate(Path(__file__).resolve().parents[1] / "chat_template.jinja"))
+        self.svc.control_token = "control-secret"
         self.httpd = serve(self.svc, port=0)
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
 
@@ -85,8 +86,9 @@ class Route(unittest.TestCase):
         self.httpd.server_close()
 
     def request(self, path, body=None, headers=None):
+        secret = {"X-Basalt-Control": self.svc.control_token} if path.startswith("/api/control/") else {}
         req = urllib.request.Request(self.base + path, data=json.dumps(body).encode() if body is not None else None,
-                                     headers={"Content-Type": "application/json", **(headers or {})})
+                                     headers={"Content-Type": "application/json", **secret, **(headers or {})})
         try:
             response = urllib.request.urlopen(req, timeout=10)
         except urllib.error.HTTPError as error:
@@ -127,7 +129,7 @@ class Route(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertEqual(body["status"], "not loaded")
         self.assertEqual(self.engine.calls, [])
-        self.assertEqual(self.request("/v1/load", {})[0], 200)
+        self.assertEqual(self.request("/api/control/load", {})[0], 200)
         self.assertEqual(self.engine.calls, [5000])
 
 
