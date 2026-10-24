@@ -99,11 +99,11 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
         if state.get("state") in ("timeout", "unavailable"):
             return (f"The transcription is still running ({state.get('progress', '?')}). Call transcribe_attachment('{meta['id']}') again later: "
                     "it picks the same job up.") if state["state"] == "timeout" else "The service stopped answering. Tell the person; try again once it is running."
-        if state.get("state") == "error":
-            job_file.unlink(missing_ok=True)
-            return f"The service could not transcribe it: {state.get('error') or 'unknown error'}."
         from harness.integrations.call_api_client import format_transcript
         segments = call_client.media_transcript(job) or []
+        if state.get("state") == "error" and not segments:
+            job_file.unlink(missing_ok=True)
+            return f"The service could not transcribe it: {state.get('error') or 'unknown error'}."
         transcript = format_transcript(segments)
         if not transcript:
             return "The service finished but the recording has no speech it could write down."

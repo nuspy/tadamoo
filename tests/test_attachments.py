@@ -196,8 +196,10 @@ def test_ranges_and_search_help_read_a_long_file_in_pieces():
 class Media:
     """callAPIcall as the tests need it."""
 
+    SEGMENTS = [{"start_s": 0, "text": "Buongiorno a tutti.", "speaker": "A"}, {"start_s": 75, "text": "Il budget e' approvato."}]
+
     def __init__(self, available=True, status="queued", state="done"):
-        self.available, self.status, self.state, self.started = available, status, state, []
+        self.available, self.status, self.state, self.started, self.segments = available, status, state, [], self.SEGMENTS
 
     def is_available(self):
         return self.available
@@ -210,7 +212,7 @@ class Media:
         return {"state": self.state, "progress": 40}
 
     def media_transcript(self, job):
-        return [{"start_s": 0, "text": "Buongiorno a tutti.", "speaker": "A"}, {"start_s": 75, "text": "Il budget e' approvato."}]
+        return self.segments
 
 
 @pytest.fixture
@@ -253,6 +255,16 @@ def test_a_recording_is_transcribed_once_kept_and_then_read_like_text(tools):
     again = registry.execute("transcribe_attachment", {"id": rec["id"]})
     assert "transcript is ready" in again and len(media.started) == 1                         # not sent twice
     assert "budget" in registry.execute("search_attachment", {"id": rec["id"], "query": "budget approvato"})
+
+
+def test_a_transcript_is_used_even_when_the_services_own_summary_failed(tools):
+    registry, store, outputs, media, ws = tools
+    media.state = "error"
+    rec = put(store, "s1", "b.wav", b"RIFF\0\0\0\0WAVEfmt ")
+    assert "Il budget e' approvato." in registry.execute("transcribe_attachment", {"id": rec["id"]})
+    media.segments = []                                                                           # nothing was written down: it is an error
+    other = put(store, "s1", "c.wav", b"RIFF\0\0\0\0WAVEfmt 2")
+    assert "could not transcribe" in registry.execute("transcribe_attachment", {"id": other["id"]})
 
 
 def test_a_busy_a_missing_or_failing_service_is_told_plainly(tools):
