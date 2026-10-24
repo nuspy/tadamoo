@@ -24,6 +24,14 @@ from .triage import TriageResult
 
 PLAN_ID = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 LOG_SIZE = 500
+HISTORY_SIZE = 200
+HISTORY_SHOWN = 30
+# who made a change: the person at the page, the Chat for the person, the planner's own re-planning, the system
+ACTORS = ("user", "chat", "planner", "system")
+# events that write straight into the plan; they may carry `base_rev`, the revision the sender last read
+DIRECT = ("plan:update_node", "plan:mark", "plan:rewind", "plan:update_meta", "plan:fallback_response")
+TARGET_TYPES = ("constant", "occasional")
+TITLE_CHARS = 200
 
 
 def classify_diff(diff: Dict[str, Any]) -> Dict[str, List[str]]:
@@ -60,7 +68,10 @@ class PlanCanvasBridge:
         self.proposals: Dict[str, Proposal] = {}
         self.offers: Dict[str, Dict[str, Any]] = {}      # human-fallback offers waiting for the user
         self.log: Deque[Dict[str, Any]] = deque(maxlen=LOG_SIZE)
+        self.history: Deque[Dict[str, Any]] = deque(maxlen=HISTORY_SIZE)    # what changed the plan, and who did it
         self.seq = 0
+        self.rev = 0                                      # counts changes to the plan itself, not to proposals or offers
+        self._actor = "user"
         self._listeners: List[Callable[[Dict[str, Any]], None]] = []
         self._lock = threading.RLock()
 
@@ -74,7 +85,8 @@ class PlanCanvasBridge:
     def _emit(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         with self._lock:
             self.seq += 1
-            event = {"seq": self.seq, "type": event_type, "plan_id": self.dag.plan_id, **(payload or {})}
+            event = {"seq": self.seq, "type": event_type, "plan_id": self.dag.plan_id, "rev": self.rev,
+                     "actor": self._actor, **(payload or {})}
             self.log.append(event)
             listeners = list(self._listeners)
         for cb in listeners:
@@ -88,9 +100,36 @@ class PlanCanvasBridge:
         with self._lock:
             return [e for e in self.log if e["seq"] > seq]
 
+    def _bump(self, kind: str, summary: str) -> None:
+        """A change to the plan: a new revision, and a line in the history naming who made it."""
+        self.rev += 1
+        self.history.append({"rev": self.rev, "t": time.time(), "actor": self._actor, "type": kind,
+                             "summary": " ".join(str(summary).split())[:TITLE_CHARS]})
+
+    def record(self, actor: str, kind: str, summary: str) -> None:
+        """For what the store does around the plan (creating, restoring)."""
+        with self._lock:
+            previous, self._actor = self._actor, actor
+            try:
+                self._bump(kind, summary)
+            finally:
+                self._actor = previous
+
+    def announce_archived(self, actor: str) -> None:
+        """Tells the viewers that this plan is leaving the list."""
+        with self._lock:
+            previous, self._actor = self._actor, actor
+            try:
+                self._bump("archive", self.dag.title)
+                self._emit("plan:archived", {})
+            finally:
+                self._actor = previous
+
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
-            return {"plan": self.dag.to_dict(), "seq": self.seq, "layers": self.dag.layers(),
+            return {"plan": self.dag.to_dict(), "seq": self.seq, "rev": self.rev, "layers": self.dag.layers(),
+                    "card": self.card.to_dict() if self.card else None,
+                    "history": list(self.history)[-HISTORY_SHOWN:],
                     "proposals": [p.to_dict() for p in self.proposals.values() if p.status == "pending"],
                     "offers": [o for o in self.offers.values() if o["status"] == "offered"],
                     "ready": self.dag.ready_nodes()}
@@ -104,34 +143,59 @@ class PlanCanvasBridge:
             "plan:get": self._get, "plan:update_node": self._update_node, "plan:mark": self._mark,
             "plan:rewind": self._rewind, "plan:propose_diff": self._propose, "plan:approve": self._approve,
             "plan:reject": self._reject, "plan:human_fallback": self._offer_fallback,
-            "plan:fallback_response": self._answer_fallback,
+            "plan:fallback_response": self._answer_fallback, "plan:update_meta": self._update_meta,
         }
         handler = handlers.get(kind)
         if handler is None:
             return {"ok": False, "error": f"unknown event type {kind!r}; expected one of {sorted(handlers)}"}
+        actor = event.get("actor", "user")
+        if actor not in ACTORS:
+            return {"ok": False, "error": f"actor must be one of {', '.join(ACTORS)}"}
         try:
             with self._lock:
-                return {"ok": True, **handler(event)}
+                stale = self._stale(kind, event)
+                if stale:
+                    return stale
+                previous, self._actor = self._actor, actor
+                try:
+                    return {"ok": True, **handler(event)}
+                finally:
+                    self._actor = previous
         except KeyError as exc:
             return {"ok": False, "error": f"not found: {exc.args[0] if exc.args else exc}"}
         except (PlanError, ValueError, TypeError) as exc:
             return {"ok": False, "error": str(exc)}
+
+    def _stale(self, kind: str, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """A direct change made on an old reading of the plan is refused, so it cannot overwrite a newer one."""
+        base = event.get("base_rev")
+        if base is None or kind not in DIRECT:
+            return None
+        if isinstance(base, bool) or not isinstance(base, int):
+            return {"ok": False, "error": "base_rev must be a whole number"}
+        if base != self.rev:
+            return {"ok": False, "stale": True, "rev": self.rev,
+                    "error": f"the plan changed since you read it (now at revision {self.rev}, yours was {base}); read it again"}
+        return None
 
     def _get(self, e: Dict[str, Any]) -> Dict[str, Any]:
         return self.snapshot()
 
     def _update_node(self, e: Dict[str, Any]) -> Dict[str, Any]:
         node = self.dag.update_node(e["node_id"], **(e.get("changes") or {}))
+        self._bump("update_node", node.title)
         self._emit("plan:node_updated", {"node": node_to_dict(node)})
         return {"node": node_to_dict(node), "ready": self.dag.ready_nodes()}
 
     def _mark(self, e: Dict[str, Any]) -> Dict[str, Any]:
         self.dag.mark(e["node_id"], e["status"], e.get("outputs"))
+        self._bump("mark", f"{self.dag.nodes[e['node_id']].title}: {e['status']}")
         self._emit("plan:graph", {"seq_graph": True})
         return {"ready": self.dag.ready_nodes(), "shared_state": self.dag.shared_state}
 
     def _rewind(self, e: Dict[str, Any]) -> Dict[str, Any]:
         ids = self.dag.rewind(e["node_id"])
+        self._bump("rewind", self.dag.nodes[e["node_id"]].title)
         self._emit("plan:graph", {"rewound": ids})
         return {"rewound": ids}
 
@@ -163,6 +227,7 @@ class PlanCanvasBridge:
             self._emit("plan:diff_stale", {"proposal_id": proposal.proposal_id})
             raise PlanError(f"the plan changed since this was proposed: {exc}") from None
         proposal.status = "applied"
+        self._bump("apply", f"{proposal.title} ({proposal.source})")
         self._emit("plan:diff_applied", {"proposal_id": proposal.proposal_id, "changed": changed,
                                          "changes": classify_diff(proposal.diff)})
         return {"changed": changed}
@@ -172,6 +237,31 @@ class PlanCanvasBridge:
         proposal.status = "rejected"
         self._emit("plan:diff_rejected", {"proposal_id": proposal.proposal_id})
         return {}
+
+    def _update_meta(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        """Title, kind (constant or occasional) and card of the plan; all or nothing."""
+        changes = e.get("changes")
+        if not isinstance(changes, dict) or not changes:
+            raise ValueError("send the changes to make: title, target_type or card")
+        unknown = sorted(k for k in changes if k not in ("title", "target_type", "card"))
+        if unknown:
+            raise ValueError(f"only title, target_type and card can be edited here, not: {', '.join(unknown)}")
+        title, target, card = self.dag.title, self.dag.target_type, self.card
+        if "title" in changes:
+            title = changes["title"].strip() if isinstance(changes["title"], str) else ""
+            if not title or len(title) > TITLE_CHARS:
+                raise ValueError(f"the title is 1-{TITLE_CHARS} characters")
+        if "target_type" in changes:
+            target = changes["target_type"]
+            if target not in TARGET_TYPES:
+                raise ValueError("target_type must be 'constant' or 'occasional'")
+        if "card" in changes:
+            card = PlanInsightCard.from_dict(changes["card"])
+        self.dag.title, self.dag.target_type, self.card = title, target, card
+        self.dag._touch()
+        self._bump("update_meta", ", ".join(sorted(changes)))
+        self._emit("plan:meta_updated", {"title": title, "target_type": target})
+        return {"title": title, "target_type": target, "card": card.to_dict() if card else None}
 
     # -- tasks the software cannot do ------------------------------------------------------------
 
@@ -195,6 +285,7 @@ class PlanCanvasBridge:
         else:                                          # declined or insisted: the user's word is final
             self.dag.reassign_to_user(offer["node_id"], offer["reason"])
             offer["status"] = "assigned_to_user"
+        self._bump("fallback", self.dag.nodes[offer["node_id"]].title)
         self._emit("plan:fallback_resolved", {"offer": offer, "node": node_to_dict(self.dag.nodes[offer["node_id"]])})
         return {"offer": offer, "ready": self.dag.ready_nodes()}
 
@@ -209,12 +300,12 @@ class PlanCanvasBridge:
         ids = []
         with self._lock:
             for i, alt in enumerate(result.alternatives):
-                reply = self.handle({"type": "plan:propose_diff", "title": alt.title, "diff": alt.diff,
+                reply = self.handle({"type": "plan:propose_diff", "title": alt.title, "diff": alt.diff, "actor": "planner",
                                      "rationale": alt.description + (" (recommended)" if i == result.recommended else "")})
                 if reply["ok"]:
                     ids.append(reply["proposal_id"])
             for fb in result.human_fallbacks:
-                self.handle({"type": "plan:human_fallback", **fb})
+                self.handle({"type": "plan:human_fallback", "actor": "planner", **fb})
             self._emit("plan:replan_ready", {"diagnosis": result.diagnosis, "affected_nodes": result.affected_nodes,
                                              "proposals": ids, "rejected": result.rejected})
         return {"diagnosis": result.diagnosis, "proposals": ids, "rejected": result.rejected,
@@ -224,7 +315,8 @@ class PlanCanvasBridge:
 
     def to_dict(self) -> Dict[str, Any]:
         return {"plan": self.dag.to_dict(), "card": self.card.to_dict() if self.card else None,
-                "proposals": {k: {**v.to_dict()} for k, v in self.proposals.items()}, "offers": self.offers, "seq": self.seq}
+                "proposals": {k: {**v.to_dict()} for k, v in self.proposals.items()}, "offers": self.offers, "seq": self.seq,
+                "rev": self.rev, "history": list(self.history)}
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any], replanner: Optional[Replanner] = None) -> "PlanCanvasBridge":
@@ -235,6 +327,8 @@ class PlanCanvasBridge:
                                            v.get("status", "pending"), v.get("created_at", time.time()))
         bridge.offers = data.get("offers") or {}
         bridge.seq = int(data.get("seq", 0))
+        bridge.rev = int(data.get("rev", 0))
+        bridge.history.extend(h for h in (data.get("history") or []) if isinstance(h, dict))
         return bridge
 
 
@@ -252,10 +346,16 @@ class PlanStore:
             raise ValueError("a plan id is 1-64 letters, digits, - or _")
         return self.dir / f"{plan_id}.json"
 
+    def _archived_path(self, plan_id: str) -> Path:
+        self._path(plan_id)                                # the same check of the id
+        return self.dir / "archive" / f"{plan_id}.json"
+
     def create(self, dag: PlanDAG, card: Optional[PlanInsightCard] = None, replanner: Optional[Replanner] = None) -> PlanCanvasBridge:
         with self._lock:
             if self._path(dag.plan_id).exists() or dag.plan_id in self._bridges:
                 raise ValueError(f"plan '{dag.plan_id}' already exists")
+            if self._archived_path(dag.plan_id).exists():
+                raise ValueError(f"plan '{dag.plan_id}' is in the archive; restore it or choose another id")
             dag.validate_acyclic()
             bridge = PlanCanvasBridge(dag, card, replanner)
             self._bridges[dag.plan_id] = bridge
@@ -281,9 +381,10 @@ class PlanStore:
             tmp.write_text(json.dumps(self._bridges[plan_id].to_dict(), ensure_ascii=False, indent=1), encoding="utf-8")
             os.replace(tmp, path)
 
-    def list(self) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _summaries(folder: Path) -> List[Dict[str, Any]]:
         out = []
-        for p in sorted(self.dir.glob("*.json")):
+        for p in sorted(folder.glob("*.json")):
             try:
                 plan = json.loads(p.read_text(encoding="utf-8"))["plan"]
                 nodes = plan.get("nodes", {})
@@ -293,6 +394,36 @@ class PlanStore:
             except (OSError, ValueError, KeyError):
                 continue
         return out
+
+    def list(self) -> List[Dict[str, Any]]:
+        return self._summaries(self.dir)
+
+    def list_archived(self) -> List[Dict[str, Any]]:
+        return self._summaries(self.dir / "archive")
+
+    def archive(self, plan_id: str) -> None:
+        """Takes a plan out of the list without erasing it; restore() brings it back."""
+        with self._lock:
+            path = self._path(plan_id)
+            if not path.is_file():
+                raise KeyError(plan_id)
+            dest = self._archived_path(plan_id)
+            if dest.exists():
+                raise ValueError(f"a plan with the id '{plan_id}' is already in the archive")
+            if plan_id in self._bridges:
+                self.save(plan_id)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(path, dest)
+            self._bridges.pop(plan_id, None)
+
+    def restore(self, plan_id: str) -> None:
+        with self._lock:
+            dest = self._archived_path(plan_id)
+            if not dest.is_file():
+                raise KeyError(plan_id)
+            if self._path(plan_id).exists():
+                raise ValueError(f"plan '{plan_id}' already exists; archive or rename it first")
+            os.replace(dest, self._path(plan_id))
 
     def delete(self, plan_id: str) -> bool:
         with self._lock:

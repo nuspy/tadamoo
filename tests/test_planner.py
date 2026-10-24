@@ -727,3 +727,103 @@ def test_plan_ids_cannot_escape_the_folder(tmp_path, bad):
         store.delete(bad)
     with pytest.raises(KeyError):
         store.get("missing_plan")
+
+
+# -- revisions, who changed what, the plan's own details, and the archive --------------------------------
+
+def test_only_changes_to_the_plan_count_as_revisions_and_each_names_who_made_it(bridge):
+    assert bridge.rev == 0
+    res = propose(bridge, actor="chat", source="chat")
+    assert res["ok"] and bridge.rev == 0                                           # a proposal is not a change yet
+    assert bridge.handle({"type": "plan:update_node", "node_id": "meteo", "changes": {"title": "Neve"}})["ok"]
+    assert bridge.handle({"type": "plan:mark", "node_id": "meteo", "status": "completed", "actor": "chat"})["ok"]
+    assert bridge.handle({"type": "plan:approve", "proposal_id": res["proposal_id"]})["ok"]
+    assert bridge.handle({"type": "plan:reject", "proposal_id": propose(bridge, diff={"update_nodes": {"parti": {"title": "x"}}})["proposal_id"]})["ok"]
+    assert bridge.rev == 3
+    history = bridge.snapshot()["history"]
+    assert [(h["rev"], h["actor"], h["type"]) for h in history] == [(1, "user", "update_node"), (2, "chat", "mark"), (3, "user", "apply")]
+    assert not bridge.handle({"type": "plan:mark", "node_id": "meteo", "status": "failed", "actor": "root"})["ok"]
+
+
+def test_an_edit_made_on_an_old_reading_is_refused_and_one_without_a_reading_is_not(bridge):
+    seen = bridge.snapshot()["rev"]
+    assert bridge.handle({"type": "plan:update_node", "node_id": "meteo", "changes": {"title": "Neve"}, "base_rev": seen})["ok"]
+    late = bridge.handle({"type": "plan:update_node", "node_id": "meteo", "changes": {"title": "Sole"}, "base_rev": seen})
+    assert not late["ok"] and late["stale"] is True and late["rev"] == 1 and "read it again" in late["error"]
+    assert bridge.dag.nodes["meteo"].title == "Neve" and bridge.rev == 1
+    for kind, extra in (("plan:mark", {"status": "completed"}), ("plan:rewind", {}), ("plan:update_meta", {"changes": {"title": "x"}})):
+        ev = {"type": kind, "node_id": "meteo", "base_rev": seen, **extra}
+        assert bridge.handle(ev)["stale"] is True, kind
+    assert not bridge.handle({"type": "plan:mark", "node_id": "meteo", "status": "completed", "base_rev": "1"})["ok"]
+    assert not bridge.handle({"type": "plan:mark", "node_id": "meteo", "status": "completed", "base_rev": True})["ok"]
+    assert bridge.handle({"type": "plan:update_node", "node_id": "meteo", "changes": {"title": "Sole"}})["ok"]
+
+
+def test_the_title_the_kind_and_the_card_can_be_changed_all_or_nothing(bridge):
+    ok = bridge.handle({"type": "plan:update_meta", "actor": "chat", "changes": {
+        "title": "  Cervinia a Pasqua ", "target_type": "constant", "card": {**CARD, "destinazione": "Cervinia"}}})
+    assert ok["ok"] and bridge.dag.title == "Cervinia a Pasqua" and bridge.dag.target_type == "constant"
+    assert bridge.card.destinazione == "Cervinia" and bridge.snapshot()["card"]["destinazione"] == "Cervinia"
+    assert bridge.snapshot()["history"][-1]["actor"] == "chat"
+    before = (bridge.dag.title, bridge.dag.target_type, bridge.rev)
+    for bad in ({"title": "  "}, {"title": "x" * 201}, {"title": 5}, {"target_type": "sometimes"}, {"card": {"titolo": ""}},
+                {"card": "x"}, {"title": "Fine", "target_type": "never"}, {"status": "done"}, {}, "x"):
+        res = bridge.handle({"type": "plan:update_meta", "changes": bad})
+        assert not res["ok"], bad
+    assert (bridge.dag.title, bridge.dag.target_type, bridge.rev) == before                  # a refused change leaves no trace
+
+
+def test_the_revision_and_the_history_are_saved_and_the_history_is_bounded(tmp_path, bridge):
+    from harness.planner.bridge import HISTORY_SIZE
+    for i in range(HISTORY_SIZE + 5):
+        bridge.handle({"type": "plan:update_node", "node_id": "meteo", "changes": {"title": f"t{i}"}})
+    assert bridge.rev == HISTORY_SIZE + 5 and len(bridge.history) == HISTORY_SIZE
+    again = PlanCanvasBridge.from_dict(bridge.to_dict())
+    assert again.rev == bridge.rev and list(again.history) == list(bridge.history)
+    assert PlanCanvasBridge.from_dict({k: v for k, v in bridge.to_dict().items() if k not in ("rev", "history")}).rev == 0   # older files
+
+
+def test_replanning_is_recorded_as_the_planners_own_work(bridge):
+    class Client:
+        def chat_completion(self, messages, **kw):
+            return {"choices": [{"message": {"role": "assistant", "content": json.dumps(alt_json())}}]}
+
+    bridge.replanner = Replanner(Client())
+    heard = []
+    bridge.subscribe(heard.append)
+    bridge.replan(THREAT, ["La madre di Diana è partita"])
+    assert {e["actor"] for e in heard if e["type"] in ("plan:diff_proposed", "plan:fallback_offered")} == {"planner"}
+
+
+def test_a_plan_is_archived_not_erased_and_comes_back_whole(tmp_path):
+    store = PlanStore(tmp_path / "plans")
+    bridge = store.create(cervinia(), PlanInsightCard.from_dict(CARD))
+    bridge.handle({"type": "plan:mark", "node_id": "meteo", "status": "completed"})
+    before = bridge.to_dict()
+    store.archive("cervinia")
+    assert store.list() == [] and [p["plan_id"] for p in store.list_archived()] == ["cervinia"]
+    with pytest.raises(KeyError):
+        store.get("cervinia")
+    with pytest.raises(ValueError, match="archive"):
+        store.create(cervinia())                                       # the id is taken until it is restored
+    store.restore("cervinia")
+    assert store.list()[0]["completed"] == 1 and store.list_archived() == []
+    assert PlanStore(tmp_path / "plans").get("cervinia").to_dict() == before
+
+
+def test_archiving_and_restoring_refuse_what_cannot_be_done(tmp_path):
+    store = PlanStore(tmp_path / "plans")
+    with pytest.raises(KeyError):
+        store.archive("missing_plan")
+    with pytest.raises(KeyError):
+        store.restore("missing_plan")
+    store.create(cervinia())
+    store.archive("cervinia")
+    store.create(PlanDAG(plan_id="other", title="Altro", target_type="occasional"))
+    (tmp_path / "plans" / "cervinia.json").write_text("{}", encoding="utf-8")     # an active plan with the same id appears
+    with pytest.raises(ValueError, match="already exists"):
+        store.restore("cervinia")
+    for bad in ("../x", "a/b", "", "x" * 65):
+        for call in (store.archive, store.restore):
+            with pytest.raises(ValueError):
+                call(bad)

@@ -1169,11 +1169,11 @@ def make_handler(svc: Service):
                 service = self._plan_service()
                 if path == "/api/planner/settings":
                     return self._json(200, service.settings())
+                query = parse_qs(urlsplit(self.path).query)
                 if path == "/api/plans":
-                    return self._json(200, {"plans": service.list()})
+                    return self._json(200, {"plans": service.list(archived=query.get("archived", ["0"])[0] == "1")})
                 parts = path[len("/api/plans/"):].split("/")
                 plan_id, action = parts[0], (parts[1] if len(parts) > 1 else "")
-                query = parse_qs(urlsplit(self.path).query)
                 after = int(query.get("after", ["0"])[0] or 0)
                 if action == "":
                     return self._json(200, service.snapshot(plan_id))
@@ -1241,6 +1241,10 @@ def make_handler(svc: Service):
                     return self._json(200 if result.get("ok") else 400, result)
                 if action == "triage":
                     return self._json(200, service.triage(plan_id, req.get("events"), bool(req.get("replan"))))
+                if action == "archive":
+                    return self._json(200, service.archive(plan_id, service._actor(req)))
+                if action == "restore":
+                    return self._json(200, service.restore(plan_id, service._actor(req)))
                 self._json(404, {"error": {"message": "not found"}})
             except json.JSONDecodeError as exc:
                 self._json(400, {"error": {"message": f"invalid JSON: {exc.msg}"}})

@@ -236,6 +236,41 @@ class PlansApiTest(PlansApiBase):
         self.assertEqual(self.call("GET", "/api/changes")[1]["edits"], [])
 
 
+    def test_a_plan_is_archived_not_erased_and_can_be_restored(self):
+        plan = {**PLAN, "plan_id": "arch1"}
+        code, snap = self.call("POST", "/api/plans", {"plan": plan, "card": CARD, "actor": "chat"})
+        self.assertEqual((code, snap["rev"], snap["history"][0]["actor"], snap["history"][0]["type"]), (201, 1, "chat", "create"))
+        self.assertEqual(self.call("POST", "/api/plans/arch1/archive", {"actor": "root"})[0], 400)
+        self.assertEqual(self.call("POST", "/api/plans/arch1/archive", {}, headers={"Origin": "http://evil.example"})[0], 403)
+        self.assertEqual(self.call("POST", "/api/plans/arch1/archive", {})[1]["archived"], "arch1")
+        self.assertNotIn("arch1", [p["plan_id"] for p in self.call("GET", "/api/plans")[1]["plans"]])
+        self.assertIn("arch1", [p["plan_id"] for p in self.call("GET", "/api/plans?archived=1")[1]["plans"]])
+        self.assertEqual(self.call("GET", "/api/plans/arch1")[0], 404)
+        code, again = self.call("POST", "/api/plans", {"plan": plan})
+        self.assertEqual(code, 400)
+        self.assertIn("archive", again["error"]["message"])
+        self.assertEqual(self.call("POST", "/api/plans/arch1/archive", {})[0], 404)
+        code, back = self.call("POST", "/api/plans/arch1/restore", {})
+        self.assertEqual(code, 200)
+        self.assertEqual([h["type"] for h in back["history"]], ["create", "archive", "restore"])
+        self.assertIn("arch1", [p["plan_id"] for p in self.call("GET", "/api/plans")[1]["plans"]])
+        self.assertEqual(self.call("POST", "/api/plans/arch1/restore", {})[0], 404)
+
+    def test_edits_carry_the_revision_the_actor_and_the_plans_own_details(self):
+        self.call("POST", "/api/plans", {"plan": {**PLAN, "plan_id": "rev1"}, "card": CARD})
+        ev = {"type": "plan:update_node", "node_id": "hotel", "changes": {"title": "Hotel Cervino"}}
+        self.assertTrue(self.call("POST", "/api/plans/rev1/events", {**ev, "base_rev": 1, "actor": "chat"})[1]["ok"])
+        code, late = self.call("POST", "/api/plans/rev1/events", {**ev, "base_rev": 1})
+        self.assertEqual((code, late["stale"], late["rev"]), (400, True, 2))
+        snap = self.call("GET", "/api/plans/rev1")[1]
+        self.assertEqual((snap["rev"], snap["history"][-1]["actor"]), (2, "chat"))
+        meta = {"type": "plan:update_meta", "changes": {"title": "Cervinia", "target_type": "constant", "card": {"titolo": "Cervinia"}}}
+        self.assertTrue(self.call("POST", "/api/plans/rev1/events", meta)[1]["ok"])
+        snap = self.call("GET", "/api/plans/rev1")[1]
+        self.assertEqual((snap["plan"]["title"], snap["plan"]["target_type"], snap["card"]["titolo"]), ("Cervinia", "constant", "Cervinia"))
+        self.assertEqual(self.call("POST", "/api/plans/rev1/events", {"type": "plan:update_meta", "changes": {"title": ""}})[0], 400)
+
+
 class PlansApiKeyedTest(PlansApiBase):
     api_key = "s3cret"
     auth = {"Authorization": "Bearer s3cret"}
@@ -244,6 +279,7 @@ class PlansApiKeyedTest(PlansApiBase):
         for method, path in (("GET", "/api/plans"), ("GET", "/api/plans/x"), ("GET", "/api/plans/x/events"),
                              ("GET", "/api/plans/x/stream"), ("GET", "/api/planner/settings"), ("POST", "/api/plans"),
                              ("POST", "/api/plans/x/events"), ("POST", "/api/plans/x/triage"), ("POST", "/api/planner/settings"),
+                             ("GET", "/api/plans?archived=1"), ("POST", "/api/plans/x/archive"), ("POST", "/api/plans/x/restore"),
                              ("POST", "/api/changes"), ("GET", "/api/changes")):
             self.assertEqual(self.call(method, path, {} if method == "POST" else None)[0], 401, (method, path))
         self.assertEqual(self.call("GET", "/api/plans", headers=self.auth)[0], 200)

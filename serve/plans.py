@@ -86,8 +86,16 @@ class PlanService:
 
     # -- plans -----------------------------------------------------------------------------------
 
-    def list(self) -> List[Dict[str, Any]]:
-        return self.store.list()
+    def list(self, archived: bool = False) -> List[Dict[str, Any]]:
+        return self.store.list_archived() if archived else self.store.list()
+
+    @staticmethod
+    def _actor(body: Any) -> str:
+        """Who is asking, as the sender says: a note on the history, not a proof of identity."""
+        actor = body.get("actor", "user") if isinstance(body, dict) else "user"
+        if actor not in _planner().bridge.ACTORS:
+            raise ValueError(f"actor must be one of {', '.join(_planner().bridge.ACTORS)}")
+        return actor
 
     def create(self, body: Dict[str, Any]) -> Dict[str, Any]:
         p = _planner()
@@ -100,7 +108,10 @@ class PlanService:
         if not dag.plan_id or not dag.title:
             raise ValueError("a plan needs a plan_id and a title")
         card = p.PlanInsightCard.from_dict(body["card"]) if body.get("card") else None
+        actor = self._actor(body)
         bridge = self.store.create(dag, card, self._replanner())
+        bridge.record(actor, "create", dag.title)
+        self.store.save(dag.plan_id)
         return bridge.snapshot()
 
     def _replanner(self):
@@ -110,6 +121,20 @@ class PlanService:
 
     def snapshot(self, plan_id: str) -> Dict[str, Any]:
         return self.store.get(plan_id, self._replanner()).snapshot()
+
+    def archive(self, plan_id: str, actor: str = "user") -> Dict[str, Any]:
+        """Takes a plan out of the list, keeping it so it can be restored."""
+        bridge = self.store.get(plan_id)
+        bridge.announce_archived(actor)
+        self.store.archive(plan_id)
+        return {"archived": plan_id, "title": bridge.dag.title}
+
+    def restore(self, plan_id: str, actor: str = "user") -> Dict[str, Any]:
+        self.store.restore(plan_id)
+        bridge = self.store.get(plan_id, self._replanner())
+        bridge.record(actor, "restore", bridge.dag.title)
+        self.store.save(plan_id)
+        return bridge.snapshot()
 
     def delete(self, plan_id: str) -> bool:
         return self.store.delete(plan_id)
