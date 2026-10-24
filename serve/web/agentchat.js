@@ -51,8 +51,8 @@
     if (!on) return;
     const asking = state === "asking";
     $("#stop").hidden = !(busyNow || state === "busy" || state === "starting" || asking);
-    $("#send").disabled = asking;
-    $("#prompt").placeholder = asking ? T("ch.hint.asking") : T("ch.ph");
+    $("#send").disabled = false;
+    $("#prompt").placeholder = asking ? T("ch.hint.asking") : busyNow ? T("ch.ph.busy") : T("ch.ph");
   }
   modeSel.value = mode;
   modeSel.onchange = () => { mode = modeSel.value; keep(MODE_KEY, mode); if (sid) forget(); applyMode(); };
@@ -69,7 +69,7 @@
   }
   list.onchange = () => { if (list.value) openSession(list.value); else newChat(); };
 
-  function forget() { sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(LAST_KEY, ""); }
+  function forget() { sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(LAST_KEY, ""); }
   function newChat() { forget(); list.value = ""; status(T("ch.new")); setControls(); }
   async function openSession(id) {
     forget();
@@ -89,57 +89,73 @@
   }
 
   /* ---- the view model: the person's messages and, for each answer, blocks in the order things happened ---- */
-  function userItem(text) { const it = { kind: "user", text }; items.push(it); current = null; return it; }
-  function assistant() {
-    if (!current) { current = { kind: "assistant", blocks: [], done: false, meta: "" }; items.push(current); }
+  const byTurn = {};                                  // the answer of each task: tasks can take turns, and come back
+  function userItem(text) { const it = { kind: "user", text }; items.push(it); return it; }
+  function assistant(turn) {
+    if (turn && byTurn[turn]) { current = byTurn[turn]; return current; }
+    if (!turn && current && !current.done) return current;
+    current = { kind: "assistant", blocks: [], done: false, meta: "", turn };
+    if (turn) byTurn[turn] = current;
+    items.push(current);
     return current;
   }
-  function textBlock(kind, text) {
-    const a = assistant(), last = a.blocks[a.blocks.length - 1];
+  function noteItem(it) { items.push({ kind: "note", ...it }); }
+  function textBlock(kind, text, turn) {
+    const a = assistant(turn), last = a.blocks[a.blocks.length - 1];
     if (last && last.t === kind) { last.s += text; last.dirty = true; return; }
     if (last && last.t === "reasoning") last.over = true;
     a.blocks.push({ t: kind, s: text, dirty: true });
   }
-  function addBlock(b) { const a = assistant(); const last = a.blocks[a.blocks.length - 1]; if (last && last.t === "reasoning") last.over = true; a.blocks.push({ ...b, dirty: true }); return a.blocks[a.blocks.length - 1]; }
-  const toolBlock = id => current && current.blocks.find(b => b.t === "tool" && b.id === id);
+  function addBlock(b, turn) { const a = assistant(turn); const last = a.blocks[a.blocks.length - 1]; if (last && last.t === "reasoning") last.over = true; a.blocks.push({ ...b, dirty: true }); return a.blocks[a.blocks.length - 1]; }
+  const toolBlock = id => { for (const it of items) { const b = (it.blocks || []).find(x => x.t === "tool" && x.id === id); if (b) return b; } return null; };
 
   function apply(e) {
     switch (e.event) {
       case "user": closeQuestions(); userItem(e.text); break;
-      case "accepted": assistant(); break;
-      case "delta": textBlock(e.kind === "reasoning" ? "reasoning" : "text", e.text || ""); break;
+      case "accepted": assistant(e.turn); started(e.turn); break;
+      case "started": assistant(e.turn); started(e.turn); break;
+      case "delta": textBlock(e.kind === "reasoning" ? "reasoning" : "text", e.text || "", e.turn); break;
+      case "queued": break;                                                    // the person's own bubble is already there
+      case "routed": noteItem({ s: T("ch.routed." + e.how, e.position || 0), route: e.turn, how: e.how }); break;
+      case "suspended": noteItem({ s: T("ch.suspended") }); break;
+      case "resumed": noteItem({ s: T("ch.resumed") }); assistant(e.turn); break;
+      case "cleared": noteItem({ s: T("ch.cleared", e.count) }); break;
+      case "dropped": started(e.turn); noteItem({ s: T("ch.dropped") }); break;
       case "agent": {
         const d = e.data || {};
         if (d.type === "assistant") {                                          // the whole message; the pieces came before it
-          const a = assistant();
+          const a = assistant(e.turn);
           if (!a.blocks.some(b => b.t === "text" || b.t === "reasoning") && (d.content || d.reasoning)) {
-            if (d.reasoning) textBlock("reasoning", d.reasoning);
-            if (d.content) textBlock("text", d.content);
+            if (d.reasoning) textBlock("reasoning", d.reasoning, e.turn);
+            if (d.content) textBlock("text", d.content, e.turn);
           }
         } else if (d.type === "tool_start") {
           if (d.name === "ask_user") break;                                    // its question is shown by the question itself
-          addBlock({ t: "tool", id: d.call_id, name: d.name, args: d.arguments || {}, status: "running", output: "" });
+          addBlock({ t: "tool", id: d.call_id, name: d.name, args: d.arguments || {}, status: "running", output: "" }, e.turn);
         } else if (d.type === "tool_end") {
           if (d.name === "ask_user") break;
-          const b = toolBlock(d.call_id) || addBlock({ t: "tool", id: d.call_id, name: d.name, args: {}, status: "running", output: "" });
+          const b = toolBlock(d.call_id) || addBlock({ t: "tool", id: d.call_id, name: d.name, args: {}, status: "running", output: "" }, e.turn);
           b.status = d.status === "completed" ? "ok" : "failed"; b.decision = d.decision; b.output = String(d.output || "").slice(0, SHOWN_OUTPUT); b.dirty = true;
         }
         break;
       }
-      case "ask": addBlock({ t: "ask", id: e.id, mode: e.mode, kind: e.kind || (e.facts || {}).kind, question: e.question, options: e.options || [], facts: e.facts || {}, tool: e.tool, args: e.arguments, answered: null }); break;
-      case "answered": { const b = current && current.blocks.find(x => x.t === "ask" && x.id === e.ask); if (b) { b.answered = e.value; b.dirty = true; } break; }
-      case "retrying": addBlock({ t: "note", s: T("ch.retrying", e.attempt, e.of, Math.round(e.wait_s)) }); break;
+      case "ask": addBlock({ t: "ask", id: e.id, mode: e.mode, kind: e.kind || (e.facts || {}).kind, question: e.question, options: e.options || [], facts: e.facts || {}, tool: e.tool, args: e.arguments, answered: null }, e.turn); break;
+      case "answered": { for (const it of items) { const b = (it.blocks || []).find(x => x.t === "ask" && x.id === e.ask); if (b) { b.answered = e.value; b.dirty = true; } } break; }
+      case "retrying": addBlock({ t: "note", s: T("ch.retrying", e.attempt, e.of, Math.round(e.wait_s)) }, e.turn); break;
       case "restarting": addBlock({ t: "note", s: T("ch.restarting", e.attempt, e.of) }); break;
       case "stalled": addBlock({ t: "note", s: T("ch.stalled") }); break;
-      case "blocked": addBlock({ t: "blocked", reason: e.reason, detail: e.detail, options: e.options || [] }); break;
+      case "blocked": addBlock({ t: "blocked", reason: e.reason, detail: e.detail, options: e.options || [] }, e.turn); break;
       case "done": {
-        const a = assistant(); a.done = true; a.stop = e.stop_reason;
+        const a = assistant(e.turn); a.done = true; a.stop = e.stop_reason;
         a.meta = e.stop_reason === "cancelled" ? T("ch.cancelled") : e.stop_reason === "asked" ? "" : e.error ? e.error : "";
         a.blocks.forEach(b => { if (b.t === "reasoning") b.over = true; });
-        current = null; break;
+        break;
       }
       default: break;
     }
+  }
+  function started(turn) {                                                      // a waiting request has begun (or was taken out): no more buttons
+    items.forEach(it => { if (it.kind === "note" && it.route === turn && !it.over) { it.over = true; it.dirty = true; } });
   }
   function closeQuestions() { items.forEach(it => (it.blocks || []).forEach(b => { if (b.t === "ask" && b.mode === "question" && !b.answered) { b.answered = ""; b.dirty = true; } })); }
 
@@ -240,9 +256,24 @@
       el.append(row);
     }
   }
+  function paintNote(it) {
+    it.el.replaceChildren(mk("span", "", it.s));
+    if (it.route && it.how === "queue" && !it.over) {                         // a request that waits: it can be made urgent or taken out
+      it.el.append(btn(T("ch.promote"), "ghost", () => tell("promote", it.route)), btn(T("ch.drop"), "ghost", () => tell("drop", it.route)));
+    }
+  }
+  async function tell(what, turn) {
+    const r = await api("POST", `/${sid}/${what}`, { turn });
+    if (!r.ok) status(errText(r));
+  }
   function render() {
     empty.hidden = items.length > 0;
     items.forEach(it => {
+      if (it.kind === "note") {
+        if (!it.el) { it.el = mk("div", "anote cmsg"); box.insertBefore(it.el, null); it.dirty = true; }
+        if (it.dirty) { paintNote(it); it.dirty = false; }
+        return;
+      }
       if (!it.el) {
         it.el = mk("article", `cmsg ${it.kind}`);
         if (it.kind === "user") { it.el.append(Object.assign(mk("div", "bubble"), { textContent: it.text })); }

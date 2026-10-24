@@ -69,13 +69,14 @@ def test_two_messages_one_process_and_the_history_is_readable(make, ws):
     assert "heartbeat" not in kinds(mgr, sid)                                  # signs of life are not shown
 
 
-def test_a_second_message_while_one_is_answered_is_refused(make, ws):
+def test_a_second_message_while_one_is_answered_goes_to_the_agent_which_looks_at_it_itself(make, ws):
     mgr = make()
     sid = mgr.create(ws)["id"]
     mgr.send(sid, "hang")
     until(lambda: mgr.get(sid)["state"] == "busy")
-    with pytest.raises(RunBusy):
-        mgr.send(sid, "ancora")
+    out = mgr.send(sid, "ancora")                                                # not refused, and the state does not change
+    assert out["session"]["state"] == "busy" and out["turn"]
+    assert [e["text"] for e in mgr.events(sid)["events"] if e["event"] == "user"] == ["hang", "ancora"]
 
 
 def test_a_process_that_dies_in_the_middle_of_a_turn_is_started_again_and_the_turn_goes_on(make, ws):
@@ -219,14 +220,13 @@ def test_a_confirmation_is_kept_with_its_buttons_until_the_person_answers(make, 
     until(lambda: mgr.get(sid)["state"] == "asking")
     ask = mgr.get(sid)["ask"]
     assert ask["id"] == "a1" and ask["question"] == "Archive it?" and ask["facts"] == {"plan": "X"}
-    with pytest.raises(RunBusy, match="waiting for your answer"):
-        mgr.send(sid, "intanto scrivo")
+    assert mgr.send(sid, "intanto scrivo")["session"]["state"] == "asking"      # a message while it asks is for the agent to look at
     with pytest.raises(RunError, match="not one of the answers"):
         mgr.answer(sid, "a1", "forse")
     with pytest.raises(RunError, match="not waiting"):
         mgr.answer(sid, "zzz", "confirm")
     mgr.answer(sid, "a1", "confirm")
-    done = until(lambda: next((e for e in mgr.events(sid)["events"] if e["event"] == "done"), None))
+    done = until(lambda: next((e for e in mgr.events(sid)["events"] if e["event"] == "done" and e["final"].startswith("answered")), None))
     assert done["final"] == "answered: confirm"
     assert mgr.get(sid)["state"] == "idle" and mgr.get(sid)["ask"] is None
     with pytest.raises(RunError, match="not waiting"):
@@ -268,3 +268,35 @@ def test_a_conversation_without_a_named_folder_works_in_the_default_one(make, tm
             bare.create("")                                                     # no default and no folder: still refused
     finally:
         bare.shutdown()
+
+
+def test_a_conversation_with_more_tasks_waiting_stays_at_work_until_the_last_one_is_done(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "more")
+    until(lambda: kinds(mgr, sid).count("done") == 1)
+    assert mgr.get(sid)["state"] == "busy"                                      # `more`: others are waiting
+    mgr.send(sid, "uno")
+    until(lambda: kinds(mgr, sid).count("done") == 2)
+    assert mgr.get(sid)["state"] == "idle"
+
+
+def test_a_queued_message_is_confirmed_by_the_process_and_not_sent_again_after_a_restart(make, ws):
+    mgr = make(command=stub_command(die_times=0))
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "queue-me")
+    until(lambda: "queued" in kinds(mgr, sid))
+    assert sid not in mgr._unconfirmed
+
+
+def test_a_waiting_request_can_be_promoted_or_dropped_through_the_manager(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "hang")
+    until(lambda: mgr.get(sid)["state"] == "busy")
+    with pytest.raises(RunError):
+        mgr.promote("nope", "x")
+    mgr.promote(sid, "t1")
+    mgr.drop(sid, "t2")
+    time.sleep(0.1)
+    mgr.close(sid)

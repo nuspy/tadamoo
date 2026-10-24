@@ -5,9 +5,15 @@ stdin, events out on stdout. The process builds the agent once (tools, skills, c
 for the start, and saves the history after every model turn, so a process that dies can be started again from it.
 
 Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd": "cancel"}, {"cmd": "resume"}, {"cmd": "close"},
-{"cmd": "ping"}.
-Events: ready, accepted, agent (an assistant text or a tool start or end), delta (text as it is written), ask (a question with
-buttons: a confirmation the turn waits for, or a question that ends the turn), retrying, done, blocked, heartbeat, error.
+{"cmd": "promote", "id"}, {"cmd": "drop", "id"}, {"cmd": "ping"}.
+Events: ready, accepted, queued, routed, started, suspended, resumed, agent (an assistant text or a tool start or end), delta
+(text as it is written), ask (a question with buttons: a confirmation the task waits for, or a question that ends the turn),
+retrying, done (with `more` when other tasks are waiting), blocked, cleared, dropped, heartbeat, error.
+
+A message that comes while a task is under way is looked at before the task's next model call (harness/router.py): it goes into
+that task (steer), waits its turn (queue), or, when it cannot wait and has nothing to do with the task, the task is put aside where
+it stands, the urgent one is done, and the first goes on afterwards. When the model answers several requests at once, a request that
+would wait is done beside the task instead.
 
 A failed model call is retried here, with growing waits, while the model or the server is only slow or busy; a refusal
 that waiting cannot change, or retries that ran out, end the turn as `blocked` and the process waits for the person:
@@ -25,11 +31,13 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TextIO
 
 from harness import agent_loop as al
 from harness.client import StreamCancelled
+from harness.router import QUEUE, STEER, STRONG_URGENT, URGENT, Router, judge_with_model
 from harness.stack import AgentConfig, BuiltAgent, build_agent, data_dir_for
 
 HEARTBEAT_S = 5.0
@@ -38,6 +46,7 @@ EVENT_CHARS = 20_000
 TRANSIENT_STATUS = frozenset({0, 408, 425, 429, 500, 502, 503, 504})
 BACKOFF_S = (2.0, 5.0, 15.0, 30.0, 60.0)
 HISTORY_FILE, INFLIGHT_FILE = "history.json", "inflight.json"
+RESUME_NOTE = "[harness] You were set aside for an urgent request, which is now done. Go on with what you were doing."
 INTERRUPTED_NOTE = ("[harness] The previous turn was interrupted while it was running {tool} with {arguments}. It may have "
                     "run already. Do not run it again without first checking what really happened, and tell the user.")
 
@@ -49,14 +58,23 @@ class SessionStore:
         self.dir = Path(directory)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.redact = redact
+        self._lock = threading.Lock()                # tasks that run side by side save through one writer
 
     def _write(self, name: str, data: Dict[str, Any]) -> None:
         text = json.dumps(data, ensure_ascii=False)
         if self.redact:
             text = self.redact(text)                 # defence in depth: a secret never reaches the disk
-        tmp = self.dir / (name + ".tmp")
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, self.dir / name)
+        with self._lock:
+            tmp = self.dir / (name + ".tmp")
+            tmp.write_text(text, encoding="utf-8")
+            for attempt in range(5):
+                try:
+                    os.replace(tmp, self.dir / name)
+                    return
+                except PermissionError:              # a reader or a scanner holds the file for a moment
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.02)
 
     def save(self, messages: List[Dict[str, Any]], meta: Dict[str, Any]) -> None:
         self._write(HISTORY_FILE, {**meta, "saved": time.time(), "messages": messages})
@@ -86,59 +104,114 @@ class SessionStore:
 
 
 def server_health(endpoint: str, api_key: Optional[str], timeout: float = 5.0) -> Dict[str, Any]:
-    """What the server says about itself: {"reachable", "loaded", "loading", "auto_load"}."""
+    """What the server says about itself: {"reachable", "loaded", "loading", "auto_load", "parallel"} (how many requests the model
+    answers at once)."""
     req = urllib.request.Request(endpoint.rstrip("/") + "/v1/status", headers={"Authorization": f"Bearer {api_key}"} if api_key else {})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, OSError, ValueError):
-        return {"reachable": False, "loaded": False, "loading": False, "auto_load": False}
+        return {"reachable": False, "loaded": False, "loading": False, "auto_load": False, "parallel": 1}
     return {"reachable": True, "loaded": bool(data.get("loaded")), "loading": bool(data.get("loading")),
-            "auto_load": bool(data.get("auto_load"))}
+            "auto_load": bool(data.get("auto_load")), "parallel": int((data.get("concurrency") or {}).get("serving") or 1)}
+
+
+@dataclass
+class Task:
+    """One request being worked on. The person's own conversation is the main agent's; an urgent or parallel request, which has
+    nothing to do with it, gets a fork with a conversation of its own."""
+    turn: str
+    text: str
+    agent: Any
+    side: bool = False
+    interrupt: bool = False                       # asked to stop its model call now, to be put aside
+    state_running: bool = False                   # a model call or a tool is in progress
+
+
+class _Current:
+    """The agent of the task the calling thread is working on, for the tools that look at the person's latest words."""
+
+    def __init__(self, session: "Session") -> None:
+        self._s = session
+
+    @property
+    def _agent(self) -> Any:
+        task = getattr(self._s._tl, "task", None)
+        return task.agent if task is not None else self._s.agent
+
+    last_user_text = property(lambda self: self._agent.last_user_text)
+    untrusted_since_user = property(lambda self: self._agent.untrusted_since_user)
+
+    def request_end_turn(self) -> None:
+        self._agent.request_end_turn()
 
 
 class Session:
     def __init__(self, built: BuiltAgent, store: SessionStore, emit: Callable[[Dict[str, Any]], None], session_id: str = "",
                  waits: tuple = BACKOFF_S, sleep: Callable[[float], None] = time.sleep,
-                 health: Optional[Callable[[], Dict[str, Any]]] = None) -> None:
+                 health: Optional[Callable[[], Dict[str, Any]]] = None, router: Optional[Router] = None) -> None:
         self.built, self.store, self.emit = built, store, emit
         self.agent = built.agent
         self.session_id = session_id
         self.waits, self.sleep = tuple(waits), sleep
-        self.health = health or (lambda: {"reachable": True, "loaded": True, "loading": False, "auto_load": True})
+        self.health = health or (lambda: {"reachable": True, "loaded": True, "loading": False, "auto_load": True, "parallel": 1})
+        self.router = router or Router()
         self.turn_id = ""
         self.busy = False
         self.blocked: Optional[Dict[str, Any]] = None
         self.turns_done = 0
         self.last_progress = time.monotonic()
-        self._worker: Optional[threading.Thread] = None
-        self._lock = threading.Lock()
+        self._workers = 0                                       # threads working on requests
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.RLock()
+        self._tl = threading.local()
+        self.inbox: List[Dict[str, str]] = []                   # messages that came while busy, not yet looked at
+        self.queue: List[Dict[str, str]] = []                   # requests that wait for their turn on the main conversation
+        self.urgent: List[Dict[str, str]] = []                  # requests that cannot wait, to be done next
+        self.stack: List[Task] = []                             # tasks put aside, to go on afterwards
+        self.tasks: Dict[str, Task] = {}                        # the tasks that exist, by turn
         self._pending_note: Optional[str] = None
-        self._asks: Dict[str, Dict[str, Any]] = {}              # confirmations the turn is waiting for, by id
+        self._asks: Dict[str, Dict[str, Any]] = {}              # confirmations a task is waiting for, by id
         self._ask_lock = threading.Lock()
-        self.waiting = False                                    # a turn waiting for the person is not stuck
+        self._waiting_n = 0                                     # a task waiting for the person is not stuck
         self.planner: Any = None
         self._summary = ""                                      # the plans summary the conversation last got
         self._delta_lock = threading.Lock()
-        self._delta_kind, self._delta_text, self._delta_at = "", [], time.monotonic()
-        self.agent.on_event = self._on_event
-        self.agent.on_turn_end = self._on_turn_end
-        self.agent.on_delta = self._on_delta
+        self._delta_kind, self._delta_turn, self._delta_text, self._delta_at = "", "", [], time.monotonic()
+        self.current = _Current(self)
+        self.main = Task("main", "", self.agent)
+        self._adopt(self.main)
+
+    @property
+    def waiting(self) -> bool:
+        return self._waiting_n > 0
+
+    def _adopt(self, task: Task) -> None:
+        a = task.agent
+        a.on_event = lambda e, t=task: self._on_event(e, t)
+        a.on_turn_end = lambda turn, t=task: self._on_turn_end(turn, t)
+        a.on_delta = lambda k, x, t=task: self._on_delta(k, x, t)
+        a.before_inference = lambda t=task: self._safe_point(t)
 
     # -- the history -----------------------------------------------------------------------------------
 
+    def _pending(self) -> List[Dict[str, str]]:
+        return [*self.urgent, *self.queue, *self.inbox]
+
     def _save(self) -> None:
-        self.store.save(self.agent.messages[1:], {"session": self.session_id, "turns": self.turns_done, "plans_summary": self._summary})
+        self.store.save(self.agent.messages[1:], {"session": self.session_id, "turns": self.turns_done, "plans_summary": self._summary,
+                                                  "pending": self._pending()})
 
     def restore(self) -> int:
         """Takes the saved history back. An action that cannot be undone and was running when the process died is
-        reported at once, and nothing goes on until the person says so."""
+        reported at once, and requests that were waiting are kept for the person to release: nothing goes on until they say so."""
         data = self.store.load()
         count = 0
         if data:
             self.agent.messages = [self.agent.messages[0], *data["messages"]]
             self.turns_done = int(data.get("turns") or 0)
             self._summary = str(data.get("plans_summary") or "")
+            self.queue = [m for m in data.get("pending", []) if isinstance(m, dict) and m.get("text")]
             count = len(data["messages"])
         lost = self.store.inflight()
         if lost:
@@ -146,65 +219,77 @@ class Session:
             self.blocked = {"reason": "interrupted_irreversible", "detail": f"{lost.get('tool')} may have run before the process stopped",
                             "options": ["resume", "close"], "tool": lost.get("tool"), "arguments": lost.get("arguments")}
             self.store.clear_inflight()
+        elif self.queue:
+            self.blocked = {"reason": "unfinished_requests", "detail": f"{len(self.queue)} request(s) were waiting when the process stopped",
+                            "options": ["resume", "close"]}
         return count
 
-    def _on_turn_end(self, turn: al.AgentTurn) -> None:
+    def _on_turn_end(self, turn: al.AgentTurn, task: Task) -> None:
         self.turns_done += 1
         self.last_progress = time.monotonic()
         self._save()
 
-    def _on_delta(self, kind: str, text: str) -> None:
+    def _on_delta(self, kind: str, text: str, task: Task) -> None:
         """The model's text as it is written, in pieces of a few hundred characters or a quarter of a second."""
         self.last_progress = time.monotonic()
-        if self.agent.cancel.is_set():
+        if task.agent.cancel.is_set() or task.interrupt:
             raise StreamCancelled()                      # the connection closes and the model stops writing
         with self._delta_lock:
-            if self._delta_kind and self._delta_kind != kind:
+            if self._delta_text and (self._delta_kind != kind or self._delta_turn != task.turn):
                 self._flush_delta()
-            self._delta_kind = kind
+            self._delta_kind, self._delta_turn = kind, task.turn
             self._delta_text.append(text)
             if sum(map(len, self._delta_text)) >= DELTA_CHARS or time.monotonic() - self._delta_at >= DELTA_S:
                 self._flush_delta()
 
     def _flush_delta(self) -> None:
         if self._delta_text:
-            self.emit({"event": "delta", "turn": self.turn_id, "kind": self._delta_kind, "text": "".join(self._delta_text)})
+            self.emit({"event": "delta", "turn": self._delta_turn, "kind": self._delta_kind, "text": "".join(self._delta_text)})
         self._delta_text, self._delta_at = [], time.monotonic()
 
-    def _on_event(self, event: Dict[str, Any]) -> None:
+    def _on_event(self, event: Dict[str, Any], task: Task) -> None:
         with self._delta_lock:
             self._flush_delta()                         # the pieces come before the whole message they belong to
         self.last_progress = time.monotonic()
         kind = event.get("type")
         if kind == "tool_start" and event.get("effect") == "irreversible":
-            self.store.mark_inflight({"turn": self.turn_id, "tool": event.get("name"), "arguments": event.get("arguments")})
+            self.store.mark_inflight({"turn": task.turn, "tool": event.get("name"), "arguments": event.get("arguments")})
         elif kind == "tool_end":
             self.store.clear_inflight()
         shown = dict(event)
         for key in ("output", "content", "reasoning"):
             if isinstance(shown.get(key), str) and len(shown[key]) > EVENT_CHARS:
                 shown[key] = shown[key][:EVENT_CHARS] + f"\n[... {len(event[key]) - EVENT_CHARS} more characters]"
-        self.emit({"event": "agent", "turn": self.turn_id, "data": shown})
+        self.emit({"event": "agent", "turn": task.turn, "data": shown})
 
     # -- questions to the person -------------------------------------------------------------------------
 
+    def _cur_turn(self) -> str:
+        task = getattr(self._tl, "task", None)
+        return task.turn if task is not None else self.turn_id
+
+    def _cur_cancel(self) -> threading.Event:
+        task = getattr(self._tl, "task", None)
+        return (task.agent if task is not None else self.agent).cancel
+
     def _ask(self, payload: Dict[str, Any]) -> str:
-        """A confirmation: shown with its buttons, and the turn waits for the answer ("confirm", "cancel" or "" if the turn
-        was cancelled). A turn waiting for the person is not stuck."""
+        """A confirmation: shown with its buttons, and the task waits for the answer ("confirm", "cancel" or "" if it was
+        cancelled). A task waiting for the person is not stuck."""
         aid = uuid.uuid4().hex[:8]
         slot = {"event": threading.Event(), "value": "", "values": {o["value"] for o in payload.get("options", [])}}
+        cancel = self._cur_cancel()
         with self._ask_lock:
             self._asks[aid] = slot
-        self.emit({"event": "ask", "id": aid, "turn": self.turn_id, **payload})
-        self.waiting = True
+        self.emit({"event": "ask", "id": aid, "turn": self._cur_turn(), **payload})
+        self._waiting_n += 1
         try:
             while not slot["event"].wait(0.25):
                 self.last_progress = time.monotonic()
-                if self.agent.cancel.is_set():
+                if cancel.is_set():
                     return ""
             return slot["value"]
         finally:
-            self.waiting = False
+            self._waiting_n -= 1
             with self._ask_lock:
                 self._asks.pop(aid, None)
 
@@ -220,7 +305,7 @@ class Session:
 
     def _question(self, payload: Dict[str, Any]) -> bool:
         """A question that ends the turn: the button the person presses is their next message."""
-        self.emit({"event": "ask", "id": uuid.uuid4().hex[:8], "turn": self.turn_id, **payload})
+        self.emit({"event": "ask", "id": uuid.uuid4().hex[:8], "turn": self._cur_turn(), **payload})
         return True
 
     def permission_confirm(self, tool: str, arguments: Dict[str, Any]) -> bool:
@@ -234,8 +319,8 @@ class Session:
         """Gives the conversation the planner's tools and the question tool; every change to a plan asks."""
         from harness.planner_tools import Confirmer, register_ask_tool, register_planner_tools
         self.planner = client
-        register_planner_tools(self.agent.tools, client, Confirmer(self.agent, ask=self._ask))
-        register_ask_tool(self.agent.tools, self.agent, self._question)
+        register_planner_tools(self.agent.tools, client, Confirmer(self.current, ask=self._ask))
+        register_ask_tool(self.agent.tools, self.current, self._question)
 
     def _plans_note(self) -> Optional[str]:
         """What the conversation should be told about the plans: only when they changed since it last was, and before the
@@ -251,118 +336,349 @@ class Session:
 
     # -- commands --------------------------------------------------------------------------------------
 
-    def send(self, turn_id: str, text: str) -> bool:
-        with self._lock:
-            if self.busy:
-                self.emit({"event": "error", "turn": turn_id, "code": "busy", "message": "a turn is still running"})
-                return False
-            self.busy, self.turn_id, self.blocked = True, turn_id, None
-        self.agent.cancel.clear()
+    def _begin_main(self, turn: str, text: str) -> Task:
+        """Starts a turn of the person's own conversation: what the agent should know first, then their message."""
+        agent = self.agent
+        agent.cancel.clear()
         if self._pending_note:
-            self.agent.messages.append({"role": "user", "content": self._pending_note})
+            agent.messages.append({"role": "user", "content": self._pending_note})
             self._pending_note = None
         note = self._plans_note()
         if note:
-            self.agent.messages.append({"role": "user", "content": note})
-        self.agent.messages.append({"role": "user", "content": text})
-        self.agent.last_user_text = text
+            agent.messages.append({"role": "user", "content": note})
+        agent.messages.append({"role": "user", "content": text})
+        agent.last_user_text = text
         retrieved = self.built.retrieved_message(text)
-        self.agent.untrusted_since_user = bool(retrieved)
+        agent.untrusted_since_user = bool(retrieved)
         if retrieved:
-            self.agent.messages.append(retrieved)
+            agent.messages.append(retrieved)
         self._save()                                   # the message is kept before the model sees it
+        task = Task(turn, text, agent)
+        self._adopt(task)
+        self.tasks[turn] = task
+        return task
+
+    def _begin_side(self, turn: str, text: str) -> Task:
+        """A request with nothing to do with the main conversation: a fork with a conversation of its own."""
+        agent = self.agent.fork()
+        agent.messages.append({"role": "user", "content": text})
+        agent.last_user_text, agent.untrusted_since_user = text, False
+        task = Task(turn, text, agent, side=True)
+        self._adopt(task)
+        self.tasks[turn] = task
+        return task
+
+    def _launch(self, task: Task) -> None:
+        with self._lock:
+            self._workers += 1
+            self.busy = True
+        threading.Thread(target=self._work, args=(task,), name=f"session-task-{task.turn}", daemon=True).start()
+
+    def send(self, turn_id: str, text: str) -> bool:
+        with self._lock:
+            busy = self._workers > 0
+            if not busy:
+                self.blocked = None
+                self._workers += 1
+                self.busy, self.turn_id = True, turn_id
+        if busy:                                       # a task is under way: the message is looked at before its next model call
+            msg = {"turn": turn_id, "text": text}
+            self.emit({"event": "queued", "turn": turn_id, "text": text})
+            if self.parallel_slots() > self._workers:  # the model can take another request now: no need to wait for the task's safe point
+                threading.Thread(target=self._route_now, args=(msg,), name="session-route", daemon=True).start()
+                return True
+            with self._lock:
+                self.inbox.append(msg)
+            if STRONG_URGENT.search(text):             # no need to wait for the end of a long answer to put a task aside
+                self._interrupt_for_urgent()
+            self._save()
+            return True
+        task = self._begin_main(turn_id, text)
         self.emit({"event": "accepted", "turn": turn_id})
-        self._start(first=True)
+        threading.Thread(target=self._work, args=(task,), name="session-task", daemon=True).start()
         return True
 
-    def resume(self) -> bool:
-        """Goes on after a block, from where the conversation stands."""
+    def _route_now(self, msg: Dict[str, str]) -> None:
+        """When the model can answer more requests at once, a request that is not about the task in hand starts beside it at once;
+        one that is about the task waits for the task's next safe point, where it can be put into it."""
         with self._lock:
-            if self.busy:
-                self.emit({"event": "error", "code": "busy", "message": "a turn is still running"})
+            running = next((t for t in self.tasks.values() if not t.side and t.state_running), None) or self.main
+        how, why = self.router.route(msg["text"], self._context_of(running))
+        if how == STEER:
+            with self._lock:
+                self.inbox.append(msg)
+            self._save()
+        else:
+            self._route(running, msg, how, why)
+
+    def _interrupt_for_urgent(self) -> None:
+        """A strong urgency word: stop the model call that is being written (nothing it wrote is lost that matters: it was not
+        yet an action), so the message is looked at now. A tool that is running is never interrupted."""
+        with self._lock:
+            if self.parallel_slots() > 1:
+                return
+            for t in list(self.tasks.values()):
+                if not t.side and t.state_running:
+                    t.interrupt = True
+
+    def parallel_slots(self) -> int:
+        try:
+            return max(1, int(self.health().get("parallel") or 1))
+        except Exception:
+            return 1
+
+    def resume(self) -> bool:
+        """Goes on after a block, from where the conversation stands: the turn that was under way, then what was waiting."""
+        with self._lock:
+            if self._workers > 0:
+                self.emit({"event": "error", "code": "busy", "message": "a task is still running"})
                 return False
+            self._workers += 1
             self.busy, self.blocked = True, None
         self.agent.cancel.clear()
         if self._pending_note:
             self.agent.messages.append({"role": "user", "content": self._pending_note})
             self._pending_note = None
             self._save()
-        self._start(first=False)
+        if self._main_unfinished():
+            task = Task(self.turn_id or "resumed", "", self.agent)
+            self._adopt(task)
+            self.tasks[task.turn] = task
+        else:
+            task = self._next_after(None)
+            if task is None:
+                with self._lock:
+                    self._workers -= 1
+                    self.busy = self._workers > 0
+                return True
+        threading.Thread(target=self._work, args=(task,), name="session-task", daemon=True).start()
         return True
 
+    def _main_unfinished(self) -> bool:
+        """Whether the main conversation stops in the middle of a turn: after the person's message or a tool's result."""
+        last = self.agent.messages[-1] if len(self.agent.messages) > 1 else None
+        return bool(last) and (last["role"] in ("user", "tool") or bool(last.get("tool_calls")))
+
     def cancel(self) -> None:
-        self.agent.cancel.set()
+        """Stops everything: the task in hand, what was put aside and what was waiting. (Stop means stop.)"""
+        with self._lock:
+            cleared = len(self.inbox) + len(self.queue) + len(self.urgent) + len(self.stack)
+            self.inbox, self.queue, self.urgent, self.stack = [], [], [], []
+            for t in list(self.tasks.values()):
+                t.agent.cancel.set()
+            self.agent.cancel.set()
+        if cleared:
+            self.emit({"event": "cleared", "count": cleared})
+
+    def promote(self, turn: str) -> bool:
+        """A request that waits in the queue becomes urgent: the task in hand is put aside at its next safe point."""
+        with self._lock:
+            msg = next((m for m in self.queue if m["turn"] == turn), None)
+            if msg is None:
+                return False
+            self.queue.remove(msg)
+            self.urgent.append(msg)
+        self.emit({"event": "routed", "turn": turn, "how": URGENT, "why": "person"})
+        self._interrupt_for_urgent()
+        return True
+
+    def drop(self, turn: str) -> bool:
+        with self._lock:
+            before = len(self.queue) + len(self.urgent)
+            self.queue = [m for m in self.queue if m["turn"] != turn]
+            self.urgent = [m for m in self.urgent if m["turn"] != turn]
+            gone = before != len(self.queue) + len(self.urgent)
+        if gone:
+            self.emit({"event": "dropped", "turn": turn})
+            self._save()
+        return gone
 
     def idle_seconds(self) -> float:
-        """How long the running turn has gone without news; a turn waiting for the person is not stuck, so 0."""
+        """How long the running task has gone without news; a task waiting for the person is not stuck, so 0."""
         if not self.busy or self.waiting:
             return 0.0
         return round(time.monotonic() - self.last_progress, 1)
 
-    def _start(self, first: bool) -> None:
-        self._worker = threading.Thread(target=self._work, name="session-turn", daemon=True)
-        self._worker.start()
+    # -- the looking at what the person wrote meanwhile ---------------------------------------------------
 
-    # -- one turn, with its retries --------------------------------------------------------------------
+    def _context_of(self, task: Task) -> Dict[str, Any]:
+        msgs = task.agent.messages
+        last_assistant = next((m for m in reversed(msgs) if m["role"] == "assistant"), None)
+        progress = ""
+        if last_assistant:
+            progress = (last_assistant.get("content") or "") or ", ".join(c["function"]["name"] for c in last_assistant.get("tool_calls", []))
+        return {"task": task.text or task.agent.last_user_text, "progress": progress}
 
-    def _wait(self, seconds: float) -> bool:
+    def _safe_point(self, task: Task) -> Optional[str]:
+        """Between two model calls nothing is half done: the messages that came meanwhile are routed here, and the task is put
+        aside if something urgent is waiting."""
+        verdict = None
+        while True:
+            with self._lock:
+                msg = self.inbox.pop(0) if self.inbox else None
+            if msg is None:
+                break
+            how, why = self.router.route(msg["text"], self._context_of(task))
+            self._route(task, msg, how, why)
+        with self._lock:
+            if self.urgent and not task.side:
+                verdict = al.SUSPENDED
+        return verdict
+
+    def _route(self, task: Task, msg: Dict[str, str], how: str, why: str) -> None:
+        turn, text = msg["turn"], msg["text"]
+        if how == STEER:
+            task.agent.messages.append({"role": "user", "content": text})
+            task.agent.last_user_text, task.agent.untrusted_since_user = text, False
+            if not task.side:
+                self._save()
+            self.emit({"event": "routed", "turn": turn, "how": STEER, "why": why})
+            return
+        if self.parallel_slots() > self._workers:        # the model answers several requests at once: no need to wait or to stop
+            side = self._begin_side(turn, text)
+            self.emit({"event": "routed", "turn": turn, "how": "parallel", "why": why})
+            self._launch(side)
+            return
+        with self._lock:
+            (self.urgent if how == URGENT else self.queue).append(msg)
+            position = len(self.queue)
+        self.emit({"event": "routed", "turn": turn, "how": how, "why": why, "position": position if how == QUEUE else 0})
+        self._save()
+
+    # -- the tasks, one after the other --------------------------------------------------------------------
+
+    def _wait(self, seconds: float, cancel: threading.Event) -> bool:
         """Waits in short slices; False when the person cancelled meanwhile."""
         end = time.monotonic() + seconds
         while time.monotonic() < end:
-            if self.agent.cancel.is_set():
+            if cancel.is_set():
                 return False
             self.sleep(min(0.25, max(0.0, end - time.monotonic())))
-        return not self.agent.cancel.is_set()
+        return not cancel.is_set()
 
-    def _work(self) -> None:
-        agent = self.agent
+    def _run_task(self, task: Task) -> str:
+        """Runs one task to where it stops, with new tries while the model is only busy. Returns "done", "suspended" or "blocked"."""
+        agent = task.agent
         attempt = 0
-        try:
-            while True:
-                self.last_progress = time.monotonic()
-                turns = agent.run(None)
-                if agent.stop_reason != al.ERROR:
-                    break
-                status = agent.error_status
-                if status is None or status not in TRANSIENT_STATUS:
-                    self._block("refused" if status else "error", agent.error)
-                    return
-                if attempt >= len(self.waits):
-                    self._block("model_unavailable", f"{agent.error} (after {attempt} new tries)")
-                    return
-                health = self.health()
-                if health["reachable"] and not health["loaded"] and not health["loading"] and not health["auto_load"]:
-                    self._block("model_not_loaded", "the model is not loaded and the server will not load it by itself")
-                    return
-                wait = self.waits[attempt]
-                attempt += 1
-                self.emit({"event": "retrying", "turn": self.turn_id, "attempt": attempt, "of": len(self.waits), "wait_s": wait,
-                           "status": status, "error": agent.error, "reachable": health["reachable"], "loading": health["loading"]})
-                if not self._wait(wait):
-                    agent.stop_reason = al.CANCELLED
-                    break
-            final = next((t.assistant_content for t in reversed(agent.turns) if not t.tool_calls and t.assistant_content), "")
-            self._save()
-            self.emit({"event": "done", "turn": self.turn_id, "stop_reason": agent.stop_reason, "error": agent.error,
-                       "final": final, "tokens": agent.total_tokens})
-        except BaseException as exc:                       # the process stays up: the turn ends with an error
-            self._block("crash", f"{type(exc).__name__}: {exc}")
-        finally:
-            with self._lock:
-                self.busy = False
+        self._tl.task = task
+        self.turn_id = task.turn
+        task.interrupt = False
+        agent.cancel.clear()
+        self.emit({"event": "started", "turn": task.turn, "side": task.side})
+        while True:
+            self.last_progress = time.monotonic()
+            task.state_running = True
+            try:
+                agent.run(None)
+            finally:
+                task.state_running = False
+            if agent.stop_reason == al.SUSPENDED:
+                return "suspended"
+            if agent.stop_reason == al.CANCELLED and task.interrupt:      # the model call was cut to look at an urgent message
+                task.interrupt = False
+                agent.cancel.clear()
+                if self._safe_point(task) == al.SUSPENDED:
+                    return "suspended"
+                continue
+            if agent.stop_reason != al.ERROR:
+                return "done"
+            status = agent.error_status
+            if status is None or status not in TRANSIENT_STATUS:
+                self._block(task, "refused" if status else "error", agent.error)
+                return "blocked"
+            if attempt >= len(self.waits):
+                self._block(task, "model_unavailable", f"{agent.error} (after {attempt} new tries)")
+                return "blocked"
+            health = self.health()
+            if health["reachable"] and not health["loaded"] and not health["loading"] and not health["auto_load"]:
+                self._block(task, "model_not_loaded", "the model is not loaded and the server will not load it by itself")
+                return "blocked"
+            wait = self.waits[attempt]
+            attempt += 1
+            self.emit({"event": "retrying", "turn": task.turn, "attempt": attempt, "of": len(self.waits), "wait_s": wait,
+                       "status": status, "error": agent.error, "reachable": health["reachable"], "loading": health["loading"]})
+            if not self._wait(wait, agent.cancel):
+                agent.stop_reason = al.CANCELLED
+                return "done"
 
-    def _block(self, reason: str, detail: str) -> None:
-        """The turn cannot go on and waiting will not change it: the person decides what happens next."""
+    def _more(self) -> bool:
+        return bool(self.stack or self.queue or self.urgent or self.inbox)
+
+    def _work(self, task: Optional[Task]) -> None:
+        try:
+            while task is not None:
+                outcome = self._run_task(task)
+                if outcome == "blocked":
+                    return
+                if outcome == "suspended":
+                    task.state_running = task.interrupt = False
+                    with self._lock:
+                        self.stack.append(task)
+                        nxt = self.urgent.pop(0) if self.urgent else None
+                    self.emit({"event": "suspended", "turn": task.turn, "by": nxt["turn"] if nxt else None})
+                    task = self._begin_side(nxt["turn"], nxt["text"]) if nxt else self._next_after(task)
+                    continue
+                agent = task.agent
+                final = next((t.assistant_content for t in reversed(agent.turns) if not t.tool_calls and t.assistant_content), "")
+                self._save()
+                self.emit({"event": "done", "turn": task.turn, "stop_reason": agent.stop_reason, "error": agent.error, "final": final,
+                           "tokens": agent.total_tokens, "more": self._more() and not agent.cancel.is_set()})
+                self.tasks.pop(task.turn, None)
+                task = self._next_after(task)
+        except BaseException as exc:                       # the process stays up: the task ends with an error
+            self._block(task, "crash", f"{type(exc).__name__}: {exc}")
+        finally:
+            self._tl.task = None
+            with self._lock:
+                self._workers -= 1
+                self.busy = self._workers > 0
+
+    def _next_after(self, finished: Optional[Task]) -> Optional[Task]:
+        """What to do when a task ends: an urgent request first, then the task that was put aside, then what waited its turn."""
+        if finished is not None and finished.agent.cancel.is_set():
+            with self._lock:
+                self.stack, self.queue, self.urgent, self.inbox = [], [], [], []      # Stop means stop
+            return None
+        with self._lock:
+            leftovers, self.inbox = self.inbox, []
+        for msg in leftovers:                              # what came as the task ended: it has no task left to be added to
+            how, why = self.router.route(msg["text"], self._context_of(finished or self.main))
+            hurry = how == URGENT and bool(self.stack or (finished is not None and finished.side))
+            with self._lock:
+                (self.urgent if hurry else self.queue).append(msg)
+                position = len(self.queue)
+            self.emit({"event": "routed", "turn": msg["turn"], "how": URGENT if hurry else QUEUE, "why": why, "position": 0 if hurry else position})
+        with self._lock:
+            if self.urgent:
+                msg = self.urgent.pop(0)
+                side = True
+            elif self.stack:
+                back = self.stack.pop()
+                back.agent.messages.append({"role": "user", "content": RESUME_NOTE})
+                back.agent.cancel.clear()
+                self.emit({"event": "resumed", "turn": back.turn})
+                return back
+            elif self.queue:
+                msg = self.queue.pop(0)
+                side = False
+            else:
+                return None
+        if side:
+            return self._begin_side(msg["turn"], msg["text"])
+        self.emit({"event": "accepted", "turn": msg["turn"]})
+        return self._begin_main(msg["turn"], msg["text"])
+
+    def _block(self, task: Optional[Task], reason: str, detail: str) -> None:
+        """The task cannot go on and waiting will not change it: the person decides what happens next."""
         self.blocked = {"reason": reason, "detail": detail, "options": ["resume", "close"]}
         self._save()
-        self.emit({"event": "blocked", "turn": self.turn_id, **self.blocked})
-        with self._lock:
-            self.busy = False
+        self.emit({"event": "blocked", "turn": task.turn if task else self.turn_id, **self.blocked})
 
     def close(self, timeout: float = 15.0) -> None:
-        self.agent.cancel.set()
-        if self._worker and self._worker.is_alive():
-            self._worker.join(timeout)
+        self.cancel()
+        deadline = time.monotonic() + timeout
+        while self._workers > 0 and time.monotonic() < deadline:
+            time.sleep(0.05)
         self._save()
 
 
@@ -384,6 +700,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of in the conversation")
     parser.add_argument("--ask-only", action="store_true", help="answer without tools: a greeting does not become a loop")
     parser.add_argument("--no-planner", action="store_true", help="do not offer the planner's tools")
+    parser.add_argument("--router", choices=["model", "rules"], default="model",
+                        help="how a message that comes during a task is judged when its words do not decide: by the model, or not at all")
     parser.add_argument("--no-memory", action="store_true")
     parser.add_argument("--no-checkpoints", action="store_true")
     parser.add_argument("--heartbeat", type=float, default=HEARTBEAT_S)
@@ -431,7 +749,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         built.agent.tools = ToolRegistry()
     history = Path(args.history_dir) if args.history_dir else data_dir_for(Path(args.workspace).resolve()) / "sessions" / sid
     store = SessionStore(history, redact=built.agent.secrets.mask_secrets if built.agent.secrets else None)
-    session = Session(built, store, emit, session_id=sid, health=lambda: server_health(cfg.endpoint, cfg.api_key))
+    router = Router(judge_with_model(built.agent.client) if args.router == "model" else None)
+    session = Session(built, store, emit, session_id=sid, health=lambda: server_health(cfg.endpoint, cfg.api_key), router=router)
     if not args.ask_server:
         built.permissions.confirm_callback = session.permission_confirm      # the questions are put in the conversation
     if not args.ask_only and not args.no_planner:
@@ -445,6 +764,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     def beat() -> None:
         while not stop.wait(args.heartbeat):
             emit({"event": "heartbeat", "busy": session.busy, "turn": session.turn_id, "asking": session.waiting,
+                  "waiting_requests": len(session.queue) + len(session.inbox) + len(session.urgent), "put_aside": len(session.stack),
                   "idle_s": session.idle_seconds()})
     threading.Thread(target=beat, name="session-heartbeat", daemon=True).start()
 
@@ -463,6 +783,10 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                 session.send(str(cmd.get("id") or uuid.uuid4().hex[:8]), cmd["text"])
             elif name == "answer":
                 session.answer(cmd.get("id"), cmd.get("value"))
+            elif name == "promote":
+                session.promote(str(cmd.get("id")))
+            elif name == "drop":
+                session.drop(str(cmd.get("id")))
             elif name == "cancel":
                 session.cancel()
             elif name == "resume":

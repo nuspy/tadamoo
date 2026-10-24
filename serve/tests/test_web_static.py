@@ -26,6 +26,7 @@ DYNAMIC = {
     "ch.state.": ["dormant", "starting", "idle", "busy", "blocked", "asking", "closed"],
     "ch.tool.": ["running", "ok", "failed"],
     "ch.q.": ["plan_create", "plan_mark", "plan_change", "plan_archive", "permission"],
+    "ch.routed.": ["steer", "queue", "urgent", "parallel"],
     "ch.blocked.": ["refused", "error", "model_unavailable", "model_not_loaded", "process_unstable", "interrupted_irreversible", "crash", "start_failed", "other"],
     "pl.h.": ["create", "archive", "restore", "update_node", "mark", "rewind", "apply", "fallback", "update_meta"],
     "tk.status.": ["running", "done", "failed", "closed", "pending", "blocked"],

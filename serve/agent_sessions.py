@@ -58,10 +58,11 @@ class SessionManager:
                  python: Optional[str] = None, root: Path = ROOT, command: Optional[Callable[[str, Dict[str, Any], Path], List[str]]] = None,
                  idle_s: float = 1800.0, hang_s: float = 1200.0, beat_timeout_s: float = 45.0, restart_cap: int = 3,
                  restart_window_s: float = 600.0, tick_s: float = 1.0, start_wait_s: float = 60.0,
-                 default_workspace: Optional[Path] = None) -> None:
+                 default_workspace: Optional[Path] = None, router: str = "model") -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
+        self.router = router                                    # how a message that comes during a task is judged: "model" or "rules"
         self.default_workspace = Path(default_workspace) if default_workspace else None     # where a conversation works when none is named
         self.python, self.root = python or sys.executable, Path(root)
         self.command = command or self._command
@@ -171,7 +172,7 @@ class SessionManager:
 
     def _command(self, sid: str, rec: Dict[str, Any], history: Path) -> List[str]:
         cmd = [self.python, "-m", "harness", "session", "--session-id", sid, "--history-dir", str(history), "--workspace", rec["workspace"],
-               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15))]
+               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--router", self.router]
         for rule in rec.get("allow", []):
             cmd += ["--allow", rule]
         if rec.get("ask_only"):
@@ -239,6 +240,9 @@ class SessionManager:
                 return
             if kind == "heartbeat":
                 live.idle_s = float(event.get("idle_s") or 0.0)
+                waiting, aside = int(event.get("waiting_requests") or 0), int(event.get("put_aside") or 0)
+                if (rec.get("waiting_requests", 0), rec.get("put_aside", 0)) != (waiting, aside):
+                    self._set(rec, waiting_requests=waiting, put_aside=aside)       # what waits behind the task in hand
                 return
             if kind == "ready":
                 blocked = event.get("blocked")
@@ -257,9 +261,18 @@ class SessionManager:
                     self._set(rec, state="asking", ask=shown)
                 else:
                     self._set(rec, question=shown)
+            elif kind == "queued":
+                self._unconfirmed.pop(sid, None)                     # the process has the message; it will look at it before its next model call
+            elif kind in ("started", "resumed"):
+                if rec["state"] not in ("asking", "blocked"):
+                    self._set(rec, state="busy")
             elif kind == "done":
                 asked = event.get("stop_reason") == "asked"
-                self._set(rec, state="idle", blocked=None, ask=None, turns=rec.get("turns", 0) + 1, **({} if asked else {"question": None}))
+                state = "busy" if event.get("more") else "idle"      # other requests are still waiting: the conversation is still at work
+                self._set(rec, state=state, blocked=None, ask=None, turns=rec.get("turns", 0) + 1, **({} if asked else {"question": None}),
+                          **({} if event.get("more") else {"waiting_requests": 0, "put_aside": 0}))
+            elif kind == "cleared":
+                self._set(rec, waiting_requests=0, put_aside=0)
             elif kind == "blocked":
                 self._set(rec, state="blocked", ask=None, blocked={k: event.get(k) for k in ("reason", "detail", "options", "tool", "arguments")})
             elif kind == "closed":
@@ -333,17 +346,14 @@ class SessionManager:
             rec = self._record(sid)
             if rec["state"] == "closed":
                 raise RunError("That conversation is closed.", "closed")
-            if rec["state"] == "asking" and sid in self._live:
-                raise RunBusy("The agent is waiting for your answer to its question. Answer it, or stop it.", "asking")
-            if rec["state"] in ("busy", "starting") and sid in self._live:
-                raise RunBusy("The agent is still answering the last message. Stop it or wait.", "busy")
-            turn = secrets.token_hex(3)
+            turn = secrets.token_hex(3)              # a message that comes while the agent works is looked at by the agent itself
             live = self._ensure(sid)
             cmd = {"cmd": "send", "id": turn, "text": text}
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
                 rec["title"] = " ".join(text.split())[:TITLE_CHARS]
-            self._set(rec, state="starting" if not live.ready.is_set() else "busy", blocked=None, question=None)
+            keep = rec["state"] in ("busy", "asking") and live.ready.is_set()       # a task is under way: its state is not changed
+            self._set(rec, blocked=None, question=None, **({} if keep else {"state": "starting" if not live.ready.is_set() else "busy"}))
             if not live.ready.is_set():
                 live.after_ready.append(cmd)
             elif not self._write(sid, live, cmd):
@@ -365,6 +375,23 @@ class SessionManager:
             if not self._write(sid, live, {"cmd": "answer", "id": ask_id, "value": value}):
                 raise RunError("The agent process did not take the answer; try again.", "write_failed")
         self._push(sid, {"event": "answered", "ask": ask_id, "value": value})
+        return self.get(sid)
+
+    def promote(self, sid: str, turn: Any) -> Dict[str, Any]:
+        """A request that waits behind the task in hand becomes urgent: the task is put aside at its next safe point."""
+        return self._tell(sid, {"cmd": "promote", "id": str(turn)})
+
+    def drop(self, sid: str, turn: Any) -> Dict[str, Any]:
+        """Takes a waiting request out of the queue."""
+        return self._tell(sid, {"cmd": "drop", "id": str(turn)})
+
+    def _tell(self, sid: str, cmd: Dict[str, Any]) -> Dict[str, Any]:
+        with self._lock:
+            self._record(sid)
+            live = self._live.get(sid)
+            if live is None or not live.ready.is_set():
+                raise RunError("That conversation is not running.", "not_running")
+            self._write(sid, live, cmd)
         return self.get(sid)
 
     def cancel(self, sid: str) -> Dict[str, Any]:

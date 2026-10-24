@@ -24,7 +24,7 @@ def setup(tmp_path, monkeypatch, start_server):  # noqa: F811
     def make(scripts, api_key="", **kw):
         url = start_server(scripts, api_key=api_key)
         board = ApprovalBoard()
-        mgr = SessionManager(tmp_path / "j", url, api_key, board=board, tick_s=0.2, **kw)
+        mgr = SessionManager(tmp_path / "j", url, api_key, board=board, tick_s=0.2, router="rules", **kw)
         monkeypatch.setattr(handler, "_APPROVALS", board)
         monkeypatch.setattr(handler, "_SESSIONS", mgr)
         state.update(mgr=mgr, api=Api(url, api_key))
@@ -107,7 +107,7 @@ def test_a_confirmation_in_the_conversation_is_answered_through_the_api(setup, w
     ask = wait_for(lambda: api("GET", f"/api/agent/sessions/{sid}")[1]["session"].get("ask"), seconds=60)
     assert ask["facts"]["kind"] == "plan_archive" and "Viaggio a Cervinia" in ask["question"]
     assert any(p["plan_id"] == "viaggio" for p in api("GET", "/api/plans")[1]["plans"])           # nothing archived yet
-    assert api("POST", f"/api/agent/sessions/{sid}/send", {"text": "intanto"})[0] == 409
+    assert api("POST", f"/api/agent/sessions/{sid}/send", {"text": "intanto"})[0] == 200        # looked at by the agent after the answer
     assert api("POST", f"/api/agent/sessions/{sid}/answer", {"ask": ask["id"], "value": "boh"})[0] == 400
     assert api("POST", f"/api/agent/sessions/{sid}/answer", {"ask": ask["id"], "value": "confirm"})[0] == 200
     wait_for(lambda: any(e["event"] == "done" for e in events(api, sid)["events"]), seconds=60)

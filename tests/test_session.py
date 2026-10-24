@@ -84,7 +84,7 @@ def test_two_messages_in_a_row_the_second_sees_the_first(tmp_path):
     assert done["final"] == "Hai detto di chiederti il nome."
     roles = [m["role"] for m in client.sent[1]]
     assert roles == ["system", "user", "assistant", "user"]
-    assert [e["event"] for e in ev.items[:2]] == ["accepted", "agent"]
+    assert [e["event"] for e in ev.items[:3]] == ["accepted", "started", "agent"]
 
 
 def test_the_history_survives_the_process_and_the_prefix_does_not_change(tmp_path):
@@ -147,14 +147,14 @@ def test_a_cancel_stops_the_answer_while_it_is_being_written(tmp_path):
     assert not any(m["role"] == "assistant" for m in built.agent.messages)        # the half-written answer is not kept
 
 
-def test_a_second_message_while_one_runs_is_refused(tmp_path):
+def test_a_second_message_while_one_runs_waits_for_the_safe_point_instead_of_being_refused(tmp_path):
     gate = threading.Event()
-    client = Scripted(lambda: (gate.wait(5), say("ok"))[1])
+    client = Scripted(lambda: (gate.wait(5), say("ok"))[1], say("visto anche il secondo"))
     session, ev, *_ = make(tmp_path, client)
     session.send("m1", "lento")
     ev.wait("accepted")
-    assert session.send("m2", "ancora") is False
-    assert ev.wait("error")["code"] == "busy"
+    assert session.send("m2", "ancora") is True
+    assert ev.wait("queued")["turn"] == "m2"
     gate.set()
     ev.wait("done")
 

@@ -78,6 +78,29 @@ dies while it runs, the next start reports `interrupted_irreversible`, nothing g
 gets a note that the tool may already have run. A conversation idle for 30 minutes loses its process (it is `dormant`; the
 history stays). The processes end with the server. Secrets are masked before the history reaches the disk.
 
+### A message written while the agent works
+
+A conversation is never closed while the agent works. A message that comes meanwhile is looked at before the agent's next model
+call (never in the middle of a tool: an action that has begun is finished), and `harness/router.py` sends it one of three ways:
+
+| how | when | what happens |
+|---|---|---|
+| **steer** | it changes, corrects, adds to or asks about the task in hand; also the default when nothing says otherwise | it goes into that task's conversation and the agent goes on with the new instruction |
+| **queue** | a different request that can wait ("when you are done", "later", "not urgent", or the judge says so) | it starts when the task is done, on the same conversation; where the model answers several requests at once (`parallel` in `/v1/status`, a cloud provider) it starts at once, beside the task |
+| **urgent** | a different request that cannot wait ("urgent", "asap", "before anything else", or the judge says so) | the task is put aside where it stands; the urgent one is done in a conversation of its own; the first one then goes on, told that it was set aside |
+
+The person's words decide first. A weak word of hurry ("subito", "right now") does not make a request unrelated (it may be part of
+the task: "write it right now"): it counts only when the judge says the request is a different one. A strong one ("urgente",
+"asap") also stops the model call that is being written, so the message is looked at now; what was half written is dropped, nothing
+was done yet. The judge (`--router model`, the default) asks the loaded model for one word and gives up quietly; with `--router rules`
+only the words decide. Without a verdict the message is **steered**: the person is talking to the agent, so the likeliest thing is
+that they talk about what it is doing, and a steered urgent request is still seen by the agent at once.
+
+The page shows what was decided ("Added to what the agent is doing", "It can wait", "Urgent: the task is put aside") and, for a
+request that waits, two buttons: *Do it now* and *Remove*. **Stop means stop**: it ends the task in hand and drops what was put aside
+and what was waiting. Requests that waited are kept on disk and, if the process dies, are held for the person to release (`resume`).
+An urgent request is not put aside for another urgent one: they go in order.
+
 ### The Chat and the planner
 
 A conversation has the planner's tools (`harness/planner_tools.py`), unless it is started `ask_only`: `plan_list` and

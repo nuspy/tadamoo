@@ -28,6 +28,7 @@ TOOL_CALL_REGEX = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL)
 FUNCTION_REGEX = re.compile(r"<function=([^>\s]+)>(.*?)</function>", re.DOTALL)
 PARAMETER_REGEX = re.compile(r"<parameter=([^>\s]+)>\n?(.*?)\n?</parameter>", re.DOTALL)
 FINAL, MAX_TURNS, CANCELLED, BUDGET, LOOP, ERROR = "final", "max_turns", "cancelled", "budget", "loop", "error"
+SUSPENDED = "suspended"   # put aside at a safe point for something more urgent; it can go on from where it stands
 ASKED = "asked"       # the turn ended on a question for the person; their answer is the next message
 
 
@@ -106,6 +107,7 @@ class AgentLoop:
         on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
         sampling: Optional[Dict[str, Any]] = None,
         on_delta: Optional[Callable[[str, str], None]] = None,
+        before_inference: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self.client = client
         self.tools = tool_registry
@@ -125,6 +127,7 @@ class AgentLoop:
         self.context = context
         self.on_event = on_event
         self.on_delta = on_delta                  # the model's text as it is written ("content" or "reasoning"), when set
+        self.before_inference = before_inference  # looked at before every model call; it may add messages or ask to be put aside
         self.sampling = dict(sampling or {})      # temperature, seed, top_p...; the default is greedy
         self.loop_detector = LoopDetector()
         self.messages: List[Dict[str, Any]] = [self._system_message()]
@@ -138,6 +141,16 @@ class AgentLoop:
         self.last_user_text = ""                      # the words of the person's latest message
         self.untrusted_since_user = False             # content from outside came in after that message
         self._end_turn = False
+
+    def fork(self) -> "AgentLoop":
+        """Another conversation with the same tools, permissions, audit and model but its own messages: for a request that has
+        nothing to do with this one."""
+        return AgentLoop(
+            client=self.client, tool_registry=self.tools, max_turns=self.max_turns, system_prompt=self.system_prompt,
+            on_turn_end=self.on_turn_end, permissions=self.permissions, hooks=self.hooks, audit=self.audit, checkpoints=self.checkpoints,
+            secrets=self.secrets, output_filter=self.output_filter, max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds,
+            cancel=threading.Event(), max_loop_strikes=self.max_loop_strikes, context=self.context, on_event=self.on_event,
+            sampling=self.sampling, on_delta=self.on_delta)
 
     def request_end_turn(self) -> None:
         """For a tool: end this run when the tools of the current model turn are done (a question was put to the person)."""
@@ -328,6 +341,10 @@ class AgentLoop:
                 break
             if self._out_of_budget(started):
                 self.stop_reason = BUDGET
+                break
+
+            if self.before_inference is not None and self.before_inference() == SUSPENDED:
+                self.stop_reason = SUSPENDED          # between model calls and tools: nothing is half done
                 break
 
             t0 = time.monotonic()

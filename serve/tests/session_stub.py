@@ -88,6 +88,13 @@ for line in sys.stdin:
             busy["v"] = False
             emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "asked", "final": ""})
             continue
+        if text == "more":
+            busy["v"] = False
+            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "first part", "more": True})
+            continue
+        if text == "queue-me":
+            emit({"event": "queued", "turn": cmd.get("id"), "text": text})
+            continue
         if text == "block":
             emit({"event": "blocked", "turn": cmd.get("id"), "reason": "refused", "detail": "no", "options": ["resume", "close"]})
             busy["v"] = False
@@ -97,6 +104,8 @@ for line in sys.stdin:
         save(data)
         busy["v"] = False
         emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "echo: " + text})
+    elif name in ("promote", "drop"):
+        emit({"event": "routed" if name == "promote" else "dropped", "turn": cmd.get("id"), "how": "urgent"})
     elif name == "answer":
         busy["v"] = False
         emit({"event": "done", "turn": "answered", "stop_reason": "final", "final": "answered: " + str(cmd.get("value"))})

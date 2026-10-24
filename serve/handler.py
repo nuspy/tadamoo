@@ -1168,6 +1168,8 @@ def make_handler(svc: Service):
                                                                       req.get("confirm_auto") is True, req.get("max_turns", 15))})
                     if len(parts) == 3 and parts[2] == "send":
                         return self._json(200, mgr.send(parts[1], req.get("text")))
+                    if len(parts) == 3 and parts[2] in ("promote", "drop"):
+                        return self._json(200, {"session": getattr(mgr, parts[2])(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "answer":
                         return self._json(200, {"session": mgr.answer(parts[1], req.get("ask"), req.get("value"))})
                     if len(parts) == 3 and parts[2] == "cancel":
