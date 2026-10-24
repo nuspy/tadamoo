@@ -166,7 +166,7 @@ class CallAPICallClient:
     # ---- recordings: the Chat's audio and video attachments ------------------------------------------------
 
     def start_media_analysis(self, path: str, title: Optional[str] = None, speakers: int = 0,
-                             max_bytes: Optional[int] = None) -> Dict[str, Any]:
+                             max_bytes: Optional[int] = None, analyze: bool = True) -> Dict[str, Any]:
         """Sends one audio or video file to be transcribed. Raises ValueError for a file the service would refuse
         anyway; otherwise returns {"status": "queued", "id"}, {"status": "busy"} while another job runs (try again
         later) or {"status": "failed", "error"}. The file is only read, never changed."""
@@ -179,6 +179,8 @@ class CallAPICallClient:
         if max_bytes is not None and size > max_bytes:
             raise ValueError(f"the file is {size} bytes, over the limit of {max_bytes}")
         fields = {"speakers": str(max(0, int(speakers)))}
+        if not analyze:
+            fields["analyze"] = "0"          # the transcript only: a service that does not know the field still makes its summary
         if title:
             fields["title"] = title
         headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}

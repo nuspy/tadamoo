@@ -125,6 +125,11 @@ def recording(tmp_path):
     return f
 
 
+def test_only_the_transcript_can_be_asked_for(phone, recording):
+    CallAPICallClient(phone.url, token="t0ken").start_media_analysis(str(recording), analyze=False)
+    assert phone.uploads[0]["fields"] == {"speakers": "0", "analyze": "0"}
+
+
 def test_a_recording_is_sent_in_chunks_and_followed_to_the_end(phone, recording):
     c = CallAPICallClient(phone.url, token="t0ken")
     started = c.start_media_analysis(str(recording), title="Budget", speakers=2)

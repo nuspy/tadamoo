@@ -204,7 +204,8 @@ class Media:
     def is_available(self):
         return self.available
 
-    def start_media_analysis(self, path, title=None, speakers=0, max_bytes=None):
+    def start_media_analysis(self, path, title=None, speakers=0, max_bytes=None, analyze=True):
+        assert analyze is False                                                                   # only the words are wanted
         self.started.append((Path(path).name, Path(path).read_bytes()))
         return {"status": self.status, "id": "job1"} if self.status == "queued" else {"status": self.status, "error": "another recording is being analysed"}
 

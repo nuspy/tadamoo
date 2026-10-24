@@ -104,7 +104,7 @@ class FakeCallAPICall(_FakeServer):
             fname = name.group(1).decode("utf-8") if name else ""
             if not fname.lower().endswith((".mp3", ".wav", ".mp4", ".m4a", ".mkv")):
                 return 400, {"error": f"estensione non supportata: {fname.rsplit('.', 1)[-1]}"}
-            fields = dict(re.findall(rb'name="(speakers|title)"\r\n\r\n([^\r]*)', body))
+            fields = dict(re.findall(rb'name="(speakers|title|analyze)"\r\n\r\n([^\r]*)', body))
             self.uploads.append({"filename": fname, "size_seen": len(body), "fields": {k.decode(): v.decode() for k, v in fields.items()},
                                  "has_payload": b"AUDIOBYTES" in body})
             self.job_polls = 0

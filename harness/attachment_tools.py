@@ -84,7 +84,7 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
                 copy = tmp / meta["name"]
                 shutil.copyfile(folder / "file", copy)
                 try:
-                    res = call_client.start_media_analysis(str(copy), title=meta["name"])
+                    res = call_client.start_media_analysis(str(copy), title=meta["name"], analyze=False)
                 except ValueError as exc:
                     return f"The service does not take this file: {exc}"
             finally:
