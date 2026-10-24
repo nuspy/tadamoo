@@ -31,12 +31,20 @@ from serve.util.reqlog import export_jsonl, export_text
 from serve import plans as plans_mod, userdata
 from serve import review as review_mod
 from serve.agent_runs import AgentRunner, RunBusy, RunError
+from serve.agent_sessions import SessionManager
 from serve.approvals import ApprovalBoard, ApprovalError
 from serve.tasks import ChangeJournal, TaskJournal
 _TASKS = TaskJournal(userdata.path("journal"))        # runtime state lives in the user's data folder, not in the assets
 _CHANGES = ChangeJournal(userdata.path("journal"))
 _APPROVALS = ApprovalBoard()
 _RUNNER = None                                        # made on first use: it needs this server's address
+_SESSIONS = None                                      # the Chat's conversations with the agent, made on first use
+
+
+def stop_sessions() -> None:
+    """The server ends: the conversations' processes end with it (the next start finds the conversations again)."""
+    if _SESSIONS is not None:
+        _SESSIONS.shutdown()
 _PLANS = None                                          # the planner's service, made on first use
 from serve.util.reqtrace import RequestTrace
 from serve.util.text import stop_strings
@@ -1100,9 +1108,27 @@ def make_handler(svc: Service):
                                       svc.api_key or "", tasks=_TASKS, board=_APPROVALS)
             return _RUNNER
 
+        def _agent_sessions(self) -> SessionManager:
+            global _SESSIONS
+            if _SESSIONS is None:
+                _SESSIONS = SessionManager(userdata.path("journal"), f"http://127.0.0.1:{self.server.server_address[1]}",
+                                           svc.api_key or "", board=_APPROVALS)
+            return _SESSIONS
+
         def _agent_get(self, path):
             parts = path[len("/api/agent/"):].split("/")
             try:
+                if parts[0] == "sessions":
+                    mgr = self._agent_sessions()
+                    if parts == ["sessions"]:
+                        return self._json(200, mgr.view())
+                    if len(parts) == 3 and parts[2] == "events":
+                        after = int((parse_qs(urlsplit(self.path).query).get("after", ["0"])[0]) or 0)
+                        return self._json(200, mgr.events(parts[1], after))
+                    if len(parts) == 3 and parts[2] == "history":
+                        return self._json(200, mgr.history(parts[1]))
+                    if len(parts) == 2:
+                        return self._json(200, {"session": mgr.get(parts[1])})
                 if parts == ["runs"]:
                     return self._json(200, self._agent_runner().view())
                 if len(parts) == 3 and parts[0] == "runs" and parts[2] == "log":
@@ -1134,6 +1160,20 @@ def make_handler(svc: Service):
                 req = json.loads(self._body(1 << 16) or b"{}")
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
+                if parts[0] == "sessions":
+                    mgr = self._agent_sessions()
+                    if parts == ["sessions"]:
+                        return self._json(200, {"session": mgr.create(req.get("workspace"), req.get("mode", "default"), req.get("allow"),
+                                                                      req.get("ask_only") is True, req.get("title", ""),
+                                                                      req.get("confirm_auto") is True, req.get("max_turns", 15))})
+                    if len(parts) == 3 and parts[2] == "send":
+                        return self._json(200, mgr.send(parts[1], req.get("text")))
+                    if len(parts) == 3 and parts[2] == "cancel":
+                        return self._json(200, {"session": mgr.cancel(parts[1])})
+                    if len(parts) == 3 and parts[2] == "resume":
+                        return self._json(200, {"session": mgr.resume(parts[1])})
+                    if len(parts) == 3 and parts[2] == "close":
+                        return self._json(200, {"session": mgr.close(parts[1])})
                 if parts == ["runs"]:
                     run = self._agent_runner().start(req.get("workspace"), req.get("goal"), req.get("mode", "default"), req.get("allow"),
                                                      req.get("max_turns", 15), req.get("confirm_auto") is True)
@@ -1151,7 +1191,7 @@ def make_handler(svc: Service):
             except RunBusy as e:
                 return self._json(409, {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except RunError as e:
-                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint") else 400,
+                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint", "not_blocked", "closed") else 400,
                                   {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except ApprovalError as e:
                 return self._json(409 if "already" in str(e) or "not there" in str(e) else 400,

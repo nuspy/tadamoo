@@ -46,6 +46,37 @@ result has the stop reason, the changes, token and cache counts and the path of 
 Data (audit log, checkpoints, memory, approvals) lives in the user data folder, one folder per workspace, never in the
 repository; the only thing written in the workspace is `.basalt/artifacts` (full outputs that were shortened).
 
+## Conversations (the Chat's agent)
+
+A conversation is one long-lived process, `python -m harness session`, so a message does not pay for the start (tools,
+skills, connections) and the history is kept between messages. The server starts and watches these processes
+(`serve/agent_sessions.py`, routes under `/api/agent/sessions`, from this PC and the server's own page only):
+
+| route | what it does |
+|---|---|
+| `GET /api/agent/sessions` | the conversations, newest first, with their state: `dormant`, `starting`, `idle`, `busy`, `blocked`, `closed` |
+| `POST /api/agent/sessions` | creates one: `workspace`, `mode`, `allow`, `ask_only` (answers without tools), `title`, `max_turns` |
+| `POST .../<id>/send` | `{"text"}`; a dormant conversation wakes from its saved history; 409 while it is still answering |
+| `GET .../<id>/events?after=N` | what happened since event N: `user`, `ready`, `accepted`, `agent` (assistant text, tool start and end), `retrying`, `restarting`, `stalled`, `done`, `blocked` |
+| `GET .../<id>/history` | the saved messages |
+| `POST .../<id>/cancel`, `/resume`, `/close` | stop the turn; go on after a block; end the conversation |
+
+The history is saved after every model turn, and a message is on disk before the model sees it. Failures are handled in
+two places and never hidden:
+
+* **in the process**: a model call that fails because the server is busy or unreachable (HTTP 0, 408, 425, 429, 5xx) is
+  tried again with waits of 2, 5, 15, 30 and 60 seconds, checking whether the model is loaded in between; a refusal that
+  waiting cannot change (4xx), a model the server will not load, or retries that ran out end the turn as `blocked`;
+* **in the server**: a process that dies, or stops answering its heartbeat, or makes no progress for 20 minutes, is
+  started again from its history and the turn goes on (a message it never confirmed is sent again), at most 3 times in
+  10 minutes; after that the conversation is `blocked` (`process_unstable`).
+
+A `blocked` conversation waits: `resume` goes on, `close` ends it, a new message also goes on. Nothing is decided for the
+person. A tool that cannot be undone is **never run again by a restart**: its start is noted on disk, and if the process
+dies while it runs, the next start reports `interrupted_irreversible`, nothing goes on by itself, and the conversation
+gets a note that the tool may already have run. A conversation idle for 30 minutes loses its process (it is `dormant`; the
+history stays). The processes end with the server. Secrets are masked before the history reaches the disk.
+
 ## How a tool call is decided
 
 Every call goes through the same gate, in this order: the arguments are checked against the tool's schema (the model gets

@@ -33,7 +33,7 @@ from serve.engine.process import ProcessEngine  # noqa: E402
 from serve.engine.vision import (EngineVision, Vision, child_env, engine_args, gpu_list, gpus_in_play,  # noqa: E402
                                  peer_card, vision_env, vision_line)
 from serve.frontend import ChatTemplate  # noqa: E402
-from serve.handler import Server, serve  # noqa: E402
+from serve.handler import Server, serve, stop_sessions  # noqa: E402
 from serve.security import (LOOPBACK_NAMES, allowed_hosts_of, api_key_of, exposed_without_key,  # noqa: E402
                             lan_addresses, origins_of)
 from serve.service import Service  # noqa: E402
@@ -336,7 +336,7 @@ def main() -> int:
     except KeyboardInterrupt:
         print("[server] stopping (Ctrl+C again to force)", flush=True)
     engine = svc.engine
-    closers = [svc.stop, httpd.shutdown, getattr(engine, "close", None), svc.vision.close if svc.vision else None]
+    closers = [stop_sessions, svc.stop, httpd.shutdown, getattr(engine, "close", None), svc.vision.close if svc.vision else None]
     for close in filter(None, closers):
         try:
             close()

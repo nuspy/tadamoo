@@ -1,0 +1,100 @@
+"""A stand-in for `python -m harness session` that speaks the same lines of JSON, for the manager's tests.
+
+What the text of a message makes it do: "die" ends the process abruptly (the first --die-times starts only), "hang" stops its
+heartbeat and sleeps, "block" says the turn is blocked, "irreversible" leaves a note of an action in flight and ends
+abruptly, anything else is answered with an echo."""
+import argparse
+import json
+import os
+import sys
+import threading
+import time
+from pathlib import Path
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--session-id", default="")
+ap.add_argument("--history-dir", required=True)
+ap.add_argument("--die-times", type=int, default=1)
+ap.add_argument("--heartbeat", type=float, default=0.1)
+args, _ = ap.parse_known_args()
+H = Path(args.history_dir)
+H.mkdir(parents=True, exist_ok=True)
+out_lock = threading.Lock()
+
+
+def emit(obj):
+    with out_lock:
+        print(json.dumps(obj, ensure_ascii=False), flush=True)
+
+
+def load():
+    try:
+        return json.loads((H / "history.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"messages": [], "turns": 0}
+
+
+def save(data):
+    (H / "history.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+starts_file = H / "starts"
+starts = int(starts_file.read_text() or 0) + 1 if starts_file.exists() else 1
+starts_file.write_text(str(starts))
+data = load()
+blocked = None
+if (H / "inflight.json").exists():
+    blocked = {"reason": "interrupted_irreversible", "detail": "pay may have run", "options": ["resume", "close"], "tool": "pay"}
+    (H / "inflight.json").unlink()
+emit({"event": "ready", "session": args.session_id, "restored": len(data["messages"]), "pid": os.getpid(), "blocked": blocked, "starts": starts})
+
+beating = threading.Event()
+beating.set()
+busy = {"v": False}
+
+
+def beat():
+    while True:
+        time.sleep(args.heartbeat)
+        if beating.is_set():
+            emit({"event": "heartbeat", "busy": busy["v"], "idle_s": 0.0})
+
+
+threading.Thread(target=beat, daemon=True).start()
+
+for line in sys.stdin:
+    cmd = json.loads(line)
+    name = cmd.get("cmd")
+    if name == "send":
+        text = cmd["text"]
+        data["messages"].append({"role": "user", "content": text})
+        save(data)
+        emit({"event": "accepted", "turn": cmd.get("id")})
+        busy["v"] = True
+        if text == "die" and starts <= args.die_times:
+            os._exit(3)
+        if text == "hang":
+            beating.clear()
+            time.sleep(60)
+        if text == "irreversible":
+            (H / "inflight.json").write_text(json.dumps({"tool": "pay"}))
+            os._exit(3)
+        if text == "block":
+            emit({"event": "blocked", "turn": cmd.get("id"), "reason": "refused", "detail": "no", "options": ["resume", "close"]})
+            busy["v"] = False
+            continue
+        data["messages"].append({"role": "assistant", "content": "echo: " + text})
+        data["turns"] += 1
+        save(data)
+        busy["v"] = False
+        emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "echo: " + text})
+    elif name == "resume":
+        last = data["messages"][-1]["content"] if data["messages"] else ""
+        if last == "die" and starts <= args.die_times:                      # the same message ends this process again
+            os._exit(3)
+        data["turns"] += 1
+        save(data)
+        emit({"event": "done", "turn": "resumed", "stop_reason": "final", "final": "resumed after %d messages" % len(data["messages"])})
+    elif name == "close":
+        emit({"event": "closed"})
+        break
