@@ -33,6 +33,8 @@ class Task:
     allow: List[str] = field(default_factory=lambda: list(DEFAULT_ALLOW))
     max_turns: int = 12
     system: Optional[str] = None
+    knowledge: Dict[str, str] = field(default_factory=dict)   # reference documents the task may use
+    strategy: str = "none"                                    # how they are offered: none, rag or cag
 
 
 def _validate(task: Dict[str, Any]) -> None:
@@ -56,6 +58,7 @@ def load_task_set(path_or_name: str | Path) -> Tuple[Dict[str, Any], List[Task]]
     data = json.loads(path.read_text(encoding="utf-8"))
     tasks: List[Task] = []
     seen = set()
+    shared_docs = {k: str(v) for k, v in (data.get("knowledge") or {}).get("docs", {}).items()}
     for raw in data.get("tasks", []):
         _validate(raw)
         if raw["id"] in seen:
@@ -69,7 +72,7 @@ def load_task_set(path_or_name: str | Path) -> Tuple[Dict[str, Any], List[Task]]
             id=raw["id"], category=raw.get("category", "general"), prompt=raw["prompt"], mode="tools" if raw.get("tools") else mode,
             files={k: str(v) for k, v in raw.get("files", {}).items()}, checks=checks, tools=list(raw.get("tools", [])),
             allow=list(raw["allow"]) if "allow" in raw else list(DEFAULT_ALLOW), max_turns=int(raw.get("max_turns", 12)),
-            system=raw.get("system"),
+            system=raw.get("system"), knowledge=dict(shared_docs) if raw.get("uses_knowledge") else {},
         ))
     meta = {"name": data.get("name", Path(path).stem), "version": data.get("version", ""), "description": data.get("description", "")}
     return meta, tasks
@@ -159,3 +162,20 @@ def run_checks(task: Task, workspace: Path, answer: str, calls: Sequence[Dict[st
             if not hit:
                 failures.append(f"no call of {check['name']} with {json.dumps(wanted, ensure_ascii=False)}")
     return failures
+
+
+def expand_strategies(tasks: List[Task], strategies: Sequence[str]) -> List[Task]:
+    """Each task that uses reference documents, once per strategy; the others unchanged.
+
+    The copies are told apart by id (`id@cag`) and category (`knowledge/cag`), so a report compares them."""
+    import dataclasses
+    out: List[Task] = []
+    for t in tasks:
+        if not t.knowledge:
+            out.append(t)
+            continue
+        for strategy in strategies:
+            if strategy not in ("none", "rag", "cag"):
+                raise ValueError(f"unknown strategy {strategy!r}; expected none, rag or cag")
+            out.append(dataclasses.replace(t, id=f"{t.id}@{strategy}", category=f"knowledge/{strategy}", strategy=strategy))
+    return out

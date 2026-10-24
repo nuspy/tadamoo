@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from harness import agent_loop as al
@@ -37,6 +38,11 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--phone", action="store_true",
                         help="offer the phone tools (callAPIcall; CALLAPICALL_URL and CALLAPICALL_TOKEN); every call asks you")
     parser.add_argument("--on-behalf-of", default="", help="name the phone assistant gives when it calls")
+    parser.add_argument("--reference", default=None, metavar="DIR", help="folder of .md and .txt reference documents")
+    parser.add_argument("--reference-strategy", choices=["auto", "cag", "rag", "none"], default="auto",
+                        help="cag: a fixed block at the start of the context; rag: searched passages; auto: by size")
+    parser.add_argument("--wiki", action="store_true", help="offer the wikibridge tools (BASALT_WIKIBRIDGE_URL, BASALT_WIKIBRIDGE_KEY)")
+    parser.add_argument("--wiki-project", default="", help="wikibridge project slug used when a call names none")
     parser.add_argument("--no-memory", action="store_true")
     parser.add_argument("--no-checkpoints", action="store_true")
     parser.add_argument("--json", action="store_true", help="print the result as JSON")
@@ -61,6 +67,17 @@ def split_secret_specs(specs: List[str]) -> tuple[List[str], Dict[str, List[str]
     return names, hosts
 
 
+def read_reference(folder: Optional[str]) -> Dict[str, str]:
+    """The .md and .txt files of a folder, by relative path; a missing folder is an error, not an empty set."""
+    if not folder:
+        return {}
+    root = Path(folder)
+    if not root.is_dir():
+        raise FileNotFoundError(f"reference folder not found: {root}")
+    return {p.relative_to(root).as_posix(): p.read_text(encoding="utf-8", errors="replace")
+            for p in sorted(root.rglob("*")) if p.is_file() and p.suffix.lower() in (".md", ".txt")}
+
+
 def config_from_args(args: argparse.Namespace) -> AgentConfig:
     secret_names, secret_hosts = split_secret_specs(args.secret_env)
     return AgentConfig(
@@ -69,7 +86,8 @@ def config_from_args(args: argparse.Namespace) -> AgentConfig:
         secret_hosts=secret_hosts,
         max_total_tokens=args.max_tokens_budget, max_seconds=args.timeout_seconds, use_memory=not args.no_memory,
         use_checkpoints=not args.no_checkpoints, skill_paths=args.skills,
-        phone=args.phone, phone_on_behalf_of=args.on_behalf_of,
+        phone=args.phone, phone_on_behalf_of=args.on_behalf_of, reference_docs=read_reference(args.reference),
+        reference_strategy=args.reference_strategy, wiki=args.wiki, wiki_project=args.wiki_project,
         confirm=_ask_on_terminal if args.interactive else None,
     )
 

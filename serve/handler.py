@@ -399,8 +399,25 @@ def make_handler(svc: Service):
             else:
                 self._json(404, {"error": {"message": "not found"}})
 
+        def _discard_body(self, limit: int = 4 << 20) -> None:
+            """Read and drop a request body that will not be used, so the client can finish sending it and read
+            the answer instead of seeing the connection reset (what Windows does to an unread body)."""
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                length = 0
+            if self.headers.get("Transfer-Encoding", "").lower() == "chunked" or length > limit:
+                self.close_connection = True
+                return
+            while length > 0:
+                chunk = self.rfile.read(min(length, 1 << 16))
+                if not chunk:
+                    break
+                length -= len(chunk)
+
         def do_POST(self):
             if not self._authorized():
+                self._discard_body()
                 return
             path = self.path.split("?")[0].rstrip("/")   # clients post /v1/messages?beta=true
             if path == "/api/settings":

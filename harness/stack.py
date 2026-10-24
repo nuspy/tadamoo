@@ -13,6 +13,7 @@ from harness.checkpoints import CheckpointManager
 from harness.client import BasaltClient
 from harness.context import ContextBuilder, ContextManager, TokenJuiceCompactor, available_budget
 from harness.hooks import HookManager
+from harness.knowledge import LocalKnowledge, cag_prefix, choose_strategy, register_local_search
 from harness.memory import MemoryStore, default_db_path
 from harness.permissions import PermissionLevel, PermissionManager
 from harness.secrets_broker import SecretsBroker
@@ -60,6 +61,10 @@ class AgentConfig:
     max_seconds: Optional[float] = None
     use_memory: bool = True
     use_checkpoints: bool = True
+    reference_docs: Dict[str, str] = field(default_factory=dict)   # path -> text of reference documents
+    reference_strategy: str = "auto"   # auto, cag (a fixed block at the start), rag (searched passages) or none
+    wiki: bool = False                 # offer the wikibridge tools (address and key from the environment)
+    wiki_project: str = ""
     phone: bool = False                 # offer the phone tools (callAPIcall from the environment)
     phone_on_behalf_of: str = ""
     skill_paths: List[str] = field(default_factory=list)
@@ -77,6 +82,7 @@ class BuiltAgent:
     builder: ContextBuilder
     cancel: threading.Event
     data_dir: Path
+    kb: Optional[LocalKnowledge] = None
 
     def retrieved_message(self, goal: str, limit: int = 4) -> Optional[Dict[str, Any]]:
         """Memories relevant to a goal, as an untrusted-data message for the tail of the conversation."""
@@ -89,6 +95,8 @@ class BuiltAgent:
         self.agent.close()
         if self.memory:
             self.memory.close()
+        if self.kb:
+            self.kb.close()
 
 
 def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None) -> BuiltAgent:
@@ -122,6 +130,20 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None) -> Buil
     _, guidelines = find_project_guidelines(workspace)
     if guidelines:
         builder.set_project_rules(guidelines)
+    kb = None
+    if cfg.reference_docs and cfg.reference_strategy != "none":
+        strategy = choose_strategy(cfg.reference_docs, budget) if cfg.reference_strategy == "auto" else cfg.reference_strategy
+        if strategy == "cag":
+            builder.pin("knowledge", cag_prefix(cfg.reference_docs, budget))
+        elif strategy == "rag":
+            kb = LocalKnowledge(cfg.reference_docs)
+            register_local_search(registry, kb)
+        elif strategy != "none":
+            raise ValueError("the reference strategy must be auto, cag, rag or none")
+    if cfg.wiki:
+        from harness.integrations.wiki_tools import register_wiki_tools
+        from harness.integrations.wikibridge_client import WikiBridgeClient
+        register_wiki_tools(registry, WikiBridgeClient.from_environment(), cfg.wiki_project or None)
     catalog = SkillCatalog([Path(p) for p in cfg.skill_paths], approvals=ApprovalStore(data / "approved_skills.json"),
                            require_approval=True)
     if cfg.skill_paths:
@@ -153,4 +175,4 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None) -> Buil
         max_seconds=cfg.max_seconds,
         cancel=cancel,
     )
-    return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data)
+    return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb)

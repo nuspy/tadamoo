@@ -101,6 +101,7 @@ class EvalRunner:
         data = Path(tempfile.mkdtemp(prefix="basalt-eval-data-"))
         trial = Trial(repetition=rep, passed=False)
         agent = None
+        built = None
         try:
             workspace = make_workspace(task, work / "ws")
             client = self._client_for(task, rep)
@@ -112,7 +113,8 @@ class EvalRunner:
             else:
                 cfg = AgentConfig(workspace=str(workspace), max_turns=task.max_turns, permission_mode="default", allow=task.allow,
                                   use_memory=False, use_checkpoints=False, data_dir=str(data), max_total_tokens=self.max_total_tokens,
-                                  max_seconds=self.max_seconds)
+                                  max_seconds=self.max_seconds, reference_docs=task.knowledge if task.strategy != "none" else {},
+                                  reference_strategy=task.strategy)
                 built = build_agent(cfg, client=client)
                 agent = built.agent
                 agent.sampling = sampling
@@ -141,9 +143,9 @@ class EvalRunner:
             trial.failures = [f"the trial crashed: {trial.error}"]
         finally:
             trial.seconds = round(time.monotonic() - t0, 3)
-            if agent is not None:
+            if agent is not None or built is not None:
                 try:
-                    agent.close()
+                    (built or agent).close()
                 except Exception:
                     pass
             if self.keep:

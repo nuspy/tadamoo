@@ -1,0 +1,27 @@
+{
+  "name": "knowledge",
+  "version": "1",
+  "description": "The same questions asked three ways: with no reference documents (a control that cannot know the answers), with searched passages (rag) and with the documents fixed at the start of the context (cag). Compare accuracy, tokens read and the prefix cache hit rate to choose the size at which a fixed block stops paying. The company and its facts are invented.",
+  "knowledge": {
+    "docs": {
+      "handbook/ports.md": "# Service ports\n\nThe metrics gateway listens on port 9314. The build cache listens on port 5827. The old billing mirror was on port 7002 and has been switched off; do not use it.\n\nAll ports bind to the internal network only.",
+      "handbook/oncall.md": "# On-call rota\n\nThe on-call engineer for the week of 3 November is Marta Ruzzi. The week after, 10 November, it is Teodor Lund. A swap needs the written approval of the duty manager, currently Ines Okafor.\n\nPages go to the pager first and to chat after five minutes.",
+      "handbook/release.md": "# Release rules\n\nReleases are frozen from 18 December to 6 January. Hotfixes during a freeze need the code word LANTERN in the ticket. The release train leaves every Thursday at 14:30 local time.\n\nA release candidate must have two approvals.",
+      "handbook/naming.md": "# Naming\n\nBranches use the prefix feat/ for features, fix/ for bug fixes and chore/ for maintenance. Ticket keys have the form ORB-1234. Internal libraries are named with the prefix orb- and a short noun.\n\nNever use spaces in repository names.",
+      "handbook/limits.md": "# Rate limits\n\nThe public API allows 240 requests per minute per key. Bulk exports are limited to 15 per day. Uploads larger than 80 MB must use the resumable endpoint.\n\nLimits are raised only by the platform team.",
+      "handbook/backup.md": "# Backups\n\nDatabases are backed up nightly at 02:15 and kept for 35 days. Object storage is replicated to the Oslo region within one hour. A restore drill happens on the first Monday of each quarter.\n\nBackup keys are held by two people, never one.",
+      "handbook/contacts.md": "# Contacts\n\nSecurity reports go to the address secure@orbit.example. Billing questions go to the finance desk, extension 4410. The facilities desk is open from 08:00 to 17:30.\n\nDo not send credentials by email.",
+      "handbook/glossary.md": "# Glossary\n\nA harbor is a group of services deployed together. A tide is a scheduled batch job. A reef is a read-only replica of a database.\n\nTerms are used exactly as written here in tickets and reviews."
+    }
+  },
+  "tasks": [
+    {"id": "port_metrics", "category": "knowledge", "uses_knowledge": true, "prompt": "Which port does the metrics gateway listen on? Answer with the number only.", "checks": [{"type": "answer_regex", "pattern": "(^|\\D)9314(\\D|$)"}], "max_turns": 6},
+    {"id": "oncall_week", "category": "knowledge", "uses_knowledge": true, "prompt": "Who is on call the week of 10 November?", "checks": [{"type": "answer_contains", "text": "Teodor Lund"}], "max_turns": 6},
+    {"id": "freeze_code_word", "category": "knowledge", "uses_knowledge": true, "prompt": "What code word does a hotfix ticket need during a release freeze?", "checks": [{"type": "answer_contains", "text": "LANTERN"}], "max_turns": 6},
+    {"id": "branch_prefix", "category": "knowledge", "uses_knowledge": true, "prompt": "What branch prefix is used for bug fixes?", "checks": [{"type": "answer_contains", "text": "fix/"}], "max_turns": 6},
+    {"id": "api_limit", "category": "knowledge", "uses_knowledge": true, "prompt": "How many requests per minute does the public API allow per key? Number only.", "checks": [{"type": "answer_regex", "pattern": "(^|\\D)240(\\D|$)"}], "max_turns": 6},
+    {"id": "backup_retention", "category": "knowledge", "uses_knowledge": true, "prompt": "For how many days are the nightly database backups kept? Number only.", "checks": [{"type": "answer_regex", "pattern": "(^|\\D)35(\\D|$)"}], "max_turns": 6},
+    {"id": "finance_extension", "category": "knowledge", "uses_knowledge": true, "prompt": "What is the extension of the finance desk?", "checks": [{"type": "answer_contains", "text": "4410"}], "max_turns": 6},
+    {"id": "reef_meaning", "category": "knowledge", "uses_knowledge": true, "prompt": "In this company's vocabulary, what is a reef?", "checks": [{"type": "answer_regex", "pattern": "read-only replica|replica"}], "max_turns": 6}
+  ]
+}
