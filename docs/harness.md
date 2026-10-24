@@ -64,7 +64,11 @@ wherever they appear as a command word. File and network isolation (a dedicated 
 untrusted code) is not provided; until it is, `auto` should only be used in a folder you can lose. Hooks, rules and
 the secrets check read what a command *says*: a command that builds its address at run time needs a firewall.
 
-Checkpoints are stored outside the workspace; a rewind takes a safety snapshot of the current state first. The audit log
+Checkpoints are stored outside the workspace; a rewind takes a safety snapshot of the current state first. To go back:
+`python -m harness.rewind --workspace D:\proj` lists the checkpoints with what the agent did after each, and `--to ID`
+restores the files (`--keep-new` leaves files created since). Restoring files does not undo a command the agent ran, a call
+it placed or an MCP tool, so a rewind over any of those lists them and needs `--yes`; the rewind is written in the audit log
+and its safety snapshot can be rewound to as well. The audit log
 (`audit.jsonl`) is tamper-evident (a hash chain, a head file, secrets masked), not tamper-proof.
 
 ## Secrets, payments and phone calls
