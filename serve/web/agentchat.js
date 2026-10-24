@@ -391,14 +391,30 @@
       const r = await fetch(`api/outputs/${encodeURIComponent(sid)}/${encodeURIComponent(id)}`, { headers: authHeaders() });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const blob = await r.blob();
-      if (window.showSaveFilePicker) {                        // the system's "Save as" window, with the file's own name
+      const app = window.chrome && window.chrome.webview;
+      if (app) {                                              // the desktop app opens "Save as" itself and says how it ended
+        const ended = new Promise(done => {
+          const timer = setTimeout(() => { app.removeEventListener("message", on); done("failed"); }, 600000);
+          const on = e => {
+            const m = e.data || {};
+            if (m.type !== "download" || m.name !== name) return;
+            clearTimeout(timer); app.removeEventListener("message", on); done(m.state);
+          };
+          app.addEventListener("message", on);
+        });
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); a.remove();
+        const state = await ended;
+        setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+        if (state === "completed") status(T("ch.out.saved", name)); else if (state !== "cancelled") status(T("ch.out.fail", name));
+      } else if (window.showSaveFilePicker) {                 // the system's "Save as" window, with the file's own name
         const h = await window.showSaveFilePicker({ suggestedName: name });
         const w = await h.createWritable(); await w.write(blob); await w.close();
+        status(T("ch.out.saved", name));
       } else {
         const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+        status(T("ch.out.saved", name));
       }
-      status(T("ch.out.saved", name));
     } catch (e) { if (!(e && e.name === "AbortError")) status(T("ch.out.fail", name)); }
     button.disabled = false;
   }

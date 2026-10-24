@@ -262,9 +262,11 @@ a full context; nothing else caps a file except the server's upload limit.
   quote taken from a file never does. Text in a file cannot close its own fence.
 - **Files the agent makes**: `write_output_file` (text) and `publish_output_file` (a file made in the workspace) store it for the person, open it
   again and check it (JSON parses, CSV rows have the same number of columns, Office files open, an image opens). Only a file that passes gets
-  its button; the Chat's "Save" button asks for a place with the system's Save as window when the browser has one, and downloads otherwise.
+  its button; the Chat's "Save" button asks for a place with the system's Save as window when the browser has one, and downloads otherwise. Inside
+  the Windows app the page starts a normal download and the app opens its own Save as window with the file's name (`DownloadStarting`), then tells
+  the page how it ended, so the status line says saved only when the file was written.
 
-Not done: the Windows app's own Save as window for downloads (to be checked on the PC), audio and video for a service that is not running (it
+Not done: audio and video for a service that is not running (it
 says so and keeps the file), and the service's own summary of a recording (not used).
 
 ## Capabilities: skills, plugins and MCP servers found on this PC

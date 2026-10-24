@@ -243,7 +243,9 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
   installation gets a config file without a model) and opens the web Loader in its window: the command line's profile,
   model and VRAM reach the page as `?profile=`, `?model=`, `?reserve=`, and `?wizard=1` offers the wizard while no
   Machine Default exists. The folder fields have "Sfoglia…": the page asks the app for the Windows folder dialog
-  (`chrome.webview.postMessage`). Exit code 75 starts the server again with `--listen-first` and the new model; any
+  (`chrome.webview.postMessage`). A file the page downloads (a file the agent made, an exported profile) opens the Windows Save as window with the
+  file's name and the page is told how it ended (`{"type": "download", "state": ...}`); a download from any address but the app's own page is refused.
+  Exit code 75 starts the server again with `--listen-first` and the new model; any
   other end shows the reason, the log's last lines and the native start panel (model, profile, VRAM, port, memory
   check, Avvia / Avvia solo server) as a fallback. Without WebView2 the page opens in the default browser. Closing the
   window hides it to the notification area; the icon's menu has Open, Reload with other settings… (the Loader), Start

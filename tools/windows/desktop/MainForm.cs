@@ -759,6 +759,46 @@ sealed class MainForm : Form
         catch (Exception ex) { report.Add("web message: " + ex.Message); }
     }
 
+    /// <summary>A download started by the page (a file the agent made, an exported profile): the Windows "Save as" window opens with the
+    /// file's own name and the page is told how it ended: {"type": "download", "state": "completed"|"cancelled"|"failed", "name": ...}.
+    /// Only files of this app's own page are taken.</summary>
+    void OnDownload(object sender, CoreWebView2DownloadStartingEventArgs e)
+    {
+        var op = e.DownloadOperation;
+        string own = $"http://127.0.0.1:{serverPort}/";
+        string name = Path.GetFileName(e.ResultFilePath);
+        void Tell(string state) { try { web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "download", state, name })); } catch (Exception) { } }
+        if (!(op.Uri.StartsWith(own) || op.Uri.StartsWith("blob:" + own.TrimEnd('/'))))
+        {
+            e.Cancel = true;
+            return;
+        }
+        string target;
+        if (opt.TestMock)
+        {
+            target = Path.Combine(Path.GetTempPath(), "basalt-desktop-test", "saved", name);
+            Directory.CreateDirectory(Path.GetDirectoryName(target));
+        }
+        else
+        {
+            string ext = Path.GetExtension(name);
+            using var dlg = new SaveFileDialog
+            {
+                FileName = name, OverwritePrompt = true, Title = Tr.T("Salva il file", "Save the file"),
+                Filter = (ext.Length > 1 ? $"*{ext}|*{ext}|" : "") + Tr.T("Tutti i file|*.*", "All files|*.*"),
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) { e.Cancel = true; Tell("cancelled"); return; }
+            target = dlg.FileName;
+        }
+        e.ResultFilePath = target;
+        e.Handled = true;
+        op.StateChanged += (_, _) =>
+        {
+            if (op.State == CoreWebView2DownloadState.Completed) Tell("completed");
+            else if (op.State == CoreWebView2DownloadState.Interrupted) Tell("failed");
+        };
+    }
+
     async Task InitWeb(bool loading, string heading)
     {
         if (web.CoreWebView2 == null && !useBrowser)
@@ -775,6 +815,7 @@ sealed class MainForm : Form
                 web.CoreWebView2.DocumentTitleChanged += (_, _) => Text = Program.AppName;
                 web.CoreWebView2.NewWindowRequested += (_, e) => { e.Handled = true; Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute = true }); };
                 web.CoreWebView2.WebMessageReceived += OnWebMessage;
+                web.CoreWebView2.DownloadStarting += OnDownload;
             }
             catch (Exception e) when (e is WebView2RuntimeNotFoundException || e is COMException || e is FileNotFoundException)
             {
