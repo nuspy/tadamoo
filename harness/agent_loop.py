@@ -21,6 +21,7 @@ from harness.client import BasaltClient, BasaltError, StreamCancelled, extract_r
 from harness.context import ContextManager, wire_messages
 from harness.hooks import HookManager
 from harness.permissions import PermissionManager
+from harness.pipeline import Card, Pipeline, feedback
 from harness.secrets_broker import SecretsBroker
 from harness.tools.registry import EffectClass, ToolArgumentError, ToolRegistry
 
@@ -108,6 +109,7 @@ class AgentLoop:
         sampling: Optional[Dict[str, Any]] = None,
         on_delta: Optional[Callable[[str, str], None]] = None,
         before_inference: Optional[Callable[[], Optional[str]]] = None,
+        pipeline: Optional[Pipeline] = None,
     ) -> None:
         self.client = client
         self.tools = tool_registry
@@ -128,6 +130,9 @@ class AgentLoop:
         self.on_event = on_event
         self.on_delta = on_delta                  # the model's text as it is written ("content" or "reasoning"), when set
         self.before_inference = before_inference  # looked at before every model call; it may add messages or ask to be put aside
+        self.pipeline = pipeline                  # checks the final answer against the request's card (harness/pipeline.py)
+        self._card: Optional[Card] = None
+        self._retried = False
         self.sampling = dict(sampling or {})      # temperature, seed, top_p...; the default is greedy
         self.loop_detector = LoopDetector()
         self.messages: List[Dict[str, Any]] = [self._system_message()]
@@ -150,7 +155,7 @@ class AgentLoop:
             on_turn_end=self.on_turn_end, permissions=self.permissions, hooks=self.hooks, audit=self.audit, checkpoints=self.checkpoints,
             secrets=self.secrets, output_filter=self.output_filter, max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds,
             cancel=threading.Event(), max_loop_strikes=self.max_loop_strikes, context=self.context, on_event=self.on_event,
-            sampling=self.sampling, on_delta=self.on_delta)
+            sampling=self.sampling, on_delta=self.on_delta, pipeline=self.pipeline)
 
     def request_end_turn(self) -> None:
         """For a tool: end this run when the tools of the current model turn are done (a question was put to the person)."""
@@ -330,6 +335,8 @@ class AgentLoop:
         if user_goal is not None:
             self.messages.append({"role": "user", "content": user_goal})
             self.last_user_text, self.untrusted_since_user = user_goal, False
+            self._card = self.pipeline.card(user_goal) if self.pipeline else None
+            self._retried = False
         if retrieved:
             self.messages.append(retrieved)     # memories and wiki text go after the goal, at the tail
             self.untrusted_since_user = True
@@ -383,6 +390,8 @@ class AgentLoop:
                 self.messages.append({"role": "assistant", "content": content})
                 turn.seconds = round(time.monotonic() - t0, 3)
                 self._finish_turn(turn, run_turns)
+                if self._check_answer(content):
+                    continue                         # one more try, with what was not respected
                 self.stop_reason = FINAL
                 break
 
@@ -427,6 +436,22 @@ class AgentLoop:
         else:
             self.stop_reason = MAX_TURNS
         return run_turns
+
+    def _check_answer(self, content: str) -> bool:
+        """Measures the answer against the request's card; True when it asks for a second try (once per request)."""
+        card = self._card
+        if not self.pipeline or not card or not card.constraints or self.cancel.is_set():
+            return False
+        first = not self._retried
+        verdict = self.pipeline.verify(card, content, judged=first)
+        retry = first and not verdict.ok
+        self._emit({"type": "verify", "mode": verdict.mode, "ok": verdict.ok, "violations": verdict.violations, "retry": retry,
+                    "checked": verdict.checked, "judge_calls": verdict.judge_calls, "judge_unknown": verdict.judged_unknown,
+                    "seconds": verdict.seconds, "constraints": [c.text for c in card.constraints]})
+        if retry:
+            self._retried = True
+            self.messages.append({"role": "user", "content": feedback(verdict.violations)})
+        return retry
 
     def _finish_turn(self, turn: AgentTurn, run_turns: List[AgentTurn]) -> None:
         self.turns.append(turn)

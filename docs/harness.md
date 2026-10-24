@@ -242,6 +242,23 @@ and the bridge the page talks to.
   `POST /api/plans/<id>/events`, `POST /api/plans/<id>/triage`, `POST /api/plans/<id>/archive` and `/restore`,
   `GET /api/plans/<id>/events?after=N` and `/stream` (server-sent events), `GET/POST /api/planner/settings`.
 
+## The check on an answer
+
+Before an answer is handed over, `harness/pipeline.py` measures it against the request. The request's *card* is made by rules,
+with no model call: a number of words, characters, lines or list items, a language, JSON, a word to leave out; and, apart,
+qualitative constraints (a tone, an audience, "no jargon"). Modes (`--pipeline`, default `full`):
+
+- `off`: nothing is checked.
+- `light`: what can be measured is measured; no extra model call is ever made.
+- `full`: as `light`, and when the card has qualitative constraints and the measurable ones pass, a judge answers yes or no for
+  each (at most three), through the provider chosen for it on the Providers page (the loaded model, or Jev).
+
+A failed answer gets **one** second try: the agent is told the list of what was not respected and writes it again. If the second
+answer still fails, the Chat says which points are unmet. A request with no constraint costs nothing, and the second answer is
+measured but not judged again. A judge that cannot tell does not block an answer. The Chat shows each check as a note, with the
+calls and seconds it took in the event (`verify`). The judge can be wrong either way and a second try can be worse, so
+the mode is meant to be compared on the same tasks with `harness.eval` before it is relied on.
+
 ## Providers: which model each function uses
 
 Basalt's own functions (the Chat, the agent's loop, the planner, the judges) can each use a different model: the one loaded in

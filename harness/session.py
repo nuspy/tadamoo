@@ -37,6 +37,7 @@ from typing import Any, Callable, Dict, List, Optional, TextIO
 
 from harness import agent_loop as al
 from harness.client import StreamCancelled
+from harness.pipeline import Pipeline
 from harness.router import QUEUE, STEER, STRONG_URGENT, URGENT, Router
 from harness.stack import AgentConfig, BuiltAgent, build_agent, data_dir_for
 
@@ -702,6 +703,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--no-planner", action="store_true", help="do not offer the planner's tools")
     parser.add_argument("--router", choices=["model", "rules"], default="model",
                         help="how a message that comes during a task is judged when its words do not decide: by the model, or not at all")
+    parser.add_argument("--pipeline", choices=["off", "light", "full"], default="full",
+                        help="the check of an answer against what the request asked: nothing, measured only, or measured and judged")
     parser.add_argument("--no-memory", action="store_true")
     parser.add_argument("--no-checkpoints", action="store_true")
     parser.add_argument("--heartbeat", type=float, default=HEARTBEAT_S)
@@ -754,6 +757,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     history = Path(args.history_dir) if args.history_dir else data_dir_for(Path(args.workspace).resolve()) / "sessions" / sid
     store = SessionStore(history, redact=built.agent.secrets.mask_secrets if built.agent.secrets else None)
     router = Router(router_judge(judge_for("router", here)) if args.router == "model" else None)
+    built.agent.pipeline = Pipeline(args.pipeline, (lambda q, o, c, j=judge_for("pipeline", here): j.choose(q, o, c)) if args.pipeline == "full" else None)
     session = Session(built, store, emit, session_id=sid, health=lambda: server_health(cfg.endpoint, cfg.api_key), router=router)
     if not args.ask_server:
         built.permissions.confirm_callback = session.permission_confirm      # the questions are put in the conversation

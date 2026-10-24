@@ -58,11 +58,12 @@ class SessionManager:
                  python: Optional[str] = None, root: Path = ROOT, command: Optional[Callable[[str, Dict[str, Any], Path], List[str]]] = None,
                  idle_s: float = 1800.0, hang_s: float = 1200.0, beat_timeout_s: float = 45.0, restart_cap: int = 3,
                  restart_window_s: float = 600.0, tick_s: float = 1.0, start_wait_s: float = 60.0,
-                 default_workspace: Optional[Path] = None, router: str = "model") -> None:
+                 default_workspace: Optional[Path] = None, router: str = "model", pipeline: str = "full") -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
         self.router = router                                    # how a message that comes during a task is judged: "model" or "rules"
+        self.pipeline = pipeline                                # the check of an answer against its request: "off", "light" or "full"
         self.default_workspace = Path(default_workspace) if default_workspace else None     # where a conversation works when none is named
         self.python, self.root = python or sys.executable, Path(root)
         self.command = command or self._command
@@ -172,7 +173,7 @@ class SessionManager:
 
     def _command(self, sid: str, rec: Dict[str, Any], history: Path) -> List[str]:
         cmd = [self.python, "-m", "harness", "session", "--session-id", sid, "--history-dir", str(history), "--workspace", rec["workspace"],
-               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--router", self.router]
+               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--router", self.router, "--pipeline", self.pipeline]
         for rule in rec.get("allow", []):
             cmd += ["--allow", rule]
         if rec.get("ask_only"):

@@ -202,6 +202,8 @@ ramo è un'operazione della sessione, non una trasformazione. Tutto spento di pa
 
 ### Fase 2c — Pipeline per turno: scheda dei requisiti, contesto e verifica (M) · *dopo la Fase 2; misurare prima (§6)*
 
+**Avanzamento (2026-10-24).** Fatto: `harness/pipeline.py` (scheda dei requisiti a regole in italiano e inglese, misura deterministica, giudizio sui vincoli qualitativi, modi `off|light|full`, predefinito `full`), collegata al ciclo (`AgentLoop.pipeline`, un solo nuovo tentativo, evento `verify` con chiamate e secondi), alla sessione (`--pipeline`) e alla Chat (note di controllo). Resta: la costruzione del contesto in codice (memorie e wikibridge nella Chat), il file prodotto che si riapre (4b) e la **misura** completo/leggero/spento sullo stesso gruppo di compiti, che serve il modello vero (coda diurna).
+
 Dalla lista dei cinque livelli (P). Oggi un turno è **una sola inferenza** che il ciclo ripete con gli strumenti; nulla controlla che i vincoli siano rispettati. Non si aggiungono chiamate al modello per ogni turno: si separa ciò che il software sa fare con certezza.
 
 - **Scheda dei requisiti** (livelli 1, 2 e 4): per ogni richiesta l'harness tiene una scheda in `session state`: azione, contenuto, formato, **vincoli misurabili** (lunghezza, lingua, elenco, nome file), pubblico e scopo. I vincoli misurabili si estraggono con regole deterministiche (numeri, unità, formati); scopo e pubblico li propone il modello **nella stessa inferenza** che pianifica (un solo JSON), senza una chiamata in più. La scheda si fissa nel contesto e resta tra un turno e l'altro.
