@@ -102,10 +102,19 @@ Checkpoints are stored outside the workspace; a rewind takes a safety snapshot o
 
 ## MCP and ACP
 
-- The MCP client speaks stdio and Streamable HTTP and protocol revisions 2025-11-25 down to 2024-11-05, follows pagination,
-  reports `isError`, drains the server's stderr and starts servers with a scrubbed environment. Server tools are always
-  irreversible and untrusted whatever they claim; `MCPHub` exposes two tools (search and call) so the prompt stays short.
-  **Not implemented**: OAuth, and the stateless 2026-07-28 revision (its schema was not verified).
+- The MCP client speaks stdio and Streamable HTTP and two eras, detected per server. It tries the stateless revision
+  (2026-07-28: every request carries its version, client info and capabilities in `_meta`, no session, no handshake) first,
+  with `server/discover` on stdio and with the first request on HTTP, where it mirrors `MCP-Protocol-Version`, `Mcp-Method`,
+  `Mcp-Name` and the `Mcp-Param-*` headers of annotated tool parameters (values that are not plain ASCII go as base64, and
+  tools whose annotations are invalid are left out). A recognized stateless error (`-32020`..`-32022`, or an unknown method on
+  a 404) means a stateless server; anything else, including the 400 an older server gives for a missing session, means an
+  older one, which is spoken to with `initialize` in revisions 2025-11-25 down to 2024-11-05. `modern=False` skips the probe.
+  A server that asks for sampling, elicitation or roots is refused with a clear error, because the client declares none
+  of them; a result that only carries `requestState` is retried with that state echoed back and a new id. Pagination,
+  `isError`, a drained stderr and a scrubbed environment are as before. Server tools are always irreversible and untrusted
+  whatever they claim; `MCPHub` exposes two tools (search and call) so the prompt stays short, and can hold servers of both eras.
+  **Not implemented**: OAuth, and `subscriptions/listen`. Two details were inferred, not read: that `requestState` sits in
+  the retried request's `params`, and the shape of the `notifications/cancelled` sent on a stdio timeout.
 - The ACP agent follows protocol version 1 over stdio: `initialize`, `session/new`, `session/prompt`, `session/cancel`,
   `session/set_mode`, `session/update` (message and thought text, tool calls, edits as `diff` content) and
   `session/request_permission` toward the editor. It edits files itself rather than through the editor's `fs/*`, offers no
@@ -173,6 +182,6 @@ harnesses against the same endpoint is not automated.
 are skipped. Seven server tests (`test_config`, `test_lang_and_running`, `test_metrics`) fail on Windows with or without
 these changes.
 
-Not done: file and network isolation for commands (the job object limits resources only); OAuth and the stateless revision of MCP; `fs/*` and `session/load` in ACP;
+Not done: file and network isolation for commands (the job object limits resources only); OAuth for MCP; `fs/*` and `session/load` in ACP;
 holding an edit back until it is approved (it is applied first and can then be undone block by block); a payment
 connector; the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.

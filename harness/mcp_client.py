@@ -4,11 +4,14 @@ Servers are third-party code. Their tool descriptions, annotations and results a
 are registered as irreversible whatever a server claims about itself, results are fenced as data,
 and a stdio server starts with a scrubbed environment (only what is passed explicitly).
 
-Revisions spoken: 2025-11-25 down to 2024-11-05, negotiated at initialize. The stateless revision
-(2026-07-28, server/discover) is not implemented: its schema was not verified here.
+Two eras are spoken and detected per server. The stateless revision (2026-07-28) carries its version and
+capabilities in every request and has no session; it is probed first (server/discover on stdio, a first
+modern request on HTTP). Anything that is not a recognized modern answer is taken as a legacy server and
+spoken to with the initialize handshake, revisions 2025-11-25 down to 2024-11-05. OAuth is not implemented.
 """
 from __future__ import annotations
 
+import base64
 import collections
 import json
 import re
@@ -25,16 +28,93 @@ from harness.sandbox import safe_environment
 from harness.tools.registry import EffectClass, ToolArgumentError, ToolRegistry, validate_arguments
 
 SUPPORTED_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
+MODERN_VERSION = "2026-07-28"
 CLIENT_INFO = {"name": "BasaltHarness", "version": "1.0"}
+META_VERSION = "io.modelcontextprotocol/protocolVersion"
+META_INFO = "io.modelcontextprotocol/clientInfo"
+META_CAPS = "io.modelcontextprotocol/clientCapabilities"
+META_SERVER = "io.modelcontextprotocol/serverInfo"
+MODERN_ERRORS = (-32020, -32021, -32022)      # header mismatch, missing capability, unsupported version
+MAX_ROUNDS = 5
 MAX_PAGES = 50
 MAX_DESCRIPTION = 1000
 _TOOL_NAME = re.compile(r"[^A-Za-z0-9_\-]")
+_HEADER_TOKEN = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+_SENTINEL = re.compile(r"=\?base64\?.*\?=", re.S)
+_NAMED = ("tools/call", "prompts/get", "resources/read")
+_SAFE_INT = 2 ** 53 - 1
 
 
 class MCPError(RuntimeError):
-    def __init__(self, message: str, code: Optional[int] = None) -> None:
+    def __init__(self, message: str, code: Optional[int] = None, status: Optional[int] = None, data: Any = None) -> None:
         super().__init__(message)
-        self.code = code
+        self.code = code                # the JSON-RPC code when the peer sent one, else the HTTP status
+        self.status = status            # the HTTP status, for errors that came with one
+        self.data = data
+
+
+def is_modern_error(err: "MCPError") -> bool:
+    """An answer only a server of the stateless era gives: its own error codes, or an unknown-method error on a 404."""
+    return err.code in MODERN_ERRORS or (err.status == 404 and err.code == -32601)
+
+
+def header_value(value: str) -> str:
+    """A value as an HTTP header: plain when it is visible ASCII, else base64 behind a marker."""
+    plain = all(0x20 <= ord(c) <= 0x7E for c in value) and value == value.strip() and bool(value)
+    if plain and not _SENTINEL.fullmatch(value):
+        return value
+    return "=?base64?" + base64.b64encode(value.encode("utf-8")).decode("ascii") + "?="
+
+
+def header_annotations(schema: Dict[str, Any]) -> Optional[List[Tuple[str, Tuple[str, ...]]]]:
+    """(header name, property path) for each x-mcp-header of an input schema, or None if any annotation is invalid."""
+    found: List[Tuple[Any, List[Any], Dict[str, Any]]] = []
+
+    def walk(node: Any, path: List[Any]) -> None:
+        if isinstance(node, dict):
+            if "x-mcp-header" in node:
+                found.append((node["x-mcp-header"], path, node))
+            for key, child in node.items():
+                if isinstance(child, (dict, list)):
+                    walk(child, path + [key])
+        elif isinstance(node, list):
+            for i, child in enumerate(node):
+                if isinstance(child, (dict, list)):
+                    walk(child, path + [i])
+
+    walk(schema, [])
+    out: List[Tuple[str, Tuple[str, ...]]] = []
+    seen = set()
+    for name, path, node in found:
+        reachable = len(path) % 2 == 0 and all(path[i] == "properties" for i in range(0, len(path), 2)) and len(path) > 0
+        if not (isinstance(name, str) and _HEADER_TOKEN.fullmatch(name) and reachable and node.get("type") in ("integer", "string", "boolean")):
+            return None
+        if name.lower() in seen:
+            return None
+        seen.add(name.lower())
+        out.append((name, tuple(path[1::2])))
+    return out
+
+
+def annotated_values(arguments: Dict[str, Any], annotations: List[Tuple[str, Tuple[str, ...]]]) -> Dict[str, str]:
+    """Mcp-Param-* headers for the arguments of a call: values that are present and not null."""
+    headers: Dict[str, str] = {}
+    for name, path in annotations:
+        node: Any = arguments
+        for key in path:
+            node = node.get(key) if isinstance(node, dict) else None
+        if node is None:
+            continue
+        if isinstance(node, bool):
+            text = "true" if node else "false"
+        elif isinstance(node, int) and abs(node) <= _SAFE_INT:
+            text = str(node)
+        elif isinstance(node, str):
+            text = node
+        else:
+            continue
+        headers[f"Mcp-Param-{name}"] = header_value(text)
+    return headers
 
 
 def clean_description(text: Any) -> str:
@@ -67,11 +147,15 @@ class _Client:
     request_timeout = 15.0
     call_timeout = 120.0
 
-    def __init__(self) -> None:
+    def __init__(self, modern: bool = True) -> None:
         self.server_info: Dict[str, Any] = {}
         self.server_version = ""
         self.capabilities: Dict[str, Any] = {}
         self.tools_changed = False
+        self.try_modern = modern
+        self.era = ""                   # "modern" or "legacy" once connected
+        self._probing = False
+        self.instructions = ""
 
     def send_request(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None) -> Dict[str, Any]:
         raise NotImplementedError
@@ -79,7 +163,74 @@ class _Client:
     def notify(self, method: str, params: Optional[Dict[str, Any]] = None) -> None:
         raise NotImplementedError
 
+    @staticmethod
+    def modern_meta() -> Dict[str, Any]:
+        return {META_VERSION: MODERN_VERSION, META_INFO: CLIENT_INFO, META_CAPS: {}}
+
+    def request(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None) -> Dict[str, Any]:
+        """A request in the era this server speaks. Modern requests carry their metadata and may be answered with a
+        request for more input, which this client cannot give, or with state to echo back on a retry."""
+        if self.era != "modern":
+            return self.send_request(method, params, timeout)
+        sent = dict(params or {})
+        for _ in range(MAX_ROUNDS):
+            res = self.send_request(method, {**sent, "_meta": {**(sent.get("_meta") or {}), **self.modern_meta()}}, timeout)
+            kind = res.get("resultType", "complete")
+            if kind == "complete":
+                return res
+            if kind != "input_required":
+                raise MCPError(f"The server answered with an unknown result type {kind!r}")
+            if res.get("inputRequests"):
+                raise MCPError("The server asked for input (sampling, elicitation or roots) that this client does not offer")
+            if res.get("requestState") is None:
+                raise MCPError("The server asked for more input without saying what")
+            sent["requestState"] = res["requestState"]
+        raise MCPError("The server kept asking for more input")
+
+    def _discover(self) -> Dict[str, Any]:
+        return self.send_request("server/discover", {"_meta": self.modern_meta()}, self.request_timeout)
+
+    def _probe_modern(self) -> Optional[Dict[str, Any]]:
+        """The discover result if the server is of the stateless era, None if it is a legacy server."""
+        self._probing = True
+        try:
+            res = self._discover()
+            supported = res.get("supportedVersions")
+            error: Optional[MCPError] = None
+        except MCPError as exc:
+            if not is_modern_error(exc):
+                if exc.status is None and "Cannot reach" in str(exc):
+                    raise                                    # the server is not there: that is not a legacy server
+                return None
+            res, error = {}, exc
+            supported = (exc.data or {}).get("supported") if isinstance(exc.data, dict) else None
+        except TimeoutError:
+            return None
+        finally:
+            self._probing = False
+        if not isinstance(supported, list):
+            if error is not None:
+                raise MCPError(f"The server refused the request: {error}", error.code, error.status)
+            return None
+        if MODERN_VERSION in supported:
+            if error is not None:
+                raise MCPError(f"The server rejected protocol {MODERN_VERSION} although it lists it: {error}", error.code)
+            return res
+        if any(v in SUPPORTED_VERSIONS for v in supported):
+            return None
+        raise MCPError(f"The server speaks protocol {', '.join(map(str, supported)) or 'unknown'}; supported: {MODERN_VERSION}, {', '.join(SUPPORTED_VERSIONS)}")
+
     def initialize(self) -> Dict[str, Any]:
+        if self.try_modern:
+            found = self._probe_modern()
+            if found is not None:
+                self.era = "modern"
+                self.server_version = MODERN_VERSION
+                self.capabilities = found.get("capabilities") or {}
+                self.server_info = (found.get("_meta") or {}).get(META_SERVER) or {}
+                self.instructions = found.get("instructions") if isinstance(found.get("instructions"), str) else ""
+                return found
+        self.era = "legacy"
         res = self.send_request("initialize", {"protocolVersion": SUPPORTED_VERSIONS[0], "capabilities": {},
                                                "clientInfo": CLIENT_INFO})
         version = res.get("protocolVersion")
@@ -95,16 +246,19 @@ class _Client:
         tools: List[Dict[str, Any]] = []
         cursor: Optional[str] = None
         for _ in range(MAX_PAGES):
-            res = self.send_request("tools/list", {"cursor": cursor} if cursor else {})
-            tools.extend(t for t in res.get("tools", []) if isinstance(t, dict) and t.get("name"))
+            res = self.request("tools/list", {"cursor": cursor} if cursor else {})
+            tools.extend(t for t in res.get("tools", []) if isinstance(t, dict) and t.get("name") and self._tool_is_valid(t))
             cursor = res.get("nextCursor")
             if not cursor:
                 break
         self.tools_changed = False
         return tools
 
+    def _tool_is_valid(self, tool: Dict[str, Any]) -> bool:
+        return True
+
     def call_tool(self, name: str, arguments: Dict[str, Any], timeout: Optional[float] = None) -> str:
-        res = self.send_request("tools/call", {"name": name, "arguments": arguments}, timeout or self.call_timeout)
+        res = self.request("tools/call", {"name": name, "arguments": arguments}, timeout or self.call_timeout)
         text = flatten_result(res)
         if res.get("isError"):
             raise MCPError(text or f"The tool '{name}' reported an error")
@@ -141,8 +295,8 @@ class _Client:
 class MCPClient(_Client):
     """A server started as a subprocess, spoken to over stdio."""
 
-    def __init__(self, command: List[str], cwd: Optional[str] = None, env: Optional[Dict[str, str]] = None) -> None:
-        super().__init__()
+    def __init__(self, command: List[str], cwd: Optional[str] = None, env: Optional[Dict[str, str]] = None, modern: bool = True) -> None:
+        super().__init__(modern)
         self.command = command
         self.cwd = cwd
         self.env = env
@@ -237,6 +391,10 @@ class MCPClient(_Client):
             self._write({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params or {}})
             limit = timeout if timeout is not None else self.request_timeout
             if not slot[0].wait(limit):
+                try:
+                    self.notify("notifications/cancelled", {"requestId": req_id, "reason": "timeout"})
+                except MCPError:
+                    pass
                 raise TimeoutError(f"MCP request '{method}' timed out after {limit}s")
         finally:
             with self._lock:
@@ -244,7 +402,7 @@ class MCPClient(_Client):
         res = slot[1][0]
         if "error" in res:
             err = res["error"] if isinstance(res["error"], dict) else {"message": str(res["error"])}
-            raise MCPError(f"MCP error: {err.get('message', err)}", err.get("code"))
+            raise MCPError(f"MCP error: {err.get('message', err)}", err.get("code"), data=err.get("data"))
         return res.get("result") or {}
 
     def close(self) -> None:
@@ -261,8 +419,8 @@ class MCPClient(_Client):
 class MCPHttpClient(_Client):
     """A server reached over Streamable HTTP: JSON-RPC in POST bodies, answered as JSON or as an event stream."""
 
-    def __init__(self, url: str, token: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> None:
-        super().__init__()
+    def __init__(self, url: str, token: Optional[str] = None, headers: Optional[Dict[str, str]] = None, modern: bool = True) -> None:
+        super().__init__(modern)
         parts = urlparse(url)
         loopback = parts.hostname in ("127.0.0.1", "localhost", "::1")
         if parts.scheme not in ("http", "https") or not parts.hostname or (parts.scheme == "http" and not loopback):
@@ -274,24 +432,54 @@ class MCPHttpClient(_Client):
         self.session_id: Optional[str] = None
         self._msg_id = 0
         self._lock = threading.Lock()
+        self._param_headers: Dict[str, List[Tuple[str, Tuple[str, ...]]]] = {}
 
-    def _headers(self) -> Dict[str, str]:
+    def _headers(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         h = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream", **self.extra_headers}
         if self.session_id:
             h["Mcp-Session-Id"] = self.session_id
         if self.server_version:
             h["MCP-Protocol-Version"] = self.server_version
+        h.update(extra or {})
         return h
 
-    def _post(self, payload: Dict[str, Any], timeout: float):
-        req = urllib.request.Request(self.url, data=json.dumps(payload).encode("utf-8"), headers=self._headers(), method="POST")
+    def _modern_headers(self, method: str, params: Dict[str, Any]) -> Dict[str, str]:
+        """What a stateless-era request mirrors from its body, so a proxy can route it without reading it."""
+        h = {"MCP-Protocol-Version": MODERN_VERSION, "Mcp-Method": method}
+        name = params.get("uri") if method == "resources/read" else params.get("name")
+        if method in _NAMED and isinstance(name, str):
+            h["Mcp-Name"] = header_value(name)
+        if method == "tools/call" and isinstance(params.get("arguments"), dict):
+            h.update(annotated_values(params["arguments"], self._param_headers.get(params.get("name"), [])))
+        return h
+
+    def _tool_is_valid(self, tool: Dict[str, Any]) -> bool:
+        if self.era != "modern":
+            return True
+        schema = tool.get("inputSchema") if isinstance(tool.get("inputSchema"), dict) else {}
+        annotations = header_annotations(schema)
+        if annotations is None:
+            return False                                     # a tool whose header annotations are invalid is left out
+        self._param_headers[tool["name"]] = annotations
+        return True
+
+    def _post(self, payload: Dict[str, Any], timeout: float, extra: Optional[Dict[str, str]] = None):
+        req = urllib.request.Request(self.url, data=json.dumps(payload).encode("utf-8"), headers=self._headers(extra), method="POST")
         try:
             return _OPENER.open(req, timeout=timeout)
         except urllib.error.HTTPError as e:
-            detail = e.read(500).decode("utf-8", errors="replace")
+            detail = e.read(2000).decode("utf-8", errors="replace")
             if e.code == 404 and self.session_id:
-                raise MCPError("The MCP session expired; reconnect", 404) from None
-            raise MCPError(f"MCP server answered HTTP {e.code}: {detail}", e.code) from None
+                raise MCPError("The MCP session expired; reconnect", 404, 404) from None
+            code, data, text = e.code, None, detail[:500]
+            try:
+                body = json.loads(detail)
+                err = body.get("error") if isinstance(body, dict) else None
+                if isinstance(err, dict) and isinstance(err.get("code"), int):
+                    code, data, text = err["code"], err.get("data"), str(err.get("message", ""))
+            except json.JSONDecodeError:
+                pass
+            raise MCPError(f"MCP server answered HTTP {e.code}: {text}", code, e.code, data) from None
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             raise MCPError(f"Cannot reach the MCP server: {e}") from None
 
@@ -326,8 +514,10 @@ class MCPHttpClient(_Client):
         with self._lock:
             self._msg_id += 1
             req_id = self._msg_id
+        modern = self.era == "modern" or self._probing
         resp = self._post({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params or {}},
-                          timeout if timeout is not None else self.request_timeout)
+                          timeout if timeout is not None else self.request_timeout,
+                          self._modern_headers(method, params or {}) if modern else None)
         with resp:
             if method == "initialize" and resp.headers.get("Mcp-Session-Id"):
                 self.session_id = resp.headers["Mcp-Session-Id"]
@@ -352,12 +542,12 @@ class MCPHttpClient(_Client):
                 if msg.get("id") == req_id:
                     if "error" in msg:
                         err = msg["error"] if isinstance(msg["error"], dict) else {"message": str(msg["error"])}
-                        raise MCPError(f"MCP error: {err.get('message', err)}", err.get("code"))
+                        raise MCPError(f"MCP error: {err.get('message', err)}", err.get("code"), data=err.get("data"))
                     return msg.get("result") or {}
         raise MCPError(f"The MCP server never answered '{method}'")
 
     def close(self) -> None:
-        if self.session_id:
+        if self.session_id:                                  # only a legacy server gives a session
             req = urllib.request.Request(self.url, headers=self._headers(), method="DELETE")
             try:
                 _OPENER.open(req, timeout=5).close()
