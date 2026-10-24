@@ -10,6 +10,7 @@
 <link rel="preload" href="fonts/geist-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/geist-mono-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="web/app.css">
+<link rel="stylesheet" href="web/plans.css">
 <script defer src="web/i18n.js"></script>
 <script defer src="web/app.js"></script>
 <script defer src="web/chatset.js"></script>
@@ -22,6 +23,7 @@
 <script defer src="web/reqlog.js"></script>
 <script defer src="web/tasks.js"></script>
 <script defer src="web/changes.js"></script>
+<script defer src="web/plans.js"></script>
 </head>
 <body>
 
@@ -31,6 +33,7 @@
   <nav class="tabs" role="tablist" aria-label="Views">
     <button class="tab" role="tab" id="tab-chat" data-view="chat" aria-controls="view-chat" aria-selected="false" tabindex="-1" data-t="tab.chat">Chat</button>
     <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats" aria-selected="true" data-t="tab.stats">Monitor</button>
+    <button class="tab" role="tab" id="tab-plans" data-view="plans" aria-controls="view-plans" aria-selected="false" tabindex="-1" data-t="tab.plans">Plans</button>
     <button class="tab" role="tab" id="tab-hardware" data-view="hardware" aria-controls="view-hardware" aria-selected="false" tabindex="-1" data-t="tab.hardware">Hardware</button>
     <button class="tab" role="tab" id="tab-loader" data-view="loader" aria-controls="view-loader" aria-selected="false" tabindex="-1" data-t="tab.loader">Loader</button>
     <button class="tab" role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1" data-t="tab.settings">Settings</button>
@@ -236,10 +239,10 @@
       </section>
 
       <section class="sec" id="sec-tasks" aria-labelledby="h-tasks">
-        <div class="sh"><b id="h-tasks">Agent Tasks & Modifiche</b></div>
+        <div class="sh"><b id="h-tasks" data-t="tk.heading">Agent tasks and changes</b></div>
         <div class="pad">
           <div id="task-root"></div>
-          <div id="changes-root" style="margin-top: 8px;"></div>
+          <div id="changes-root"></div>
         </div>
       </section>
 
@@ -294,6 +297,13 @@
         </div>
       </section>
     </div>
+  </div>
+
+  <div class="view plans" id="view-plans" role="tabpanel" aria-labelledby="tab-plans" hidden>
+    <section class="sec plans-sec" aria-labelledby="pl-h">
+      <div class="sh"><b id="pl-h" data-t="pl.title">Plans</b></div>
+      <div class="pad" id="plans-root"></div>
+    </section>
   </div>
 
   <div class="view hw" id="view-hardware" role="tabpanel" aria-labelledby="tab-hardware" hidden>

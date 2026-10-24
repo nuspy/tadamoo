@@ -1,89 +1,76 @@
-// Tasks panel — renders agent tasks and execution status.
-//
-// Shows open, running, completed, and failed tasks with hierarchical dependencies.
-
+"use strict";
+/* Agent tasks panel (Monitor view): what the agent is doing, from GET api/tasks. It polls only while
+   the Monitor is on screen and only redraws when something changed. */
 (function () {
-  const TASKS_URL = "api/tasks";
-  const POLL_INTERVAL_MS = 2500;
+  const POLL_MS = 3000;
+  let last = "";
+  let timer = null;
 
-  async function fetchTasks() {
-    try {
-      const res = await fetch(`${TASKS_URL}?t=${Date.now()}`, { cache: "no-store", headers: authHeaders() });
-      if (!res.ok) return null;
-      return await res.json();
-    } catch {
-      return null;
-    }
-  }
-
-  function renderTaskRow(task) {
-    const row = document.createElement("div");
-    row.className = `task-row task-${task.status || "pending"}`;
-    row.style.padding = "6px 10px";
-    row.style.margin = "4px 0";
-    row.style.borderRadius = "4px";
-    row.style.fontSize = "0.75em";
-    row.style.background = task.status === "done" ? "rgba(46, 160, 67, 0.1)" :
-                           task.status === "running" ? "rgba(9, 105, 218, 0.1)" :
-                           task.status === "failed" ? "rgba(207, 34, 46, 0.1)" : "rgba(0, 0, 0, 0.04)";
-    row.style.borderLeft = `4px solid ${
-      task.status === "done" ? "#2ea043" :
-      task.status === "running" ? "#0969da" :
-      task.status === "failed" ? "#cf222e" : "#8c959f"
-    }`;
-
-    const titleLine = document.createElement("div");
-    titleLine.style.display = "flex";
-    titleLine.style.justifyContent = "space-between";
-    titleLine.style.fontWeight = "600";
-
-    const idSpan = document.createElement("span");
-    idSpan.textContent = task.id;
-
-    const statusBadge = document.createElement("span");
-    statusBadge.textContent = (task.status || "idle").toUpperCase();
-    statusBadge.style.fontSize = "0.85em";
-    statusBadge.style.opacity = "0.8";
-
-    titleLine.appendChild(idSpan);
-    titleLine.appendChild(statusBadge);
-    row.appendChild(titleLine);
-
+  function row(task) {
+    const status = ["running", "done", "failed", "closed", "pending", "blocked"].includes(task.status) ? task.status : "pending";
+    const el = document.createElement("li");
+    el.className = `tk-row tk-${status}`;
+    const head = document.createElement("div");
+    head.className = "tk-head";
+    const id = document.createElement("span");
+    id.className = "tk-id";
+    id.textContent = task.id;
+    const badge = document.createElement("span");
+    badge.className = "tk-badge";
+    badge.textContent = T("tk.status." + status);
+    head.append(id, badge);
+    el.appendChild(head);
     if (task.result) {
-      const resDiv = document.createElement("div");
-      resDiv.style.marginTop = "4px";
-      resDiv.style.opacity = "0.85";
-      resDiv.textContent = task.result;
-      row.appendChild(resDiv);
+      const res = document.createElement("div");
+      res.className = "tk-result";
+      res.textContent = task.result;
+      el.appendChild(res);
     }
-
-    return row;
+    if (Array.isArray(task.children) && task.children.length) {
+      const kids = document.createElement("div");
+      kids.className = "tk-kids";
+      kids.textContent = T("tk.children", task.children.join(", "));
+      el.appendChild(kids);
+    }
+    return el;
   }
 
   async function refresh() {
     const root = document.getElementById("task-root");
     if (!root) return;
-
-    const data = await fetchTasks();
-    if (!data || !Array.isArray(data.tasks) || data.tasks.length === 0) {
-      root.replaceChildren();
-      const empty = document.createElement("div");
-      empty.className = "dim";
-      empty.style.fontSize = "0.75em";
-      empty.style.padding = "8px";
-      empty.textContent = "Nessun task attivo al momento.";
-      root.appendChild(empty);
+    let data = null;
+    try {
+      const res = await fetch("api/tasks?t=" + Date.now(), { cache: "no-store", headers: authHeaders() });
+      if (res.ok) data = await res.json();
+    } catch (e) { /* offline: keep what is shown */ }
+    if (!data) return;
+    const sig = JSON.stringify(data.tasks || []);
+    if (sig === last) return;
+    last = sig;
+    const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+    if (!tasks.length) {
+      const empty = document.createElement("p");
+      empty.className = "tk-empty dim";
+      empty.textContent = T("tk.empty");
+      root.replaceChildren(empty);
       return;
     }
+    const list = document.createElement("ul");
+    list.className = "tk-list";
+    tasks.forEach(t => list.appendChild(row(t)));
+    root.replaceChildren(list);
+  }
 
-    root.replaceChildren();
-    for (const task of data.tasks) {
-      root.appendChild(renderTaskRow(task));
+  function schedule() {
+    clearInterval(timer);
+    timer = null;
+    if (document.body.dataset.view === "stats" && !document.hidden) {
+      refresh();
+      timer = setInterval(refresh, POLL_MS);
     }
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
-    refresh();
-    setInterval(refresh, POLL_INTERVAL_MS);
-  });
+  document.addEventListener("basalt:view", schedule);
+  document.addEventListener("visibilitychange", schedule);
+  document.addEventListener("DOMContentLoaded", schedule);
 })();

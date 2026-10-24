@@ -1,0 +1,10 @@
+{
+  "stato": "idle",
+  "coda": 0,
+  "schema": "0.0.1",
+  "tok_s": 117.2,
+  "cache_hit": 0.82,
+  "news": "assorbita: nessuna sezione news nel root, folded nel pannello chat (RAG)",
+  "istante": "2026-10-23T05:49:42",
+  "fonte": "http://127.0.0.1:7232/metrics"
+}

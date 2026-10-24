@@ -1,108 +1,88 @@
-// Changes panel — displays agent code modifications GitHub-style.
-//
-// Additions: green (#e6ffec) with +
-// Modifications: amber (#fff8c5) with ±
-// Deletions: red (#ffebe9) with -
-// Diff text renders at 2/3 base body font size.
-
+"use strict";
+/* Changes panel (Monitor view): the agent's recent file edits with their diffs, from GET api/changes.
+   Colour is never the only signal: every row has a sign (+, ±, −) and the diff lines keep theirs. */
 (function () {
-  const CHANGES_URL = "api/changes";
-  const POLL_INTERVAL_MS = 2500;
+  const POLL_MS = 3000;
+  let last = "";
+  let timer = null;
 
-  const COLORS = {
-    added: "#e6ffec",
-    modified: "#fff8c5",
-    deleted: "#ffebe9"
-  };
+  const kindOf = e => e.kind || (e.added > 0 && !e.removed ? "added" : e.removed > 0 && !e.added ? "deleted" : "modified");
+  const SIGN = { added: "+", modified: "±", deleted: "−" };
 
-  function determineKind(edit) {
-    if (edit.kind) return edit.kind;
-    if (edit.added > 0 && (!edit.removed || edit.removed === 0)) return "added";
-    if (edit.removed > 0 && (!edit.added || edit.added === 0)) return "deleted";
-    return "modified";
+  function diffBlock(text) {
+    const pre = document.createElement("pre");
+    pre.className = "chg-diff";
+    pre.tabIndex = 0;                                   // scrollable region: reachable from the keyboard
+    text.split("\n").forEach(line => {
+      const span = document.createElement("span");
+      span.className = "dl " + (line.startsWith("@@") ? "dl-hunk" : line.startsWith("+") ? "dl-add" : line.startsWith("-") ? "dl-del" : "");
+      span.textContent = line + "\n";
+      pre.appendChild(span);
+    });
+    return pre;
   }
 
-  async function fetchChanges() {
-    try {
-      const res = await fetch(`${CHANGES_URL}?t=${Date.now()}`, { cache: "no-store", headers: authHeaders() });
-      if (!res.ok) return null;
-      return await res.json();
-    } catch {
-      return null;
-    }
-  }
-
-  function renderRow(edit) {
-    const kind = determineKind(edit);
-    const color = COLORS[kind] || COLORS.modified;
-    const sign = kind === "added" ? "+" : kind === "deleted" ? "-" : "±";
-
-    const row = document.createElement("div");
-    row.className = "change-row";
-    row.style.background = color;
-    row.style.padding = "4px 8px";
-    row.style.margin = "4px 0";
-    row.style.borderRadius = "4px";
-    row.style.fontSize = "0.67em";
-    row.style.fontFamily = "var(--font-mono, monospace)";
-    row.style.border = "1px solid rgba(0,0,0,0.06)";
-
-    const header = document.createElement("div");
-    header.style.display = "flex";
-    header.style.justifyContent = "space-between";
-    header.style.alignItems = "center";
-
-    const titleSpan = document.createElement("span");
-    titleSpan.style.fontWeight = "600";
-    titleSpan.textContent = `${sign} ${edit.file || "unknown"}`;
-
-    const countSpan = document.createElement("span");
-    countSpan.className = "change-count";
-    countSpan.style.opacity = "0.75";
-    countSpan.textContent = `+${edit.added ?? 0} −${edit.removed ?? 0}`;
-
-    header.appendChild(titleSpan);
-    header.appendChild(countSpan);
-    row.appendChild(header);
-
+  function row(edit) {
+    const kind = ["added", "modified", "deleted"].includes(kindOf(edit)) ? kindOf(edit) : "modified";
+    const el = document.createElement("li");
+    el.className = `chg-row chg-${kind}`;
+    const head = document.createElement("div");
+    head.className = "chg-head";
+    const name = document.createElement("span");
+    name.className = "chg-file";
+    name.textContent = `${SIGN[kind]} ${edit.file || "?"}`;
+    const count = document.createElement("span");
+    count.className = "chg-count";
+    count.textContent = `+${edit.added ?? 0} −${edit.removed ?? 0}`;
+    head.append(name, count);
     if (edit.diff) {
-      const diffPre = document.createElement("pre");
-      diffPre.style.margin = "4px 0 0 0";
-      diffPre.style.whiteSpace = "pre-wrap";
-      diffPre.style.fontSize = "0.9em";
-      diffPre.style.maxHeight = "160px";
-      diffPre.style.overflowY = "auto";
-      diffPre.textContent = edit.diff;
-      row.appendChild(diffPre);
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = T("ch.diff");
+      details.append(summary, diffBlock(edit.diff));
+      el.append(head, details);
+    } else {
+      el.appendChild(head);
     }
-
-    return row;
+    return el;
   }
 
   async function refresh() {
     const root = document.getElementById("changes-root");
     if (!root) return;
-
-    const data = await fetchChanges();
-    if (!data || !Array.isArray(data.edits) || data.edits.length === 0) {
-      root.replaceChildren();
-      const emptyMsg = document.createElement("div");
-      emptyMsg.className = "dim";
-      emptyMsg.style.fontSize = "0.67em";
-      emptyMsg.style.padding = "8px";
-      emptyMsg.textContent = "Nessuna modifica recente registrata.";
-      root.appendChild(emptyMsg);
+    let data = null;
+    try {
+      const res = await fetch("api/changes?t=" + Date.now(), { cache: "no-store", headers: authHeaders() });
+      if (res.ok) data = await res.json();
+    } catch (e) { /* offline: keep what is shown */ }
+    if (!data) return;
+    const edits = Array.isArray(data.edits) ? data.edits : [];
+    const sig = JSON.stringify(edits.map(e => [e.file, e.time, e.added, e.removed]));
+    if (sig === last) return;                           // unchanged: leave the open diffs and their scroll alone
+    last = sig;
+    if (!edits.length) {
+      const empty = document.createElement("p");
+      empty.className = "chg-empty dim";
+      empty.textContent = T("ch.empty");
+      root.replaceChildren(empty);
       return;
     }
+    const list = document.createElement("ul");
+    list.className = "chg-list";
+    edits.slice().reverse().forEach(e => list.appendChild(row(e)));
+    root.replaceChildren(list);
+  }
 
-    root.replaceChildren();
-    for (const edit of data.edits) {
-      root.appendChild(renderRow(edit));
+  function schedule() {
+    clearInterval(timer);
+    timer = null;
+    if (document.body.dataset.view === "stats" && !document.hidden) {
+      refresh();
+      timer = setInterval(refresh, POLL_MS);
     }
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
-    refresh();
-    setInterval(refresh, POLL_INTERVAL_MS);
-  });
+  document.addEventListener("basalt:view", schedule);
+  document.addEventListener("visibilitychange", schedule);
+  document.addEventListener("DOMContentLoaded", schedule);
 })();
