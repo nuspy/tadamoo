@@ -24,6 +24,7 @@ Le dimensioni sono taglie relative (S/M/L/XL), senza date: come in §8 delle spe
 | I | La scheda **Agente non si riduce**: è subito dopo la Chat (ordine e scorciatoie invariati) ed è l'interfaccia più completa al planner; la Chat è la via più automatica. La vista **Piani** resta il dettaglio manuale. | Fase 4. |
 | J | **Canvas, council e Mermaid si fanno** (ultimi, con la misura A/B del council). | Fase 7e. |
 | K | Sottoschede della scheda Modelli: **Providers** e **Qwen Loader**. | Fase 6. |
+| L | **Processo a vita lunga** per ogni conversazione, con gestione degli errori, nuovi tentativi per errori e passi falliti, e, a incapacità verificata di procedere, avviso all'utente con richiesta di intervento. | Fase 2. |
 
 **Vocabolario** *(deciso)*: l'**harness** è l'insieme che la **Chat** usa per lavorare; contiene il **Planner** (scopi, piani, triage Jev,
 riesame System 2) e l'**Esecutore** (il ciclo con gli strumenti: file, shell, ricerca, wikibridge, MCP). `harness/` è anche il nome del pacchetto Python.
@@ -102,13 +103,23 @@ Ogni fase si chiude con commit piccoli (`area: cosa fa`, mai amend né force-pus
 Oggi il ciclo sa continuare una conversazione, ma nessun processo lo fa vivere tra un messaggio e l'altro.
 
 - **Servizio di sessioni** nel server (estende `AgentRunner`, rotte `/api/agent/sessions`, solo pagina propria): crea, invia un messaggio, leggi la storia, ferma, riprendi, chiudi.
-- **Scelta di progetto** *(proposta, salvo obiezioni)*: **un processo a vita lunga per conversazione**, con protocollo a righe JSON, storia **salvata a ogni turno**, scadenza per inattività e ripartenza dalla storia se il processo muore. Motivi: l'avvio a ogni messaggio (import, server MCP, catalogo skill) si sentirebbe in una Chat che è l'ingresso principale; si conservano connessioni MCP e permessi di sessione; il planner può spingere un avviso. Il sottoprocesso per turno resta il ripiego. La misura 1 (§6), fattibile senza GPU, conferma o ribalta la scelta prima di costruire.
+- **Scelta di progetto** *(decisa, decisione L)*: **un processo a vita lunga per conversazione**, con protocollo a righe JSON, storia **salvata a ogni turno**, scadenza per inattività e ripartenza dalla storia se il processo muore. Motivi: l'avvio a ogni messaggio (import, server MCP, catalogo skill) si sentirebbe in una Chat che è l'ingresso principale; si conservano connessioni MCP e permessi di sessione; il planner può spingere un avviso. Il sottoprocesso per turno resta il ripiego. La misura 1 (§6), fattibile senza GPU, serve a dimensionare scadenze e ripartenze, non a rimettere in discussione la scelta.
+- **Errori, nuovi tentativi e intervento dell'utente** (decisione L). Un **supervisore** nel server sorveglia ogni sessione (battito del processo, tempo massimo per turno) e distingue:
+  - **processo morto o bloccato**: riparte dalla storia salvata;
+  - **errore del modello o del server** (timeout, 5xx, motore occupato o non caricato): nuovo tentativo con attesa crescente; prima di ritentare controlla lo stato (modello caricato, server raggiungibile);
+  - **strumento fallito**: lo vede il modello, che può cambiare approccio; il supervisore non lo ritenta alla cieca;
+  - **passo di un piano fallito**: ritento secondo la regola del passo (tentativi massimi nel passo stesso, `plan:mark` al fallimento).
+  Regole comuni, tutte configurabili con valori di partenza prudenti:
+  - **un tetto ai tentativi e alle ripartenze** in una finestra di tempo, per non girare a vuoto;
+  - **mai un nuovo tentativo automatico di un'azione `IRREVERSIBLE`** (una telefonata, un pagamento, una cancellazione): prima si guarda che cosa è successo davvero, come già prescrive la coda delle chiamate reali;
+  - ogni tentativo e il suo motivo restano nell'audit e nel pannello.
+- **Incapacità verificata di procedere.** Dopo i tentativi, il supervisore **verifica** (controlli di salute: modello, server, spazio, permessi, strumento che fallisce sempre allo stesso modo). Se non si può procedere, **avvisa** nella Chat con una domanda a pulsanti ("Riprovo", "Salto questo passo", "Ferma", "Apri il registro") e con un segno nella scheda Agente, che sopravvive alla chiusura della pagina; per un passo di piano riusa la richiesta di intervento umano già presente (`plan:human_fallback`). Non si decide mai al posto dell'utente: la sessione aspetta la risposta.
 - **Storia salvata** nella cartella dei dati utente, con la stessa disciplina di byte-stabilità del prefisso (la ripartenza non deve invalidare la cache del motore).
 - **Risposta a pezzi** (streaming): `chat_completion` con flusso e un evento di testo parziale, mostrato dalla pagina.
 - **Un'unica politica di contesto**: la compattazione dell'agente (TokenJuice, blocchi fissi, errori mai troncati) sostituisce quella della Chat; `chatctx.py` resta per le app esterne.
 - **Modalità "solo domanda"**: la sessione senza strumenti, per le risposte semplici, così un saluto non diventa un ciclo.
-- *Test*: sessione a più turni contro `MockEngine` e un sottoprocesso vero; ripresa dopo un arresto; stop a metà turno; nessun segreto nella storia; il prefisso resta identico tra un turno e il successivo.
-- *Accettazione*: due messaggi di seguito, il secondo si riferisce al primo; l'arresto interrompe entro un tempo dichiarato; la storia sopravvive al riavvio del server.
+- *Test*: sessione a più turni contro `MockEngine` e un sottoprocesso vero; ripresa dopo un arresto; stop a metà turno; nessun segreto nella storia; il prefisso resta identico tra un turno e il successivo. **Guasti iniettati**: processo ucciso a metà turno, motore che risponde 5xx e poi si riprende, motore che non si riprende, strumento che fallisce sempre; azione `IRREVERSIBLE` che non viene mai ripetuta; tetto dei tentativi rispettato; la richiesta all'utente compare con i pulsanti e la sessione aspetta.
+- *Accettazione*: due messaggi di seguito, il secondo si riferisce al primo; l'arresto interrompe entro un tempo dichiarato; la storia sopravvive al riavvio del server; un guasto temporaneo si risolve da solo e uno permanente arriva all'utente con una domanda, mai in silenzio e mai con un'azione irreversibile ripetuta.
 
 ### Fase 3 — Strumenti del planner per la Chat e regole di autonomia (L)
 
@@ -238,7 +249,7 @@ Ogni numero porta l'etichetta del limite di potenza della GPU; le valutazioni so
 
 Le decisioni di §1 sono prese. Restano:
 
-1. **Sessioni**: conferma del processo a vita lunga per conversazione (proposta della Fase 2), dopo la misura 1.
+1. **Nuovi tentativi**: i valori di partenza (numero di tentativi, attese, finestra delle ripartenze) li propongo io in Fase 2 e li correggi con i dati.
 2. **llmswitch, dettagli**: scarico per inattività (proposta: mai di default); quali abbonamenti e provider a riga di comando nel primo rilascio, e in che ordine si abilitano; quali domande tipizzate di Jev oltre al triage (ad esempio pertinenza di estratti per la conoscenza).
 3. **Benchmark pubblico** da usare (SWE-bench Pro o Terminal-Bench) e quali altri harness mettere a confronto.
 4. **Isolamento D5, connettori di pagamento, licenza, contenuti del rilascio**: decisioni dell'utente, non del codice.
