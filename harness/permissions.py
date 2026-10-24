@@ -101,6 +101,18 @@ class PermissionManager:
             self._remembered.add(key)
         return approved
 
+    def _refusal(self, reason: str) -> str:
+        """The reason a call was not run, with what the model can still do: no one can answer a question in an unattended
+        run, and a command that chains others is not covered by an allow rule for its parts."""
+        text = reason
+        if self.confirm_callback is None:
+            text += ". Nobody can confirm in this run, so it was not run"
+        allowed = [r.pattern for r in self.rules if r.action == "allow"]
+        if allowed:
+            text += (f". These can run without confirmation: {', '.join(allowed)}, each as one plain command (no &&, ;, |, "
+                     "> or <). Use one of them or say what you could not do")
+        return text
+
     def evaluate(self, tool_name: str, effect: EffectClass, arguments: Dict[str, Any]) -> Tuple[bool, str]:
         """Returns (allowed, reason)."""
         if self.plan_mode and effect != EffectClass.PURE:
@@ -115,7 +127,7 @@ class PermissionManager:
         if tool_name in self.always_ask:
             if self._ask(tool_name, arguments, None):
                 return True, f"User confirmed {tool_name}"
-            return False, f"{tool_name} needs the user's explicit confirmation every time"
+            return False, self._refusal(f"{tool_name} needs the user's explicit confirmation every time")
 
         for rule in self.rules:
             if rule.action == "allow" and plain and _matches(rule, targets, arguments):
@@ -128,14 +140,14 @@ class PermissionManager:
         if self.level == PermissionLevel.READ_ONLY:
             if self._ask(tool_name, arguments, key):
                 return True, "User confirmed execution"
-            return False, f"Execution of {tool_name} rejected: read-only level requires confirmation"
+            return False, self._refusal(f"Execution of {tool_name} rejected: read-only level requires confirmation")
 
         if self.level == PermissionLevel.DEFAULT:
             if effect == EffectClass.REVERSIBLE:
                 return True, "Reversible workspace modification permitted"
             if self._ask(tool_name, arguments, key):
                 return True, "User confirmed irreversible execution"
-            return False, f"Irreversible tool {tool_name} needs confirmation"
+            return False, self._refusal(f"Irreversible tool {tool_name} needs confirmation")
 
         if self.level == PermissionLevel.AUTO:
             if effect == EffectClass.IRREVERSIBLE and self.rule_of_two_broken:

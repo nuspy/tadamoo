@@ -1,7 +1,7 @@
 import pytest
 
 from harness.hooks import HookManager, dangerous_command
-from harness.permissions import PermissionLevel, PermissionManager
+from harness.permissions import PermissionLevel, PermissionManager, PermissionRule
 from harness.tools.registry import EffectClass
 
 SHELL = ("shell_command", EffectClass.IRREVERSIBLE)
@@ -136,3 +136,20 @@ def test_event_hooks_run_and_their_failures_are_collected():
     assert any("ZeroDivisionError" in e for e in hooks.errors)
     with pytest.raises(ValueError):
         hooks.register_event_hook("nope", lambda p: None)
+
+
+def test_a_refusal_says_what_can_still_run_and_that_nobody_can_confirm():
+    pm = PermissionManager(level=PermissionLevel.DEFAULT, rules=[PermissionRule("shell_command:python *", "allow")])
+    ok, why = pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "python a.py"})
+    assert ok
+    ok, why = pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "python a.py && echo done"})
+    assert not ok and "Irreversible tool shell_command needs confirmation" in why
+    assert "Nobody can confirm" in why and "shell_command:python *" in why and "one plain command" in why
+    ok, why = PermissionManager(level=PermissionLevel.DEFAULT).evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "ls"})
+    assert not ok and "Nobody can confirm" in why and "These can run" not in why         # no allow rules to point to
+
+
+def test_a_refusal_after_the_user_declined_does_not_claim_that_nobody_can_confirm():
+    pm = PermissionManager(level=PermissionLevel.DEFAULT, confirm_callback=lambda name, args: False)
+    ok, why = pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "ls"})
+    assert not ok and "Nobody can confirm" not in why
