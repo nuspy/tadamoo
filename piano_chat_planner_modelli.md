@@ -4,6 +4,21 @@
 `8b8f7f76`. Estende `the_way_to_the_moon.md` (§8) e `conquer_of_the_moon.md` senza sostituirli.
 Le dimensioni sono taglie relative (S/M/L/XL), senza date: come in §8 delle specifiche, una data senza base è peggio di nessuna.
 
+**Avanzamento (2026-10-24).** Fasi 0 e 1 fatte nel codice (commit `87a14762`, `fd252e1f`, `1193e5c1`), con una riserva:
+- **Fase 0.** Il test di contratto della superficie esterna c'è e fallisce se compare una rotta nuova. Nel farlo ho trovato che
+  `/v1/load`, `/v1/unload`, `/v1/vram` e le rotte `/api/*` si proteggono solo contro l'`Origin` di un sito estraneo (`_own_page`): un'app
+  locale che non manda `Origin` le raggiunge, con o senza chiave. Il vincolo A ("nient'altro") chiede quindi una scelta: separare la porta
+  della pagina da quella delle app esterne, oppure una chiave "solo modello" che non apre le rotte di controllo. Non l'ho toccato.
+  Il test intermittente non si è riprodotto in 12 esecuzioni (3 in parallelo sotto carico comprese) e resta non identificato.
+  I 7 fallimenti di `serve/tests` sono differenze di Windows contro Linux (separatori di percorso, un eseguibile non Win32,
+  quattro prove del server che si aspettano un modello predefinito) e non dipendono dalle mie modifiche.
+- **Fase 1.** Revisione e origine di ogni modifica, `plan:update_meta`, archivio recuperabile, e la pagina Piani con cronologia,
+  dettagli del piano, archivia (due pressioni) e ripristina. Provata in Edge a 1280 e 3600 px, in italiano e inglese.
+- **Prove col modello vero** (modello libero, limite di potenza 600 W): una corsa dell'agente riuscita in 7 secondi con argomenti validi;
+  una modifica di due righe di un file di 45 righe riuscita, ma fatta con `sed` dalla shell e quindi **non registrata** nel Monitor:
+  corretto confrontando i file di testo prima e dopo ogni comando (commit `73d8301c`), poi riprovato dal vivo e annullato un solo
+  blocco dal Monitor con il file su disco coerente. La valutazione `core` k=5 e le altre voci della coda sono in corso o in attesa.
+
 **Come leggerlo.** §1 le decisioni già prese, §2 l'architettura, §3 lo stato verificato, §4 le fasi di lavoro,
 §5 ciò che resta delle specifiche, §6 le misure, §7 le decisioni aperte. Ciò che non ho verificato è marcato *(non verificato)*.
 
@@ -24,6 +39,7 @@ Le dimensioni sono taglie relative (S/M/L/XL), senza date: come in §8 delle spe
 | I | La scheda **Agente non si riduce**: è subito dopo la Chat (ordine e scorciatoie invariati) ed è l'interfaccia più completa al planner; la Chat è la via più automatica. La vista **Piani** resta il dettaglio manuale. | Fase 4. |
 | J | **Canvas, council e Mermaid si fanno** (ultimi, con la misura A/B del council). | Fase 7e. |
 | K | Sottoschede della scheda Modelli: **Providers** e **Qwen Loader**. | Fase 6. |
+| M | **Schemi di contesto** nelle impostazioni di inferenza: iniezione, riscrittura, potatura, riassunto, rami e versionamento, ciascuno con casella e selettore della strategia, e descrizioni (cosa fa, vantaggi, svantaggi, quando si usa) per ogni schema e ogni strategia. Dove ci sono più strategie si implementano le più efficaci, scelte con la misura. | Fase 2b. |
 | L | **Processo a vita lunga** per ogni conversazione, con gestione degli errori, nuovi tentativi per errori e passi falliti, e, a incapacità verificata di procedere, avviso all'utente con richiesta di intervento. | Fase 2. |
 
 **Vocabolario** *(deciso)*: l'**harness** è l'insieme che la **Chat** usa per lavorare; contiene il **Planner** (scopi, piani, triage Jev,
@@ -78,7 +94,7 @@ Principi:
 
 ## 4. Le fasi
 
-Ordine: **0 → 1 → 2 → 3 → 4 → 5**; la **6** parte dopo la decisione su llmswitch; la **7** si intercala secondo le risorse; la **8** precede ogni rilascio.
+Ordine: **0 → 1 → 2 → 2b → 3 → 4 → 5**; la **6** parte dopo la decisione su llmswitch; la **7** si intercala secondo le risorse; la **8** precede ogni rilascio.
 Ogni fase si chiude con commit piccoli (`area: cosa fa`, mai amend né force-push, mai push), test, e la voce corrispondente nelle code dei test di giorno quando serve il modello vero.
 
 ### Fase 0 — Debiti noti e contratto esterno (S)
@@ -120,6 +136,40 @@ Oggi il ciclo sa continuare una conversazione, ma nessun processo lo fa vivere t
 - **Modalità "solo domanda"**: la sessione senza strumenti, per le risposte semplici, così un saluto non diventa un ciclo.
 - *Test*: sessione a più turni contro `MockEngine` e un sottoprocesso vero; ripresa dopo un arresto; stop a metà turno; nessun segreto nella storia; il prefisso resta identico tra un turno e il successivo. **Guasti iniettati**: processo ucciso a metà turno, motore che risponde 5xx e poi si riprende, motore che non si riprende, strumento che fallisce sempre; azione `IRREVERSIBLE` che non viene mai ripetuta; tetto dei tentativi rispettato; la richiesta all'utente compare con i pulsanti e la sessione aspetta.
 - *Accettazione*: due messaggi di seguito, il secondo si riferisce al primo; l'arresto interrompe entro un tempo dichiarato; la storia sopravvive al riavvio del server; un guasto temporaneo si risolve da solo e uno permanente arriva all'utente con una domanda, mai in silenzio e mai con un'azione irreversibile ripetuta.
+
+### Fase 2b — Schemi di contesto (prompt engineering) nelle impostazioni di inferenza (L) · *dopo la Fase 2*
+
+Sei schemi, ciascuno con una casella di attivazione e, dove esistono più strategie, un selettore accanto (decisione M).
+Vivono nei **preset di inferenza** (chiave nuova `context_patterns` accanto a `policy` e `threshold`, che restano leggibili e
+vengono mappati sugli schemi) e valgono per le funzioni **interne** (Chat, Esecutore, Planner), per preset. Alle **app esterne**
+non si applica nulla in più: per loro restano solo i parametri `policy` e `threshold` della richiesta (decisione A).
+L'ordine delle trasformazioni è fisso: **iniezione → riscrittura → potatura → riassunto**; il versionamento le avvolge e il
+ramo è un'operazione della sessione, non una trasformazione. Tutto spento di partenza, tranne ciò che oggi già avviene.
+
+| Schema | Strategie offerte | Esiste già | Effetto sulla cache del prefisso |
+|---|---|---|---|
+| **Iniezione** (aggiungere informazioni) | `prefisso fisso` (regole, `AGENTS.md`, catalogo skill, documenti di riferimento); `recupero in coda` (RAG da wikibridge, memoria, `kb_search`, dopo il messaggio dell'utente); `su richiesta` (il modello chiama lo strumento) | sì: blocchi fissi, `retrieved`, `kb_search` | prefisso fisso: costruito una volta; coda: nessuno; su richiesta: nessuno |
+| **Riscrittura** (istruzioni più efficaci) | `normalizza con modello fisso` (ruolo, obiettivo, vincoli, formato; senza chiamate al modello); `proposta del modello con revisione` (il modello propone, tu vedi il confronto e approvi) | no | solo la prima volta |
+| **Potatura** (togliere rumore) | `maschera le osservazioni vecchie` (segnaposto che dice dove ritrovarle); `togli il rumore` (righe doppie, spazi, HTML in testo, JSON ridotto); `più vecchi per primi` (rolling); `per pertinenza` (BM25 sulle sole parole, senza embedding) | in parte: TokenJuice, `rolling` | rompe il prefisso dal punto potato |
+| **Riassunto** (comprimere lo storico) | `strutturato dal modello` (fatti, decisioni, domande aperte, codice); `incrementale` (aggiorna il riassunto a ogni soglia); `estrattivo` (testa, coda e righe chiave, senza modello) | sì: `compact`, TokenJuice | rompe il prefisso una volta |
+| **Rami di contesto** (alternative in parallelo) | `copia a un punto` (sequenziale, i rami si confrontano); `candidati in parallelo` (N risposte con prefisso condiviso sugli slot, poi scegli tu o un giudice); `rami del piano` (le alternative del riesame) | no (c'è `harness/swarm`) | prefisso condiviso: nessuno |
+| **Versionamento** (tracciare le modifiche) | `istantanee per turno` (contesto con hash a catena, confronto e ritorno); `versioni con nome` (prompt di sistema e preset, con differenze e ripristino) | in parte: audit e punti di ripristino dei file | nessuno |
+
+- **Scelta delle strategie «più efficaci»**: non per sentito dire. Ogni strategia ha un insieme di valutazione in `harness/eval`
+  (conversazioni lunghe: pass^k, token, cache, errori di richiamo) e il valore di partenza è quello che misura meglio; le altre
+  restano selezionabili. Dove la specifica ha già un ordine (mascheramento prima del riassunto, §4.1) si rispetta.
+- **Descrizioni accanto a ogni casella e a ogni strategia**, raggiungibili con tastiera e tocco (pulsante «i» che apre una
+  descrizione ancorata, non solo al passaggio del mouse). Ognuna ha **quattro parti**: *che cosa fa*, *vantaggi*, *svantaggi*,
+  *quando si usa*; più, per le strategie, l'effetto sulla cache. I testi sono nel catalogo in italiano e inglese, e un test
+  controlla che nessuno schema o strategia ne manchi.
+- **Catalogo unico** (`GET /api/context/patterns`, schema dei parametri compreso) da cui la pagina costruisce la tabella: aggiungere
+  una strategia non richiede toccare la pagina.
+- **Una strategia che rompe il prefisso lo dice** nella descrizione e nel Monitor (perdita di cache misurata, non stimata).
+- *Test*: per ogni strategia, ingresso e uscita deterministici dove possibile; l'ordine fisso; la cache del prefisso invariata
+  quando lo schema è spento; un invito ostile dentro un documento iniettato non cambia le istruzioni; nessuna strategia scrive
+  fuori dalla sessione; il confronto di versione mostra esattamente ciò che è cambiato.
+- *Accettazione*: ogni casella accende e spegne il suo effetto in una conversazione vera; ogni selettore cambia la strategia;
+  tutte le descrizioni sono presenti; i numeri delle valutazioni sono etichettati con il limite di potenza della GPU.
 
 ### Fase 3 — Strumenti del planner per la Chat e regole di autonomia (L)
 
@@ -165,7 +215,7 @@ Oggi il ciclo sa continuare una conversazione, ma nessun processo lo fa vivere t
 **Perimetro (vincolo A):** riguarda solo le funzioni **interne** di Basalt. Le app esterne vedono solo il modello caricato; per loro esiste al più il **preset di inferenza di default**, che una richiesta può comunque sovrascrivere.
 
 1. **Scheda Modelli** con due sottoschede (decisione K): **Providers** (in alto la tabella delle funzioni, sotto i provider e i modelli, con una striscia di stato comune: che cosa è caricato, VRAM, chi lo usa) e **Qwen Loader** (la scheda Loader attuale, spostata).
-2. **Funzioni**: Chat, Esecutore, Planner (riesame), filtro Jev, compattazione del contesto, valutazione, App esterne (solo preset; rotta bloccata sul modello caricato). Ognuna ha rotta, preset (ragionamento, budget, `max_tokens`, comportamento a contesto pieno), classe di dati e priorità. Precedenza: richiesta, funzione, provider, modello.
+2. **Funzioni**: Chat, Esecutore, Planner (riesame), filtro Jev, compattazione del contesto, valutazione, App esterne (solo preset; rotta bloccata sul modello caricato). Ognuna ha rotta, preset (ragionamento, budget, `max_tokens`, comportamento a contesto pieno, schemi di contesto della Fase 2b), classe di dati e priorità. Precedenza: richiesta, funzione, provider, modello.
 2b. **Jev (TypeSafe AI) come tipo di provider di llmswitch.** Non è un provider di chat: risponde a **domande tipizzate** (scelta, punteggio, probabilità `noul`) su `POST /v1/systemone` con il modello `jev-latest`. Quindi llmswitch riceve una capacità nuova, **"giudizio"**, accanto a "chat" e "embedding", e un consumatore "giudizio" non può essere puntato a un provider di sola chat (e viceversa). Regole che restano come ora:
    - la funzione che lo usa è il **filtro Jev** del planner (triage); le soglie (0,80 sul `noul`), il consenso al cloud, la pseudonimizzazione e i campi della scheda restano nelle impostazioni del planner, non in llmswitch;
    - **solo estratti**, mai documenti o pagine intere (il consumo è in token d'ingresso);
