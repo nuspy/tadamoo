@@ -65,7 +65,7 @@ def load_task_set(path_or_name: str | Path) -> Tuple[Dict[str, Any], List[Task]]
             raise ValueError(f"duplicate task id {raw['id']}")
         seen.add(raw["id"])
         checks = list(raw.get("checks", []))
-        if raw.get("expected_keyword"):                     # the older single-turn form
+        if raw.get("expected_keyword"):                     # shorthand for one answer check
             checks.append({"type": "answer_contains", "text": raw["expected_keyword"]})
         mode = raw.get("mode") or ("agent" if raw.get("files") or checks or not raw.get("tools") else "tools")
         tasks.append(Task(

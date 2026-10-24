@@ -54,7 +54,7 @@ class EvalResult:
     trials: List[Trial] = field(default_factory=list)
 
     @property
-    def runs(self) -> List[Trial]:        # the name the first version of the report used
+    def runs(self) -> List[Trial]:        # alias used by the report
         return self.trials
 
 
@@ -158,7 +158,7 @@ class EvalRunner:
         return trial
 
     def evaluate_task(self, task: Task | Dict[str, Any], k: int = 5, mock_output_fn: Optional[Callable[..., Any]] = None) -> EvalResult:
-        if isinstance(task, dict):                         # the first version took plain dicts
+        if isinstance(task, dict):                         # a plain dict is accepted too
             from .tasks import _validate
             _validate(task)
             checks = list(task.get("checks", []))
