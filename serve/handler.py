@@ -30,9 +30,13 @@ from serve.api.structured import StructuredOutputError, prepare_format, validate
 from serve.util.reqlog import export_jsonl, export_text
 from serve import plans as plans_mod, userdata
 from serve import review as review_mod
+from serve.agent_runs import AgentRunner, RunBusy, RunError
+from serve.approvals import ApprovalBoard, ApprovalError
 from serve.tasks import ChangeJournal, TaskJournal
 _TASKS = TaskJournal(userdata.path("journal"))        # runtime state lives in the user's data folder, not in the assets
 _CHANGES = ChangeJournal(userdata.path("journal"))
+_APPROVALS = ApprovalBoard()
+_RUNNER = None                                        # made on first use: it needs this server's address
 _PLANS = None                                          # the planner's service, made on first use
 from serve.util.reqtrace import RequestTrace
 from serve.util.text import stop_strings
@@ -335,6 +339,9 @@ def make_handler(svc: Service):
             elif path == "/api/changes":
                 if self._authorized():
                     self._json(200, _CHANGES.view())
+            elif path.startswith("/api/agent/"):
+                if self._authorized():
+                    self._agent_get(path)
             elif path == "/api/planner/settings" or path == "/api/plans" or path.startswith("/api/plans/"):
                 if self._authorized():
                     self._plans_get(path)
@@ -449,6 +456,9 @@ def make_handler(svc: Service):
                     self._json(e.status, {"error": {"message": str(e)}})
                 except (ValueError, TypeError) as e:
                     self._json(400, {"error": {"message": str(e)}})
+                return
+            if path.startswith("/api/agent/"):
+                self._agent_post(path)
                 return
             if path == "/api/changes/review":
                 if not settings.is_loopback(self.client_address[0]):
@@ -1084,6 +1094,68 @@ def make_handler(svc: Service):
                 self._json(exc.status, {"error": {"message": str(exc)}})
             else:
                 self._json(400, {"error": {"message": str(exc)}})
+
+        def _agent_runner(self) -> AgentRunner:
+            global _RUNNER
+            if _RUNNER is None:
+                _RUNNER = AgentRunner(userdata.path("journal"), f"http://127.0.0.1:{self.server.server_address[1]}",
+                                      svc.api_key or "", tasks=_TASKS, board=_APPROVALS)
+            return _RUNNER
+
+        def _agent_get(self, path):
+            parts = path[len("/api/agent/"):].split("/")
+            try:
+                if parts == ["runs"]:
+                    return self._json(200, self._agent_runner().view())
+                if len(parts) == 3 and parts[0] == "runs" and parts[2] == "log":
+                    lines = int((parse_qs(urlsplit(self.path).query).get("lines", ["300"])[0]) or 300)
+                    return self._json(200, self._agent_runner().log(parts[1], lines))
+                if parts == ["approvals"]:
+                    return self._json(200, _APPROVALS.view())
+                if len(parts) == 2 and parts[0] == "approvals":
+                    item = _APPROVALS.get(parts[1])
+                    if item is None:
+                        return self._json(404, {"error": {"message": "That request is not there any more."}})
+                    return self._json(200, {"status": item["status"]})
+            except RunError as e:
+                return self._json(404, {"error": {"type": "agent", "message": str(e)}})
+            except ValueError as e:
+                return self._json(400, {"error": {"message": str(e)}})
+            self._json(404, {"error": {"message": "not found"}})
+
+        def _agent_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the agent can be used only from the PC the server runs on"}})
+            if not self._own_page("the agent can be used"):
+                return
+            parts = path[len("/api/agent/"):].split("/")
+            try:
+                req = json.loads(self._body(1 << 16) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                if parts == ["runs"]:
+                    run = self._agent_runner().start(req.get("workspace"), req.get("goal"), req.get("mode", "default"), req.get("allow"),
+                                                     req.get("max_turns", 15), req.get("confirm_auto") is True)
+                    return self._json(200, {"run": run})
+                if len(parts) == 3 and parts[0] == "runs" and parts[2] == "stop":
+                    return self._json(200, {"run": self._agent_runner().stop(parts[1])})
+                if parts == ["approvals"]:
+                    return self._json(200, _APPROVALS.request(req.get("run", ""), req.get("tool"), req.get("arguments", {}), req.get("effect", "")))
+                if len(parts) == 2 and parts[0] == "approvals":
+                    if req.get("decision") not in ("approve", "deny"):
+                        raise ValueError('decision must be "approve" or "deny"')
+                    return self._json(200, {"approval": _APPROVALS.decide(parts[1], req["decision"] == "approve")})
+            except RunBusy as e:
+                return self._json(409, {"error": {"type": "agent", "message": str(e)}})
+            except (RunError, ApprovalError) as e:
+                return self._json(409 if "already" in str(e) or "not running" in str(e) or "not there" in str(e) else 400,
+                                  {"error": {"type": "agent", "message": str(e)}})
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"message": str(e)}})
+            self._json(404, {"error": {"message": "not found"}})
 
         def _plans_get(self, path):
             try:

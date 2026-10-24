@@ -35,6 +35,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
                              "where it can be sent (without hosts it is for local commands only)")
     parser.add_argument("--skills", action="append", default=[], metavar="DIR", help="folder with SKILL.md skills")
     parser.add_argument("--interactive", action="store_true", help="ask on the terminal before risky actions")
+    parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of the terminal")
+    parser.add_argument("--run-id", default="", help="the name of this run in the server's Monitor")
     parser.add_argument("--phone", action="store_true",
                         help="offer the phone tools (callAPIcall; CALLAPICALL_URL and CALLAPICALL_TOKEN); every call asks you")
     parser.add_argument("--on-behalf-of", default="", help="name the phone assistant gives when it calls")
@@ -48,6 +50,13 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--no-checkpoints", action="store_true")
     parser.add_argument("--json", action="store_true", help="print the result as JSON")
     return parser.parse_args(args)
+
+
+def _confirmer(args: argparse.Namespace):
+    if args.ask_server:
+        from harness.approval_client import ServerApprover
+        return ServerApprover(args.endpoint, args.api_key, args.run_id or "cli")
+    return _ask_on_terminal if args.interactive else None
 
 
 def _ask_on_terminal(tool: str, arguments: Dict[str, Any]) -> bool:
@@ -89,7 +98,7 @@ def config_from_args(args: argparse.Namespace) -> AgentConfig:
         use_checkpoints=not args.no_checkpoints, skill_paths=args.skills,
         phone=args.phone, phone_on_behalf_of=args.on_behalf_of, reference_docs=read_reference(args.reference),
         report=not args.no_report, reference_strategy=args.reference_strategy, wiki=args.wiki, wiki_project=args.wiki_project,
-        confirm=_ask_on_terminal if args.interactive else None,
+        confirm=_confirmer(args), run_id=args.run_id,
     )
 
 
@@ -98,7 +107,7 @@ def run_headless(cfg: AgentConfig, prompt: str, client: Any = None) -> Dict[str,
     try:
         if cfg.report:
             from harness.reporting import PanelReporter
-            built.reporter = PanelReporter(cfg.endpoint, cfg.api_key, built.sandbox, prompt)
+            built.reporter = PanelReporter(cfg.endpoint, cfg.api_key, built.sandbox, prompt, session=cfg.run_id or None)
             built.agent.on_event = built.reporter.on_event
             built.reporter.start()
         try:

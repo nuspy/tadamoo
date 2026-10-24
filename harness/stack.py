@@ -66,6 +66,7 @@ class AgentConfig:
     wiki: bool = False                 # offer the wikibridge tools (address and key from the environment)
     wiki_project: str = ""
     report: bool = False               # tell the server's Monitor about the run and its edits
+    run_id: str = ""                    # names the run in the Monitor; the server gives one when it starts the agent
     phone: bool = False                 # offer the phone tools (callAPIcall from the environment)
     phone_on_behalf_of: str = ""
     skill_paths: List[str] = field(default_factory=list)
