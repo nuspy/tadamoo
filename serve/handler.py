@@ -28,8 +28,11 @@ from serve.security import host_allowed, host_names_for, key_matches, origin_all
 from serve.service import LOG_FIRST_LINES, LOG_MAX_LINES, Service, _debug_req
 from serve.api.structured import StructuredOutputError, prepare_format, validated_json
 from serve.util.reqlog import export_jsonl, export_text
-from serve.tasks import TaskJournal
-_TASKS = TaskJournal(ROOT / "serve" / "web")
+from serve import plans as plans_mod, userdata
+from serve.tasks import ChangeJournal, TaskJournal
+_TASKS = TaskJournal(userdata.path("journal"))        # runtime state lives in the user's data folder, not in the assets
+_CHANGES = ChangeJournal(userdata.path("journal"))
+_PLANS = None                                          # the planner's service, made on first use
 from serve.util.reqtrace import RequestTrace
 from serve.util.text import stop_strings
 
@@ -330,9 +333,10 @@ def make_handler(svc: Service):
                     self._json(200, _TASKS.load())
             elif path == "/api/changes":
                 if self._authorized():
-                    f = ROOT / "serve" / "web" / "changes.json"
-                    data = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {"schema": "1.0", "edits": []}
-                    self._json(200, data)
+                    self._json(200, _CHANGES.load())
+            elif path == "/api/planner/settings" or path == "/api/plans" or path.startswith("/api/plans/"):
+                if self._authorized():
+                    self._plans_get(path)
             elif path == "/api/prefs":
                 self._json(200, self._prefs())
             elif path == "":
@@ -427,6 +431,26 @@ def make_handler(svc: Service):
                     self._json(e.status, {"error": {"message": str(e)}})
                 except (ValueError, TypeError) as e:
                     self._json(400, {"error": {"message": str(e)}})
+                return
+            if path == "/api/changes":
+                if not self._own_page("changes can be recorded"):
+                    return
+                try:
+                    req = json.loads(self._body(1 << 20) or b"{}")
+                    if not isinstance(req, dict):
+                        raise ValueError("send a JSON object")
+                    if req.get("clear"):
+                        _CHANGES.clear()
+                        self._json(200, {"cleared": True})
+                    else:
+                        self._json(200, _CHANGES.add(req.get("edits", [])))
+                except BadBody as e:
+                    self._json(e.status, {"error": {"message": str(e)}})
+                except (ValueError, TypeError) as e:
+                    self._json(400, {"error": {"message": str(e)}})
+                return
+            if path == "/api/planner/settings" or path == "/api/plans" or path.startswith("/api/plans/"):
+                self._plans_post(path)
                 return
             if path == "/api/chat/context":
                 self._chat_context()
@@ -1001,6 +1025,110 @@ def make_handler(svc: Service):
                 return
             svc.reqlog.clear()
             self._json(200, {"cleared": True})
+
+        # -- planner -----------------------------------------------------------------------------
+
+        def _plan_service(self):
+            global _PLANS
+            if _PLANS is None:
+                _PLANS = plans_mod.PlanService(userdata.path("planner"))
+            from harness.client import BasaltClient
+            port = self.server.server_address[1]
+            _PLANS.client_factory = lambda: BasaltClient(base_url=f"http://127.0.0.1:{port}", api_key=svc.api_key or None)
+            return _PLANS
+
+        def _plan_error(self, exc):
+            if isinstance(exc, KeyError):
+                self._json(404, {"error": {"message": f"not found: {exc.args[0] if exc.args else ''}"}})
+            elif isinstance(exc, plans_mod.PlannerUnavailable):
+                self._json(501, {"error": {"message": str(exc)}})
+            elif isinstance(exc, BadBody):
+                self._json(exc.status, {"error": {"message": str(exc)}})
+            else:
+                self._json(400, {"error": {"message": str(exc)}})
+
+        def _plans_get(self, path):
+            try:
+                service = self._plan_service()
+                if path == "/api/planner/settings":
+                    return self._json(200, service.settings())
+                if path == "/api/plans":
+                    return self._json(200, {"plans": service.list()})
+                parts = path[len("/api/plans/"):].split("/")
+                plan_id, action = parts[0], (parts[1] if len(parts) > 1 else "")
+                query = parse_qs(urlsplit(self.path).query)
+                after = int(query.get("after", ["0"])[0] or 0)
+                if action == "":
+                    return self._json(200, service.snapshot(plan_id))
+                if action == "events":
+                    events = service.events_since(plan_id, after)
+                    return self._json(200, {"events": events, "seq": events[-1]["seq"] if events else after})
+                if action == "stream":
+                    return self._plan_stream(service, plan_id, after)
+                self._json(404, {"error": {"message": "not found"}})
+            except (KeyError, ValueError, plans_mod.PlannerUnavailable) as exc:
+                self._plan_error(exc)
+
+        def _plan_stream(self, service, plan_id, after):
+            """Server-sent events of one plan: what happened since `after`, then everything as it happens."""
+            import queue
+            bridge = service.bridge(plan_id)
+            inbox = queue.Queue()
+            unsubscribe = bridge.subscribe(inbox.put)           # subscribe first so nothing falls between backlog and live
+            try:
+                self._sse()
+                last = after
+
+                def send(event):
+                    self.wfile.write(f"id: {event['seq']}\nevent: {event['type']}\ndata: "
+                                     f"{json.dumps(event, ensure_ascii=False)}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+
+                for event in bridge.events_since(after):
+                    send(event)
+                    last = event["seq"]
+                while True:
+                    try:
+                        event = inbox.get(timeout=15)
+                    except queue.Empty:
+                        self.wfile.write(b": keepalive\n\n")
+                        self.wfile.flush()
+                        continue
+                    if event["seq"] > last:
+                        send(event)
+                        last = event["seq"]
+            except (BrokenPipeError, ConnectionError, OSError):
+                pass                                            # the viewer went away
+            finally:
+                unsubscribe()
+
+        def _plans_post(self, path):
+            if not self._own_page("plans can be changed"):
+                return
+            try:
+                service = self._plan_service()
+                req = json.loads(self._body(1 << 20) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                if path == "/api/planner/settings":
+                    if not settings.is_loopback(self.client_address[0]):
+                        return self._json(403, {"error": {"type": "forbidden",
+                                                          "message": "planner settings can be changed only from this PC"}})
+                    return self._json(200, service.update_settings(req))
+                if path == "/api/plans":
+                    return self._json(201, service.create(req))
+                parts = path[len("/api/plans/"):].split("/")
+                plan_id, action = parts[0], (parts[1] if len(parts) > 1 else "")
+                if action == "events":
+                    result = service.handle_event(plan_id, req)
+                    return self._json(200 if result.get("ok") else 400, result)
+                if action == "triage":
+                    return self._json(200, service.triage(plan_id, req.get("events"), bool(req.get("replan"))))
+                self._json(404, {"error": {"message": "not found"}})
+            except json.JSONDecodeError as exc:
+                self._json(400, {"error": {"message": f"invalid JSON: {exc.msg}"}})
+            except (KeyError, ValueError, BadBody, plans_mod.PlannerUnavailable) as exc:
+                self._plan_error(exc)
 
         def _sse(self):
             self.send_response(200)
