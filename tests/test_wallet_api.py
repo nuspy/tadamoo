@@ -205,7 +205,7 @@ def test_the_window_to_sign_in_says_when_the_profile_is_in_use(setup):
 
 
 # ---- the gate in front of every POST route: the server's secret, the page's own origin, this PC ----
-POST_ROUTES = ("entry", "reveal", "import", "entry/delete", "system", "system/remove", "phrase", "grant", "revoke", "browser", "browser/signin", "browser/forget")
+POST_ROUTES = ("entry", "reveal", "import", "entry/delete", "system", "system/remove", "phrase", "grant", "revoke", "browser", "browser/signin", "browser/forget", "backup", "restore")
 SECRET = "control-secret"
 
 

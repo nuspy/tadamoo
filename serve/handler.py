@@ -1405,6 +1405,10 @@ def make_handler(svc: Service):
                     return self._json(200, api.reveal(req))
                 if action == "import":
                     return self._json(200, api.import_logins(req))
+                if action == "backup":
+                    return self._json(200, api.backup(req))
+                if action == "restore":
+                    return self._json(200, api.restore(req))
                 if action == "entry/delete":
                     return self._json(200, api.delete_entry(req.get("id")))
                 if action == "system":

@@ -95,6 +95,32 @@ class WalletApi:
             pass                                                         # reading what is yours is not stopped by a damaged payment ledger
         return {"value": value}
 
+    def backup(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """The vault as a file to keep, under a passphrase the person chooses; it opens on any PC with Basalt."""
+        import base64
+        import time
+        try:
+            blob = self._vault().export_backup(str(req.get("passphrase") or ""))
+        except VaultError as e:
+            raise WalletError(str(e)) from None
+        try:
+            self._payments().note("user", "vault_backup", {"entries": len(self._vault().entries())})
+        except (PermissionError, OSError):
+            pass
+        return {"file": base64.b64encode(blob).decode("ascii"), "name": time.strftime("basalt-vault-%Y%m%d.bvb")}
+
+    def restore(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        import base64
+        try:
+            blob = base64.b64decode(str(req.get("file") or ""), validate=True)
+        except ValueError:
+            raise WalletError("send the backup file") from None
+        try:
+            made = self._vault().import_backup(blob, str(req.get("passphrase") or ""))
+        except VaultError as e:
+            raise WalletError(str(e)) from None
+        return {"added": len(made["added"]), "refused": made["refused"][:20]}
+
     def import_logins(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """The logins of a browser's or a password manager's CSV export, each sent only to its own site."""
         text = req.get("csv")

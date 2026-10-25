@@ -27,6 +27,8 @@ from harness.secrets_broker import MIN_SECRET_LENGTH, SecretDestinationError, ma
 from harness.waiver.keystore import load_or_create_key
 
 MAGIC = b"BVL1"
+BACKUP_MAGIC = b"BVB1"                            # a backup: the entries under a key made from the person's own passphrase, so they open on any PC
+SCRYPT = dict(n=2 ** 15, r=8, p=1, maxmem=96 << 20, dklen=32)
 AAD = b"basalt-vault"
 ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-]{0,39}$")
 FIELD = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
@@ -223,6 +225,37 @@ class Vault:
             if number and not (number.isdigit() and 12 <= len(number) <= 19):
                 raise VaultError("a card number is 12 to 19 digits")
         entries[entry_id] = entry
+
+    def export_backup(self, passphrase: str) -> bytes:
+        """Every entry, encrypted under a key made from `passphrase` (scrypt), for the person to keep: the vault itself opens only with this
+        PC's device key, so a lost key or a new PC would otherwise lose everything."""
+        if not isinstance(passphrase, str) or not passphrase:
+            raise VaultError("a backup needs a passphrase")
+        salt, nonce = _secrets.token_bytes(16), _secrets.token_bytes(12)
+        key = hashlib.scrypt(passphrase.encode("utf-8"), salt=salt, **SCRYPT)
+        body = _aead()(key).encrypt(nonce, json.dumps(self._read(), sort_keys=True).encode("utf-8"), BACKUP_MAGIC)
+        return BACKUP_MAGIC + salt + nonce + body
+
+    def import_backup(self, blob: bytes, passphrase: str) -> Dict[str, Any]:
+        """The entries of a backup are added; one with a name already here is replaced. Each goes through the same checks as an entry made by hand."""
+        if not blob.startswith(BACKUP_MAGIC) or len(blob) < len(BACKUP_MAGIC) + 16 + 12 + 16:
+            raise VaultError("that is not a backup of the vault")
+        salt, nonce = blob[4:20], blob[20:32]
+        try:
+            plain = _aead()(hashlib.scrypt(passphrase.encode("utf-8"), salt=salt, **SCRYPT)).decrypt(nonce, blob[32:], BACKUP_MAGIC)
+            entries = json.loads(plain.decode("utf-8"))
+        except VaultError:
+            raise
+        except Exception:
+            raise VaultError("the passphrase is wrong, or the backup was changed") from None
+        specs = [{"id": i, "kind": e["kind"], "label": e.get("label", ""), "fields": e.get("fields", {}), "hosts": e.get("hosts", []),
+                  "second_factor": e.get("second_factor"), "card_kind": e.get("card_kind"), "currency": e.get("currency"), "guard": e.get("guard")}
+                 for i, e in entries.items()]
+        for spec in specs:
+            with self._lock:
+                if spec["id"] in self._read() and self._read()[spec["id"]]["kind"] != spec["kind"]:
+                    self.delete(spec["id"])                         # the backup is what the person kept: it wins over an entry of another kind
+        return self.put_many(specs)
 
     def reveal(self, entry_id: str, field: str) -> str:
         """A value, for the person who owns the vault to read or copy it in their own page, or for code on this PC that has to use it itself.
