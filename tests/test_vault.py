@@ -21,7 +21,7 @@ def vault(tmp, clock=None):
 
 def card(v, **kw):
     return v.put("trip", kind="card", label="Trip card", fields={"holder": "Mario Rossi", "number": NUMBER, "expiry": "12/30", "cvc": "123"},
-                 hosts=kw.get("hosts", ["shop.example"]), card_kind="virtual", currency="eur")
+                 hosts=kw.get("hosts", ["shop.example"]), card_kind="virtual", currency="eur", guard=kw.get("guard", False))
 
 
 class FileTests(unittest.TestCase):
@@ -229,6 +229,39 @@ class WithTheBrokerAndTheShell(unittest.TestCase):
             res = execute_shell_command("echo {{vault:bank.totp}}", cwd=d, secrets=b)
             self.assertTrue(res["blocked"])
             self.assertIn("type its code", res["stderr"])
+
+
+class GuardedCard(unittest.TestCase):
+    def test_a_guarded_card_comes_out_only_after_an_approved_payment_and_for_a_while(self):
+        now = [100.0]
+        with TemporaryDirectory() as d:
+            v = vault(d, clock=lambda: now[0])
+            card(v, guard=True)
+            text = "{{vault:trip.number}}"
+            with self.assertRaises(VaultError):
+                v.resolve(text, hosts=["shop.example"])
+            self.assertEqual(v.resolve("{{vault:trip.holder}}", hosts=["shop.example"]), "Mario Rossi")   # the name is not guarded
+            v.arm("trip", 60)
+            self.assertEqual(v.resolve(text, hosts=["shop.example"]), NUMBER)
+            now[0] += 61
+            with self.assertRaises(VaultError):
+                v.resolve(text, hosts=["shop.example"])
+
+    def test_a_card_is_guarded_unless_the_person_says_otherwise(self):
+        with TemporaryDirectory() as d:
+            v = vault(d)
+            v.put("c", kind="card", fields={"number": NUMBER})
+            self.assertTrue(v.describe("c")["guard"])
+            v.put("c", kind="card", guard=False)
+            self.assertFalse(v.describe("c")["guard"])
+            self.assertIn("request_payment", (v.put("g", kind="card", fields={"number": NUMBER}) and v.note()))
+
+    def test_a_star_means_any_site(self):
+        with TemporaryDirectory() as d:
+            v = vault(d)
+            card(v, hosts=["*"])
+            self.assertEqual(v.resolve("{{vault:trip.cvc}}", hosts=["anything.example"]), "123")
+            self.assertIn("any site", v.note())
 
 
 if __name__ == "__main__":

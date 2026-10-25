@@ -336,6 +336,12 @@ class Session:
         return self._ask({"mode": "confirm", "kind": "code", "free": True, "facts": {"who": who},
                           "question": f"Type the code for {who}.", "options": []})
 
+    def ask_payment(self, request: Dict[str, Any]) -> bool:
+        """A payment the broker will not decide alone: no waiver covers it, or it is over the caps. The person decides."""
+        question = f"Pay {request['amount']} to {request['recipient']} ({request['reason']}) with {request['system']}?"
+        return self._ask({"mode": "confirm", "kind": "payment", "facts": request, "question": question,
+                          "options": [{"label": "Allow", "value": "confirm"}, {"label": "Deny", "value": "cancel"}]}) == "confirm"
+
     def permission_confirm(self, tool: str, arguments: Dict[str, Any]) -> bool:
         """The permission manager's question, put to the person in the conversation."""
         shown = json.dumps(arguments, ensure_ascii=False)[:300]
@@ -794,6 +800,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--allow", action="append", default=[], metavar="PATTERN")
     parser.add_argument("--deny", action="append", default=[], metavar="PATTERN")
     parser.add_argument("--secret-env", action="append", default=[], metavar="NAME")
+    parser.add_argument("--payments-dir", default="", help="the person's payment systems and limits: the agent may ask to pay and the broker decides")
     parser.add_argument("--vault-dir", default="", help="the person's vault: the model writes {{vault:ENTRY.FIELD}} and the value is filled in for it")
     parser.add_argument("--skills", action="append", default=[], metavar="DIR")
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of in the conversation")
@@ -852,7 +859,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                       context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold, end_turn_bias=args.end_turn_bias, snapshot_dir=str(history / "snapshots"),
                       attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
                       capabilities=args.capabilities and not args.ask_only, lsp=args.lsp and not args.ask_only, council=not args.ask_only,
-                      vault_dir="" if args.ask_only else args.vault_dir)
+                      vault_dir="" if args.ask_only else args.vault_dir,
+                      payments_dir="" if args.ask_only else args.payments_dir)
     from harness.client import BasaltClient
     from harness.llm import client_for, judge_for
     from harness.llm.judge import router_judge
@@ -877,6 +885,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     session.endpoint, session.api_key = cfg.endpoint, cfg.api_key
     if built.agent.secrets is not None:
         built.agent.secrets.ask_code = session.ask_code
+    if built.payment_confirm is not None:
+        built.payment_confirm.ask = session.ask_payment
     if not args.ask_server:
         built.permissions.confirm_callback = session.permission_confirm      # the questions are put in the conversation
     if not args.ask_only and not args.no_planner:

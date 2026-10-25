@@ -97,10 +97,14 @@ def test_amount_parsing():
 
 # -- payment-system cards ----------------------------------------------------------------------------
 
-def test_a_system_that_needs_a_password_or_code_is_not_eligible():
-    for kind in ("password", "password_totp", "login", "anything_else"):
-        assert any("delegated" in p for p in system(credential_kind=kind).problems())
+def test_a_system_must_say_what_it_pays_with_and_a_vault_credential_names_its_entry():
+    for kind in ("password", "password_totp", "anything_else"):
+        assert any("choose what Basalt pays with" in p for p in system(credential_kind=kind).problems())
     assert system().problems() == []
+    assert any("vault entry" in p for p in system(credential_kind="vault_card").problems())
+    assert system(credential_kind="vault_card", vault_entry="trip").problems() == []
+    assert system(credential_kind="vault_login", vault_entry="bank").card()["own_credential"] is True
+    assert system().card()["own_credential"] is False
 
 
 def test_an_incomplete_card_lists_what_is_missing():
@@ -315,7 +319,7 @@ def test_a_failing_notification_does_not_undo_the_payment(broker):
 
 
 def test_register_rejects_an_ineligible_system(broker):
-    with pytest.raises(ValueError, match="delegated"):
+    with pytest.raises(ValueError, match="choose what Basalt pays with"):
         broker.register_system(system(system_id="bank", credential_kind="password_totp"))
 
 

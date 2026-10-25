@@ -220,6 +220,7 @@
     if (b.kind === "plan_archive") return T(key, f.plan);
     if (b.kind === "permission") return T(key, b.tool, JSON.stringify(b.args || {}).slice(0, 200));
     if (b.kind === "code") return T(key, f.who);
+    if (b.kind === "payment") return T(key, f.amount, f.recipient, f.reason, f.system);
     return b.question;
   }
   const optLabel = (b, o) => (b.mode === "confirm" ? T(o.value === "confirm" ? "ch.yes" : "ch.no") : o.label);

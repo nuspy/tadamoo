@@ -12,6 +12,7 @@ same OS user could still reach them, which only a separate OS user fully prevent
 """
 from __future__ import annotations
 
+import contextlib
 import datetime
 import hashlib
 import hmac
@@ -34,6 +35,34 @@ from harness.waiver.phrase import normalize, parse_amount, verify_phrase
 
 DAY = 86400.0
 MAX_CENTS = 100_000_000_00        # no single request above 100 million units
+
+
+@contextlib.contextmanager
+def _file_lock(path: Path):
+    """One writer at a time across processes: the GUI's server and the conversations' own processes all write the same state and ledger."""
+    handle = open(path, "a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            while True:
+                try:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    time.sleep(0.05)
+        else:
+            import fcntl
+            fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        finally:
+            handle.close()
 
 
 def to_cents(amount: Any) -> int:
@@ -78,7 +107,15 @@ class PaymentsBroker:
         self.notify = notify
         self.clock = clock
         self.app_root = app_root
-        self._lock = threading.RLock()
+        self._rlock = threading.RLock()
+        self._lock_path = self.dir / "payments.lock"
+
+    @contextlib.contextmanager
+    def _lock(self):
+        """This process's lock and the file lock, and the ledger read again from disk, which another process may have extended."""
+        with self._rlock, _file_lock(self._lock_path):
+            self.ledger = AuditLedger(self.ledger.path)
+            yield
 
     # -- signed state ----------------------------------------------------------------------------
 
@@ -116,11 +153,43 @@ class PaymentsBroker:
         problems = system.problems()
         if problems:
             raise ValueError("; ".join(problems))
-        with self._lock:
+        with self._lock():
             state = self._load_state()
             state["systems"][system.system_id] = {**system.card(), "currency": system.currency.upper()}
             self._save_state(state)
             self.ledger.record("user", "system_registered", {"system": system.system_id})
+
+    def system_card(self, system_id: str) -> Dict[str, Any]:
+        state = self._load_state()
+        if system_id not in state["systems"]:
+            raise KeyError(f"unknown payment system '{system_id}'")
+        return dict(state["systems"][system_id])
+
+    def systems(self) -> List[Dict[str, Any]]:
+        return [dict(card, id=sid) for sid, card in sorted(self._load_state()["systems"].items())]
+
+    def remove_system(self, system_id: str) -> bool:
+        """Forgets a system; its waivers end with it."""
+        with self._lock():
+            state = self._load_state()
+            if system_id not in state["systems"]:
+                return False
+            now = self.clock()
+            for w in state["waivers"]:
+                if w["system_id"] == system_id and not w.get("revoked_at"):
+                    w["revoked_at"], w["revoked_reason"] = now, "system removed"
+            del state["systems"][system_id]
+            self._save_state(state)
+            self.ledger.record("user", "system_removed", {"system": system_id})
+            return True
+
+    def recent(self, count: int = 50) -> List[Dict[str, Any]]:
+        """The last entries of the ledger, for the person to read: what was authorized, refused or granted."""
+        self._verified_ledger()
+        keep = ("payment_authorized", "payment_confirmed", "payment_refused", "waiver_granted", "waiver_revoked", "system_registered", "system_removed")
+        rows = [r for r in self.ledger.records if r.get("action") in keep]
+        return [{"index": r["index"], "at": r["timestamp"], "action": r["action"], "details": {k: v for k, v in r["details"].items() if k != "dossier_sha256"}}
+                for r in rows[-count:]][::-1]
 
     def begin_waiver(self, system_id: str, lang: str = "it") -> Dict[str, Any]:
         """What the dialogs show: the system's card and the three texts."""
@@ -146,7 +215,7 @@ class PaymentsBroker:
         typing_intervals_ms: Optional[List[int]] = None,
         screenshots: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
-        with self._lock:
+        with self._lock():
             state = self._load_state()
             system = state["systems"].get(system_id)
             if system is None:
@@ -193,7 +262,7 @@ class PaymentsBroker:
 
     def revoke(self, system_id: Optional[str] = None, reason: str = "user") -> int:
         """Ends the active waiver of one system, or of all; payments stop at once. Returns how many ended."""
-        with self._lock:
+        with self._lock():
             try:
                 state = self._load_state()
             except PermissionError:
@@ -250,7 +319,7 @@ class PaymentsBroker:
         cents = to_cents(amount)
         if not recipient.strip():
             raise ValueError("a payment needs a recipient")
-        with self._lock:
+        with self._lock():
             state = self._load_state()
             self._verified_ledger()
             system = state["systems"].get(system_id)
@@ -292,15 +361,30 @@ class PaymentsBroker:
 
 
 def register_payment_tool(registry: Any, broker: PaymentsBroker, permissions: Any = None,
-                          confirm: Optional[Callable[[Dict[str, Any]], bool]] = None) -> None:
+                          confirm: Optional[Callable[[Dict[str, Any]], bool]] = None,
+                          on_authorized: Optional[Callable[[str], None]] = None) -> None:
     """Adds `request_payment`. The broker is the only gate: below a waiver's cap it decides alone, otherwise
-    it asks `confirm`, and with no way to ask it refuses."""
+    it asks `confirm`, and with no way to ask it refuses. `on_authorized(vault_entry)` lets a guarded card out of the vault."""
     from harness.tools.registry import EffectClass
 
     def request_payment(system_id: str, amount: str, currency: str, recipient: str, reason: str) -> Dict[str, Any]:
         result = broker.authorize(system_id, amount, currency, recipient, reason, confirm=confirm)
-        return {**result, "executed": False,
-                "note": "Basalt authorized the amount; no payment connector is configured, so nothing was charged."}
+        card = broker.system_card(system_id)
+        entry = card.get("vault_entry") or ""
+        out = {**result, "executed": False}
+        if entry and card.get("credential") == "vault_card":
+            if on_authorized:
+                on_authorized(entry)
+            out["pay_with"] = {f: "{{vault:%s.%s}}" % (entry, f) for f in ("holder", "number", "expiry", "cvc")}
+            out["note"] = ("Basalt approved this amount. Put the values above in the merchant's payment form exactly as written; they are filled in for you. "
+                           "This tool charges nothing by itself: the payment is made when the form is sent.")
+        elif entry and card.get("credential") == "vault_login":
+            out["sign_in_with"] = {f: "{{vault:%s.%s}}" % (entry, f) for f in ("username", "password")}
+            out["note"] = ("Basalt approved this amount. Sign in with the values above; if a code is asked, write {{vault:%s.totp}}. "
+                           "This tool charges nothing by itself." % entry)
+        else:
+            out["note"] = "Basalt approved the amount; this payment system has no card or login in the vault, so nothing was charged."
+        return out
 
     registry.register(
         "request_payment",

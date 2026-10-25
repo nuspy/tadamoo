@@ -59,6 +59,7 @@ class AgentConfig:
     secret_hosts: Dict[str, List[str]] = field(default_factory=dict)   # secret name -> hosts it may be sent to
     vault_dir: str = ""                 # the person's vault (cards, personal data, logins): the model only writes placeholders for it
     ask_code: Optional[Callable[[str], str]] = None   # how to ask the person for a second-factor code
+    payments_dir: str = ""              # the person's payment systems and limits: with it the agent can ask to pay, and the broker decides
     context_window: int = 32768
     max_output_tokens: int = 4096
     max_total_tokens: Optional[int] = None
@@ -90,6 +91,14 @@ class AgentConfig:
     confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None
 
 
+class PaymentConfirm:
+    """How a payment the broker will not decide alone is put to the person; the conversation sets `ask` once it exists. With none, it is refused."""
+    ask: Optional[Callable[[Dict[str, Any]], bool]] = None
+
+    def __call__(self, request: Dict[str, Any]) -> bool:
+        return bool(self.ask and self.ask(request))
+
+
 @dataclass
 class BuiltAgent:
     agent: AgentLoop
@@ -105,6 +114,7 @@ class BuiltAgent:
     patterns: Dict[str, Any] = field(default_factory=dict)
     capabilities: Optional[Any] = None
     lsp: Optional[Any] = None
+    payment_confirm: Optional["PaymentConfirm"] = None
 
     def retrieved_message(self, goal: str, limit: int = 4) -> Optional[Dict[str, Any]]:
         """Memories relevant to a goal, as an untrusted-data message for the tail of the conversation."""
@@ -210,6 +220,18 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         permissions.add_rule(pattern, "allow")
 
     registry, sandbox = create_standard_tool_registry(workspace, secrets=secrets)
+    payment_confirm = None
+    if cfg.payments_dir:
+        from harness.payments_broker import PaymentsBroker, register_payment_tool
+        broker = PaymentsBroker(cfg.payments_dir)
+        try:
+            offered = bool(broker.systems())              # nothing to pay with: the model is not told of a tool it cannot use
+        except PermissionError:
+            offered = True                                # a damaged state is the broker's to report, as a refusal
+        if offered:
+            payment_confirm = PaymentConfirm()
+            register_payment_tool(registry, broker, permissions, confirm=payment_confirm,
+                                  on_authorized=secrets.vault.arm if secrets.vault is not None else None)
     audit = AuditLedger(data / "audit.jsonl", redactor=secrets.mask_secrets)
     hooks = HookManager()
     checkpoints = CheckpointManager(workspace, storage_dir=data / "checkpoints") if cfg.use_checkpoints else None
@@ -294,4 +316,4 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         cancel=cancel,
         sampling={"end_turn_bias": cfg.end_turn_bias} if cfg.end_turn_bias else None,
     )
-    return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub)
+    return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm)

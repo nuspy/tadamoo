@@ -41,6 +41,8 @@ KINDS: Dict[str, List[str]] = {
     "login": ["username", "password", "totp_secret"],
     "secret": ["value"],
 }
+GUARDED = ("number", "expiry", "cvc")            # the fields of a guarded card, released only by an approved payment
+ARMED_SECONDS = 600
 MAX_VALUE = 4096
 MAX_ENTRIES = 200
 
@@ -79,7 +81,7 @@ def _clean_hosts(hosts: Iterable[Any]) -> List[str]:
     for h in hosts or []:
         h = str(h).strip().lower().removeprefix("https://").removeprefix("http://").split("/")[0]
         if h and h not in out:
-            if not re.fullmatch(r"[a-z0-9]([a-z0-9.\-]*[a-z0-9])?", h):
+            if h != "*" and not re.fullmatch(r"[a-z0-9]([a-z0-9.\-]*[a-z0-9])?", h):
                 raise VaultError(f"'{h}' is not a site name")
             out.append(h)
     return out
@@ -94,6 +96,7 @@ class Vault:
         self._lock = threading.RLock()
         self._cache: Optional[Dict[str, Dict[str, Any]]] = None
         self._stamp: Any = None
+        self._armed: Dict[str, float] = {}               # a guarded card -> until when an approved payment lets its fields out
         self._issued: List[tuple] = []                  # the codes handed out lately, so that an echo of one is masked too
 
     # -- the file --------------------------------------------------------------------------------
@@ -142,7 +145,8 @@ class Vault:
     # -- what the person edits -------------------------------------------------------------------
 
     def put(self, entry_id: str, *, kind: str, label: str = "", fields: Optional[Dict[str, Any]] = None, hosts: Optional[Iterable[Any]] = None,
-            second_factor: Optional[str] = None, card_kind: Optional[str] = None, currency: Optional[str] = None) -> Dict[str, Any]:
+            second_factor: Optional[str] = None, card_kind: Optional[str] = None, currency: Optional[str] = None,
+            guard: Optional[bool] = None) -> Dict[str, Any]:
         """Creates or changes an entry. A field sent as None keeps its old value and one sent as "" is removed; the others replace."""
         if not ID.match(entry_id or ""):
             raise VaultError("the name of an entry is 1 to 40 letters, digits, - or _")
@@ -187,6 +191,7 @@ class Vault:
                 if cur and not re.fullmatch(r"[A-Z]{3}", cur):
                     raise VaultError("the currency is a three-letter code")
                 entry["currency"] = cur
+                entry["guard"] = bool(guard) if guard is not None else bool((old or {}).get("guard", True))
                 number = re.sub(r"[\s\-]", "", values.get("number", ""))
                 if number and not (number.isdigit() and 12 <= len(number) <= 19):
                     raise VaultError("a card number is 12 to 19 digits")
@@ -221,7 +226,7 @@ class Vault:
             raise VaultError(f"there is no entry '{entry_id}'")
         out = {"id": entry_id, "kind": e["kind"], "label": e["label"], "hosts": list(e["hosts"]),
                "fields": {n: self._hint(e["kind"], n, v) for n, v in sorted(e["fields"].items())}}
-        for extra in ("second_factor", "card_kind", "currency"):
+        for extra in ("second_factor", "card_kind", "currency", "guard"):
             if extra in e:
                 out[extra] = e[extra]
         return out
@@ -234,8 +239,9 @@ class Vault:
         lines = []
         for e in self.entries():
             names = ", ".join(sorted(set(e["fields"]) | ({"totp"} if e.get("second_factor") in ("manual", "automatic") else set())))
-            where = ", ".join(e["hosts"]) if e["hosts"] else "no site: local use only"
-            lines.append(f"- {e['id']} ({e['kind']}: {e['label']}) fields: {names}; may be sent to: {where}")
+            where = ("any site" if "*" in e["hosts"] else ", ".join(e["hosts"])) if e["hosts"] else "no site: local use only"
+            held = "; its number, expiry and cvc come out only after request_payment approves a payment" if e.get("guard") else ""
+            lines.append(f"- {e['id']} ({e['kind']}: {e['label']}) fields: {names}; may be sent to: {where}{held}")
         return ("Entries in the person's vault; write {{vault:ENTRY.FIELD}} where a value is needed and it is filled in for you "
                 "(you never see it):\n" + "\n".join(lines)) if lines else ""
 
@@ -254,6 +260,8 @@ class Vault:
             if e is None:
                 continue
             allowed = e["hosts"]
+            if "*" in allowed:
+                continue
             if not allowed:
                 if hosts or tools:
                     raise SecretDestinationError(f"'{entry_id}' is for local use only; it cannot be put in a command that reaches the network")
@@ -281,9 +289,16 @@ class Vault:
             value = e["fields"].get(field)
             if value is None:
                 raise VaultError(f"'{entry_id}' has no field '{field}'")
+            if e.get("guard") and field in GUARDED and self._armed.get(entry_id, 0.0) < self.clock():
+                raise VaultError(f"the card '{entry_id}' is released only by an approved payment: ask for the payment with request_payment first")
             return value
 
         return PLACEHOLDER.sub(one, text)
+
+    def arm(self, entry_id: str, seconds: float = ARMED_SECONDS) -> None:
+        """An approved payment lets the fields of a guarded card out for a while."""
+        with self._lock:
+            self._armed[entry_id] = self.clock() + seconds
 
     def _code(self, entry_id: str, e: Dict[str, Any], ask_code: Optional[Callable[[str], str]]) -> str:
         level = e.get("second_factor", "none")
