@@ -7,6 +7,7 @@ cloud-triage consent saved here.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import threading
@@ -14,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-DEFAULTS = {"cloud_triage": False, "pseudonymize": True, "card_fields": None, "gate_mode": "or"}
+DEFAULTS = {"cloud_triage": False, "pseudonymize": True, "card_fields": None, "gate_mode": "or", "event_pump": False, "sources": []}
 EVENTS_MAX = 100
 EVENT_CHARS = 2000
 
@@ -36,10 +37,18 @@ def _planner():
 
 
 class PlanService:
-    def __init__(self, data_dir: str | Path, client_factory: Optional[Callable[[], Any]] = None) -> None:
+    def __init__(self, data_dir: str | Path, client_factory: Optional[Callable[[], Any]] = None, vault_factory: Optional[Callable[[], Any]] = None,
+                 pump_batch: int = 10, pump_window: float = 300.0, pump_poll: float = 1.0) -> None:
         self.dir = Path(data_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.client_factory = client_factory
+        self.vault_factory = vault_factory                 # the vault the sources' credentials are read from; the server's own by default
+        self.pump_batch, self.pump_window, self.pump_poll = pump_batch, pump_window, pump_poll
+        self._inbox = None                                 # events waiting to be judged, per plan; exists while the event pump is on
+        self._pump = None
+        self._runner = None
+        self._booted = False
+        self._events_in = 0                                # events the mailbox has taken since the server started
         self._store = None
         self._settings_path = self.dir / "planner.json"
         self._lock = threading.RLock()
@@ -51,6 +60,9 @@ class PlanService:
         with self._lock:
             if self._store is None:
                 self._store = _planner().PlanStore(self.dir / "plans")
+            if not self._booted:                           # settings saved as "on" bring the pump back when the planner is first used
+                self._booted = True
+                self.sync_events()
             return self._store
 
     # -- settings --------------------------------------------------------------------------------
@@ -77,6 +89,12 @@ class PlanService:
                 if not isinstance(changes[key], bool):
                     raise ValueError(f"{key} must be true or false")
                 current[key] = changes[key]
+        if "event_pump" in changes:
+            if not isinstance(changes["event_pump"], bool):
+                raise ValueError("event_pump must be true or false")
+            current["event_pump"] = changes["event_pump"]
+        if "sources" in changes:
+            current["sources"] = _planner().sources.clean_sources(changes["sources"])
         if "gate_mode" in changes:
             if changes["gate_mode"] not in _planner().triage.GATE_MODES:
                 raise ValueError(f"gate_mode must be one of: {', '.join(_planner().triage.GATE_MODES)}")
@@ -90,6 +108,8 @@ class PlanService:
         tmp = self._settings_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(current), encoding="utf-8")
         os.replace(tmp, self._settings_path)
+        if "event_pump" in changes or "sources" in changes:
+            self.sync_events()
         return self.settings()
 
     registry = None                                        # Basalt's providers (harness.llm): set by the server
@@ -111,7 +131,7 @@ class PlanService:
     def telemetry(self) -> Dict[str, Any]:
         """What the filter has done since the server started: judgements, where they were answered (the cloud, the local filter by
         choice, the local filter because the cloud failed), tokens, and which plans are being re-planned."""
-        return {"triage": self.gatekeeper().telemetry.summary(), "replanning": sorted(self._replanning)}
+        return {"triage": self.gatekeeper().telemetry.summary(), "replanning": sorted(self._replanning), "events": self.events_status()}
 
     def _jev_from_registry(self):
         """(key, address, model) of the Jev provider the person pointed the triage at, when the registry allows it."""
@@ -266,8 +286,11 @@ class PlanService:
         bridge = self.bridge(plan_id)
         if bridge.card is None:
             raise ValueError("this plan has no card to judge events against")
-        gatekeeper = self.gatekeeper()
-        result = gatekeeper.triage_event_batch(bridge.card, texts)
+        result = self.gatekeeper().triage_event_batch(bridge.card, texts)
+        return self._report(plan_id, bridge, result, texts, replan)
+
+    def _report(self, plan_id: str, bridge: Any, result: Any, texts: List[str], replan: bool, **extra: Any) -> Dict[str, Any]:
+        """Tells the plan's viewers a verdict and, if it says wake and re-planning was asked for, starts the local model."""
         out = {"wake_system_2": result.wake_system_2, "has_blocker_prob": result.has_blocker_prob,
                "impact_scope": result.impact_scope, "max_impact": result.max_impact, "source": result.source,
                "sent_to_cloud": result.sent_to_cloud, "reasons": result.reasons, "latency_ms": result.latency_ms,
@@ -278,8 +301,141 @@ class PlanService:
             out["replanning"] = out["replan_state"] in ("started", "in_progress")
             if out["replan_state"] == "unavailable":
                 out["replan_error"] = "no model is connected for re-planning"
-        bridge._emit("plan:triage", {"result": out})
+        bridge._emit("plan:triage", {"result": out, **extra})
         return out
+
+    # -- events from the world ---------------------------------------------------------------------------
+
+    def ingest(self, body: Any) -> Dict[str, Any]:
+        """The mailbox: events ({"text", "source", "at", "plan_id"?} or a list of them under "events"). Each goes to the sensors of
+        the plan it is for (every plan, when none is named) and, with the event pump on, into that plan's buffer to be judged."""
+        if isinstance(body, dict) and "events" in body:
+            body = body["events"]
+        items = body if isinstance(body, list) else [body]
+        if not 1 <= len(items) <= EVENTS_MAX:
+            raise ValueError(f"send between 1 and {EVENTS_MAX} events")
+        events = []
+        for e in items:
+            e = {"text": e} if isinstance(e, str) else e
+            if not isinstance(e, dict) or not isinstance(e.get("text"), str) or not e["text"].strip():
+                raise ValueError("an event is a text, or an object with a text, a source and an instant")
+            at = e.get("at")
+            if at is not None and (isinstance(at, bool) or not isinstance(at, (int, float))):
+                raise ValueError("at is a number of seconds since 1970")
+            plan = e.get("plan_id")
+            if plan is not None:
+                self.store._path(plan)                       # a malformed id is refused here
+                self.store.get(plan)                         # and an unknown one is a 404
+            events.append({"text": e["text"].strip()[:EVENT_CHARS], "source": str(e.get("source") or "api")[:100], "at": at, "plan_id": plan})
+        return self._deliver(events)
+
+    def _deliver(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
+        resolved: Dict[str, List[str]] = {}
+        buffered: Dict[str, int] = {}
+        every = [row["plan_id"] for row in self.store.list()]
+        inbox = self._inbox
+        pump_on = inbox is not None
+        for ev in events:
+            for pid in ([ev["plan_id"]] if ev["plan_id"] else every):
+                try:
+                    bridge = self.bridge(pid)
+                except KeyError:
+                    continue
+                res = bridge.handle({"type": "plan:event", "text": ev["text"], "source": ev["source"], "at": ev["at"] or time.time(), "actor": "system"})
+                if res.get("ok") and res.get("resolved"):
+                    resolved.setdefault(pid, []).extend(res["resolved"])
+                    self.store.save(pid)
+                if pump_on and bridge.card is not None:
+                    inbox.add(pid, f"[{ev['source']}] {ev['text']}")
+                    buffered[pid] = buffered.get(pid, 0) + 1
+        self._events_in += len(events)
+        return {"accepted": len(events), "resolved": resolved, "buffered": buffered, "pump": pump_on}
+
+    def _pump_result(self, plan_id: str, result: Any, events: List[str]) -> None:
+        """A batch the pump judged: shown to the plan's viewers and, if it says wake, the local model re-plans (proposals only)."""
+        bridge = self.bridge(plan_id)
+        self._report(plan_id, bridge, result, events, True, via="pump", events=len(events))
+
+    def _card_for(self, plan_id: str):
+        try:
+            return self.bridge(plan_id).card
+        except (KeyError, ValueError):
+            return None
+
+    # -- the pump and the sources ------------------------------------------------------------------------
+
+    def _vault(self):
+        if self.vault_factory is not None:
+            return self.vault_factory()
+        from harness.vault import Vault
+        from serve import userdata
+        return Vault(userdata.path("vault"))
+
+    def _reveal(self, entry: str, field: str) -> str:
+        return self._vault().reveal(entry, field)
+
+    def _state_path(self) -> Path:
+        return self.dir / "sources_state.json"
+
+    def _load_state(self) -> Dict[str, Any]:
+        try:
+            data = json.loads(self._state_path().read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _save_state(self, source: Any) -> None:
+        with self._lock:
+            data = self._load_state()
+            data[source.id] = source.state
+            tmp = self._state_path().with_suffix(".tmp")
+            tmp.write_text(json.dumps(data), encoding="utf-8")
+            os.replace(tmp, self._state_path())
+
+    def _deliver_from(self, cfg: Dict[str, Any], events: List[Any]) -> None:
+        self._deliver([{"text": e.text, "source": e.source, "at": e.at, "plan_id": cfg.get("plan_id")} for e in events])
+
+    def sync_events(self) -> None:
+        """Starts or stops the event pump and the read-only sources to match the settings (the pump is off until the person turns it on)."""
+        s = self.settings()
+        self._stop_events()
+        if not s["event_pump"]:
+            return
+        p = _planner()
+        inbox = p.EventInbox(self.pump_batch, self.pump_window)
+        pump = p.InboxPump(inbox, self.gatekeeper, self._card_for, self._pump_result, self.pump_poll)
+        saved = self._load_state()
+        built = [(cfg, p.sources.build_source(cfg, self._reveal, saved.get(cfg["id"]))) for cfg in s["sources"] if cfg.get("enabled", True)]
+        by_id = {src.id: cfg for cfg, src in built}
+        runner = p.sources.SourceRunner([src for _, src in built], lambda src, evs: self._deliver_from(by_id[src.id], evs), self._save_state)
+        with self._lock:
+            self._inbox, self._pump, self._runner = inbox, pump, runner
+        pump.start()
+        runner.start()
+        if not getattr(self, "_atexit", False):
+            self._atexit = True
+            atexit.register(self.close)
+
+    def _stop_events(self) -> None:
+        """Takes the pump and the sources out of use and ends their threads (outside the lock: a thread may be waiting for it)."""
+        with self._lock:
+            runner, pump = self._runner, self._pump
+            self._runner = self._pump = self._inbox = None
+        if runner is not None:
+            runner.stop()
+        if pump is not None:
+            pump.stop()
+
+    def close(self) -> None:
+        """Ends the pump and the sources' threads; the server calls it as it stops."""
+        self._stop_events()
+
+    def events_status(self) -> Dict[str, Any]:
+        pump, inbox, runner = self._pump, self._inbox, self._runner
+        return {"pump": pump is not None and pump.running, "accepted": self._events_in,
+                "pending": inbox.pending() if inbox else {}, "dropped": inbox.dropped() if inbox else 0,
+                "batches": pump.batches if pump else 0, "errors": list(pump.errors)[-5:] if pump else [],
+                "sources": runner.status() if runner else []}
 
     def start_replan(self, plan_id: str, bridge: Any, result: Any, events: List[str]) -> str:
         """Starts the local model re-planning in the background, one plan at a time: "started", "in_progress" when it is already

@@ -50,7 +50,8 @@ class EventBuffer:
     """Thread-safe event accumulator: a batch is due at `max_batch_size` events or `max_interval_seconds` after the first."""
 
     def __init__(self, max_batch_size: int = 10, max_interval_seconds: float = 300.0, max_pending: int = 1000,
-                 clock: Callable[[], float] = time.monotonic) -> None:
+                 clock: Callable[[], float] = time.monotonic, max_event_chars: int = 2000) -> None:
+        self.max_event_chars = max_event_chars
         self.max_batch_size = max_batch_size
         self.max_interval = max_interval_seconds
         self.max_pending = max_pending
@@ -62,7 +63,7 @@ class EventBuffer:
 
     def add_event(self, event_text: str) -> bool:
         """Adds an event; True when a batch is due. Beyond `max_pending` the oldest events are dropped and counted."""
-        text = event_text.strip()
+        text = event_text.strip()[:self.max_event_chars]
         if not text:
             return False
         with self._lock:

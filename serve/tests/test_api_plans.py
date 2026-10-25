@@ -233,6 +233,30 @@ class PlansApiTest(PlansApiBase):
         with mock.patch.dict("os.environ", {"TYPESAFE_API_KEY": "sk-secret-value"}):
             self.assertFalse(handler._PLANS.gatekeeper().cloud_allowed)                       # a key without consent
 
+    def test_the_mailbox_of_events_and_the_telemetry_are_over_http(self):
+        sensor = {"plan_id": "snow-http", "title": "Neve", "target_type": "occasional",
+                  "nodes": {"meteo": {"id": "meteo", "type": "sensor", "title": "Neve", "description": "", "assignee": "agent", "dependencies": [], "outputs": [],
+                                      "conditions": {"when": "'nev' in text", "set": {"neve": True}}}}}
+        self.assertEqual(self.call("POST", "/api/plans", {"plan": sensor})[0], 201)
+        code, res = self.call("POST", "/api/plans/events", {"text": "Sole a Cervinia", "source": "meteo"})
+        self.assertEqual((code, res["accepted"], res["resolved"].get("snow-http"), res["pump"]), (200, 1, None, False))
+        code, res = self.call("POST", "/api/plans/events", {"events": [{"text": "Nevicata a Cervinia", "source": "meteo"}], "actor": "system"})
+        self.assertEqual((code, res["resolved"]["snow-http"]), (200, ["meteo"]))
+        self.assertEqual(self.call("GET", "/api/plans/snow-http")[1]["plan"]["shared_state"], {"neve": True})
+        self.assertEqual(self.call("POST", "/api/plans/events", {"text": ""})[0], 400)
+        self.assertEqual(self.call("POST", "/api/plans/events", {"text": "x", "plan_id": "nonesiste"})[0], 404)
+        self.assertEqual(self.call("POST", "/api/plans/events", {"text": "x"}, headers={"Origin": "http://evil.example"})[0], 403)
+        code, tele = self.call("GET", "/api/plans/telemetry")
+        self.assertEqual(code, 200)
+        self.assertEqual(set(tele), {"triage", "replanning", "events"})
+        self.assertEqual((tele["events"]["pump"], tele["events"]["accepted"] >= 2), (False, True))
+        self.assertGreaterEqual(tele["triage"]["calls"], 0)
+        self.assertEqual(self.call("POST", "/api/planner/settings", {"gate_mode": "xor"})[0], 400)
+        self.assertEqual(self.call("POST", "/api/planner/settings", {"event_pump": "on"})[0], 400)
+        self.assertEqual(self.call("POST", "/api/planner/settings", {"sources": [{"kind": "telegram", "secret_entry": "t"}]})[0], 400)
+        for reserved in ("events", "telemetry"):
+            self.assertEqual(self.call("POST", "/api/plans", {"plan": {"plan_id": reserved, "title": "x", "target_type": "occasional", "nodes": {}}})[0], 400)
+
     def test_changes_are_recorded_validated_and_cleared(self):
         self.call("POST", "/api/changes", {"clear": True})
         edit = {"file": "src/a.py", "kind": "modified", "added": 2, "removed": 1, "diff": "-a\n+b\n+c\n"}
@@ -315,6 +339,7 @@ class PlansApiKeyedTest(PlansApiBase):
         for method, path in (("GET", "/api/plans"), ("GET", "/api/plans/x"), ("GET", "/api/plans/x/events"),
                              ("GET", "/api/plans/x/stream"), ("GET", "/api/planner/settings"), ("POST", "/api/plans"),
                              ("POST", "/api/plans/x/events"), ("POST", "/api/plans/x/triage"), ("POST", "/api/planner/settings"),
+                             ("POST", "/api/plans/events"), ("GET", "/api/plans/telemetry"),
                              ("GET", "/api/plans?archived=1"), ("POST", "/api/plans/x/archive"), ("POST", "/api/plans/x/restore"),
                              ("POST", "/api/changes"), ("GET", "/api/changes")):
             self.assertEqual(self.call(method, path, {} if method == "POST" else None)[0], 401, (method, path))

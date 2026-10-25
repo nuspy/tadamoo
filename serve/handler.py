@@ -1763,6 +1763,8 @@ def make_handler(svc: Service):
                     return self._json(200, service.update_settings(req))
                 if path == "/api/plans":
                     return self._json(201, service.create(req))
+                if path == "/api/plans/events":
+                    return self._json(200, service.ingest(req))
                 parts = path[len("/api/plans/"):].split("/")
                 plan_id, action = parts[0], (parts[1] if len(parts) > 1 else "")
                 if action == "events":

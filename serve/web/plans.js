@@ -807,7 +807,11 @@
     const r = await api("api/plans/telemetry");
     if (!r.ok || !ui.tele) return;
     const t = r.data.triage;
-    ui.tele.textContent = t.calls ? T("pl.tele", t.calls, t.cloud, t.offline, t.fell_back, t.tokens, t.wakes) : T("pl.tele.none");
+    const ev = r.data.events || {};
+    const lines = [t.calls ? T("pl.tele", t.calls, t.cloud, t.offline, t.fell_back, t.tokens, t.wakes) : T("pl.tele.none")];
+    if (ev.pump) lines.push(T("pl.tele.pump", ev.accepted, Object.values(ev.pending || {}).reduce((a, b) => a + b, 0), ev.batches));
+    (ev.sources || []).forEach(x => lines.push(T("pl.tele.src", x.id, x.kind, x.polls, x.events) + (x.last_error ? T("pl.tele.src.err", x.last_error) : "")));
+    ui.tele.replaceChildren(...lines.flatMap((l, i) => (i ? [document.createElement("br"), document.createTextNode(l)] : [document.createTextNode(l)])));
   }
   async function runTriage(e) {
     e.preventDefault();
@@ -859,6 +863,12 @@
         FIELDS.map(f => [el("label", { class: "pl-check" }, el("input", { type: "checkbox", name: "field", value: f, checked: picked.includes(f) }), el("span", { text: T("pl.card." + f) })),
           personal.includes(f) ? el("p", { class: "help", text: T("pl.set.personal.help") }) : []]).flat()),
       ...(s.card_fields && personal.some(f => s.card_fields.includes(f)) ? [riskLabel(T("pl.risk.personal"))] : []),
+      el("label", { class: "pl-check" }, el("input", { type: "checkbox", id: "pl-s-pump", checked: !!s.event_pump }), el("span", { text: T("pl.set.pump") })),
+      el("p", { class: "help", text: T("pl.set.pump.help") }),
+      ...(s.event_pump && s.cloud_triage ? [riskLabel(T("pl.risk.pump"))] : []),
+      el("label", { for: "pl-s-sources", text: T("pl.set.sources") }),
+      el("textarea", { id: "pl-s-sources", rows: "6", spellcheck: "false", text: (s.sources || []).length ? JSON.stringify(s.sources, null, 1) : "" }),
+      el("p", { class: "help", text: T("pl.set.sources.help") }),
       el("button", { class: "btn primary pl-btn", text: T("pl.save") }));
   }
   async function loadSettings() {
@@ -874,8 +884,12 @@
     const personal = (S.settings && S.settings.card_fields_personal) || [];
     const isStandard = fields.length === standard.length && standard.every(f => fields.includes(f));
     const body = { cloud_triage: ui.setBody.querySelector("#pl-s-cloud").checked, pseudonymize: ui.setBody.querySelector("#pl-s-pseudo").checked,
-      gate_mode: ui.setBody.querySelector("#pl-s-gate").value, card_fields: isStandard ? null : fields };
+      gate_mode: ui.setBody.querySelector("#pl-s-gate").value, card_fields: isStandard ? null : fields,
+      event_pump: ui.setBody.querySelector("#pl-s-pump").checked };
+    const text = ui.setBody.querySelector("#pl-s-sources").value.trim();
+    try { body.sources = text ? JSON.parse(text) : []; } catch (err) { say(T("pl.badjson"), true); return; }
     if (body.cloud_triage && !(S.settings && S.settings.cloud_triage) && !(await riskConfirm([T("pl.risk.cloud")]))) { drawSettings(); return; }
+    if (body.event_pump && body.cloud_triage && !(S.settings && S.settings.event_pump && S.settings.cloud_triage) && !(await riskConfirm([T("pl.risk.pump")]))) { drawSettings(); return; }
     const hadPersonal = S.settings && S.settings.card_fields && personal.some(f => S.settings.card_fields.includes(f));
     if (fields.some(f => personal.includes(f)) && !hadPersonal && !(await riskConfirm([T("pl.risk.personal")]))) { drawSettings(); return; }
     const r = await api("api/planner/settings", body);
