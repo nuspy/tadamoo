@@ -727,3 +727,11 @@ def test_a_step_of_a_plan_collects_the_actions_done_while_it_was_worked_on(make,
     _said(mgr, sid, 'tool shell_command irreversible {"command": "after"}', 6)
     assert [(n[0], n[1], n[2], n[3]) for n in notes] == [("p1", "n1", "phone_call", "irreversible")]
     assert "+39 1" in notes[0][4]
+
+
+def test_a_rule_the_person_chose_in_a_question_is_kept_for_the_next_starts(make, ws):
+    mgr = make()
+    sid = mgr.create(ws, allow=["shell_command:git status*"])["id"]
+    mgr.send(sid, "rule")
+    until(lambda: "shell_command:pytest *" in mgr.get(sid).get("allow", []))
+    assert mgr.get(sid)["allow"] == ["shell_command:git status*", "shell_command:pytest *"]          # once, however many times it is said

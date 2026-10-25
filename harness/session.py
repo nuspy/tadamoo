@@ -367,10 +367,19 @@ class Session:
 
     def permission_confirm(self, tool: str, arguments: Dict[str, Any]) -> bool:
         """The permission manager's question, put to the person in the conversation."""
+        from harness.permissions import suggest_rule
         shown = json.dumps(arguments, ensure_ascii=False)[:300]
-        return self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments,
-                          "question": f"Allow {tool} {shown}?",
-                          "options": [{"label": "Allow", "value": "confirm"}, {"label": "Deny", "value": "cancel"}]}) == "confirm"
+        permissions = self.built.permissions
+        rule = suggest_rule(tool, arguments, permissions.always_ask)
+        options = [{"label": "Allow", "value": "confirm"}, {"label": "Deny", "value": "cancel"}]
+        if rule:
+            options.insert(1, {"label": f"Always allow {rule}", "value": "always", "rule": rule})
+        answer = self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments,
+                            "question": f"Allow {tool} {shown}?", "options": options})
+        if answer == "always" and rule:
+            permissions.add_rule(rule, "allow")                       # for this conversation from now on; the server keeps it for the next start
+            self.emit({"event": "rule_added", "rule": rule})
+        return answer in ("confirm", "always")
 
     def enable_planner(self, client: Any) -> None:
         """Gives the conversation the planner's tools and the question tool; every change to a plan asks."""

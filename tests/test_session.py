@@ -674,3 +674,32 @@ def test_the_session_end_hook_and_the_headless_result_carry_the_count(tmp_path):
     cfg = AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False, use_checkpoints=False, report=False, permission_mode="read_only")
     result = run_headless(cfg, "go", client=Scripted(call("shell_command", command="echo hi"), say("blocked")))
     assert result["permission_denials"] == {"total": 1, "by_tool": {"shell_command": 1}} and result["status"] == "success"
+
+
+def test_always_allow_answers_the_question_and_the_same_kind_of_command_then_runs_without_asking(tmp_path):
+    ran = []
+    client = Scripted(call("shell_command", command="pytest -q"), call("shell_command", command="pytest tests/a.py"), say("Fatto."))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="default")
+    built.agent.tools.register("shell_command", "runs", {"type": "object", "properties": {"command": {"type": "string"}}}, EffectClass.IRREVERSIBLE,
+                               lambda **kw: ran.append(kw) or "ok")
+    session.send("m1", "prova")
+    ask = ev.wait("ask")
+    always = next(o for o in ask["options"] if o["value"] == "always")
+    assert always["rule"] == "shell_command:pytest *"
+    session.answer(ask["id"], "always")
+    assert ev.wait("rule_added")["rule"] == "shell_command:pytest *"
+    ev.wait("done")
+    assert [r["command"] for r in ran] == ["pytest -q", "pytest tests/a.py"]
+    assert len([e for e in ev.items if e["event"] == "ask"]) == 1                      # the second command did not ask
+
+
+def test_no_always_button_for_a_command_that_chains_others_or_a_payment(tmp_path):
+    client = Scripted(call("shell_command", command="pytest && rm -rf x"), say("no"))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="default")
+    built.agent.tools.register("shell_command", "runs", {"type": "object", "properties": {"command": {"type": "string"}}}, EffectClass.IRREVERSIBLE,
+                               lambda **kw: "ok")
+    session.send("m1", "prova")
+    ask = ev.wait("ask")
+    assert [o["value"] for o in ask["options"]] == ["confirm", "cancel"]
+    session.answer(ask["id"], "cancel")
+    ev.wait("done")

@@ -226,7 +226,7 @@
     if (b.kind === "payment") return T(key, f.amount, f.recipient, f.reason, f.system);
     return b.question;
   }
-  const optLabel = (b, o) => (b.mode === "confirm" ? T(o.value === "confirm" ? "ch.yes" : "ch.no") : o.label);
+  const optLabel = (b, o) => (b.mode === "confirm" ? (o.value === "always" ? T("ch.always", o.rule || "") : T(o.value === "confirm" ? "ch.yes" : "ch.no")) : o.label);
 
   function makeBlock(b) {
     if (b.t === "reasoning") {
@@ -455,6 +455,24 @@
     button.disabled = false;
   }
 
+  /* ---- what a new conversation may do without asking: its mode and the rules that let a kind of command run ---- */
+  const PERM_KEY = "basalt.chat.perm", ALLOW_KEY = "basalt.chat.allow";
+  const permRadios = [...document.querySelectorAll('input[name="cs-perm"]')], allowBox = $("#cs-allow"), autoRisk = $("#cs-auto-risk");
+  const permMode = () => (permRadios.find(r => r.checked) || {}).value || "default";
+  function paintPerm() {
+    const m = load(PERM_KEY, "default");
+    permRadios.forEach(r => { r.checked = r.value === m; });
+    autoRisk.replaceChildren(...(m === "auto" ? [riskLabel(T("ag.auto.risk"))] : []));
+  }
+  allowBox.value = load(ALLOW_KEY, "");
+  allowBox.oninput = () => keep(ALLOW_KEY, allowBox.value);
+  permRadios.forEach(r => r.addEventListener("change", async () => {
+    if (r.value === "auto" && !(await riskConfirm([T("ag.auto.risk")]))) { paintPerm(); return; }
+    keep(PERM_KEY, r.value); paintPerm();
+  }));
+  paintPerm();
+  const allowRules = () => allowBox.value.split("\n").map(s => s.trim()).filter(Boolean);
+
   /* ---- the conversation's own copy of the folder: what it changed waits here until the person applies it ---- */
   const COPY_KEY = "basalt.chat.copy";
   const copyBar = $("#acopy"), copyText = $("#acopy-text"), copyOpen = $("#acopy-open"), copyPanel = $("#acopy-panel"), copyAsk = $("#acopy-ask"), copyAlways = $("#acopy-always");
@@ -535,7 +553,7 @@
   /* ---- talking to the conversation ---- */
   async function ensure() {
     if (sid) return true;
-    const r = await api("POST", "", { mode: "default", ask_only: mode === "ask", context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), end_turn_bias: chatSettings.body().end_turn_bias, worktree: copyMode() });
+    const r = await api("POST", "", { mode: permMode(), allow: allowRules(), confirm_auto: permMode() === "auto", ask_only: mode === "ask", context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), end_turn_bias: chatSettings.body().end_turn_bias, worktree: copyMode() });
     if (!r.ok) { status(errText(r)); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(LAST_KEY, sid); after = 0;
     await refreshList(); list.value = sid;

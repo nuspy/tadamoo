@@ -241,6 +241,18 @@
             <input id="cs-threshold" type="number" inputmode="numeric" min="30" max="100" step="5" placeholder="80">
           </div>
         </fieldset>
+        <fieldset class="csgroup" id="cs-perm">
+          <legend data-t="cs.perm">What the agent may do without asking</legend>
+          <p class="help" data-t="cs.perm.help"></p>
+          <label class="radio"><input type="radio" name="cs-perm" value="plan"><span><b data-t="ag.mode.plan">Plan only</b><small data-t="ag.mode.plan.d"></small></span></label>
+          <label class="radio"><input type="radio" name="cs-perm" value="read_only"><span><b data-t="ag.mode.read_only">Read only</b><small data-t="ag.mode.read_only.d"></small></span></label>
+          <label class="radio"><input type="radio" name="cs-perm" value="default" checked><span><b data-t="ag.mode.default">Ask first</b><small data-t="ag.mode.default.d"></small></span></label>
+          <label class="radio"><input type="radio" name="cs-perm" value="auto"><span><b data-t="ag.mode.auto">Automatic</b><small data-t="ag.mode.auto.d"></small></span></label>
+          <div id="cs-auto-risk"></div>
+          <div class="csnum"><label for="cs-allow" data-t="ag.allow">Commands it may run without asking</label>
+            <textarea id="cs-allow" rows="4" spellcheck="false" autocomplete="off" aria-describedby="cs-allow-h" data-t-ph="ag.allow.ph"></textarea>
+            <p class="help" id="cs-allow-h" data-t="ag.allow.help"></p></div>
+        </fieldset>
         <fieldset class="csgroup">
           <legend data-t="pt.title">Context patterns</legend>
           <p class="help" data-t="pt.help"></p>

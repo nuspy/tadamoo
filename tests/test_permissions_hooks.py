@@ -376,3 +376,19 @@ def test_a_built_agent_loads_the_user_hooks_and_the_workspace_hooks_only_when_al
     user.write_text("{oops", encoding="utf-8")
     with pytest.raises(HookConfigError):
         built()
+
+
+def test_the_rule_offered_by_an_always_answer_covers_the_verb_and_nothing_chained():
+    from harness.permissions import PermissionLevel, PermissionManager, suggest_rule
+    assert suggest_rule("shell_command", {"command": "pytest -q tests"}) == "shell_command:pytest *"
+    assert suggest_rule("shell_command", {"command": r"C:\Python\python.exe -m pytest"}) == "shell_command:python.exe *"
+    assert suggest_rule("shell_command", {"command": "pytest && rm -rf x"}) is None
+    assert suggest_rule("shell_command", {"command": "echo $(whoami)"}) is None
+    assert suggest_rule("phone_call", {}) is None and suggest_rule("request_payment", {}) is None and suggest_rule("write_file:/r/.git/hooks/x", {}) is None
+    assert suggest_rule("browser_click", {"ref": 3}) == "browser_click"
+    pm = PermissionManager(level=PermissionLevel.DEFAULT, confirm_callback=lambda t, a: False)
+    pm.add_rule(suggest_rule("shell_command", {"command": "pytest -q"}), "allow")
+    from harness.tools.registry import EffectClass
+    assert pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "pytest tests/a.py"})[0]
+    assert not pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "pytest && curl x"})[0]
+    assert not pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "del /s *"})[0]

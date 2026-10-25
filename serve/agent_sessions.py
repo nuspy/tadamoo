@@ -784,6 +784,11 @@ class SessionManager:
                     self._set(rec, state="asking", ask=shown)
                 else:
                     self._set(rec, question=shown)
+            elif kind == "rule_added":
+                rule = str(event.get("rule") or "").strip()
+                rules = list(rec.get("allow", []))
+                if rule and len(rule) <= 200 and "\n" not in rule and rule not in rules and len(rules) < MAX_ALLOW:
+                    self._set(rec, allow=rules + [rule])             # a rule the person chose in the question stays for this conversation's next starts
             elif kind == "queued":
                 self._unconfirmed.pop(sid, None)                     # the process has the message; it will look at it before its next model call
             elif kind in ("started", "resumed"):

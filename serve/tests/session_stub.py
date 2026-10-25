@@ -97,6 +97,9 @@ for line in sys.stdin:
             busy["v"] = False
             emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "first part", "more": True})
             continue
+        if text == "rule":
+            emit({"event": "rule_added", "rule": "shell_command:pytest *"})
+            emit({"event": "rule_added", "rule": "shell_command:pytest *"})
         if text == "queue-me":
             emit({"event": "queued", "turn": cmd.get("id"), "text": text})
             continue

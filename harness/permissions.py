@@ -58,6 +58,22 @@ def _matches(rule: PermissionRule, targets: List[str], arguments: Dict[str, Any]
     return False
 
 
+def suggest_rule(tool_name: str, arguments: Dict[str, Any], always_ask: FrozenSet[str] = DEFAULT_ALWAYS_ASK) -> Optional[str]:
+    """The allow rule that would let this kind of call run without asking next time, or None when no rule could cover it: a command is
+    allowed by its verb (`pytest *`), any other tool by its name; a command that chains others is covered by no rule, and a tool that
+    always asks, or whose question is its own (payments, the writes inside .git), is never offered."""
+    if tool_name in always_ask or tool_name == "request_payment" or ":" in tool_name:
+        return None
+    if tool_name != "shell_command":
+        return tool_name
+    command = arguments.get("command")
+    if not isinstance(command, str) or _CHAINING.search(command):
+        return None
+    words = command.strip().split()
+    verb = words[0].strip("\"'").replace("\\", "/").rsplit("/", 1)[-1] if words else ""
+    return f"shell_command:{verb} *" if re.fullmatch(r"[A-Za-z0-9_.\-]+", verb) else None
+
+
 class PermissionManager:
     def __init__(
         self,
