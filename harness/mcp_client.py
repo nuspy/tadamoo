@@ -39,6 +39,7 @@ MODERN_ERRORS = (-32020, -32021, -32022)      # header mismatch, missing capabil
 MAX_ROUNDS = 5
 MAX_PAGES = 50
 MAX_DESCRIPTION = 1000
+EAGER_TOOL_LIMIT = 24          # up to this many tools from connected servers are offered one by one; more go behind a search
 _TOOL_NAME = re.compile(r"[^A-Za-z0-9_\-]")
 _HEADER_TOKEN = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 _SENTINEL = re.compile(r"=\?base64\?.*\?=", re.S)
@@ -273,11 +274,11 @@ class _Client:
             raise MCPError(text or f"The tool '{name}' reported an error")
         return text
 
-    def register_into(self, registry: ToolRegistry, prefix: str = "") -> List[str]:
-        """Registers every tool of the server. They are all irreversible and untrusted: a server's own
-        read-only hint is not believed. Returns the registered names."""
+    def register_into(self, registry: ToolRegistry, prefix: str = "", tools: Optional[List[Dict[str, Any]]] = None) -> List[str]:
+        """Registers every tool of the server (`tools`: the list already read, else it is read now). They are all
+        irreversible and untrusted: a server's own read-only hint is not believed. Returns the registered names."""
         names: List[str] = []
-        for t in self.list_tools():
+        for t in tools if tools is not None else self.list_tools():
             name = f"{prefix}{_TOOL_NAME.sub('_', t['name'])}"[:64]
             if registry.get(name) is not None:
                 continue
@@ -654,7 +655,19 @@ class MCPHub:
     def register_eager(self, registry: ToolRegistry) -> None:
         for name, client in self.servers.items():
             if name in self.catalog:
-                client.register_into(registry, prefix=f"{name}__")
+                client.register_into(registry, prefix=f"{name}__", tools=self.catalog[name])
+
+    def register(self, registry: ToolRegistry, eager_limit: Optional[int] = None) -> str:
+        """Puts the servers' tools in the registry: each one as a tool of its own while they are few, else behind the two tools that
+        search and call (the prompt stays short however many there are). Returns "eager", "deferred" or "none"."""
+        count = sum(len(tools) for tools in self.catalog.values())
+        if not count:
+            return "none"
+        if count <= (EAGER_TOOL_LIMIT if eager_limit is None else eager_limit):
+            self.register_eager(registry)
+            return "eager"
+        self.register_deferred(registry)
+        return "deferred"
 
     def close(self) -> None:
         for client in self.servers.values():
@@ -662,6 +675,34 @@ class MCPHub:
                 client.close()
             except Exception:
                 pass
+
+
+def hub_from_servers(servers: List[Dict[str, Any]], cwd: str) -> MCPHub:
+    """A connected hub for the `mcpServers` of an ACP client: {name, command, args, env: [{name, value}]} for a program to start,
+    {type: "http", name, url, headers: [{name, value}]} for one to reach. A server that cannot be used is left in `hub.errors`."""
+    hub = MCPHub()
+
+    def pairs(items: Any) -> Dict[str, str]:
+        return {str(i["name"]): str(i.get("value", "")) for i in items or [] if isinstance(i, dict) and i.get("name")}
+
+    for n, spec in enumerate(servers, 1):
+        if not isinstance(spec, dict):
+            continue
+        name = re.sub(r"[^A-Za-z0-9_\-]", "_", str(spec.get("name") or f"server{n}"))[:32] or f"server{n}"
+        while name in hub.servers or name in hub.errors:
+            name = f"{name[:28]}_{n}"
+        try:
+            if spec.get("type") in ("http", "sse") or (spec.get("url") and not spec.get("command")):
+                if spec.get("type") == "sse":
+                    raise MCPError("an SSE server is not supported: only Streamable HTTP and programs started here")
+                hub.add(name, MCPHttpClient(str(spec.get("url") or ""), headers=pairs(spec.get("headers"))))
+            else:
+                command = [str(spec["command"]), *[str(a) for a in spec.get("args") or []]]
+                hub.add(name, MCPClient(command, cwd=cwd, env=pairs(spec.get("env"))))
+        except (KeyError, ValueError, MCPError) as exc:
+            hub.errors[name] = f"{type(exc).__name__}: {exc}"
+    hub.connect_all()
+    return hub
 
 
 def mcp_search_backend(client: _Client, tool: str, query_arg: str = "query", limit_arg: Optional[str] = None):

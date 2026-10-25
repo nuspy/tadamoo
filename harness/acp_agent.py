@@ -6,6 +6,10 @@ The editor is the client: it starts this process, sends `initialize`, `session/n
 `diff` content) and asks `session/request_permission` before anything that needs approval.
 Prompts run on worker threads so the reader stays free for cancels and for the editor's answers.
 
+The agent is built the way the command line builds it (harness/stack.py): it takes the same options (MCP servers and skills found on
+this PC, browser, language servers, vault and payments, hooks...), and the `mcpServers` the editor sends with `session/new` are
+connected for that session.
+
 Not offered: `session/load`, authentication, image/audio input and delegating file access to the
 editor (`fs/*`); the agent edits the files itself and reports each edit as a diff.
 """
@@ -21,17 +25,19 @@ from typing import Any, Callable, Dict, List, Optional, TextIO
 
 from harness import agent_loop as al
 from harness.client import BasaltClient
-from harness.stack import AgentConfig, BuiltAgent, build_agent
+from harness.stack import AgentConfig, BuiltAgent, add_agent_arguments, agent_settings, build_agent
+from harness.tools.registry import clock_paused
 
 PROTOCOL_VERSION = 1
 STOP_REASONS = {al.FINAL: "end_turn", al.MAX_TURNS: "max_turn_requests", al.CANCELLED: "cancelled", al.BUDGET: "max_tokens",
                 al.LOOP: "end_turn"}
 KINDS = {"read_file": "read", "list_directory": "read", "write_file": "edit", "edit_file": "edit",
          "shell_command": "execute", "search_web": "fetch", "browse_url": "fetch", "mcp_search": "search",
-         "mcp_call": "other", "phone_call": "other", "request_payment": "other"}
+         "mcp_call": "other", "phone_call": "other", "request_payment": "other", "present_plan": "think"}
 MODES = [
     {"id": "default", "name": "Default", "description": "Edits in the workspace are allowed; the rest asks"},
-    {"id": "plan", "name": "Plan", "description": "Read only: nothing is changed or run"},
+    {"id": "plan", "name": "Plan", "description": "Read only: nothing is changed or run until you approve a plan"},
+    {"id": "read_only", "name": "Read only", "description": "Reads freely; anything else asks"},
     {"id": "auto", "name": "Auto", "description": "Runs without asking, except where untrusted input meets sensitive data"},
 ]
 INVALID_PARAMS, METHOD_NOT_FOUND, INVALID_REQUEST, PARSE_ERROR, SERVER_ERROR = -32602, -32601, -32600, -32700, -32000
@@ -57,10 +63,12 @@ class ACPAgentServer:
         api_key: Optional[str] = None,
         data_dir: Optional[str] = None,
         max_turns: int = 15,
+        settings: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.workspace_dir = workspace_dir
         self.client = client
         self.endpoint, self.api_key, self.data_dir, self.max_turns = endpoint, api_key, data_dir, max_turns
+        self.settings = dict(settings or {})          # the AgentConfig fields the command-line options set (stack.agent_settings)
         self.in_stream = in_stream or sys.stdin
         self.out_stream = out_stream or sys.stdout
         self.sessions: Dict[str, _Session] = {}
@@ -93,9 +101,10 @@ class ACPAgentServer:
         self._waiting[req_id] = slot
         self.send({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params})
         try:
-            while not slot[0].wait(0.2):
-                if not self.running or (session and session.built.cancel.is_set()):
-                    return None
+            with clock_paused():                                # the person's time is not the tool's
+                while not slot[0].wait(0.2):
+                    if not self.running or (session and session.built.cancel.is_set()):
+                        return None
         finally:
             self._waiting.pop(req_id, None)
         msg = slot[1][0]
@@ -124,7 +133,8 @@ class ACPAgentServer:
                 self._reply(req_id, {
                     "protocolVersion": PROTOCOL_VERSION,
                     "agentCapabilities": {"loadSession": False,
-                                          "promptCapabilities": {"image": False, "audio": False, "embeddedContext": True}},
+                                          "promptCapabilities": {"image": False, "audio": False, "embeddedContext": True},
+                                          "mcpCapabilities": {"http": True, "sse": False}},
                     "authMethods": [],
                     "agentInfo": {"name": "basalt", "title": "Basalt Agent", "version": "1.0"},
                 })
@@ -149,25 +159,34 @@ class ACPAgentServer:
             raise ValueError("cwd must be an absolute path")
         if not Path(cwd).is_dir():
             raise ValueError(f"cwd is not a folder: {cwd}")
+        servers = params.get("mcpServers") or []
+        if not isinstance(servers, list):
+            raise ValueError("mcpServers must be a list")
         session_id = f"acp_{uuid.uuid4().hex[:12]}"
         holder: List[_Session] = []
-        cfg = AgentConfig(workspace=cwd, endpoint=self.endpoint, api_key=self.api_key, max_turns=self.max_turns,
-                          data_dir=self.data_dir, confirm=lambda tool, args: self._confirm(holder[0], tool, args))
+        settings = {**self.settings, "workspace": cwd, "endpoint": self.endpoint, "api_key": self.api_key, "max_turns": self.max_turns}
+        cfg = AgentConfig(**settings, data_dir=self.data_dir, mcp_servers=servers,
+                          confirm=lambda tool, args: self._confirm(holder[0], tool, args))
         built = build_agent(cfg, client=self.client)
         session = _Session(session_id, cwd, built)
         holder.append(session)
         built.agent.on_event = lambda event: self._on_event(session, event)
+        if built.payment_confirm is not None:
+            built.payment_confirm.ask = lambda request: self._confirm(session, "request_payment", request)
+        if built.plan_gate is not None:
+            built.plan_gate.ask = lambda plan, modes, outside: self._ask_plan(session, plan, modes, outside)
+        for name, why in built.mcp_errors.items():
+            print(f"MCP server '{name}' could not be used: {why}", file=sys.stderr, flush=True)
         self.sessions[session_id] = session
-        return {"sessionId": session_id, "modes": {"currentModeId": "default", "availableModes": MODES}}
+        mode = cfg.permission_mode if cfg.permission_mode in {m["id"] for m in MODES} else "default"
+        return {"sessionId": session_id, "modes": {"currentModeId": mode, "availableModes": MODES}}
 
     def _set_mode(self, params: Dict[str, Any]) -> Dict[str, Any]:
         session = self.sessions.get(params.get("sessionId"))
         mode = params.get("modeId")
         if session is None or mode not in {m["id"] for m in MODES}:
             raise ValueError("unknown session or mode")
-        from harness.stack import PERMISSION_MODES
-        level, plan = PERMISSION_MODES[mode]
-        session.built.permissions.level, session.built.permissions.plan_mode = level, plan
+        session.built.set_mode(mode)
         self._update(session.id, {"sessionUpdate": "current_mode_update", "currentModeId": mode})
         return {}
 
@@ -281,6 +300,23 @@ class ACPAgentServer:
         outcome = (result or {}).get("outcome") or {}
         return outcome.get("outcome") == "selected" and outcome.get("optionId") == "allow_once"
 
+    def _ask_plan(self, session: _Session, plan: str, modes: List[str], outside: bool) -> str:
+        """The plan the agent presents in plan mode: one button for each mode it can go on in, and one to send it back."""
+        names = {"default": "Approve: run it, ask before risky actions", "auto": "Approve: run it without asking"}
+        call = {"toolCallId": f"plan_{uuid.uuid4().hex[:8]}", "title": "Approve this plan?", "kind": "think", "status": "pending",
+                "rawInput": {"plan": plan, "outside_content": outside},
+                "content": [{"type": "content", "content": {"type": "text", "text": plan + (
+                    "\n\nThe agent read content from outside this conversation before it wrote this plan." if outside else "")}}]}
+        result = self._ask_client("session/request_permission", {
+            "sessionId": session.id, "toolCall": call,
+            "options": [*({"optionId": f"mode:{m}", "name": names.get(m, m), "kind": "allow_once"} for m in modes),
+                        {"optionId": "reject_once", "name": "Not yet: keep planning", "kind": "reject_once"}]}, session)
+        outcome = (result or {}).get("outcome") or {}
+        chosen = str(outcome.get("optionId", "")).partition("mode:")[2] if outcome.get("outcome") == "selected" else ""
+        if chosen in modes:
+            self._update(session.id, {"sessionUpdate": "current_mode_update", "currentModeId": chosen})
+        return chosen if chosen in modes else ""
+
     # -- loop ------------------------------------------------------------------------------------
 
     def serve_forever(self) -> None:
@@ -311,16 +347,21 @@ class ACPAgentServer:
                     pass
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def server_from_args(argv: Optional[List[str]] = None, **kw: Any) -> ACPAgentServer:
+    """The server the command line asks for: it takes the options every way of running the agent takes (harness/stack.py)."""
     parser = argparse.ArgumentParser(prog="python -m harness.acp_agent", description="Basalt as an ACP agent on stdio")
-    parser.add_argument("--workspace", default=".")
-    parser.add_argument("--endpoint", default="http://127.0.0.1:7232")
-    parser.add_argument("--api-key", default=None)
+    add_agent_arguments(parser)
     args = parser.parse_args(argv)
+    return ACPAgentServer(workspace_dir=str(Path(args.workspace).resolve()), endpoint=args.endpoint, api_key=args.api_key, max_turns=args.max_turns,
+                          settings=agent_settings(args), **kw)
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    server = server_from_args(argv)
     for stream in (sys.stdin, sys.stdout):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
-    ACPAgentServer(workspace_dir=str(Path(args.workspace).resolve()), endpoint=args.endpoint, api_key=args.api_key).serve_forever()
+    server.serve_forever()
     return 0
 
 

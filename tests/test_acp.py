@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from harness.acp_agent import ACPAgentServer
 from harness.client import BasaltError
+from harness.tools.registry import EffectClass
 from test_agent_loop import ScriptedClient, call, say
 
 
@@ -48,12 +49,12 @@ class Out:
 class Editor:
     """Plays the editor's side: sends requests, answers permission requests, records every notification."""
 
-    def __init__(self, tmp_path, client, answer=None):
+    def __init__(self, tmp_path, client, answer=None, settings=None):
         self.ws = tmp_path / "ws"
         self.ws.mkdir(exist_ok=True)
         self.pipe, self.out, self.client, self.answer = Pipe(), Out(), client, answer
         self.server = ACPAgentServer(workspace_dir=str(self.ws), client=client, in_stream=self.pipe, out_stream=self.out,
-                                     data_dir=str(tmp_path / "data"))
+                                     data_dir=str(tmp_path / "data"), settings=settings)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self._id = 0
@@ -124,8 +125,8 @@ class Editor:
 def editor_factory(tmp_path):
     made = []
 
-    def make(client, answer=None):
-        e = Editor(tmp_path, client, answer)
+    def make(client, answer=None, settings=None):
+        e = Editor(tmp_path, client, answer, settings)
         made.append(e)
         return e
 
@@ -365,3 +366,91 @@ def test_the_agent_runs_as_a_subprocess_over_stdio_against_the_real_server(tmp_p
             proc.kill()
         httpd.shutdown()
         httpd.server_close()
+
+
+# -- the same agent as the command line and the Chat build ----------------------------------------------------
+
+FAKE_MCP = str(Path(__file__).resolve().parent / "fake_mcp_server.py")
+
+
+def test_the_mcp_servers_the_editor_sends_are_connected_for_that_session(editor_factory):
+    client = ScriptedClient(call("fake__echo", {"text": "hi"}, "m1"), say("done"))
+    e = editor_factory(client, answer=lambda p: "allow_once")                 # a server's tool cannot be undone: it asks like any other
+    e.call("initialize", {"protocolVersion": 1, "clientCapabilities": {}})
+    new = e.call("session/new", {"cwd": str(e.ws), "mcpServers": [
+        {"name": "fake", "command": sys.executable, "args": [FAKE_MCP], "env": [{"name": "FAKE_MCP_VERSION", "value": "2025-11-25"}]}]})
+    sid = new["result"]["sessionId"]
+    tools = e.server.sessions[sid].built.agent.tools
+    assert {"fake__echo", "fake__weather"} <= set(tools.names()) and "mcp_search" not in tools.names()
+    assert e.response(e.prompt(sid))["result"]["stopReason"] == "end_turn"
+    shown = [u for u in e.updates("tool_call_update") if u["toolCallId"] == "m1"][0]["content"][0]["content"]["text"]
+    assert "echo: hi" in shown and "untrusted_data" in shown                   # what a server returns is data, not an instruction
+    assert e.server.sessions[sid].built.permissions.untrusted_input
+
+
+def test_a_server_that_cannot_be_used_is_reported_and_the_session_still_opens(editor_factory, capsys):
+    e = editor_factory(ScriptedClient())
+    e.call("initialize", {"protocolVersion": 1, "clientCapabilities": {}})
+    res = e.call("session/new", {"cwd": str(e.ws), "mcpServers": [
+        {"name": "gone", "command": "no_such_program_xyz", "args": [], "env": []},
+        {"name": "old style", "type": "sse", "url": "https://x.example/sse", "headers": []},
+        {"name": "web", "type": "http", "url": "http://not-local.example/mcp", "headers": []}]})
+    sid = res["result"]["sessionId"]
+    built = e.server.sessions[sid].built
+    assert set(built.mcp_errors) == {"gone", "old_style", "web"} and "SSE" in built.mcp_errors["old_style"]
+    err = capsys.readouterr().err
+    assert "MCP server 'gone' could not be used" in err
+    assert e.call("session/new", {"cwd": str(e.ws), "mcpServers": "nope"})["error"]["code"] == -32602
+
+
+def test_the_options_of_the_command_line_reach_every_session(tmp_path):
+    from harness.acp_agent import server_from_args
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    hooks = tmp_path / "hooks.json"
+    hooks.write_text(json.dumps({"hooks": [{"event": "pre_tool", "tool": "read_file", "action": "block", "reason": "not here"}]}), encoding="utf-8")
+    server = server_from_args(["--workspace", str(ws), "--capabilities", "--lsp", "--wiki", "--phone", "--browser", "--permission-mode", "plan",
+                               "--hooks", str(hooks), "--deny", "shell_command:rm*", "--tool-timeout", "30", "--tool-timeout", "shell_command=0"],
+                              data_dir=str(tmp_path / "data"), client=ScriptedClient())
+    server.settings.update(capabilities_dir=str(tmp_path / "caps"), capabilities_home=str(tmp_path / "home"), use_memory=False)
+    server.settings.pop("lsp"), server.settings.pop("browser")                 # nothing real is started here
+    sid = server._new_session({"cwd": str(ws)})["sessionId"]
+    built = server.sessions[sid].built
+    try:
+        assert built.capabilities is not None and built.agent.tools.get("find_capability") is not None          # skills, plugins and MCP servers found on this PC
+        assert {"wiki_search", "phone_call"} <= set(built.agent.tools.names())
+        assert built.permissions.plan_mode and built.agent.tools.get("present_plan") is not None
+        assert built.agent.hooks.sources == [str(hooks)] and "not here" in built.agent.hooks.trigger_pre_tool("read_file", {"path": "a"})
+        assert not built.permissions.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "rm a"})[0]
+        assert built.agent.tools.default_timeout == 30 and built.agent.tools.timeout_for("shell_command") is None
+    finally:
+        built.close()
+
+
+def test_a_plan_is_put_to_the_editor_with_one_button_for_each_mode_it_can_go_on_in(editor_factory):
+    client = ScriptedClient(call("write_file", {"path": "x.txt", "content": "early"}, "w1"), call("present_plan", {"plan": "1. write x.txt"}, "p1"),
+                            call("write_file", {"path": "x.txt", "content": "approved"}, "w2"), say("done"))
+    e = editor_factory(client, answer=lambda p: "mode:auto", settings={"permission_mode": "plan"})
+    sid = e.new_session()
+    assert e.server.sessions[sid].built.permissions.plan_mode
+    assert e.response(e.prompt(sid))["result"]["stopReason"] == "end_turn"
+    req = e.permission_requests[0]
+    assert req["toolCall"]["kind"] == "think" and "1. write x.txt" in req["toolCall"]["content"][0]["content"]["text"]
+    assert [o["optionId"] for o in req["options"]] == ["mode:default", "mode:auto", "reject_once"]
+    assert (e.ws / "x.txt").read_text(encoding="utf-8") == "approved"
+    assert e.server.sessions[sid].built.permissions.level.value == "auto"
+    assert {"sessionUpdate": "current_mode_update", "currentModeId": "auto"} in e.updates("current_mode_update")
+
+
+def test_a_plan_the_editor_rejects_stays_a_plan_and_set_mode_brings_the_tool_back(editor_factory):
+    client = ScriptedClient(call("present_plan", {"plan": "p"}, "p1"), say("ok"))
+    e = editor_factory(client, answer=lambda p: "reject_once", settings={"permission_mode": "plan"})
+    sid = e.new_session()
+    e.response(e.prompt(sid))
+    built = e.server.sessions[sid].built
+    assert built.permissions.plan_mode
+    assert e.call("session/set_mode", {"sessionId": sid, "modeId": "default"})["result"] == {}
+    assert not built.permissions.plan_mode and built.agent.tools.get("present_plan") is None
+    e.call("session/set_mode", {"sessionId": sid, "modeId": "plan"})
+    assert built.permissions.plan_mode and built.agent.tools.get("present_plan") is not None
+    assert e.call("session/set_mode", {"sessionId": sid, "modeId": "read_only"})["result"] == {}

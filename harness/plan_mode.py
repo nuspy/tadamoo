@@ -23,6 +23,13 @@ class PlanGate:
     ask: Optional[Callable[[str, List[str], bool], str]] = None
 
 
+def gate_from_confirm(confirm: Callable[[str, Any], bool]) -> Callable[[str, List[str], bool], str]:
+    """A `PlanGate.ask` made from a yes-or-no question like the one risky actions get (the terminal, the server's pages): yes goes on in the usual mode."""
+    def ask(plan: str, modes: List[str], outside: bool) -> str:
+        return modes[0] if confirm(PLAN_TOOL, {"plan": plan, "mode": modes[0], "outside_content": outside}) else ""
+    return ask
+
+
 def register_plan_tool(registry: Any, permissions: Any, gate: PlanGate, switch: Callable[[str], None], after: str = "default",
                        audit: Any = None) -> None:
     """Adds `present_plan`. `switch(mode)` changes the run's permission mode (and takes the tool away again)."""

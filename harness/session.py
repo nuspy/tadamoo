@@ -39,7 +39,7 @@ from harness import agent_loop as al
 from harness.client import StreamCancelled
 from harness.pipeline import Pipeline
 from harness.router import QUEUE, STEER, STRONG_URGENT, URGENT, Router
-from harness.stack import AgentConfig, BuiltAgent, build_agent, data_dir_for
+from harness.stack import AgentConfig, BuiltAgent, add_agent_arguments, agent_settings, build_agent, data_dir_for, split_secret_specs
 from harness.tools.registry import clock_paused
 from harness.vault import valid_code
 
@@ -811,37 +811,14 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m harness session", description="One Chat conversation in a long-lived process")
     parser.add_argument("--session-id", default="", help="the conversation's id; its history is kept under it")
     parser.add_argument("--history-dir", default=None, help="where the history is kept (default: in the workspace's data folder)")
-    parser.add_argument("--workspace", default=".")
-    parser.add_argument("--endpoint", default="http://127.0.0.1:7232")
-    parser.add_argument("--api-key", default=os.environ.get("BASALT_API_KEY"))
-    parser.add_argument("--max-turns", type=int, default=15)
-    parser.add_argument("--permission-mode", choices=["plan", "read_only", "default", "auto"], default="default")
-    parser.add_argument("--allow", action="append", default=[], metavar="PATTERN")
-    parser.add_argument("--deny", action="append", default=[], metavar="PATTERN")
-    parser.add_argument("--secret-env", action="append", default=[], metavar="NAME")
-    parser.add_argument("--payments-dir", default="", help="the person's payment systems and limits: the agent may ask to pay and the broker decides")
-    parser.add_argument("--browser", action="store_true", help="offer the browser tools: Edge or Chrome on this PC, for forms, purchases and bookings")
-    parser.add_argument("--browser-headless", action="store_true", help="the browser has no window")
-    parser.add_argument("--browser-private", action="store_true", help="the browser may open pages on this PC and its network")
-    parser.add_argument("--browser-profile", default="", help="a profile folder that keeps the browser's sign-ins between conversations")
-    parser.add_argument("--vault-dir", default="", help="the person's vault: the model writes {{vault:ENTRY.FIELD}} and the value is filled in for it")
-    parser.add_argument("--skills", action="append", default=[], metavar="DIR")
+    add_agent_arguments(parser, max_turns=15)
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of in the conversation")
     parser.add_argument("--ask-only", action="store_true", help="answer without tools: a greeting does not become a loop")
     parser.add_argument("--no-planner", action="store_true", help="do not offer the planner's tools")
-    parser.add_argument("--capabilities", action="store_true", help="offer the search for skills, plugins and MCP servers found on this PC, and the visual analysis")
     parser.add_argument("--router", choices=["model", "rules"], default="model",
                         help="how a message that comes during a task is judged when its words do not decide: by the model, or not at all")
     parser.add_argument("--pipeline", choices=["off", "light", "full"], default="full",
                         help="the check of an answer against what the request asked: nothing, measured only, or measured and judged")
-    parser.add_argument("--context-patterns", default="", metavar="JSON", help="what shapes the context (harness/context_patterns.py)")
-    parser.add_argument("--context-threshold", type=float, default=0.7, help="the share of the context window at which pruning or a summary starts")
-    parser.add_argument("--end-turn-bias", type=float, default=0.0, help="0 or less: how much less ready the model is to end its turn (0 is off)")
-    parser.add_argument("--attachments-dir", default="", help="where the conversation's attached files are kept (with --outputs-dir: the tools for them)")
-    parser.add_argument("--outputs-dir", default="", help="where the files the agent makes for the person are kept")
-    parser.add_argument("--no-memory", action="store_true")
-    parser.add_argument("--lsp", action="store_true", help="offer diagnostics, go_to_definition and find_references when a language server is found")
-    parser.add_argument("--no-checkpoints", action="store_true")
     parser.add_argument("--heartbeat", type=float, default=HEARTBEAT_S)
     parser.add_argument("--watch-plans", type=float, default=15.0, metavar="SECONDS", help="how often the plans are looked at in a quiet moment (0: never)")
     return parser.parse_args(args)
@@ -867,24 +844,17 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         except (AttributeError, ValueError):
             pass
     emit = make_emitter(stdout)
-    from harness.headless import split_secret_specs
-    secret_names, secret_hosts = split_secret_specs(args.secret_env)
     sid = args.session_id or uuid.uuid4().hex[:12]
     confirm = None
     if args.ask_server:
         from harness.approval_client import ServerApprover
         confirm = ServerApprover(args.endpoint, args.api_key, sid)
     history = Path(args.history_dir) if args.history_dir else data_dir_for(Path(args.workspace).resolve()) / "sessions" / sid
-    cfg = AgentConfig(workspace=args.workspace, endpoint=args.endpoint, api_key=args.api_key, max_turns=args.max_turns,
-                      permission_mode=args.permission_mode, allow=args.allow, deny=args.deny, secret_names=secret_names,
-                      secret_hosts=secret_hosts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
-                      skill_paths=args.skills, confirm=confirm, run_id=sid,
-                      context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold, end_turn_bias=args.end_turn_bias, snapshot_dir=str(history / "snapshots"),
-                      attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
-                      capabilities=args.capabilities and not args.ask_only, lsp=args.lsp and not args.ask_only, council=not args.ask_only,
-                      vault_dir="" if args.ask_only else args.vault_dir,
-                      payments_dir="" if args.ask_only else args.payments_dir, browser=args.browser and not args.ask_only,
-                      browser_headless=args.browser_headless, browser_private=args.browser_private, browser_profile=args.browser_profile)
+    settings = agent_settings(args)
+    settings["council"] = not args.ask_only                       # the council is offered whenever the person set one up
+    if args.ask_only:                                             # answers without tools: nothing that reaches outside is built
+        settings.update(capabilities=False, lsp=False, vault_dir="", payments_dir="", browser=False, wiki=False, phone=False)
+    cfg = AgentConfig(**settings, confirm=confirm, run_id=sid, snapshot_dir=str(history / "snapshots"))
     from harness.client import BasaltClient
     from harness.llm import client_for, judge_for
     from harness.llm.judge import router_judge
