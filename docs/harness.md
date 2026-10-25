@@ -511,6 +511,9 @@ validity, cost per trial and the prefix cache hit rate. These are development A/
 points is noise until repeated. The task sets are small starting points; add private tasks of your own. Running other
 harnesses against the same endpoint is not automated.
 
+`python -m harness.eval.alternate` measures what it costs when two conversations take turns on one model (the time to the first token and the share of the
+prompt read from the cache, taking turns against one after the other). It decides whether a queue that groups requests by conversation is worth building.
+
 ## Tests and what is not done
 
 `python -m pytest tests` (harness) and `python -m pytest serve/tests` (server and pages). Tests that would place a real call
