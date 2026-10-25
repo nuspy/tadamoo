@@ -215,7 +215,12 @@ and its safety snapshot can be rewound to as well. The audit log
   placeholder; long outputs keep their head, tail and **every error line**; JSON is trimmed and HTML reduced to text. The
   system block is byte-stable so the engine's prefix checkpoint is reused; retrieved memories go after the goal as untrusted data.
 - `AGENTS.md` (else `CLAUDE.md`, else `GEMINI.md`), searched from the workspace up to the repository root, is part of the prompt.
-- Memory is SQLite full-text search per workspace; identifiers such as `sm_120` are searchable.
+- Memory is SQLite full-text search per workspace, kept in the user data folder (never in the repository); identifiers such as
+  `sm_120` are searchable, and a question whose words are not all in a note still finds it. The model keeps notes itself with
+  `remember` (a short note and a category; the same text is kept once, at most 5000 notes), reads them with `recall` and deletes
+  one with `forget`. What `recall` returns is untrusted data like the notes that arrive after your message, and none of it goes
+  into the system block, so the engine's cached start does not change when a note is added. With `use_memory` off the three tools
+  are not offered.
 - `browse_url` reads a web page with the standard library only: http and https, no user name in the address, no address that is
   not a site on the internet (private, loopback, link-local, carrier-grade NAT and multicast ranges are refused) unless you allowed
   pages on this PC in the browser's settings. The address a name resolves to is checked at the moment of connecting and again at

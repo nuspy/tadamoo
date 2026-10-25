@@ -6,14 +6,18 @@ Retrieved text is data from the past, not instructions: callers hand it to the m
 from __future__ import annotations
 
 import hashlib
+import re
 import sqlite3
 import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 _OPERATORS = {"AND", "OR", "NOT", "NEAR"}
+MAX_MEMORY_CHARS = 2000
+MAX_MEMORIES = 5000
+_CATEGORY = re.compile(r"[^a-z0-9_\-]+")
 
 
 def default_db_path(workspace: str | Path) -> Path:
@@ -94,6 +98,16 @@ class MemoryStore:
             )
         return mem_id
 
+    def find(self, content: str) -> Optional[str]:
+        """The id of a memory with exactly this text, if there is one."""
+        with self._lock:
+            row = self.conn.execute("SELECT id FROM memories WHERE content = ?", (content.strip(),)).fetchone()
+        return row["id"] if row else None
+
+    def count(self) -> int:
+        with self._lock:
+            return int(self.conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0])
+
     def update_memory(self, memory_id: str, content: str) -> bool:
         with self._lock, self.conn:
             cur = self.conn.execute("UPDATE memories SET content = ?, updated_at = ? WHERE id = ?",
@@ -135,3 +149,51 @@ class MemoryStore:
     def close(self) -> None:
         with self._lock:
             self.conn.close()
+
+
+def register_memory_tools(registry: Any, store: MemoryStore) -> None:
+    """`remember`, `recall` and `forget`: the model keeps notes about this project for later conversations.
+
+    What comes back from `recall` is marked untrusted like every other retrieved text: it is data from the past, not instructions."""
+    from harness.tools.registry import EffectClass
+
+    def remember(content: str, category: str = "general") -> Dict[str, Any]:
+        text = content.strip()
+        if not text:
+            raise ValueError("a memory needs some text")
+        if len(text) > MAX_MEMORY_CHARS:
+            raise ValueError(f"a memory is a short note (at most {MAX_MEMORY_CHARS} characters); keep the point and leave the rest out")
+        known = store.find(text)
+        if known:
+            return {"id": known, "saved": False, "note": "this note is already kept"}
+        if store.count() >= MAX_MEMORIES:
+            raise ValueError("the memory of this project is full; forget notes that no longer matter first")
+        return {"id": store.add_memory(text, _CATEGORY.sub("-", category.strip().lower()).strip("-")[:32] or "general"), "saved": True}
+
+    def recall(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        return [{"id": m["id"], "category": m["category"], "content": m["content"]} for m in store.search(query, limit=max(1, min(int(limit), 20)))]
+
+    def forget(id: str) -> Dict[str, Any]:
+        return {"id": id, "forgotten": store.delete_memory(id)}
+
+    registry.register(
+        name="remember",
+        description="Keeps a short note about this project (a decision, a convention, a fact that will matter later) for future conversations.",
+        parameters={"type": "object", "properties": {
+            "content": {"type": "string", "description": "The note, one or two sentences"},
+            "category": {"type": "string", "description": "A word to group notes, e.g. build, decision, preference", "default": "general"}},
+            "required": ["content"]},
+        effect=EffectClass.REVERSIBLE, handler=remember)
+    registry.register(
+        name="recall",
+        description="Searches the notes kept about this project.",
+        parameters={"type": "object", "properties": {
+            "query": {"type": "string", "description": "Words to look for"},
+            "limit": {"type": "integer", "description": "How many notes", "default": 5}},
+            "required": ["query"]},
+        effect=EffectClass.PURE, handler=recall, untrusted=True)
+    registry.register(
+        name="forget",
+        description="Deletes one kept note, by the id that remember or recall gave.",
+        parameters={"type": "object", "properties": {"id": {"type": "string", "description": "The note's id"}}, "required": ["id"]},
+        effect=EffectClass.REVERSIBLE, handler=forget)
