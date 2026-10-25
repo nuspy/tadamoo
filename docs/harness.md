@@ -633,6 +633,86 @@ the folder, and `confirm_from_trace(trace)` to answer questions as the person di
 does the first and prints the divergence. Permissions are decided by the rules you replay under, so a replay under another level is
 the way to see what a change in the rules would have done to a past session.
 
+## Running code
+
+`run_code` (`harness/tools/execute.py`) runs a snippet in a separate process: Python with the interpreter of Basalt's own
+environment in isolated mode (`-I`), and JavaScript or TypeScript when `deno` is on the PATH (all three languages) or
+JavaScript when only `node` is. Each run gets a new working folder under `.basalt/run/` in the workspace, the workspace's path
+in `BASALT_WORKSPACE`, and the same scrubbed environment as the shell. On Windows it runs in a job object (2 GiB of memory, 64
+processes); a timeout (30 s by default, 600 s at most) or a cancel of the run kills the whole tree. Output is cut at 50,000
+bytes per stream. Files the code leaves in its working folder are listed in the result and kept for a week; a run that makes
+none leaves nothing behind. Edits the code makes to workspace text files are recorded for review like a shell command's.
+
+It is an irreversible action for the permission layer (it can write anywhere the user can), so it asks at the default level,
+is refused in plan mode, and can be allowed or denied with a rule named `run_code`. **There is no network or file isolation
+beyond the working folder** (open decision D5): Python and node run with the user's rights. Only deno narrows things (read
+access to the working folder and the workspace, write access to the working folder, no network); that path was built from
+Deno's documented flags and not run here, because deno is not installed on the development PC. The memory and process caps
+are Windows-only. There is no retry loop of its own: a program that fails is reported with its traceback, and the loop
+detector stops identical repeats.
+
+## Subagents
+
+`spawn_subagent` (`harness/swarm/subagent.py`) hands a task to a second conversation and returns its last message as a
+summary. The subagent has its own messages and only the tools named in `tools` (by default the read-only ones; never
+`spawn_subagent` itself), up to `max_turns` turns (8 by default, 20 at most). It shares the parent's model client, permission
+manager, hooks, checkpoints, secrets and cancel flag, so its calls are decided by the same rules and questions as the parent's
+(plan mode and deny rules included, and reading outside content taints the parent too), and its calls land in the same audit
+ledger between `subagent_start` and `subagent_end` records. A summary that follows outside content is fenced as untrusted
+data. Subagents run one after another, never at once. The older `SwarmOrchestrator` and its `swarm.json` only divide a token
+budget among roles and run a mock; nothing uses it and `spawn_subagent` does not.
+
+## Routines
+
+`harness/scheduler.py` keeps recurring tasks for the agent in the user data folder (`routines.json`, results in
+`routine_runs.json`, the last 200). A routine is a prompt, a folder, a schedule, a mode and allow rules. Schedules are
+`every 30m`, `every 2h`, `every 1d` (at least a minute) or fixed local times: `daily 08:30`, `weekdays 08:30`, `weekends 10:00`,
+`mon,wed,fri 18:15`; there is no cron syntax. A routine is created **disabled** and its mode is read-only unless the person
+chooses otherwise (`auto` needs the same confirmation as a conversation). Only one routine runs at a time and only while no
+other conversation is busy or asking; a due routine waits (an hour at most, then the result is `skipped`). A routine that is
+running is not interrupted when the person starts talking. A routine runs as a conversation through the server's
+`SessionManager`, which is closed when it ends; if the agent needs an answer nobody can give, the result is `asked` with the
+question, and nothing is decided for the person. Overdue interval routines run once when the program starts; a fixed time that
+passed while it was off is skipped.
+
+The API is `GET /api/routines` (routines, what runs, the latest results) and `GET /api/routines/runs?id=&limit=`, and the writes
+`POST /api/routines` (create), `POST /api/routines/<id>/update|enable|disable|run|remove` and `POST /api/routines/cancel`, behind
+the same control-secret gate, loopback check and own-page check as the other writes. The scheduler is made when the
+conversation manager is first made (when the Chat first asks for its conversations) or when the routines API is first used, not
+when the server starts, so routines do not run in a server that nobody has opened a page on. There is no page for routines yet.
+
+## Other agents: ACP client and A2A
+
+`delegate_to_acp_agent` (`harness/acp_client.py`) lets Basalt drive another Agent Client Protocol agent (version 1, stdio):
+`initialize`, `session/new`, `session/prompt`, the agent's `session/update` notifications (message text and a list of its tool
+calls come back), its `session/request_permission` and `session/cancel` when the run is cancelled. The permission requests
+are put to the person through the same permission manager as Basalt's own tools, as `acp_permission:<agent>:<title>`: the
+person's answer becomes `allow_once` or `reject_once`, and with nobody to ask the request is rejected. The client declares no
+`fs` or `terminal` capability, so the other agent works on the folder itself (its edits are recorded like a shell command's),
+and it does no authentication. The tool exists only for agents written in `acp_agents.json` in the user data folder
+(`{"agents": {"name": {"command": ["program", "arg"], "env": ["VARIABLE_TO_PASS"], "description": "..."}}}`); the model can name
+an agent but never a command. The agent starts with the scrubbed environment plus the variables listed in `env`. Its answer is
+untrusted text. It is tested against a fake agent and against Basalt's own ACP agent over real pipes, not against a third-party
+agent.
+
+`ask_a2a_agent` (`harness/a2a.py`) is a client for Agent2Agent 1.x over the HTTP+JSON binding: it reads the Agent Card from
+`/.well-known/agent-card.json`, takes the first `HTTP+JSON` interface of version 1, sends one text message with `POST
+/message:send` and, if the task is not finished, polls `GET /tasks/{id}` (and cancels it with `POST /tasks/{id}:cancel` on a
+cancel or after the wait). The agents are listed in `a2a_agents.json` (`{"agents": {"name": {"url": "...", "token_env":
+"VARIABLE_WITH_A_BEARER_TOKEN"}}}`). A task that asks for input or authentication is reported as it stands; streaming, push
+notifications, files and the extended card are not done. It was written from the specification at a2a-protocol.org (version
+1.0.0) and tested against a local fake, never against a real agent; the exact error bodies are read leniently. **Basalt does not
+serve an Agent Card or receive A2A tasks**: a card must list an endpoint that accepts tasks, and receiving a task means running
+the agent for a remote caller, which needs a decision about who may call it. Both tools are irreversible and untrusted.
+
+## Energy of a task
+
+`harness/energy.py` samples the GPUs' power once a second (from the server's telemetry) while a task runs and reports the power
+limit, the average and peak power and the energy in watt-hours (the samples added up over time). A routine's result carries it
+as `energy`. It is the energy of the whole board(s) while the task ran, including anything else using the GPU, and the figure
+is an estimate; without readable power it is left out. Runs started from the Agent page and the evaluation reports do not
+carry it yet.
+
 ## Tests and what is not done
 
 `python -m pytest tests` (harness) and `python -m pytest serve/tests` (server and pages). Tests that would place a real call
