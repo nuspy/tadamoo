@@ -38,6 +38,8 @@ from harness.browser import BrowserPrefs
 from harness.payments_broker import PaymentsBroker
 from harness.vault import Vault, VaultError
 from serve.agent_sessions import SessionManager
+from serve.routines_api import RoutinesApi
+from harness.scheduler import RoutineError
 from serve.wallet_api import WalletApi, WalletError
 from harness.context_patterns import catalog as context_patterns_catalog
 from serve.capabilities_api import CapabilityApi, CapabilityError
@@ -50,12 +52,15 @@ _CHANGES = ChangeJournal(userdata.path("journal"))
 _APPROVALS = ApprovalBoard()
 _RUNNER = None                                        # made on first use: it needs this server's address
 _SESSIONS = None                                      # the Chat's conversations with the agent, made on first use
+_ROUTINES = None                                      # the agent's recurring routines, made with the conversations or on first use
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
 _LLM = None                                           # the Providers page's side of llmswitch, made on first use
 
 
 def stop_sessions() -> None:
     """The server ends: the conversations' processes end with it (the next start finds the conversations again)."""
+    if _ROUTINES is not None:
+        _ROUTINES.shutdown()
     if _SESSIONS is not None:
         _SESSIONS.shutdown()
 _WALLET = None                                         # the vault and the payment systems, made on first use
@@ -367,6 +372,9 @@ def make_handler(svc: Service):
             elif path.startswith("/api/agent/"):
                 if self._authorized():
                     self._agent_get(path)
+            elif path in ("/api/routines", "/api/routines/runs"):
+                if self._authorized():
+                    self._routines_get(path)
             elif path == "/api/capabilities" or path == "/api/capabilities/review":
                 if self._authorized():
                     self._capabilities_get(path)
@@ -510,6 +518,9 @@ def make_handler(svc: Service):
                 return
             if path.startswith("/api/agent/"):
                 self._agent_post(path)
+                return
+            if path == "/api/routines" or path.startswith("/api/routines/"):
+                self._routines_post(path)
                 return
             if path.startswith("/api/llm/"):
                 self._llm_post(path)
@@ -1485,6 +1496,47 @@ def make_handler(svc: Service):
                 return self._json(400, {"error": {"message": str(e)}})
             self._json(404, {"error": {"message": "not found"}})
 
+        def _routines(self) -> RoutinesApi:
+            global _ROUTINES
+            sessions = self._agent_sessions()
+            if _ROUTINES is None:
+                _ROUTINES = RoutinesApi(userdata.path("journal"), sessions)
+            return _ROUTINES
+
+        def _routines_get(self, path):
+            try:
+                if path == "/api/routines":
+                    return self._json(200, self._routines().overview())
+                q = parse_qs(urlsplit(self.path).query)
+                return self._json(200, self._routines().runs((q.get("id") or [""])[0], (q.get("limit") or ["50"])[0]))
+            except RoutineError as e:
+                return self._json(400, {"error": {"type": "routine", "message": str(e), "code": e.code}})
+
+        def _routines_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "routines can be changed only from the PC the server runs on"}})
+            if not self._own_page("routines can be changed"):
+                return
+            try:
+                req = json.loads(self._body(1 << 16) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                api, parts = self._routines(), path[len("/api/routines"):].strip("/").split("/")
+                if parts == [""]:
+                    return self._json(200, api.create(req))
+                if parts == ["cancel"]:
+                    return self._json(200, api.cancel())
+                if len(parts) == 2:
+                    return self._json(200, api.act(parts[0], parts[1], req))
+            except RoutineError as e:
+                return self._json(404 if e.code == "gone" else 400, {"error": {"type": "routine", "message": str(e), "code": e.code}})
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"message": str(e)}})
+            self._json(404, {"error": {"message": "not found"}})
+
         def _agent_sessions(self) -> SessionManager:
             global _SESSIONS
             if _SESSIONS is None:
@@ -1494,6 +1546,7 @@ def make_handler(svc: Service):
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
                                            browser_prefs=BrowserPrefs(userdata.path("browser.json")).read,
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink())
+                self._routines()                          # the clock of the routines starts with the conversations
             return _SESSIONS
 
         def _plan_effect_sink(self):
