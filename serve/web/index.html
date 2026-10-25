@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="web/shell.css">
 <link rel="stylesheet" href="web/wallet.css">
 <link rel="stylesheet" href="web/risk.css">
+<link rel="stylesheet" href="web/branches.css">
 <script defer src="web/i18n.js"></script>
 <script defer src="web/risk.js"></script>
 <script defer src="web/app.js"></script>
@@ -23,6 +24,7 @@
 <script defer src="web/chatset.js"></script>
 <script defer src="web/chat.js"></script>
 <script defer src="web/agentchat.js"></script>
+<script defer src="web/branches.js"></script>
 <script defer src="web/settings.js"></script>
 <script defer src="web/capabilities.js"></script>
 <script defer src="web/models.js"></script>
@@ -105,6 +107,34 @@
   <div class="pal-foot" data-t="pal.foot">Up and down choose, Enter runs, Esc closes.</div>
 </dialog>
 
+<dialog class="brd" id="branches" aria-labelledby="br-title">
+  <div class="brd-h"><h2 id="br-title" data-t="br.title">Branches</h2><button type="button" class="btn" id="br-close" data-t="br.close">Close</button></div>
+  <div class="brd-b">
+    <div class="brd-status" id="br-status" role="status" aria-live="polite"></div>
+    <section aria-labelledby="br-h-tree">
+      <h3 id="br-h-tree" data-t="br.tree">Conversations and their branches</h3>
+      <p class="brd-dim" data-t="br.help"></p>
+      <ul role="tree" class="brd-tree" id="br-tree" aria-labelledby="br-h-tree"></ul>
+      <p class="brd-dim" id="br-empty" data-t="br.empty" hidden></p>
+    </section>
+    <section aria-labelledby="br-h-cmp">
+      <h3 id="br-h-cmp" data-t="br.cmp.title">Run both and compare</h3>
+      <p class="brd-dim" data-t="br.cmp.help"></p>
+      <p class="brd-dim" id="br-cmp-none" data-t="br.cmp.none" hidden></p>
+      <div id="br-form"></div>
+      <div class="brd-cmps" id="br-cmps" role="group" aria-labelledby="br-h-cmp"></div>
+      <div id="br-result" aria-live="polite"></div>
+    </section>
+    <section aria-labelledby="br-h-art">
+      <h3 id="br-h-art" data-t="br.art.title">Files the agent made</h3>
+      <p class="brd-dim" data-t="br.art.help"></p>
+      <p class="brd-dim" id="br-art-none" data-t="br.art.empty" hidden></p>
+      <ul class="brd-list" id="br-files"></ul>
+      <div class="brd-prev" id="br-prev"></div>
+    </section>
+  </div>
+</dialog>
+
 <main>
   <div class="view chat" id="view-chat" role="tabpanel" aria-labelledby="tab-chat" hidden>
     <section class="sec chatbox" aria-label="Chat">
@@ -130,6 +160,7 @@
         <button type="button" class="btn" id="cs-open" aria-expanded="false" aria-controls="chatset" data-t="cs.open">Settings</button>
         <button type="button" class="btn" id="new-chat" data-t="ch.newbtn">New conversation</button>
         <button type="button" class="btn" id="branch-chat" data-t="ch.branch" hidden>Branch here</button>
+        <button type="button" class="btn" id="branches-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="branches" data-t="br.open" hidden>Branches</button>
       </div>
       <div class="chathelp" id="chathelp">
         <p id="mode-help"></p>

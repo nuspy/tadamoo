@@ -54,6 +54,8 @@ DYNAMIC = {
     "ag.mode.": ["plan", "read_only", "default", "auto"],
     "ag.e.": ["folder_missing", "folder_relative", "folder_not_found", "folder_drive", "goal_missing", "goal_long", "bad_mode", "auto_confirm", "bad_rules", "bad_steps", "busy", "start_failed", "not_running", "gone", "approval", "offline", "key", "local", "needs_yes", "no_checkpoint", "rewind_failed"],
     "ch.state.": ["pending", "partial", "kept", "reverted", "superseded"],
+    "br.cmp.state.": ["running", "done", "interrupted"],
+    "br.side.state.": ["waiting", "running", "done", "needs_you", "ended", "timeout", "failed", "interrupted"],
     "tab.": ["chat", "agent", "plans", "stats", "loader", "hardware", "logs", "wallet", "settings"],
 }
 NODE = shutil.which("node")
@@ -278,6 +280,48 @@ class CutReplyTest(unittest.TestCase):
         text = (WEB / "i18n.js").read_text(encoding="utf-8")
         self.assertEqual(text.count('"chat.cut"'), 2)
         self.assertEqual(text.count('"chat.retry"'), 2)
+
+
+class BranchesTest(unittest.TestCase):
+    """The tree of branches, the comparison and the preview of the files the agent made."""
+    js = (WEB / "branches.js").read_text(encoding="utf-8")
+    css = (WEB / "branches.css").read_text(encoding="utf-8")
+    html = (WEB / "index.html").read_text(encoding="utf-8")
+
+    def test_the_dialog_is_linked_and_reachable_from_the_chat(self):
+        self.assertIn('href="web/branches.css"', self.html)
+        self.assertLess(self.html.index("web/agentchat.js"), self.html.index("web/branches.js"))
+        for needle in ('id="branches-open"', 'id="branches"', 'role="tree"', 'id="br-tree"', 'aria-haspopup="dialog"'):
+            self.assertIn(needle, self.html, needle)
+        self.assertLess(self.html.index('id="chatmode"'), self.html.index('id="branches-open"'))        # in the chat's own header
+        self.assertIn("basalt:open-session", (WEB / "agentchat.js").read_text(encoding="utf-8"))
+        chat = (WEB / "agentchat.js").read_text(encoding="utf-8")
+        self.assertIn("back-impact", chat)                                  # going back lists what stays done before it takes anything off
+        self.assertIn("accept_irreversible: true", chat)
+
+    def test_the_tree_is_a_keyboard_and_screen_reader_list(self):
+        for needle in ('"treeitem"', '"group"', "aria-level", "aria-expanded", "aria-selected", "aria-label", "ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft",
+                       "Home", "End", '"Enter"', "tabIndex = -1", "tabIndex = 0"):
+            self.assertIn(needle, self.js, needle)
+        self.assertNotIn("hover", self.js)                                  # every action works with a click and with the keyboard
+
+    def test_a_preview_never_runs_what_it_shows(self):
+        self.assertIn('frame.setAttribute("sandbox", "")', self.js)         # an empty sandbox: no scripts, no forms, no popups, no origin
+        self.assertNotIn("allow-", self.js)
+        self.assertIn("default-src 'none'", self.js)
+        self.assertIn("img-src data:", self.js)
+        self.assertNotRegex(self.js, r"createElement\(\s*[\"']script")
+
+    def test_the_colours_are_the_apps_and_reach_4_5_to_1_and_motion_is_reduced(self):
+        v = css_vars()
+        used = set(re.findall(r"(?<![\w-])color:\s*var\((--[\w-]+)\)", self.css))
+        self.assertTrue(used <= {"--fg", "--fg-2", "--fg-3", "--pl-fail", "--pl-add", "--pl-del"}, used)
+        for name in used:
+            for surface in ("--panel", "--surface"):
+                self.assertGreaterEqual(contrast(v[name], v[surface]), 4.5, f"{name} on {surface}")
+        self.assertNotRegex(re.sub(r"rgba?\([^)]*\)", "", self.css), r"(?<![\w-])color:\s*#")         # no colour of its own on text
+        self.assertIn("prefers-reduced-motion: reduce", self.css)
+        self.assertIn("min-height: 44px", self.css)
 
 
 class ContrastTest(unittest.TestCase):

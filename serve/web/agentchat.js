@@ -46,6 +46,7 @@
     const attachName = T(on ? "ch.att.btn" : "ch.att.img");
     $("#attach").setAttribute("aria-label", attachName); $("#attach").title = attachName;
     $("#conv-help").hidden = !on;
+    $("#branches-open").hidden = !on;
     $("#mode-help").textContent = T("ch.mode." + mode + ".d");
     drawPend();
     if (on) { $("#chat-hint").textContent = T("ch.hint"); poll(true); } else { clearTimeout(timer); $("#chat-hint").textContent = T("ch.hint.direct"); }
@@ -342,13 +343,27 @@
 
   /* ---- going back: the conversation returns to just after one of the person's requests (what came later is taken off, a copy is kept) ---- */
   function backButton(it) {
-    let armed = false, timer = 0;
+    let step = 0, timer = 0, note = null;                  // 0 at rest, 1 asked once, 2 the actions that stay done were shown
+    const reset = () => { step = 0; clearTimeout(timer); b.textContent = T("ch.back"); if (note) { note.remove(); note = null; } };
+    const arm = (text, ms) => { clearTimeout(timer); b.textContent = text; timer = setTimeout(reset, ms); };
     const b = btn(T("ch.back"), "ghost aback", async () => {
       if (busyNow || state === "busy" || state === "asking") { status(T("ch.back.busy")); return; }
-      if (!armed) { armed = true; b.textContent = T("ch.back.sure"); timer = setTimeout(() => { armed = false; b.textContent = T("ch.back"); }, 5000); return; }
-      clearTimeout(timer); armed = false; b.textContent = T("ch.back");
       const turn = items.filter(x => x.kind === "user").indexOf(it) + 1;
-      const r = await api("POST", `/${sid}/back`, { turn });
+      if (step === 0) { step = 1; arm(T("ch.back.sure"), 5000); return; }
+      if (step === 1) {                                     // what came after is looked at first: an action that cannot be undone is named
+        const seen = await api("GET", `/${sid}/back-impact?turn=${turn}`);
+        if (seen.ok && seen.json.needs_yes) {
+          const stays = seen.json.not_undone, ul = mk("ul", "astays-l");
+          stays.forEach(a => ul.append(mk("li", "", a.effect === "unknown" ? `${a.what} (${T("ch.back.unknown")})` : a.what)));
+          note = mk("div", "astays"); note.setAttribute("role", "alert");
+          note.append(mk("b", "", T("ch.back.stays", stays.length)), ul);
+          b.after(note); step = 2; arm(T("ch.back.stays.go", stays.length), 20000);
+          return;
+        }
+      }
+      const accept = step === 2;
+      reset();
+      const r = await api("POST", `/${sid}/back`, { turn, ...(accept ? { accept_irreversible: true } : {}) });
       if (!r.ok) { status(errText(r)); return; }
       const keep = sid; await openSession(keep); status(T("ch.back.done"));
     });
@@ -576,7 +591,15 @@
   document.addEventListener("basalt:view", e => { if (e.detail === "chat") { refreshList(); poll(true); } });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(true); });
 
-  window.agentChat = { active, send, stop, newChat };
+  window.agentChat = { active, send, stop, newChat, current: () => sid };
+  document.addEventListener("basalt:open-session", async e => {      // the tree of branches opens a conversation here
+    const id = e.detail && e.detail.id;
+    if (!id) return;
+    if (mode === "direct") { mode = "agent"; modeSel.value = mode; keep(MODE_KEY, mode); applyMode(); }
+    await refreshList();
+    if ([...list.options].some(o => o.value === id)) list.value = id;
+    await openSession(id);
+  });
   window.chatUi.agentActive = active;
 
   [box, $("#chathelp"), $("#acopy")].forEach(root => applyT(root));   // the static texts, in the page's language

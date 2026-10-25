@@ -1,0 +1,60 @@
+/* The branches dialog: the tree of conversations, two continuations side by side, and the preview of the files the agent made.
+   Colours are the app's own variables, so the text keeps the contrast the rest of the page is checked for; nothing here is
+   told by colour alone (a diff line starts with + or -, a state is written out). */
+.brd { width: min(1100px, 94vw); max-height: 90vh; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--fg); overflow: hidden; }
+.brd[open] { display: flex; flex-direction: column; }
+.brd::backdrop { background: rgba(0, 0, 0, .65); }
+.brd-h { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line-soft); flex: none; }
+.brd-h h2 { margin: 0; flex: 1; font: 600 16px/1.3 var(--font-sans); }
+.brd-b { display: grid; gap: 28px; padding: 16px 20px 28px; overflow: auto; min-height: 0; }
+.brd h3 { margin: 0 0 6px; font: 600 15px/1.3 var(--font-sans); }
+.brd h4 { margin: 14px 0 6px; font: 600 14px/1.3 var(--font-sans); }
+.brd p { margin: 0 0 8px; }
+.brd-dim { color: var(--fg-2); }
+.brd-status { min-height: 1.5em; color: var(--fg-2); }
+.brd-status:empty { display: none; }
+.brd-status[data-bad="1"] { color: var(--pl-fail); }
+.brd .btn { min-height: 44px; }
+.brd :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.brd-tree, .brd-tree ul, .brd-list, .brd-files { list-style: none; margin: 0; padding: 0; }
+.brd-tree ul { margin-left: 22px; padding-left: 10px; border-left: 2px solid var(--line); }
+.brd-tree li:focus { outline: none; }
+.brd-tree li:focus-visible > .brd-row, .brd-tree li:focus > .brd-row { outline: 2px solid var(--accent); outline-offset: 1px; }
+.brd-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; min-height: 44px; padding: 8px 12px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+.brd-row:hover { background: var(--surface); border-color: var(--line); }
+.brd-tree [aria-selected="true"] > .brd-row { background: var(--surface); border-color: var(--line); }
+.brd-tw { width: 1.2em; flex: none; color: var(--fg-2); }
+.brd-t { flex: 1 1 18em; min-width: 0; overflow-wrap: anywhere; }
+.brd-sub { flex: 1 1 100%; padding-left: 1.2em; color: var(--fg-2); font-size: 13.5px; overflow-wrap: anywhere; }
+.brd-tag { margin-left: 8px; padding: 1px 8px; border: 1px solid var(--fg-3); border-radius: 10px; color: var(--fg-2); font-size: 12.5px; }
+
+.brd-f { display: grid; gap: 4px; margin: 0 0 10px; color: var(--fg-2); }
+.brd-f input, .brd-f select, .brd-f textarea { min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); font: 16px/1.4 var(--font-sans); }
+.brd-f textarea { resize: vertical; }
+.brd-vs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 12px 0; }
+.brd-v, .brd-col { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; }
+.brd-v legend { padding: 0 6px; font-weight: 600; }
+.brd-cmps { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
+.brd-cmps .btn[aria-pressed="true"] { border-color: var(--accent); color: var(--fg); }
+.brd-ask { padding: 8px 10px; border-left: 3px solid var(--fg-3); color: var(--fg-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.brd-ans { max-height: 40vh; overflow: auto; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 10px; }
+.brd-diff, .brd-pre { max-height: 40vh; overflow: auto; margin: 0 0 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font: 13px/1.5 var(--font-mono); }
+.brd-diff div { white-space: pre-wrap; overflow-wrap: anywhere; }
+.d-add { color: var(--pl-add); } .d-del { color: var(--pl-del); } .d-ctx { color: var(--fg-2); }
+.brd-pre { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg); }
+.brd-files li { margin: 0 0 8px; }
+.brd-files summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; overflow-wrap: anywhere; }
+.brd-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 48px; }
+.brd-fn { overflow-wrap: anywhere; }
+.brd-prev { margin-top: 10px; }
+.brd-frame { width: 100%; height: 50vh; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.brd-img { max-width: 100%; max-height: 60vh; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.brd-md { max-height: 50vh; overflow: auto; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+
+/* what going back lists before it takes anything off */
+.astays { align-self: flex-end; max-width: 60em; padding: 10px 14px; border: 1px solid var(--pl-block); border-radius: 8px; background: var(--surface); color: var(--fg); }
+.astays-l { margin: 6px 0 0; padding-left: 1.2em; color: var(--fg-2); overflow-wrap: anywhere; }
+
+@media (max-width: 900px) { .brd-vs { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .brd, .brd * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
