@@ -166,6 +166,7 @@ def run_headless(cfg: AgentConfig, prompt: str, client: Any = None) -> Dict[str,
                 "completion": sum(t.completion_tokens for t in turns),
                 "cached": sum(t.cached_tokens for t in turns),
             },
+            "permission_denials": {"total": built.permissions.denied, "by_tool": dict(built.permissions.denied_by_tool)},
             "audit_log": str(built.audit.path),
         }
     finally:

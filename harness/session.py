@@ -211,6 +211,12 @@ class Session:
     def waiting(self) -> bool:
         return self._waiting_n > 0
 
+    @property
+    def permission_denials(self) -> Dict[str, Any]:
+        """How many calls the permission layer refused in this conversation, in all and by tool."""
+        perms = self.built.permissions
+        return {"total": perms.denied, "by_tool": dict(perms.denied_by_tool)}
+
     def _adopt(self, task: Task) -> None:
         a = task.agent
         a.on_event = lambda e, t=task: self._on_event(e, t)
@@ -738,7 +744,8 @@ class Session:
                 final = next((t.assistant_content for t in reversed(agent.turns) if not t.tool_calls and t.assistant_content), "")
                 self._save()
                 self.emit({"event": "done", "turn": task.turn, "stop_reason": agent.stop_reason, "error": agent.error, "final": final,
-                           "tokens": agent.total_tokens, "more": self._more() and not agent.cancel.is_set()})
+                           "tokens": agent.total_tokens, "more": self._more() and not agent.cancel.is_set(),
+                           "denied": self.permission_denials["total"]})
                 self.tasks.pop(task.turn, None)
                 task = self._next_after(task)
         except BaseException as exc:                       # the process stays up: the task ends with an error
@@ -918,7 +925,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         while not stop.wait(args.heartbeat):
             emit({"event": "heartbeat", "busy": session.busy, "turn": session.turn_id, "asking": session.waiting,
                   "waiting_requests": len(session.queue) + len(session.inbox) + len(session.urgent), "put_aside": len(session.stack),
-                  "idle_s": session.idle_seconds()})
+                  "idle_s": session.idle_seconds(), "denied": session.permission_denials["total"]})
     threading.Thread(target=beat, name="session-heartbeat", daemon=True).start()
 
     def watch() -> None:
@@ -964,7 +971,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         stop.set()
         session.close()
         built.close()
-    emit({"event": "closed", "session": sid})
+    emit({"event": "closed", "session": sid, "permission_denials": session.permission_denials})
     return 0
 
 

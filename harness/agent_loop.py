@@ -363,7 +363,8 @@ class AgentLoop:
 
     def close(self) -> None:
         if self.hooks and self._started:
-            self.hooks.trigger_event("session_end", {"turns": len(self.turns), "stop_reason": self.stop_reason})
+            self.hooks.trigger_event("session_end", {"turns": len(self.turns), "stop_reason": self.stop_reason,
+                                                     "permission_denials": self.permissions.denied if self.permissions else 0})
         self._started = False
 
     def run(self, user_goal: Optional[str], retrieved: Optional[Dict[str, Any]] = None) -> List[AgentTurn]:

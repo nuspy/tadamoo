@@ -629,3 +629,48 @@ def test_plan_mode_is_not_left_by_a_model_that_only_says_it_was_approved(tmp_pat
     session.cancel()                                          # Stop while the question is open counts as no
     ev.wait("done")
     assert built.permissions.plan_mode and not (ws / "b.txt").exists()
+
+
+def test_refused_calls_are_counted_in_the_conversation_state_and_in_its_closing_report(tmp_path, monkeypatch):
+    import harness.session as hs
+    client = Scripted(call("shell_command", command="echo hi"), call("shell_command", command="echo again"), say("I could not run them."))
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    real_build = hs.build_agent
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=client: real_build(cfg, client=_c))
+    feed, out = Feed(), io.StringIO()
+    t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "d1", "--deny", "shell_command:*",
+                                              "--no-memory", "--no-checkpoints", "--no-planner", "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)
+    t.start()
+    feed.put({"cmd": "send", "id": "m1", "text": "run things"})
+    deadline = time.monotonic() + 10
+    while '"done"' not in out.getvalue() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    time.sleep(0.3)
+    feed.put({"cmd": "close"})
+    t.join(10)
+    events = [json.loads(l) for l in out.getvalue().splitlines()]
+    assert next(e for e in events if e["event"] == "done")["denied"] == 2
+    assert [e["denied"] for e in events if e["event"] == "heartbeat"][-1] == 2
+    assert events[-1]["event"] == "closed" and events[-1]["permission_denials"] == {"total": 2, "by_tool": {"shell_command": 2}}
+
+
+def test_the_session_end_hook_and_the_headless_result_carry_the_count(tmp_path):
+    from harness.headless import run_headless
+    from harness.hooks import HookManager
+    from harness.agent_loop import AgentLoop
+    from harness.permissions import PermissionLevel, PermissionManager
+    from harness.tools import create_standard_tool_registry
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    seen = []
+    hooks = HookManager()
+    hooks.register_event_hook("session_end", seen.append)
+    registry, _ = create_standard_tool_registry(ws)
+    agent = AgentLoop(Scripted(call("shell_command", command="echo hi"), say("no")), registry, permissions=PermissionManager(level=PermissionLevel.READ_ONLY), hooks=hooks)
+    agent.run("go")
+    agent.close()
+    assert seen == [{"turns": 2, "stop_reason": "final", "permission_denials": 1}]
+    cfg = AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False, use_checkpoints=False, report=False, permission_mode="read_only")
+    result = run_headless(cfg, "go", client=Scripted(call("shell_command", command="echo hi"), say("blocked")))
+    assert result["permission_denials"] == {"total": 1, "by_tool": {"shell_command": 1}} and result["status"] == "success"
