@@ -180,6 +180,11 @@ boost, a mixed map, with and without a presence penalty) return the same text wi
 `--spec 0`, and a request with an empty map matches one without the field. A -100 bias never yields the token and
 a +100 bias yields it at every step.
 
+The `end_turn_bias` setting is this same bias, put by the server on the token that ends a turn: a request with it set samples from a
+different distribution (the end token is less likely at every step, so replies run longer and a turn that would have ended at once may
+go on), and it is off unless a request or a preset sets it. With it off a request is unchanged. It has no effect on speed beyond what any
+bias has. How much it helps against turns that end too early has not been measured.
+
 ## Speculative decoding does not change output
 
 Verify guarantees that a token's logits are bit for bit those of plain decode, whatever the window width

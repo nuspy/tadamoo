@@ -23,6 +23,7 @@ const chatSettings = (() => {
     { key: "frequency_penalty", min: 0, max: 2, step: 0.05, kind: "float" },
     { key: "penalty_last_n", min: 1, max: 8192, step: 1, kind: "int", help: true },
     { key: "seed", min: 1, max: 2147483647, step: 1, kind: "int", help: true },
+    { key: "end_turn_bias", min: -20, max: 0, step: 0.1, kind: "float", help: true },
   ];
   const OTHER = [
     { key: "reasoning_budget_tokens", id: "cs-budget", min: 0, kind: "int", label: "cs.budget" },
@@ -31,7 +32,7 @@ const chatSettings = (() => {
   ];
   // what the engine does with a key that neither the request nor the model file sets (the GEN line's defaults)
   const ENGINE_SAMPLING = { temperature: 0, top_p: 1, top_k: 20, min_p: 0, repetition_penalty: 1,
-    presence_penalty: 0, frequency_penalty: 0, penalty_last_n: 64 };
+    presence_penalty: 0, frequency_penalty: 0, penalty_last_n: 64, end_turn_bias: 0 };
   let modelDefaults = {}, serverPresets = null, inferenceDefault = null, started = false;
   // the preset this client used last: a name, "" (follow the default) or MODEL; edited: changed by hand since
   let last = load(LAST, null);

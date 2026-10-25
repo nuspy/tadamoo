@@ -10,13 +10,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from serve.api.logit_bias import REQUEST_KEY, checked, engine_key, normalize  # noqa: E402
+from serve.api.logit_bias import REQUEST_KEY, add_end_turn, checked, engine_key, normalize  # noqa: E402
 from serve.engine.mock import MockEngine  # noqa: E402
 from serve.engine.process import ProcessEngine  # noqa: E402
 from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import serve  # noqa: E402
 from serve.service import Service  # noqa: E402
-from serve.util.text import ByteTokenizer  # noqa: E402
+from serve.util.text import IM_END, ByteTokenizer  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -64,6 +64,27 @@ class Parsing(unittest.TestCase):
         self.assertEqual(checked({}, SimpleNamespace(info={"context": 1}, batch=2)), {})
 
 
+class EndTurn(unittest.TestCase):
+    def test_a_bias_on_the_token_that_ends_a_turn_joins_the_map(self):
+        req = {"end_turn_bias": -2.5, "logit_bias": {"9": 1}}
+        add_end_turn(req, [151645])
+        self.assertEqual(req["logit_bias"], {"9": 1, "151645": -2.5})
+        req = {"end_turn_bias": -3, "logit_bias": {"151645": 4}}
+        add_end_turn(req, [151645])
+        self.assertEqual(req["logit_bias"], {"151645": 4})                 # what the request names itself is kept
+
+    def test_off_or_absent_adds_nothing(self):
+        for req in ({}, {"end_turn_bias": None}, {"end_turn_bias": 0}, {"end_turn_bias": 0.0}):
+            with self.subTest(req=req):
+                add_end_turn(req, [5])
+                self.assertNotIn("logit_bias", req)
+
+    def test_bad_values_are_named(self):
+        for bad in (1, 0.5, -21, True, "x", [1], float("nan")):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "end_turn_bias"):
+                add_end_turn({"end_turn_bias": bad}, [5])
+
+
 class Http(unittest.TestCase):
     def setUp(self):
         tok = ByteTokenizer()
@@ -93,6 +114,19 @@ class Http(unittest.TestCase):
                 code, _ = self.post("/v1/chat/completions", logit_bias={"7": -100, "9": 2.5}, stream=stream)
                 self.assertEqual(code, 200)
                 self.assertEqual(self.engine.requests[0][1][REQUEST_KEY], {7: -100.0, 9: 2.5})
+
+    def test_the_end_turn_bias_reaches_the_engine_on_the_end_token(self):
+        end = ByteTokenizer().encode(IM_END, parse_special=True)[0]
+        for stream in (False, True):
+            with self.subTest(stream=stream):
+                self.engine.requests.clear()
+                self.assertEqual(self.post("/v1/chat/completions", end_turn_bias=-2, logit_bias={"9": 1}, stream=stream)[0], 200)
+                self.assertEqual(self.engine.requests[0][1][REQUEST_KEY], {9: 1.0, end: -2.0})
+        self.engine.requests.clear()
+        code, body = self.post("/v1/chat/completions", end_turn_bias=5)
+        self.assertEqual(code, 400)
+        self.assertIn("end_turn_bias", json.loads(body)["error"]["message"])
+        self.assertEqual(self.engine.requests, [])
 
     def test_no_bias_sends_none(self):
         for extra in ({}, {"logit_bias": {}}, {"logit_bias": None}):

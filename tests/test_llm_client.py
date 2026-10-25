@@ -113,6 +113,16 @@ def test_an_openai_compatible_provider_gets_the_key_the_model_and_the_reasoning_
     assert local.calls == [] and ledger.used(pid) == 8
 
 
+def test_a_setting_for_this_server_only_is_not_sent_to_a_cloud_provider(world):
+    cloud, local, reg, ledger = world
+    pid = reg.add({"type": "openai_compat", "base_url": cloud.url + "/v1", "api_key": "k" * 12, "model": "m"})["id"]
+    reg.assign_checked("eval", pid)
+    RoutedClient("eval", reg, local, ledger).chat_completion(MSG, extra={"seed": 3, "end_turn_bias": -2})
+    assert cloud.requests[0]["body"]["seed"] == 3 and "end_turn_bias" not in cloud.requests[0]["body"]
+    RoutedClient("chat", reg, local, ledger).chat_completion(MSG, extra={"end_turn_bias": -2})
+    assert local.calls[-1]["extra"] == {"end_turn_bias": -2}                                       # the loaded model does get it
+
+
 def test_the_text_arrives_in_pieces_from_a_cloud_provider_too(world):
     cloud, local, reg, ledger = world
     pid = reg.add({"type": "openai_compat", "base_url": cloud.url + "/v1", "api_key": "k" * 12, "model": "m"})["id"]

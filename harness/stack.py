@@ -76,6 +76,7 @@ class AgentConfig:
     data_dir: Optional[str] = None
     context_patterns: Dict[str, Any] = field(default_factory=dict)   # harness/context_patterns.py: what shapes the context
     context_threshold: float = 0.7      # the share of the context window at which pruning or a summary starts
+    end_turn_bias: float = 0.0          # 0 or less: how much less ready the model is to end its turn (0 is off)
     snapshot_dir: Optional[str] = None  # where the context of each turn is kept when versioning is on
     capabilities: bool = False          # offer find_capability, load_capability, call_capability and analyze_image (skills, plugins, MCP servers found on this PC)
     capabilities_dir: Optional[str] = None   # where their index and the person's approvals are kept (default: the user data folder)
@@ -260,5 +261,6 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         max_total_tokens=cfg.max_total_tokens,
         max_seconds=cfg.max_seconds,
         cancel=cancel,
+        sampling={"end_turn_bias": cfg.end_turn_bias} if cfg.end_turn_bias else None,
     )
     return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index)

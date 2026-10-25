@@ -28,6 +28,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional
 
 from harness import context_patterns as context_patterns_mod
 from serve import ROOT
+from serve.api import logit_bias
 from serve.agent_runs import MAX_ALLOW, MODES, SAFE_ENV_KEYS, RunBusy, RunError
 from serve.approvals import ApprovalBoard
 from serve.tasks import _write_json
@@ -265,7 +266,7 @@ class SessionManager:
 
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
                confirm_auto: bool = False, max_turns: Any = 15, context_patterns: Any = None,
-               context_policy: Any = "stop", context_threshold: Any = 0.8) -> Dict[str, Any]:
+               context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None) -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         if (workspace is None or workspace == "") and self.default_workspace is not None:
             self.default_workspace.mkdir(parents=True, exist_ok=True)
@@ -284,11 +285,15 @@ class SessionManager:
             raise RunError("The policy for a full context is stop, rolling or compact.", "bad_policy")
         if isinstance(context_threshold, bool) or not isinstance(context_threshold, (int, float)) or not 0.3 <= context_threshold <= 1.0:
             raise RunError("The threshold is a share of the context window from 0.3 to 1.", "bad_policy")
+        try:
+            logit_bias.add_end_turn({"end_turn_bias": end_turn_bias}, [0])
+        except ValueError as e:
+            raise RunError(str(e), "bad_policy") from None
         patterns = context_patterns_mod.check_config(context_patterns) if context_patterns else {}
         if context_policy != "stop":
             patterns = context_patterns_mod.with_policy(context_patterns or {}, context_policy)
         sid = secrets.token_hex(4)
-        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode,
+        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode,
                "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         with self._lock:
@@ -310,6 +315,8 @@ class SessionManager:
             cmd += ["--context-patterns", json.dumps(rec["context_patterns"])]
         if rec.get("context_threshold"):
             cmd += ["--context-threshold", str(rec["context_threshold"])]
+        if rec.get("end_turn_bias"):
+            cmd += ["--end-turn-bias", str(rec["end_turn_bias"])]
         if self.attachments_dir and self.outputs_dir and not rec.get("ask_only"):
             cmd += ["--attachments-dir", str(self.attachments_dir), "--outputs-dir", str(self.outputs_dir)]
         elif self.attachments_dir:

@@ -33,6 +33,28 @@ def normalize(value, vocab_size: int | None = None) -> dict[int, float]:
     return out
 
 
+END_TURN_KEY = "end_turn_bias"
+END_TURN_MIN = -20.0
+
+
+def add_end_turn(req: dict, token_ids) -> None:
+    """The request's `end_turn_bias` (0 or less; 0 and absent are off) joins its `logit_bias` as a bias on the token that ends a turn,
+    so the model is a little less ready to stop. A bias the request names for that token itself is kept. ValueError otherwise."""
+    value = req.get(END_TURN_KEY)
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not END_TURN_MIN <= value <= 0:
+        raise ValueError(f"{END_TURN_KEY}: a number from {END_TURN_MIN:g} to 0 (0 is off)")
+    if value == 0 or not token_ids:
+        return
+    own = req.get("logit_bias")
+    if own is not None and not isinstance(own, dict):
+        return                                                    # normalize() names that problem
+    merged = dict(own or {})
+    merged.setdefault(str(token_ids[0]), float(value))
+    req["logit_bias"] = merged
+
+
 def engine_key(bias: dict[int, float] | None) -> str:
     """The engine protocol's ` logit_bias=id:value,...` (sorted by id), or nothing.  Only a map with integer ids, as
     `normalize` makes it, is sent: a request body (whose JSON keys are strings) cannot carry one."""

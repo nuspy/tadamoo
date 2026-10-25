@@ -22,7 +22,7 @@ from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
 from serve.api.anthropic import anthropic_collect, anthropic_events
 from serve.engine.errors import EngineDied, EngineStarting, EngineStuck, GpuBusy, ModelBusy
-from serve.api.logit_bias import REQUEST_KEY as BIAS_KEY, checked as checked_bias
+from serve.api.logit_bias import REQUEST_KEY as BIAS_KEY, add_end_turn, checked as checked_bias
 from serve.frontend import anthropic_to_messages, forced_call, openai_to_messages
 from serve.api.openai import (openai_chunks, openai_collect, retry_messages, structured_retries,
                               structured_retry_chunks)
@@ -55,7 +55,7 @@ def stop_sessions() -> None:
         _SESSIONS.shutdown()
 _PLANS = None                                          # the planner's service, made on first use
 from serve.util.reqtrace import RequestTrace
-from serve.util.text import stop_strings
+from serve.util.text import IM_END, stop_strings
 
 
 BODY_MAX = 256 << 20                        # the most a JSON request body may hold (read into memory)
@@ -499,7 +499,7 @@ def make_handler(svc: Service):
             if path.startswith("/api/llm/"):
                 self._llm_post(path)
                 return
-            if path == "/api/attachments" or (path.startswith("/api/attachments/") and path.endswith("/remove")):
+            if path == "/api/attachments" or (path.startswith("/api/attachments/") and path.rsplit("/", 1)[-1] == "remove"):
                 self._attachments_post(path)
                 return
             if path.startswith("/api/capabilities/"):
@@ -1188,7 +1188,7 @@ def make_handler(svc: Service):
             from harness.attachments import MAX_STORED
             store, _ = self._stores()
             try:
-                if path.endswith("/remove"):
+                if path.rsplit("/", 1)[-1] == "remove":
                     _, _, session, att_id, _ = path.strip("/").split("/")
                     self._discard_body()
                     store.remove(session, att_id)
@@ -1430,7 +1430,7 @@ def make_handler(svc: Service):
                                                                       req.get("ask_only") is True, req.get("title", ""),
                                                                       req.get("confirm_auto") is True, req.get("max_turns", 15),
                                                                       req.get("context_patterns"), req.get("context_policy", "stop"),
-                                                                      req.get("context_threshold", 0.8))})
+                                                                      req.get("context_threshold", 0.8), req.get("end_turn_bias"))})
                     if len(parts) == 3 and parts[2] == "back":
                         return self._json(200, {"session": mgr.go_back(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "branch":
@@ -1584,6 +1584,7 @@ def make_handler(svc: Service):
             if validator is not None:
                 req["relaxed_drafting"] = False                # JSON output is sampled exactly
             svc.load()
+            add_end_turn(req, svc.tok.encode(IM_END, parse_special=True))
             req[BIAS_KEY] = checked_bias(req, svc.engine)     # a bad logit_bias is a 400 before streaming
             asked = int(req.get("max_completion_tokens") or req.get("max_tokens") or 0)   # 0/-1: the rest of the context
             svc.reasoning_budget(req)                         # a bad value is a 400 before streaming

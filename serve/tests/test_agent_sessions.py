@@ -373,6 +373,19 @@ def test_the_policy_for_a_full_context_is_kept_and_given_to_the_process(make, ws
             mgr.create(ws, **bad)
 
 
+def test_the_end_of_turn_bias_is_checked_kept_and_given_to_the_process(make, ws):
+    mgr = make()
+    rec = mgr.create(ws, end_turn_bias=-1.5)
+    assert rec["end_turn_bias"] == -1.5
+    cmd = mgr._command(rec["id"], rec, mgr.history_dir(rec["id"]))
+    assert cmd[cmd.index("--end-turn-bias") + 1] == "-1.5"
+    plain = mgr.create(ws)
+    assert "--end-turn-bias" not in mgr._command(plain["id"], plain, mgr.history_dir(plain["id"]))
+    for bad in (1, -40, True, "low"):
+        with pytest.raises(RunError):
+            mgr.create(ws, end_turn_bias=bad)
+
+
 def test_going_back_takes_off_what_came_after_keeps_a_copy_and_wakes_from_there(make, ws):
     mgr = make()
     sid = mgr.create(ws)["id"]

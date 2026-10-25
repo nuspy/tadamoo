@@ -215,6 +215,7 @@ reports the defaults in effect.
 | `frequency_penalty` | number | Penalty that grows with how often a token was seen; `0` is off. |
 | `penalty_last_n` | integer > 0 | The window, in tokens, the three penalties look back over. Applies only when a penalty is set; 64 when omitted. |
 | `seed` | integer > 0 | Fixes the random draw for a reproducible sampled reply. |
+| `end_turn_bias` | number from -20 to 0 | A bias on the token that ends a turn (`<|im_end|>`), so the model is a little less ready to stop; `0` or absent is off. Chat Completions only, and not with parallel slots (it is a `logit_bias`; see [Request logit bias](precision.md#request-logit-bias)). The Chat's settings, the saved presets and the agent's conversations carry it; a provider other than this server never receives it. |
 | `relaxed_drafting` | number in [0, 1], or `false` | This request's relaxed-drafting threshold; `false` or `0` forces exact sampling. Needs speculation; see [Speculative decoding](#speculative-decoding-mtp). |
 
 Other request fields the API reads: `max_tokens` / `max_completion_tokens` (the Anthropic `max_tokens`; `0` or

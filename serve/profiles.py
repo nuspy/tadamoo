@@ -32,7 +32,7 @@ LOAD_FIELDS = [f"{s}.{k}" for s, k in settings.LOADER_FIELDS]
 # the chat settings a preset keeps (serve/web/chatset.js)
 INFERENCE_KEYS = ("system", "stop", "policy", "threshold", "effort", "temperature", "top_p", "top_k", "min_p",
                   "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n", "seed",
-                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns")
+                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias")
 
 
 def path() -> Path:
@@ -141,6 +141,9 @@ def check_inference(values) -> dict:
     if "context_patterns" in out:
         from harness.context_patterns import check_config
         out["context_patterns"] = check_config(out["context_patterns"])
+    if out.get("end_turn_bias") not in (None, ""):
+        from serve.api.logit_bias import add_end_turn
+        add_end_turn({"end_turn_bias": out["end_turn_bias"]}, [0])          # the one rule for the value
     if len(json.dumps(out)) > 256 << 10:
         raise ValueError("settings: larger than 256 KiB")
     return out

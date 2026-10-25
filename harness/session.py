@@ -799,6 +799,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
                         help="the check of an answer against what the request asked: nothing, measured only, or measured and judged")
     parser.add_argument("--context-patterns", default="", metavar="JSON", help="what shapes the context (harness/context_patterns.py)")
     parser.add_argument("--context-threshold", type=float, default=0.7, help="the share of the context window at which pruning or a summary starts")
+    parser.add_argument("--end-turn-bias", type=float, default=0.0, help="0 or less: how much less ready the model is to end its turn (0 is off)")
     parser.add_argument("--attachments-dir", default="", help="where the conversation's attached files are kept (with --outputs-dir: the tools for them)")
     parser.add_argument("--outputs-dir", default="", help="where the files the agent makes for the person are kept")
     parser.add_argument("--no-memory", action="store_true")
@@ -840,7 +841,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                       permission_mode=args.permission_mode, allow=args.allow, deny=args.deny, secret_names=secret_names,
                       secret_hosts=secret_hosts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
                       skill_paths=args.skills, confirm=confirm, run_id=sid,
-                      context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold, snapshot_dir=str(history / "snapshots"),
+                      context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold, end_turn_bias=args.end_turn_bias, snapshot_dir=str(history / "snapshots"),
                       attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
                       capabilities=args.capabilities and not args.ask_only)
     from harness.client import BasaltClient

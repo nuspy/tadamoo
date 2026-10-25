@@ -193,7 +193,7 @@ class RoutedClient:
         if response_format is not None:
             body["response_format"] = response_format
         if extra:
-            body.update({k: v for k, v in extra.items() if k not in reasoning._REASONING_KEYS})
+            body.update({k: v for k, v in extra.items() if k not in reasoning._REASONING_KEYS and k != "end_turn_bias"})   # that one is for this server only
         shaped = self.registry.reasoning_for(self.function, self.level, base=body, max_tokens=max_tokens)
         body = dict(shaped["params"])                          # the request with the reasoning said in this provider's own words
         if shaped["max_tokens"]:

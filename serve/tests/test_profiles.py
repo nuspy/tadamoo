@@ -78,6 +78,14 @@ class Store(unittest.TestCase):
         self.assertNotIn("unknown", p["settings"])
         self.assertEqual(p["summary"], "temp 0.7 · reasoning medium · max 4K · compact · JSON schema")
 
+    def test_the_end_of_turn_bias_is_kept_when_it_is_valid(self):
+        profiles.change({"action": "save", "kind": "inference", "name": "Insiste", "settings": {"end_turn_bias": -1.5}})
+        self.assertEqual(profiles.listing()["inference"][0]["settings"]["end_turn_bias"], -1.5)
+        profiles.change({"action": "save", "kind": "inference", "name": "Vuoto", "settings": {"end_turn_bias": ""}})
+        for bad in (3, -50, True, "low"):
+            with self.assertRaises(ValueError, msg=bad):
+                profiles.change({"action": "save", "kind": "inference", "name": "x", "settings": {"end_turn_bias": bad}})
+
     def test_export_import(self):
         profiles.change({"action": "save", "name": "Veloce", "values": FAST})
         profiles.change({"action": "save", "kind": "inference", "name": "P", "settings": {"temperature": "1"}})
