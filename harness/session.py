@@ -346,6 +346,11 @@ class Session:
         return self._ask({"mode": "confirm", "kind": "code", "free": True, "facts": {"who": who},
                           "question": f"Type the code for {who}.", "options": []})
 
+    def payment_notice(self, result: Dict[str, Any]) -> None:
+        """Every authorized payment is said in the conversation, what the waiver let through as much as what the person confirmed."""
+        self.emit({"event": "payment", "turn": self._cur_turn(), "amount": result.get("amount"), "recipient": result.get("recipient"),
+                   "system": result.get("system"), "site": result.get("site"), "mode": result.get("mode"), "remaining": result.get("remaining")})
+
     def ask_payment(self, request: Dict[str, Any]) -> bool:
         """A payment the broker will not decide alone: no waiver covers it, or it is over the caps. The person decides."""
         question = f"Pay {request['amount']} to {request['recipient']} ({request['reason']}) with {request['system']}?"
@@ -881,6 +886,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         built.agent.secrets.ask_code = session.ask_code
     if built.payment_confirm is not None:
         built.payment_confirm.ask = session.ask_payment
+        built.payment_confirm.notice = session.payment_notice
     if not args.ask_server:
         built.permissions.confirm_callback = session.permission_confirm      # the questions are put in the conversation
     if not args.ask_only and not args.no_planner:

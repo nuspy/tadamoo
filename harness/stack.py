@@ -197,9 +197,14 @@ class AgentConfig:
 class PaymentConfirm:
     """How a payment the broker will not decide alone is put to the person; the conversation sets `ask` once it exists. With none, it is refused."""
     ask: Optional[Callable[[Dict[str, Any]], bool]] = None
+    notice: Optional[Callable[[Dict[str, Any]], None]] = None          # told of each payment that is authorized, by a waiver or by the person
 
     def __call__(self, request: Dict[str, Any]) -> bool:
         return bool(self.ask and self.ask(request))
+
+    def notify(self, result: Dict[str, Any]) -> None:
+        if self.notice:
+            self.notice(result)
 
 
 @dataclass
@@ -364,6 +369,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
             offered = True                                # a damaged state is the broker's to report, as a refusal
         if offered:
             payment_confirm = PaymentConfirm()
+            broker.notify = payment_confirm.notify
             if secrets.vault is not None:
                 secrets.vault.attach_gate(broker.still_valid)
             register_payment_tool(registry, broker, permissions, confirm=payment_confirm,

@@ -47,6 +47,7 @@ def session_for(tmp_path, client):
     session = Session(built, SessionStore(tmp_path / "hist", redact=built.agent.secrets.mask_secrets), events, session_id="s1", sleep=lambda s: None)
     built.agent.secrets.ask_code = session.ask_code
     built.payment_confirm.ask = session.ask_payment
+    built.payment_confirm.notice = session.payment_notice
     return session, events, built
 
 
@@ -195,3 +196,13 @@ def test_a_purchase_from_the_agent_to_the_shop_form(tmp_path):
         built.close()
     finally:
         server.shutdown()
+
+
+def test_every_authorized_payment_is_said_in_the_conversation(tmp_path):
+    set_up(tmp_path, waiver=("50", "120"))
+    client = Scripted(call("request_payment", **PAY, site="shop.example"), say("pagato"))
+    session, ev, built = session_for(tmp_path, client)
+    session.send("m1", "paga l'acconto")
+    notice = ev.wait("payment")
+    assert notice["amount"].startswith("30.00") and notice["recipient"] == "Hotel Cervino" and notice["site"] == "shop.example" and notice["mode"] == "waiver"
+    assert ev.wait("done")["final"] == "pagato"

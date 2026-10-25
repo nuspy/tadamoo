@@ -140,6 +140,7 @@
       case "delta": textBlock(e.kind === "reasoning" ? "reasoning" : "text", e.text || "", e.turn); break;
       case "queued": break;                                                    // the person's own bubble is already there
       case "routed": noteItem({ s: T("ch.routed." + e.how, e.position || 0), route: e.turn, how: e.how }); break;
+      case "payment": addBlock({ t: "note", s: T("ch.payment." + (e.mode === "confirmed" ? "confirmed" : "waiver"), e.amount, e.recipient, e.site || "-", e.remaining || "-") }, e.turn); break;
       case "suspended": noteItem({ s: T("ch.suspended") }); break;
       case "resumed": noteItem({ s: T("ch.resumed") }); assistant(e.turn); break;
       case "cleared": noteItem({ s: T("ch.cleared", e.count) }); break;
