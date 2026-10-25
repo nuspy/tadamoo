@@ -219,7 +219,8 @@ after the run is cancelled, instead of when the command finishes. Every tool als
 (`--tool-timeout SECONDS`, or `NAME=SECONDS` for one tool; `0` for none; `ToolRegistry.set_timeout` in code). A tool that runs past it is
 stopped and the model is told which tool and how long. The stop is an exception raised in the tool's own thread, so no thread is left running
 behind; a tool that is inside one blocking system call stops when that call returns. The clock does not run while the person is being asked
-something inside the tool (a plan change, a payment, a code). A shell command keeps its own `timeout` (up to 10 minutes), and `transcribe_attachment` its own wait.
+something inside the tool (a plan change, a payment, a code). A shell command keeps its own `timeout` (up to 10 minutes); `transcribe_attachment`,
+`run_code`, `spawn_subagent`, `delegate_to_acp_agent` and `ask_a2a_agent` have no default limit, as they wait with a limit of their own or for as long as their task takes.
 
 ### Loops
 
