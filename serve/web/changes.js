@@ -175,10 +175,32 @@
     return el;
   }
 
+  /* Scroll positions that a redraw would reset: the panel's own scroller and each open diff. */
+  function scroller(el) {
+    for (let p = el.parentElement; p; p = p.parentElement) {
+      const o = getComputedStyle(p).overflowY;
+      if ((o === "auto" || o === "scroll") && p.scrollHeight > p.clientHeight) return p;
+    }
+    return null;
+  }
+  const diffKeys = root => {
+    const keys = new Map();
+    root.querySelectorAll("details[data-eid]").forEach(d => d.querySelectorAll(".chg-diff").forEach((pre, i) => keys.set(`${d.dataset.eid}:${i}`, pre)));
+    return keys;
+  };
+
   function draw() {
     const root = document.getElementById("changes-root");
     if (!root) return;
     root.querySelectorAll("details[data-eid]").forEach(d => { if (d.open) openIds.add(d.dataset.eid); else openIds.delete(d.dataset.eid); });
+    const host = scroller(root), top = host ? host.scrollTop : 0;
+    const diffTops = new Map([...diffKeys(root)].map(([k, pre]) => [k, pre.scrollTop]));
+    paint(root);
+    if (host) host.scrollTop = top;
+    diffKeys(root).forEach((pre, k) => { if (diffTops.get(k)) pre.scrollTop = diffTops.get(k); });
+  }
+
+  function paint(root) {
     if (!edits.length) {
       const empty = document.createElement("p");
       empty.className = "chg-empty dim";
