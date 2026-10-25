@@ -162,8 +162,8 @@ try {
     } else {
         Step "Engine (CMake, MSVC + CUDA $(Split-Path $Cuda -Leaf))"
         . (Join-Path $Root 'tools\windows\vsenv.ps1')
-        $cache = Join-Path $Root 'build-win\CMakeCache.txt'
-        $builtWith = if (Test-Path $cache) { (Select-String -Path $cache -Pattern '^CMAKE_CUDA_COMPILER:\w+=(.*)$' | Select-Object -First 1).Matches.Groups[1].Value } else { '' }
+        $cmakeCache = Join-Path $Root 'build-win\CMakeCache.txt'
+        $builtWith = if (Test-Path $cmakeCache) { (Select-String -Path $cmakeCache -Pattern '^CMAKE_CUDA_COMPILER:\w+=(.*)$' | Select-Object -First 1).Matches.Groups[1].Value } else { '' }
         $wanted = (Join-Path $Cuda 'bin\nvcc.exe') -replace '\\', '/'
         if ($builtWith -and ($builtWith -replace '\\', '/') -ne $wanted) {
             $inUse = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith((Join-Path $Root 'bin'), [StringComparison]::OrdinalIgnoreCase) })
@@ -529,6 +529,9 @@ The setup\ folder is removed by the installer once everything is in place. The Q
     if (-not $NoSetup) {                                           # only the setup just built stays: earlier versions are deleted
         $older = @(Get-ChildItem -LiteralPath $Dist -Filter 'Basalt-WinGUI-*-setup.exe' -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne (Resolve-Path -LiteralPath $SetupExe).Path })
         foreach ($f in $older) { Remove-Item -LiteralPath $f.FullName -Force; Info ('deleted the setup of an earlier version: {0}' -f $f.Name) }
+        foreach ($f in @(Get-ChildItem -LiteralPath $Cache -Filter 'python-*-amd64.exe' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $pyInstaller.Name })) {
+            Remove-Item -LiteralPath $f.FullName -Force; Info ('deleted an older Python installer from the cache: {0}' -f $f.Name)
+        }
     }
 
     Step "Done: $ReleaseLabel"
