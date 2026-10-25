@@ -19,6 +19,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional
 
 from .card import PlanInsightCard
 from .dag import Assignee, PlanDAG, PlanError, node_to_dict
+from .horizon import PlanProfile
 from .replan import ReplanProposal, Replanner
 from .triage import TriageResult
 
@@ -61,9 +62,12 @@ class Proposal:
 
 
 class PlanCanvasBridge:
-    def __init__(self, dag: PlanDAG, card: Optional[PlanInsightCard] = None, replanner: Optional[Replanner] = None) -> None:
+    def __init__(self, dag: PlanDAG, card: Optional[PlanInsightCard] = None, replanner: Optional[Replanner] = None,
+                 profile: Optional[PlanProfile] = None) -> None:
         self.dag = dag
         self.card = card
+        self.profile = profile or PlanProfile()                # the plan's aims, budget, dates and cost: what it is compared on
+        self.alignment: Dict[str, Any] = {}                    # the last reading of the model on how this plan sits with the long-term ones
         self.replanner = replanner
         self.proposals: Dict[str, Proposal] = {}
         self.offers: Dict[str, Dict[str, Any]] = {}      # human-fallback offers waiting for the user
@@ -128,7 +132,8 @@ class PlanCanvasBridge:
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
             return {"plan": self.dag.to_dict(), "seq": self.seq, "rev": self.rev, "layers": self.dag.layers(),
-                    "card": self.card.to_dict() if self.card else None,
+                    "card": self.card.to_dict() if self.card else None, "profile": self.profile.to_dict(),
+                    "review_due": self.dag.target_type == "constant" and self.profile.review_due(), "alignment": self.alignment,
                     "history": list(self.history)[-HISTORY_SHOWN:],
                     "proposals": [p.to_dict() for p in self.proposals.values() if p.status == "pending"],
                     "offers": [o for o in self.offers.values() if o["status"] == "offered"],
@@ -243,10 +248,10 @@ class PlanCanvasBridge:
         changes = e.get("changes")
         if not isinstance(changes, dict) or not changes:
             raise ValueError("send the changes to make: title, target_type or card")
-        unknown = sorted(k for k in changes if k not in ("title", "target_type", "card"))
+        unknown = sorted(k for k in changes if k not in ("title", "target_type", "card", "profile"))
         if unknown:
-            raise ValueError(f"only title, target_type and card can be edited here, not: {', '.join(unknown)}")
-        title, target, card = self.dag.title, self.dag.target_type, self.card
+            raise ValueError(f"only title, target_type, card and profile can be edited here, not: {', '.join(unknown)}")
+        title, target, card, profile = self.dag.title, self.dag.target_type, self.card, self.profile
         if "title" in changes:
             title = changes["title"].strip() if isinstance(changes["title"], str) else ""
             if not title or len(title) > TITLE_CHARS:
@@ -257,11 +262,13 @@ class PlanCanvasBridge:
                 raise ValueError("target_type must be 'constant' or 'occasional'")
         if "card" in changes:
             card = PlanInsightCard.from_dict(changes["card"])
-        self.dag.title, self.dag.target_type, self.card = title, target, card
+        if "profile" in changes:
+            profile = PlanProfile.from_dict(changes["profile"])
+        self.dag.title, self.dag.target_type, self.card, self.profile = title, target, card, profile
         self.dag._touch()
         self._bump("update_meta", ", ".join(sorted(changes)))
         self._emit("plan:meta_updated", {"title": title, "target_type": target})
-        return {"title": title, "target_type": target, "card": card.to_dict() if card else None}
+        return {"title": title, "target_type": target, "card": card.to_dict() if card else None, "profile": profile.to_dict()}
 
     # -- tasks the software cannot do ------------------------------------------------------------
 
@@ -314,14 +321,15 @@ class PlanCanvasBridge:
     # -- saving ----------------------------------------------------------------------------------
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"plan": self.dag.to_dict(), "card": self.card.to_dict() if self.card else None,
+        return {"plan": self.dag.to_dict(), "card": self.card.to_dict() if self.card else None, "profile": self.profile.to_dict(), "alignment": self.alignment,
                 "proposals": {k: {**v.to_dict()} for k, v in self.proposals.items()}, "offers": self.offers, "seq": self.seq,
                 "rev": self.rev, "history": list(self.history)}
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any], replanner: Optional[Replanner] = None) -> "PlanCanvasBridge":
         bridge = cls(PlanDAG.from_dict(data["plan"]), PlanInsightCard.from_dict(data["card"]) if data.get("card") else None,
-                     replanner)
+                     replanner, PlanProfile.from_dict(data.get("profile")))
+        bridge.alignment = data.get("alignment") if isinstance(data.get("alignment"), dict) else {}
         for k, v in (data.get("proposals") or {}).items():
             bridge.proposals[k] = Proposal(k, v["title"], v.get("rationale", ""), v["diff"], v.get("source", "model"),
                                            v.get("status", "pending"), v.get("created_at", time.time()))
@@ -350,14 +358,15 @@ class PlanStore:
         self._path(plan_id)                                # the same check of the id
         return self.dir / "archive" / f"{plan_id}.json"
 
-    def create(self, dag: PlanDAG, card: Optional[PlanInsightCard] = None, replanner: Optional[Replanner] = None) -> PlanCanvasBridge:
+    def create(self, dag: PlanDAG, card: Optional[PlanInsightCard] = None, replanner: Optional[Replanner] = None,
+               profile: Optional[PlanProfile] = None) -> PlanCanvasBridge:
         with self._lock:
             if self._path(dag.plan_id).exists() or dag.plan_id in self._bridges:
                 raise ValueError(f"plan '{dag.plan_id}' already exists")
             if self._archived_path(dag.plan_id).exists():
                 raise ValueError(f"plan '{dag.plan_id}' is in the archive; restore it or choose another id")
             dag.validate_acyclic()
-            bridge = PlanCanvasBridge(dag, card, replanner)
+            bridge = PlanCanvasBridge(dag, card, replanner, profile)
             self._bridges[dag.plan_id] = bridge
             self.save(dag.plan_id)
             return bridge
@@ -388,7 +397,8 @@ class PlanStore:
             try:
                 plan = json.loads(p.read_text(encoding="utf-8"))["plan"]
                 nodes = plan.get("nodes", {})
-                out.append({"plan_id": plan["plan_id"], "title": plan["title"], "updated_at": plan.get("updated_at"),
+                out.append({"plan_id": plan["plan_id"], "title": plan["title"], "target_type": plan.get("target_type", "occasional"),
+                            "updated_at": plan.get("updated_at"),
                             "nodes": len(nodes),
                             "completed": sum(1 for n in nodes.values() if n.get("status") == "completed")})
             except (OSError, ValueError, KeyError):

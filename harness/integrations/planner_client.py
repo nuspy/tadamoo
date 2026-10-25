@@ -39,8 +39,14 @@ class PlannerClient:
     def snapshot(self, plan_id: str) -> Dict[str, Any]:
         return self._call("GET", f"/api/plans/{self._id(plan_id)}")
 
-    def create(self, plan: Dict[str, Any]) -> Dict[str, Any]:
-        return self._call("POST", "/api/plans", {"plan": plan, "actor": ACTOR})
+    def create(self, plan: Dict[str, Any], profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._call("POST", "/api/plans", {"plan": plan, "actor": ACTOR, **({"profile": profile} if profile else {})})
+
+    def alignment(self, plan_id: str, model: bool = False) -> Dict[str, Any]:
+        """How the plan sits with the others; with `model` the local model is asked to read what the plans mean together."""
+        if model:
+            return self._call("POST", f"/api/plans/{self._id(plan_id)}/alignment", {"model": True, "actor": ACTOR})
+        return self._call("GET", f"/api/plans/{self._id(plan_id)}/alignment")
 
     def event(self, plan_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
         """One bridge event (plan:mark, plan:propose_diff, plan:approve, ...), sent as the Chat."""

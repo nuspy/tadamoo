@@ -10,12 +10,17 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 DEFAULTS = {"cloud_triage": False, "pseudonymize": True, "card_fields": None}
 EVENTS_MAX = 100
 EVENT_CHARS = 2000
+
+
+def _short(c: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: c[k] for k in ("kind", "severity", "plan_id", "plan_title", "with_plan_id", "with_title", "text", "data")}
 
 
 class PlannerUnavailable(RuntimeError):
@@ -110,7 +115,60 @@ class PlanService:
     # -- plans -----------------------------------------------------------------------------------
 
     def list(self, archived: bool = False) -> List[Dict[str, Any]]:
-        return self.store.list_archived() if archived else self.store.list()
+        """The plans, each with what it is (long-term or not), whether a long-term one is due to be looked at, and the conflicts the dates and
+        amounts show between it and the others."""
+        if archived:
+            return self.store.list_archived()
+        views, due = self._views()
+        found = _planner().alignment.rule_conflicts(views)
+        out = []
+        for row in self.store.list():
+            mine = [c for c in found if row["plan_id"] in (c["plan_id"], c["with_plan_id"])]
+            out.append({**row, "review_due": row["plan_id"] in due, "conflicts": [_short(c) for c in mine]})
+        return out
+
+    def _views(self):
+        """Every plan as the comparison reads it, and which long-term ones are due to be looked at."""
+        planner, views, due = _planner(), [], set()
+        for row in self.store.list():
+            try:
+                bridge = self.store.get(row["plan_id"])
+            except Exception:
+                continue
+            views.append(planner.alignment.view(bridge.dag.to_dict(), bridge.profile.to_dict(), bridge.card.to_dict() if bridge.card else None))
+            if bridge.dag.target_type == "constant" and bridge.profile.review_due():
+                due.add(row["plan_id"])
+        return views, due
+
+    def alignment(self, plan_id: str, model: bool = False) -> Dict[str, Any]:
+        """How this plan sits with the others: the conflicts the dates and amounts show, and, when asked, the local model's reading of what the plans
+        mean together (kept with the plan until it changes, and said to be out of date after that)."""
+        planner = _planner()
+        views, _ = self._views()
+        subject = next((v for v in views if v["plan_id"] == plan_id), None)
+        if subject is None:
+            raise KeyError(plan_id)
+        bridge = self.bridge(plan_id)
+        if model:
+            if self.client_factory is None:
+                raise ValueError("no model is connected to read the plans")
+            found = planner.alignment.meaning_conflicts(subject, views, planner.alignment.client_ask(self.client_factory()))
+            bridge.alignment = {"checked_at": time.time(), "checked_rev": bridge.rev, "conflicts": found}
+            self.store.save(plan_id)
+            bridge._emit("plan:alignment", {"checks": len(found)})
+        kept = bridge.alignment or {}
+        rules = [c for c in planner.alignment.rule_conflicts(views) if plan_id in (c["plan_id"], c["with_plan_id"])]
+        return {"plan_id": plan_id, "conflicts": rules, "checks": kept.get("conflicts", []), "checked_at": kept.get("checked_at"),
+                "out_of_date": bool(kept) and kept.get("checked_rev") != bridge.rev}
+
+    def _announce(self, plan_id: str) -> None:
+        """After a plan is made or its dates, cost or kind change: if the arithmetic now shows a conflict, the plan's viewers are told."""
+        try:
+            conflicts = self.alignment(plan_id)["conflicts"]
+            if conflicts:
+                self.store.get(plan_id)._emit("plan:alignment", {"conflicts": [_short(c) for c in conflicts]})
+        except Exception:
+            pass                                             # telling is never worth failing the change that was asked for
 
     @staticmethod
     def _actor(body: Any) -> str:
@@ -131,10 +189,12 @@ class PlanService:
         if not dag.plan_id or not dag.title:
             raise ValueError("a plan needs a plan_id and a title")
         card = p.PlanInsightCard.from_dict(body["card"]) if body.get("card") else None
+        profile = p.PlanProfile.from_dict(body.get("profile"))
         actor = self._actor(body)
-        bridge = self.store.create(dag, card, self._replanner())
+        bridge = self.store.create(dag, card, self._replanner(), profile)
         bridge.record(actor, "create", dag.title)
         self.store.save(dag.plan_id)
+        self._announce(dag.plan_id)
         return bridge.snapshot()
 
     def _replanner(self):
@@ -167,6 +227,8 @@ class PlanService:
         result = bridge.handle(event)
         if result.get("ok"):
             self.store.save(plan_id)
+            if event.get("type") == "plan:update_meta":
+                self._announce(plan_id)
         return result
 
     def events_since(self, plan_id: str, seq: int) -> List[Dict[str, Any]]:

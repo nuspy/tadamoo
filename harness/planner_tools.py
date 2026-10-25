@@ -66,10 +66,43 @@ def _slug(title: str) -> str:
     return f"{s or 'plan'}-{secrets.token_hex(2)}"
 
 
+def profile_lines(p: Dict[str, Any]) -> List[str]:
+    """What the plan says about time and money, for the model to read."""
+    lines = []
+    if p.get("goals"):
+        lines.append("  aims: " + "; ".join(p["goals"]))
+    if p.get("budget"):
+        b = p["budget"]
+        lines.append(f"  budget: {b['amount']} {b['currency']} {'per month' if b.get('period') != 'total' else 'in all'}")
+    for c in p.get("commitments") or []:
+        lines.append(f"  already taken: {c['text']} ({c['from']} to {c['to']})")
+    if p.get("starts_on") or p.get("ends_on"):
+        lines.append(f"  from {p.get('starts_on') or '?'} to {p.get('ends_on') or '?'}")
+    if p.get("cost"):
+        lines.append(f"  cost: {p['cost']['amount']} {p['cost']['currency']}")
+    return lines
+
+
+def render_alignment(a: Dict[str, Any]) -> str:
+    """The findings of the comparison: conflicts are arithmetic on dates and amounts, checks are the model's reading and may be wrong."""
+    lines = []
+    for c in a.get("conflicts") or []:
+        if c["plan_id"] == a.get("plan_id"):
+            lines.append(f'CONFLICT with "{c["with_title"]}" ({c["kind"]}): {c["text"]}')
+        else:
+            lines.append(f'CONFLICT: "{c["plan_title"]}" ({c["kind"]}): {c["text"]}')
+    for c in a.get("checks") or []:
+        lines.append(f'CHECK against "{c["with_title"]}" (the model\'s reading, may be wrong): {c["text"]}')
+    if a.get("out_of_date"):
+        lines.append("The model's reading is from before the plan last changed.")
+    return "\n".join(lines) if lines else "No conflict found between the dates and amounts of the plans."
+
+
 def render_plan(snap: Dict[str, Any]) -> str:
     plan, nodes = snap["plan"], snap["plan"].get("nodes", {})
     done = sum(1 for n in nodes.values() if n.get("status") == "completed")
     lines = [f'Plan {plan["plan_id"]}: "{plan["title"]}" [{plan.get("target_type")}], revision {snap.get("rev")}, {len(nodes)} steps, {done} done']
+    lines += profile_lines(snap.get("profile") or {})
     for nid, n in nodes.items():
         after = f", after {', '.join(n['dependencies'])}" if n.get("dependencies") else ""
         lines.append(f'  {nid} [{n.get("status")}] {n.get("title")} (by {n.get("assignee")}{after})')
@@ -95,7 +128,10 @@ def plans_summary(client: PlannerClient) -> str:
     lines = []
     for p in plans[:SUMMARY_PLANS]:
         total, done = p.get("nodes", 0), p.get("completed", 0)
-        lines.append(f'- {p.get("plan_id")}: "{p.get("title")}", {done}/{total} steps done')
+        lines.append(f'- {p.get("plan_id")}: "{p.get("title")}" [{p.get("target_type", "occasional")}], {done}/{total} steps done'
+                     + ("; due to be looked at again" if p.get("review_due") else ""))
+        for c in (p.get("conflicts") or [])[:3]:
+            lines.append(f'    conflict ({c["kind"]}): {c["text"]}')
     if len(plans) > SUMMARY_PLANS:
         lines.append(f"- and {len(plans) - SUMMARY_PLANS} more: plan_list shows all of them")
     return "\n".join(lines)
@@ -128,7 +164,8 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
             return failure(exc)
         if not plans:
             return "There are no plans." if not archived else "There are no archived plans."
-        return "\n".join(f'{p["plan_id"]}: "{p["title"]}" — {p.get("completed", 0)}/{p.get("nodes", 0)} steps done' for p in plans)
+        return "\n".join(f'{p["plan_id"]}: "{p["title"]}" [{p.get("target_type", "occasional")}] — {p.get("completed", 0)}/{p.get("nodes", 0)} steps done'
+                         + ("; due to be looked at again" if p.get("review_due") else "") + (f"; {len(p['conflicts'])} conflict(s)" if p.get("conflicts") else "") for p in plans)
 
     def plan_get(plan_id: str) -> str:
         try:
@@ -138,7 +175,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
 
     # -- changing (always with the person's yes) ----------------------------------------------------------
 
-    def plan_create(title: str, kind: str, steps: List[Dict[str, Any]], quote: str = "") -> str:
+    def plan_create(title: str, kind: str, steps: List[Dict[str, Any]], quote: str = "", profile: Optional[Dict[str, Any]] = None) -> str:
         title = str(title).strip()
         if not title or len(title) > 200:
             return "The plan needs a title of up to 200 characters."
@@ -168,11 +205,49 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         if not ok:
             return how
         try:
-            snap = client.create({"plan_id": _slug(title), "title": title, "target_type": kind, "nodes": nodes})
+            snap = client.create({"plan_id": _slug(title), "title": title, "target_type": kind, "nodes": nodes}, profile if isinstance(profile, dict) else None)
         except Exception as exc:
             return failure(exc)
         seen[snap["plan"]["plan_id"]] = int(snap.get("rev") or 0)
-        return f"Plan created ({how}).\n" + render_plan(snap)
+        found = ""
+        try:
+            found = render_alignment(client.alignment(snap["plan"]["plan_id"]))
+        except Exception:
+            pass
+        return f"Plan created ({how}).\n" + render_plan(snap) + (f"\n{found}" if found and not found.startswith("No conflict") else "")
+
+    def plan_set_profile(plan_id: str, profile: Dict[str, Any], quote: str = "") -> str:
+        """Sets what the plan says about time and money: aims, budget, periods already taken, how often to look again (a long-term plan); dates and cost
+        (a short one). The person says yes."""
+        if (msg := need_read(plan_id)):
+            return msg
+        if not isinstance(profile, dict):
+            return "profile is an object: goals, review_every_days, last_review, budget, commitments, starts_on, ends_on, cost."
+        try:
+            snap = client.snapshot(plan_id)
+        except Exception as exc:
+            return failure(exc)
+        ok, how = confirmer.check({"kind": "plan_change", "plan": snap["plan"]["title"], "title": "aims, dates and amounts"},
+                                  f'Set what the plan "{snap["plan"]["title"]}" says about time and money: ' + "; ".join(sorted(profile)) + ".", quote)
+        if not ok:
+            return how
+        try:
+            client.event(plan_id, {"type": "plan:update_meta", "changes": {"profile": {**(snap.get("profile") or {}), **profile}}, "base_rev": seen[plan_id]})
+        except Exception as exc:
+            return failure(exc)
+        seen[plan_id] = int(client.snapshot(plan_id).get("rev") or seen[plan_id])
+        try:
+            found = render_alignment(client.alignment(plan_id))
+        except Exception:
+            found = ""
+        return f"Saved ({how}). " + found
+
+    def plan_check(plan_id: str, with_model: bool = False) -> str:
+        """The plan against the person's long-term plans: the arithmetic of dates and amounts, and, when asked, the local model's reading of what they mean."""
+        try:
+            return render_alignment(client.alignment(plan_id, model=bool(with_model)))
+        except Exception as exc:
+            return failure(exc)
 
     def plan_mark(plan_id: str, node_id: str, status: str, quote: str = "") -> str:
         if status not in STATUSES:
@@ -286,7 +361,14 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                            "steps": {"type": "array", "items": obj({"title": {"type": "string"}, "description": {"type": "string"},
                                                                     "assignee": {"type": "string", "enum": list(ASSIGNEES)},
                                                                     "after": {"type": "array", "items": {"type": "integer"}, "description": "numbers of the earlier steps this one waits for; default the previous step"}}, ["title"])},
-                           "quote": quote_param}, ["title", "kind", "steps"]), EffectClass.REVERSIBLE, plan_create)
+                           "quote": quote_param,
+                           "profile": {"type": "object", "description": "what the plan says about time and money. A short plan: starts_on and ends_on (2026-11-24), "
+                                                                       "cost {amount, currency}. A long-term plan: goals [text], review_every_days (1-30), budget {amount, currency, "
+                                                                       "period month|total}, commitments [{text, from, to}]"}}, ["title", "kind", "steps"]), EffectClass.REVERSIBLE, plan_create)
+    registry.register("plan_set_profile", "Sets what a plan says about time and money (aims, budget, periods already taken, dates, cost), so that it can be compared with the others. Needs the user's yes.",
+                      obj({"plan_id": {"type": "string"}, "profile": {"type": "object"}, "quote": quote_param}, ["plan_id", "profile"]), EffectClass.REVERSIBLE, plan_set_profile)
+    registry.register("plan_check", "Compares a plan with the user's long-term plans. Conflicts are arithmetic on dates and amounts; with with_model the local model also reads what the plans mean together (a check, not a fact). Use it before a new plan is proposed and when something in the plan changes.",
+                      obj({"plan_id": {"type": "string"}, "with_model": {"type": "boolean"}}, ["plan_id"]), EffectClass.REVERSIBLE, plan_check)
     registry.register("plan_mark", "Marks a step of a plan (pending, in_progress, completed, failed, blocked, skipped). Needs the user's yes.",
                       obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}, "status": {"type": "string", "enum": list(STATUSES)}, "quote": quote_param},
                           ["plan_id", "node_id", "status"]), EffectClass.REVERSIBLE, plan_mark)

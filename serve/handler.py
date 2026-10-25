@@ -1616,6 +1616,8 @@ def make_handler(svc: Service):
                 if action == "mermaid":
                     from harness.planner.mermaid import to_mermaid
                     return self._json(200, {"mermaid": to_mermaid(service.snapshot(plan_id)["plan"])})
+                if action == "alignment":
+                    return self._json(200, service.alignment(plan_id))
                 if action == "events":
                     events = service.events_since(plan_id, after)
                     return self._json(200, {"events": events, "seq": events[-1]["seq"] if events else after})
@@ -1678,6 +1680,8 @@ def make_handler(svc: Service):
                 if action == "events":
                     result = service.handle_event(plan_id, req)
                     return self._json(200 if result.get("ok") else 400, result)
+                if action == "alignment":
+                    return self._json(200, service.alignment(plan_id, model=req.get("model") is True))
                 if action == "triage":
                     return self._json(200, service.triage(plan_id, req.get("events"), bool(req.get("replan"))))
                 if action == "archive":

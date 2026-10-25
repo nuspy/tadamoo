@@ -18,7 +18,7 @@
   const DIRECT = ["plan:update_node", "plan:mark", "plan:rewind", "plan:update_meta", "plan:fallback_response"];
   const S = {
     plans: [], id: "", snap: null, selected: "", proposal: "", mode: "", seq: 0, running: false, ready: false,
-    settings: null, refreshTimer: null, abort: null, flash: {},
+    settings: null, refreshTimer: null, abort: null, flash: {}, align: null,
   };
 
   /* ---- small helpers ---- */
@@ -95,6 +95,8 @@
     ui.add = el("details", { class: "sec pl-add" });
     ui.manage = el("details", { class: "sec pl-manage" });
     ui.history = el("section", { class: "sec pl-history", "aria-labelledby": "pl-hist-h" });
+    ui.align = el("section", { class: "sec pl-align", "aria-labelledby": "pl-al-h" });
+    ui.horizon = el("details", { class: "sec pl-horizon" });
     ui.archived = el("details", { class: "sec pl-archived", ontoggle: e => { if (e.target.open) loadArchived(); } });
     ui.triage = el("details", { class: "sec pl-triage" });
     ui.empty = el("p", { class: "pl-empty dim", text: T("pl.none") });
@@ -103,8 +105,8 @@
         el("label", { for: "pl-select", text: T("pl.select") }), ui.select, connEl,
         el("div", { class: "pl-modes", role: "group", "aria-label": T("pl.view.label") }, ui.modeGraph, ui.modeList)),
       ui.newForm, ui.archived, statusEl, ui.empty, ui.summary,
-      el("div", { class: "pl-main" }, el("div", { class: "pl-canvas" }, ui.graph, ui.list), el("div", { class: "pl-side" }, ui.detail, ui.proposals, ui.offers, ui.history)),
-      ui.add, ui.manage, ui.triage);
+      el("div", { class: "pl-main" }, el("div", { class: "pl-canvas" }, ui.graph, ui.list), el("div", { class: "pl-side" }, ui.detail, ui.align, ui.proposals, ui.offers, ui.history)),
+      ui.add, ui.horizon, ui.manage, ui.triage);
     buildAdd();
     buildTriage();
     buildArchived();
@@ -125,7 +127,8 @@
     const r = await api("api/plans");
     if (!r.ok) { say(errText(r.data) || T("pl.loadfail"), true); return; }
     S.plans = r.data.plans || [];
-    ui.select.replaceChildren(...S.plans.map(p => el("option", { value: p.plan_id, text: `${p.title} (${p.completed}/${p.nodes})` })));
+    ui.select.replaceChildren(...S.plans.map(p => el("option", { value: p.plan_id,
+      text: `${p.title} (${p.completed}/${p.nodes})` + (p.conflicts && p.conflicts.length ? ` · ${T("pl.al.n", p.conflicts.length)}` : "") + (p.review_due ? ` · ${T("pl.review.due")}` : "") })));
     const id = keep && S.plans.some(p => p.plan_id === S.id) ? S.id : (S.plans[0] ? S.plans[0].plan_id : "");
     ui.select.value = id;
     ui.empty.hidden = S.plans.length > 0;
@@ -149,6 +152,8 @@
     const r = await api(planPath());
     if (!r.ok) { say(errText(r.data) || T("pl.loadfail"), true); return; }
     S.snap = r.data;
+    const al = await api(planPath("/alignment"));
+    S.align = al.ok ? al.data : null;
     if (S.selected && !r.data.plan.nodes[S.selected]) S.selected = "";
     if (S.proposal && !r.data.proposals.some(p => p.proposal_id === S.proposal)) S.proposal = "";
     if (!S.proposal && r.data.proposals.length) S.proposal = r.data.proposals[0].proposal_id;
@@ -559,6 +564,103 @@
     }
   }
 
+  /* ---- how this plan sits with the long-term ones: what the dates and amounts show, and what the model is asked on request ---- */
+  function drawAlign() {
+    if (!S.snap) return;
+    const a = S.align || { conflicts: [], checks: [] };
+    const items = [
+      ...a.conflicts.map(c => el("li", { class: "pl-al conflict" }, el("b", { text: T("pl.al.conflict") }), " ", conflictText(c))),
+      ...a.checks.map(c => el("li", { class: "pl-al check" }, el("b", { text: T("pl.al.check") }), " ", c.text))];
+    const ask = el("button", { type: "button", class: "btn pl-btn", text: T("pl.al.ask"), onclick: askModel });
+    const body = el("div", { class: "pad" });
+    if (S.snap.review_due) {
+      body.append(el("p", { class: "pl-due", role: "status", text: T("pl.al.due") }),
+        el("button", { type: "button", class: "btn pl-btn", text: T("pl.al.reviewed"), onclick: reviewedToday }));
+    }
+    body.append(el("p", { class: "help", text: T("pl.al.help") }),
+      items.length ? el("ul", { class: "pl-allist" }, items) : el("p", { class: "dim", text: T("pl.al.none") }),
+      ...(a.out_of_date ? [el("p", { class: "help", text: T("pl.al.old") })] : []), ask);
+    ui.align.replaceChildren(el("div", { class: "sh" }, el("b", { id: "pl-al-h", text: T("pl.al.title") })), body);
+  }
+  /* the conflicts the server finds by arithmetic come with their values; the page says them in its own language */
+  function conflictText(c) {
+    const d = c.data || {};
+    if (c.kind === "time" && d.start) return T("pl.al.t.time", c.plan_title, d.start, d.end, c.with_title, d.commitment, d.from, d.to);
+    if (c.kind === "budget" && d.total) {
+      const where = d.where === "all" ? T("pl.al.t.all") : d.where === "own" ? T("pl.al.t.own") : T("pl.al.t.in", d.where);
+      return T("pl.al.t.budget", `${d.total} ${d.currency}`, where, `${d.limit} ${d.currency}`, c.with_title, d.period === "total" ? T("pl.hz.period.total") : T("pl.hz.period.month"));
+    }
+    return c.text;
+  }
+  async function askModel(e) {
+    const b = e.currentTarget;
+    b.disabled = true; b.textContent = T("pl.al.reading");
+    const r = await api(planPath("/alignment"), { model: true });
+    if (!r.ok) { say(errText(r.data) || T("pl.al.failed"), true); b.disabled = false; b.textContent = T("pl.al.ask"); return; }
+    S.align = r.data;
+    drawAlign();
+  }
+  const today = () => new Date().toISOString().slice(0, 10);
+  async function reviewedToday() {
+    await event({ type: "plan:update_meta", changes: { profile: { ...S.snap.profile, last_review: today() } } }, T("pl.hz.saved"));
+    await refresh();
+  }
+
+  /* ---- aims, dates and amounts: what a plan says about time and money, which is what plans are compared on ---- */
+  function drawHorizon() {
+    if (!S.snap) return;
+    const key = `${S.id}:${S.snap.rev}`;
+    if (ui.horizon.dataset.key === key) return;
+    if (ui.horizon.contains(document.activeElement) && document.activeElement.matches("input, textarea, select")) return;
+    ui.horizon.dataset.key = key;
+    const p = S.snap.profile || {}, constant = plan().target_type === "constant";
+    const field = (id, label, node) => [el("label", { for: id, text: label }), node];
+    const money = (m, d) => (m ? m.amount : d || "");
+    const rows = [];
+    if (constant) {
+      rows.push(
+        ...field("pl-h-goals", T("pl.hz.goals"), el("textarea", { id: "pl-h-goals", rows: "3", text: (p.goals || []).join("\n") })),
+        ...field("pl-h-review", T("pl.hz.review"), el("input", { id: "pl-h-review", type: "number", min: "1", max: "30", inputmode: "numeric", value: String(p.review_every_days || 30) })),
+        ...field("pl-h-last", T("pl.hz.last"), el("input", { id: "pl-h-last", type: "date", value: p.last_review || "" })),
+        ...field("pl-h-bud", T("pl.hz.budget"), el("input", { id: "pl-h-bud", inputmode: "decimal", autocomplete: "off", value: money(p.budget) })),
+        ...field("pl-h-budcur", T("pl.hz.currency"), el("input", { id: "pl-h-budcur", maxlength: "3", autocomplete: "off", value: p.budget ? p.budget.currency : "EUR" })),
+        ...field("pl-h-per", T("pl.hz.period"), el("select", { id: "pl-h-per" }, ["month", "total"].map(k =>
+          el("option", { value: k, text: T(k === "month" ? "pl.hz.period.month" : "pl.hz.period.total"), selected: (p.budget ? p.budget.period : "month") === k })))),
+        ...field("pl-h-com", T("pl.hz.commit"), el("textarea", { id: "pl-h-com", rows: "3", spellcheck: "false", placeholder: T("pl.hz.commit.ph"),
+          text: (p.commitments || []).map(c => `${c.text} | ${c.from} | ${c.to}`).join("\n") })));
+    } else {
+      rows.push(
+        ...field("pl-h-start", T("pl.hz.start"), el("input", { id: "pl-h-start", type: "date", value: p.starts_on || "" })),
+        ...field("pl-h-end", T("pl.hz.end"), el("input", { id: "pl-h-end", type: "date", value: p.ends_on || "" })),
+        ...field("pl-h-cost", T("pl.hz.cost"), el("input", { id: "pl-h-cost", inputmode: "decimal", autocomplete: "off", value: money(p.cost) })),
+        ...field("pl-h-costcur", T("pl.hz.currency"), el("input", { id: "pl-h-costcur", maxlength: "3", autocomplete: "off", value: p.cost ? p.cost.currency : "EUR" })));
+    }
+    ui.horizon.replaceChildren(el("summary", { text: T("pl.hz.title") }),
+      el("form", { class: "pad pl-dform", onsubmit: saveHorizon }, el("p", { class: "help", text: T(constant ? "pl.hz.help.long" : "pl.hz.help.short") }), ...rows,
+        el("button", { class: "btn primary pl-btn", text: T("pl.save") })));
+  }
+  async function saveHorizon(e) {
+    e.preventDefault();
+    const val = id => document.getElementById(id).value.trim();
+    const amount = (a, c, extra) => (val(a) ? { amount: val(a), currency: val(c).toUpperCase(), ...extra } : null);
+    let profile;
+    if (plan().target_type === "constant") {
+      const commitments = [];
+      for (const line of val("pl-h-com").split("\n").map(l => l.trim()).filter(Boolean)) {
+        const [text, from, to] = line.split("|").map(x => x.trim());
+        if (!text || !from || !to) { say(T("pl.hz.badlines"), true); return; }
+        commitments.push({ text, from, to });
+      }
+      profile = { ...S.snap.profile, goals: val("pl-h-goals").split("\n").map(l => l.trim()).filter(Boolean), review_every_days: Number(val("pl-h-review")) || 30,
+        last_review: val("pl-h-last"), budget: amount("pl-h-bud", "pl-h-budcur", { period: document.getElementById("pl-h-per").value }), commitments };
+    } else {
+      profile = { ...S.snap.profile, starts_on: val("pl-h-start"), ends_on: val("pl-h-end"), cost: amount("pl-h-cost", "pl-h-costcur") };
+    }
+    ui.horizon.dataset.key = "";
+    await event({ type: "plan:update_meta", changes: { profile } }, T("pl.hz.saved"));
+    await refresh();
+  }
+
   function drawManage() {
     if (!S.snap) return;
     const key = `${S.id}:${S.snap.rev}`;
@@ -733,7 +835,7 @@
   function render() {
     ui.empty.hidden = S.plans.length > 0;
     const has = !!S.snap;
-    [ui.summary, ui.detail, ui.proposals, ui.offers, ui.history, ui.add, ui.manage, ui.triage].forEach(n => { n.hidden = !has; });
+    [ui.summary, ui.detail, ui.align, ui.proposals, ui.offers, ui.history, ui.add, ui.horizon, ui.manage, ui.triage].forEach(n => { n.hidden = !has; });
     document.querySelector(".pl-main").hidden = !has;
     if (!has) return;
     const nodes = Object.values(S.snap.plan.nodes);
@@ -746,6 +848,8 @@
     drawProposals();
     drawOffers();
     drawHistory();
+    drawAlign();
+    drawHorizon();
     drawManage();
     if (!ui.addForm.contains(document.activeElement)) drawAddForm();
   }

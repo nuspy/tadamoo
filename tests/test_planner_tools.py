@@ -282,3 +282,42 @@ def test_a_ready_step_for_the_agent_starts_after_the_yes_and_shows_in_the_tasks_
     # a step for the person is not for the agent
     reg.execute("plan_get", {"plan_id": pid})
     assert "is for user" in reg.execute("plan_step_start", {"plan_id": pid, "node_id": "s2", "quote": ""}) or "not ready" in reg.execute("plan_step_start", {"plan_id": pid, "node_id": "s2", "quote": ""})
+
+
+def make_plan(reg, agent, t, kind, profile=None, steps=None):
+    agent.last_user_text = f"Crea il piano {t} per favore"
+    return reg.execute("plan_create", {"title": t, "kind": kind, "steps": steps or [{"title": "Fai"}], "quote": f"Crea il piano {t}",
+                                       **({"profile": profile} if profile else {})})
+
+
+def test_a_short_plan_that_clashes_with_a_long_one_is_flagged_when_it_is_made_and_when_checked(world):
+    client, agent, build = world
+    reg, ask = build()
+    long_title, short_title = title(), title()
+    out = make_plan(reg, agent, long_title, "constant", {"goals": ["Heal the knee"], "commitments": [{"text": "Physiotherapy", "from": "2031-03-01", "to": "2031-03-31"}],
+                                                          "budget": {"amount": "400", "currency": "EUR", "period": "month"}})
+    assert "Plan created" in out and "aims: Heal the knee" in out and "already taken: Physiotherapy" in out and "CONFLICT" not in out
+    out = make_plan(reg, agent, short_title, "occasional", {"starts_on": "2031-03-20", "ends_on": "2031-03-22", "cost": {"amount": "450", "currency": "EUR"}})
+    assert out.count("CONFLICT") == 2 and "Physiotherapy" in out and "over the 400.00 EUR" in out
+    short_id = next(p["plan_id"] for p in client.list() if p["title"] == short_title)
+    again = reg.execute("plan_check", {"plan_id": short_id})
+    assert again.count("CONFLICT") == 2 and "CHECK" not in again                       # the model was not asked
+    listed = reg.execute("plan_list", {})
+    assert f'"{short_title}" [occasional]' in listed and "2 conflict(s)" in listed and f'"{long_title}" [constant]' in listed
+    assert "conflict (time)" in plans_summary(client)
+
+
+def test_the_profile_is_changed_with_the_persons_yes_and_a_wrong_one_is_refused_in_words(world):
+    client, agent, build = world
+    reg, ask = build()
+    t = title()
+    make_plan(reg, agent, t, "occasional")
+    plan_id = next(p["plan_id"] for p in client.list() if p["title"] == t)
+    unasked = reg.execute("plan_set_profile", {"plan_id": plan_id, "profile": {"cost": {"amount": "5", "currency": "EUR"}}})       # no quote: it asks, nobody answers
+    assert "nothing was changed" in unasked and ask.asked and client.snapshot(plan_id)["profile"]["cost"] is None
+    agent.last_user_text = "Metti il costo del piano a 80 euro"
+    refused = reg.execute("plan_set_profile", {"plan_id": plan_id, "profile": {"cost": {"amount": "eighty", "currency": "EUR"}}, "quote": "Metti il costo del piano a 80 euro"})
+    assert "refused" in refused or "amount" in refused
+    ok = reg.execute("plan_set_profile", {"plan_id": plan_id, "profile": {"cost": {"amount": "80", "currency": "EUR"}}, "quote": "Metti il costo del piano a 80 euro"})
+    assert ok.startswith("Saved (quoted)")
+    assert client.snapshot(plan_id)["profile"]["cost"] == {"amount": "80.00", "currency": "EUR"}

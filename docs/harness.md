@@ -240,6 +240,16 @@ and its safety snapshot can be rewound to as well. The audit log
 `harness/planner/` holds the plan graph, the plan card, the event filter (System 1), re-planning by the local model (System 2)
 and the bridge the page talks to.
 
+- **Long-term plans against short ones** (`horizon.py`, `alignment.py`): a *constant* plan is a long-term one, with aims, an optional
+  budget (per month or in all), the periods it has already taken and how often it must be looked at again (at most every 30 days); an
+  *occasional* plan has dates and a cost. The page and the Chat's `plan_create`/`plan_set_profile` write them. Two findings, kept apart
+  because they are not equally sure: a **conflict** is arithmetic (days inside a period a long-term plan has taken; costs, added per
+  month or in all, over a budget) and is found for every plan at once, announced on the plan's stream when a plan is made or its
+  dates, cost or kind change, and shown in the list, in the Plans view and in the summary the Chat reads; a **check** is the local
+  model's reading of what the aims and the plan mean together (a ski weekend against "heal the knee"), asked only on request
+  (`plan_check` with `with_model`, or the button), kept with the plan, said to be out of date once the plan changes, and never stated
+  as fact. Plans are not compared for overlap with each other, only short ones with long ones. Not done: aims that are numbers to
+  measure (KPIs, habits), a review that records what was found, and reading conflicts between two long-term plans by arithmetic.
 - A plan is a graph of action, sensor, decision and merge nodes with shared values. Decisions route by simple conditions
   (`len(guests) >= 2`; never code); merges wait for their inputs; a task the software cannot do is offered to you with an
   alternative and, if you decline, becomes yours and blocks what depends on it. You can rewind a step.

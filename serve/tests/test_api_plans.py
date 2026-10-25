@@ -279,6 +279,31 @@ class PlansApiTest(PlansApiBase):
         self.assertEqual(self.call("POST", "/api/plans/rev1/events", {"type": "plan:update_meta", "changes": {"title": ""}})[0], 400)
 
 
+    def test_plans_carry_what_they_say_about_time_and_money_and_the_comparison_is_over_http(self):
+        long_plan = {"plan_id": "long-health", "title": "Health", "target_type": "constant", "nodes": {}}
+        short_plan = {"plan_id": "short-ski", "title": "Ski weekend", "target_type": "occasional", "nodes": {}}
+        code, snap = self.call("POST", "/api/plans", {"plan": long_plan, "profile": {"goals": ["Heal the knee"], "review_every_days": 7,
+                                                                                    "commitments": [{"text": "Physio", "from": "2031-03-01", "to": "2031-03-31"}]}})
+        self.assertEqual(code, 201)
+        self.assertEqual(snap["profile"]["goals"], ["Heal the knee"])
+        self.assertTrue(snap["review_due"])
+        self.assertEqual(self.call("POST", "/api/plans", {"plan": short_plan, "profile": {"starts_on": "tomorrow"}})[0], 400)            # a bad profile is refused
+        self.call("POST", "/api/plans", {"plan": short_plan, "profile": {"starts_on": "2031-03-10", "ends_on": "2031-03-12"}})
+        code, found = self.call("GET", "/api/plans/short-ski/alignment")
+        self.assertEqual(code, 200)
+        self.assertEqual([c["kind"] for c in found["conflicts"]], ["time"])
+        self.assertEqual(found["checks"], [])
+        rows = {r["plan_id"]: r for r in self.call("GET", "/api/plans")[1]["plans"]}
+        self.assertEqual((rows["short-ski"]["target_type"], len(rows["short-ski"]["conflicts"])), ("occasional", 1))
+        self.assertTrue(rows["long-health"]["review_due"])
+        code, found = self.call("POST", "/api/plans/short-ski/alignment", {"model": True})                # the mock engine answers "ok": nothing usable, no checks
+        self.assertEqual((code, found["checks"]), (200, []))
+        self.assertTrue(found["checked_at"])
+        self.assertEqual(self.call("GET", "/api/plans/missing/alignment")[0], 404)
+        code, res = self.call("POST", "/api/plans/short-ski/events", {"type": "plan:update_meta", "changes": {"profile": {"starts_on": "2031-05-01", "ends_on": "2031-05-02"}}})
+        self.assertEqual((code, res["ok"]), (200, True))
+        self.assertEqual(self.call("GET", "/api/plans/short-ski/alignment")[1]["conflicts"], [])
+
 class PlansApiKeyedTest(PlansApiBase):
     api_key = "s3cret"
     auth = {"Authorization": "Bearer s3cret"}
