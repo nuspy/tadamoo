@@ -224,9 +224,28 @@
     if (b.kind === "code") return T(key, f.who);
     if (b.kind === "plan_approval") return T(key, f.mode, f.plan) + (f.outside_content ? "\n\n" + T("ch.q.plan_outside") : "");
     if (b.kind === "payment") return T(key, f.amount, f.recipient, f.reason, f.system);
+    if (b.kind === "capability_choice") return T(key, f.need);
     return b.question;
   }
-  const optLabel = (b, o) => (b.mode === "confirm" ? (o.value === "always" ? T("ch.always", o.rule || "") : T(o.value === "confirm" ? "ch.yes" : "ch.no")) : o.label);
+  const capLabel = o => o.value.startsWith("install:") ? T("ch.cap.install", o.value.slice(8)) : o.value === "cancel" ? T("ch.cap.no") : o.value.startsWith("other:") ? T("ch.cap.said", o.value.slice(6)) : T("ch.cap.other");
+  const capNote = (pre, n) => { const t = T(pre + n.code, ...(n.args || [])); return t === pre + n.code ? n.text : t; };
+  function capCandidates(f) {                                                  // the facts of each candidate, as text lines: the source's words are never markup
+    const ul = mk("ul", "acap-list");
+    (f.candidates || []).forEach((c, i) => {
+      const li = mk("li", "acap");
+      li.append(mk("b", "", T("ch.cap.line", i + 1, c.name, T("cp.kind." + c.kind), c.source, c.version, c.score)));
+      if (c.below_min) li.append(mk("span", "acap-low", " " + T("ch.cap.below", f.min_score)));
+      if (c.facts.length) li.append(mk("div", "", c.facts.map(x => capNote("ch.cap.f.", x)).join(" \u00b7 ")));
+      if (c.description) li.append(mk("div", "aask-h", c.description));
+      c.warnings.forEach(w => li.append(mk("div", "acap-warn", T("ch.cap.warn", capNote("ch.cap.w.", w)))));
+      li.append(mk("div", "aask-h", T("ch.cap.runs", c.command)));
+      if (c.keys.length) li.append(mk("div", "aask-h", T("ch.cap.keys", c.keys.join(", "))));
+      ul.append(li);
+    });
+    (f.notes || []).forEach(n => ul.append(mk("li", "aask-h", n)));
+    return ul;
+  }
+  const optLabel = (b, o) => (b.kind === "capability_choice" ? capLabel(o) : b.mode === "confirm" ? (o.value === "always" ? T("ch.always", o.rule || "") : T(o.value === "confirm" ? "ch.yes" : "ch.no")) : o.label);
 
   function makeBlock(b) {
     if (b.t === "reasoning") {
@@ -275,6 +294,24 @@
       const row = mk("div", "aask-b"); row.append(input, go);
       el.replaceChildren(mk("p", "aask-q", askQuestion(b)), row);
       if (done) el.append(mk("p", "aask-h", T("ch.code.sent")));
+      return;
+    }
+    if (b.t === "ask" && b.kind === "capability_choice") {                    // the candidates found online: one button each, or a sentence after Other
+      el.dataset.mode = b.mode;
+      const done = b.answered !== null, row = mk("div", "aask-b"), say = mk("div", "aask-b"), input = mk("input");
+      const go = btn(T("ch.cap.send"), "primary", () => { if (input.value.trim()) answer(b, "other:" + input.value.trim().slice(0, 500)); });
+      row.setAttribute("role", "group"); row.setAttribute("aria-label", T("ch.answers"));
+      input.type = "text"; input.maxLength = 500; input.placeholder = T("ch.cap.say"); input.setAttribute("aria-label", T("ch.cap.say"));
+      input.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); go.click(); } };
+      say.append(input, go); say.hidden = true;
+      (b.options || []).forEach(o => {
+        const x = btn(capLabel(o), o.value.startsWith("install:") ? "primary" : "", () => { if (o.value === "other") { say.hidden = false; input.focus(); } else answer(b, o.value); });
+        x.disabled = input.disabled = go.disabled = done;
+        if (done && (b.answered === o.value || (o.value === "other" && String(b.answered).startsWith("other:")))) x.classList.add("picked");
+        row.append(x);
+      });
+      el.replaceChildren(mk("p", "aask-q", askQuestion(b)), capCandidates(b.facts || {}), row, say);
+      if (done) el.append(mk("p", "aask-h", T("ch.answered", capLabel({ value: String(b.answered) }))));
       return;
     }
     if (b.t === "ask") {

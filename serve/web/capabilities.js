@@ -1,11 +1,13 @@
 "use strict";
 /* Settings > Capabilities and visual analysis: the skills, plugins and MCP servers found on this PC as a tree, what the person has
    approved, and the choice for visual analysis. Nothing found is active until the person looks at what it does and presses
-   Approve; the approval is tied to the hash they were shown. Everything the server says is put in the page as text. */
+   Approve; the approval is tied to the hash they were shown. Also here: the settings of the search online (which sources are asked,
+   the minimum score and the weights, whether the best candidate above the minimum is installed without asking) and the list of what
+   Basalt installed, with Remove. Everything the server says is put in the page as text. */
 (() => {
   const body = document.getElementById("st-caps-body");
   if (!body) return;
-  let state = null, filter = "", note = "", noteBad = false, review = null, visionOn = null, signed = {}, waiting = 0;
+  let state = null, filter = "", note = "", noteBad = false, review = null, visionOn = null, signed = {}, waiting = 0, online = null, armed = 0, armTimer = 0;
   const opened = new Set();
 
   const h = (tag, cls, ...kids) => {
@@ -60,6 +62,8 @@
   async function load() {
     await loadSignins();
     const r = await call("GET", "api/capabilities");
+    const o = await call("GET", "api/capabilities/online");
+    if (o.ok) online = o.data;
     if (r.ok) { state = r.data; draw(); } else if (!state) body.replaceChildren(h("p", "setnote warnnote", why(r)));
     try {
       const m = await fetch("v1/models", { cache: "no-store", headers: authHeaders() });
@@ -80,6 +84,64 @@
     sel.onchange = async () => { if (await act("api/capabilities/settings", { visual: sel.value })) say(T("cp.saved")); draw(); };
     const vision = visionOn === null ? "" : visionOn ? T("cp.v.on") : T("cp.v.off");
     return h("div", "cp-visual", h("label", "", h("b", "", T("cp.visual")), sel), h("p", "setnote", T("cp.visual.help")), vision ? h("p", "setnote", vision) : null);
+  }
+
+  async function saveOnline(changes) {
+    const r = await call("POST", "api/capabilities/online", changes);
+    if (r.ok) { online = r.data; say(T("cp.saved")); } else say(why(r), true);
+    draw();
+  }
+  function numberField(label, value, fn) {
+    const input = h("input"); input.type = "number"; input.min = "0"; input.max = "100"; input.step = "1"; input.value = String(Math.round(value));
+    input.setAttribute("aria-label", label);
+    input.onchange = () => { const v = Number(input.value); if (input.value === "" || !(v >= 0 && v <= 100)) { draw(); return; } fn(v); };
+    return h("label", "cp-num", h("span", "", label), input);
+  }
+  const when = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleDateString(LANG); };
+  function removeButton(it) {
+    const first = armed !== it.id;
+    return btn(first ? T("cp.on.remove") : T("cp.on.remove2", it.name), first ? "ghost" : "primary", async () => {
+      if (first) {                                                        // the first press only arms it; a second one within a few seconds deletes
+        armed = it.id; clearTimeout(armTimer); armTimer = setTimeout(() => { armed = 0; draw(); }, 6000); draw(); return;
+      }
+      armed = 0; clearTimeout(armTimer);
+      const r = await call("POST", "api/capabilities/remove", { id: it.id });
+      if (r.ok) { online = r.data; await load(); say(T("cp.on.removed", it.name)); } else { say(why(r), true); draw(); }
+    });
+  }
+  function onlineBox() {
+    const s = online.settings, sec = h("section", "cp-online");
+    const sources = h("fieldset", "cp-fs", h("legend", "", T("cp.on.sources")));
+    online.sources.forEach(k => {
+      const box = h("input"); box.type = "checkbox"; box.checked = !!s.sources[k];
+      box.onchange = () => saveOnline({ sources: { [k]: box.checked } });
+      sources.append(h("label", "cp-check", box, h("span", "", T("cp.src." + k))));
+    });
+    const weights = h("div", "cp-weights");
+    online.weights.forEach(k => weights.append(numberField(T("cp.w." + k), s.weights[k], v => saveOnline({ weights: { [k]: v } }))));
+    const market = h("textarea"); market.rows = 3; market.value = s.marketplaces.join("\n"); market.setAttribute("aria-label", T("cp.on.market"));
+    market.onchange = () => saveOnline({ marketplaces: market.value.split(/\s*\n\s*/).map(x => x.trim()).filter(Boolean) });
+    const auto = h("input"); auto.type = "checkbox"; auto.checked = !!s.auto_install;
+    auto.onchange = async () => {
+      if (auto.checked && !(await riskConfirm([T("cp.on.risk")]))) { auto.checked = false; return; }
+      saveOnline({ auto_install: auto.checked });
+    };
+    const list = h("ul", "cp-list");
+    online.installed.forEach(it => {
+      const li = h("li", "cp-entry", h("div", "cp-head", h("b", "", it.name), h("span", "cp-badge", T("cp.kind." + it.kind)), h("span", "cp-badge", it.source),
+        it.version ? h("span", "cp-badge", T("cp.on.version", it.version)) : null, when(it.installed_at) ? h("span", "cp-badge", when(it.installed_at)) : null));
+      if (it.keys.length) li.append(h("p", "setnote", T("cp.on.keys", it.keys.map(k => k.entry).join(", "))));
+      li.append(h("div", "cp-actions", removeButton(it)));
+      list.append(li);
+    });
+    sec.append(h("h3", "", T("cp.on.title")), h("p", "setnote", T("cp.on.help")), h("p", "setnote cp-scorenote", T("cp.on.score")), sources,
+      !online.tools.npm ? h("p", "setnote warnnote", T("cp.on.nonpm")) : null, !online.tools.uv && !online.tools.pip ? h("p", "setnote warnnote", T("cp.on.nopy")) : null,
+      numberField(T("cp.on.min"), s.min_score, v => saveOnline({ min_score: v })),
+      h("fieldset", "cp-fs", h("legend", "", T("cp.on.weights")), h("p", "setnote", T("cp.on.weights.help")), weights),
+      h("label", "cp-field", h("span", "", T("cp.on.market")), market),
+      h("label", "cp-check", auto, h("span", "", T("cp.on.auto"))), s.auto_install ? riskLabel(T("cp.on.risk")) : null,
+      h("h4", "", T("cp.on.installed")), online.installed.length ? list : h("p", "dim", T("cp.on.none")));
+    return sec;
   }
 
   function entryRow(e) {
@@ -138,7 +200,7 @@
     const search = h("input"); search.type = "search"; search.value = filter; search.placeholder = T("cp.search"); search.setAttribute("aria-label", T("cp.search"));
     search.oninput = () => { filter = search.value; const pos = search.selectionStart; draw(); const s = body.querySelector("input[type=search]"); if (s) { s.focus(); s.setSelectionRange(pos, pos); } };
     const n = h("p", "setnote cp-note", note); n.setAttribute("role", "status"); n.hidden = !note; n.dataset.bad = noteBad ? "1" : "";
-    body.replaceChildren(h("p", "setnote", T("cp.help")), n, visualBox(),
+    body.replaceChildren(h("p", "setnote", T("cp.help")), n, visualBox(), online ? onlineBox() : null,
       h("div", "cp-bar", search, btn(T("cp.rescan"), "", async () => { const r = await call("POST", "api/capabilities/rescan", {}); if (r.ok) { state = r.data; say(T("cp.rescanned", state.entries.length)); } else say(why(r), true); draw(); })),
       h("p", "setnote", T("cp.top", state.tree_top)), tree());
   }

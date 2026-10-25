@@ -5,11 +5,18 @@ person presses Approve after looking at its text, and the approval is tied to th
 """
 from __future__ import annotations
 
+import importlib.util
+import shutil
 import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from harness import capabilities as cap
+from harness.discovery.candidates import CandidateStore
+from harness.discovery.installed import InstalledStore
+from harness.discovery.installer import InstallError, Installer
+from harness.discovery.scoring import DEFAULT_WEIGHTS
+from harness.discovery.settings import DiscoverySettings, SOURCES
 
 
 class CapabilityError(ValueError):
@@ -88,3 +95,33 @@ class CapabilityApi:
         with self._lock:
             self.index.save_settings(**changes)
         return self.overview()
+
+    # -- the search online and what Basalt installed -------------------------------------------------------------------
+
+    def online(self) -> Dict[str, Any]:
+        """The settings of the search online, the capabilities Basalt installed, and which installers this PC has."""
+        with self._lock:
+            settings = DiscoverySettings(self.index.dir).load()
+            settings.pop("base_urls", None)
+            return {"settings": settings, "sources": list(SOURCES), "weights": list(DEFAULT_WEIGHTS), "installed": InstalledStore(self.index.dir).listing(),
+                    "tools": {"npm": bool(shutil.which("npm")), "uv": bool(shutil.which("uv")), "pip": importlib.util.find_spec("pip") is not None}}
+
+    def online_settings(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        changes = {k: body[k] for k in ("sources", "weights", "min_score", "auto_install", "marketplaces") if k in body}
+        try:
+            with self._lock:
+                DiscoverySettings(self.index.dir).save(changes)
+        except ValueError as exc:
+            raise CapabilityError(str(exc), "bad_settings") from None
+        return self.online()
+
+    def remove_installed(self, entry_id: Any) -> Dict[str, Any]:
+        """Deletes a capability Basalt installed: its folder, its record and its approval."""
+        try:
+            with self._lock:
+                removed = Installer(self.index.dir, CandidateStore(), index=self.index).remove(str(entry_id))
+        except InstallError as exc:
+            raise CapabilityError(str(exc), "bad_folder") from None
+        if not removed:
+            raise CapabilityError("Basalt did not install that one: look again.", "gone")
+        return self.online()

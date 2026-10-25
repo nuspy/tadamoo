@@ -377,7 +377,7 @@ def make_handler(svc: Service):
             elif path in ("/api/routines", "/api/routines/runs"):
                 if self._authorized():
                     self._routines_get(path)
-            elif path == "/api/capabilities" or path == "/api/capabilities/review":
+            elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online"):
                 if self._authorized():
                     self._capabilities_get(path)
             elif path == "/api/wallet":
@@ -1315,6 +1315,8 @@ def make_handler(svc: Service):
                 api = self._caps()
                 if path == "/api/capabilities/review":
                     return self._json(200, api.review((parse_qs(urlsplit(self.path).query).get("id") or [""])[0]))
+                if path == "/api/capabilities/online":
+                    return self._json(200, api.online())
                 return self._json(200, api.overview())
             except CapabilityError as e:
                 return self._json(404, {"error": {"type": "capabilities", "message": str(e), "code": e.code}})
@@ -1345,6 +1347,10 @@ def make_handler(svc: Service):
                     return self._json(200, api.move(req.get("id"), req.get("node")))
                 if action == "settings":
                     return self._json(200, api.settings(req))
+                if action == "online":
+                    return self._json(200, api.online_settings(req))
+                if action == "remove":
+                    return self._json(200, api.remove_installed(req.get("id")))
             except CapabilityError as e:
                 return self._json(409 if e.code in ("gone", "changed", "needs_approval") else 400, {"error": {"type": "capabilities", "message": str(e), "code": e.code}})
             except (ValueError, TypeError) as e:

@@ -29,7 +29,12 @@ DYNAMIC = {
     "pl.kind.": ["occasional", "constant"],
     "ch.state.": ["dormant", "starting", "idle", "busy", "blocked", "asking", "closed"],
     "ch.tool.": ["running", "ok", "failed"],
-    "ch.q.": ["plan_create", "plan_mark", "plan_change", "plan_archive", "permission", "code", "payment"],
+    "ch.q.": ["plan_create", "plan_mark", "plan_change", "plan_archive", "permission", "code", "payment", "capability_choice"],
+    "ch.cap.f.": ["downloads", "released", "stars", "verified", "license"],
+    "ch.cap.w.": ["stale", "few_downloads", "no_repo", "lookalike", "needs_keys", "install_scripts", "runs_program", "archived", "deprecated", "no_license",
+                  "github_unchecked", "remote", "skill_files"],
+    "cp.w.": ["downloads", "freshness", "cadence", "stars", "forks", "issues", "license", "publisher", "age", "ratings"],
+    "cp.src.": ["registry", "npm", "pypi", "github", "skills"],
     "wl.kind.": ["card", "identity", "login", "secret"],
     "wl.field.": ["holder", "number", "expiry", "cvc", "full_name", "birth_date", "address", "city", "postal_code", "country", "phone", "email", "document_number",
                   "username", "password", "totp_secret", "value"],
@@ -242,6 +247,46 @@ class ReasoningBoxTest(unittest.TestCase):
         for event in ("wheel", "touchmove", "pointerdown", "click"):
             self.assertIn(event, js[js.index("function watchThink"):js.index("function paintThink")])
         self.assertIn("if (!det.dataset.touched) det.open = false", js)
+
+
+class SearchOnlineTest(unittest.TestCase):
+    """Settings > Capabilities > Search online, and the Chat's question about the candidates found."""
+    caps = (WEB / "capabilities.js").read_text(encoding="utf-8")
+    chat = (WEB / "agentchat.js").read_text(encoding="utf-8")
+
+    def test_the_automatic_install_is_labelled_and_asked_twice_and_the_score_is_not_called_safety(self):
+        self.assertIn("riskConfirm([T(\"cp.on.risk\")])", self.caps)
+        self.assertIn("riskLabel(T(\"cp.on.risk\"))", self.caps)
+        self.assertIn("api/capabilities/online", self.caps)
+        self.assertIn("api/capabilities/remove", self.caps)
+
+    def test_removing_needs_a_second_press(self):
+        self.assertIn("cp.on.remove2", self.caps)
+        self.assertIn("armed", self.caps)
+
+    def test_every_warning_and_fact_the_search_can_give_has_a_text_in_both_languages(self):
+        import sys
+        sys.path.insert(0, str(ROOT))
+        from harness.discovery.scoring import TEXT
+        if not NODE:
+            self.skipTest("node is needed to read the translations")
+        strings_ = strings()
+        facts = {"downloads", "released", "stars", "verified", "license"}
+        for code in TEXT:
+            key = ("ch.cap.f." if code in facts else "ch.cap.w.") + code
+            for lang in ("en", "it"):
+                self.assertIn(key, strings_[lang], f"{lang}: {key}")
+
+    def test_the_candidates_are_put_in_the_chat_as_text_and_the_options_are_the_three_kinds(self):
+        for needle in ('b.kind === "capability_choice"', '"other:"', "capLabel", "capCandidates", 'mk("li", "acap")'):
+            self.assertIn(needle, self.chat, needle)
+        for banned in ("innerHTML", "insertAdjacentHTML"):
+            self.assertNotIn(banned, self.chat)
+
+    def test_the_new_controls_are_big_enough_to_touch(self):
+        css = (WEB / "app.css").read_text(encoding="utf-8")
+        for selector in (".cp-check", ".cp-num", ".aask-b input"):
+            self.assertRegex(css, re.escape(selector) + r"[^}]*min-height: 44px", selector)
 
 
 class ConversationChatTest(unittest.TestCase):

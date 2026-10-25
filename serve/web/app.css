@@ -916,6 +916,11 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .aask-b .btn { min-height: 44px; }
 .aask-b .picked { outline: 2px solid var(--accent); }
 .aask-h { margin: 0; font-size: 14px; color: var(--fg-2); }
+.aask-b input { flex: 1 1 240px; min-width: 0; min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; }
+.acap-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.acap { border-top: 1px solid var(--line-soft); padding-top: 8px; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 2px; }
+.acap-warn { border-left: 3px solid var(--accent); padding-left: 8px; }
+.acap-low { font-size: 13px; color: var(--fg-2); }
 .anote { font-size: 14px; color: var(--fg-2); font-style: italic; }
 .chathead .effort { min-width: 0; max-width: 100%; }
 .chathead .effort select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
@@ -986,6 +991,17 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .cp-actions .btn { min-height: 44px; }
 .cp-review { margin-top: 8px; padding: 8px 12px; border-left: 2px solid var(--accent); }
 .cp-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font: 400 14px/1.5 var(--font-mono); margin: 6px 0; padding: 8px; background: var(--surface); border-radius: 6px; }
+.cp-online { margin: 12px 0; padding: 8px 0; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 10px; }
+.cp-online h3, .cp-online h4 { margin: 4px 0 0; }
+.cp-fs { border: 1px solid var(--line-soft); border-radius: 8px; padding: 8px 14px 10px; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.cp-check { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.cp-check input { width: 22px; height: 22px; flex: none; }
+.cp-num { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; }
+.cp-num input, .cp-field textarea { font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; min-height: 44px; }
+.cp-num input { width: 6em; }
+.cp-field { display: flex; flex-direction: column; gap: 4px; }
+.cp-field textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.cp-weights { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 24px; }
 
 /* Chat: attached files and files the agent made */
 .aatt { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 0; }
