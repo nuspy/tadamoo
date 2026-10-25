@@ -9,13 +9,13 @@ body[data-view="logs"] { height: calc(100dvh / var(--z, 1)); }
 .mdl-dlg, .wz { zoom: 1; }
 
 /* the top bar: navigation first, a visible way into the palette on the right */
-.pal-open { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 6px; color: var(--fg-2); font: 13px/1 var(--font-sans); }
+.pal-open { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 6px; color: var(--fg-2); font: 13px/1 var(--font-sans); }
 .pal-open:hover { color: var(--fg); border-color: var(--fg-3); }
 kbd { font: 12px/1 var(--font-mono); padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--fg-2); background: var(--surface); }
 
 .nomodel { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 28px 8px; padding: 10px 16px; border: 1px solid var(--pl-block, #E9C341); border-radius: 8px; background: var(--surface); color: var(--fg); }
 .nomodel span { flex: 1 1 320px; }
-.nomodel .btn { min-height: 36px; }
+.nomodel .btn { min-height: 40px; }
 
 /* command palette */
 .palette { width: min(680px, calc(100vw - 48px)); max-height: min(560px, calc(100vh - 96px)); margin-top: 12vh; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--fg); overflow: hidden; }
@@ -32,7 +32,7 @@ kbd { font: 12px/1 var(--font-mono); padding: 3px 6px; border: 1px solid var(--l
 
 /* Settings: an index of its sections, sticky while the page scrolls */
 .stindex { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0; margin-bottom: 8px; background: var(--bg); }
-.st-link { min-height: 36px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg-2); font: 500 13.5px/1 var(--font-sans); }
+.st-link { min-height: 40px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg-2); font: 500 13.5px/1 var(--font-sans); }
 .st-link:hover { color: var(--fg); border-color: var(--fg-3); background: var(--panel); }
 .st-ui-body { display: grid; gap: 8px; padding: 16px 20px; max-width: 720px; }
 .st-ui-body select { max-width: 280px; }

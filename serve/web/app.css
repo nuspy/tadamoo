@@ -42,13 +42,14 @@ td, th, .v, .k, .ln, .kv dd, .sub { font-family: var(--font-mono); font-variant-
 * { scrollbar-width: thin; scrollbar-color: var(--raised) transparent; }
 
 /* Top bar: brand, tabs, then state · address · key */
-.bar { display: flex; align-items: center; gap: 24px; height: 76px; padding: 0 28px; flex: none; }
+.bar { display: flex; align-items: center; gap: 8px 24px; min-height: 76px; padding: 0 28px; flex: none; }
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand img { width: 38px; height: 38px; display: block; }
 .wordmark { font: 700 27px/1 var(--font-sans); letter-spacing: -.035em; }
 .model { font: 400 13.5px/1 var(--font-mono); color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tabs { display: flex; gap: 4px; margin-left: 8px; }
-.tab { padding: 8px 16px; color: var(--fg-3); font-weight: 500; font-size: 14.5px; border-radius: 6px; }
+/* nine tabs: a larger text moves the ones that no longer fit to a second row; a label is never split inside a word */
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-left: 8px; }
+.tab { white-space: nowrap; padding: 8px 16px; color: var(--fg-3); font-weight: 500; font-size: 14.5px; border-radius: 6px; }
 .tab:hover { color: var(--fg); }
 .tab[aria-selected="true"] { color: var(--fg); background: var(--panel); }
 .grow { flex: 1; }
@@ -434,8 +435,8 @@ fieldset:disabled input, fieldset:disabled select { opacity: .7; }
 }
 @media (max-width: 640px) {
   .tabs { order: 5; flex: 1 0 100%; margin-left: 0; gap: 8px; }
-  /* five equal tabs: a long label (Italian "Impostazioni") wraps, hyphenated where the browser can */
-  .tabs .tab { flex: 1 1 0; padding: 8px 4px; min-width: 0; text-align: center; line-height: 1.15; hyphens: auto; overflow-wrap: anywhere; }
+  /* on a narrow window the nine tabs share the row equally and a label wraps, hyphenated where the browser can */
+  .tabs .tab { flex: 1 1 0; white-space: normal; padding: 8px 4px; min-width: 0; text-align: center; line-height: 1.15; hyphens: auto; overflow-wrap: anywhere; }
   .auth { flex-wrap: wrap; }
   .auth input { min-width: 0; max-width: none; }
   .auth input, .auth button { min-height: 44px; font-size: 16px; }
@@ -854,7 +855,7 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .rl mark { padding: 0; border-radius: 2px; background: var(--rl-mark); color: var(--rl-mark-fg); }
 .rl mark.rl-cur { background: var(--rl-cur); color: var(--rl-cur-fg); outline: 2px solid #fff; outline-offset: 1px; }
 
-/* six tabs: three to a row on a phone */
+/* nine tabs: three to a row in a very narrow window */
 @media (max-width: 520px) {
   .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .rl-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
