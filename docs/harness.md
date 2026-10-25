@@ -243,6 +243,11 @@ and its safety snapshot can be rewound to as well. The audit log
   placeholder; long outputs keep their head, tail and **every error line** (a line over 2000 characters is cut in the middle and a whole result is held to 40,000 characters, with the
   full text saved and named at the end); JSON is trimmed and HTML reduced to text. The
   system block is byte-stable so the engine's prefix checkpoint is reused; retrieved memories go after the goal as untrusted data.
+- `repo_map` lists the source files of a folder with the classes, functions and methods in each (Python through `ast`; JavaScript,
+  TypeScript, C, C++, CUDA, Go, Rust and Java through cautious line patterns, so a miss is a missing line, never an invented one), the
+  most relevant files first: changed lately (modified time), used by other files (how many mention the names they define), or named
+  in `focus`. It stops at a token budget (default 1500, at most 8000) and says how many files it left out; no one file takes the whole
+  map. It reads files only, skips dependency, build and hidden folders, and does not use tree-sitter or git.
 - `AGENTS.md` (else `CLAUDE.md`, else `GEMINI.md`), searched from the workspace up to the repository root, is part of the prompt.
 - Memory is SQLite full-text search per workspace, kept in the user data folder (never in the repository); identifiers such as
   `sm_120` are searchable, and a question whose words are not all in a note still finds it. The model keeps notes itself with

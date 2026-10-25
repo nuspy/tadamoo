@@ -7,6 +7,7 @@ from .registry import ToolRegistry, ToolDefinition, EffectClass
 from .filesystem import WorkspaceSandbox
 from .shell import execute_shell_command
 from .search import browse_url, offer_search
+from harness.repomap import register_repo_map
 
 
 def create_standard_tool_registry(
@@ -114,6 +115,7 @@ def create_standard_tool_registry(
         untrusted=True,
     )
     offer_search(registry, secrets=secrets, hub=mcp_hub)     # search_web exists only when a backend does
+    register_repo_map(registry, sandbox.resolve_safe)
 
     return registry, sandbox
 
