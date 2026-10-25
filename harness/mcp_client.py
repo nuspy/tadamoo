@@ -7,7 +7,8 @@ and a stdio server starts with a scrubbed environment (only what is passed expli
 Two eras are spoken and detected per server. The stateless revision (2026-07-28) carries its version and
 capabilities in every request and has no session; it is probed first (server/discover on stdio, a first
 modern request on HTTP). Anything that is not a recognized modern answer is taken as a legacy server and
-spoken to with the initialize handshake, revisions 2025-11-25 down to 2024-11-05. OAuth is not implemented.
+spoken to with the initialize handshake, revisions 2025-11-25 down to 2024-11-05. A remote server that wants a
+sign-in is reached with the token of harness/mcp_oauth.py.
 """
 from __future__ import annotations
 
