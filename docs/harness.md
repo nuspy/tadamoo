@@ -127,8 +127,8 @@ An urgent request is not put aside for another urgent one: they go in order.
 
 ### The Chat and the planner
 
-A conversation has the planner's tools (`harness/planner_tools.py`), unless it is started `ask_only`: `plan_list` and
-`plan_get` read; `plan_create`, `plan_propose_change`, `plan_mark`, `plan_step_start` and `plan_archive` change (`plan_step_start` starts a ready step for the agent: the step is marked in progress and shows in the Tasks panel with its plan, and is marked done or failed after the result is read); `ask_user` asks a question with
+A conversation has the planner's tools (`harness/planner_tools.py`), unless it is started `ask_only`: `plan_list`,
+`plan_get` and `plan_step_requests` (the call and the wiki question a step prepared) read; `plan_create`, `plan_propose_change`, `plan_mark`, `plan_step_start`, `plan_prepare_call` and `plan_archive` change (`plan_step_start` starts a ready step for the agent: the step is marked in progress and shows in the Tasks panel with its plan, and is marked done or failed after the result is read); `ask_user` asks a question with
 buttons. The plans live in the server, in the one store the Plans view uses, and every change made from the Chat names the
 Chat as its author in the plan's history.
 
@@ -430,7 +430,43 @@ and the bridge the page talks to.
 - A plan is archived, not erased: `POST /api/plans/<id>/archive` moves it out of the list and `POST /api/plans/<id>/restore`
   brings it back with its history; an archived plan keeps its id. The Plans page shows the history with who made each
   change, edits a plan's details, archives it after two presses and lists the archived plans with *Restore*.
-- API: `GET/POST /api/plans` (`GET /api/plans?archived=1` lists the archived ones), `GET /api/plans/<id>`,
+- **The gate** (`gate_mode` in Settings): `or` (the default) wakes the local model when the blocker probability is above 0.80, *or* the whole batch
+  is affected, *or* the strongest event is serious or critical; `and` also needs a serious/critical impact or a whole-batch scope together with
+  the probability. `and` leaves asleep the events the filter rates as relevant but minor (a price rise on goods already bought, a feast of
+  bovines for a guest allergic to ovines) and also a serious event it rates below 0.80.
+- **One filter per process, with its numbers**: the gatekeeper is one object for the whole server, so its telemetry adds up (judgements, answered
+  by the cloud, by the local filter by choice, by the local filter because the cloud failed, tokens, wakes). `GET /api/plans/telemetry` returns it,
+  and the Plans view shows a line in *Judge events*. Re-planning runs one plan at a time: a second triage that wakes the model while it is still at
+  work on that plan is judged but starts nothing, and says `replan_state: "in_progress"` (`started`, `in_progress`, `unavailable`, `not_needed`,
+  `not_asked`); `GET /api/plans/<id>` carries `replanning`. The ids `events` and `telemetry` cannot be plan ids.
+- **Steps**: a step with a `retry_policy` (`max_attempts` 1-10, the first try counts; `wait_seconds`; `backoff`) is not marked failed by the first
+  failure: it goes back to pending, is not ready until the wait is over, and fails for good on the last try (`plan:mark` answers `retry`, the Chat's
+  `plan_mark` says so). A **sensor** step has `conditions: {"when": <expression>, "set": {name: value}}`; once its turn has come (its parents are done)
+  it resolves on the first event whose text (in lower case, as `text`), `source` or `at` satisfy `when` (the plan's values can be used too), and writes
+  `set` into the plan's values (a text that starts with `=` is an expression, e.g. `"=text"`). A sensor whose condition cannot be judged waits for the
+  next event and shows why. A step also carries its `position` on the canvas, an optional prepared `call_request` and a `wiki_query` (below).
+  Conditions are bounded (lists and texts up to 10,000, whole numbers up to 256 bits, powers up to 64) and everything that goes wrong is a plan error.
+- **Events from the world**: `POST /api/plans/events` takes `{"text", "source", "at"?, "plan_id"?}` or `{"events": [...]}` (up to 100). Each event goes to
+  the sensors of the plan it names, or of every plan, always; with the event pump on it also goes into that plan's buffer (only plans with a card),
+  and the pump thread judges a buffer when it holds 10 events or 5 minutes have passed since the first, tells the plan's viewers (`plan:triage` with
+  `via: "pump"`) and, when the filter says wake, starts the local model, which only prepares proposals. **The pump is off** until it is turned on in
+  Settings (`event_pump`); it ends with the server (`atexit`) and when it is turned off, and a pump saved as on starts again the first time the planner
+  is used after a restart (not at server start). The read-only **sources** (`sources` in Settings, up to 10) poll on their own threads, with the standard library only:
+  an RSS or Atom feed (the first look only learns what is there, a DTD is refused), a mailbox over IMAP (opened with EXAMINE, headers fetched with
+  `BODY.PEEK`, only sender and subject, never the body; the login is a `login` entry of the Wallet, read when needed) and a Telegram bot (long polling
+  of `getUpdates`, the token a `secret` entry, only the chats in `allowed_chat_ids`; it never sends anything). Settings hold the names of the Wallet
+  entries, never a password or a token, and an error shown for a source never contains one. SMS is not done: it needs a provider or the modem.
+- **A step and a call, or the wiki**: a step can carry `call_request` `{number, reason, text}` prepared by the plan (`plan_prepare_call`, with the
+  person's yes). Nothing places it: `plan_step_requests` shows it, and the Chat places the call only with `phone_call`, which asks every time. A step's
+  `wiki_query` is shown with `wiki_context` as the way to ask when the conversation has the wiki tools (`--wiki`). When `phone_call` cannot place
+  a call the message says why: the service is not running, it refused the token, a call is already in progress (HTTP 409), or it refused the call
+  with its reason; and when the call **may have started** (no answer in time, the connection broke, a server error) the status is `unknown`, the
+  tool says so and tells the model to ask the user whether the phone rang. A placement is never sent twice, whatever happened.
+- **Canvas**: a step can be moved with the pointer, with the arrow keys when it is selected, or with the *Move* buttons of its panel; the place is saved in
+  the step (`position`) through `plan:update_node`, also for a finished step, and a step without one keeps the automatic layout.
+- **Going back over a step** that recorded actions which cannot be undone (a call, a payment, a command) first asks `plan:rewind_impact`; the page lists
+  what would stay done and goes back only with *Rewind anyway* (`plan:rewind` with `accept_irreversible`).
+- API: `GET/POST /api/plans` (`GET /api/plans?archived=1` lists the archived ones), `GET /api/plans/telemetry`, `POST /api/plans/events`, `GET /api/plans/<id>`,
   `POST /api/plans/<id>/events`, `POST /api/plans/<id>/triage`, `POST /api/plans/<id>/archive` and `/restore`,
   `GET /api/plans/<id>/events?after=N` and `/stream` (server-sent events), `GET/POST /api/planner/settings`.
 
