@@ -14,6 +14,9 @@ from harness.eval.tasks import answer_has, normalize_text, run_checks, Task
 from test_agent_loop import ScriptedClient, say
 
 
+NBSP, RSQUO, ENDASH, EMDASH, LDQUO, RDQUO = (chr(c) for c in (0xA0, 0x2019, 0x2013, 0x2014, 0x201C, 0x201D))
+
+
 def answer_check(answer, **check):
     task = Task(id="t", category="c", prompt="p", checks=[{"type": "answer_contains", **check}])
     return run_checks(task, Path("."), answer, [])
@@ -21,9 +24,9 @@ def answer_check(answer, **check):
 
 @pytest.mark.parametrize("answer,check,found", [
     ("The port is **7311**.", {"text": "7311"}, True),
-    ("Teodor Lund is on call", {"text": "Teodor Lund"}, True),                       # a no-break space
-    ("It’s `LANTERN`", {"text": "it's lantern"}, True),                              # a curly quote, code marks, case
-    ("Between 9–12", {"text": "9-12"}, True),                                        # an en dash
+    (f"Teodor{NBSP}Lund is on call", {"text": "Teodor Lund"}, True),                       # a no-break space
+    (f"It{RSQUO}s `LANTERN`", {"text": "it's lantern"}, True),                              # a curly quote, code marks, case
+    (f"Between 9{ENDASH}12", {"text": "9-12"}, True),                                        # an en dash
     ("the   value\n is  24", {"text": "value is 24"}, True),                              # runs of spaces and a line break
     ("The value is 124", {"text": "24", "word": True}, False),                           # a number inside another number
     ("The value is 24.", {"text": "24", "word": True}, True),
@@ -45,7 +48,7 @@ def test_answer_not_contains_uses_the_same_comparison():
 
 
 def test_normalization_is_idempotent_and_keeps_digits():
-    text = "“A” — **b**  `c` d"
+    text = f"{LDQUO}A{RDQUO} {EMDASH} **b**  `c`{NBSP}d"
     assert normalize_text(normalize_text(text)) == normalize_text(text) == '"a" - b c d'
     assert normalize_text("3.14 / 2,5") == "3.14 / 2,5"
 
@@ -109,7 +112,7 @@ def test_a_task_that_cannot_run_does_not_end_the_set(monkeypatch):
 
 
 def test_the_environment_and_the_report_name_the_harness_version_and_the_limits(tmp_path):
-    (tmp_path / "VERSION").write_text("﻿" + json.dumps({"version": 1, "release": "name_(v_1_4)"}), encoding="utf-8")
+    (tmp_path / "VERSION").write_text(chr(0xFEFF) + json.dumps({"version": 1, "release": "name_(v_1_4)"}), encoding="utf-8")
     env = collect_environment(repo_root=tmp_path, gpu_power_limit_w=300.0)
     assert env["harness_version"] == "name_(v_1_4)" and env["gpu_power_limit_w"] == 300.0
     _, tasks = load_task_set("toolcalls")

@@ -22,6 +22,8 @@ ERROR_LINE = re.compile(
     re.IGNORECASE,
 )
 MAX_PROTECTED_LINES = 200
+MAX_LINE_CHARS = 2000        # a longer line (minified code, a one-line dump) is cut, whatever it says
+MAX_OUTPUT_CHARS = 40_000    # what one tool result may take of the context
 
 
 def available_budget(window: int, buffer_fraction: float, max_output: int) -> int:
@@ -120,6 +122,8 @@ class TokenJuiceCompactor:
         keep_tail_lines: int = 20,
         json_min_bytes: int = 1024,
         display_dir: Optional[str] = None,
+        max_line_chars: int = MAX_LINE_CHARS,
+        max_output_chars: int = MAX_OUTPUT_CHARS,
     ) -> None:
         if keep_head_lines < 0 or keep_tail_lines < 0 or keep_head_lines + keep_tail_lines >= collapse_threshold_lines:
             raise ValueError("head plus tail lines must stay below the collapse threshold")
@@ -130,6 +134,16 @@ class TokenJuiceCompactor:
         self.keep_tail = keep_tail_lines
         self.json_min_bytes = json_min_bytes
         self.display_dir = (display_dir or self.artifacts_dir.as_posix()).rstrip("/")
+        self.max_line_chars = max(80, max_line_chars)
+        self.max_output_chars = max(1000, max_output_chars)
+
+    @staticmethod
+    def _cut(text: str, keep: int) -> str:
+        """A long text without its middle: `keep` characters in all, the first and last halves, with the number hidden."""
+        if len(text) <= keep:
+            return text
+        half = keep // 2
+        return f"{text[:half]}[... {len(text) - 2 * half} characters hidden ...]{text[-half:]}"
 
     def save_artifact(self, output: str, tool_name: str) -> Path:
         """Stores the full text under a name made from its content, so repeats overwrite nothing else."""
@@ -148,10 +162,15 @@ class TokenJuiceCompactor:
             output = trim_json(output, self.json_min_bytes)
 
         lines = output.splitlines()
-        if len(lines) <= self.collapse_threshold:
+        long_lines = any(len(ln) > self.max_line_chars for ln in lines)
+        if len(lines) <= self.collapse_threshold and not long_lines and len(output) <= self.max_output_chars:
             return output
 
         art = self.save_artifact(output, tool_name)
+        note = f"full output saved to {self.display_dir}/{art.name}"
+        if len(lines) <= self.collapse_threshold:
+            shortened = [self._cut(ln, self.max_line_chars) for ln in lines]
+            return self._fit("\n".join(shortened), f"[long lines shortened; {note}]")
         head = lines[: self.keep_head]
         tail_start = len(lines) - self.keep_tail
         tail = lines[tail_start:]
@@ -161,19 +180,24 @@ class TokenJuiceCompactor:
             half = MAX_PROTECTED_LINES // 2
             protected = protected[:half] + protected[-half:]
 
+        head = [self._cut(ln, self.max_line_chars) for ln in head]
+        tail = [self._cut(ln, self.max_line_chars) for ln in tail]
         pieces = list(head)
         cursor = self.keep_head
         for idx in protected:
             if idx > cursor:
                 pieces.append(f"[... {idx - cursor} lines hidden ...]")
-            pieces.append(lines[idx])
+            pieces.append(self._cut(lines[idx], self.max_line_chars))
             cursor = idx + 1
         if tail_start > cursor:
             pieces.append(f"[... {tail_start - cursor} lines hidden ...]")
         pieces.extend(tail)
         hidden = len(lines) - len(head) - len(tail) - len(protected)
-        pieces.append(f"[{hidden} lines hidden in total; full output saved to {self.display_dir}/{art.name}]")
-        return "\n".join(pieces)
+        return self._fit("\n".join(pieces), f"[{hidden} lines hidden in total; {note}]")
+
+    def _fit(self, body: str, footer: str) -> str:
+        """The body and the footer within the per-result character limit; the footer, which names the saved full text, is never cut."""
+        return self._cut(body, max(200, self.max_output_chars - len(footer) - 1)) + "\n" + footer
 
     def as_filter(self):
         """The (tool name, text) -> text callable the agent loop expects."""

@@ -57,8 +57,8 @@ def _validate_check(task_id: str, check: Dict[str, Any]) -> None:
             raise ValueError(f"task {task_id}: the pattern of a {kind} check is not valid: {exc}") from None
 
 
-_SPACES = dict.fromkeys(map(ord, "    ​"), " ")
-_QUOTES = {ord("‘"): "'", ord("’"): "'", ord("“"): '"', ord("”"): '"', ord("–"): "-", ord("—"): "-", ord("−"): "-"}
+_SPACES = dict.fromkeys((0xA0, 0x2007, 0x2009, 0x202F, 0x200B), " ")           # no-break, figure, thin and narrow spaces, zero-width space
+_QUOTES = {0x2018: "'", 0x2019: "'", 0x201C: '"', 0x201D: '"', 0x2013: "-", 0x2014: "-", 0x2212: "-"}   # curly quotes, en and em dash, minus
 
 
 def normalize_text(text: str) -> str:

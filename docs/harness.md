@@ -240,7 +240,8 @@ and its safety snapshot can be rewound to as well. The audit log
 ## Context, memory, skills and reference documents
 
 - Old tool results are masked only when the context nears its budget, oldest first, with the full text saved and named in the
-  placeholder; long outputs keep their head, tail and **every error line**; JSON is trimmed and HTML reduced to text. The
+  placeholder; long outputs keep their head, tail and **every error line** (a line over 2000 characters is cut in the middle and a whole result is held to 40,000 characters, with the
+  full text saved and named at the end); JSON is trimmed and HTML reduced to text. The
   system block is byte-stable so the engine's prefix checkpoint is reused; retrieved memories go after the goal as untrusted data.
 - `AGENTS.md` (else `CLAUDE.md`, else `GEMINI.md`), searched from the workspace up to the repository root, is part of the prompt.
 - Memory is SQLite full-text search per workspace, kept in the user data folder (never in the repository); identifiers such as
