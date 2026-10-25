@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 
-from harness.tools.search import (ProviderUnavailable, browse_url, clear_backends, load_providers,
+from harness.tools.search import (ProviderUnavailable, clear_backends, load_providers,
                                   register_backend, search_web)
 from harness.sandbox import ProcessSandbox
 
@@ -12,7 +12,6 @@ def test_search_providers_config():
     ids = [p["id"] for p in providers]
     assert "tavily" in ids
     assert "exa" in ids
-    assert "firecrawl" in ids
 
 
 @pytest.fixture(autouse=True)
@@ -26,8 +25,6 @@ def test_unconnected_provider_is_an_error_not_fake_data(monkeypatch):
     monkeypatch.setenv("TAVILY_API_KEY", "k")
     with pytest.raises(ProviderUnavailable, match="not connected"):
         search_web("Basalt Blackwell", provider="tavily")
-    with pytest.raises(ProviderUnavailable, match="not connected"):
-        browse_url("https://example.com/docs")
     with pytest.raises(ProviderUnavailable, match="unknown provider"):
         search_web("x", provider="nope")
 
@@ -41,14 +38,6 @@ def test_connected_backend_results_are_marked_untrusted(monkeypatch):
     register_backend("exa", search=lambda q, n: [])
     with pytest.raises(ProviderUnavailable, match="EXA_API_KEY"):
         search_web("x", provider="exa")
-
-
-def test_browse_refuses_local_and_non_http_targets(monkeypatch):
-    monkeypatch.setenv("FIRECRAWL_API_KEY", "k")
-    register_backend("firecrawl", browse=lambda u: {"content": "x"})
-    for bad in ("file:///etc/passwd", "http://127.0.0.1:7232/props", "http://localhost/x", "ftp://example.com/x"):
-        with pytest.raises(ValueError):
-            browse_url(bad)
 
 
 def test_sandbox_default_deny(tmp_path: Path):

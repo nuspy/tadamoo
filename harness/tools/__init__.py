@@ -1,17 +1,19 @@
 """Tool package providing registry, workspace sandboxing and shell execution."""
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from harness.secrets_broker import SecretsBroker
 from .registry import ToolRegistry, ToolDefinition, EffectClass
 from .filesystem import WorkspaceSandbox
 from .shell import execute_shell_command
-from .search import search_web, browse_url
+from .search import browse_url, offer_search
 
 
 def create_standard_tool_registry(
     workspace_path: str | Path,
     secrets: Optional[SecretsBroker] = None,
+    allow_private_pages: bool | Callable[[], bool] = False,
+    mcp_hub: Any = None,
 ) -> tuple[ToolRegistry, WorkspaceSandbox]:
     sandbox = WorkspaceSandbox(workspace_path)
     registry = ToolRegistry()
@@ -89,34 +91,22 @@ def create_standard_tool_registry(
         handler=run_shell,
     )
 
-    registry.register(
-        name="search_web",
-        description="Searches the web using configured search providers.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search query keywords"},
-                "provider": {"type": "string", "description": "Search provider id", "default": "tavily"},
-            },
-            "required": ["query"],
-        },
-        effect=EffectClass.PURE,
-        handler=search_web,
-        untrusted=True,
-    )
+    def read_page(url: str):
+        return browse_url(url, allow_private=allow_private_pages)
 
     registry.register(
         name="browse_url",
-        description="Extracts content from a public webpage.",
+        description="Reads a web page and returns its text. Pages on this PC or its network are refused unless the person allowed them.",
         parameters={
             "type": "object",
-            "properties": {"url": {"type": "string", "description": "URL to browse"}},
+            "properties": {"url": {"type": "string", "description": "http or https address of the page"}},
             "required": ["url"],
         },
         effect=EffectClass.PURE,
-        handler=browse_url,
+        handler=read_page,
         untrusted=True,
     )
+    offer_search(registry, secrets=secrets, hub=mcp_hub)     # search_web exists only when a backend does
 
     return registry, sandbox
 

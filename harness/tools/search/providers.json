@@ -23,15 +23,6 @@
       "notes": "remote hosted search"
     },
     {
-      "id": "firecrawl",
-      "capability": "browse",
-      "transport": "streamable-http",
-      "base_url": "https://mcp.firecrawl.dev/v2/mcp",
-      "auth_env": "FIRECRAWL_API_KEY",
-      "network_egress": true,
-      "notes": "web scraping and markdown conversion"
-    },
-    {
       "id": "local_mock",
       "capability": "search",
       "transport": "stdio",

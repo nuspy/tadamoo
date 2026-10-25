@@ -216,6 +216,14 @@ and its safety snapshot can be rewound to as well. The audit log
   system block is byte-stable so the engine's prefix checkpoint is reused; retrieved memories go after the goal as untrusted data.
 - `AGENTS.md` (else `CLAUDE.md`, else `GEMINI.md`), searched from the workspace up to the repository root, is part of the prompt.
 - Memory is SQLite full-text search per workspace; identifiers such as `sm_120` are searchable.
+- `browse_url` reads a web page with the standard library only: http and https, no user name in the address, no address that is
+  not a site on the internet (private, loopback, link-local, carrier-grade NAT and multicast ranges are refused) unless you allowed
+  pages on this PC in the browser's settings. The address a name resolves to is checked at the moment of connecting and again at
+  every redirect (at most 5); the page is capped at 2 MB and 20 seconds, only text is read, and HTML becomes Markdown. The result
+  is untrusted. `search_web` is offered only when there is something to search with: a search tool of a connected MCP server, or a
+  provider of `harness/tools/search/providers.json` for which you have a key (its environment variable, or a vault entry named
+  after the provider, e.g. `tavily`, with the key in its `value` field). The provider's server is started when the first search is
+  made. The Exa endpoint is reached with the key in an `x-api-key` header, which has not been tried against the live service.
 - Skills (`SKILL.md`) are listed in a stable catalog and loaded on request; a skill needs your approval, stored with the
   hash of the text you read, and any change withdraws it.
 - Reference documents are offered as a fixed block after the project rules (**cag**: the prefix is reused every turn, but a
