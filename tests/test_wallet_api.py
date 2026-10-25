@@ -15,7 +15,12 @@ from harness.vault import Vault
 from harness.waiver import required_phrase
 from serve import handler
 from serve.wallet_api import WalletApi
-from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)
+from serve.engine.mock import MockEngine
+from serve.frontend import ChatTemplate
+from serve.handler import serve
+from serve.service import Service
+from serve.util.text import ByteTokenizer
+from test_e2e_mock_server import _NoTelemetry, answer, start_server  # noqa: F401  (fixture)
 
 NAME = "Mario Rossi"
 NUMBER = "4242 4242 4242 4242"
@@ -197,3 +202,87 @@ def test_the_window_to_sign_in_says_when_the_profile_is_in_use(setup):
         assert call(base, "POST", "/api/wallet/browser/forget", {})[0] == 400
     finally:
         held.release()
+
+
+# ---- the gate in front of every POST route: the server's secret, the page's own origin, this PC ----
+POST_ROUTES = ("entry", "reveal", "import", "entry/delete", "system", "system/remove", "phrase", "grant", "revoke", "browser", "browser/signin", "browser/forget")
+SECRET = "control-secret"
+
+
+class Spy:
+    """Stands in for the wallet: it records what the handler lets through and changes nothing."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __getattr__(self, name):
+        def record(*args, **kwargs):
+            self.calls.append(name)
+            return {}
+        return record
+
+
+@pytest.fixture
+def guarded(monkeypatch):
+    """A server that has a control secret, like the one the app starts, with the wallet replaced by a spy."""
+    spy = Spy()
+    monkeypatch.setattr(handler, "_WALLET", spy)
+    tok = ByteTokenizer()
+    svc = Service(MockEngine(tok, answer("x"), max_context=4096), tok, ChatTemplate(Path(__file__).resolve().parents[1] / "serve" / "chat_template.jinja"))
+    svc.telemetry = _NoTelemetry()
+    svc.control_token = SECRET
+    httpd = serve(svc, port=0)
+    yield f"http://127.0.0.1:{httpd.server_address[1]}", spy
+    httpd.shutdown()
+    httpd.server_close()
+
+
+def post(base, route, headers=None, body=b"{}"):
+    hdrs = {"Content-Type": "application/json", **(headers or {})}
+    req = urllib.request.Request(base + "/api/wallet/" + route, data=body, method="POST", headers=hdrs)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+@pytest.mark.parametrize("route", POST_ROUTES)
+def test_a_wallet_route_needs_the_control_secret(guarded, route):
+    base, spy = guarded
+    code, body = post(base, route)
+    assert code == 403 and body["error"]["code"] == "control_secret"
+    assert post(base, route, {"X-Basalt-Control": "wrong"})[0] == 403
+    assert spy.calls == []
+
+
+@pytest.mark.parametrize("route", POST_ROUTES)
+def test_a_wallet_route_refuses_the_page_of_another_site(guarded, route):
+    base, spy = guarded
+    code, body = post(base, route, {"X-Basalt-Control": SECRET, "Origin": "http://evil.example"})
+    assert code == 403 and "own page" in body["error"]["message"]
+    assert spy.calls == []
+
+
+@pytest.mark.parametrize("route", POST_ROUTES)
+def test_a_wallet_route_refuses_what_is_not_json(guarded, route):
+    base, spy = guarded
+    assert post(base, route, {"X-Basalt-Control": SECRET, "Content-Type": "text/plain"})[0] == 415
+    assert spy.calls == []
+
+
+@pytest.mark.parametrize("route", POST_ROUTES)
+def test_a_wallet_route_refuses_a_client_that_is_not_on_this_pc(guarded, monkeypatch, route):
+    base, spy = guarded
+    monkeypatch.setattr(handler.settings, "is_loopback", lambda address: False)
+    code, body = post(base, route, {"X-Basalt-Control": SECRET})
+    assert code == 403 and "only from the PC" in body["error"]["message"]
+    assert spy.calls == []
+
+
+@pytest.mark.parametrize("route", POST_ROUTES)
+def test_the_same_request_with_the_secret_from_the_page_goes_through(guarded, route):
+    base, spy = guarded
+    assert post(base, route, {"X-Basalt-Control": SECRET})[0] == 200
+    assert post(base, route, {"X-Basalt-Control": SECRET, "Origin": base})[0] == 200      # the page's own origin
+    assert len(spy.calls) == 2
