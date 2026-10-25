@@ -14,7 +14,7 @@ from harness.checkpoints import CheckpointManager
 from harness.client import BasaltClient
 from harness.context import ContextBuilder, ContextManager, TokenJuiceCompactor, available_budget
 from harness.context_patterns import PatternContext, Snapshots, normalize_config
-from harness.hooks import HookManager
+from harness.hooks import HookManager, load_hook_files
 from harness.knowledge import LocalKnowledge, cag_prefix, choose_strategy, register_local_search
 from harness.memory import MemoryStore, default_db_path, register_memory_tools
 from harness.permissions import PermissionLevel, PermissionManager
@@ -92,6 +92,8 @@ class AgentConfig:
     attachments_dir: Optional[str] = None    # the conversation's attached files (harness/attachments.py); with outputs_dir, the tools for them are offered
     outputs_dir: Optional[str] = None        # the files the agent made for the person
     capabilities_home: Optional[str] = None  # the home folder whose skills, plugins and MCP configs are looked at (default: this user's)
+    hooks_file: str = ""                # the person's hooks (harness/hooks.py); empty: hooks.json in the user data folder
+    workspace_hooks: bool = False       # also run the hooks in the workspace's .basalt/hooks.json (a folder under work can name commands: the person opts in)
     confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None
 
 
@@ -205,6 +207,21 @@ def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builde
     return index
 
 
+def _hook_files(cfg: AgentConfig, workspace: Path) -> List[Path]:
+    """Where the person's hooks are: the user data folder (or the file named), then, if allowed, the workspace's own."""
+    if cfg.hooks_file:
+        files = [Path(cfg.hooks_file)]
+    else:
+        try:
+            from serve.userdata import user_data_dir
+            files = [user_data_dir() / "hooks.json"]
+        except Exception:
+            files = [Path.home() / ".basalt" / "hooks.json"]
+    if cfg.workspace_hooks:
+        files.append(workspace / ".basalt" / "hooks.json")
+    return files
+
+
 def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summarizer: Optional[Any] = None) -> BuiltAgent:
     if cfg.permission_mode not in PERMISSION_MODES:
         raise ValueError(f"permission mode must be one of {sorted(PERMISSION_MODES)}")
@@ -227,7 +244,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     for pattern in cfg.allow:
         permissions.add_rule(pattern, "allow")
 
-    registry, sandbox = create_standard_tool_registry(workspace, secrets=secrets, allow_private_pages=cfg.browser_private)
+    registry, sandbox = create_standard_tool_registry(workspace, secrets=secrets, allow_private_pages=cfg.browser_private, permissions=permissions)
     payment_confirm = None
     if cfg.payments_dir:
         from harness.payments_broker import PaymentsBroker, register_payment_tool
@@ -245,6 +262,10 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
                                   if secrets.vault is not None else None)
     audit = AuditLedger(data / "audit.jsonl", redactor=secrets.mask_secrets)
     hooks = HookManager()
+    hooks.mask = secrets.mask_secrets
+    for path, specs in load_hook_files(_hook_files(cfg, workspace)):
+        hooks.add_specs(specs, workspace)
+        hooks.sources.append(str(path))
     checkpoints = CheckpointManager(workspace, storage_dir=data / "checkpoints") if cfg.use_checkpoints else None
 
     compactor = TokenJuiceCompactor(workspace / ".basalt" / "artifacts", display_dir=".basalt/artifacts")

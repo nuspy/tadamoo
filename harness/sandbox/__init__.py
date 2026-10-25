@@ -116,6 +116,17 @@ class _Capped(threading.Thread):
                 self.truncated = True
 
 
+def _feed(proc: "subprocess.Popen[bytes]", text: str) -> None:
+    """Gives the command its input on stdin from a thread, so a command that never reads cannot stall the caller."""
+    def write() -> None:
+        try:
+            proc.stdin.write(text.encode("utf-8"))
+            proc.stdin.close()
+        except (OSError, ValueError):
+            pass
+    threading.Thread(target=write, daemon=True).start()
+
+
 class ProcessSandbox:
     def __init__(self, workspace_root: str | Path, timeout: float = 30.0, max_output_bytes: int = 50_000,
                  max_memory_bytes: Optional[int] = DEFAULT_MAX_MEMORY, max_processes: Optional[int] = DEFAULT_MAX_PROCESSES) -> None:
@@ -130,6 +141,7 @@ class ProcessSandbox:
         command: str,
         extra_env: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
+        stdin_text: Optional[str] = None,
     ) -> Dict[str, Any]:
         result: Dict[str, Any] = {"exit_code": 0, "stdout": "", "stderr": "", "success": True, "blocked": False,
                                   "timed_out": False, "truncated": False}
@@ -150,7 +162,8 @@ class ProcessSandbox:
         try:
             proc = subprocess.Popen(
                 command, shell=True, cwd=str(self.workspace_root), env=safe_environment(extra_env),
-                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **popen_args,
+                stdin=subprocess.DEVNULL if stdin_text is None else subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, **popen_args,
             )
         except Exception as exc:
             job.close()
@@ -161,6 +174,8 @@ class ProcessSandbox:
         err = _Capped(proc.stderr, self.max_output_bytes)
         out.start()
         err.start()
+        if stdin_text is not None:
+            _feed(proc, stdin_text)
         scope = getattr(_scope, "state", None)
         cancel = scope.event if scope is not None else None
         end = time.monotonic() + limit
