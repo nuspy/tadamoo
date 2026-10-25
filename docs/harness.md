@@ -575,6 +575,20 @@ harnesses against the same endpoint is not automated.
 `python -m harness.eval.alternate` measures what it costs when two conversations take turns on one model (the time to the first token and the share of the
 prompt read from the cache, taking turns against one after the other). It decides whether a queue that groups requests by conversation is worth building.
 
+## Replay of a recorded session
+
+`harness/replay.py` runs a recorded conversation again with a model that answers with the recorded answers, one after the other,
+and reports the first place where the tool calls differ: another tool, other arguments, another decision (executed, denied,
+invalid, blocked, loop), a call missing or added, and with `compare_results` a call that failed or succeeded where the recording
+did the opposite. It tests the harness (loop, permission rules, tools), not the model. `export_trace(messages, turns)` writes the
+trace as JSONL (a header line, then one line per message; each tool result carries the decision), with credential-looking values
+and any extra values you pass masked (`mask_text`; a trace written for sharing is masked by default). `load_trace` also reads a
+conversation's `history.json` and a plain file of messages, where the decision is read from the result's text. `replay(trace)` uses
+stand-ins that return the recorded results (so nothing is run); pass your own registry to run the real tools, preferably in a copy of
+the folder, and `confirm_from_trace(trace)` to answer questions as the person did. `python -m harness.replay trace.jsonl --mode auto`
+does the first and prints the divergence. Permissions are decided by the rules you replay under, so a replay under another level is
+the way to see what a change in the rules would have done to a past session.
+
 ## Tests and what is not done
 
 `python -m pytest tests` (harness) and `python -m pytest serve/tests` (server and pages). Tests that would place a real call

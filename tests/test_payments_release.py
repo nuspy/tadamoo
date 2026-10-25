@@ -146,3 +146,32 @@ def test_reading_a_value_in_the_wallet_is_recorded_without_the_value(tmp_path):
     assert api.reveal({"id": "trip", "field": "number"})["value"] == "4242424242424242"
     rows = [r for r in broker.ledger.__class__(broker.ledger.path).records if r.get("action") == "vault_revealed"]
     assert rows and rows[0]["details"] == {"entry": "trip", "field": "number"}
+
+
+def test_the_dossier_names_the_program_that_ran_and_the_clock_against_a_time_server(tmp_path):
+    import socket
+    import struct
+    import time
+    from harness.waiver.dossier import application_hashes, sntp_offset
+
+    root = Path(__file__).resolve().parents[1]
+    app = application_hashes(root)
+    assert "harness/payments_broker.py" in app["files"] and "serve/handler.py" in app["files"]
+    assert not any("/tests/" in name for name in app["files"]) and len(app["combined"]) == 64
+
+    server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server.bind(("127.0.0.1", 0))
+    ahead = time.time() + 5.0                                                       # a time server five seconds ahead of this clock
+
+    def answer():
+        data, addr = server.recvfrom(64)
+        stamp = ahead + 2208988800
+        packet = bytearray(48)
+        packet[40:48] = struct.pack("!II", int(stamp), int((stamp % 1) * 2 ** 32))
+        server.sendto(bytes(packet), addr)
+
+    threading.Thread(target=answer, daemon=True).start()
+    offset = sntp_offset("127.0.0.1", timeout=2.0, port=server.getsockname()[1])
+    server.close()
+    assert offset is not None and 4.5 < offset < 5.5
+    assert sntp_offset("127.0.0.1", timeout=0.2, port=9) is None                     # nobody answers: the dossier then says so with a null

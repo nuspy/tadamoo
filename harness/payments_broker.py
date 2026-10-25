@@ -131,6 +131,7 @@ class PaymentsBroker:
         notify: Optional[Callable[[Dict[str, Any]], None]] = None,
         clock: Callable[[], float] = time.time,
         app_root: Optional[Path] = None,
+        network_time: Optional[Callable[[], Optional[float]]] = None,
     ) -> None:
         self.dir = Path(data_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -141,6 +142,7 @@ class PaymentsBroker:
         self.notify = notify
         self.clock = clock
         self.app_root = app_root
+        self.network_time = network_time                  # how far the clock is from a network time server, for the dossier; none in tests
         self._rlock = threading.RLock()
         self._lock_path = self.dir / "payments.lock"
 
@@ -287,6 +289,7 @@ class PaymentsBroker:
                 per_payment=money(per_cents, currency), cumulative=money(cum_cents, currency), currency=currency,
                 pasted=pasted, dialog_texts=DIALOG_TEXTS[lang], retyped_names=retyped_names,
                 typing_intervals_ms=typing_intervals_ms, screenshots=screenshots, app_root=self.app_root,
+                network_offset_s=self.network_time() if self.network_time else None,
                 now=datetime.datetime.fromtimestamp(now, datetime.timezone.utc),
             )
             ref = self.dossiers.seal(record)

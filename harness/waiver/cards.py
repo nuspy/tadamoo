@@ -20,7 +20,7 @@ class PaymentSystem:
     system_id: str
     name: str
     kind: str                         # e.g. virtual card, wallet, marketplace account
-    credential_kind: str              # what Basalt holds: only delegated credentials are allowed
+    credential_kind: str              # what Basalt pays with: one of CREDENTIAL_KINDS
     currency: str
     provider_terms_url: str = ""
     provider_terms_checked_on: str = ""   # date the user checked that the provider allows automatic agents

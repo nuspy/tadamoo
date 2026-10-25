@@ -56,11 +56,41 @@ def os_identity() -> Dict[str, Any]:
 
 
 def application_hashes(root: Path) -> Dict[str, Any]:
+    """The program that was running: the hash of each source file of the agent and the server, and the version written beside them."""
     files: Dict[str, str] = {}
-    for p in sorted(root.rglob("*.py")):
-        if "__pycache__" not in p.parts:
-            files[p.relative_to(root).as_posix()] = _sha256(p.read_bytes())
-    return {"files": files, "combined": _sha256(json.dumps(files, sort_keys=True).encode("utf-8"))}
+    folders = [root / name for name in ("harness", "serve") if (root / name).is_dir()] or [root]
+    for folder in folders:
+        for p in sorted(folder.rglob("*.py")):
+            if "__pycache__" not in p.parts and "tests" not in p.parts:
+                files[p.relative_to(root).as_posix()] = _sha256(p.read_bytes())
+    try:
+        version = (root / "VERSION").read_text(encoding="utf-8").strip().splitlines()[0]
+    except (OSError, IndexError):
+        version = ""
+    return {"version": version, "files": files, "combined": _sha256(json.dumps(files, sort_keys=True).encode("utf-8"))}
+
+
+def sntp_offset(server: str = "pool.ntp.org", timeout: float = 2.0, port: int = 123) -> Optional[float]:
+    """How far this PC's clock is from a network time server, in seconds (positive: the clock is behind). None when none answers.
+    One small UDP packet; nothing about the person or the payment is sent."""
+    import socket
+    import struct
+    import time
+    request = b"\x1b" + 47 * b"\0"
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.settimeout(timeout)
+            sent = time.time()
+            s.sendto(request, (server, port))
+            data, _ = s.recvfrom(512)
+            got = time.time()
+        if len(data) < 48:
+            return None
+        seconds, fraction = struct.unpack("!II", data[40:48])
+        server_time = seconds - 2208988800 + fraction / 2 ** 32
+        return round(server_time - (sent + got) / 2, 3)
+    except (OSError, struct.error):
+        return None
 
 
 @dataclass
@@ -93,6 +123,7 @@ class DossierStore:
         typing_intervals_ms: Optional[List[int]] = None,
         screenshots: Optional[Dict[str, str]] = None,
         app_root: Optional[Path] = None,
+        network_offset_s: Optional[float] = None,
         now: Optional[datetime.datetime] = None,
     ) -> Dict[str, Any]:
         now = now or datetime.datetime.now(datetime.timezone.utc)
@@ -100,7 +131,7 @@ class DossierStore:
         return {
             "version": 1,
             "identity": os_identity(),
-            "time": {"utc": now.isoformat(), "local": local.isoformat(), "network_time_offset_s": None,
+            "time": {"utc": now.isoformat(), "local": local.isoformat(), "network_time_offset_s": network_offset_s,
                      "qualified_timestamp": None},
             "declaration": {"name": user_name, "text": phrase_text, "language": phrase_lang, "amount_text": amount_text,
                             "pasted": pasted, "typing_intervals_ms": typing_intervals_ms or []},
