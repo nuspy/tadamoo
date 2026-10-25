@@ -7,12 +7,16 @@
     In order, and stopping at the first failure (the version is raised only when everything worked):
 
       1. the version: it grows by itself, as <name>_(v_<version>_<subversion>), for example chunky-pasta_(v_1_3)
-      2. the engine (CMake, incremental: nothing is rebuilt when nothing changed)
+      2. the engine (CMake with the newest CUDA toolkit installed: when a newer one than the build was made with appears, the build folder
+         is thrown away and the engine is built again from scratch, so there is only ever one build. Incremental otherwise: when nothing
+         changed it is not touched and the server may keep running; when it has to be rebuilt the server must be stopped, and the script
+         says so before it starts)
       3. the program folder, the desktop app and the setup helper, the Python installer and wheels for PCs without Python
       4. the InstallForge project (.ifp), updated and not rewritten: what you edited in InstallForge is kept
       5. the setup .exe (InstallForge's command-line builder) and its SHA256SUMS.txt
       6. the app on this PC (tools\windows\desktop\publish), so the app you start is the one just built
       7. the file VERSION in the repository, with the new numbers
+      8. the setups of earlier versions in dist\ are deleted, so only the one just built is left (only after everything worked)
 
     Everything it makes is under dist\ (ignored by git) except VERSION, which you commit when you like. Nothing is
     uploaded or published anywhere.
@@ -36,12 +40,14 @@
 .PARAMETER NewVersion
     Start a new version instead of a new subversion.
 .PARAMETER SkipEngine
-    Rare. Do not run the CMake build; use the binaries already in bin\ (needed while the engine is running, because a
-    running program keeps its file locked).
+    Rare. Do not run the CMake build even when something changed; use the binaries already in bin\. Not needed to keep the
+    server running: when the engine is up to date the build is skipped by itself.
 .PARAMETER SkipDownloads
     Rare. Do not touch the network: the Python installer, the wheels and the name generator must already be in dist\cache.
 .PARAMETER NoSetup
     Rare. Stop after the .ifp: the setup is then built by hand in InstallForge.
+.PARAMETER CudaRoot
+    Rare. The CUDA toolkit folder to build with. By default the newest one under C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA.
 .PARAMETER PythonMinor
     The Python minor version bundled for machines that have none (default 3.13); its newest patch release is used.
 .PARAMETER InstallForge
@@ -58,6 +64,7 @@ param(
     [switch]$SkipEngine,
     [switch]$SkipDownloads,
     [switch]$NoSetup,
+    [string]$CudaRoot = '',
     [string]$PythonMinor = '3.13',
     [string]$InstallForge = ''
 )
@@ -66,6 +73,16 @@ Set-StrictMode -Version 2
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
+
+function Find-Cuda([string]$Wanted) {
+    if ($Wanted) { if (-not (Test-Path (Join-Path $Wanted 'bin\nvcc.exe'))) { throw "$Wanted has no bin\nvcc.exe" }; return (Resolve-Path $Wanted).Path }
+    $base = Join-Path $env:ProgramFiles 'NVIDIA GPU Computing Toolkit\CUDA'
+    $found = Get-ChildItem $base -Directory -Filter 'v*' -ErrorAction SilentlyContinue |
+        Where-Object { (Test-Path (Join-Path $_.FullName 'bin\nvcc.exe')) -and (Test-Path (Join-Path $_.FullName 'bin\x64\cublas64_13.dll')) } |
+        Sort-Object { [version]($_.Name.TrimStart('v')) } -Descending | Select-Object -First 1
+    if (-not $found) { throw "no CUDA toolkit with nvcc and cuBLAS 13 under ${base}: install the CUDA toolkit" }
+    return $found.FullName
+}
 
 $Root = $PSScriptRoot
 $Dist = if ([IO.Path]::IsPathRooted($OutDir)) { $OutDir } else { Join-Path $Root $OutDir }
@@ -137,17 +154,40 @@ try {
     if ($changed.Count) { Warn ("{0} tracked file(s) differ from HEAD and go into the package as they are now: {1}" -f $changed.Count, (($changed | Select-Object -First 8) -join ', ')) }
 
     # ------------------------------------------------------------------ engine
+    $Cuda = Find-Cuda $CudaRoot
+    $env:CUDA_PATH = $Cuda
+    Info "CUDA toolkit: $Cuda"
     if ($SkipEngine) {
         Step 'Engine: skipped (-SkipEngine)'
     } else {
-        Step 'Engine (CMake, MSVC + CUDA)'
+        Step "Engine (CMake, MSVC + CUDA $(Split-Path $Cuda -Leaf))"
         . (Join-Path $Root 'tools\windows\vsenv.ps1')
+        $cache = Join-Path $Root 'build-win\CMakeCache.txt'
+        $builtWith = if (Test-Path $cache) { (Select-String -Path $cache -Pattern '^CMAKE_CUDA_COMPILER:\w+=(.*)$' | Select-Object -First 1).Matches.Groups[1].Value } else { '' }
+        $wanted = (Join-Path $Cuda 'bin\nvcc.exe') -replace '\\', '/'
+        if ($builtWith -and ($builtWith -replace '\\', '/') -ne $wanted) {
+            $inUse = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith((Join-Path $Root 'bin'), [StringComparison]::OrdinalIgnoreCase) })
+            if ($inUse.Count) { throw ('the build was made with {0} and this run uses {1}, so the engine is built again, but it is running ({2}): stop the server (Ferma-Basalt.ps1) and run this again' -f $builtWith, $wanted, (($inUse | ForEach-Object { "$($_.ProcessName) $($_.Id)" }) -join ', ')) }
+            Info "the build folder was made with ${builtWith}: removed, the engine is built again with ${wanted}"
+            Remove-Item -Recurse -Force (Join-Path $Root 'build-win')
+        }
         if (-not (Test-Path (Join-Path $Root 'build-win\build.ninja'))) {
             Info 'configuring build-win'
-            Run cmake @('-S', '.', '-B', 'build-win', '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_CUDA_ARCHITECTURES=120', '-DCMAKE_C_COMPILER=cl', '-DCMAKE_CXX_COMPILER=cl')
+            Run cmake @('-S', '.', '-B', 'build-win', '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_CUDA_ARCHITECTURES=120', '-DCMAKE_C_COMPILER=cl', '-DCMAKE_CXX_COMPILER=cl',
+                           "-DCMAKE_CUDA_COMPILER=$wanted", ('-DCUDAToolkit_ROOT=' + ($Cuda -replace '\\', '/')))
         }
-        (Get-Process -Id $PID).PriorityClass = 'BelowNormal'
-        Run cmake @('--build', 'build-win', '--parallel', '4')
+        # a dry run lists what would be rebuilt: when nothing, the binaries are left alone; when something, the programs it would link
+        # must not be running (a running program keeps its file locked), and the script says which before it starts
+        $plan = (& cmake --build build-win -- -n 2>&1 | Out-String)
+        if ($LASTEXITCODE -eq 0 -and $plan -match 'no work to do') {
+            Info 'the engine is up to date: not rebuilt (the server may keep running)'
+        } else {
+            $targets = @([regex]::Matches($plan, 'Linking \S+ executable (\S+)') | ForEach-Object { $_.Groups[1].Value })
+            $inUse = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path } | Where-Object { $own = $_.Path; $targets | Where-Object { [string]::Equals($_, $own, [StringComparison]::OrdinalIgnoreCase) } })
+            if ($inUse.Count) { throw ('the engine has to be rebuilt ({0}) but it is running ({1}): stop the server (Ferma-Basalt.ps1) and run this again' -f (($targets | ForEach-Object { Split-Path $_ -Leaf }) -join ', '), (($inUse | ForEach-Object { "$($_.ProcessName) $($_.Id)" }) -join ', ')) }
+            (Get-Process -Id $PID).PriorityClass = 'BelowNormal'
+            Run cmake @('--build', 'build-win', '--parallel', '4')
+        }
     }
     foreach ($exe in 'basalt.exe', 'basalt-vision.exe', 'basalt-bench.exe') {
         if (-not (Test-Path (Join-Path $Root "bin\$exe"))) { throw "bin\$exe is missing: build the engine (run without -SkipEngine)" }
@@ -179,10 +219,9 @@ try {
     New-Item -ItemType Directory -Force $bin | Out-Null
     Copy-Item (Join-Path $Root 'bin\*.exe') $bin
 
-    $cuda = if ($env:CUDA_PATH) { $env:CUDA_PATH } else { 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.1' }
     foreach ($dll in 'cublas64_13.dll', 'cublasLt64_13.dll') {
-        $p = Join-Path $cuda "bin\x64\$dll"
-        if (-not (Test-Path $p)) { throw "$p not found (CUDA 13.1 toolkit; set CUDA_PATH)" }
+        $p = Join-Path $Cuda "bin\x64\$dll"
+        if (-not (Test-Path $p)) { throw "$p not found (the CUDA toolkit the engine was built with)" }
         Copy-Item $p $bin
     }
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -191,7 +230,7 @@ try {
         Where-Object { $_.FullName -notmatch 'Debug' } | Sort-Object { [version]($_.FullName -replace '^.*\\MSVC\\([\d.]+)\\.*$', '$1') } -Descending | Select-Object -First 1
     if (-not $crt) { throw 'the Microsoft C++ runtime (VC\Redist\MSVC\...\x64\Microsoft.VC*.CRT) was not found in Visual Studio' }
     foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') { Copy-Item (Join-Path $crt.FullName $dll) $bin }
-    Info "bin: engine, cuBLAS (CUDA EULA, Attachment A), C++ runtime from $($crt.FullName)"
+    Info "bin: engine, cuBLAS from $Cuda (CUDA EULA, Attachment A), C++ runtime from $($crt.FullName)"
     $lic = Join-Path $Stage 'licenses'
     New-Item -ItemType Directory -Force $lic | Out-Null
     Copy-Item (Join-Path $cuda 'EULA.txt') (Join-Path $lic 'NVIDIA-CUDA-EULA.txt')
@@ -486,6 +525,11 @@ The setup\ folder is removed by the installer once everything is in place. The Q
     # ------------------------------------------------------------------ the new numbers are kept only now that everything worked
     [ordered]@{ version = $curVersion; subversion = $newSub; name = $relName; names_used = @($usedNames); release = $ReleaseLabel;
                 built = (Get-Date -Format 's'); commit = $commit } | ConvertTo-Json | Set-Content -Encoding UTF8 $VersionFile
+
+    if (-not $NoSetup) {                                           # only the setup just built stays: earlier versions are deleted
+        $older = @(Get-ChildItem -LiteralPath $Dist -Filter 'Basalt-WinGUI-*-setup.exe' -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne (Resolve-Path -LiteralPath $SetupExe).Path })
+        foreach ($f in $older) { Remove-Item -LiteralPath $f.FullName -Force; Info ('deleted the setup of an earlier version: {0}' -f $f.Name) }
+    }
 
     Step "Done: $ReleaseLabel"
     Info "program folder : $Stage"
