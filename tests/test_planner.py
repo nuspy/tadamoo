@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness.planner import (Assignee, EventBuffer, EventPump, JevTriageGatekeeper, NodeType, PlanCanvasBridge, PlanDAG,
                              PlanError, PlanInsightCard, PlanNode, PlanStore, Pseudonymizer, Replanner, TriageResult,
                              classify_diff, safe_eval, share_card)
+from harness.planner.card import CARD_FIELDS, DEFAULT_SHARED_FIELDS, PERSONAL_FIELDS, name_parts, scrub_contacts
 from harness.planner.replan import build_messages, parse_proposal
 
 
@@ -272,10 +273,10 @@ CARD = {"titolo": "Weekend a Cervinia", "date": "24-26 ottobre", "destinazione":
 def test_the_card_validates_and_pseudonymizes_names_whole_word():
     card = PlanInsightCard.from_dict(CARD)
     assert card.people() == ["Gianni", "Erica", "Diana"]
-    shared = share_card(card)
+    shared = share_card(card, fields=CARD_FIELDS)
     text = json.dumps(shared, ensure_ascii=False)
     assert not any(n in text for n in ("Gianni", "Erica", "Diana")) and "Persona 1" in text
-    assert shared["profilo_e_vincoli_partecipanti"]["Persona 2"] == "Estremamente superstiziosa"   # the constraint stays
+    assert shared["profilo_e_vincoli_partecipanti"]["Persona 2"] == "Estremamente superstiziosa"   # the constraint stays when it is chosen
     p = Pseudonymizer(card.people())
     assert p.apply("Erica rompe 13 specchi, Dianna no, e ERICA's sorella") == "Persona 2 rompe 13 specchi, Dianna no, e Persona 2's sorella"
     assert Pseudonymizer(["Anna", "Anna Maria"]).apply("Anna Maria e Anna") == "Persona 2 e Persona 1"
@@ -1051,3 +1052,51 @@ def test_the_bridge_feeds_events_to_the_sensors_and_tells_the_viewers():
     assert heard[-1]["type"] == "plan:graph" and heard[-1]["resolved"] == ["meteo"]
     assert bridge.handle({"type": "plan:event", "text": "  "})["ok"] is False
     assert bridge.handle({"type": "plan:event"})["ok"] is False
+
+
+# -- what leaves this machine ----------------------------------------------------------------------------
+
+FULL = {"titolo": "Weekend a Cervinia", "destinazione": "Cervinia", "partecipanti": ["Io (organizzatore)", "Gianni Verdi", "Diana Rossi"],
+        "logistica_e_prenotazioni": {"alloggio": "Hotel prenotato, referente Gianni Verdi 0166 949136", "contatto": "gianni.verdi@example.com"},
+        "profilo_e_vincoli_partecipanti": {"Gianni Verdi": "Ricoverato di recente, soffre di asma", "Diana Rossi": "Allergica agli ovini"}}
+
+
+def test_a_first_name_or_a_surname_alone_is_replaced_like_the_full_name():
+    p = Pseudonymizer(PlanInsightCard.from_dict(FULL).people())
+    out = p.apply("Gianni è ricoverato; la sorella di VERDI chiama, diana ROSSI no, e rossi's auto")
+    assert out == "Persona 1 è ricoverato; la sorella di Persona 1 chiama, Persona 2 no, e Persona 2's auto"
+    assert p.apply("Gianni Verdi e Dianassa") == "Persona 1 e Dianassa"                          # whole words only
+
+
+def test_common_words_in_a_participants_entry_are_not_taken_for_names():
+    assert name_parts("Il mio amico Luca Bianchi") == ["Luca", "Bianchi"]
+    assert name_parts("Anna") == [] and name_parts("Io (x)") == []
+    p = Pseudonymizer(["Il mio amico Luca Bianchi", "La nonna di Diana"])
+    assert p.apply("Il mio amico è qui con la nonna; Luca, Bianchi e Diana") == "Il mio amico è qui con la nonna; Persona 1, Persona 1 e Persona 2"
+    shared = Pseudonymizer(["Anna Maria", "Maria Bianchi"])                                         # a word two people share goes to the first
+    assert shared.apply("Maria") == "Persona 1" and shared.apply("Bianchi") == "Persona 2"
+    assert Pseudonymizer(["Anna", "Anna Maria"]).apply("Anna Maria e Anna") == "Persona 2 e Persona 1"
+
+
+def test_contacts_are_taken_out_and_dates_are_not():
+    assert scrub_contacts("Scrivimi a gianni.verdi@example.com o chiama +39 333 1234567") == "Scrivimi a [email] o chiama [telefono]"
+    assert scrub_contacts("Tel (0166) 949136 oppure 3331234567") == "Tel [telefono] oppure [telefono]"
+    for keep in ("il 2026-10-25 alle 10:30", "dal 24/10/2026", "24 25 26 27 ottobre", "prezzo 1.500.000 euro", "13 specchi, 4 persone"):
+        assert scrub_contacts(keep) == keep
+
+
+def test_by_default_the_participants_health_and_constraints_do_not_leave_and_a_choice_sends_them(jev):
+    assert "profilo_e_vincoli_partecipanti" in PERSONAL_FIELDS and set(DEFAULT_SHARED_FIELDS) == set(CARD_FIELDS) - set(PERSONAL_FIELDS)
+    card = PlanInsightCard.from_dict(FULL)
+    assert set(share_card(card)) == set(DEFAULT_SHARED_FIELDS)
+    fake = jev(answer=jev_answer(0.1, "ZERO_EVENTS_IMPACTFUL"))
+    gate(fake).triage_event_batch(card, ["Gianni è ricoverato, scrivete a gianni@x.org o al 333 1234567"])
+    sent = json.dumps(fake.requests[0]["body"], ensure_ascii=False)
+    assert "asma" not in sent and "ovini" not in sent and "Allergica" not in sent               # the personal field stayed home
+    assert not any(w in sent for w in ("Gianni", "Verdi", "Diana", "Rossi", "gianni@x.org", "333 1234567", "949136", "example.com"))
+    assert "Persona 1 è ricoverato, scrivete a [email] o al [telefono]" in sent
+    assert "Hotel prenotato, referente Persona 1 [telefono]" in sent                            # the card's own text is cleaned too
+    chosen = jev(answer=jev_answer(0.1, "ZERO_EVENTS_IMPACTFUL"))
+    gate(chosen, card_fields=list(CARD_FIELDS)).triage_event_batch(card, ["Gianni è ricoverato"])
+    sent = json.dumps(chosen.requests[0]["body"], ensure_ascii=False)
+    assert "asma" in sent and "Allergica agli ovini" in sent and "Gianni" not in sent and "Diana" not in sent

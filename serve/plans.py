@@ -59,7 +59,9 @@ class PlanService:
         except (OSError, json.JSONDecodeError):
             saved = {}
         merged = {**DEFAULTS, **{k: v for k, v in saved.items() if k in DEFAULTS}}
-        return {**merged, "key_present": bool(os.environ.get("TYPESAFE_API_KEY")) or self._jev_from_registry() is not None}
+        card = _planner().card
+        return {**merged, "key_present": bool(os.environ.get("TYPESAFE_API_KEY")) or self._jev_from_registry() is not None,
+                "card_fields_default": list(card.DEFAULT_SHARED_FIELDS), "card_fields_personal": list(card.PERSONAL_FIELDS)}
 
     def update_settings(self, changes: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(changes, dict):
