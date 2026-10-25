@@ -280,7 +280,7 @@ and the bridge the page talks to.
   measure (KPIs, habits), a review that records what was found, and reading conflicts between two long-term plans by arithmetic.
 - A plan is a graph of action, sensor, decision and merge nodes with shared values. Decisions route by simple conditions
   (`len(guests) >= 2`; never code); merges wait for their inputs; a task the software cannot do is offered to you with an
-  alternative and, if you decline, becomes yours and blocks what depends on it. You can rewind a step.
+  alternative and, if you decline, becomes yours and blocks what depends on it. You can rewind a step. A rewind says first which recorded actions of those steps stay done (see *Branches, going back and comparing*).
 - Incoming events wait in a buffer (10 events or 5 minutes after the first) and are judged by the filter. **The cloud filter
   (TypeSafe Jev) is off.** It needs your consent in Settings *and* a key in the server's `TYPESAFE_API_KEY`; only the plan
   fields you tick are sent. People's names are replaced by labels (a full name also by its first name and its surname on their
@@ -380,11 +380,51 @@ model (structured and incremental summaries) use the provider chosen for the com
 when it fails.
 
 Going back: each request of the person in the conversations Chat has a "Back to here" button (two presses); the conversation returns to just after
-that request, a copy of what came later is kept in its folder, and the files the agent changed are not touched (the Changes panel undoes them).
+that request, a copy of what came later is kept in its folder, and the files the agent changed are not touched (the Changes panel undoes them). Actions that cannot be undone are listed first and need an explicit yes (see *Branches, going back and comparing*).
 A plan can be copied as a Mermaid diagram from the Plans view (`GET /api/plans/<id>/mermaid`).
 
 Not done: a rewriting that the model proposes and the person approves, candidates written in parallel, named versions of
 the system prompt, and the measure that picks the best strategy (it needs the real model).
+
+## Branches, going back and comparing
+
+A conversation's history is a list of messages, so the tree of branches is made from what the server records: a branch keeps
+`branched_from` (the conversation and the request it left from) and a conversation that went back keeps a `rewinds` list (the request
+it returned to, where it was, when, the file with the copy of what was taken off, and the actions that stayed done). Records written
+before these fields existed have none and show as plain conversations.
+
+- **Tree of branches.** `GET /api/agent/sessions/tree` places every conversation under the one it was branched from, in the order of the
+  requests they leave from; one whose parent is gone is a root of its own. The Chat's **Branches** button opens a dialog with it as an
+  indented list (`tree`, `treeitem`, `group`; one tab stop, arrows walk it, Right and Left open and close a group, Enter or a click opens
+  the conversation). The line says the state, the request it was branched after and any going back, in words. The page has one dark
+  theme, so contrast is checked on that.
+- **What stays done.** Going back, from the conversation or the plan, does not undo the world. Before a conversation goes back,
+  `GET .../<id>/back-impact?turn=N` lists the tool calls after that request: those that changed files in the conversation's copy
+  (`reversible`: the Changes panel puts them back) and those that stay (`not_undone`: a command, a call, a payment, a browser action,
+  an MCP tool, a tool whose effect is not known, a file outside the copy). A call the agent refused or that was cancelled is not
+  counted. The class of each tool comes from what it declared when the conversation used it (kept in `tool_effects.json`), else from
+  the table in `harness/rewind.py`. `POST .../<id>/back` refuses (`needs_yes`, 409) while any call stays, unless the body has
+  `accept_irreversible: true`; the page shows the list and asks for one more press. The list is kept in the `rewinds` mark and the
+  `went_back` event as still done: nothing pretends to have undone it.
+- **A plan's steps.** While a conversation works on a plan's step (between `plan_step_start` and `plan_mark` to completed, failed or
+  skipped), the manager writes each reversible or irreversible tool call that succeeded onto the step (`plan:note_effect`, in the step's
+  `state_variables.effects`). `plan:rewind_impact` lists what a rewind from a step would reset and which of those actions stay; `plan:rewind`
+  is refused, naming them, until it carries `accept_irreversible: true`, and the actions stay in the step's history entry as `still_done`.
+  Steps done by hand, or by a conversation that was not watched, record nothing. The Plans page does not yet ask for the confirmation, so
+  from there a rewind over a recorded irreversible action shows the refusal.
+- **Run both and compare.** `POST .../<id>/compare` with `{turn, variants: [{text, mode?, max_turns?, ask_only?, end_turn_bias?, label?}, {...}]}`
+  branches the conversation twice from that request and sends each branch its message, the first and then the second, never together
+  (there is one GPU; two comparisons also wait for each other). Automatic mode is not offered. `GET /api/agent/sessions/compares/<id>`
+  returns both answers, a diff of them and, when both branches worked in copies of the folder, the files each changed with a diff of
+  each file between the two; without copies there is no file comparison. A side that asks something or is blocked is left for the
+  person to answer from its branch. The list is kept across restarts (a comparison that was running is marked interrupted).
+- **Files the agent made.** The same dialog lists them (`GET /api/outputs?session=<id>`) and previews Markdown, text, code, images and a
+  page. A page runs in a frame with an empty `sandbox` (no scripts, forms, popups or origin) and a policy that allows no network
+  and only `data:` images. A diagram (`.mmd`) is shown as its source: the app has no diagram renderer. Accepting or undoing a change
+  block by block is the Changes view's job, and was already there.
+
+Not done: the node canvas (§4.3) and its merge node, a cost estimate of re-reading the prefix when switching branch, and a diagram
+renderer.
 
 ## The planner wakes the conversation
 
