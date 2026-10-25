@@ -149,6 +149,44 @@ def _load_json(path: Path) -> Any:
         return None
 
 
+def mcp_spec_sha(command: str, args: List[str], url: str = "") -> str:
+    """The hash an approval of a server is tied to: what it starts, with which arguments, or the address it is reached at."""
+    return _sha(json.dumps([command, args, url.split("?", 1)[0]]))
+
+
+def installed_entries(root: Path) -> List[Found]:
+    """What Basalt installed on the person's choice (harness/discovery): the servers listed in installed.json and the skills in the skills folder."""
+    out: List[Found] = []
+    data = _load_json(root / "installed.json")
+    for rec in ((data.get("items") if isinstance(data, dict) else None) or {}).values():
+        if not isinstance(rec, dict) or rec.get("kind") != "mcp" or not re.fullmatch(r"[A-Za-z0-9_\-.]{1,64}", str(rec.get("name") or "")):
+            continue
+        command = rec.get("command") if isinstance(rec.get("command"), list) and rec.get("command") else None
+        url = str(rec.get("url") or "")
+        if command:
+            command = [str(c) for c in command]
+            shown = " ".join([command[0], *redact_args(command[1:])])
+            sha = mcp_spec_sha(command[0], command[1:])
+        elif url:
+            shown, sha = url.split("?", 1)[0].split("#", 1)[0], mcp_spec_sha("", [], url)
+        else:
+            continue
+        what = " ".join(str(rec.get("description") or "").split())[:DESC_CHARS - 40]
+        out.append(Found(id=f"mcp:{rec['name']}", name=rec["name"], kind="mcp", origin="basalt", description=f"{what} (MCP server: {shown})"[:DESC_CHARS], tags=["mcp"],
+                         path=str(root / "installed.json"), sha=sha, command=shown, raw_command=command, url="" if command else shown))
+    skills = root / "skills"
+    if skills.is_dir():
+        for f in sorted(skills.rglob("SKILL.md")):
+            if entry := _read_skill(f, "basalt"):
+                out.append(entry)
+    return out
+
+
+class Launch(list):
+    """A command to start a server, with the environment to start it in; the environment is not part of the command."""
+    env: Optional[Dict[str, str]] = None
+
+
 def discover(workspace: Path, home: Optional[Path] = None, appdata: Optional[Path] = None) -> List[Found]:
     """Everything found, in a fixed order; the first of a name wins (the person's own, then the project's, then plugins')."""
     home = home or Path.home()
@@ -227,6 +265,8 @@ class CapabilityIndex:
         self.dir = Path(directory)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.workspace, self.home, self.appdata = Path(workspace), home, appdata
+        self.online_hint = False                          # set when find_online_capability is offered: find_capability then points to it
+        self.vault_dir: Optional[Path] = None             # where the keys a server installed by Basalt asks for are read from, when it starts
         self.approvals = ApprovalStore(self.dir / "approved.json")
         self._lock = threading.RLock()
         self.entries: List[Dict[str, Any]] = []
@@ -275,6 +315,7 @@ class CapabilityIndex:
         with self._lock:
             if rescan or not self.entries:
                 found = discover(self.workspace, self.home, self.appdata)
+                found += [e for e in installed_entries(self.dir) if e.id not in {f.id for f in found}]
                 self._raw = {f.id: f.raw_command for f in found if f.raw_command}
                 self._urls = {f.id: f.url for f in found if f.url}
                 base = [{"id": f.id, "name": f.name, "kind": f.kind, "origin": f.origin, "path": f.path, "sha": f.sha, "command": f.command,
@@ -450,12 +491,20 @@ class CapabilityIndex:
     def target(self, entry_id: str) -> Any:
         """What an approved server is reached with: the command to start (a list) or the address of a remote one (a string)."""
         try:
-            return self.command(entry_id)
+            command = self.command(entry_id)
         except ValueError:
             url = getattr(self, "_urls", {}).get(entry_id)
             if not url:
                 raise
             return url
+        launch = Launch(command)
+        e = self.get(entry_id)
+        if e is not None and e["origin"] == "basalt":
+            from harness.discovery.installed import InstalledStore, launch_env
+            record = InstalledStore(self.dir).get(entry_id)
+            if record and record.get("env"):
+                launch.env = launch_env(record, self.vault_dir)        # a missing key is a ValueError that names the vault entry
+        return launch
 
     def remote_servers(self) -> List[Dict[str, Any]]:
         """The remote servers found, with their address: [{"id", "name", "url", "state"}]."""
@@ -473,7 +522,9 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
     def find_capability(query: str, node: str = "", kind: str = "") -> str:
         hits = index.search(query, node, kind)
         if not hits:
-            return "Nothing found. Try other words, or a node: " + ", ".join(node_names()) + "."
+            hint = (" If what you need usually exists as an MCP server or a skill, find_online_capability looks for one online and the person chooses."
+                    if index.online_hint else "")
+            return "Nothing found. Try other words, or a node: " + ", ".join(node_names()) + "." + hint
         return "\n".join(f"{h['id']} [{h['kind']}, {h['node']}, {h['state']}] {h['name']}: {h['description']}" for h in hits)
 
     def load_capability(id: str) -> str:
