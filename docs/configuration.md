@@ -132,6 +132,7 @@ The model's experts live in VRAM (the expert cache), in RAM, or in the file. The
 | `expert-profile-save-every` | engine | minutes | 10 (`0` = on exit only) | How often the profile is saved. |
 | `vram-elastic` | engine | switch | off | Hold the expert cache in segments so `POST /v1/vram` can lend VRAM to other programs between requests. |
 | `vram-segment-mib` | engine | integer MiB | 512 | Segment size for `vram-elastic`. |
+| `release-vram-commit` | engine | switch | off | Windows: give back the system commit WDDM charges for the GPU memory (see [WINDOWS.md](WINDOWS.md#the-commit-of-the-gpu-memory)). If another program then pushes the engine's VRAM out, the engine can hang. |
 | `expert-cache-device1`, `-device2`, `-device3` | engine | integer or `auto` | off | Fill another GPU with experts directly, as a fixed tier. Not with `peer-device`. Advanced. |
 | `expert-cache-remote-placement` | engine | `stripe`, `layer` | `stripe` | How those cards share the experts. |
 

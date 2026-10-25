@@ -65,6 +65,8 @@ The Linux code paths are unchanged; the Windows ones sit behind `_WIN32` / `MSVC
   because Windows charges every allocation - and the VRAM a WDDM driver backs - to the commit, and a budget from
   the RAM alone could be granted only by growing the page file.  The RAM margin left free is 15% of the RAM (5% on
   Linux).  Read-ahead hints are `PrefetchVirtualMemory`.
+* **The commit of the GPU memory** (`src/platform/vram_backing.cpp`, `--release-vram-commit`, off by default):
+  see the section of that name below.
 * **Pinned arena** (`src/core/pinned.cu`): large pages when the account holds `SeLockMemoryPrivilege` (it is
   enabled in the process token), else 4 KB pages.  Page-locked memory the GPU maps is charged to the GPU's WDDM
   shared-memory segment (about half the RAM); a sliced arena is pinned only up to 4 GiB below that budget (read from
@@ -106,6 +108,26 @@ The Linux code paths are unchanged; the Windows ones sit behind `_WIN32` / `MSVC
 * **TDR.**  Windows resets a GPU that does not answer a preemption request within `TdrDelay` (2 s).  The decode path's
   kernels spin on flags the CPU pool writes; with compute preemption a spinning kernel is preemptible, so this is not
   expected to trigger, but it is not verified with a model yet.  Basalt changes no Windows setting.
+
+## The commit of the GPU memory
+
+Under WDDM every GPU allocation (`cudaMalloc`, `cuMemCreate`, `cudaMallocAsync`) is charged its full size to the
+process commit as soon as it is created, before anything is written to it.  The video memory manager keeps
+committed private regions (`PAGE_READWRITE | PAGE_WRITECOMBINE`) to evict the allocation into, and leaves them
+untouched while the allocation stays in VRAM: the charge takes no RAM, but it counts against the commit limit
+(RAM + page file) as much as the weights in VRAM weigh.  `D3DKMTTrimProcessCommitment` gives none of it back: it
+acts only on allocations offered with `D3DKMTOfferAllocations`, and CUDA offers none.
+
+`--release-vram-commit` (`"release-vram-commit": true` in the config) decommits those regions: once the model is
+loaded, and after each command for what the last one allocated.  A region is released only when none of its pages
+is in RAM, and judged once, so content an eviction wrote into it is never discarded.  Before the machine sleeps
+(S3, when the VRAM is saved into these regions) the engine commits them again, and they stay committed after the
+resume.  The startup log says how much was given back.
+
+What it risks: an allocation can only be evicted into its backing.  Programs that keep to their video memory budget
+(Direct3D 12) page themselves and leave the engine alone, but a CUDA allocation from another program while the
+engine idles evicts the engine's memory, and with the backing released the engine can then hang until it is
+stopped.  Use it only when no other program allocates GPU memory with CUDA while Basalt runs.
 
 ## Tests
 
