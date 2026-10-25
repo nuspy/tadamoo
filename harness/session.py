@@ -40,6 +40,7 @@ from harness.client import StreamCancelled
 from harness.pipeline import Pipeline
 from harness.router import QUEUE, STEER, STRONG_URGENT, URGENT, Router
 from harness.stack import AgentConfig, BuiltAgent, build_agent, data_dir_for
+from harness.vault import valid_code
 
 HEARTBEAT_S = 5.0
 DELTA_CHARS, DELTA_S = 400, 0.25
@@ -298,7 +299,7 @@ class Session:
         """A confirmation: shown with its buttons, and the task waits for the answer ("confirm", "cancel" or "" if it was
         cancelled). A task waiting for the person is not stuck."""
         aid = uuid.uuid4().hex[:8]
-        slot = {"event": threading.Event(), "value": "", "values": {o["value"] for o in payload.get("options", [])}}
+        slot = {"event": threading.Event(), "value": "", "values": {o["value"] for o in payload.get("options", [])}, "free": bool(payload.get("free"))}
         cancel = self._cur_cancel()
         with self._ask_lock:
             self._asks[aid] = slot
@@ -318,7 +319,7 @@ class Session:
     def answer(self, aid: Any, value: Any) -> bool:
         with self._ask_lock:
             slot = self._asks.get(str(aid))
-        if slot is None or value not in slot["values"]:
+        if slot is None or not (value in slot["values"] or (slot["free"] and valid_code(value))):
             self.emit({"event": "error", "code": "bad_answer", "message": "no such question, or not one of its answers"})
             return False
         slot["value"] = value
@@ -329,6 +330,11 @@ class Session:
         """A question that ends the turn: the button the person presses is their next message."""
         self.emit({"event": "ask", "id": uuid.uuid4().hex[:8], "turn": self._cur_turn(), **payload})
         return True
+
+    def ask_code(self, who: str) -> str:
+        """A second-factor code typed by the person. It goes to the tool that needs it and nowhere else: not to the model, not to the history."""
+        return self._ask({"mode": "confirm", "kind": "code", "free": True, "facts": {"who": who},
+                          "question": f"Type the code for {who}.", "options": []})
 
     def permission_confirm(self, tool: str, arguments: Dict[str, Any]) -> bool:
         """The permission manager's question, put to the person in the conversation."""
@@ -788,6 +794,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--allow", action="append", default=[], metavar="PATTERN")
     parser.add_argument("--deny", action="append", default=[], metavar="PATTERN")
     parser.add_argument("--secret-env", action="append", default=[], metavar="NAME")
+    parser.add_argument("--vault-dir", default="", help="the person's vault: the model writes {{vault:ENTRY.FIELD}} and the value is filled in for it")
     parser.add_argument("--skills", action="append", default=[], metavar="DIR")
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of in the conversation")
     parser.add_argument("--ask-only", action="store_true", help="answer without tools: a greeting does not become a loop")
@@ -844,7 +851,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                       skill_paths=args.skills, confirm=confirm, run_id=sid,
                       context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold, end_turn_bias=args.end_turn_bias, snapshot_dir=str(history / "snapshots"),
                       attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
-                      capabilities=args.capabilities and not args.ask_only, lsp=args.lsp and not args.ask_only, council=not args.ask_only)
+                      capabilities=args.capabilities and not args.ask_only, lsp=args.lsp and not args.ask_only, council=not args.ask_only,
+                      vault_dir="" if args.ask_only else args.vault_dir)
     from harness.client import BasaltClient
     from harness.llm import client_for, judge_for
     from harness.llm.judge import router_judge
@@ -867,6 +875,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         from harness.attachments import AttachmentStore
         session.attachment_store = AttachmentStore(Path(args.attachments_dir))
     session.endpoint, session.api_key = cfg.endpoint, cfg.api_key
+    if built.agent.secrets is not None:
+        built.agent.secrets.ask_code = session.ask_code
     if not args.ask_server:
         built.permissions.confirm_callback = session.permission_confirm      # the questions are put in the conversation
     if not args.ask_only and not args.no_planner:

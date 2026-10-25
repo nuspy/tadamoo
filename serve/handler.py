@@ -1430,7 +1430,8 @@ def make_handler(svc: Service):
             if _SESSIONS is None:
                 _SESSIONS = SessionManager(userdata.path("journal"), f"http://127.0.0.1:{self.server.server_address[1]}",
                                            svc.api_key or "", board=_APPROVALS, default_workspace=userdata.path("chat-workspace"),
-                                           attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"))
+                                           attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),
+                                           vault_dir=userdata.path("vault"))
             return _SESSIONS
 
         def _agent_get(self, path):

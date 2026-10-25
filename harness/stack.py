@@ -57,6 +57,8 @@ class AgentConfig:
     deny: List[str] = field(default_factory=list)
     secret_names: List[str] = field(default_factory=list)
     secret_hosts: Dict[str, List[str]] = field(default_factory=dict)   # secret name -> hosts it may be sent to
+    vault_dir: str = ""                 # the person's vault (cards, personal data, logins): the model only writes placeholders for it
+    ask_code: Optional[Callable[[str], str]] = None   # how to ask the person for a second-factor code
     context_window: int = 32768
     max_output_tokens: int = 4096
     max_total_tokens: Optional[int] = None
@@ -196,9 +198,12 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     data.mkdir(parents=True, exist_ok=True)
 
     secrets = SecretsBroker.from_environment(cfg.secret_names, cfg.secret_hosts)
+    if cfg.vault_dir:
+        from harness.vault import Vault
+        secrets.attach_vault(Vault(cfg.vault_dir), cfg.ask_code)
     level, plan = PERMISSION_MODES[cfg.permission_mode]
     permissions = PermissionManager(level=level, plan_mode=plan, confirm_callback=cfg.confirm,
-                                    sensitive_data=bool(secrets.names()))
+                                    sensitive_data=secrets.sensitive())
     for pattern in cfg.deny:
         permissions.add_rule(pattern, "deny")
     for pattern in cfg.allow:
@@ -217,6 +222,8 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
                              summarize=_summarizer(summarizer or client) if patterns["summary"]["on"] else None)
 
     builder = ContextBuilder(SYSTEM_CORE)
+    if secrets.vault is not None and secrets.vault.note():
+        builder.pin("vault", secrets.vault.note())
     _, guidelines = find_project_guidelines(workspace)
     if guidelines:
         builder.set_project_rules(guidelines)

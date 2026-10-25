@@ -487,3 +487,52 @@ def test_a_turn_waiting_for_the_person_is_never_reported_as_stuck(tmp_path):
     ev.wait("done")
     session.busy, session.last_progress = True, time.monotonic() - 100
     assert 99 <= session.idle_seconds() <= 102             # a turn that is only silent does count
+
+
+def with_vault(tmp_path, client, entries):
+    from harness.vault import Vault
+    vault = Vault(tmp_path / "vault")
+    for entry_id, kw in entries.items():
+        vault.put(entry_id, **kw)
+    ws = tmp_path / "ws"
+    ws.mkdir(exist_ok=True)
+    built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False,
+                                    permission_mode="auto", max_turns=6, vault_dir=str(tmp_path / "vault")), client=client)
+    events = Events()
+    session = Session(built, SessionStore(tmp_path / "hist", redact=built.agent.secrets.mask_secrets), events, session_id="s1", sleep=lambda s: None)
+    built.agent.secrets.ask_code = session.ask_code
+    return session, events, built
+
+
+def test_the_model_is_told_the_names_in_the_vault_and_never_a_value(tmp_path):
+    client = Scripted(say("ok"))
+    session, ev, built = with_vault(tmp_path, client, {"name": {"kind": "identity", "fields": {"full_name": "Mario Rossi"}}})
+    session.send("m1", "ciao")
+    ev.wait("done")
+    system = client.sent[0][0]["content"]
+    assert "{{vault:ENTRY.FIELD}}" in system and "name (identity" in system
+    assert "Mario Rossi" not in json.dumps(client.sent[0])
+
+
+def test_a_second_factor_code_is_asked_to_the_person_and_reaches_only_the_command(tmp_path):
+    client = Scripted(call("shell_command", command="echo code={{vault:bank.totp}}"), say("fatto"))
+    session, ev, built = with_vault(tmp_path, client, {"bank": {"kind": "login", "fields": {"username": "mr"}, "second_factor": "manual"}})
+    session.send("m1", "entra in banca")
+    ask = ev.wait("ask")
+    assert ask["kind"] == "code" and ask["free"] is True and ask["facts"] == {"who": "bank"} and ask["options"] == []
+    assert session.answer(ask["id"], "not a code!") is False and ev.wait("error")["code"] == "bad_answer"
+    assert session.answer(ask["id"], "554 433")
+    assert ev.wait("done")["final"] == "fatto"
+    seen = json.dumps(client.sent[1])
+    assert "554" not in seen and "{{vault:bank.totp}}" not in seen.replace("echo code={{vault:bank.totp}}", "")
+    kept = "".join(f.read_text(encoding="utf-8", errors="ignore") for f in (tmp_path / "hist").rglob("*") if f.is_file())
+    assert "554" not in kept
+
+
+def test_a_cancelled_code_question_stops_the_command(tmp_path):
+    client = Scripted(call("shell_command", command="echo code={{vault:bank.totp}}"), say("annullato"))
+    session, ev, built = with_vault(tmp_path, client, {"bank": {"kind": "login", "fields": {"username": "mr"}, "second_factor": "manual"}})
+    session.send("m1", "entra in banca")
+    ev.wait("ask")
+    session.cancel()
+    assert ev.wait("done")["stop_reason"] == al.CANCELLED

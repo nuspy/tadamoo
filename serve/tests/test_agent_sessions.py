@@ -527,3 +527,19 @@ def test_a_branch_of_a_conversation_in_a_copy_gets_a_copy_of_its_own(make, repo)
     until(lambda: "done" in kinds(mgr, sid))
     child = mgr.branch(sid, 1)
     assert child["worktree"]["dir"] != mgr.get(sid)["worktree"]["dir"] and Path(child["workdir"]).is_dir()
+
+
+def test_a_code_is_typed_by_the_person_and_is_not_kept_in_the_conversation(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "code")
+    until(lambda: mgr.get(sid)["state"] == "asking")
+    assert mgr.get(sid)["ask"]["free"] is True
+    for bad in ("", "   ", "x" * 33, "12;34", None, 554433):
+        with pytest.raises(RunError, match="up to 32"):
+            mgr.answer(sid, "c1", bad)
+    mgr.answer(sid, "c1", "554 433")
+    done = until(lambda: next((e for e in mgr.events(sid)["events"] if e["event"] == "done" and e["final"].startswith("answered")), None))
+    assert done["final"] == "answered: 554 433"                                   # the process got it
+    answered = [e for e in mgr.events(sid)["events"] if e["event"] == "answered"]
+    assert answered and answered[0]["value"] == ""                                 # the conversation did not

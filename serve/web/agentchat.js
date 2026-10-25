@@ -219,6 +219,7 @@
     if (b.kind === "plan_change") return T(key, f.plan, f.title);
     if (b.kind === "plan_archive") return T(key, f.plan);
     if (b.kind === "permission") return T(key, b.tool, JSON.stringify(b.args || {}).slice(0, 200));
+    if (b.kind === "code") return T(key, f.who);
     return b.question;
   }
   const optLabel = (b, o) => (b.mode === "confirm" ? T(o.value === "confirm" ? "ch.yes" : "ch.no") : o.label);
@@ -258,6 +259,18 @@
       let chip = el.querySelector(".chip");
       const pid = b.name.startsWith("plan_") ? planIdOf(b) : "";
       if (pid && !chip) { chip = btn(T("ch.plan.open"), "ghost chip", () => openPlan(pid)); el.querySelector("summary").after(chip); }
+      return;
+    }
+    if (b.t === "ask" && b.kind === "code") {                                  // a second-factor code: typed here, it goes to the tool and nowhere else
+      el.dataset.mode = b.mode;
+      const done = b.answered !== null;
+      const input = mk("input"); input.type = "password"; input.autocomplete = "one-time-code"; input.inputMode = "numeric"; input.maxLength = 32;
+      input.setAttribute("aria-label", T("ch.code.label")); input.disabled = done;
+      const go = btn(T("ch.code.send"), "primary", () => { if (input.value.trim()) answer(b, input.value.trim()); }); go.disabled = done;
+      input.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); go.click(); } };
+      const row = mk("div", "aask-b"); row.append(input, go);
+      el.replaceChildren(mk("p", "aask-q", askQuestion(b)), row);
+      if (done) el.append(mk("p", "aask-h", T("ch.code.sent")));
       return;
     }
     if (b.t === "ask") {
@@ -524,7 +537,7 @@
     if (b.mode === "question") { b.answered = value; b.dirty = true; render(); send(value); return; }     // the button is the person's next message
     const r = await api("POST", `/${sid}/answer`, { ask: b.id, value });
     if (!r.ok) { status(errText(r)); return; }
-    b.answered = value; b.dirty = true; state = "busy"; render(); poll(true);
+    b.answered = b.kind === "code" ? "-" : value; b.dirty = true; state = "busy"; render(); poll(true);
   }
   async function control(what) {
     const r = await api("POST", `/${sid}/${what}`, {});

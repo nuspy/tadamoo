@@ -83,6 +83,9 @@ for line in sys.stdin:
             emit({"event": "ask", "id": "a1", "mode": "confirm", "kind": "plan_archive", "question": "Archive it?", "facts": {"plan": "X"},
                   "options": [{"label": "Confirm", "value": "confirm"}, {"label": "Cancel", "value": "cancel"}]})
             continue                                                       # waits for the answer
+        if text == "code":
+            emit({"event": "ask", "id": "c1", "mode": "confirm", "kind": "code", "free": True, "question": "Type the code for bank.", "facts": {"who": "bank"}, "options": []})
+            continue                                                       # waits for the code
         if text == "question":
             emit({"event": "ask", "id": "q1", "mode": "question", "question": "Which day?", "options": [{"label": "Sat", "value": "Saturday"}]})
             busy["v"] = False

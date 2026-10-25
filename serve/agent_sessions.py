@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional
 
 from harness import context_patterns as context_patterns_mod
+from harness.vault import valid_code
 from harness.worktrees import WorktreeError, Worktrees
 from serve import ROOT
 from serve.api import logit_bias
@@ -40,7 +41,7 @@ EVENTS_KEPT = 3000
 SESSIONS_FILE = "agent_sessions.json"
 TITLE_CHARS = 80
 OPTIONS = ("resume", "close")
-ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments")
+ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free")
 
 
 class Live:
@@ -62,12 +63,14 @@ class SessionManager:
                  idle_s: float = 1800.0, hang_s: float = 1200.0, beat_timeout_s: float = 45.0, restart_cap: int = 3,
                  restart_window_s: float = 600.0, tick_s: float = 1.0, start_wait_s: float = 60.0,
                  default_workspace: Optional[Path] = None, router: str = "model", pipeline: str = "full",
-                 attachments_dir: Optional[Path] = None, outputs_dir: Optional[Path] = None, worktrees: Optional[Worktrees] = None) -> None:
+                 attachments_dir: Optional[Path] = None, outputs_dir: Optional[Path] = None, worktrees: Optional[Worktrees] = None,
+                 vault_dir: Optional[Path] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
         self.router = router                                    # how a message that comes during a task is judged: "model" or "rules"
         self.attachments_dir, self.outputs_dir = attachments_dir, outputs_dir      # the conversation's attached files and the files the agent made
+        self.vault_dir = vault_dir                              # the person's vault: the conversation's process fills placeholders from it
         self.pipeline = pipeline                                # the check of an answer against its request: "off", "light" or "full"
         self.worktrees = worktrees or Worktrees(Path(directory) / "worktrees")      # a conversation's own copy of a git folder
         self.default_workspace = Path(default_workspace) if default_workspace else None     # where a conversation works when none is named
@@ -347,6 +350,8 @@ class SessionManager:
             cmd += ["--allow", rule]
         if rec.get("ask_only"):
             cmd.append("--ask-only")
+        elif self.vault_dir:
+            cmd += ["--vault-dir", str(self.vault_dir)]
         if rec.get("context_patterns"):
             cmd += ["--context-patterns", json.dumps(rec["context_patterns"])]
         if rec.get("context_threshold"):
@@ -574,12 +579,16 @@ class SessionManager:
             live = self._live.get(sid)
             if not ask or live is None or ask.get("id") != ask_id:
                 raise RunError("That question is not waiting for an answer any more.", "not_asking")
-            if value not in [o.get("value") for o in ask.get("options") or []]:
+            free = bool(ask.get("free"))
+            if free:
+                if not valid_code(value):
+                    raise RunError("A code is up to 32 letters, digits, spaces or dashes.", "bad_answer")
+            elif value not in [o.get("value") for o in ask.get("options") or []]:
                 raise RunError("That is not one of the answers.", "bad_answer")
             self._set(rec, state="busy", ask=None)
             if not self._write(sid, live, {"cmd": "answer", "id": ask_id, "value": value}):
                 raise RunError("The agent process did not take the answer; try again.", "write_failed")
-        self._push(sid, {"event": "answered", "ask": ask_id, "value": value})
+        self._push(sid, {"event": "answered", "ask": ask_id, "value": "" if free else value})        # a code is not kept in the conversation
         return self.get(sid)
 
     def promote(self, sid: str, turn: Any) -> Dict[str, Any]:

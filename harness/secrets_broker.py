@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Dict, FrozenSet, Iterable, List, Mapping, Optional
+from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Mapping, Optional
 from urllib.parse import urlparse
 
 PLACEHOLDER = re.compile(r"\{\{secret:([A-Za-z0-9_]+)\}\}")
@@ -33,6 +33,8 @@ class SecretsBroker:
         self._secrets: Dict[str, str] = dict(secrets or {})
         self._hosts: Dict[str, FrozenSet[str]] = {k: frozenset(h.lower() for h in v)
                                                   for k, v in (allowed_hosts or {}).items()}
+        self.vault: Any = None                          # the person's vault (harness.vault.Vault), when there is one
+        self.ask_code: Optional[Callable[[str], str]] = None   # how to ask the person for a second-factor code
 
     @classmethod
     def from_environment(cls, names: Iterable[str], allowed_hosts: Optional[Mapping[str, Iterable[str]]] = None) -> "SecretsBroker":
@@ -44,8 +46,18 @@ class SecretsBroker:
         if allowed_hosts is not None:
             self._hosts[key] = frozenset(h.lower() for h in allowed_hosts)
 
+    def attach_vault(self, vault: Any, ask_code: Optional[Callable[[str], str]] = None) -> None:
+        self.vault, self.ask_code = vault, ask_code
+
     def names(self) -> List[str]:
         return sorted(self._secrets)
+
+    def sensitive(self) -> bool:
+        """Whether this conversation can reach a secret: it decides the Rule of Two."""
+        return bool(self._secrets) or bool(self.vault is not None and self.vault.sensitive())
+
+    def has_references(self, text: str) -> bool:
+        return bool(self.references(text)) or bool(self.vault is not None and self.vault.references(text))
 
     def get_secret(self, key: str) -> Optional[str]:
         return self._secrets.get(key)
@@ -56,7 +68,7 @@ class SecretsBroker:
         for k, v in sorted(self._secrets.items(), key=lambda kv: len(kv[1]), reverse=True):
             if v and len(v) >= MIN_SECRET_LENGTH:
                 masked = masked.replace(v, f"[REDACTED:{k}]")
-        return masked
+        return self.vault.mask(masked) if self.vault is not None else masked
 
     def references(self, text: str) -> List[str]:
         """Names of the secrets a text asks for, known or not."""
@@ -65,6 +77,8 @@ class SecretsBroker:
     def check_destinations(self, text: str, hosts: Iterable[str], network_tools: Iterable[str] = ()) -> None:
         """Raises SecretDestinationError if a secret in `text` would go to a host it may not reach."""
         hosts, tools = list(hosts), list(network_tools)
+        if self.vault is not None:
+            self.vault.check_destinations(text, hosts, tools)
         for name in self.references(text):
             if name not in self._secrets:
                 continue
@@ -90,4 +104,5 @@ class SecretsBroker:
             val = self.get_secret(match.group(1))
             return val if val is not None else match.group(0)
 
-        return PLACEHOLDER.sub(repl, text)
+        out = PLACEHOLDER.sub(repl, text)
+        return self.vault.resolve(out, ask_code=self.ask_code) if self.vault is not None else out
