@@ -151,7 +151,7 @@ target_link_libraries(basalt-plan PRIVATE plan)
 
 # ---- core (GPU runtime) ---------------------------------------------
 add_library(core STATIC src/core/device.cu src/core/pinned.cu src/platform/memory.cpp src/core/graph.cpp src/core/weights.cpp
-                             src/core/layout.cpp src/core/model_file.cpp)
+                             src/core/layout.cpp src/core/model_file.cpp src/platform/vram_backing.cpp)
 target_include_directories(core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 # The selected runtime is PUBLIC because graph.cpp is a HOST translation unit that calls cudaGraphLaunch and
 # cudaEventQuery: the .cu sources get cudart through the CUDA language rules, a .cpp does not, and the
@@ -686,6 +686,10 @@ add_test(NAME s2_expert_grouped_parity COMMAND s2_expert_grouped_parity --selfte
 add_executable(platform_memory_test src/platform/memory_test.cpp)
 target_link_libraries(platform_memory_test PRIVATE core ${_gpu_runtime_target})
 add_test(NAME platform_memory_test COMMAND platform_memory_test)
+# the WDDM eviction backing of a device allocation given back to the commit (a no-op off Windows)
+add_executable(platform_vram_backing_test src/platform/vram_backing_test.cpp)
+target_link_libraries(platform_vram_backing_test PRIVATE core ${_gpu_runtime_target})
+add_test(NAME platform_vram_backing_test COMMAND platform_vram_backing_test)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_executable(pinned_shared_test src/core/pinned_shared_test.cpp)

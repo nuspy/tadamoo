@@ -69,6 +69,7 @@
 #include "basalt/kernels/pdl.hpp"
 #include "basalt/platform/compat.hpp"
 #include "basalt/platform/memory.hpp"
+#include "basalt/platform/vram_backing.hpp"
 #include <cerrno>
 #if defined(_WIN32)
 #include <io.h>
@@ -527,6 +528,9 @@ struct Options {
     /// Opt-in: the expert cache in physical segments (CUDA virtual memory management), so the serve loop's
     /// `VRAM <reserve_mib>` command can give part of it back to other programs and take it again.  Off: one cudaMalloc.
     bool vram_elastic = false;
+    /// Opt-in, Windows: decommit the eviction backing WDDM charges to the commit for every GPU allocation, once
+    /// loaded and after each command (vram_backing.hpp says what it risks).
+    bool release_vram_commit = false;
     int64_t vram_segment_mib = 512;
     /// Batched prompt processing in chunks of this many tokens (0 = the token path).
     int64_t prefill_chunk = 0;
@@ -882,6 +886,9 @@ void usage() {
                  "  --vram-elastic       --serve (opt-in): the expert cache in segments (--vram-segment-mib,\n"
                  "                       default 512), so the command `VRAM <reserve_mib>` (the server's POST /v1/vram) can\n"
                  "                       give VRAM back to other programs between requests and take it back later\n"
+                 "  --release-vram-commit  --serve, Windows (opt-in): give back the system commit WDDM charges for\n"
+                 "                       every GPU allocation (its eviction backing).  If another program then pushes\n"
+                 "                       the engine's VRAM out, the engine can hang\n"
                  "  --batch N / --slots N  --serve (opt-in): up to N requests decode together in batch slots (2..8),\n"
                  "                       each slot with its own session (VRAM like the main one)\n"
                  "  --batch-groups G     --batch with a layer split: the slots in G groups pipelined through the GPUs\n"
@@ -1651,6 +1658,7 @@ int main(int argc, char** argv) {
         else if (a == "--no-split-rows") o.no_split_rows = true;
         else if (a == "--no-prefill-borrow") o.no_prefill_borrow = true;
         else if (a == "--vram-elastic") o.vram_elastic = true;
+        else if (a == "--release-vram-commit") o.release_vram_commit = true;
         else if (a == "--vram-segment-mib") o.vram_segment_mib = std::atoll(next("--vram-segment-mib"));
         else if (a == "--prefill-until") o.prefill_until = std::atoll(next("--prefill-until"));
         else if (a == "--dump-final-r") o.dump_final_r = next("--dump-final-r");
@@ -6248,6 +6256,20 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "basalt serve: capturing the draft graphs failed: %s\n", err.c_str());
             return 1;
         }
+        if (o.release_vram_commit) {
+            if (!basalt::platform::vram_backing_supported()) {
+                std::fprintf(stderr, "basalt serve: --release-vram-commit does nothing here (no WDDM backing)\n");
+            } else {
+                std::string why;
+                if (!basalt::platform::restore_vram_backing_on_suspend(why))
+                    std::fprintf(stderr, "basalt warning: %s; a sleep may lose the VRAM\n", why.c_str());
+                const basalt::platform::BackingSweep bs = basalt::platform::release_vram_backing();
+                std::fprintf(stderr, "basalt serve: --release-vram-commit: %.2f GiB of VRAM backing given back to the "
+                                     "commit (%llu regions; %.2f GiB kept, it holds pages)\n",
+                             (double) bs.released_bytes / 1073741824.0, (unsigned long long) bs.released_regions,
+                             (double) bs.kept_bytes / 1073741824.0);
+            }
+        }
         std::printf("READY %lld stop\n", (long long) o.max_context);   // "stop": this engine honours STOP
         std::fflush(stdout);
         std::string line;
@@ -7307,8 +7329,15 @@ int main(int argc, char** argv) {
                 }
                 // a request reads its prompt through every stage: the groups in flight finish first
                 if (piped && line.rfind("BSTOP ", 0) != 0 && !pipe_drain()) return 1;
-            } else if (!next_line(line)) {
-                break;
+            } else {
+                if (o.release_vram_commit && basalt::platform::vram_backing_supported()) {
+                    const basalt::platform::BackingSweep bs = basalt::platform::release_vram_backing();
+                    if (bs.released_bytes >= (64ull << 20))
+                        std::fprintf(stderr, "basalt serve: --release-vram-commit: %.2f GiB more given back (%.2f GiB "
+                                             "in all)\n", (double) bs.released_bytes / 1073741824.0,
+                                     (double) bs.total_released / 1073741824.0);
+                }
+                if (!next_line(line)) break;
             }
             // --batch: BSTOP <slot> ends that slot at its next batch window; BGEN <slot> <max_new> ... reads the
             // request's prompt and first token as a GEN 1, then continues it in that slot
