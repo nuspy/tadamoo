@@ -994,4 +994,22 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .achips { font-size: 14px; opacity: .85; margin-bottom: 4px; overflow-wrap: anywhere; }
 .asave { margin: 6px 0; min-height: 48px; }
 
+/* Chat: the conversation's own copy of the folder */
+.acopy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 6px 28px; font-size: 14px; }
+.acopy[hidden], .acopy-panel[hidden], .acopy-ask[hidden] { display: none; }
+.acopy-ask { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
+.acopy-ask input { width: 22px; height: 22px; flex: none; }
+.acopy-text { overflow-wrap: anywhere; min-width: 0; }
+.acopy .btn, .acopy-panel .btn { min-height: 44px; }
+.acopy-panel { max-height: 45vh; overflow: auto; margin: 0 28px 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; }
+.acopy-files { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.acopy-file { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.acopy-file label { display: flex; align-items: center; gap: 10px; min-height: 44px; min-width: 0; overflow-wrap: anywhere; flex: 1 1 14rem; cursor: pointer; }
+.acopy-file input[type="checkbox"] { width: 22px; height: 22px; flex: none; }
+.acopy-kind { font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; color: var(--fg-2); white-space: nowrap; }
+.acopy-diff { flex: 1 1 100%; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font: 400 13px/1.5 var(--font-mono); margin: 0 0 4px; padding: 8px; background: var(--bg); border-radius: 6px; }
+.acopy-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.acopy-actions .btn { min-height: 44px; }
+.acopy-msg { margin: 8px 0 0; overflow-wrap: anywhere; }
+@media (max-width: 700px) { .acopy { padding: 6px 12px; } .acopy-panel { margin: 0 12px 8px; } }
 .aback { min-height: 44px; font-size: 14px; align-self: flex-end; opacity: .85; }

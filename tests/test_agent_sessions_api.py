@@ -113,3 +113,35 @@ def test_a_confirmation_in_the_conversation_is_answered_through_the_api(setup, w
     wait_for(lambda: any(e["event"] == "done" for e in events(api, sid)["events"]), seconds=60)
     assert not any(p["plan_id"] == "viaggio" for p in api("GET", "/api/plans")[1]["plans"])
     assert any(p["plan_id"] == "viaggio" for p in api("GET", "/api/plans?archived=1")[1]["plans"])
+
+
+def test_a_conversation_works_in_its_own_copy_and_the_person_applies_what_it_made(setup, tmp_path):
+    import subprocess
+
+    def git(*args):
+        subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@t", *args], cwd=str(repo), capture_output=True, text=True, check=True)
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    git("init", "-q")
+    (repo / "a.txt").write_text("one\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "first")
+    s = setup([tool_call("write_file", path="nota.txt", content="dal compito"), answer("Scritto.")])
+    api = s["api"]
+    session = api("POST", "/api/agent/sessions", {"workspace": str(repo), "mode": "auto", "confirm_auto": True, "worktree": "always"})[1]["session"]
+    sid = session["id"]
+    assert session["worktree"] and session["workdir"] != str(repo)
+    assert api("POST", f"/api/agent/sessions/{sid}/send", {"text": "scrivi una nota"})[0] == 200
+    wait_for(lambda: any(e["event"] == "done" for e in events(api, sid)["events"]), seconds=60)
+    assert (Path(session["workdir"]) / "nota.txt").read_text(encoding="utf-8") == "dal compito" and not (repo / "nota.txt").exists()
+    code, body = api("GET", f"/api/agent/sessions/{sid}/copy")
+    assert code == 200 and body["changes"] == [{"path": "nota.txt", "status": "added"}]
+    code, body = api("GET", f"/api/agent/sessions/{sid}/copy/diff?path=nota.txt")
+    assert code == 200 and "+dal compito" in body["diff"]
+    assert api("GET", f"/api/agent/sessions/{sid}/copy/diff?path=..%2Fx")[0] in (400, 404)
+    code, body = api("POST", f"/api/agent/sessions/{sid}/copy/apply", {})
+    assert code == 200 and body["applied"] == ["nota.txt"] and (repo / "nota.txt").read_text(encoding="utf-8") == "dal compito"
+    code, body = api("POST", f"/api/agent/sessions/{sid}/copy/discard", {})
+    assert code == 200 and body["session"]["state"] == "closed" and not Path(session["workdir"]).exists()
+    code, body = api("GET", f"/api/agent/sessions/{sid}/copy")
+    assert code in (400, 404) and body["error"]["code"] == "no_copy"

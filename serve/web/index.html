@@ -120,6 +120,12 @@
         <button type="button" class="btn" id="new-chat">New chat</button>
         <button type="button" class="btn" id="branch-chat" data-t="ch.branch" hidden>Branch here</button>
       </div>
+      <div class="acopy" id="acopy" hidden>
+        <label class="acopy-ask" id="acopy-ask"><input type="checkbox" id="acopy-always"><span data-t="wc.always">Keep the changes of a new conversation apart until I approve them</span></label>
+        <span class="acopy-text" id="acopy-text" role="status"></span>
+        <button type="button" class="btn" id="acopy-open" aria-expanded="false" aria-controls="acopy-panel" hidden></button>
+      </div>
+      <div class="acopy-panel" id="acopy-panel" hidden></div>
       <div class="msgs" id="msgs" role="log" aria-label="Messages" aria-live="polite" aria-busy="false" tabindex="0">
         <div class="chat-empty" id="chat-empty">
           <b>Ask the model anything.</b>

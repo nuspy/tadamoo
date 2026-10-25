@@ -414,3 +414,116 @@ def test_going_back_is_refused_while_the_agent_works(make, ws):
     with pytest.raises(RunError) as err:
         mgr.go_back(sid, 1)
     assert err.value.code == "busy"
+
+
+# -- a conversation's own copy of a git folder -------------------------------------------------------------------------------
+
+
+def _git(cwd, *args):
+    import subprocess
+    return subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@t", *args], cwd=str(cwd), capture_output=True, text=True, check=True).stdout
+
+
+@pytest.fixture
+def repo(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    _git(root, "init", "-q")
+    (root / "a.txt").write_text("one\n", encoding="utf-8")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "first")
+    return str(root)
+
+
+def test_a_second_conversation_in_a_git_folder_gets_its_own_copy_and_the_first_stays_in_place(make, repo):
+    mgr = make()
+    first = mgr.create(repo)
+    second = mgr.create(repo)
+    assert "worktree" not in first and second["worktree"]["branch"] == f"basalt/{second['id']}"
+    assert second["workdir"] != second["workspace"] and Path(second["workdir"]).is_dir()
+    cmd = mgr._command(second["id"], second, mgr.history_dir(second["id"]))
+    assert cmd[cmd.index("--workspace") + 1] == second["workdir"]
+    cmd = mgr._command(first["id"], first, mgr.history_dir(first["id"]))
+    assert cmd[cmd.index("--workspace") + 1] == first["workspace"]
+    third = mgr.create(repo, worktree="off")
+    assert "worktree" not in third
+
+
+def test_a_copy_can_be_asked_for_and_a_folder_that_cannot_be_copied_says_so(make, ws, repo):
+    mgr = make()
+    assert mgr.create(repo, worktree="always")["worktree"]
+    with pytest.raises(RunError) as e:
+        mgr.create(ws, worktree="always")
+    assert e.value.code == "no_copy" and "not a git repository" in str(e.value)
+    with pytest.raises(RunError):
+        mgr.create(repo, worktree="sometimes")
+    assert "worktree" not in mgr.create(ws)                                       # auto, and not a git folder: in place
+
+
+def test_two_conversations_do_not_work_in_one_folder_at_once_when_it_cannot_be_copied(make, ws):
+    mgr = make()
+    a, b = mgr.create(ws)["id"], mgr.create(ws)["id"]
+    mgr.send(a, "hang")
+    until(lambda: mgr.get(a)["state"] == "busy")
+    with pytest.raises(RunError) as e:
+        mgr.send(b, "ciao")
+    assert e.value.code == "folder_busy" and "own copy" in str(e.value)
+    assert mgr.send(a, "ancora")["turn"]                                          # the one that works may be told more
+
+
+def test_what_a_conversation_changed_in_its_copy_waits_until_the_person_applies_it(make, repo):
+    mgr = make()
+    mgr.create(repo)
+    sid = mgr.create(repo)["id"]
+    work = Path(mgr.get(sid)["workdir"])
+    (work / "a.txt").write_text("one\ntwo\n", encoding="utf-8")
+    (work / "new.txt").write_text("fresh\n", encoding="utf-8")
+    assert {c["path"]: c["status"] for c in mgr.copy_changes(sid)["changes"]} == {"a.txt": "modified", "new.txt": "added"}
+    assert "+two" in mgr.copy_diff(sid, "a.txt")["diff"]
+    assert (Path(repo) / "a.txt").read_text(encoding="utf-8") == "one\n"          # nothing yet in the person's folder
+    done = mgr.copy_apply(sid, ["new.txt"])
+    assert done["applied"] == ["new.txt"] and (Path(repo) / "new.txt").exists() and (Path(repo) / "a.txt").read_text(encoding="utf-8") == "one\n"
+    assert "A  new.txt" in _git(repo, "status", "--porcelain")
+    for bad in ("../x", "-p", "", 3):
+        with pytest.raises(RunError):
+            mgr.copy_diff(sid, bad)
+    with pytest.raises(RunError):
+        mgr.copy_apply(sid, "a.txt")
+    mgr.copy_apply(sid)
+    assert (Path(repo) / "a.txt").read_text(encoding="utf-8").replace("\r\n", "\n") == "one\ntwo\n"
+
+
+def test_applying_waits_for_a_turn_that_is_running_and_a_conversation_in_place_has_no_copy(make, repo):
+    mgr = make()
+    mgr.create(repo)
+    sid = mgr.create(repo)["id"]
+    mgr.send(sid, "hang")
+    until(lambda: mgr.get(sid)["state"] == "busy")
+    with pytest.raises(RunError) as e:
+        mgr.copy_apply(sid)
+    assert e.value.code == "busy"
+    place = mgr.create(repo, worktree="off")["id"]
+    with pytest.raises(RunError) as e:
+        mgr.copy_changes(place)
+    assert e.value.code == "no_copy"
+
+
+def test_throwing_a_copy_away_closes_the_conversation_and_removes_the_folder_and_the_branch(make, repo):
+    mgr = make()
+    mgr.create(repo)
+    sid = mgr.create(repo)["id"]
+    work = Path(mgr.get(sid)["workdir"])
+    (work / "a.txt").write_text("lost\n", encoding="utf-8")
+    out = mgr.copy_discard(sid)
+    assert out["state"] == "closed" and not out.get("worktree") and not work.exists()
+    assert f"basalt/{sid}" not in _git(repo, "branch") and (Path(repo) / "a.txt").read_text(encoding="utf-8") == "one\n"
+
+
+def test_a_branch_of_a_conversation_in_a_copy_gets_a_copy_of_its_own(make, repo):
+    mgr = make()
+    mgr.create(repo)
+    sid = mgr.create(repo)["id"]
+    mgr.send(sid, "primo")
+    until(lambda: "done" in kinds(mgr, sid))
+    child = mgr.branch(sid, 1)
+    assert child["worktree"]["dir"] != mgr.get(sid)["worktree"]["dir"] and Path(child["workdir"]).is_dir()

@@ -1387,6 +1387,10 @@ def make_handler(svc: Service):
                         return self._json(200, mgr.history(parts[1]))
                     if len(parts) == 3 and parts[2] == "snapshots":
                         return self._json(200, mgr.snapshots(parts[1]))
+                    if len(parts) == 3 and parts[2] == "copy":
+                        return self._json(200, mgr.copy_changes(parts[1]))
+                    if len(parts) == 4 and parts[2] == "copy" and parts[3] == "diff":
+                        return self._json(200, mgr.copy_diff(parts[1], (parse_qs(urlsplit(self.path).query).get("path") or [""])[0]))
                     if len(parts) == 3 and parts[2] == "diff":
                         q = parse_qs(urlsplit(self.path).query)
                         return self._json(200, mgr.snapshot_diff(parts[1], (q.get("a") or [""])[0], (q.get("b") or [""])[0]))
@@ -1430,7 +1434,12 @@ def make_handler(svc: Service):
                                                                       req.get("ask_only") is True, req.get("title", ""),
                                                                       req.get("confirm_auto") is True, req.get("max_turns", 15),
                                                                       req.get("context_patterns"), req.get("context_policy", "stop"),
-                                                                      req.get("context_threshold", 0.8), req.get("end_turn_bias"))})
+                                                                      req.get("context_threshold", 0.8), req.get("end_turn_bias"),
+                                                                      req.get("worktree", "auto"))})
+                    if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
+                        return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
+                    if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
+                        return self._json(200, {"session": mgr.copy_discard(parts[1])})
                     if len(parts) == 3 and parts[2] == "back":
                         return self._json(200, {"session": mgr.go_back(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "branch":
@@ -1464,7 +1473,7 @@ def make_handler(svc: Service):
             except RunBusy as e:
                 return self._json(409, {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except RunError as e:
-                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint", "not_blocked", "closed", "not_asking", "asking", "busy") else 400,
+                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint", "not_blocked", "closed", "not_asking", "asking", "busy", "folder_busy", "copy_conflict") else 400,
                                   {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except ApprovalError as e:
                 return self._json(409 if "already" in str(e) or "not there" in str(e) else 400,

@@ -57,6 +57,7 @@
     $("#stop").hidden = !(busyNow || state === "busy" || state === "starting" || asking);
     $("#send").disabled = false;
     $("#prompt").placeholder = asking ? T("ch.hint.asking") : busyNow ? T("ch.ph.busy") : T("ch.ph");
+    paintCopy();
   }
   modeSel.value = mode;
   modeSel.onchange = () => { mode = modeSel.value; keep(MODE_KEY, mode); if (sid) forget(); applyMode(); };
@@ -86,7 +87,7 @@
   document.addEventListener("basalt:chatset", () => setControls());
   list.onchange = () => { if (list.value) openSession(list.value); else newChat(); };
 
-  function forget() { pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(LAST_KEY, ""); }
+  function forget() { pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(LAST_KEY, ""); copyShown = false; }
   function newChat() { forget(); list.value = ""; status(T("ch.new")); setControls(); }
   async function openSession(id) {
     forget();
@@ -170,6 +171,7 @@
         const a = assistant(e.turn); a.done = true; a.stop = e.stop_reason;
         a.meta = e.stop_reason === "cancelled" ? T("ch.cancelled") : e.stop_reason === "asked" ? "" : e.error ? e.error : "";
         a.blocks.forEach(b => { if (b.t === "reasoning") b.over = true; });
+        if (copyShown) loadCopy();
         break;
       }
       default: break;
@@ -419,10 +421,87 @@
     button.disabled = false;
   }
 
+  /* ---- the conversation's own copy of the folder: what it changed waits here until the person applies it ---- */
+  const COPY_KEY = "basalt.chat.copy";
+  const copyBar = $("#acopy"), copyText = $("#acopy-text"), copyOpen = $("#acopy-open"), copyPanel = $("#acopy-panel"), copyAsk = $("#acopy-ask"), copyAlways = $("#acopy-always");
+  copyAlways.checked = load(COPY_KEY, "") === "always";
+  copyAlways.onchange = () => keep(COPY_KEY, copyAlways.checked ? "always" : "");
+  const copyMode = () => (copyAlways.checked ? "always" : "auto");
+  let copyShown = false;
+  const kindText = s => T("wc." + (["added", "deleted"].includes(s) ? s : "modified"));
+  function paintCopy() {
+    const on = active() && !!(rec && rec.worktree);
+    copyAsk.hidden = !!sid;                                   // the choice is made before the first message
+    copyBar.hidden = !active() || (!!sid && !on);
+    copyText.textContent = on ? T("wc.in.copy") : "";
+    copyOpen.hidden = !on;
+    if (!on) { copyPanel.hidden = true; copyShown = false; return; }
+    copyOpen.textContent = T(copyShown ? "wc.hide" : "wc.review");
+    copyOpen.setAttribute("aria-expanded", String(copyShown));
+    copyPanel.hidden = !copyShown;
+  }
+  async function loadCopy(message) {
+    if (!sid || !rec || !rec.worktree) return;
+    const r = await api("GET", `/${sid}/copy`);
+    copyPanel.replaceChildren();
+    if (!r.ok) { copyPanel.append(mk("p", "acopy-msg", T("wc.fail", errText(r)))); return; }
+    const changes = r.json.changes || [];
+    copyOpen.textContent = T(copyShown ? "wc.hide" : "wc.review.n", changes.length);
+    if (!changes.length) copyPanel.append(mk("p", "acopy-msg", T("wc.none")));
+    const ul = mk("ul", "acopy-files");
+    for (const c of changes) {
+      const li = mk("li", "acopy-file"), label = mk("label"), cb = mk("input");
+      cb.type = "checkbox"; cb.checked = true; cb.value = c.path;
+      label.append(cb, mk("span", "", c.path));
+      const shown = mk("pre", "acopy-diff"); shown.hidden = true;
+      const more = btn(T("wc.show"), "ghost", async () => {
+        if (shown.hidden && !shown.textContent) {
+          const d = await api("GET", `/${sid}/copy/diff?path=${encodeURIComponent(c.path)}`);
+          shown.textContent = d.ok ? (d.json.diff || "") : T("wc.fail", errText(d));
+        }
+        shown.hidden = !shown.hidden;
+        more.textContent = T(shown.hidden ? "wc.show" : "wc.hide.one");
+      });
+      li.append(label, mk("span", "acopy-kind", kindText(c.status)), more, shown);
+      ul.append(li);
+    }
+    copyPanel.append(ul);
+    if (changes.length) {
+      const acts = mk("div", "acopy-actions");
+      acts.append(btn(T("wc.apply.sel"), "primary", () => applyCopy(false)), btn(T("wc.apply.all"), "", () => applyCopy(true)));
+      copyPanel.append(acts);
+    }
+    const drop = btn(T("wc.discard"), "ghost", () => discardCopy(drop));
+    copyPanel.append(drop);
+    copyPanel.append(mk("p", "acopy-msg", message || (changes.length ? T("wc.kept") : "")));
+    copyPanel.lastChild.setAttribute("role", "status");
+  }
+  async function applyCopy(all) {
+    const paths = all ? null : [...copyPanel.querySelectorAll('.acopy-file input[type="checkbox"]:checked')].map(i => i.value);
+    if (!all && !paths.length) { loadCopy(T("wc.pick")); return; }
+    const r = await api("POST", `/${sid}/copy/apply`, paths ? { paths } : {});
+    if (!r.ok) { loadCopy(r.status === 409 && r.json.error && r.json.error.code === "busy" ? T("wc.busy") : T("wc.fail", errText(r))); return; }
+    rec = r.json.session || rec;
+    loadCopy(T("wc.applied", (r.json.applied || []).join(", ") || "-"));
+  }
+  let armed = 0;
+  async function discardCopy(button) {
+    if (!armed) {                                              // a second press within a few seconds: no dialog to answer, nothing lost by a stray tap
+      button.textContent = T("wc.discard.again"); status(T("wc.discard.sure"));
+      armed = setTimeout(() => { armed = 0; if (button.isConnected) button.textContent = T("wc.discard"); }, 6000);
+      return;
+    }
+    clearTimeout(armed); armed = 0;
+    const r = await api("POST", `/${sid}/copy/discard`, {});
+    if (!r.ok) { loadCopy(r.status === 409 ? T("wc.busy") : T("wc.fail", errText(r))); return; }
+    rec = r.json.session; copyShown = false; paintCopy(); status(T("wc.discarded")); await refreshList();
+  }
+  copyOpen.onclick = () => { copyShown = !copyShown; paintCopy(); if (copyShown) loadCopy(); };
+
   /* ---- talking to the conversation ---- */
   async function ensure() {
     if (sid) return true;
-    const r = await api("POST", "", { mode: "default", ask_only: mode === "ask", context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), end_turn_bias: chatSettings.body().end_turn_bias });
+    const r = await api("POST", "", { mode: "default", ask_only: mode === "ask", context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), end_turn_bias: chatSettings.body().end_turn_bias, worktree: copyMode() });
     if (!r.ok) { status(errText(r)); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(LAST_KEY, sid); after = 0;
     await refreshList(); list.value = sid;

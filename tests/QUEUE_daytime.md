@@ -24,6 +24,7 @@ con quel valore) e avviare il server su 127.0.0.1.
 | 14 | Allegati veri (Fase 4b): un PDF, un xlsx, un docx e una registrazione con callAPIcall acceso; file prodotto con «Salva» dentro `BasaltWinGUI.exe` | estrazione corretta; finestra «Salva con nome» di Windows con il nome del file (il ponte C# è provato solo in modalità di prova, senza finestra; da vedere: annulla, sovrascrivi, file già aperto) | Chat con tutti e quattro i file | in attesa |
 | 15 | Providers (Fase 6): una rotta cloud con consenso, il giudice Jev con la tua chiave, caricamento di Qwen con un profilo da memoria vuota | rifiuto senza il sì, ripiego sul modello caricato, attesa del caricamento | Modelli > Providers (nulla parte senza il tuo ok per la chiave) | in attesa |
 | 16 | Una GPU, più chiamanti (Fase 5): perdita di cache alternando Chat ed Esecutore; tempo di caricamento a freddo | numeri etichettati con il limite di potenza della GPU | due conversazioni che alternano funzioni | in attesa |
+| 17 | Copie di lavoro (Fase 7a/7d): due conversazioni sulla stessa cartella git con il modello vero; una cartella con file non committati; applicare un file, poi il resto; buttare via | che le due non si pestino, che «Applica» non tocchi file cambiati da te nel frattempo, che nulla si perda su Windows (percorsi lunghi, CRLF) | Chat > con strumenti; cartella git di prova | in attesa |
 
 ## Regole
 

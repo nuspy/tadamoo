@@ -392,6 +392,27 @@ the threshold says. A pattern the person chose in the settings is not overridden
 Not done: reloading a model with another profile when a function wants one (it needs the engine to be idle, which the server does not report yet),
 and the spending report per function.
 
+## A conversation's own copy of the folder
+
+Two conversations in one folder can step on each other's files, and an edit is otherwise applied as soon as it is made. In a folder under git
+a conversation can work in a copy of its own (`harness/worktrees.py`): a git worktree with its own branch `basalt/<id>`, kept in the user data
+folder, started from the folder's last commit plus the changes not yet committed to tracked files. What the conversation changes stays there.
+
+- **When**: `worktree` when a conversation is made is `auto` (the default: a copy when another open conversation already works in that folder),
+  `always` (the Chat's "Keep the changes of a new conversation apart until I approve them") or `off`. A folder that is not under git cannot be
+  copied: with `always` that is an error, with `auto` the conversation works in the folder itself, and two of those never work at once
+  (`folder_busy`: the second message waits until the first conversation's turn is over).
+- **Reviewing**: the Chat shows "Works in its own copy of the folder" and a button that lists the changed files (added, changed, deleted) with
+  each file's diff (`GET /api/agent/sessions/<id>/copy` and `/copy/diff?path=`).
+- **Applying**: the checked files, or all, go to the person's folder as **staged** changes, never a commit (`POST .../copy/apply`). They are
+  checked first: a file the person changed in a way that does not fit stops the whole apply and is named, and nothing is half done. What was
+  applied is no longer a change of the copy; the rest stays held. Only while the agent is not working.
+- **Throwing away** (`POST .../copy/discard`) closes the conversation and removes the folder and the branch, with what was not applied.
+- A branch of a conversation in a copy gets a copy of its own, made from the person's folder as it is.
+
+This is also how an edit is held back until it is approved: the conversation's commands see its own files as they are, and the person's folder
+changes only when they apply.
+
 ## The web pages
 
 The pages are what `BasaltWinGUI.exe` shows in its window. They are built for windows from 1024 pixels up to about 3600
@@ -455,5 +476,4 @@ one, so it matters that an agent which can run arbitrary code (an allow rule suc
 its own later requests: such a rule already grants that power, and only the isolation below would take it away.
 
 Not done: file and network isolation for commands (the job object limits resources only); OAuth for MCP; `fs/*` and `session/load` in ACP;
-holding an edit back until it is approved (it is applied first and can then be undone block by block); a payment
-connector; the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.
+a payment connector; the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.

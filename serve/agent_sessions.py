@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional
 
 from harness import context_patterns as context_patterns_mod
+from harness.worktrees import WorktreeError, Worktrees
 from serve import ROOT
 from serve.api import logit_bias
 from serve.agent_runs import MAX_ALLOW, MODES, SAFE_ENV_KEYS, RunBusy, RunError
@@ -61,13 +62,14 @@ class SessionManager:
                  idle_s: float = 1800.0, hang_s: float = 1200.0, beat_timeout_s: float = 45.0, restart_cap: int = 3,
                  restart_window_s: float = 600.0, tick_s: float = 1.0, start_wait_s: float = 60.0,
                  default_workspace: Optional[Path] = None, router: str = "model", pipeline: str = "full",
-                 attachments_dir: Optional[Path] = None, outputs_dir: Optional[Path] = None) -> None:
+                 attachments_dir: Optional[Path] = None, outputs_dir: Optional[Path] = None, worktrees: Optional[Worktrees] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
         self.router = router                                    # how a message that comes during a task is judged: "model" or "rules"
         self.attachments_dir, self.outputs_dir = attachments_dir, outputs_dir      # the conversation's attached files and the files the agent made
         self.pipeline = pipeline                                # the check of an answer against its request: "off", "light" or "full"
+        self.worktrees = worktrees or Worktrees(Path(directory) / "worktrees")      # a conversation's own copy of a git folder
         self.default_workspace = Path(default_workspace) if default_workspace else None     # where a conversation works when none is named
         self.python, self.root = python or sys.executable, Path(root)
         self.command = command or self._command
@@ -192,8 +194,16 @@ class SessionManager:
         if users < turn:
             raise RunError(f"That conversation has only {users} requests.", "bad_turn")
         new = secrets.token_hex(4)
-        child = {**rec, "id": new, "title": ((rec.get("title") or "") + " (branch)").strip()[:TITLE_CHARS], "branched_from": {"session": sid, "turn": turn},
+        copy = None
+        if rec.get("worktree"):
+            try:
+                copy = self.worktrees.create(new, rec["workspace"])
+            except WorktreeError as e:
+                raise RunError(f"The branch needs its own copy of the folder: {e}", "no_copy") from None
+        child = {**{k: v for k, v in rec.items() if k not in ("worktree", "workdir")}, "id": new, "title": ((rec.get("title") or "") + " (branch)").strip()[:TITLE_CHARS], "branched_from": {"session": sid, "turn": turn},
                  "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": turn}
+        if copy:
+            child["worktree"], child["workdir"] = copy, copy["workdir"]
         with self._lock:
             target = self.history_dir(new)
             target.mkdir(parents=True, exist_ok=True)
@@ -266,7 +276,7 @@ class SessionManager:
 
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
                confirm_auto: bool = False, max_turns: Any = 15, context_patterns: Any = None,
-               context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None) -> Dict[str, Any]:
+               context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto") -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         if (workspace is None or workspace == "") and self.default_workspace is not None:
             self.default_workspace.mkdir(parents=True, exist_ok=True)
@@ -292,20 +302,46 @@ class SessionManager:
         patterns = context_patterns_mod.check_config(context_patterns) if context_patterns else {}
         if context_policy != "stop":
             patterns = context_patterns_mod.with_policy(context_patterns or {}, context_policy)
+        if worktree is True:
+            worktree = "always"
+        if worktree in (False, None):
+            worktree = "off"
+        if worktree not in ("off", "auto", "always"):
+            raise RunError("The copy of the folder is off, auto or always.", "bad_worktree")
         sid = secrets.token_hex(4)
+        copy = self._copy_for(sid, path, worktree)
         rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode,
                "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
+        if copy:
+            rec["worktree"], rec["workdir"] = copy, copy["workdir"]
         with self._lock:
             self.records.append(rec)
             self._events[sid], self._seq[sid] = collections.deque(maxlen=EVENTS_KEPT), 0
             self._save()
         return dict(rec)
 
+    def _copy_for(self, sid: str, path: Path, mode: str) -> Optional[Dict[str, Any]]:
+        """Its own copy of the folder when it is asked for ("always") or when another open conversation already works in that folder
+        ("auto"); None when the conversation works in the folder itself."""
+        if mode == "off":
+            return None
+        if mode == "auto":
+            with self._lock:
+                crowded = any(r.get("workspace") == str(path) and r["state"] != "closed" and not r.get("worktree") for r in self.records)
+            if not crowded:
+                return None
+        try:
+            return self.worktrees.create(sid, path)
+        except WorktreeError as e:
+            if mode == "auto":
+                return None                         # not a git folder: it works in place, and `send` keeps two from working at once
+            raise RunError(str(e), "no_copy") from None
+
     # -- starting a process ------------------------------------------------------------------------------
 
     def _command(self, sid: str, rec: Dict[str, Any], history: Path) -> List[str]:
-        cmd = [self.python, "-m", "harness", "session", "--session-id", sid, "--history-dir", str(history), "--workspace", rec["workspace"],
+        cmd = [self.python, "-m", "harness", "session", "--session-id", sid, "--history-dir", str(history), "--workspace", rec.get("workdir") or rec["workspace"],
                "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities"]
         for rule in rec.get("allow", []):
             cmd += ["--allow", rule]
@@ -325,6 +361,11 @@ class SessionManager:
 
     def _spawn(self, sid: str) -> Live:
         rec = self._record(sid)
+        if rec.get("worktree"):
+            try:
+                self.worktrees.ensure(rec["worktree"])
+            except WorktreeError as e:
+                raise RunError(f"The copy of the folder for this conversation could not be brought back: {e}", "no_copy") from None
         history = self.history_dir(sid)
         history.mkdir(parents=True, exist_ok=True)
         env = {k: v for k, v in os.environ.items() if k.upper() in SAFE_ENV_KEYS}
@@ -504,6 +545,12 @@ class SessionManager:
             rec = self._record(sid)
             if rec["state"] == "closed":
                 raise RunError("That conversation is closed.", "closed")
+            if rec["state"] not in ("busy", "asking", "starting") and not rec.get("worktree"):
+                other = next((r for r in self.records if r["id"] != sid and r.get("workspace") == rec["workspace"] and not r.get("worktree")
+                              and r["state"] in ("busy", "asking", "starting")), None)
+                if other is not None:
+                    raise RunError("Another conversation is working in this folder. Wait for it, or start this one in a folder under git: "
+                                   "it then works in its own copy.", "folder_busy")
             turn = secrets.token_hex(3)              # a message that comes while the agent works is looked at by the agent itself
             live = self._ensure(sid)
             cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {})}
@@ -573,6 +620,57 @@ class SessionManager:
                 live.after_ready.append({"cmd": "resume"})
             else:
                 self._write(sid, live, {"cmd": "resume"})
+        return self.get(sid)
+
+    # -- the conversation's own copy of the folder ---------------------------------------------------------------
+
+    def _copy(self, sid: str, idle: bool = False) -> Dict[str, Any]:
+        with self._lock:
+            rec = self._record(sid)
+            info = rec.get("worktree")
+            if not info:
+                raise RunError("This conversation works in the folder itself, not in a copy.", "no_copy")
+            if idle and rec["state"] in ("busy", "starting", "asking"):
+                raise RunError("Wait for the agent to finish, or stop it, first.", "busy")
+            return info
+
+    def copy_changes(self, sid: str) -> Dict[str, Any]:
+        info = self._copy(sid)
+        try:
+            self.worktrees.ensure(info)
+            return {"changes": self.worktrees.changes(info)}
+        except WorktreeError as e:
+            raise RunError(str(e), "no_copy") from None
+
+    def copy_diff(self, sid: str, path: Any) -> Dict[str, Any]:
+        info = self._copy(sid)
+        if not isinstance(path, str) or not path or path.startswith("-") or ".." in Path(path).parts:
+            raise RunError("Say which file.", "bad_path")
+        try:
+            return {"path": path, "diff": self.worktrees.diff(info, path)}
+        except WorktreeError as e:
+            raise RunError(str(e), "no_copy") from None
+
+    def copy_apply(self, sid: str, paths: Any = None) -> Dict[str, Any]:
+        """Put what the conversation changed in its copy into the person's folder (all of it, or the files named) as staged changes."""
+        info = self._copy(sid, idle=True)
+        if paths is not None and (not isinstance(paths, list) or any(not isinstance(p, str) or not p or p.startswith("-") for p in paths)):
+            raise RunError("Name the files as a list of paths.", "bad_path")
+        try:
+            done = self.worktrees.apply(info, paths)
+        except WorktreeError as e:
+            raise RunError(str(e), "copy_conflict" if e.code == "conflict" else "no_copy") from None
+        with self._lock:
+            self._set(self._record(sid), worktree=info)
+        return {"applied": done["applied"], "session": self.get(sid)}
+
+    def copy_discard(self, sid: str) -> Dict[str, Any]:
+        """Close the conversation and throw its copy away, with whatever was not applied."""
+        info = self._copy(sid, idle=True)
+        self.close(sid)
+        self.worktrees.discard(info)
+        with self._lock:
+            self._set(self._record(sid), worktree=None, workdir=None, copy_discarded=True)
         return self.get(sid)
 
     def close(self, sid: str) -> Dict[str, Any]:
