@@ -35,15 +35,23 @@ _SEGMENT_SPLIT = re.compile(r"&&|\|\||[;&|\n\r`<>]|\$\(")
 _scope = threading.local()
 
 
+class CancelScope:
+    """What a block of `cancel_scope` tells afterwards: whether a command in it was ended by the event."""
+
+    def __init__(self, event: Optional[threading.Event]) -> None:
+        self.event = event
+        self.cancelled = False
+
+
 @contextlib.contextmanager
-def cancel_scope(event: Optional[threading.Event]) -> Iterator[None]:
+def cancel_scope(event: Optional[threading.Event]) -> Iterator[CancelScope]:
     """Commands started by this thread inside the block end, with everything they started, soon after `event` is set."""
-    before = getattr(_scope, "event", None)
-    _scope.event = event
+    before = getattr(_scope, "state", None)
+    state = _scope.state = CancelScope(event)
     try:
-        yield
+        yield state
     finally:
-        _scope.event = before
+        _scope.state = before
 
 
 def safe_environment(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -153,7 +161,8 @@ class ProcessSandbox:
         err = _Capped(proc.stderr, self.max_output_bytes)
         out.start()
         err.start()
-        cancel = getattr(_scope, "event", None)
+        scope = getattr(_scope, "state", None)
+        cancel = scope.event if scope is not None else None
         end = time.monotonic() + limit
         while True:
             try:
@@ -162,7 +171,7 @@ class ProcessSandbox:
             except subprocess.TimeoutExpired:
                 pass
             if cancel is not None and cancel.is_set():
-                result["cancelled"] = True
+                result["cancelled"] = scope.cancelled = True
             elif time.monotonic() >= end:
                 result["timed_out"] = True
             else:

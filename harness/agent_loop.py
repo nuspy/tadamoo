@@ -273,6 +273,13 @@ class AgentLoop:
         if self.audit:
             self.audit.record("agent", action, details)
 
+    def _audit_call(self, action: str, name: str, args: Any, permission: str, outcome: str, started: float,
+                    reason: str = "", effect: str = "") -> None:
+        """One record about one tool call: the arguments only as a hash and a short masked preview (see AuditLedger.call_details)."""
+        if self.audit:
+            self.audit.record("agent", action, self.audit.call_details(
+                name, args, permission=permission, outcome=outcome, duration_s=time.monotonic() - started, effect=effect, reason=reason))
+
     def _stringify(self, name: str, output: Any) -> str:
         text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False, default=str)
         if self.secrets:
@@ -283,10 +290,11 @@ class AgentLoop:
 
     def _execute(self, call: ParsedCall, checkpointed: List[bool]) -> ToolExecutionResult:
         name, args = call.name, call.arguments
+        started = time.monotonic()
+        permission = "not_required" if self.permissions is None else "not_reached"
 
         def refused(decision: str, message: str, audit_action: str) -> ToolExecutionResult:
-            self._audit(audit_action, {"tool": name, "arguments": args if isinstance(args, dict) else str(args),
-                                       "reason": message})
+            self._audit_call(audit_action, name, args, permission, "refused", started, reason=message)
             return ToolExecutionResult(name, args if isinstance(args, dict) else {}, message, True, call.call_id, decision)
 
         if call.error:
@@ -311,9 +319,10 @@ class AgentLoop:
                 return refused("blocked", blocked, "tool_blocked")
         if self.permissions:
             allowed, reason = self.permissions.evaluate(name, tool.effect, args)
+            permission = "allowed" if allowed else "denied"
             if not allowed:
                 return refused("denied", f"Permission denied: {reason}", "permission_denied")
-            self._audit("permission_granted", {"tool": name, "reason": reason})
+            self._audit_call("permission_granted", name, args, permission, "started", started, reason=reason, effect=tool.effect.value)
         if self.checkpoints and tool.effect != EffectClass.PURE and not checkpointed[0]:
             try:
                 self._audit("checkpoint", {"id": self.checkpoints.create(f"before {name}")})
@@ -321,18 +330,21 @@ class AgentLoop:
             except Exception as exc:
                 return refused("blocked", f"No checkpoint could be taken ({exc}); the action was not run.", "tool_blocked")
 
+        ran = time.monotonic()
         try:
-            with cancel_scope(self.cancel):                      # Stop also ends a command that is running
+            with cancel_scope(self.cancel) as scope:             # Stop also ends a command that is running
                 output = self.tools.execute(name, args)
             is_error = False
         except Exception as exc:
             output, is_error = f"Tool execution error: {type(exc).__name__}: {exc}", True
+        cancelled = scope.cancelled or (is_error and self.cancel.is_set())
         if tool.untrusted and self.permissions:
             self.permissions.note_untrusted_input()
         if self.hooks:
             self.hooks.trigger_post_tool(name, args, output)
-        self._audit("tool_error" if is_error else "tool_executed",
-                    {"tool": name, "arguments": args, "effect": tool.effect.value})
+        self._audit_call("tool_cancelled" if cancelled else "tool_error" if is_error else "tool_executed", name, args, permission,
+                         "cancelled" if cancelled else "error" if is_error else "ok", ran, effect=tool.effect.value,
+                         reason=str(output) if is_error else "")
         return ToolExecutionResult(name, args, output, is_error, call.call_id, "executed")
 
     # -- main loop -------------------------------------------------------------------------------
@@ -439,6 +451,8 @@ class AgentLoop:
                 if self.cancel.is_set():
                     self.messages.append({"role": "tool", "tool_call_id": call.call_id, "name": call.name,
                                           "content": "Cancelled before it ran."})
+                    self._audit_call("tool_cancelled", call.name, call.arguments, "not_reached", "cancelled", time.monotonic(),
+                                     reason="cancelled before it ran")
                     continue
                 tool = self.tools.get(call.name)
                 self._emit({"type": "tool_start", "call_id": call.call_id, "name": call.name,
