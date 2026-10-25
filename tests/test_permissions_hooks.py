@@ -153,3 +153,39 @@ def test_a_refusal_after_the_user_declined_does_not_claim_that_nobody_can_confir
     pm = PermissionManager(level=PermissionLevel.DEFAULT, confirm_callback=lambda name, args: False)
     ok, why = pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "ls"})
     assert not ok and "Nobody can confirm" not in why
+
+
+def test_the_rule_of_two_looks_at_the_vault_at_each_call_not_when_the_agent_was_built():
+    holding = {"entries": False}
+    asked = []
+    pm = PermissionManager(level=PermissionLevel.AUTO, sensitive_data=lambda: holding["entries"],
+                           confirm_callback=lambda t, a: asked.append(t) or False)
+    pm.note_untrusted_input()
+    assert not pm.rule_of_two_broken and ev(pm, "python build.py")        # an empty vault when the conversation began
+    holding["entries"] = True                                               # the person adds an entry meanwhile
+    assert pm.rule_of_two_broken
+    assert not ev(pm, "python build.py") and asked == ["shell_command"]
+
+
+def test_a_built_agent_asks_its_secrets_broker_each_time(tmp_path):
+    from harness.stack import AgentConfig, build_agent
+    from harness.vault import Vault
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    vault_dir = tmp_path / "vault"
+    built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), vault_dir=str(vault_dir), use_memory=False), client=object())
+    try:
+        built.permissions.note_untrusted_input()
+        assert not built.permissions.rule_of_two_broken            # the vault is empty
+        Vault(vault_dir).put("shop", kind="login", fields={"username": "me", "password": "pw-1"}, hosts=["shop.example"])   # the Wallet adds an entry meanwhile
+        assert built.permissions.rule_of_two_broken
+    finally:
+        built.close()
+
+
+def test_refusals_are_counted_by_tool():
+    pm = PermissionManager(level=PermissionLevel.DEFAULT)
+    pm.add_rule("shell_command:rm *", "deny")
+    assert not ev(pm, "rm a.txt") and not ev(pm, "python x.py")
+    assert pm.evaluate("write_file", EffectClass.REVERSIBLE, {})[0]
+    assert pm.denied == 2 and pm.denied_by_tool == {"shell_command": 2}

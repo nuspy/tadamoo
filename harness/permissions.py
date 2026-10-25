@@ -66,16 +66,26 @@ class PermissionManager:
         rules: Optional[List[PermissionRule]] = None,
         confirm_callback: Optional[Callable[[str, Dict[str, Any]], bool]] = None,
         always_ask: FrozenSet[str] = DEFAULT_ALWAYS_ASK,
-        sensitive_data: bool = False,
+        sensitive_data: "bool | Callable[[], bool]" = False,
     ) -> None:
         self.level = level
         self.plan_mode = plan_mode
         self.rules: List[PermissionRule] = list(rules or [])
         self.confirm_callback = confirm_callback
         self.always_ask = frozenset(always_ask)
-        self.sensitive_data = sensitive_data       # the session can reach secrets or private data
+        self._sensitive = sensitive_data           # the session can reach secrets or private data; a function is asked each time
         self.untrusted_input = False               # the model has read content from outside the user's control
         self._remembered: Set[str] = set()
+        self.denied = 0                            # calls refused in this session, whatever the reason
+        self.denied_by_tool: Dict[str, int] = {}
+
+    @property
+    def sensitive_data(self) -> bool:
+        return bool(self._sensitive() if callable(self._sensitive) else self._sensitive)
+
+    @sensitive_data.setter
+    def sensitive_data(self, value: "bool | Callable[[], bool]") -> None:
+        self._sensitive = value
 
     def add_rule(self, pattern: str, action: str) -> None:
         if action not in ("allow", "deny"):
@@ -90,7 +100,8 @@ class PermissionManager:
 
     @property
     def rule_of_two_broken(self) -> bool:
-        """Untrusted input, sensitive data and outward effects must never all be present unattended."""
+        """Untrusted input, sensitive data and outward effects must never all be present unattended. Whether the session can
+        reach sensitive data is looked at now, not when the agent was built: the person may add to the vault meanwhile."""
         return self.untrusted_input and self.sensitive_data
 
     def _ask(self, tool_name: str, arguments: Dict[str, Any], key: Optional[str]) -> bool:
@@ -114,7 +125,14 @@ class PermissionManager:
         return text
 
     def evaluate(self, tool_name: str, effect: EffectClass, arguments: Dict[str, Any]) -> Tuple[bool, str]:
-        """Returns (allowed, reason)."""
+        """Returns (allowed, reason). Every refusal is counted."""
+        allowed, reason = self._decide(tool_name, effect, arguments)
+        if not allowed:
+            self.denied += 1
+            self.denied_by_tool[tool_name] = self.denied_by_tool.get(tool_name, 0) + 1
+        return allowed, reason
+
+    def _decide(self, tool_name: str, effect: EffectClass, arguments: Dict[str, Any]) -> Tuple[bool, str]:
         if self.plan_mode and effect != EffectClass.PURE:
             return False, f"Plan mode active: execution of {tool_name} deferred until user approves plan"
 

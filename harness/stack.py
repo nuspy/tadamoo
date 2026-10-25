@@ -220,7 +220,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         secrets.attach_vault(Vault(cfg.vault_dir), cfg.ask_code)
     level, plan = PERMISSION_MODES[cfg.permission_mode]
     permissions = PermissionManager(level=level, plan_mode=plan, confirm_callback=cfg.confirm,
-                                    sensitive_data=secrets.sensitive())
+                                    sensitive_data=secrets.sensitive)       # asked at each call: the vault may gain entries later
     for pattern in cfg.deny:
         permissions.add_rule(pattern, "deny")
     for pattern in cfg.allow:
