@@ -40,6 +40,7 @@ from harness.client import StreamCancelled
 from harness.pipeline import Pipeline
 from harness.router import QUEUE, STEER, STRONG_URGENT, URGENT, Router
 from harness.stack import AgentConfig, BuiltAgent, build_agent, data_dir_for
+from harness.tools.registry import clock_paused
 from harness.vault import valid_code
 
 HEARTBEAT_S = 5.0
@@ -306,10 +307,11 @@ class Session:
         self.emit({"event": "ask", "id": aid, "turn": self._cur_turn(), **payload})
         self._waiting_n += 1
         try:
-            while not slot["event"].wait(0.25):
-                self.last_progress = time.monotonic()
-                if cancel.is_set():
-                    return ""
+            with clock_paused():                     # the person's time is not the tool's
+                while not slot["event"].wait(0.25):
+                    self.last_progress = time.monotonic()
+                    if cancel.is_set():
+                        return ""
             return slot["value"]
         finally:
             self._waiting_n -= 1

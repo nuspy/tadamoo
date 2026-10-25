@@ -342,3 +342,73 @@ def test_every_stop_reason_has_its_own_exit_code():
     assert all(r in EXIT_CODES for r in reasons)
     assert len(set(EXIT_CODES[r] for r in reasons)) == len(reasons) and 2 not in EXIT_CODES.values()
     assert EXIT_CODES[al.ASKED] == 6 and EXIT_CODES[al.SUSPENDED] == 7
+
+
+def _registry_with(tools, **kw):
+    from harness.tools.registry import ToolRegistry
+    reg = ToolRegistry(**kw)
+    for name, handler in tools.items():
+        reg.register(name, name, {"type": "object", "properties": {}}, EffectClass.PURE, handler)
+    return reg
+
+
+def _spin(seconds):
+    import time
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        time.sleep(0.02)
+    return "finished"
+
+
+def test_a_tool_past_its_time_limit_is_stopped_and_the_model_is_told_why():
+    import time
+    from harness.tools.registry import ToolTimeout
+    swallowed = []
+
+    def stubborn():
+        try:
+            _spin(30)
+        except Exception as exc:                 # a tool's own broad except must not hide the stop
+            swallowed.append(exc)
+        return "survived"
+
+    reg = _registry_with({"hang": lambda: _spin(30), "stubborn": stubborn}, default_timeout=0.5)
+    before = threading.active_count()
+    t0 = time.monotonic()
+    with pytest.raises(ToolTimeout, match="was stopped after 0.5 seconds"):
+        reg.execute("hang", {})
+    with pytest.raises(ToolTimeout):
+        reg.execute("stubborn", {})
+    assert time.monotonic() - t0 < 5 and not swallowed
+    time.sleep(0.3)
+    assert threading.active_count() <= before                        # no thread is left running behind
+    client = ScriptedClient(call("hang", {}), say("ok"))
+    agent = AgentLoop(client, reg, max_turns=3)
+    turns = agent.run("go")
+    assert turns[0].tool_calls[0].is_error and "was stopped after 0.5 seconds" in tool_messages(client)[0]["content"]
+
+
+def test_a_tool_can_have_its_own_limit_or_none_and_the_wait_for_the_person_does_not_count():
+    from harness.tools.registry import ToolTimeout, clock_paused
+
+    def ask_person():
+        with clock_paused():
+            return _spin(1.2)                                           # the person is thinking
+
+    reg = _registry_with({"slow": lambda: _spin(1.2), "asks": ask_person, "fast": lambda: "x"}, default_timeout=0.5)
+    reg.set_timeout("slow", None)
+    assert reg.execute("slow", {}) == "finished"
+    assert reg.timeout_for("slow") is None and reg.timeout_for("fast") == 0.5
+    reg.register("own", "own", {"type": "object", "properties": {}}, EffectClass.PURE, lambda: _spin(30), timeout=0.3)
+    with pytest.raises(ToolTimeout, match="after 0.3 seconds"):
+        reg.execute("own", {})
+    assert reg.execute("asks", {}) == "finished"
+
+
+def test_a_stopped_tool_leaves_no_pending_interrupt_behind():
+    reg = _registry_with({"fast": lambda: "x"}, default_timeout=0.2)
+    for _ in range(200):
+        assert reg.execute("fast", {}) == "x"
+    import time
+    time.sleep(0.4)                                                      # past every limit: nothing may be raised in this thread now
+    assert reg.execute("fast", {}) == "x"

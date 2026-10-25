@@ -536,3 +536,18 @@ def test_a_cancelled_code_question_stops_the_command(tmp_path):
     ev.wait("ask")
     session.cancel()
     assert ev.wait("done")["stop_reason"] == al.CANCELLED
+
+
+def test_the_time_a_tool_waits_for_the_person_does_not_count_against_its_limit(tmp_path):
+    client = Scripted(call("needs_yes"), say("fatto"))
+    session, ev, store, built = make(tmp_path, client)
+    built.agent.tools.default_timeout = 0.5
+    answers = []
+    built.agent.tools.register("needs_yes", "asks", {"type": "object", "properties": {}}, EffectClass.PURE,
+                               lambda: answers.append(session.permission_confirm("x", {})) or "asked")
+    session.send("m1", "go")
+    ask = ev.wait("ask")
+    time.sleep(1.3)                                               # the person thinks for longer than the tool's limit
+    assert session.answer(ask["id"], "confirm")
+    done = ev.wait("done")
+    assert answers == [True] and done["stop_reason"] == al.FINAL
