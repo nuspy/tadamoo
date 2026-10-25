@@ -146,7 +146,7 @@ class PlanCanvasBridge:
         kind = event.get("type") if isinstance(event, dict) else None
         handlers = {
             "plan:get": self._get, "plan:update_node": self._update_node, "plan:mark": self._mark,
-            "plan:rewind": self._rewind, "plan:propose_diff": self._propose, "plan:approve": self._approve,
+            "plan:rewind": self._rewind, "plan:rewind_impact": self._rewind_impact, "plan:note_effect": self._note_effect, "plan:propose_diff": self._propose, "plan:approve": self._approve,
             "plan:reject": self._reject, "plan:human_fallback": self._offer_fallback,
             "plan:fallback_response": self._answer_fallback, "plan:update_meta": self._update_meta,
         }
@@ -193,16 +193,31 @@ class PlanCanvasBridge:
         return {"node": node_to_dict(node), "ready": self.dag.ready_nodes()}
 
     def _mark(self, e: Dict[str, Any]) -> Dict[str, Any]:
-        self.dag.mark(e["node_id"], e["status"], e.get("outputs"))
-        self._bump("mark", f"{self.dag.nodes[e['node_id']].title}: {e['status']}")
-        self._emit("plan:graph", {"seq_graph": True})
-        return {"ready": self.dag.ready_nodes(), "shared_state": self.dag.shared_state}
+        retry = self.dag.mark(e["node_id"], e["status"], e.get("outputs"))
+        node = self.dag.nodes[e["node_id"]]
+        self._bump("mark", f"{node.title}: {node.status}" + (f", try {retry['attempt']} of {retry['of']} failed, tries again" if retry else ""))
+        self._emit("plan:graph", {"seq_graph": True, **({"retry": {"node_id": node.id, **retry}} if retry else {})})
+        return {"ready": self.dag.ready_nodes(), "shared_state": self.dag.shared_state, "status": node.status, **({"retry": retry} if retry else {})}
 
     def _rewind(self, e: Dict[str, Any]) -> Dict[str, Any]:
-        ids = self.dag.rewind(e["node_id"])
+        from harness.rewind import plan_impact                 # imported here: the plan does not need the checkpoints
+        impact = plan_impact(self.dag, e["node_id"])
+        ids = self.dag.rewind(e["node_id"], e.get("accept_irreversible") is True)
         self._bump("rewind", self.dag.nodes[e["node_id"]].title)
         self._emit("plan:graph", {"rewound": ids})
-        return {"rewound": ids}
+        return {"rewound": ids, "not_undone": impact["not_undone"]}
+
+    def _rewind_impact(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        from harness.rewind import plan_impact
+        return plan_impact(self.dag, e["node_id"])
+
+    def _note_effect(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        from harness.rewind import note_plan_effect
+        entry = note_plan_effect(self.dag, e["node_id"], e.get("tool", ""), e.get("effect", ""), e.get("what", ""))
+        if entry:
+            self._bump("update_node", f"{self.dag.nodes[e['node_id']].title}: {entry['what']}")
+            self._emit("plan:node_updated", {"node": node_to_dict(self.dag.nodes[e["node_id"]])})
+        return {"effect": entry}
 
     def _propose(self, e: Dict[str, Any]) -> Dict[str, Any]:
         diff = e.get("diff")

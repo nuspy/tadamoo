@@ -273,6 +273,11 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
             seen[plan_id] = int(client.snapshot(plan_id).get("rev") or seen[plan_id])     # the next change is made on what this one left
         except Exception:
             seen.pop(plan_id, None)                                                       # unknown now: the plan is read again
+        retry = res.get("retry")
+        if retry:                                                   # the step has tries left: it is not failed yet
+            link_task(plan_id, node, "running")
+            return (f"Step {node_id} failed on try {retry['attempt']} of {retry['of']} ({how}); its retry policy makes it ready again "
+                    f"in {round(retry['wait_seconds'])} seconds. It is not marked failed. Ready now: {', '.join(res.get('ready', [])) or 'nothing'}.")
         if status in ("completed", "failed", "skipped"):
             link_task(plan_id, node, {"completed": "done", "failed": "failed", "skipped": "closed"}[status])
         return f"Step {node_id} marked {status} ({how}). Ready now: {', '.join(res.get('ready', [])) or 'nothing'}."

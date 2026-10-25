@@ -877,3 +877,108 @@ def test_a_replacement_that_would_make_a_cycle_leaves_the_plan_as_it_was():
     with pytest.raises(PlanError, match="Cycle"):
         dag.add_node(node("a", dependencies=["c"], outputs=["b"]), replace=True)
     assert json.dumps(dag.to_dict()["nodes"], sort_keys=True) == before
+
+
+# -- tries before a step counts as failed ----------------------------------------------------------------
+
+def test_a_failed_step_with_a_retry_policy_waits_and_tries_again_before_it_is_failed():
+    dag = chain("a", "b")
+    dag.update_node("a", retry_policy={"max_attempts": 3, "wait_seconds": 60, "backoff": 2})
+    retry = dag.mark("a", "failed", now=1000.0)
+    assert retry == {"attempt": 1, "of": 3, "wait_seconds": 60, "retry_at": 1060.0}
+    assert dag.nodes["a"].status == "pending" and dag.ready_nodes(now=1059.0) == [] and dag.ready_nodes(now=1061.0) == ["a"]
+    assert dag.mark("a", "failed", now=1061.0)["wait_seconds"] == 120                    # each wait is `backoff` times the last
+    assert dag.nodes["a"].status == "pending"
+    assert dag.mark("a", "failed", now=1300.0) is None and dag.nodes["a"].status == "failed"      # the third try was the last
+    assert dag.ready_nodes(now=99999.0) == [] and "retry_at" not in dag.nodes["a"].state_variables
+
+
+def test_without_a_policy_one_failure_is_final_and_a_success_forgets_the_tries():
+    dag = chain("a", "b")
+    assert dag.mark("a", "failed") is None and dag.nodes["a"].status == "failed"
+    dag = chain("a", "b")
+    dag.update_node("a", retry_policy={"max_attempts": 2})
+    dag.mark("a", "failed", now=10.0)
+    assert dag.nodes["a"].state_variables["attempts"] == 1
+    dag.mark("a", "completed")
+    assert "attempts" not in dag.nodes["a"].state_variables and dag.nodes["b"].status == "pending"
+    again = chain("a", "b")
+    again.update_node("a", retry_policy={"max_attempts": 2})
+    again.mark("a", "failed", now=10.0)
+    again.rewind("a")
+    assert again.mark("a", "failed", now=11.0)["attempt"] == 1                              # a rewind starts the count over
+
+
+@pytest.mark.parametrize("bad", [{"max_attempts": 0}, {"max_attempts": 11}, {"max_attempts": True}, {"max_attempts": "3"},
+                                 {"wait_seconds": -1}, {"wait_seconds": 10**9}, {"backoff": 0.5}, {"retries": 3}, [3], "3"])
+def test_a_retry_policy_is_checked_when_it_is_set_or_loaded(bad):
+    dag = chain("a")
+    with pytest.raises(PlanError):
+        dag.update_node("a", retry_policy=bad)
+    data = dag.to_dict()
+    data["nodes"]["a"]["retry_policy"] = bad
+    with pytest.raises(PlanError):
+        PlanDAG.from_dict(data)
+    assert dag.nodes["a"].retry_policy is None
+
+
+def test_the_bridge_reports_a_scheduled_try_and_only_the_last_failure_is_a_failure(bridge):
+    bridge.handle({"type": "plan:update_node", "node_id": "invita_gianna", "changes": {"retry_policy": {"max_attempts": 2, "wait_seconds": 30}}})
+    first = bridge.handle({"type": "plan:mark", "node_id": "invita_gianna", "status": "failed"})
+    assert first["ok"] and first["status"] == "pending" and first["retry"]["attempt"] == 1 and "invita_gianna" not in first["ready"]
+    assert any(e["type"] == "plan:graph" and e.get("retry", {}).get("node_id") == "invita_gianna" for e in bridge.log)
+    assert bridge.history[-1]["summary"].endswith("tries again")
+    bridge.dag.nodes["invita_gianna"].state_variables["retry_at"] = 0                      # the wait is over
+    last = bridge.handle({"type": "plan:mark", "node_id": "invita_gianna", "status": "failed"})
+    assert last["status"] == "failed" and "retry" not in last
+
+
+# -- what a node carries: its place on the canvas, a prepared call, a wiki question ----------------------
+
+def test_a_nodes_position_is_saved_and_may_change_after_the_step_is_done():
+    dag = chain("a", "b")
+    dag.update_node("a", position={"x": 120, "y": 40.5})
+    assert dag.nodes["a"].position == {"x": 120.0, "y": 40.5}
+    dag.mark("a", "completed")
+    dag.update_node("a", position={"x": 5, "y": 6})                                           # moving a finished step is allowed
+    with pytest.raises(PlanError, match="already completed"):
+        dag.update_node("a", title="other")
+    with pytest.raises(PlanError, match="already completed"):
+        dag.update_node("a", title="other", position={"x": 1, "y": 1})
+    again = PlanDAG.from_dict(json.loads(json.dumps(dag.to_dict())))
+    assert again.nodes["a"].position == {"x": 5.0, "y": 6.0} and again.nodes["b"].position is None
+
+
+@pytest.mark.parametrize("bad", [{"x": 1}, {"x": 1, "y": "2"}, {"x": float("inf"), "y": 0}, {"x": 1e12, "y": 0}, {"x": True, "y": 0},
+                                 {"x": 1, "y": 2, "z": 3}, [1, 2], "1,2"])
+def test_a_position_must_be_two_finite_numbers(bad):
+    dag = chain("a")
+    with pytest.raises(PlanError):
+        dag.update_node("a", position=bad)
+    assert dag.nodes["a"].position is None
+
+
+def test_a_call_request_is_prepared_checked_and_kept_with_the_node_only():
+    dag = chain("a")
+    dag.add_node(node("s", NodeType.SENSOR))
+    ask = {"number": "+39 0166 123456", "reason": "Verify the hotel is open", "text": "Ask for a double room on the 24th"}
+    dag.update_node("a", call_request=ask)
+    assert dag.nodes["a"].call_request == ask
+    assert PlanDAG.from_dict(dag.to_dict()).nodes["a"].call_request == ask
+    for bad in ({"number": "rm -rf /", "reason": "x"}, {"number": "+390166123456", "reason": " "}, {"number": "+390166123456", "reason": "x" * 301},
+                {"number": "+390166123456", "reason": "x", "text": "y" * 501}, {"number": "+390166123456", "reason": "x", "extra": 1}, "call Gianna"):
+        with pytest.raises(PlanError):
+            dag.update_node("a", call_request=bad)
+    with pytest.raises(PlanError, match="action"):
+        dag.update_node("s", call_request=ask)
+    dag.update_node("a", call_request=None, wiki_query="  allergie di Diana ")
+    assert dag.nodes["a"].call_request is None and dag.nodes["a"].wiki_query == "allergie di Diana"
+    with pytest.raises(PlanError):
+        dag.update_node("a", wiki_query="q" * 301)
+
+
+def test_a_bad_field_in_an_update_leaves_the_node_untouched():
+    dag = chain("a")
+    with pytest.raises(PlanError):
+        dag.update_node("a", title="changed", position={"x": "no", "y": 1})
+    assert dag.nodes["a"].title == "A"

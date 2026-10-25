@@ -335,3 +335,19 @@ def test_two_marks_in_a_row_both_go_through_without_reading_the_plan_again(world
     out = reg.execute("plan_mark", {"plan_id": pid, "node_id": "s1", "status": "completed"})
     assert "marked completed" in out and "changed since you read it" not in out
     assert client.snapshot(pid)["plan"]["nodes"]["s1"]["status"] == "completed"
+
+
+def test_a_failed_step_with_tries_left_is_not_marked_failed_by_the_tool(world):
+    client, agent, build = world
+    reg, ask = build("default", "confirm", "confirm")
+    t = title()
+    create_with_quote(reg, agent, t)
+    pid = next(p["plan_id"] for p in client.list() if p["title"] == t)
+    client.event(pid, {"type": "plan:update_node", "node_id": "s1", "changes": {"retry_policy": {"max_attempts": 2, "wait_seconds": 3600}}})
+    reg.execute("plan_get", {"plan_id": pid})
+    agent.last_user_text = "boh"
+    out = reg.execute("plan_mark", {"plan_id": pid, "node_id": "s1", "status": "failed"})
+    assert "try 1 of 2" in out and "not marked failed" in out and "3600" in out
+    snap = client.snapshot(pid)
+    assert snap["plan"]["nodes"]["s1"]["status"] == "pending" and "s1" not in snap["ready"]
+    assert "waits for an earlier step" in reg.execute("plan_step_start", {"plan_id": pid, "node_id": "s1"}) or "not ready" in reg.execute("plan_step_start", {"plan_id": pid, "node_id": "s1"})

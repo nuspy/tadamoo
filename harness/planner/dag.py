@@ -10,7 +10,9 @@ from __future__ import annotations
 import ast
 import copy
 import enum
+import math
 import operator
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Set
@@ -159,10 +161,134 @@ class PlanNode:
     conditions: Dict[str, Any] = field(default_factory=dict)
     state_variables: Dict[str, Any] = field(default_factory=dict)
     status: str = "pending"  # pending, in_progress, completed, failed, blocked, skipped
-    retry_policy: Optional[Dict[str, Any]] = None
+    retry_policy: Optional[Dict[str, Any]] = None        # {"max_attempts", "wait_seconds", "backoff"}: tries before the step counts as failed
+    position: Optional[Dict[str, float]] = None          # where the canvas draws the node, {"x", "y"}; None: the automatic layout
+    call_request: Optional[Dict[str, str]] = None        # a call the plan prepared, {"number", "reason", "text"}; only the Chat's phone_call places it
+    wiki_query: Optional[str] = None                     # what this step wants from the knowledge wiki, when there is one
 
 
-EDITABLE = ("title", "description", "assignee", "conditions", "state_variables", "retry_policy")
+EDITABLE = ("title", "description", "assignee", "conditions", "state_variables", "retry_policy", "position", "call_request", "wiki_query")
+
+# -- what a node may carry ---------------------------------------------------------------------------------
+
+MAX_ATTEMPTS, MAX_WAIT_SECONDS, MAX_BACKOFF = 10, 7 * 86400, 10
+POSITION_LIMIT = 1_000_000
+_NUMBER = re.compile(r"^\+?[0-9][0-9 ()\-]{5,19}$")
+CALL_REASON_CHARS, CALL_TEXT_CHARS, WIKI_QUERY_CHARS = 300, 500, 300
+SENSOR_VARIABLES = ("text", "source", "at")      # what a sensor's condition can read of an event, besides the plan's values
+_CONDITION_NODES = (ast.Expression, ast.Constant, ast.Name, ast.Load, ast.List, ast.Tuple, ast.BoolOp, ast.And, ast.Or,
+                    ast.UnaryOp, ast.Not, ast.USub, ast.BinOp, ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Compare,
+                    ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.In, ast.NotIn, ast.Call)
+
+
+def _whole(x: Any) -> bool:
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
+def clean_retry_policy(value: Any) -> Optional[Dict[str, Any]]:
+    """{"max_attempts": 1-10 (the first try counts), "wait_seconds": 0-a week, "backoff": 1-10 (each wait is this much longer)}."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) - {"max_attempts", "wait_seconds", "backoff"}:
+        raise PlanError("a retry policy is {max_attempts, wait_seconds, backoff}")
+    attempts = value.get("max_attempts", 1)
+    wait, backoff = value.get("wait_seconds", 0), value.get("backoff", 1)
+    if not _whole(attempts) or not 1 <= attempts <= MAX_ATTEMPTS:
+        raise PlanError(f"max_attempts is a whole number from 1 to {MAX_ATTEMPTS}")
+    if isinstance(wait, bool) or not isinstance(wait, (int, float)) or not 0 <= wait <= MAX_WAIT_SECONDS:
+        raise PlanError(f"wait_seconds is a number from 0 to {MAX_WAIT_SECONDS}")
+    if isinstance(backoff, bool) or not isinstance(backoff, (int, float)) or not 1 <= backoff <= MAX_BACKOFF:
+        raise PlanError(f"backoff is a number from 1 to {MAX_BACKOFF}")
+    return {"max_attempts": attempts, "wait_seconds": wait, "backoff": backoff}
+
+
+def clean_position(value: Any) -> Optional[Dict[str, float]]:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {"x", "y"}:
+        raise PlanError("a position is {x, y}")
+    out = {}
+    for axis in ("x", "y"):
+        v = value[axis]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or abs(v) > POSITION_LIMIT:
+            raise PlanError(f"position {axis} must be a number between -{POSITION_LIMIT} and {POSITION_LIMIT}")
+        out[axis] = float(v)
+    return out
+
+
+def clean_call_request(value: Any) -> Optional[Dict[str, str]]:
+    """A call the plan prepared: the number, why to call and, optionally, what to say. Nothing here places a call."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) - {"number", "reason", "text"}:
+        raise PlanError("a call request is {number, reason, text}")
+    number, reason, text = value.get("number"), value.get("reason"), value.get("text", "")
+    if not isinstance(number, str) or not _NUMBER.match(number.strip()):
+        raise PlanError("the call request needs a phone number with the country code")
+    if not isinstance(reason, str) or not reason.strip() or len(reason) > CALL_REASON_CHARS:
+        raise PlanError(f"the call request needs a reason of 1 to {CALL_REASON_CHARS} characters")
+    if not isinstance(text, str) or len(text) > CALL_TEXT_CHARS:
+        raise PlanError(f"the text of a call request is at most {CALL_TEXT_CHARS} characters")
+    return {"number": number.strip(), "reason": reason.strip(), "text": text.strip()}
+
+
+def clean_wiki_query(value: Any) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str) or len(value) > WIKI_QUERY_CHARS:
+        raise PlanError(f"the wiki query is a text of at most {WIKI_QUERY_CHARS} characters")
+    return value.strip() or None
+
+
+def check_expression(expression: Any) -> None:
+    """Syntax and vocabulary of a condition, without any values: raises PlanError if safe_eval would never accept it."""
+    if not isinstance(expression, str) or not expression.strip() or len(expression) > 300:
+        raise PlanError("a condition must be a text of 1 to 300 characters")
+    try:
+        tree = ast.parse(expression.strip(), mode="eval")
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        raise PlanError(f"invalid condition '{expression[:60]}'") from None
+    for n in ast.walk(tree):
+        if (not isinstance(n, _CONDITION_NODES)
+                or (isinstance(n, ast.Constant) and not isinstance(n.value, (int, float, str, bool, type(None))))
+                or (isinstance(n, ast.BinOp) and type(n.op) not in _ARITH)
+                or (isinstance(n, ast.Call) and not (isinstance(n.func, ast.Name) and n.func.id in _FUNCS and not n.keywords))):
+            raise PlanError(f"'{expression[:60]}' uses something a condition may not use")
+
+
+def clean_conditions(node_type: Any, conditions: Any) -> Dict[str, Any]:
+    """A sensor's conditions are `when` (an expression over the event: text, source, at, and the plan's values) and `set`
+    (values to write into the plan when it holds; a text that starts with = is an expression). Other keys are left alone."""
+    if not isinstance(conditions, dict):
+        raise PlanError("conditions is an object")
+    if NodeType(node_type) != NodeType.SENSOR:
+        return dict(conditions)
+    if "when" in conditions:
+        check_expression(conditions["when"])
+    sets = conditions.get("set", {})
+    if not isinstance(sets, dict) or any(not isinstance(k, str) or not k.isidentifier() for k in sets):
+        raise PlanError("'set' of a sensor is an object whose keys are variable names")
+    for value in sets.values():
+        if isinstance(value, str) and value.startswith("="):
+            check_expression(value[1:])
+    return dict(conditions)
+
+
+def clean_field(node_type: Any, key: str, value: Any) -> Any:
+    if key == "retry_policy":
+        return clean_retry_policy(value)
+    if key == "position":
+        return clean_position(value)
+    if key == "wiki_query":
+        return clean_wiki_query(value)
+    if key == "call_request":
+        cleaned = clean_call_request(value)
+        if cleaned is not None and NodeType(node_type) != NodeType.ACTION:
+            raise PlanError("only an action step can carry a call request")
+        return cleaned
+    if key == "conditions":
+        return clean_conditions(node_type, value)
+    return value
 
 
 @dataclass
@@ -342,10 +468,11 @@ class PlanDAG:
         unknown = [k for k in changes if k not in EDITABLE]
         if unknown:
             raise PlanError(f"cannot edit {', '.join(unknown)}; editable: {', '.join(EDITABLE)}")
-        if node.status == "completed":
+        if node.status == "completed" and any(k != "position" for k in changes):
             raise PlanError(f"'{node_id}' is already completed; rewind it to change it")
         if "assignee" in changes:
             changes["assignee"] = Assignee(changes["assignee"])
+        changes = {k: clean_field(node.type, k, v) for k, v in changes.items()}      # all checked before any is applied
         for key, value in changes.items():
             setattr(node, key, value)
         self.refresh_blocking()
@@ -381,12 +508,14 @@ class PlanDAG:
                     node.status = "pending"
                     node.state_variables.pop("blocked_by", None)
 
-    def ready_nodes(self) -> List[str]:
-        """Pending nodes whose parents are all finished (a merge needs at least one completed parent)."""
+    def ready_nodes(self, now: Optional[float] = None) -> List[str]:
+        """Pending nodes whose parents are all finished (a merge needs at least one completed parent), except a
+        step that failed and is waiting to try again."""
         out = []
+        now = time.time() if now is None else now
         for nid in self.topological_order():
             n = self.nodes[nid]
-            if n.status != "pending" or self._blockers(n):
+            if n.status != "pending" or self._blockers(n) or n.state_variables.get("retry_at", 0) > now:
                 continue
             parents = [self.nodes[p].status for p in n.dependencies]
             if all(s in DONE for s in parents) and (not parents or "completed" in parents):
@@ -398,14 +527,31 @@ class PlanDAG:
     def _merge_inputs_present(self, node: PlanNode) -> bool:
         return all(v in self.shared_state for v in node.conditions.get("requires", []))
 
-    def mark(self, node_id: str, status: str, outputs: Optional[Dict[str, Any]] = None) -> None:
+    def _failed(self, node: PlanNode, now: float) -> Optional[Dict[str, Any]]:
+        """A step failed. With a retry policy it goes back to pending, to be ready again after the wait, until the tries
+        are used up; then it is failed. Returns the retry that was scheduled, if any."""
+        attempts = int(node.state_variables.get("attempts", 0)) + 1
+        node.state_variables["attempts"] = attempts
+        policy = node.retry_policy
+        if not policy or attempts >= policy["max_attempts"]:
+            node.state_variables.pop("retry_at", None)
+            node.status = "failed"
+            return None
+        wait = policy["wait_seconds"] * policy["backoff"] ** (attempts - 1)
+        node.state_variables["retry_at"] = now + wait
+        node.status = "pending"
+        return {"attempt": attempts, "of": policy["max_attempts"], "wait_seconds": wait, "retry_at": now + wait}
+
+    def mark(self, node_id: str, status: str, outputs: Optional[Dict[str, Any]] = None, now: Optional[float] = None) -> Optional[Dict[str, Any]]:
         """Sets a node's status. Completing it writes its outputs into the shared state and, for a
-        decision, routes: the exits whose condition does not hold are skipped."""
+        decision, routes: the exits whose condition does not hold are skipped. Failing a step that has a
+        retry policy schedules another try instead (the returned {"attempt", "of", "retry_at"}) until the tries are used up."""
         node = self.nodes.get(node_id)
         if node is None:
             raise KeyError(f"Node '{node_id}' not found")
         if status not in STATUSES:
             raise PlanError(f"status must be one of {STATUSES}")
+        retry = None
         if status == "completed":
             backup = copy.deepcopy((self.nodes, self.shared_state))
             try:
@@ -413,15 +559,23 @@ class PlanDAG:
                     self.shared_state.update(outputs)
                     node.state_variables["outputs"] = dict(outputs)
                 node.status = "completed"
+                for key in ("attempts", "retry_at", "sensor_error"):
+                    node.state_variables.pop(key, None)
                 if node.type == NodeType.DECISION:
                     self._route(node)
             except PlanError:
                 self.nodes, self.shared_state = backup
                 raise
+        elif status == "failed":
+            retry = self._failed(node, time.time() if now is None else now)
         else:
             node.status = status
+            node.state_variables.pop("retry_at", None)
+            if status == "skipped":
+                node.state_variables.pop("attempts", None)
         self.refresh_blocking()
         self._touch()
+        return retry
 
     def _route(self, node: PlanNode) -> None:
         chosen = [c for c in node.outputs if c in node.conditions and safe_eval(node.conditions[c], self.shared_state)]
@@ -471,6 +625,8 @@ class PlanDAG:
             for var in (produced or {}):
                 self.shared_state.pop(var, None)
             n.state_variables.pop("selected", None)
+            for key in ("attempts", "retry_at", "matched", "sensor_error"):
+                n.state_variables.pop(key, None)
             n.status = "pending"
         self.refresh_blocking()
         self._touch()
@@ -571,6 +727,9 @@ def node_to_dict(n: PlanNode) -> Dict[str, Any]:
         "state_variables": dict(n.state_variables),
         "status": n.status,
         "retry_policy": n.retry_policy,
+        "position": n.position,
+        "call_request": n.call_request,
+        "wiki_query": n.wiki_query,
     }
 
 
@@ -578,9 +737,14 @@ def node_from_dict(nd: Dict[str, Any]) -> PlanNode:
     status = nd.get("status", "pending")
     if status not in STATUSES:
         raise PlanError(f"status must be one of {STATUSES}")
+    node_type = NodeType(nd["type"])
     return PlanNode(
-        id=str(nd["id"]), type=NodeType(nd["type"]), title=str(nd["title"]), description=str(nd.get("description", "")),
+        id=str(nd["id"]), type=node_type, title=str(nd["title"]), description=str(nd.get("description", "")),
         assignee=Assignee(nd.get("assignee", "agent")), dependencies=list(nd.get("dependencies", [])),
-        outputs=list(nd.get("outputs", [])), conditions=dict(nd.get("conditions", {})),
-        state_variables=dict(nd.get("state_variables", {})), status=status, retry_policy=nd.get("retry_policy"),
+        outputs=list(nd.get("outputs", [])), conditions=clean_conditions(node_type, nd.get("conditions") or {}),
+        state_variables=dict(nd.get("state_variables", {})), status=status,
+        retry_policy=clean_field(node_type, "retry_policy", nd.get("retry_policy")),
+        position=clean_field(node_type, "position", nd.get("position")),
+        call_request=clean_field(node_type, "call_request", nd.get("call_request")),
+        wiki_query=clean_field(node_type, "wiki_query", nd.get("wiki_query")),
     )
