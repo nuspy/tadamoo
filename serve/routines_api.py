@@ -14,14 +14,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+from harness.energy import EnergyMeter
 from harness.scheduler import RoutineError, Scheduler, SessionRoutineRunner
 
 RECENT_RUNS = 20
 
 
 class RoutinesApi:
-    def __init__(self, directory: str | Path, sessions: Any, scheduler: Optional[Scheduler] = None) -> None:
-        self.scheduler = scheduler or Scheduler(directory, SessionRoutineRunner(sessions)).start()
+    def __init__(self, directory: str | Path, sessions: Any, scheduler: Optional[Scheduler] = None,
+                 power_source: Optional[Callable[[], Any]] = None) -> None:
+        """`power_source()` returns the GPUs' power readings (the server's telemetry); with it each result carries its energy."""
+        meter = (lambda: EnergyMeter(power_source)) if power_source else None
+        self.scheduler = scheduler or Scheduler(directory, SessionRoutineRunner(sessions), meter=meter).start()
 
     def overview(self) -> Dict[str, Any]:
         return {**self.scheduler.view(), "runs": self.scheduler.runs(limit=RECENT_RUNS)}
