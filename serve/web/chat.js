@@ -326,6 +326,11 @@
   const agent = () => (window.agentChat && window.agentChat.active() ? window.agentChat : null);
 
   async function send() {
+    if (prompt.value.startsWith("/") && window.slash) {              // a command is run, not sent; an unknown one stays to be edited
+      const done = window.slash.run(prompt.value.trim());
+      if (done === "keep") return;
+      if (done) { prompt.value = ""; autosize(); return; }
+    }
     const a = agent();
     if (a) { const t = prompt.value.trim(); if (t) { prompt.value = ""; autosize(); a.send(t); } return; }
     const text = prompt.value.trim();

@@ -85,6 +85,9 @@ skills, connections) and the history is kept between messages. The server starts
 | `GET .../<id>/history` | the saved messages |
 | `POST .../<id>/answer` | `{"ask", "value"}`: the person's answer to a confirmation the conversation is waiting for (`asking`); the value must be one of the buttons |
 | `POST .../<id>/cancel`, `/resume`, `/close` | stop the turn; go on after a block; end the conversation |
+| `POST .../<id>/mode` | `{"mode", "confirm_auto"}`: what the conversation may do without asking, from its next action on; `auto` needs `confirm_auto: true`, as at the start |
+| `POST .../<id>/effort` | `{"level"}`: `none`, `low`, `medium`, `high` or empty (the model's own); also a field of the create call |
+| `POST .../<id>/rename`, `/command` | `{"title"}`; `{"name", "args"}`: a slash command the process answers (below), whose answer comes as a `command` event |
 
 The history is saved after every model turn, and a message is on disk before the model sees it. Failures are handled in
 two places and never hidden:
@@ -101,6 +104,35 @@ person. A tool that cannot be undone is **never run again by a restart**: its st
 dies while it runs, the next start reports `interrupted_irreversible`, nothing goes on by itself, and the conversation
 gets a note that the tool may already have run. A conversation idle for 30 minutes loses its process (it is `dormant`; the
 history stays). The processes end with the server. Secrets are masked before the history reaches the disk.
+
+### The mode, the thinking level and the slash commands
+
+The permission mode (*Plan only*, *Read only*, *Ask first*, *Automatic*) can be changed while the conversation lives: a label by the
+*New conversation* button says which one is on (*Shift + TAB to change mode: actual …*), **Shift+Tab** in the message box goes to the
+next (Ask first, Plan only, Read only, Automatic, and round), and so does pressing the label. Going to Automatic asks the two
+confirmations of the risk dialog; a refusal passes over it to the next. With no conversation yet, it changes the mode the next one starts
+with (the Chat settings' choice); with one, it changes that one only, and the process tells the page (`mode` event). The *Thinking* list
+is the conversation's too: a new one starts with its value, a change reaches the process (`effort`), and an opened one sets the list.
+
+A message that begins with `/` and a word is a command (a message that begins with a space is sent as it is; an unknown command stays in
+the box). Typing `/` opens a menu: arrows or Tab choose, Enter runs a command that takes no argument. They are the commands of Claude
+Code that make sense here, plus Basalt's own:
+
+* **on the page**: `/help`, `/clear` (`/new`, `/reset`), `/model`, `/effort [none|low|medium|high|auto]`, `/mode [plan|read|ask|auto]`, `/plan [what]`
+  (plan mode, then the request), `/permissions` and `/settings` (open the Chat settings), `/copy [n]`, `/export` (a text file), `/rename name`,
+  `/branch`, `/branches`, `/resume`, `/rewind` (points at the *Back* button), `/stop`, `/diff` (the conversation's copy of the folder),
+  `/plans` and `/wallet`;
+* **answered by the conversation's process** (`harness/commands.py`, data the page words in its language): `/status`, `/context`,
+  `/compact` (the older half of the conversation becomes a summary, only when nothing is under way), `/tools`, `/hooks`, `/mcp`,
+  `/memory [search]`, `/permissions` (the mode, the rules, the refusals);
+* **requests worded for the model**: `/init` (write AGENTS.md), `/review` and `/security-review` (the changes in the folder), and
+  `/research question` (also `/search`), which asks to read the sources themselves and to name the pages it could not open;
+* **skills** found on this PC (Settings, Capabilities): `/name text` asks the agent to load the skill with `load_capability` and follow it;
+  a skill not yet approved says so instead of running.
+
+Not carried over from Claude Code, on purpose: the ones that belong to its account, terminal or cloud (`/login`, `/usage`, `/theme`,
+`/vim`, `/ide`, `/remote-*`, `/install-*`, `/voice`, `/mobile`…), and `/model`'s switching, because the model is the one loaded in
+Models.
 
 ### A message written while the agent works
 

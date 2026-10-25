@@ -61,6 +61,8 @@ DYNAMIC = {
     "ch.state.": ["pending", "partial", "kept", "reverted", "superseded"],
     "br.cmp.state.": ["running", "done", "interrupted"],
     "br.side.state.": ["waiting", "running", "done", "needs_you", "ended", "timeout", "failed", "interrupted"],
+    "sl.d.": ['help', 'clear', 'model', 'effort', 'mode', 'plan', 'permissions', 'settings', 'status', 'context', 'compact', 'tools', 'hooks', 'mcp', 'memory', 'copy', 'export', 'rename', 'branch', 'branches', 'resume', 'rewind', 'stop', 'diff', 'plans', 'wallet', 'init', 'review', 'security-review', 'research'],
+    "sl.r.compact.": ["busy", "short", "moved", "unsupported"],
     "tab.": ["chat", "agent", "plans", "stats", "loader", "hardware", "logs", "wallet", "settings"],
 }
 NODE = shutil.which("node")

@@ -53,6 +53,7 @@
     setControls();
   }
   function setControls() {
+    paintChip();
     const on = active();
     if (!on) return;
     const asking = state === "asking";
@@ -98,6 +99,7 @@
     const h = await api("GET", `/${id}/history`);
     if (!h.ok) { status(errText(h)); return; }
     sid = id; keep(LAST_KEY, id); rec = h.json.session; state = rec.state;
+    if (typeof rec.effort === "string") effortSel.value = rec.effort;
     fromHistory(h.json.messages || []);
     if (state === "busy" || state === "starting" || state === "asking") {      // mid-turn: rebuild what is going on from its events
       forget(); sid = id;
@@ -144,6 +146,9 @@
       case "suspended": noteItem({ s: T("ch.suspended") }); break;
       case "resumed": noteItem({ s: T("ch.resumed") }); assistant(e.turn); break;
       case "cleared": noteItem({ s: T("ch.cleared", e.count) }); break;
+      case "mode": if (rec) rec.mode = e.mode; paintChip(); noteItem({ s: T("ch.mode.now", T("ag.mode." + e.mode)) }); break;
+      case "effort": if (rec) rec.effort = e.level; noteItem({ s: T("ch.effort.now", effortName(e.level)) }); break;
+      case "command": document.dispatchEvent(new CustomEvent("basalt:command", { detail: e })); break;
       case "dropped": started(e.turn); noteItem({ s: T("ch.dropped") }); break;
       case "agent": {
         const d = e.data || {};
@@ -340,6 +345,7 @@
     }
   }
   function paintNote(it) {
+    if (it.build) { it.el.replaceChildren(it.build()); return; }
     it.el.replaceChildren(mk("span", "", it.s));
     if (it.route && it.how === "queue" && !it.over) {                         // a request that waits: it can be made urgent or taken out
       it.el.append(btn(T("ch.promote"), "ghost", () => tell("promote", it.route)), btn(T("ch.drop"), "ghost", () => tell("drop", it.route)));
@@ -463,7 +469,12 @@
     try {
       const r = await fetch(`api/outputs/${encodeURIComponent(sid)}/${encodeURIComponent(id)}`, { headers: authHeaders() });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const blob = await r.blob();
+      await saveBlob(await r.blob(), name);
+    } catch (e) { if (!(e && e.name === "AbortError")) status(T("ch.out.fail", name)); }
+    button.disabled = false;
+  }
+  async function saveBlob(blob, name) {
+    try {
       const app = window.chrome && window.chrome.webview;
       if (app) {                                              // the desktop app opens "Save as" itself and says how it ended
         const ended = new Promise(done => {
@@ -489,13 +500,45 @@
         status(T("ch.out.saved", name));
       }
     } catch (e) { if (!(e && e.name === "AbortError")) status(T("ch.out.fail", name)); }
-    button.disabled = false;
   }
 
   /* ---- what a new conversation may do without asking: its mode and the rules that let a kind of command run ---- */
   const PERM_KEY = "basalt.chat.perm", ALLOW_KEY = "basalt.chat.allow";
   const permRadios = [...document.querySelectorAll('input[name="cs-perm"]')], allowBox = $("#cs-allow"), autoRisk = $("#cs-auto-risk");
   const permMode = () => (permRadios.find(r => r.checked) || {}).value || "default";
+  const PERM_CYCLE = ["default", "plan", "read_only", "auto"];                // the order Shift+Tab goes through
+  const permNow = () => (active() && sid && rec && rec.mode) ? rec.mode : load(PERM_KEY, "default");
+  const chip = $("#mode-chip");
+  function paintChip() {
+    const on = active() && mode !== "ask";                                    // a conversation without tools has no mode to show
+    chip.hidden = !on;
+    if (!on) return;
+    const m = permNow();
+    chip.dataset.mode = m;
+    chip.textContent = T("ch.chip", T("ag.mode." + m));
+    chip.title = T("ag.mode." + m + ".d");
+  }
+  async function setPerm(m) {                                                // false when the person did not go through with it
+    if (m === "auto" && !(await riskConfirm([T("ag.auto.risk")]))) return false;
+    if (sid) {
+      const r = await api("POST", `/${sid}/mode`, { mode: m, confirm_auto: m === "auto" });
+      if (!r.ok) { status(errText(r)); return false; }
+      rec = r.json.session;
+    } else { keep(PERM_KEY, m); paintPerm(); }
+    paintChip();
+    return true;
+  }
+  async function cyclePerm() {
+    const at = PERM_CYCLE.indexOf(permNow());
+    for (let k = 1; k <= PERM_CYCLE.length; k++) {                           // an automatic mode that was declined is passed over, not asked again at once
+      const next = PERM_CYCLE[(at + k) % PERM_CYCLE.length];
+      if (await setPerm(next)) { status(T("ch.mode.now", T("ag.mode." + next))); return; }
+    }
+  }
+  chip.onclick = () => { cyclePerm(); $("#prompt").focus(); };
+  const effortSel = $("#effort");
+  const effortName = level => { const o = [...effortSel.options].find(x => x.value === (level || "")); return o ? o.text : String(level); };
+  effortSel.addEventListener("change", () => { if (active() && sid) api("POST", `/${sid}/effort`, { level: effortSel.value }); });
   function paintPerm() {
     const m = load(PERM_KEY, "default");
     permRadios.forEach(r => { r.checked = r.value === m; });
@@ -505,7 +548,7 @@
   allowBox.oninput = () => keep(ALLOW_KEY, allowBox.value);
   permRadios.forEach(r => r.addEventListener("change", async () => {
     if (r.value === "auto" && !(await riskConfirm([T("ag.auto.risk")]))) { paintPerm(); return; }
-    keep(PERM_KEY, r.value); paintPerm();
+    keep(PERM_KEY, r.value); paintPerm(); paintChip();
   }));
   paintPerm();
   const allowRules = () => allowBox.value.split("\n").map(s => s.trim()).filter(Boolean);
@@ -590,7 +633,7 @@
   /* ---- talking to the conversation ---- */
   async function ensure() {
     if (sid) return true;
-    const r = await api("POST", "", { mode: permMode(), allow: allowRules(), confirm_auto: permMode() === "auto", ask_only: mode === "ask", context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), end_turn_bias: chatSettings.body().end_turn_bias, worktree: copyMode() });
+    const r = await api("POST", "", { mode: permMode(), allow: allowRules(), confirm_auto: permMode() === "auto", ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), end_turn_bias: chatSettings.body().end_turn_bias, worktree: copyMode() });
     if (!r.ok) { status(errText(r)); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(LAST_KEY, sid); after = 0;
     await refreshList(); list.value = sid;
@@ -648,7 +691,40 @@
   document.addEventListener("basalt:view", e => { if (e.detail === "chat") { refreshList(); poll(true); } });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(true); });
 
-  window.agentChat = { active, send, stop, newChat, current: () => sid };
+  /* ---- what the slash commands (slash.js) use ---- */
+  const answersOf = () => items.filter(it => it.kind === "assistant").map(it => it.blocks.filter(b => b.t === "text").map(b => b.s).join("\n\n")).filter(Boolean);
+  function note(plain, build) {                                              // in the conversation; in the model-only chat, on the status line
+    if (!active()) { status(plain); return; }
+    noteItem({ s: plain, ...(build ? { build } : {}) }); render();
+  }
+  async function transcript() {
+    if (!sid) return "";
+    const h = await api("GET", `/${sid}/history`);
+    if (!h.ok) { status(errText(h)); return ""; }
+    return (h.json.messages || []).map(m => {
+      if (m.role === "user") return `${T("ch.you")}: ${typeof m.content === "string" ? m.content : ""}`;
+      if (m.role === "assistant") return [m.content ? `${T("ch.agent")}: ${m.content}` : "", ...(m.tool_calls || []).map(tc => `[${(tc.function || {}).name}] ${(tc.function || {}).arguments || ""}`)].filter(Boolean).join("\n");
+      return m.role === "tool" ? `  -> ${String(m.content || "").slice(0, SHOWN_OUTPUT)}` : "";
+    }).filter(Boolean).join("\n\n");
+  }
+  async function runOnServer(name, args) {                                  // the process answers with a `command` event, which slash.js draws
+    if (!(await ensure())) return false;
+    const r = await api("POST", `/${sid}/command`, { name, args });
+    if (!r.ok) { status(errText(r)); return false; }
+    poll(true);
+    return true;
+  }
+  async function rename(title) {
+    if (!sid) return false;
+    const r = await api("POST", `/${sid}/rename`, { title });
+    if (!r.ok) { status(errText(r)); return false; }
+    rec = r.json.session; await refreshList(); list.value = sid;
+    return true;
+  }
+  window.agentChat = { active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, rename, transcript, saveBlob, answers: answersOf,
+    perm: { now: permNow, set: setPerm, cycle: cyclePerm, available: () => active() && mode !== "ask", modes: PERM_CYCLE },
+    sessions: () => [...list.options].filter(o => o.value).map(o => ({ id: o.value, label: o.textContent })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
+    toggleCopy: () => copyOpen.click() };
   document.addEventListener("basalt:open-session", async e => {      // the tree of branches opens a conversation here
     const id = e.detail && e.detail.id;
     if (!id) return;

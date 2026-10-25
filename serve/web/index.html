@@ -24,6 +24,7 @@
 <script defer src="web/chatset.js"></script>
 <script defer src="web/chat.js"></script>
 <script defer src="web/agentchat.js"></script>
+<script defer src="web/slash.js"></script>
 <script defer src="web/branches.js"></script>
 <script defer src="web/settings.js"></script>
 <script defer src="web/capabilities.js"></script>
@@ -159,6 +160,7 @@
         </label>
         <button type="button" class="btn" id="cs-open" aria-expanded="false" aria-controls="chatset" data-t="cs.open">Settings</button>
         <button type="button" class="btn" id="new-chat" data-t="ch.newbtn">New conversation</button>
+        <button type="button" class="modechip" id="mode-chip" aria-keyshortcuts="Shift+Tab" hidden></button>
         <button type="button" class="btn" id="branch-chat" data-t="ch.branch" hidden>Branch here</button>
         <button type="button" class="btn" id="branches-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="branches" data-t="br.open" hidden>Branches</button>
       </div>
@@ -185,6 +187,7 @@
         </div>
       </div>
       <form class="composer" id="composer">
+        <div class="slashhost"><div class="slashmenu" id="slash-menu" role="listbox" aria-label="Commands" data-t-aria="sl.menu" hidden></div></div>
         <div class="attachments" id="attachments" aria-label="Attached images" hidden></div>
         <div class="aatt" id="aatt" aria-label="Attached files" role="list" hidden></div>
         <label class="sr" for="prompt">Message</label>
