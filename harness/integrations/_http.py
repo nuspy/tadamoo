@@ -5,6 +5,7 @@ another host, and every failure is reported as a ServiceError with a kind.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import urllib.error
@@ -14,8 +15,8 @@ from typing import Any, Dict, Iterator, Optional
 
 
 class ServiceError(Exception):
-    """kind is one of: offline (never reached), unauthorized, not_found, bad_response, http_error,
-    timeout (sent, no answer in time)."""
+    """kind is one of: offline (never reached: nothing was sent), unauthorized, not_found, bad_response, http_error,
+    timeout (sent, no answer in time), interrupted (sent, the connection broke before a whole answer came: the service may have acted)."""
 
     def __init__(self, kind: str, message: str, status: Optional[int] = None, detail: str = "") -> None:
         super().__init__(message)
@@ -54,8 +55,15 @@ def _send(req: urllib.request.Request, url: str, timeout: float) -> Any:
         raise ServiceError("http_error", f"{url}: HTTP {e.code}", e.code, detail) from None
     except TimeoutError:
         raise ServiceError("timeout", f"{url}: timed out") from None
-    except (urllib.error.URLError, ConnectionError, OSError) as e:
-        # A timeout while connecting arrives wrapped here: the request was never sent.
+    except urllib.error.URLError as e:
+        # Wrapped here: a refusal or a timeout while connecting (nothing was sent), or a connection that broke while sending.
+        if isinstance(e.reason, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
+            raise ServiceError("interrupted", f"{url}: the connection broke ({type(e.reason).__name__})") from None
+        raise ServiceError("offline", f"{url}: {e}") from None
+    except (ConnectionError, http.client.HTTPException) as e:
+        # Raised after the request went out (the service closed the connection, or sent half an answer): it may have acted.
+        raise ServiceError("interrupted", f"{url}: the connection broke ({type(e).__name__})") from None
+    except OSError as e:
         raise ServiceError("offline", f"{url}: {e}") from None
     try:
         return json.loads(raw.decode("utf-8")) if raw else {}

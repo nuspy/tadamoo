@@ -9,7 +9,10 @@ Contract (callAPIcall external API, Bearer token, default port 8770). The caller
   POST /external/<id>/hangup                                          -> final state
 
 A call reaches a real person and cannot be undone: callers must obtain explicit approval first, the
-greeting must disclose that the caller is an AI, and a failed placement is never retried here.
+greeting must disclose that the caller is an AI, and a placement is never retried here, whatever went wrong.
+What came back tells the outcome apart: `calling`; `failed` (the service did not take it: not running, token refused, a call
+already in progress (409), a refusal with its reason) or `unknown` (it may have started: no answer in time, a broken connection,
+a server error), after which the caller must check the call before placing another.
 
 The same port also analyses recordings, which is how the Chat reads audio and video attachments:
   POST   /analysis/start       multipart file (+ title, speakers) -> 202 {"id", "state"}; 409 while one runs;
@@ -110,13 +113,36 @@ class CallAPICallClient:
             if value:
                 payload[key] = value
         try:
-            return self._call("POST", "/external/call", payload, timeout=self.place_timeout)
+            res = self._call("POST", "/external/call", payload, timeout=self.place_timeout)
         except ServiceError as e:
-            if e.kind == "timeout":
-                # The service may have started dialling: never retry blindly.
-                return {"status": "unknown", "error": "no answer in time; check the call state before retrying",
-                        "phone_number": number}
-            return {"status": "failed", "error": f"callAPIcall service unavailable: {e.kind}", "phone_number": number}
+            return self._placement_failure(e, number)
+        if not isinstance(res, dict) or not res.get("call_id"):
+            return {"status": "unknown", "reason": "bad_answer", "phone_number": number,
+                    "error": "the service answered without a call id; the call may have started: check it before placing another"}
+        return res
+
+    def _placement_failure(self, e: ServiceError, number: str) -> Dict[str, Any]:
+        """What a failed POST /external/call means. Only a failure that left no doubt says `failed`; whenever the service may have
+        acted the status is `unknown`, and nothing here ever sends the request again."""
+        said = f": {e.detail}" if e.detail else ""
+        out = {"phone_number": number, "http_status": e.status}
+        if e.kind == "timeout":
+            return {**out, "status": "unknown", "reason": "timeout", "error": "no answer in time; the call may have started: check the call before placing another"}
+        if e.kind in ("interrupted", "bad_response"):
+            return {**out, "status": "unknown", "reason": e.kind,
+                    "error": "the connection broke before the service answered; the call may have started: check it before placing another"}
+        if e.kind == "offline":
+            return {**out, "status": "failed", "reason": "offline", "error": f"callAPIcall is not running or cannot be reached at {self.endpoint}; start it"}
+        if e.kind == "unauthorized":
+            return {**out, "status": "failed", "reason": "unauthorized", "error": f"callAPIcall refused the token (HTTP {e.status}){said}"}
+        if e.status == 409:
+            return {**out, "status": "failed", "reason": "busy", "error": f"callAPIcall is already in a call (HTTP 409){said}"}
+        if e.kind == "not_found":
+            return {**out, "status": "failed", "reason": "not_found", "error": f"callAPIcall does not offer /external/call (HTTP 404){said}"}
+        if e.status is not None and e.status >= 500:
+            return {**out, "status": "unknown", "reason": "server_error",
+                    "error": f"callAPIcall reported an error (HTTP {e.status}){said}; the call may have started: check it before placing another"}
+        return {**out, "status": "failed", "reason": "refused", "error": f"callAPIcall refused the call (HTTP {e.status}){said}"}
 
     def make_phone_call(self, phone_number: str, goal: str, persona_prompt: str = "", mode: str = "gsm_modem") -> Dict[str, Any]:
         """Places a call on behalf of `persona_prompt` for `goal`; conversation turns follow via say/heard."""

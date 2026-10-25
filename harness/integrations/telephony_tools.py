@@ -48,6 +48,9 @@ def register_phone_tools(
         if not purpose.strip() or len(purpose) > MAX_PURPOSE:
             raise ValueError(f"purpose must be 1 to {MAX_PURPOSE} characters")
         res = client.place_call(number, build_greeting(on_behalf_of, purpose))
+        if res.get("status") == "unknown":                 # it may have started: say so, and do not suggest trying again
+            raise RuntimeError(f"The call may have started: {res.get('error') or 'no answer'}. Do not place it again by yourself: "
+                               "tell the user and ask them whether the phone rang.")
         if res.get("status") != "calling" or not res.get("call_id"):
             raise RuntimeError(f"The call was not placed: {res.get('error') or res.get('status')}")
         active.add(res["call_id"])

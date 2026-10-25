@@ -111,7 +111,7 @@ def test_call_client_offline_degrades_without_raising():
     c = CallAPICallClient("http://127.0.0.1:59998", timeout=0.1, place_timeout=0.2)
     assert not c.is_available()
     res = c.make_phone_call("+390166123456", "Verifica apertura hotel")
-    assert res["status"] == "failed" and "unavailable" in res["error"]
+    assert res["status"] == "failed" and "not running" in res["error"]
     assert not c.hangup("call_123")
     assert c.get_call_transcript("call_123") is None
 
@@ -188,3 +188,133 @@ def test_waiting_times_out_on_a_job_that_keeps_running(phone):
 def test_the_transcript_text_is_readable_even_when_the_service_is_sparse():
     assert format_transcript([{"text": " ciao "}, {"text": ""}, {"start_s": 3725, "text": "tardi", "speaker": "A"}]) == (
         "[00:00] ciao\n[1:02:05] A: tardi")
+
+
+# ---- what a failed placement means, and that nothing ever places a call twice ---------------------------------
+
+import json  # noqa: E402
+import socket  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: E402
+
+from harness.integrations.telephony_tools import register_phone_tools  # noqa: E402
+from harness.tools.registry import ToolRegistry  # noqa: E402
+
+
+class ScriptedPhone:
+    """A phone service that answers POST /external/call as told and counts how many arrive. No number is ever dialled."""
+
+    def __init__(self, behave):
+        self.posts = 0
+        outer = self
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                outer.posts += 1
+                behave(self)
+
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.httpd.daemon_threads = True
+        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+
+def reply(status, body):
+    raw = body if isinstance(body, bytes) else json.dumps(body).encode()
+
+    def go(h):
+        h.send_response(status)
+        h.send_header("Content-Length", str(len(raw)))
+        h.end_headers()
+        h.wfile.write(raw)
+    return go
+
+
+def hang(h):
+    time.sleep(1.5)
+
+
+def drop(h):
+    h.connection.shutdown(socket.SHUT_RDWR)             # the request arrived and the connection dies without an answer
+    h.connection.close()
+
+
+CASES = [
+    ("busy", reply(409, {"error": "una chiamata esterna è già in corso"}), "failed", "busy", ["409", "già in corso"]),
+    ("refused", reply(400, {"error": "numero non valido per il modem"}), "failed", "refused", ["HTTP 400", "numero non valido per il modem"]),
+    ("token", reply(401, {"error": "token errato"}), "failed", "unauthorized", ["token", "HTTP 401"]),
+    ("missing", reply(404, {"error": "no such route"}), "failed", "not_found", ["HTTP 404"]),
+    ("server_error", reply(500, {"error": "modem seriale bloccato"}), "unknown", "server_error", ["HTTP 500", "modem seriale bloccato", "may have started"]),
+    ("no_answer", hang, "unknown", "timeout", ["no answer in time", "may have started"]),
+    ("dropped", drop, "unknown", "interrupted", ["connection broke", "may have started"]),
+    ("garbage", reply(200, b"<html>not json</html>"), "unknown", "bad_response", ["may have started"]),
+    ("no_id", reply(200, {"status": "calling"}), "unknown", "bad_answer", ["without a call id"]),
+]
+
+
+@pytest.mark.parametrize("name,behave,status,reason,words", CASES, ids=[c[0] for c in CASES])
+def test_each_way_a_placement_can_fail_is_told_apart_and_the_request_is_never_repeated(name, behave, status, reason, words):
+    fake = ScriptedPhone(behave)
+    try:
+        c = CallAPICallClient(fake.url, token="t0ken", place_timeout=0.4)
+        res = c.make_phone_call("+390166123456", "Verificare l'apertura dell'hotel")
+        assert (res["status"], res["reason"]) == (status, reason), res
+        for w in words:
+            assert w in res["error"], (w, res["error"])
+        time.sleep(0.3)
+        assert fake.posts == 1                                                  # one request, whatever happened: no retry of a call
+    finally:
+        fake.close()
+
+
+def test_a_service_that_is_not_running_says_so_and_names_the_address():
+    c = CallAPICallClient("http://127.0.0.1:59996", place_timeout=0.3)
+    res = c.make_phone_call("+390166123456", "Verifica")
+    assert (res["status"], res["reason"]) == ("failed", "offline") and "59996" in res["error"] and "start it" in res["error"]
+
+
+def test_the_phone_tool_carries_the_real_message_and_never_calls_a_possible_call_not_placed():
+    registry = ToolRegistry()
+    results = {}
+    for name, behave, status, reason, words in CASES:
+        fake = ScriptedPhone(behave)
+        try:
+            register_phone_tools(registry, CallAPICallClient(fake.url, token="t0ken", place_timeout=0.4), on_behalf_of="Mario Rossi")
+            with pytest.raises(Exception) as err:
+                registry.execute("phone_call", {"number": "+390166123456", "purpose": "Verificare l'apertura"})
+            results[name] = str(err.value)
+            assert fake.posts == 1
+        finally:
+            fake.close()
+    assert "modem seriale bloccato" in results["server_error"] and "may have started" in results["server_error"] and "Do not place it again" in results["server_error"]
+    assert results["no_answer"].startswith("The call may have started") and "ask them whether the phone rang" in results["no_answer"]
+    assert results["busy"].startswith("The call was not placed") and "già in corso" in results["busy"]
+    assert "numero non valido per il modem" in results["refused"]
+
+
+def test_a_redirect_never_carries_the_credentials_to_another_host():
+    seen = []
+
+    def sink(h):
+        seen.append(dict(h.headers))
+        reply(200, {"ok": True})(h)
+
+    target = ScriptedPhone(sink)
+    bouncer = ScriptedPhone(lambda h: (h.send_response(307), h.send_header("Location", target.url + "/x"), h.send_header("Content-Length", "0"), h.end_headers()))
+    try:
+        res = CallAPICallClient(bouncer.url, token="t0ken-secret").make_phone_call("+390166123456", "Verifica")
+        assert res["status"] in ("failed", "unknown") and seen == []                        # the redirect is not followed: the token stays here
+        wiki = WikiBridgeClient(bouncer.url, api_key="wiki-secret")
+        assert wiki.search("cervinia", "x") == [] and seen == []
+    finally:
+        bouncer.close()
+        target.close()
