@@ -449,3 +449,16 @@ def test_an_error_that_keeps_coming_ends_the_run_as_a_loop():
     agent = AgentLoop(ScriptedClient(*steps), _failing_registry(["same wall"]), max_turns=10)
     agent.run("go")
     assert agent.stop_reason == LOOP and len(agent.turns) == 5          # strikes from the third, stop on the third strike
+
+
+@pytest.mark.parametrize("broken", [
+    '<tool_call>{"name": "write_file", "arguments": {"path": "a.txt", "content": ',
+    "<tool_call>not json at all</tool_call>",
+    "<tool_call><function=write_file><parameter=path>a.txt</parameter>",
+])
+def test_a_message_of_only_broken_calls_is_sent_back_not_taken_as_the_final_answer(ws, broken):
+    client = ScriptedClient(say(broken), call("write_file", {"path": "a.txt", "content": "fixed"}, "c2"), say("ok"))
+    agent, _ = make(ws, client)
+    turns = agent.run("go")
+    assert turns[0].tool_calls and turns[0].tool_calls[0].decision == "invalid" and client.sent[1][-1]["role"] == "tool"
+    assert (ws / "a.txt").read_text(encoding="utf-8") == "fixed" and agent.stop_reason == FINAL and len(turns) == 3

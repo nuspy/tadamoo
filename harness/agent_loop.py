@@ -260,6 +260,9 @@ class AgentLoop:
                 calls.append(ParsedCall(call_id, "", body, 'A tool call needs a "name".'))
                 continue
             calls.append(ParsedCall(call_id, parsed["name"], parsed.get("arguments", {})))
+        if not calls and "<tool_call>" in content:        # opened and never closed: the answer was cut off, it is not a final answer
+            calls.append(ParsedCall(f"call_{uuid.uuid4().hex[:12]}", "", content.partition("<tool_call>")[2],
+                                    "A tool call was cut off: it has no closing </tool_call>. Write the whole call again."))
         return calls
 
     def parse_tool_calls(self, message: Dict[str, Any]) -> List[Any]:
