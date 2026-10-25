@@ -176,7 +176,8 @@ and its safety snapshot can be rewound to as well. The audit log
 - **Payments**: a payment system is held by a card or a login of the vault (or by a provider's own virtual card, token or
   mandate). The broker (`payments_broker.py`) keeps a state file signed with the device key and a hash-chained ledger under a
   file lock, re-read on every request, so a revocation made in the page applies at once, the server and the conversations'
-  processes keep one chain, and any file that fails verification stops all payments. Amounts are exact cents. With no waiver
+  processes keep one chain, and any file that fails verification stops all payments. Amounts are exact cents, with every digit kept
+  (up to 60, only so that a number cannot fill the memory). The limit is the person's to set, to any amount; until it is set it is 0 and
   every payment asks the person. A waiver (the design's level 4, §4.8.4) lets the agent pay by itself up to a cap per payment
   and a cumulative cap until it expires; above them it asks again. Granting one is the dictated declaration (checked in Italian
   and English against the chosen amount), the release and acceptance dialogs with the name typed again, and an AES-256-GCM
@@ -184,7 +185,9 @@ and its safety snapshot can be rewound to as well. The audit log
   (`request_payment`, offered when a payment system exists); nothing it can call grants or widens a waiver. An approved
   payment lets the fields of the system's card out of the vault for ten minutes, as placeholders, unless the person turned that
   guard off for that card. **No payment connector moves money by itself**: what is paid is paid when the form is sent through
-  the browser tools. Decisions still yours: the default 30-day expiry and a lawyer's review of the three dialogs.
+  the browser tools. Stripe and Google Pay are paid as any web checkout is, in the page, when the person asks the agent to do it: there
+  is no connector for them (a Stripe-hosted checkout has its fields on the page itself; a Google Pay button needs a browser signed in
+  to Google, which the agent's throw-away profile is not). Decisions still yours: the default 30-day expiry and a lawyer's review of the three dialogs.
 - **The browser** (`browser.py`, `--browser`): Edge or Chrome on this PC, driven over the DevTools protocol, for forms, purchases and
   bookings (`browser_open`, `browser_read`, `browser_click`, `browser_type`, `browser_select`, `browser_press`, `browser_back`).
   A page is read as numbered elements and text, fenced as untrusted. A vault value is typed only if the page's site is one the
@@ -554,5 +557,5 @@ one, so it matters that an agent which can run arbitrary code (an allow rule suc
 its own later requests: such a rule already grants that power, and only the isolation below would take it away.
 
 Not done: file and network isolation for commands (the job object limits resources only); `fs/*` and `session/load` in ACP;
-a payment provider's own API (Stripe, Google Pay), reading bank accounts through an authorized aggregator, and card fields inside a
-provider's own frame; the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.
+reading bank accounts through an authorized aggregator, a browser that keeps its sign-ins between conversations (Google Pay needs one),
+and card fields inside a payment provider's own frame (an embedded Stripe form on a merchant's page); the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.

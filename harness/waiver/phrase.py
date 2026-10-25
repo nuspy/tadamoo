@@ -18,7 +18,7 @@ PHRASES = {
 }
 CURRENCY_WORDS = {"€": "EUR", "eur": "EUR", "euro": "EUR", "$": "USD", "usd": "USD", "dollari": "USD", "dollars": "USD",
                   "£": "GBP", "gbp": "GBP", "sterline": "GBP", "pounds": "GBP"}
-_AMOUNT = re.compile(r"^\s*(?:(?P<pre>[€$£])\s*)?(?P<num>\d{1,9}(?:[.,]\d{1,2})?)\s*(?P<post>[€$£]|[A-Za-z]{3,8})?\s*$")
+_AMOUNT = re.compile(r"^\s*(?:(?P<pre>[€$£])\s*)?(?P<num>\d{1,40}(?:[.,]\d{1,2})?)\s*(?P<post>[€$£]|[A-Za-z]{3,8})?\s*$")
 
 
 def normalize(text: str) -> str:

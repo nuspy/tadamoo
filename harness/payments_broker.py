@@ -22,7 +22,7 @@ import os
 import secrets
 import threading
 import time
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -34,7 +34,7 @@ from harness.waiver.keystore import load_or_create_key
 from harness.waiver.phrase import normalize, parse_amount, verify_phrase
 
 DAY = 86400.0
-MAX_CENTS = 100_000_000_00        # no single request above 100 million units
+DIGITS = 60
 
 
 @contextlib.contextmanager
@@ -77,16 +77,20 @@ def to_cents(amount: Any) -> int:
         raise ValueError(f"the amount must be a number, got {amount!r}") from None
     if not value.is_finite() or value <= 0:
         raise ValueError("the amount must be positive and finite")
-    cents = value * 100
+    if value.adjusted() >= DIGITS:
+        raise ValueError(f"the amount has more than {DIGITS} digits")          # only so that a number cannot be made to fill the memory
+    with localcontext() as ctx:
+        ctx.prec = 2 * DIGITS                                                  # the amount is the person's: no digit is rounded off
+        cents = value * 100
     if cents != cents.to_integral_value():
         raise ValueError("the amount cannot have more than two decimals")
-    if cents > MAX_CENTS:
-        raise ValueError("the amount is unreasonably large")
     return int(cents)
 
 
 def money(cents: int, currency: str) -> str:
-    return f"{Decimal(cents) / 100:.2f} {currency.upper()}"
+    with localcontext() as ctx:
+        ctx.prec = 100                                   # a limit is the person's to set, however large: every digit is kept
+        return f"{Decimal(cents) / 100:.2f} {currency.upper()}"
 
 
 class PaymentsBroker:

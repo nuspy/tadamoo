@@ -338,3 +338,34 @@ def test_the_agent_tool_only_asks_and_the_broker_decides(broker):
     assert not perms.evaluate("request_payment", registry.get("request_payment").effect, {})[0] if perms.plan_mode else True
     plan = PermissionManager(level=PermissionLevel.AUTO, plan_mode=True)
     assert not plan.evaluate("request_payment", registry.get("request_payment").effect, {})[0]
+
+
+# -- the limit is the person's ------------------------------------------------------------------------
+
+HUGE = "123456789012345678901234567890.55"                                       # more digits than a float or a default Decimal context keeps
+
+
+def test_a_limit_can_be_any_amount_the_person_chooses_and_every_digit_is_kept(broker):
+    grant(broker, per=HUGE, cum="999999999999999999999999999999999999.00")
+    out = broker.authorize("vcard", HUGE, "EUR", "Yacht", "deposit")
+    assert out["amount"] == "123456789012345678901234567890.55 EUR" and out["status"] == "authorized"
+    status = broker.status()[0]
+    assert status["per_payment"] == "123456789012345678901234567890.55 EUR" and status["spent"] == "123456789012345678901234567890.55 EUR"
+    assert status["remaining"] == "999999876543210987654321098765432108.45 EUR"
+    with pytest.raises(PermissionError, match="over the cap"):
+        broker.authorize("vcard", "123456789012345678901234567890.56", "EUR", "Yacht", "one cent more")
+
+
+def test_the_declaration_accepts_a_long_amount_and_an_absurd_one_is_only_refused_for_its_length():
+    assert verify_phrase(required_phrase(NAME, HUGE, "en"), NAME, Decimal(HUGE), "EUR")[1] == Decimal(HUGE)
+    with pytest.raises(ValueError, match="more than 60 digits"):
+        to_cents("1" + "0" * 60)
+    assert to_cents("9" * 59) == int("9" * 59 + "00")
+
+
+def test_with_no_limit_set_the_limit_is_zero_and_every_payment_asks(broker):
+    asked = []
+    out = broker.authorize("vcard", "1", "EUR", "Shop", "x", confirm=lambda req: asked.append(req) or True)
+    assert asked and out["mode"] == "confirmed"
+    with pytest.raises(PermissionError, match="no active waiver"):
+        broker.authorize("vcard", "1", "EUR", "Shop", "x")
