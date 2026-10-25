@@ -237,8 +237,11 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
             offered = True                                # a damaged state is the broker's to report, as a refusal
         if offered:
             payment_confirm = PaymentConfirm()
+            if secrets.vault is not None:
+                secrets.vault.attach_gate(broker.still_valid)
             register_payment_tool(registry, broker, permissions, confirm=payment_confirm,
-                                  on_authorized=secrets.vault.arm if secrets.vault is not None else None)
+                                  on_authorized=(lambda entry, payment_id, site: secrets.vault.arm(entry, payment_id=payment_id, site=site))
+                                  if secrets.vault is not None else None)
     audit = AuditLedger(data / "audit.jsonl", redactor=secrets.mask_secrets)
     hooks = HookManager()
     checkpoints = CheckpointManager(workspace, storage_dir=data / "checkpoints") if cfg.use_checkpoints else None

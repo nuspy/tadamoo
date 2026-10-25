@@ -44,6 +44,7 @@ KINDS: Dict[str, List[str]] = {
 SECRET_FIELDS = frozenset(("password", "totp_secret", "number", "cvc", "expiry", "value", "pin", "token", "secret", "key", "document_number"))   # masked in other forms too
 GUARDED = ("number", "expiry", "cvc")            # the fields of a guarded card, released only by an approved payment
 ARMED_SECONDS = 600
+ARMED_USES = 9                                    # the fields a card form takes, three times over for a page that asks again
 MAX_VALUE = 4096
 MAX_ENTRIES = 5000
 
@@ -97,7 +98,8 @@ class Vault:
         self._lock = threading.RLock()
         self._cache: Optional[Dict[str, Dict[str, Any]]] = None
         self._stamp: Any = None
-        self._armed: Dict[str, float] = {}               # a guarded card -> until when an approved payment lets its fields out
+        self._armed: Dict[str, Dict[str, Any]] = {}     # a guarded card -> the approved payment that lets its fields out: until when, to which site, how many times
+        self._gate: Optional[Callable[[str], bool]] = None   # asked each time a card is released: does the payment's approval still stand?
         self._issued: List[tuple] = []                  # the codes handed out lately, so that an echo of one is masked too
         self._shapes: Any = None                        # (file stamp, [(text, label)], {digits: label}): what mask looks for, until the file changes
 
@@ -311,6 +313,7 @@ class Vault:
         if hosts is not None:
             self.check_destinations(text, hosts)
         entries = self._read()
+        hosts = list(hosts) if hosts is not None else None
 
         def one(match: "re.Match[str]") -> str:
             entry_id, field = match.group(1), match.group(2)
@@ -325,16 +328,35 @@ class Vault:
             value = e["fields"].get(field)
             if value is None:
                 raise VaultError(f"'{entry_id}' has no field '{field}'")
-            if e.get("guard") and field in GUARDED and self._armed.get(entry_id, 0.0) < self.clock():
-                raise VaultError(f"the card '{entry_id}' is released only by an approved payment: ask for the payment with request_payment first")
+            if e.get("guard") and field in GUARDED:
+                self._release(entry_id, hosts)
             return value
 
         return PLACEHOLDER.sub(one, text)
 
-    def arm(self, entry_id: str, seconds: float = ARMED_SECONDS) -> None:
-        """An approved payment lets the fields of a guarded card out for a while."""
+    def arm(self, entry_id: str, seconds: float = ARMED_SECONDS, *, payment_id: str = "", site: str = "", uses: int = ARMED_USES) -> None:
+        """An approved payment lets the fields of a guarded card out: for a while, a few times, to its site, and only while it still stands."""
         with self._lock:
-            self._armed[entry_id] = self.clock() + seconds
+            self._armed[entry_id] = {"until": self.clock() + seconds, "payment_id": payment_id, "site": site, "uses": uses}
+
+    def attach_gate(self, gate: Optional[Callable[[str], bool]]) -> None:
+        """`gate(payment_id)` says whether a payment's approval still stands (it is revoked from the GUI, in another process)."""
+        self._gate = gate
+
+    def _release(self, entry_id: str, hosts: Optional[Iterable[str]]) -> None:
+        with self._lock:
+            armed = self._armed.get(entry_id)
+            if armed is None or armed["until"] < self.clock():
+                raise VaultError(f"the card '{entry_id}' is released only by an approved payment: ask for the payment with request_payment first")
+            if armed["uses"] <= 0:
+                raise VaultError(f"the approval of that payment has been used: ask for the payment again with request_payment")
+            if armed["payment_id"] and self._gate is not None and not self._gate(armed["payment_id"]):
+                self._armed.pop(entry_id, None)
+                raise VaultError("the approval of that payment was stopped or has ended: the card is not released")
+            site = armed["site"]
+            if site and hosts is not None and not any(h == site or h.endswith("." + site) or site.endswith("." + h) for h in hosts):
+                raise VaultError(f"the payment was approved for {site}, not for {', '.join(hosts) or 'this place'}")
+            armed["uses"] -= 1
 
     def _code(self, entry_id: str, e: Dict[str, Any], ask_code: Optional[Callable[[str], str]]) -> str:
         level = e.get("second_factor", "none")

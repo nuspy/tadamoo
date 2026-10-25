@@ -84,10 +84,16 @@ class WalletApi:
 
     def reveal(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """A value, for the owner to read or copy in their own page (a password manager shows what it keeps)."""
+        entry, field = str(req.get("id", "")), str(req.get("field", ""))
         try:
-            return {"value": self._vault().reveal(str(req.get("id", "")), str(req.get("field", "")))}
+            value = self._vault().reveal(entry, field)
         except VaultError as e:
             raise WalletError(str(e)) from None
+        try:
+            self._payments().note("user", "vault_revealed", {"entry": entry, "field": field})         # the name, never the value
+        except (PermissionError, OSError):
+            pass                                                         # reading what is yours is not stopped by a damaged payment ledger
+        return {"value": value}
 
     def import_logins(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """The logins of a browser's or a password manager's CSV export, each sent only to its own site."""
@@ -152,8 +158,11 @@ class WalletApi:
                 read_to_end=req.get("read_to_end") is True, release_ack=req.get("release_ack") is True,
                 retyped_names={str(k): str(v) for k, v in names.items()}, pasted=req.get("pasted") is True,
                 ttl_days=float(req.get("ttl_days") or 30), lang=req.get("lang") if req.get("lang") in ("it", "en") else "it",
-                typing_intervals_ms=[int(x) for x in intervals][:2000] if isinstance(intervals, list) else None)
+                typing_intervals_ms=[int(x) for x in intervals][:2000] if isinstance(intervals, list) else None,
+                sites=[str(x) for x in req["sites"]][:50] if isinstance(req.get("sites"), list) else None)
         except DossierUnavailable as e:
+            raise WalletError(str(e)) from None
+        except ValueError as e:
             raise WalletError(str(e)) from None
         except KeyError as e:
             raise WalletError(str(e.args[0]) if e.args else "unknown payment system") from None

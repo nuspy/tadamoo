@@ -174,4 +174,4 @@ class SecretsBroker:
             return val if val is not None else match.group(0)
 
         out = PLACEHOLDER.sub(repl, text)
-        return self.vault.resolve(out, ask_code=self.ask_code) if self.vault is not None else out
+        return self.vault.resolve(out, hosts=destinations, ask_code=self.ask_code) if self.vault is not None else out
