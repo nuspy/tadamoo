@@ -7,10 +7,11 @@ command says, not network isolation: a command that builds its address at run ti
 """
 from __future__ import annotations
 
+import base64
 import os
 import re
 from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Mapping, Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, quote_plus
 
 PLACEHOLDER = re.compile(r"\{\{secret:([A-Za-z0-9_]+)\}\}")
 URL = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://[^\s\"'<>|]+")
@@ -21,6 +22,37 @@ FILE_EXTENSIONS = frozenset("txt json xml html htm csv tsv log py js mjs ts sh m
 MIN_SECRET_LENGTH = 4
 NETWORK_TOOLS = {"curl", "wget", "iwr", "irm", "invoke-webrequest", "invoke-restmethod", "nc", "ncat", "netcat",
                  "ssh", "scp", "sftp", "ftp", "telnet", "certutil", "bitsadmin"}
+
+
+def shapes(value: str) -> set:
+    """The forms a value can come back in after a command has changed it: reversed, in another case, encoded. Anything cleverer than these
+    (a cipher, a split in pieces) cannot be recognised in text; only keeping the model away from the value stops that."""
+    out = {value}
+    if len(value) < MIN_SECRET_LENGTH:
+        return out
+    raw = value.encode("utf-8")
+    out |= {value[::-1], value.lower(), value.upper(), quote(value, safe=""), quote_plus(value), raw.hex(), raw.hex().upper()}
+    for encoded in (base64.b64encode(raw).decode(), base64.urlsafe_b64encode(raw).decode()):
+        out |= {encoded, encoded.rstrip("=")}
+    return {s for s in out if len(s) >= MIN_SECRET_LENGTH}
+
+
+_DIGITS_RUN = re.compile(r"\d(?:[ \-.]?\d){11,22}")
+
+
+def mask_digit_runs(text: str, numbers: Dict[str, str]) -> str:
+    """Hides a card number however a page or a command spaced it: `numbers` maps the bare digits to the label that replaces them."""
+    if not numbers:
+        return text
+
+    def one(m: "re.Match[str]") -> str:
+        bare = re.sub(r"\D", "", m.group(0))
+        for digits, label in numbers.items():
+            if digits in bare:
+                return label
+        return m.group(0)
+
+    return _DIGITS_RUN.sub(one, text)
 
 
 class SecretDestinationError(PermissionError):
@@ -98,10 +130,10 @@ class SecretsBroker:
 
     def mask_secrets(self, text: str) -> str:
         """Replaces secret values with masked placeholders, longest values first."""
+        pairs = [(s, f"[REDACTED:{k}]") for k, v in self._secrets.items() if v and len(v) >= MIN_SECRET_LENGTH for s in shapes(v)]
         masked = text
-        for k, v in sorted(self._secrets.items(), key=lambda kv: len(kv[1]), reverse=True):
-            if v and len(v) >= MIN_SECRET_LENGTH:
-                masked = masked.replace(v, f"[REDACTED:{k}]")
+        for value, label in sorted(pairs, key=lambda p: len(p[0]), reverse=True):
+            masked = masked.replace(value, label)
         return self.vault.mask(masked) if self.vault is not None else masked
 
     def references(self, text: str) -> List[str]:

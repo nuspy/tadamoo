@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
-from harness.secrets_broker import MIN_SECRET_LENGTH, SecretDestinationError
+from harness.secrets_broker import MIN_SECRET_LENGTH, SecretDestinationError, mask_digit_runs, shapes
 from harness.waiver.keystore import load_or_create_key
 
 MAGIC = b"BVL1"
@@ -41,6 +41,7 @@ KINDS: Dict[str, List[str]] = {
     "login": ["username", "password", "totp_secret"],
     "secret": ["value"],
 }
+SECRET_FIELDS = frozenset(("password", "totp_secret", "number", "cvc", "expiry", "value", "pin", "token", "secret", "key", "document_number"))   # masked in other forms too
 GUARDED = ("number", "expiry", "cvc")            # the fields of a guarded card, released only by an approved payment
 ARMED_SECONDS = 600
 MAX_VALUE = 4096
@@ -98,6 +99,7 @@ class Vault:
         self._stamp: Any = None
         self._armed: Dict[str, float] = {}               # a guarded card -> until when an approved payment lets its fields out
         self._issued: List[tuple] = []                  # the codes handed out lately, so that an echo of one is masked too
+        self._shapes: Any = None                        # (file stamp, [(text, label)], {digits: label}): what mask looks for, until the file changes
 
     # -- the file --------------------------------------------------------------------------------
 
@@ -349,13 +351,23 @@ class Vault:
 
     def mask(self, text: str) -> str:
         """Replaces the values in `text` by their names, longest first."""
-        masked = text
-        pairs = []
-        for i, e in self._read().items():
-            for n, v in e["fields"].items():
-                shapes = {v, re.sub(r"[\s\-]", "", v)} if n == "number" else {v}       # a card number as typed and as bare digits
-                pairs += [(s, f"[REDACTED:{i}.{n}]") for s in shapes if len(s) >= MIN_SECRET_LENGTH]
-        pairs += [(c, f"[REDACTED:{n}]") for c, n in self._issued if len(c) >= MIN_SECRET_LENGTH]
-        for value, label in sorted(pairs, key=lambda p: len(p[0]), reverse=True):
-            masked = masked.replace(value, label)
+        entries = self._read()
+        if self._shapes is None or self._shapes[0] != self._stamp:
+            pairs, numbers = [], {}
+            for i, e in entries.items():
+                for n, v in e["fields"].items():
+                    label = f"[REDACTED:{i}.{n}]"
+                    forms = shapes(v) if (n in SECRET_FIELDS or e["kind"] == "secret") else {v}
+                    if n == "number":
+                        bare = re.sub(r"[\s\-.]", "", v)
+                        forms |= shapes(bare)
+                        if bare.isdigit():
+                            numbers[bare] = label
+                    pairs += [(s, label) for s in forms if len(s) >= MIN_SECRET_LENGTH]
+            self._shapes = (self._stamp, sorted(pairs, key=lambda p: len(p[0]), reverse=True), numbers)
+        masked = mask_digit_runs(text, self._shapes[2])
+        extra = [(c, f"[REDACTED:{n}]") for c, n in self._issued if len(c) >= MIN_SECRET_LENGTH]
+        for value, label in sorted(extra, key=lambda p: len(p[0]), reverse=True) + self._shapes[1]:
+            if value in masked:
+                masked = masked.replace(value, label)
         return masked

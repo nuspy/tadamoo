@@ -62,5 +62,33 @@ class WhereACommandSends(unittest.TestCase):
         b.check_destinations("curl api.example.com -H {{secret:TOKEN}}", command_hosts("curl api.example.com", ["curl"]), ["curl"])
 
 
+class WhatComesBack(unittest.TestCase):
+    def test_a_value_changed_by_the_command_is_still_hidden(self):
+        with TemporaryDirectory() as d, TemporaryDirectory() as w:
+            b = broker(d)
+            for code in ("print('{{vault:gh.password}}'[::-1])", "print('{{vault:gh.password}}'.upper())",
+                         "import base64; print(base64.b64encode('{{vault:gh.password}}'.encode()).decode())",
+                         "print('{{vault:gh.password}}'.encode().hex())", "import urllib.parse; print(urllib.parse.quote('{{vault:gh.password}}', safe=''))"):
+                res = execute_shell_command(f'"{sys.executable}" -c "{code}"', w, secrets=b)
+                out = res["stdout"] + res["stderr"]
+                self.assertNotIn("S3cr3tPass", out, code)
+                self.assertNotIn("!ssaPr3cr3S", out, code)
+                self.assertIn("REDACTED:gh.password", out, code)
+
+    def test_a_card_number_is_hidden_however_it_is_spaced(self):
+        with TemporaryDirectory() as d:
+            v = Vault(d, key=KEY)
+            v.put("c", kind="card", fields={"number": "4242424242424242", "cvc": "737"}, hosts=["shop.example"], guard=False)
+            for shown in ("4242424242424242", "4242 4242 4242 4242", "4242-4242-4242-4242", "card 4242.4242.4242.4242 ok", "42424242 42424242"):
+                self.assertNotIn("4242", v.mask(shown), shown)
+            self.assertIn("5555 1111", v.mask("a different number 5555 1111 2222 3333"))
+
+    def test_a_secret_from_the_environment_is_hidden_in_its_forms_too(self):
+        b = SecretsBroker({"TOKEN": "abcd1234efgh"})
+        self.assertNotIn("hgfe4321dcba", b.mask_secrets("hgfe4321dcba"))
+        self.assertNotIn("ABCD1234EFGH", b.mask_secrets("ABCD1234EFGH"))
+        self.assertEqual(b.mask_secrets("nothing here"), "nothing here")
+
+
 if __name__ == "__main__":
     unittest.main()
