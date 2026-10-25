@@ -610,24 +610,6 @@ class Service:
                     s["phase"] = "tool call complete"
                 s["tail"] = ((s.get("tail") or "") + (ev.text or ""))[-600:]
 
-    def _progress(self, last_print, every=1.0, st=None):
-        """Print a progress line at most every `every` seconds while a request runs."""
-        now = time.time()
-        if now - last_print < every:
-            return last_print
-        with self.status_lock:
-            s = dict(self.status if st is None else st)
-        el = now - s.get("started", now)
-        if s.get("first_token") is None:
-            pr = getattr(self.engine, "progress", None)   # (position, prompt tokens); a reused prefix counts as read
-            done = f"{pr[0]:,} of {pr[1]:,}" if pr and pr[1] else f"{s.get('prompt_tokens', 0):,}"   # as read
-            print(f"[server] reading the prompt: {done} tokens, {el:.0f} s", flush=True)
-        else:
-            rate = s["generated"] / max(1e-6, now - s["first_token"])
-            print(f"[server] {s['phase']}: {s['generated']} of max {s.get('max_tokens')} tokens, {rate:.1f} tok/s, "
-                  f"{el:.0f} s", flush=True)
-        return now
-
     def run(self, ids, thinking, tools, max_new, sampling, cancel, force=None) -> Iterator[tuple[str, object]]:
         """Yield ("event", Event) as text arrives, ("ping", None) as heartbeat, then ("done", {...}).
         `force`: the opening of the call the reply must make (see prepare)."""
@@ -732,7 +714,6 @@ class Service:
                     before = getattr(self.engine, "last", None)
                     if trace is not None:
                         trace.run_started(len(ids))
-                    last_print = time.time()
                     prompt, thought = ids, 0            # reasoning tokens so far
                     closed_early = False                # the thinking was already closed once
                     for ev in logged(opening):
@@ -748,7 +729,6 @@ class Service:
                             last_out = time.monotonic()
                             for t in gen:
                                 if t is None:               # heartbeat
-                                    last_print = self._progress(last_print, st=st)
                                     last_out = time.monotonic()
                                     yield "ping", None
                                     continue
@@ -774,7 +754,6 @@ class Service:
                                 tail = (tail + piece)[-2:]
                                 evs = cut(parser.feed(piece))
                                 self._note(n, evs, st, rate)
-                                last_print = self._progress(last_print, st=st)
                                 for ev in logged(evs):
                                     yield "event", ev
                                 if evs:
