@@ -48,7 +48,7 @@ DYNAMIC = {
     "cp.e.": ["offline", "gone", "changed", "needs_approval", "bad_choice", "bad_node"],
     "pv.e.": ["offline", "bad_type", "bad_cap", "gone", "not_allowed", "bad_function"],
     "ch.blocked.": ["refused", "error", "model_unavailable", "model_not_loaded", "process_unstable", "interrupted_irreversible", "crash", "start_failed", "other"],
-    "pl.h.": ["create", "archive", "restore", "update_node", "mark", "rewind", "apply", "fallback", "update_meta"],
+    "pl.h.": ["create", "archive", "restore", "update_node", "mark", "rewind", "apply", "fallback", "update_meta", "sensor"],
     "tk.status.": ["running", "done", "failed", "closed", "pending", "blocked"],
     "ag.status.": ["running", "done", "failed", "stopped", "interrupted"],
     "ag.mode.": ["plan", "read_only", "default", "auto"],

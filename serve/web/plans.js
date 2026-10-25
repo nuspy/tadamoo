@@ -472,15 +472,23 @@
     const desc = el("textarea", { id: "pl-d-desc", rows: "3", disabled: done, text: n.description });
     const assignee = el("select", { id: "pl-d-assignee", disabled: done },
       ["agent", "user", "third_party"].map(a => el("option", { value: a, text: T("pl.assignee." + a), selected: a === n.assignee })));
-    const cond = n.type === "decision"
+    const cond = n.type === "decision" || n.type === "sensor"
       ? el("textarea", { id: "pl-d-cond", rows: "4", disabled: done, spellcheck: "false", text: JSON.stringify(n.conditions, null, 2) })
       : null;
+    const policy = n.retry_policy || {};
+    const tries = el("input", { id: "pl-d-tries", type: "number", min: "1", max: "10", inputmode: "numeric", disabled: done, value: String(policy.max_attempts || 1) });
+    const wait = el("input", { id: "pl-d-wait", type: "number", min: "0", max: "604800", inputmode: "numeric", disabled: done, value: String(policy.wait_seconds || 0) });
     const out = el("textarea", { id: "pl-d-out", rows: "2", spellcheck: "false", placeholder: '{"invitati_confermati": ["Anna"]}' });
     const facts = [];
     if (n.state_variables.blocked_by) facts.push(T("pl.blocked_by", n.state_variables.blocked_by.map(i => (S.snap.plan.nodes[i] || {}).title || i).join(", ")));
     if (n.state_variables.fallback_reason) facts.push(T("pl.fallback", n.state_variables.fallback_reason));
     if (n.state_variables.selected) facts.push(T("pl.selected", n.state_variables.selected.join(", ")));
     if (n.state_variables.outputs) facts.push(T("pl.outputs", JSON.stringify(n.state_variables.outputs)));
+    if (n.state_variables.retry_at) facts.push(T("pl.fact.retry", n.state_variables.attempts || 1, new Date(n.state_variables.retry_at * 1000).toLocaleTimeString()));
+    if (n.state_variables.matched) facts.push(T("pl.fact.matched", n.state_variables.matched.text));
+    if (n.state_variables.sensor_error) facts.push(T("pl.fact.sensorerr", n.state_variables.sensor_error));
+    if (n.call_request) facts.push(T("pl.fact.call", n.call_request.number, n.call_request.reason));
+    if (n.wiki_query) facts.push(T("pl.fact.wiki", n.wiki_query));
     const isReady = S.snap.ready.includes(n.id);
     if (S.rewindAsk && S.rewindAsk.id !== n.id) S.rewindAsk = null;
     ui.detail.append(el("form", { class: "pad pl-dform", onsubmit: e => { e.preventDefault(); saveNode(n.id, cond); } },
@@ -490,7 +498,10 @@
       el("label", { for: "pl-d-title", text: T("pl.f.title") }), title,
       el("label", { for: "pl-d-desc", text: T("pl.f.desc") }), desc,
       el("label", { for: "pl-d-assignee", text: T("pl.f.assignee") }), assignee,
-      cond ? [el("label", { for: "pl-d-cond", text: T("pl.f.cond") }), cond, el("p", { class: "help", text: T("pl.f.cond.help") })] : [],
+      cond ? [el("label", { for: "pl-d-cond", text: T("pl.f.cond") }), cond, el("p", { class: "help", text: T(n.type === "sensor" ? "pl.f.cond.sensor.help" : "pl.f.cond.help") })] : [],
+      el("label", { for: "pl-d-tries", text: T("pl.f.tries") }), tries,
+      el("label", { for: "pl-d-wait", text: T("pl.f.wait") }), wait,
+      el("p", { class: "help", text: T("pl.f.retry.help") }),
       done ? el("p", { class: "help", text: T("pl.completed.help") }) : el("button", { class: "btn primary pl-btn", text: T("pl.save") }),
       el("label", { for: "pl-d-out", text: T("pl.f.out") }), out,
       el("div", { class: "pl-acts", role: "group", "aria-label": T("pl.progress") },
@@ -534,6 +545,9 @@
       try { changes.conditions = JSON.parse(cond.value || "{}"); } catch (e) { say(T("pl.badjson"), true); return; }
     }
     if (!changes.title) { say(T("pl.f.title.required"), true); return; }
+    const tries = Number(document.getElementById("pl-d-tries").value) || 1, wait = Number(document.getElementById("pl-d-wait").value) || 0;
+    const old = (S.snap.plan.nodes[id] || {}).retry_policy || {};
+    changes.retry_policy = tries > 1 ? { max_attempts: tries, wait_seconds: wait, backoff: old.backoff || 1 } : null;
     await event({ type: "plan:update_node", node_id: id, changes }, T("pl.saved"));
   }
   async function mark(id, status, outBox) {
