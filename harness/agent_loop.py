@@ -66,11 +66,13 @@ class ParsedCall:
 
 
 class LoopDetector:
-    """Detects cycles and infinite loops in tool execution."""
+    """Detects cycles and infinite loops in tool execution: the same call again and again, and the same error from the same tool."""
 
     def __init__(self, max_consecutive_repeats: int = 2) -> None:
         self.max_repeats = max_consecutive_repeats
         self.history: List[str] = []
+        self._last_error: Optional[str] = None
+        self.error_repeats = 0                    # how many calls in a row ended with this same error
 
     def check_and_record(self, tool_name: str, args: Any) -> bool:
         """Returns True if a forbidden loop is detected."""
@@ -79,6 +81,16 @@ class LoopDetector:
         if len(self.history) > self.max_repeats:
             return len(set(self.history[-self.max_repeats - 1:])) == 1
         return False
+
+    def record_result(self, tool_name: str, is_error: bool, message: str) -> int:
+        """Notes how a call ended; returns how many calls in a row have failed with this tool and this message (0 if it did not fail)."""
+        if not is_error:
+            self._last_error, self.error_repeats = None, 0
+            return 0
+        key = hashlib.sha256(f"{tool_name}\x00{message}".encode("utf-8", "replace")).hexdigest()
+        self.error_repeats = self.error_repeats + 1 if key == self._last_error else 1
+        self._last_error = key
+        return self.error_repeats
 
 
 def _fence_untrusted(name: str, text: str) -> str:
@@ -435,6 +447,8 @@ class AgentLoop:
                 result = self._execute(call, checkpointed)
                 turn.tool_calls.append(result)
                 text = self._stringify(call.name, result.output)
+                if result.decision != "loop":
+                    text += self._same_error_note(call.name, result, str(result.output))
                 if tool is not None and tool.untrusted and result.decision == "executed" and not result.is_error:
                     text = _fence_untrusted(call.name, text)
                     self.untrusted_since_user = True
@@ -454,6 +468,16 @@ class AgentLoop:
         else:
             self.stop_reason = MAX_TURNS
         return run_turns
+
+    def _same_error_note(self, name: str, result: ToolExecutionResult, message: str) -> str:
+        """Said to the model when a tool has failed with the same error twice in a row; from the third time it counts as a loop strike."""
+        repeats = self.loop_detector.record_result(name, result.is_error, message)
+        if repeats < 2:
+            return ""
+        if repeats >= 3:
+            self._loop_strikes += 1
+        return (f"\n[harness] '{name}' has now failed {repeats} times in a row with this same error. Repeating it will not help: "
+                "read the error, then change what you ask or take another way.")
 
     def _check_answer(self, content: str) -> bool:
         """Measures the answer against the request's card; True when it asks for a second try (once per request)."""

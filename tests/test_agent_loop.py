@@ -412,3 +412,40 @@ def test_a_stopped_tool_leaves_no_pending_interrupt_behind():
     import time
     time.sleep(0.4)                                                      # past every limit: nothing may be raised in this thread now
     assert reg.execute("fast", {}) == "x"
+
+
+def _failing_registry(messages):
+    from harness.tools.registry import ToolRegistry
+    reg = ToolRegistry()
+    spec = {"type": "object", "properties": {"n": {"type": "integer"}}}
+
+    def flaky(n=0):
+        raise RuntimeError(messages[min(n, len(messages) - 1)])
+    reg.register("flaky", "fails", spec, EffectClass.PURE, flaky)
+    reg.register("fine", "works", spec, EffectClass.PURE, lambda n=0: "ok")
+    return reg
+
+
+def test_the_same_error_twice_in_a_row_tells_the_model_to_change_course():
+    client = ScriptedClient(call("flaky", {"n": 0}, "a"), call("flaky", {"n": 1}, "b"), say("ok"))
+    agent = AgentLoop(client, _failing_registry(["no such table"]), max_turns=5)
+    agent.run("go")
+    results = [m["content"] for m in agent.messages if m["role"] == "tool"]
+    assert "failed" not in results[0] and "[harness]" not in results[0]
+    assert "failed 2 times in a row with this same error" in results[1] and "another way" in results[1]
+    assert agent.stop_reason == FINAL
+
+
+def test_a_different_error_or_a_success_in_between_starts_the_count_again():
+    client = ScriptedClient(call("flaky", {"n": 0}, "a"), call("flaky", {"n": 1}, "b"), call("fine", {"n": 1}, "c"),
+                            call("flaky", {"n": 0}, "d"), say("ok"))
+    agent = AgentLoop(client, _failing_registry(["one", "two"]), max_turns=8)
+    agent.run("go")
+    assert not any("[harness]" in m["content"] for m in agent.messages if m["role"] == "tool")
+
+
+def test_an_error_that_keeps_coming_ends_the_run_as_a_loop():
+    steps = [call("flaky", {"n": i}, f"c{i}") for i in range(10)]
+    agent = AgentLoop(ScriptedClient(*steps), _failing_registry(["same wall"]), max_turns=10)
+    agent.run("go")
+    assert agent.stop_reason == LOOP and len(agent.turns) == 5          # strikes from the third, stop on the third strike
