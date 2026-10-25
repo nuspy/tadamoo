@@ -24,6 +24,15 @@ NETWORK_TOOLS = {"curl", "wget", "iwr", "irm", "invoke-webrequest", "invoke-rest
                  "ssh", "scp", "sftp", "ftp", "telnet", "certutil", "bitsadmin"}
 
 
+PROTECTED_NAMES = ["vault.bin", "device.key", "payments_state.json", "payments.jsonl", "browser-profile"]
+CONTROL_TOKEN = re.compile(r"control-\d+\.token")
+
+
+def _flat(text: str) -> str:
+    """Paths and commands in one shape to compare: lower case, one kind of slash."""
+    return re.sub(r"[\\/]+", "/", text).lower()
+
+
 def shapes(value: str) -> set:
     """The forms a value can come back in after a command has changed it: reversed, in another case, encoded. Anything cleverer than these
     (a cipher, a split in pieces) cannot be recognised in text; only keeping the model away from the value stops that."""
@@ -99,6 +108,7 @@ class SecretsBroker:
         self._secrets: Dict[str, str] = dict(secrets or {})
         self._hosts: Dict[str, FrozenSet[str]] = {k: frozenset(h.lower() for h in v)
                                                   for k, v in (allowed_hosts or {}).items()}
+        self._protected: List[str] = []                 # places the agent's own commands must not name: the vault, the payment files, the browser's sign-ins
         self.vault: Any = None                          # the person's vault (harness.vault.Vault), when there is one
         self.ask_code: Optional[Callable[[str], str]] = None   # how to ask the person for a second-factor code
 
@@ -114,6 +124,23 @@ class SecretsBroker:
 
     def attach_vault(self, vault: Any, ask_code: Optional[Callable[[str], str]] = None) -> None:
         self.vault, self.ask_code = vault, ask_code
+
+    def protect(self, *places: Any) -> None:
+        """Places a command run by the agent may not name. They sit in the same user account as the agent, so this is a fence for a model
+        that was led astray, not a wall against code that was already running as this user."""
+        for place in places:
+            if place:
+                needle = _flat(str(place))
+                if needle not in self._protected:
+                    self._protected.append(needle)
+
+    def protected_hit(self, command: str) -> str:
+        """The protected place a command names, or ''."""
+        flat = _flat(command)
+        for needle in self._protected + PROTECTED_NAMES:
+            if needle in flat:
+                return needle
+        return "control token" if CONTROL_TOKEN.search(flat) else ""
 
     def names(self) -> List[str]:
         return sorted(self._secrets)

@@ -19,6 +19,10 @@ def execute_shell_command(
     """Runs `command` in `cwd`. {{secret:NAME}} placeholders are filled in only here, at the boundary,
     and the secret values are masked again in everything returned to the model."""
     sandbox = ProcessSandbox(cwd, timeout=timeout, max_output_bytes=max_output_bytes)
+    hit = secrets.protected_hit(command) if secrets else ""
+    if hit:
+        return {"exit_code": -1, "stdout": "", "success": False, "blocked": True, "timed_out": False, "truncated": False,
+                "stderr": f"A command cannot name '{hit}': the vault, the payment files and the browser's sign-ins are the person's, and they are read in the Wallet."}
     if secrets and secrets.has_references(command):
         try:
             tools = [w for w in command_words(command) if w in NETWORK_TOOLS]

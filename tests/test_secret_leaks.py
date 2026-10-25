@@ -90,5 +90,19 @@ class WhatComesBack(unittest.TestCase):
         self.assertEqual(b.mask_secrets("nothing here"), "nothing here")
 
 
+
+
+class ProtectedPlaces(unittest.TestCase):
+    def test_a_command_cannot_name_the_vault_the_payment_files_or_the_control_token(self):
+        with TemporaryDirectory() as d, TemporaryDirectory() as w:
+            b = SecretsBroker()
+            b.protect(Path(d) / "vault", Path(d) / "payments")
+            for command in (f'type "{Path(d) / "vault" / "x"}"', "cat " + str(Path(d) / "payments").replace("\\", "/") + "/state", "type vault.bin",
+                            r"type %APPDATA%\Basalt\control-8080.token", "copy browser-profile/Default/Cookies ."):
+                res = execute_shell_command(command, w, secrets=b)
+                self.assertTrue(res["blocked"], command)
+            self.assertFalse(execute_shell_command("echo fine", w, secrets=b)["blocked"])
+
+
 if __name__ == "__main__":
     unittest.main()

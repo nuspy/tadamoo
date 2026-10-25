@@ -218,6 +218,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     if cfg.vault_dir:
         from harness.vault import Vault
         secrets.attach_vault(Vault(cfg.vault_dir), cfg.ask_code)
+    secrets.protect(cfg.vault_dir, cfg.payments_dir, cfg.browser_profile)
     level, plan = PERMISSION_MODES[cfg.permission_mode]
     permissions = PermissionManager(level=level, plan_mode=plan, confirm_callback=cfg.confirm,
                                     sensitive_data=secrets.sensitive)       # asked at each call: the vault may gain entries later
