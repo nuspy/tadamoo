@@ -1,7 +1,8 @@
 """Headless runner: `python -m harness -p "task"`.
 
 Exit codes: 0 finished, 1 error (server, setup or crash), 2 bad usage, 3 turn limit, 4 token or time
-budget, 5 stuck in a loop, 130 cancelled.
+budget, 5 stuck in a loop, 6 ended on a question for the person, 7 put aside before it was done,
+130 cancelled.
 """
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from typing import Any, Dict, List, Optional
 from harness import agent_loop as al
 from harness.stack import AgentConfig, build_agent
 
-EXIT_CODES = {al.FINAL: 0, al.ERROR: 1, al.MAX_TURNS: 3, al.BUDGET: 4, al.LOOP: 5, al.CANCELLED: 130}
+EXIT_CODES = {al.FINAL: 0, al.ERROR: 1, al.MAX_TURNS: 3, al.BUDGET: 4, al.LOOP: 5, al.ASKED: 6, al.SUSPENDED: 7, al.CANCELLED: 130}
 
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:

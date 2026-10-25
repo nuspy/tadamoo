@@ -333,3 +333,12 @@ def test_a_tool_can_end_the_run_with_a_question_for_the_person():
     holder["loop"] = loop
     loop.run("scegli tu")
     assert loop.stop_reason == "asked" and len(client.sent) == 1
+
+
+def test_every_stop_reason_has_its_own_exit_code():
+    from harness import agent_loop as al
+    from harness.headless import EXIT_CODES
+    reasons = [al.FINAL, al.ERROR, al.MAX_TURNS, al.BUDGET, al.LOOP, al.ASKED, al.SUSPENDED, al.CANCELLED]
+    assert all(r in EXIT_CODES for r in reasons)
+    assert len(set(EXIT_CODES[r] for r in reasons)) == len(reasons) and 2 not in EXIT_CODES.values()
+    assert EXIT_CODES[al.ASKED] == 6 and EXIT_CODES[al.SUSPENDED] == 7
