@@ -19,19 +19,40 @@ nothing from the engine. `python -m pytest tests` runs its tests without a GPU, 
 ```powershell
 python -m harness -p "fix the failing test in calc.py" --workspace D:\work\proj --json
 python -m harness.acp_agent --workspace D:\work\proj          # the same agent for an editor that speaks ACP over stdio
+basalt-agent -p "fix the failing test" --workspace D:\work\proj   # basalt-agent.cmd: python -m harness from any folder
+basalt-agent acp --workspace D:\work\proj                          # = python -m harness acp = python -m harness.acp_agent
 ```
+
+`basalt-agent.cmd` (next to `Avvia-Basalt.ps1`) uses this folder's `.venv` and packages, so it works from the project you are in. There is
+no `pyproject.toml`, so nothing is installed and no command is added to the PATH; put the folder on the PATH, or call the file by its path.
+
+The command line (`python -m harness`), the Chat's process (`python -m harness session`) and the editor's agent (`acp`) take the same
+options and build the agent in the same place (`harness/stack.py`: `add_agent_arguments`, `agent_settings`, `build_agent`), so what
+the Chat can reach, the others can reach:
 
 | option | meaning |
 |---|---|
-| `--permission-mode plan\|read_only\|default\|auto` | `plan` changes and runs nothing; `default` allows edits in the workspace and asks for the rest |
+| `--permission-mode plan\|read_only\|default\|auto` | `plan` changes and runs nothing until you approve a plan (see below); `default` allows edits in the workspace and asks for the rest |
+| `--after-plan default\|auto` | the mode the run goes on in when you approve a plan |
 | `--allow PATTERN`, `--deny PATTERN` | rules such as `shell_command:pytest*`; a deny always wins |
 | `--secret-env NAME[=host,host]` | lets the agent write `{{secret:NAME}}`; with hosts, the value can only be sent to them |
-| `--reference DIR`, `--reference-strategy auto\|cag\|rag\|none` | reference documents: fixed block, searched passages, or by size |
+| `--vault-dir`, `--payments-dir` | the Wallet's vault and payment systems (`{{vault:ENTRY.FIELD}}`, `request_payment`) |
+| `--browser`, `--browser-headless`, `--browser-private`, `--browser-profile DIR` | the browser tools and how they run |
+| `--capabilities` | `find_capability`, `load_capability`, `call_capability`, `analyze_image`: the skills, plugins and MCP servers found on this PC |
+| `--lsp` | `diagnostics`, `go_to_definition`, `find_references` when a language server is found |
+| `--council` | `ask_council` when a council is set up (the Chat always offers it) |
 | `--wiki`, `--wiki-project` | wikibridge tools (`BASALT_WIKIBRIDGE_URL`, `BASALT_WIKIBRIDGE_KEY`) |
 | `--skills DIR` | folders with `SKILL.md` skills |
 | `--phone`, `--on-behalf-of NAME` | phone tools (`CALLAPICALL_URL`, `CALLAPICALL_TOKEN`); every call asks you |
-| `--interactive` | ask on the terminal before risky actions |
-| `--max-tokens-budget`, `--timeout-seconds`, `--max-turns` | stop after this much |
+| `--hooks FILE`, `--workspace-hooks` | your hooks (see "Hooks you write") |
+| `--tool-timeout [NAME=]SECONDS` | how long a tool may run before it is stopped; `0` for no limit (see "Time limits") |
+| `--context-patterns JSON`, `--context-threshold`, `--end-turn-bias`, `--attachments-dir`, `--outputs-dir`, `--no-memory`, `--no-checkpoints` | as in the Chat |
+| `--reference DIR`, `--reference-strategy auto\|cag\|rag\|none` | (headless) reference documents: fixed block, searched passages, or by size |
+| `--interactive`, `--ask-server` | (headless) ask on the terminal, or on the server's pages, before risky actions, payments and plans |
+| `--max-tokens-budget`, `--timeout-seconds`, `--max-turns` | (headless) stop after this much |
+
+A headless run has nobody to type a second-factor code; a login that needs one fails there. Payments and plans go through the same question as
+a risky action (`--interactive`, `--ask-server`); with neither, a payment above the person's waiver is refused and a plan stays a plan.
 
 The run and its file edits appear in the Monitor (tasks and changes) while it works, unless `--no-report`; the reporting
 never changes the run, and stops after two failed attempts. An edit made by a shell command (`sed -i`, a script that rewrites
@@ -40,8 +61,11 @@ by block like the file tools' edits. Binary files, files over 200 000 characters
 are left out, as are the changes of a command that writes more than 50 files; a workspace of more than 5 000 files or
 30 MB of text is not watched.
 
-Exit codes: 0 finished, 1 error, 2 bad usage, 3 turn limit, 4 budget, 5 stuck in a loop, 130 cancelled. With `--json` the
-result has the stop reason, the changes, token and cache counts and the path of the audit log.
+Exit codes: 0 finished, 1 error, 2 bad usage, 3 turn limit, 4 budget, 5 stuck in a loop, 6 ended on a question for the person
+(the answer would be the next message), 7 put aside before it was done, 130 cancelled. With `--json` the result has the stop reason
+(`status` is `success` only for a finished run), the changes, token and cache counts, how many calls the permission layer refused
+(`permission_denials`, in all and by tool) and the path of the audit log. The Chat's process reports the same count in each
+`heartbeat` and `done` (`denied`) and in `closed` (`permission_denials`); the `session_end` hook is given it too.
 
 Data (audit log, checkpoints, memory, approvals) lives in the user data folder, one folder per workspace, never in the
 repository; the only thing written in the workspace is `.basalt/artifacts` (full outputs that were shortened).
@@ -141,7 +165,10 @@ shell command and the words inside `cmd /c`, `powershell -c`); tools that always
 never cover a command that chains or redirects (`pytest && rm -rf ~` is not `pytest`); then the level: read-only asks for
 anything, `default` allows reversible workspace edits and asks for irreversible actions, `auto` allows everything **unless
 the Rule of Two is broken**: once the session has read untrusted content (web, MCP, phone, wiki, memory) and can reach
-sensitive data (secrets), irreversible actions ask again. `write_file` and `edit_file` are reversible, except inside a `.git` folder
+sensitive data (secrets or a vault entry), irreversible actions ask again. Whether the session can reach sensitive data is looked at at each call,
+not when the conversation began, so an entry the person adds to the Wallet later counts at once. One tool is outside this check:
+`request_payment` carries an allow rule, which skips the level and the Rule of Two, because the payment broker is its only gate (the
+person's limit, the waiver, and a question to the person above them), whatever the conversation has read. `write_file` and `edit_file` are reversible, except inside a `.git` folder
 (a hook or the config can make git run code later): there the person is asked, once per file, as for an irreversible action (the
 level and the Rule of Two decide it, and with nobody to ask it is refused), and the checkpoint before it holds the hooks and the config.
 
@@ -164,6 +191,76 @@ restores the files (`--keep-new` leaves files created since). Restoring files do
 it placed or an MCP tool, so a rewind over any of those lists them and needs `--yes`; the rewind is written in the audit log
 and its safety snapshot can be rewound to as well. The audit log
 (`audit.jsonl`) is tamper-evident (a hash chain, a head file, secrets masked), not tamper-proof.
+
+**The audit log keeps no file contents.** A tool call leaves one record with the tool, `args_sha256` (the SHA-256 of its arguments after
+secrets are masked), `arguments` (a masked preview with every value cut at 60 characters), `permission` (`allowed`, `denied`,
+`not_required` with no permission manager, or `not_reached` when something earlier refused it), `outcome` (`ok`, `error`, `refused`, `cancelled`)
+and `duration_ms` (how long the tool ran), with the reason for a refusal or an error. Actions: `permission_granted` (written before the tool runs, with
+outcome `started`, so a crash leaves a trace), then `tool_executed`, `tool_error` or `tool_cancelled`; `permission_denied`, `tool_blocked`
+(a hook or a failed checkpoint), `tool_invalid` and `tool_loop` for calls that were not run; `plan_approved`, `plan_rejected`. Records
+written earlier, with the arguments in full, stay in the file and still verify (the chain covers whatever the details hold).
+`AuditLedger.verify_integrity()` never raises: a line that cannot be read, a record with a missing field, a broken link, a tampered
+record, a damaged head file or a shortened ledger each come back as a reason, and `problems()` lists every one instead of stopping at
+the first.
+
+### Plan mode
+
+In plan mode the tools that read work and nothing else does. The model has one more tool, `present_plan(plan)`: the plan is put to the
+person like any question the harness asks (a button in the Chat, a prompt in the terminal, the editor's permission dialog in ACP, a page in
+the server's approvals), with a note when the agent read content from outside before writing it. A yes ends plan mode and the run goes on, in the
+same turn, in the mode the person chose (`--after-plan default|auto`; ACP offers one button for each); `present_plan` goes away with it, and
+`session/set_mode` to `plan` brings it back. A no, a Stop, or a run with nobody to ask leaves plan mode on and tells the model so. The approval
+and the rejection are in the audit log.
+
+### Stopping and time limits
+
+Stop ends a command that is running: a shell command and everything it started (on Windows the whole job) end within a fraction of a second
+after the run is cancelled, instead of when the command finishes. Every tool also has a time limit, 15 minutes unless set otherwise
+(`--tool-timeout SECONDS`, or `NAME=SECONDS` for one tool; `0` for none; `ToolRegistry.set_timeout` in code). A tool that runs past it is
+stopped and the model is told which tool and how long. The stop is an exception raised in the tool's own thread, so no thread is left running
+behind; a tool that is inside one blocking system call stops when that call returns. The clock does not run while the person is being asked
+something inside the tool (a plan change, a payment, a code). A shell command keeps its own `timeout` (up to 10 minutes), and `transcribe_attachment` its own wait.
+
+### Loops
+
+Besides the same call three times in a row, the same error from the same tool twice in a row (the same message, whatever the arguments) adds a
+note to the second result telling the model to change what it asks or to take another way; from the third time in a row each one also counts
+as a strike, the same strikes that refused identical calls give, and a run with more than two strikes ends as a loop. A model message that is only calls that are cut off or not valid
+JSON is sent back with the reason, never taken as the final answer.
+
+### Hooks you write
+
+Hooks are commands (or fixed blocks) that run on events. They are read from `hooks.json` in the user data folder (or the file given with
+`--hooks`) and, only if you pass `--workspace-hooks`, from `.basalt/hooks.json` in the workspace: a folder under work can name commands, so it
+does not get to without your say. A file that cannot be read, or has a mistake (an unknown key, an event that does not exist), stops the agent
+from starting with the reason: a policy that is silently dropped protects nothing.
+
+```json
+{"hooks": [
+  {"event": "pre_tool", "tool": ["write_file", "edit_file"], "match": {"path": "*.env"}, "action": "block", "reason": "env files are off limits"},
+  {"event": "pre_tool", "tool": "shell_command", "command": "python check_command.py", "timeout": 10, "name": "command policy"},
+  {"event": "post_tool", "tool": "write_file", "command": "python format_changed.py"},
+  {"event": "turn_end", "command": "python notify.py"},
+  {"event": "session_start", "command": "echo started"}
+]}
+```
+
+| key | meaning |
+|---|---|
+| `event` | `pre_tool`, `post_tool`, `turn_end`, `session_start` or `session_end` |
+| `command` | what to run (text, or a list of words), in the workspace, with a scrubbed environment and the job limits of any command; the event is given as JSON on its standard input (`event`, `tool`, `arguments`, and for `post_tool` the `result`, masked; for the other events `turn`, `goal`, `stop_reason`, ...) and in `BASALT_HOOK_EVENT` and `BASALT_HOOK_TOOL` |
+| `action` | `block`, instead of a command, only on `pre_tool`: refuses a matching call with `reason`, running nothing |
+| `tool` | a pattern or a list of patterns for the tool's name (`*` and `?`); default every tool; `pre_tool` and `post_tool` only |
+| `match` | `{"argument": "pattern"}`: all must match the call's arguments (text, case does not matter); `pre_tool` and `post_tool` only |
+| `timeout` | seconds, more than 0 and at most 120; default 10 |
+| `name` | what the model and the log call the hook |
+
+A `pre_tool` command lets the call pass with exit code 0; it blocks it with exit code 2 (what it printed is the reason) or by printing
+`{"decision": "block", "reason": "..."}`. A hook that cannot decide, because it exited with another code, did not finish in time, could not
+start or is not allowed to run, blocks the call too, and says so: a check that cannot run never reads as approval. The built-in refusal of
+dangerous commands runs first and cannot be turned off by a file. Hooks of the other events cannot change the outcome; their failures are
+kept and reported, never raised. **What a hook prints is untrusted**: the model sees it cut to 500 characters, with secrets masked, inside an
+`<untrusted_data>` block that it cannot close, with the reason for the block outside it. A fixed `reason` you wrote is shown as it is.
 
 ## Secrets, payments and phone calls
 
@@ -282,13 +379,19 @@ and its safety snapshot can be rewound to as well. The audit log
   A server that asks for sampling, elicitation or roots is refused with a clear error, because the client declares none
   of them; a result that only carries `requestState` is retried with that state echoed back and a new id. Pagination,
   `isError`, a drained stderr and a scrubbed environment are as before. Server tools are always irreversible and untrusted
-  whatever they claim; `MCPHub` exposes two tools (search and call) so the prompt stays short, and can hold servers of both eras.
-  **Not implemented**: OAuth, and `subscriptions/listen`. Two details were inferred, not read: that `requestState` sits in
+  whatever they claim. `MCPHub` holds servers of both eras and puts their tools in the registry the way Claude Code does: one by one
+  (`server__tool`) while there are at most 24, and behind two tools, `mcp_search` (their definitions, searched by words) and `mcp_call`,
+  when there are more, so the prompt stays short. OAuth for remote servers is implemented (see "Signing in to remote MCP servers").
+  **Not implemented**: `subscriptions/listen`. Two details were inferred, not read: that `requestState` sits in
   the retried request's `params`, and the shape of the `notifications/cancelled` sent on a stdio timeout.
 - The ACP agent follows protocol version 1 over stdio: `initialize`, `session/new`, `session/prompt`, `session/cancel`,
   `session/set_mode`, `session/update` (message and thought text, tool calls, edits as `diff` content) and
   `session/request_permission` toward the editor. It edits files itself rather than through the editor's `fs/*`, offers no
-  `session/load` and no authentication, and reads text only.
+  `session/load` and no authentication, and reads text only. It is built like the command line's agent and takes the same options
+  (`python -m harness acp --capabilities --lsp --vault-dir ...`), and the `mcpServers` the editor sends with `session/new` (a program to
+  start, or a Streamable HTTP address; SSE is refused) are connected for that session: their tools are always irreversible and untrusted,
+  so they ask like any action that cannot be undone, and a server that cannot be started is reported on stderr and left out. Plan mode
+  asks the editor to approve the plan, with a button for each mode it can go on in.
 
 ## The planner
 
@@ -372,7 +475,8 @@ top and the four tools cost about 400.
 - **The tree**: vision (analysis, generation), documents, data, web, code, audio and video, knowledge, communication, other. A declared
   `tags`/`category` decides; else the words of the description; the person's correction wins and is kept.
 - **Tools**: `find_capability` (local FTS5/BM25, five results at most, results are untrusted text), `load_capability` (the text of an
-  approved skill, read again and checked against its hash), `call_capability` (a tool of an approved MCP server; it asks the person
+  approved skill, read again and checked against its hash; it is the text the person approved, so it is not fenced as outside content
+  and does not count towards the Rule of Two), `call_capability` (a tool of an approved MCP server; it asks the person
   like any action that cannot be undone; the server is started with no environment from the config). The prompt holds one line:
   the roots and how many entries each has.
 - **Visual analysis** (Settings): the loaded model's own vision, an approved skill or MCP server from the vision/analysis branch, or
