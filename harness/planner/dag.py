@@ -44,20 +44,62 @@ class PlanError(ValueError):
 
 _CMP = {ast.Eq: operator.eq, ast.NotEq: operator.ne, ast.Lt: operator.lt, ast.LtE: operator.le, ast.Gt: operator.gt,
         ast.GtE: operator.ge, ast.In: lambda a, b: a in b, ast.NotIn: lambda a, b: a not in b}
-_ARITH = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv}
 _FUNCS = {"len": len, "min": min, "max": max, "sum": sum, "abs": abs}
+MAX_SEQUENCE = 10_000        # longest list or text a condition may build
+MAX_NUMBER_BITS = 256        # largest whole number a condition may build
+MAX_POWER = 64
+
+
+def _number(x: Any) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _check_size(value: Any) -> Any:
+    if isinstance(value, (list, str)) and len(value) > MAX_SEQUENCE:
+        raise PlanError(f"a condition may not build a list or text longer than {MAX_SEQUENCE}")
+    if isinstance(value, int) and not isinstance(value, bool) and value.bit_length() > MAX_NUMBER_BITS:
+        raise PlanError("a condition may not build a number that large")
+    return value
+
+
+def _add(a: Any, b: Any) -> Any:
+    return _check_size(a + b)
+
+
+def _mul(a: Any, b: Any) -> Any:
+    for seq, count in ((a, b), (b, a)):
+        if isinstance(seq, (list, str)) and isinstance(count, int) and not isinstance(count, bool):
+            if len(seq) * max(count, 0) > MAX_SEQUENCE:
+                raise PlanError(f"a condition may not build a list or text longer than {MAX_SEQUENCE}")
+    if isinstance(a, int) and isinstance(b, int) and not isinstance(a, bool) and not isinstance(b, bool)             and a.bit_length() + b.bit_length() > MAX_NUMBER_BITS:
+        raise PlanError("a condition may not build a number that large")
+    return _check_size(a * b)
+
+
+def _pow(a: Any, b: Any) -> Any:
+    if not (_number(a) and _number(b)) or abs(b) > MAX_POWER:
+        raise PlanError(f"a power needs numbers and an exponent of at most {MAX_POWER}")
+    if isinstance(a, int) and isinstance(b, int) and b > 0 and a.bit_length() * b > MAX_NUMBER_BITS:
+        raise PlanError("a condition may not build a number that large")
+    return _check_size(a ** b)
+
+
+_ARITH = {ast.Add: _add, ast.Sub: operator.sub, ast.Mult: _mul, ast.Div: operator.truediv, ast.Pow: _pow}
 
 
 def safe_eval(expression: str, variables: Dict[str, Any]) -> Any:
     """Evaluates a condition such as `len(invitati_confermati) >= 2 and meteo_confermato`.
 
-    Only names, literals, comparisons, and/or/not, + - * /, lists/tuples and len/min/max/sum/abs are allowed."""
+    Only names, literals, comparisons, and/or/not, + - * / **, lists/tuples and len/min/max/sum/abs are allowed.
+    What it builds is bounded (lists, texts, numbers), and whatever goes wrong is a PlanError, never another exception."""
     if not isinstance(expression, str) or len(expression) > 300:
         raise PlanError("a condition must be a string of at most 300 characters")
     try:
         tree = ast.parse(expression.strip(), mode="eval")
     except SyntaxError as exc:
         raise PlanError(f"invalid condition '{expression}': {exc.msg}") from None
+    except (ValueError, RecursionError, MemoryError):
+        raise PlanError(f"invalid condition '{expression}'") from None
 
     def walk(n: ast.AST) -> Any:
         if isinstance(n, ast.Expression):
@@ -84,8 +126,10 @@ def safe_eval(expression: str, variables: Dict[str, Any]) -> Any:
         if isinstance(n, ast.Compare):
             left = walk(n.left)
             for op, right_node in zip(n.ops, n.comparators):
+                if type(op) not in _CMP:
+                    raise PlanError(f"'{expression}' uses a comparison a condition may not use")
                 right = walk(right_node)
-                if type(op) not in _CMP or not _CMP[type(op)](left, right):
+                if not _CMP[type(op)](left, right):
                     return False
                 left = right
             return True
@@ -95,8 +139,10 @@ def safe_eval(expression: str, variables: Dict[str, Any]) -> Any:
 
     try:
         return walk(tree)
-    except (TypeError, ZeroDivisionError) as exc:
-        raise PlanError(f"the condition '{expression}' could not be evaluated: {exc}") from None
+    except PlanError:
+        raise
+    except (TypeError, ValueError, ArithmeticError, RecursionError, MemoryError) as exc:
+        raise PlanError(f"the condition '{expression}' could not be evaluated: {type(exc).__name__}: {exc}") from None
 
 
 # -- nodes and the graph -------------------------------------------------------------------------------
@@ -381,10 +427,12 @@ class PlanDAG:
         for c in n.outputs:
             self._skip(c, because=node_id)
 
-    def rewind(self, node_id: str) -> List[str]:
+    def rewind(self, node_id: str, accept_irreversible: bool = False) -> List[str]:
         """Time travel: puts a node and everything after it back to pending, forgetting what they produced.
 
-        Their previous results are kept in each node's `history`. External effects are not undone."""
+        Their previous results are kept in each node's `history`. External effects are not undone: a step that recorded
+        an effect that cannot be taken back (`state_variables["effects"]`) stops the rewind until it is accepted, and the
+        effect stays listed in that step's history entry as still done."""
         if node_id not in self.nodes:
             raise KeyError(f"Node '{node_id}' not found")
         seen, stack = [], [node_id]
@@ -394,11 +442,17 @@ class PlanDAG:
                 continue
             seen.append(cur)
             stack.extend(self.nodes[cur].outputs)
+        stays = {nid: [e for e in self.nodes[nid].state_variables.get("effects") or [] if e.get("effect") != "reversible"] for nid in seen}
+        if any(stays.values()) and not accept_irreversible:
+            raise PlanError("rewinding would not undo: " + "; ".join(f"{self.nodes[nid].title}: {e.get('what') or e.get('tool')}"
+                                                                       for nid, es in stays.items() for e in es) + " (confirm to rewind anyway)")
         for nid in seen:
             n = self.nodes[nid]
             produced = n.state_variables.pop("outputs", None)
-            if n.status != "pending" or produced:
-                n.state_variables.setdefault("history", []).append({"status": n.status, "outputs": produced, "at": _now()})
+            effects = n.state_variables.pop("effects", None)
+            if n.status != "pending" or produced or effects:
+                n.state_variables.setdefault("history", []).append({"status": n.status, "outputs": produced, "at": _now(), **({"effects": effects} if effects else {}),
+                                                                    **({"still_done": stays[nid]} if stays[nid] else {})})
             for var in (produced or {}):
                 self.shared_state.pop(var, None)
             n.state_variables.pop("selected", None)

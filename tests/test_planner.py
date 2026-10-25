@@ -827,3 +827,29 @@ def test_archiving_and_restoring_refuse_what_cannot_be_done(tmp_path):
         for call in (store.archive, store.restore):
             with pytest.raises(ValueError):
                 call(bad)
+
+
+# -- conditions that try to exhaust the machine ----------------------------------------------------------
+
+@pytest.mark.parametrize("bomb", ["[0]*99999999999999999999", "'ab' * 99999999999", "[1,2,3] * 100000", "2 ** 100000", "9 ** 9 ** 9",
+                                  "(10**60) * (10**60) * (10**60)", "1e308 ** 2.5", "[0]*10000 + [0]*10000", "99999999999 ** 99999999999"])
+def test_a_condition_that_would_build_something_huge_is_a_plan_error_and_bridge_handle_survives(bomb):
+    with pytest.raises(PlanError):
+        safe_eval(bomb, {})
+    dag = chain("d", "x", "y")
+    dag.nodes["d"].type = NodeType.DECISION
+    dag.nodes["d"].conditions = {"x": bomb, "y": "True"}
+    bridge = PlanCanvasBridge(dag)
+    res = bridge.handle({"type": "plan:mark", "node_id": "d", "status": "completed"})     # the decision routes by that condition
+    assert res["ok"] is False and dag.nodes["d"].status == "pending"                       # nothing half done
+
+
+def test_safe_eval_still_does_ordinary_arithmetic_and_small_repetition():
+    assert safe_eval("2 ** 10 == 1024 and len([0] * 3) == 3 and len('ab' * 2) == 4", {}) is True
+    assert safe_eval("2 ** -1 == 0.5", {}) is True
+
+
+@pytest.mark.parametrize("expr", ["a is None", "a is not None", "a is b", "1 < 2 is True"])
+def test_a_comparison_the_conditions_do_not_support_is_an_error_not_false(expr):
+    with pytest.raises(PlanError, match="comparison"):
+        safe_eval(expr, {"a": 1, "b": 1})
