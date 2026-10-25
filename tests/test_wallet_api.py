@@ -9,6 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from harness.browser import BrowserPrefs
 from harness.payments_broker import PaymentsBroker
 from harness.vault import Vault
 from harness.waiver import required_phrase
@@ -32,7 +33,7 @@ def call(base, method, path, body=None):
 
 @pytest.fixture
 def setup(tmp_path, monkeypatch, start_server):  # noqa: F811
-    api = WalletApi(lambda: Vault(tmp_path / "vault"), lambda: PaymentsBroker(tmp_path / "payments"))
+    api = WalletApi(lambda: Vault(tmp_path / "vault"), lambda: PaymentsBroker(tmp_path / "payments"), BrowserPrefs(tmp_path / "browser.json"))
     monkeypatch.setattr(handler, "_WALLET", api)
     return start_server([answer("x")]), tmp_path
 
@@ -130,3 +131,13 @@ def test_a_pasted_declaration_is_accepted_and_recorded_as_pasted(setup):
     assert grant(base, pasted=True)[0] == 200
     ledger = json.loads((tmp / "payments" / "payments.jsonl").read_text(encoding="utf-8").splitlines()[-1])
     assert ledger["details"]["pasted"] is True
+
+
+def test_the_browser_choice_is_kept_and_read_by_the_conversations(setup):
+    base, tmp = setup
+    code, body = call(base, "GET", "/api/wallet")
+    assert body["browser"]["enabled"] is True and body["browser"]["headless"] is False        # on, with a window, until the person says otherwise
+    assert call(base, "POST", "/api/wallet/browser", {"enabled": True})[0] == 400
+    code, body = call(base, "POST", "/api/wallet/browser", {"enabled": False, "headless": True})
+    assert code == 200 and body["browser"]["enabled"] is False and body["browser"]["headless"] is True
+    assert BrowserPrefs(tmp / "browser.json").read() == {"enabled": False, "headless": True}

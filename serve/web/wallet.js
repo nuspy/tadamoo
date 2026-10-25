@@ -223,6 +223,21 @@
     return sec;
   }
 
+  /* ---- the browser the agent uses ---- */
+  function browserSection() {
+    const b = data.browser || { found: false, enabled: false, headless: false };
+    const on = h("input"); on.type = "checkbox"; on.id = "wl-br-on"; on.checked = b.enabled; on.disabled = !b.found;
+    const hide = h("input"); hide.type = "checkbox"; hide.id = "wl-br-hide"; hide.checked = b.headless; hide.disabled = !b.found;
+    const save = async () => {
+      const r = await call("POST", "api/wallet/browser", { enabled: on.checked, headless: hide.checked });
+      if (r.ok) { data.browser = r.data.browser; say(T("wl.saved")); draw(); } else say(why(r), true);
+    };
+    on.onchange = save; hide.onchange = save;
+    const row = (input, text) => { const l = h("label", "wl-rm", input, h("span", "", text)); l.htmlFor = input.id; return l; };
+    return h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.br"))), h("div", "wl-body", h("p", "help", T("wl.br.help")),
+      b.found ? null : h("p", "wl-note", T("wl.br.none")), row(on, T("wl.br.on")), row(hide, T("wl.br.hide")), h("p", "help", T("wl.br.next"))));
+  }
+
   /* ---- the history ---- */
   function histSection() {
     const rows = (data.ledger || []).map(r => {
@@ -337,7 +352,7 @@
     const n = h("p", "wl-note", note); n.setAttribute("role", "status"); n.hidden = !note; n.dataset.bad = noteBad ? "1" : "";
     const problems = (data.problems || []).map(p => h("p", "wl-note", p));
     problems.forEach(p => { p.dataset.bad = "1"; });
-    root.replaceChildren(...[banner(), h("div", "wl-top", h("p", "wl-lead", T("wl.lead")), n, ...problems), vaultSection(), paySection(), histSection()].filter(Boolean));
+    root.replaceChildren(...[banner(), h("div", "wl-top", h("p", "wl-lead", T("wl.lead")), n, ...problems), vaultSection(), paySection(), browserSection(), histSection()].filter(Boolean));
   }
   async function load() {
     const r = await call("GET", "api/wallet");

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List
 
+from harness.browser import BrowserPrefs, find_browser
 from harness.payments_broker import PaymentsBroker
 from harness.vault import CARD_KINDS, KINDS, SECOND_FACTORS, Vault, VaultError
 from harness.waiver import DIALOG_TEXTS, PaymentSystem, parse_amount, required_phrase
@@ -19,15 +20,15 @@ class WalletError(ValueError):
 
 
 class WalletApi:
-    def __init__(self, vault: Callable[[], Vault], payments: Callable[[], PaymentsBroker]) -> None:
-        self._vault, self._payments = vault, payments
+    def __init__(self, vault: Callable[[], Vault], payments: Callable[[], PaymentsBroker], browser: BrowserPrefs) -> None:
+        self._vault, self._payments, self._browser = vault, payments, browser
 
     # -- what the page shows ---------------------------------------------------------------------
 
     def overview(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {"kinds": KINDS, "second_factors": list(SECOND_FACTORS), "card_kinds": list(CARD_KINDS),
                                "credential_kinds": sorted(CREDENTIAL_KINDS), "texts": DIALOG_TEXTS, "entries": [], "systems": [], "ledger": [],
-                               "problems": []}
+                               "problems": [], "browser": {"found": bool(find_browser()), **self._browser.read()}}
         try:
             out["entries"] = self._vault().entries()
         except VaultError as e:
@@ -40,6 +41,12 @@ class WalletApi:
         except PermissionError as e:
             out["problems"].append(str(e))
         return out
+
+    def set_browser(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """Whether the agent has a browser in the conversations it starts from now, and whether the browser shows a window."""
+        if not isinstance(req.get("enabled"), bool) or not isinstance(req.get("headless"), bool):
+            raise WalletError("send enabled and headless as true or false")
+        return {"browser": {"found": bool(find_browser()), **self._browser.write(req["enabled"], req["headless"])}}
 
     # -- the vault -------------------------------------------------------------------------------
 

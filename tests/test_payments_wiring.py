@@ -134,3 +134,64 @@ def test_two_processes_writing_the_same_ledger_keep_its_chain(tmp_path):
     ledger = AuditLedger(tmp_path / "payments" / "payments.jsonl")
     assert ledger.verify_integrity()[0]
     assert PaymentsBroker(tmp_path / "payments").status()[0]["spent"] == "40.00 EUR"
+
+
+def test_a_purchase_from_the_agent_to_the_shop_form(tmp_path):
+    """The whole way: the agent asks to pay, the broker approves within the cap, the agent types the card from the vault into the shop's form, and
+    the shop receives the real number while the model reads only placeholders."""
+    import http.server
+    import urllib.parse
+    from harness.browser import find_browser
+    if find_browser() is None:
+        pytest.skip("needs Edge or Chrome on this PC")
+    got = []
+
+    class Shop(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _send(self, body):
+            data = body.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            self._send('<title>Checkout</title><form method="post" action="/pay"><label for="n">Card number</label><input id="n" name="number">'
+                       '<label for="c">Security code</label><input id="c" name="cvc"><button type="submit">Pay</button></form>')
+
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
+            got.append({k: v[0] for k, v in urllib.parse.parse_qs(body).items()})
+            self._send("<title>Paid</title><h1>Order received</h1>")
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Shop)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        shop = f"http://127.0.0.1:{server.server_address[1]}/"
+        vault, broker = set_up(tmp_path, waiver=("50", "120"))
+        vault.put("trip", kind="card", fields={"holder": NAME, "number": NUMBER, "expiry": "12/30", "cvc": "737"}, hosts=["127.0.0.1"], guard=True)
+        client = Scripted(call("request_payment", **PAY), call("browser_open", url=shop), call("browser_type", ref=1, text="{{vault:trip.number}}"),
+                          call("browser_type", ref=2, text="{{vault:trip.cvc}}"), call("browser_click", ref=3), say("ordinato"))
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False, permission_mode="auto", max_turns=10,
+                                        vault_dir=str(tmp_path / "vault"), payments_dir=str(tmp_path / "payments"), browser=True, browser_headless=True,
+                                        browser_private=True), client=client)
+        events = Events()
+        session = Session(built, SessionStore(tmp_path / "hist", redact=built.agent.secrets.mask_secrets), events, session_id="s1", sleep=lambda s: None)
+        built.payment_confirm.ask = session.ask_payment
+        built.agent.permissions.confirm_callback = lambda tool, args: True                 # the Rule of Two asks once the page was read: the person says yes
+        session.send("m1", "compra la camera")
+        assert events.wait("done", timeout=90)["final"] == "ordinato"
+        assert got == [{"number": NUMBER, "cvc": "737"}]
+        everything = json.dumps(client.sent)
+        for needle in (NUMBER, "737"):
+            at = everything.find(needle)
+            assert at < 0, f"{needle} reached the model: ...{everything[max(0, at - 160):at + 60]}..."       # the model never read the card
+        assert PaymentsBroker(tmp_path / "payments").status()[0]["spent"] == "30.00 EUR"
+        built.close()
+    finally:
+        server.shutdown()

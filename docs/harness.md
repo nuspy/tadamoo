@@ -163,16 +163,35 @@ and its safety snapshot can be rewound to as well. The audit log
 - **Secrets**: the model writes `{{secret:NAME}}`; the shell tool fills it in at the last moment and masks the value in
   everything that comes back. A secret without hosts is for local commands only; one with hosts is refused if the command
   names any other host or a network tool without a URL.
-- **Payments without confirmation (level 4)** are specified in the design document (§4.8.4). The broker (`payments_broker.py`)
-  keeps a state file signed with the device key and a hash-chained ledger and re-reads both on every request, so a revocation
-  made in another process applies at once and any file that fails verification stops all payments. Amounts are exact cents;
-  there is a cap per payment and a cumulative cap; a waiver expires. Granting one needs the dictated declaration (checked in
-  Italian and English against the chosen amount), the release and acceptance steps with the name typed again, a payment
-  system limited to delegated credentials, and an AES-256-GCM evidence dossier (needs the `cryptography` package, see
-  `harness/requirements.txt`; without it no waiver is given). The agent can only *ask* (`request_payment`); nothing it can
-  call grants or widens a waiver. **No payment connector exists**: an authorization is a recorded decision, nothing is charged.
-  Decisions still yours: whether the declaration's amount is the per-payment or the cumulative cap (it is the per-payment
-  cap, confirmed), the default 30-day expiry, and a lawyer's review of the three dialogs.
+- **The vault** (`vault.py`, the **Wallet** view): cards, personal data for bookings, logins and secrets, in one file encrypted
+  with AES-256-GCM under the device key (Windows DPAPI wraps the key for this user; code running as the same user can still ask
+  Windows for it). The model writes `{{vault:ENTRY.FIELD}}`; the value is put in only where a tool uses it, only toward the
+  sites the entry names (none: this PC only; a star: any site), and masked again in what comes back, one-time codes included.
+  The page never shows a value, only which fields are set and the last four digits of a card. A conversation that holds a vault
+  entry counts as holding a secret for the Rule of Two.
+- **The second factor** is the person's choice for each login: none; a code typed each time (the conversation stops and asks in
+  a box whose answer reaches the tool and is kept in neither the conversation nor the history); or the TOTP secret, so that
+  Basalt makes the code (RFC 6238) with nobody asked. The last one lets anyone who can use Basalt on this PC sign in: it is
+  offered, with that said once, and not refused.
+- **Payments**: a payment system is held by a card or a login of the vault (or by a provider's own virtual card, token or
+  mandate). The broker (`payments_broker.py`) keeps a state file signed with the device key and a hash-chained ledger under a
+  file lock, re-read on every request, so a revocation made in the page applies at once, the server and the conversations'
+  processes keep one chain, and any file that fails verification stops all payments. Amounts are exact cents. With no waiver
+  every payment asks the person. A waiver (the design's level 4, §4.8.4) lets the agent pay by itself up to a cap per payment
+  and a cumulative cap until it expires; above them it asks again. Granting one is the dictated declaration (checked in Italian
+  and English against the chosen amount), the release and acceptance dialogs with the name typed again, and an AES-256-GCM
+  evidence dossier (needs the `cryptography` package, see `harness/requirements.txt`). The agent can only *ask*
+  (`request_payment`, offered when a payment system exists); nothing it can call grants or widens a waiver. An approved
+  payment lets the fields of the system's card out of the vault for ten minutes, as placeholders, unless the person turned that
+  guard off for that card. **No payment connector moves money by itself**: what is paid is paid when the form is sent through
+  the browser tools. Decisions still yours: the default 30-day expiry and a lawyer's review of the three dialogs.
+- **The browser** (`browser.py`, `--browser`): Edge or Chrome on this PC, driven over the DevTools protocol, for forms, purchases and
+  bookings (`browser_open`, `browser_read`, `browser_click`, `browser_type`, `browser_select`, `browser_press`, `browser_back`).
+  A page is read as numbered elements and text, fenced as untrusted. A vault value is typed only if the page's site is one the
+  entry names, and a field that holds one is listed as set. Each conversation has its own browser and a throw-away profile, and the
+  browser ends with it, however it ends. Only sites on the internet are opened (not this PC or its network). It reaches the page and
+  the frames of its own site: a card field inside a payment provider's own frame is not reachable. Whether the conversations have a
+  browser, and whether it shows a window, is set in the Wallet view.
 - **Phone calls** (`--phone`): `phone_call` always asks, even at the `auto` level and with an allow rule; the call opens by
   saying it is an AI assistant calling for you; what the other person says is untrusted. Tests of real calls are skipped
   and queued in `tests/QUEUE_live_calls.md` until you authorize them (`BASALT_LIVE_CALLS=1`).
@@ -466,7 +485,7 @@ wide, not for phones.
 
 - **Interface size**: automatic on very wide windows (zoom 1.25 from 2400 pixels up to 2 from 5000), or a fixed
   percentage in Settings.
-- **Tabs**: Chat, Agent, Plans, Monitor, Models, Hardware, LOGS, Settings; **Alt+1…8** open them. **Ctrl+K** opens a palette that
+- **Tabs**: Chat, Agent, Plans, Monitor, Models, Hardware, LOGS, Wallet, Settings; **Alt+1…9** open them. **Ctrl+K** opens a palette that
   reaches every view and the common actions and settings.
 - A notice under the top bar says when no model is loaded and opens Models. Settings has an index of its sections and
   holds the cloud-filter consent. The Monitor shows the agent's tasks and edits: under the requests, or in a column of
@@ -525,4 +544,5 @@ one, so it matters that an agent which can run arbitrary code (an allow rule suc
 its own later requests: such a rule already grants that power, and only the isolation below would take it away.
 
 Not done: file and network isolation for commands (the job object limits resources only); `fs/*` and `session/load` in ACP;
-a payment connector; the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.
+a payment provider's own API (Stripe, Google Pay), reading bank accounts through an authorized aggregator, and card fields inside a
+provider's own frame; the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.

@@ -34,6 +34,7 @@ from serve.util.reqlog import export_jsonl, export_text
 from serve import plans as plans_mod, userdata
 from serve import review as review_mod
 from serve.agent_runs import AgentRunner, RunBusy, RunError
+from harness.browser import BrowserPrefs
 from harness.payments_broker import PaymentsBroker
 from harness.vault import Vault, VaultError
 from serve.agent_sessions import SessionManager
@@ -1369,7 +1370,7 @@ def make_handler(svc: Service):
         def _wallet(self) -> WalletApi:
             global _WALLET
             if _WALLET is None:
-                _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments")))
+                _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments")), BrowserPrefs(userdata.path("browser.json")))
             return _WALLET
 
         def _wallet_post(self, path):
@@ -1401,6 +1402,8 @@ def make_handler(svc: Service):
                     return self._json(200, api.grant(req))
                 if action == "revoke":
                     return self._json(200, api.revoke(req.get("id")))
+                if action == "browser":
+                    return self._json(200, api.set_browser(req))
                 return self._json(404, {"error": {"message": "not found"}})
             except (WalletError, VaultError, ValueError, TypeError, PermissionError) as e:
                 return self._json(400, {"error": {"type": "wallet", "message": str(e)}})
@@ -1482,7 +1485,8 @@ def make_handler(svc: Service):
                 _SESSIONS = SessionManager(userdata.path("journal"), f"http://127.0.0.1:{self.server.server_address[1]}",
                                            svc.api_key or "", board=_APPROVALS, default_workspace=userdata.path("chat-workspace"),
                                            attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),
-                                           vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"))
+                                           vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
+                                           browser_prefs=BrowserPrefs(userdata.path("browser.json")).read)
             return _SESSIONS
 
         def _agent_get(self, path):

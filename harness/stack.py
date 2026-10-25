@@ -59,6 +59,9 @@ class AgentConfig:
     secret_hosts: Dict[str, List[str]] = field(default_factory=dict)   # secret name -> hosts it may be sent to
     vault_dir: str = ""                 # the person's vault (cards, personal data, logins): the model only writes placeholders for it
     ask_code: Optional[Callable[[str], str]] = None   # how to ask the person for a second-factor code
+    browser: bool = False               # offer the browser tools (Edge or Chrome on this PC): forms, purchases, bookings
+    browser_headless: bool = False      # without a window
+    browser_private: bool = False       # may open pages on this PC or its network (off: only sites on the internet)
     payments_dir: str = ""              # the person's payment systems and limits: with it the agent can ask to pay, and the broker decides
     context_window: int = 32768
     max_output_tokens: int = 4096
@@ -115,6 +118,7 @@ class BuiltAgent:
     capabilities: Optional[Any] = None
     lsp: Optional[Any] = None
     payment_confirm: Optional["PaymentConfirm"] = None
+    browser: Optional[Any] = None
 
     def retrieved_message(self, goal: str, limit: int = 4) -> Optional[Dict[str, Any]]:
         """Memories relevant to a goal, as an untrusted-data message for the tail of the conversation."""
@@ -132,6 +136,8 @@ class BuiltAgent:
             self.kb.close()
         if self.lsp:
             self.lsp.close()
+        if self.browser is not None:
+            self.browser.close()
 
 
 def _summarizer(client: Optional[Any]):
@@ -288,6 +294,11 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         lsp_hub = LspHub(workspace)
         if not register_lsp_tools(registry, lsp_hub, sandbox.resolve_safe):
             lsp_hub = None
+    browser = None
+    if cfg.browser:
+        from harness.browser import find_browser, register_browser_tools
+        if find_browser():
+            browser = register_browser_tools(registry, secrets, profile_dir=data / "browser", headless=cfg.browser_headless, allow_private=cfg.browser_private)
     if cfg.council:
         from harness.council import offer_council
         from harness.llm import client_for as routed_for, registry as llm_registry
@@ -316,4 +327,4 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         cancel=cancel,
         sampling={"end_turn_bias": cfg.end_turn_bias} if cfg.end_turn_bias else None,
     )
-    return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm)
+    return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser)

@@ -543,3 +543,20 @@ def test_a_code_is_typed_by_the_person_and_is_not_kept_in_the_conversation(make,
     assert done["final"] == "answered: 554 433"                                   # the process got it
     answered = [e for e in mgr.events(sid)["events"] if e["event"] == "answered"]
     assert answered and answered[0]["value"] == ""                                 # the conversation did not
+
+
+def test_what_a_conversation_gets_follows_the_wallet_choices(make, ws, tmp_path):
+    vault, payments = tmp_path / "vault", tmp_path / "payments"
+    prefs = {"enabled": True, "headless": False}
+    mgr = make(command=None, vault_dir=vault, payments_dir=payments, browser_prefs=lambda: dict(prefs))
+    mgr.command = mgr._command
+    rec = {"id": "s1", "workspace": ws, "mode": "default", "ask_only": False}
+    cmd = mgr._command("s1", rec, tmp_path / "h")
+    assert cmd[cmd.index("--vault-dir") + 1] == str(vault) and cmd[cmd.index("--payments-dir") + 1] == str(payments)
+    assert "--browser" in cmd and "--browser-headless" not in cmd
+    prefs["headless"] = True
+    assert "--browser-headless" in mgr._command("s1", rec, tmp_path / "h")
+    prefs["enabled"] = False
+    assert "--browser" not in mgr._command("s1", rec, tmp_path / "h")
+    asking = mgr._command("s1", {**rec, "ask_only": True}, tmp_path / "h")                    # a question-only conversation gets none of it
+    assert not {"--vault-dir", "--payments-dir", "--browser"} & set(asking)
