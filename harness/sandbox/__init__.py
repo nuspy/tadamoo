@@ -8,13 +8,15 @@ decision to run a command belongs to the permission layer in front of it.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import signal
 import subprocess
 import threading
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from .jobs import CREATE_SUSPENDED, CommandJob
 
@@ -28,7 +30,20 @@ SAFE_ENV_KEYS = {
 MAX_TIMEOUT = 600.0
 DEFAULT_MAX_MEMORY = 4 << 30      # per command, all its processes together (Windows)
 DEFAULT_MAX_PROCESSES = 64
+CANCEL_POLL = 0.2                 # how often a running command looks at the cancel event
 _SEGMENT_SPLIT = re.compile(r"&&|\|\||[;&|\n\r`<>]|\$\(")
+_scope = threading.local()
+
+
+@contextlib.contextmanager
+def cancel_scope(event: Optional[threading.Event]) -> Iterator[None]:
+    """Commands started by this thread inside the block end, with everything they started, soon after `event` is set."""
+    before = getattr(_scope, "event", None)
+    _scope.event = event
+    try:
+        yield
+    finally:
+        _scope.event = before
 
 
 def safe_environment(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -138,19 +153,32 @@ class ProcessSandbox:
         err = _Capped(proc.stderr, self.max_output_bytes)
         out.start()
         err.start()
-        try:
-            proc.wait(timeout=limit)
-        except subprocess.TimeoutExpired:
+        cancel = getattr(_scope, "event", None)
+        end = time.monotonic() + limit
+        while True:
+            try:
+                proc.wait(timeout=max(0.0, min(CANCEL_POLL, end - time.monotonic())))
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            if cancel is not None and cancel.is_set():
+                result["cancelled"] = True
+            elif time.monotonic() >= end:
+                result["timed_out"] = True
+            else:
+                continue
             job.kill()
             kill_tree(proc)
-            result["timed_out"] = True
             proc.wait()
+            break
         job.close()                                   # whatever the command left running ends here
         out.join(5)
         err.join(5)
         stderr = err.data.decode("utf-8", errors="replace")
         if result["timed_out"]:
             stderr = (stderr + f"\nCommand timed out after {limit:g} seconds").strip()
-        code = -1 if result["timed_out"] else proc.returncode
+        elif result.get("cancelled"):
+            stderr = (stderr + "\nCommand stopped: the run was cancelled").strip()
+        code = -1 if result["timed_out"] or result.get("cancelled") else proc.returncode
         return {**result, "exit_code": code, "stdout": out.data.decode("utf-8", errors="replace"), "stderr": stderr,
                 "success": code == 0, "truncated": out.truncated or err.truncated}

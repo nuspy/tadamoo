@@ -22,6 +22,7 @@ from harness.context import ContextManager, wire_messages
 from harness.hooks import HookManager
 from harness.permissions import PermissionManager
 from harness.pipeline import Card, Pipeline, feedback
+from harness.sandbox import cancel_scope
 from harness.secrets_broker import SecretsBroker
 from harness.tools.registry import EffectClass, ToolArgumentError, ToolRegistry
 
@@ -309,7 +310,8 @@ class AgentLoop:
                 return refused("blocked", f"No checkpoint could be taken ({exc}); the action was not run.", "tool_blocked")
 
         try:
-            output = self.tools.execute(name, args)
+            with cancel_scope(self.cancel):                      # Stop also ends a command that is running
+                output = self.tools.execute(name, args)
             is_error = False
         except Exception as exc:
             output, is_error = f"Tool execution error: {type(exc).__name__}: {exc}", True

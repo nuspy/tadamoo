@@ -148,3 +148,50 @@ def test_the_command_runs_nothing_before_it_is_in_the_job(tmp_path: Path):
     res = ProcessSandbox(tmp_path, max_processes=3).run(f"{PY} burst.py", timeout=30)
     forks = int(res["stdout"].split("forks")[1].split()[0])
     assert forks <= 2, res                          # the shell and the interpreter already use the first slots
+
+
+def test_cancelling_ends_a_running_command_and_its_children_within_a_moment(tmp_path: Path):
+    import threading
+    from harness.sandbox import cancel_scope
+    marker = tmp_path / "alive.txt"
+    (tmp_path / "child.py").write_text(f"import time\ntime.sleep(4)\nopen(r'{marker}', 'w').write('child survived')\n", encoding="utf-8")
+    (tmp_path / "parent.py").write_text("import subprocess, sys, time\nsubprocess.Popen([sys.executable, 'child.py'])\ntime.sleep(60)\n", encoding="utf-8")
+    cancel = threading.Event()
+    threading.Timer(0.8, cancel.set).start()
+    t0 = time.monotonic()
+    with cancel_scope(cancel):
+        res = ProcessSandbox(tmp_path).run(f"{PY} parent.py", timeout=300)
+    assert time.monotonic() - t0 < 5
+    assert not res["success"] and res["cancelled"] and not res["timed_out"] and "cancelled" in res["stderr"]
+    time.sleep(5)
+    assert not marker.exists(), "the grandchild kept running after the cancel"
+
+
+def test_a_command_outside_a_cancel_scope_is_not_affected_by_another_threads_scope(tmp_path: Path):
+    import threading
+    from harness.sandbox import cancel_scope
+    done = threading.Event()
+    done.set()
+    with cancel_scope(done):
+        out = {}
+        t = threading.Thread(target=lambda: out.update(ProcessSandbox(tmp_path).run(f"{PY} -c \"print('fine')\"", timeout=10)))
+        t.start()
+        t.join()
+    assert out["success"] and "fine" in out["stdout"]
+
+
+def test_stop_in_the_loop_ends_a_slow_shell_command_instead_of_waiting_for_it(tmp_path: Path):
+    import threading
+    from test_agent_loop import ScriptedClient, call, say
+    from harness.agent_loop import AgentLoop, CANCELLED
+    from harness.permissions import PermissionLevel, PermissionManager
+    from harness.tools import create_standard_tool_registry
+    registry, _ = create_standard_tool_registry(tmp_path)
+    cancel = threading.Event()
+    agent = AgentLoop(ScriptedClient(call("shell_command", {"command": f"{PY} -c \"import time; time.sleep(120)\"", "timeout": 300}), say("never")),
+                      registry, permissions=PermissionManager(level=PermissionLevel.AUTO), cancel=cancel)
+    threading.Timer(1.0, cancel.set).start()
+    t0 = time.monotonic()
+    turns = agent.run("run it")
+    assert time.monotonic() - t0 < 8
+    assert agent.stop_reason == CANCELLED and "cancelled" in turns[0].tool_calls[0].output["stderr"]
