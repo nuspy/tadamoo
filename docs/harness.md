@@ -169,13 +169,23 @@ and its safety snapshot can be rewound to as well. The audit log
 
 - **Secrets**: the model writes `{{secret:NAME}}`; the shell tool fills it in at the last moment and masks the value in
   everything that comes back. A secret without hosts is for local commands only; one with hosts is refused if the command
-  names any other host or a network tool without a URL.
+  names any other host or a network tool without a site. The sites of a command are read from its addresses (every reading of a
+  backslash or an `@`, since parsers disagree on them) and, when it runs a network tool, from bare names (`curl evil.example/x`) and
+  `user@host`; file names such as `out.txt` are not taken for sites.
 - **The vault** (`vault.py`, the **Wallet** view): cards, personal data for bookings, logins and secrets, in one file encrypted
   with AES-256-GCM under the device key (Windows DPAPI wraps the key for this user; code running as the same user can still ask
   Windows for it). The model writes `{{vault:ENTRY.FIELD}}`; the value is put in only where a tool uses it, only toward the
   sites the entry names (none: this PC only; a star: any site), and masked again in what comes back, one-time codes included.
   The list shows which fields are set and the last four digits of a card; the owner can show or copy a value when editing an entry (the page asks the server on that press, nothing the model can call does), generate a password, search and filter, and import the logins exported by Edge, Chrome, Firefox or a password manager as CSV, each one sent only to its own site. `browser_sign_in` fills a login's user name and password into the page's sign-in fields. A conversation that holds a vault
-  entry counts as holding a secret for the Rule of Two.
+  entry counts as holding a secret for the Rule of Two, decided at each tool call, so an entry added in the page reaches a running conversation.
+  What comes back is masked of a value in its forms: as it is, reversed, in the other case, base64, hex, percent-encoded, and a card number
+  however its digits are spaced. **A cipher, or a value cut in pieces, cannot be recognised in text**: what keeps the model from deriving
+  a value is that it never has one, and a model that can run commands as this same user on this PC can reach more than the vault can
+  hide. For that reason a command cannot name the vault, the payment files, the control token or the browser's profile (a fence for a model
+  led astray, not a wall), and the real separation is to run the agent as another user. On Linux and macOS there is no DPAPI: the device key
+  sits beside the vault, readable only by its owner, so the file is protected from a copy of itself and from other users, not from this user.
+  A **backup** (Wallet view) is the entries under a key made from a passphrase the person chooses (scrypt, AES-GCM), to keep or to open on
+  another PC; making one and reading a value (`vault_revealed`, by name) are written to the payment ledger.
 - **The second factor** is the person's choice for each login: none; a code typed each time (the conversation stops and asks in
   a box whose answer reaches the tool and is kept in neither the conversation nor the history); or the TOTP secret, so that
   Basalt makes the code (RFC 6238) with nobody asked. The last one lets anyone who can use Basalt on this PC sign in: it is
@@ -189,10 +199,17 @@ and its safety snapshot can be rewound to as well. The audit log
   and a cumulative cap until it expires; above them it asks again. Granting one is the dictated declaration (checked in Italian
   and English against the chosen amount), the release and acceptance dialogs with the name typed again, and an AES-256-GCM
   evidence dossier (needs the `cryptography` package, see `harness/requirements.txt`). The agent can only *ask*
-  (`request_payment`, offered when a payment system exists); nothing it can call grants or widens a waiver. An approved
-  payment lets the fields of the system's card out of the vault for ten minutes, as placeholders, unless the person turned that
-  guard off for that card. **No payment connector moves money by itself**: what is paid is paid when the form is sent through
-  the browser tools. Stripe and Google Pay are paid as any web checkout is, in the page, when the person asks the agent to do it: there
+  (`request_payment`, offered when a payment system exists, with the `site` that will take the payment); nothing it can call grants or
+  widens a waiver. A waiver may name the only sites it covers. An approved payment has an id and lets the fields of the system's card out
+  of the vault, as placeholders, to the site it named, nine times at most and for ten minutes at most, **and only while it still
+  stands**: each time a field is released the vault asks the broker, from the signed state and the ledger on disk, whether the waiver is in
+  force and nothing was revoked or removed since, so "Stop" in the page closes a card already released, from another process, and also a
+  payment the person confirmed by hand. The question to the person is asked with no lock held, so Stop works while it is open. Changing a
+  system's currency, credential or card ends its waiver. The person can turn the guard off for a card. **No payment connector moves money by
+  itself**: what is paid is paid when the form is sent through the browser tools; the amount is checked when the payment is asked for, and
+  what a merchant's form then charges is bounded by the card's own limit, not by this check. The dossier holds the hash of each source
+  file of the agent and the server with the version, and the clock's offset from a network time server (one UDP packet; null if none answers);
+  it does not hold screenshots of the dialogs, which a page cannot take of itself. Stripe and Google Pay are paid as any web checkout is, in the page, when the person asks the agent to do it: there
   is no connector for them. A Stripe form, hosted by Stripe or embedded in the shop's page, is reached; a Google Pay button needs a browser signed in
   to Google, which is the kept profile above, and its sheet is a window the browser follows. None of these was tried against the real services. Decisions still yours: the default 30-day expiry and a lawyer's review of the three dialogs.
 - **The browser** (`browser.py`, `--browser`): Edge or Chrome on this PC, driven over the DevTools protocol, for forms, purchases and
@@ -202,7 +219,11 @@ and its safety snapshot can be rewound to as well. The audit log
   browser ends with it, however it ends. By default its profile is thrown away with it; the person can choose to keep one profile, so that
   the sign-ins they make in it (Google, a bank, a shop: **Open the browser to sign in** in the Wallet view) are there in every conversation.
   Only one browser at a time can use that profile; another conversation starts with a fresh one and is told so. Pages on this PC or its
-  network are opened only if the person allowed them. It reaches the page, the frames of its own site, the frames of other sites the page
+  network (private, loopback, link-local, shared-carrier ranges such as a tailnet) are reached only if the person allowed them: every request of
+  a page and of its frames goes through a check before it leaves, so a link, a redirect, a script or an image cannot reach them, and a refused
+  one is reported to the model. A name that resolves to another address between the check and the request (DNS rebinding) is not stopped.
+  A value from the vault is not typed on a plain `http` page of the internet. The browser's debugging port listens on 127.0.0.1 without a
+  password, so a command run as this user can reach the browser and its cookies; this is the same limit as above. It reaches the page, the frames of its own site, the frames of other sites the page
   holds (an embedded Stripe card form: each is a session of its own, and a value typed there goes only to a site the vault entry names), and
   the windows the page opens (a payment sheet), which become the page it works on until they close. Whether the conversations have a
   browser, whether it shows a window, whether it may open pages of this PC and whether it keeps sign-ins is set in the Wallet view, each risky
