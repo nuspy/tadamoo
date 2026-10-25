@@ -16,7 +16,7 @@ from harness.context import ContextBuilder, ContextManager, TokenJuiceCompactor,
 from harness.context_patterns import PatternContext, Snapshots, normalize_config
 from harness.hooks import HookManager
 from harness.knowledge import LocalKnowledge, cag_prefix, choose_strategy, register_local_search
-from harness.memory import MemoryStore, default_db_path
+from harness.memory import MemoryStore, default_db_path, register_memory_tools
 from harness.permissions import PermissionLevel, PermissionManager
 from harness.secrets_broker import SecretsBroker
 from harness.skills import ApprovalStore, SkillCatalog, find_project_guidelines, register_skill_tool
@@ -226,7 +226,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     for pattern in cfg.allow:
         permissions.add_rule(pattern, "allow")
 
-    registry, sandbox = create_standard_tool_registry(workspace, secrets=secrets)
+    registry, sandbox = create_standard_tool_registry(workspace, secrets=secrets, allow_private_pages=cfg.browser_private)
     payment_confirm = None
     if cfg.payments_dir:
         from harness.payments_broker import PaymentsBroker, register_payment_tool
@@ -314,7 +314,13 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         capability_index = _offer_capabilities(cfg, workspace, registry, builder, sandbox, client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key))
 
     memory = MemoryStore(default_db_path(workspace) if not cfg.data_dir else data / "memory.db") if cfg.use_memory else None
+    if memory is not None:
+        register_memory_tools(registry, memory)
     cancel = threading.Event()
+    from harness.tools.extra import register_extra_tools        # run_code, subagents and, when listed in the user data folder, ACP and A2A agents
+    register_extra_tools(registry, cfg, workspace=workspace, sandbox=sandbox, client=client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key),
+                         permissions=permissions, hooks=hooks, audit=audit, checkpoints=checkpoints, secrets=secrets,
+                         output_filter=compactor.as_filter(), cancel=cancel)
     agent = AgentLoop(
         client=client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key),
         tool_registry=registry,
