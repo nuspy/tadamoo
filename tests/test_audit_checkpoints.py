@@ -104,12 +104,12 @@ def test_rewind_without_deleting_keeps_new_files(tmp_path: Path):
 def test_rewind_removes_emptied_folders_but_not_ignored_ones(tmp_path: Path):
     ws, cpm = make_workspace(tmp_path)
     cp = cpm.create()
-    (ws / "build" / "out").mkdir(parents=True)
-    (ws / "build" / "out" / "a.o").write_text("x", encoding="utf-8")
+    (ws / "artifacts" / "out").mkdir(parents=True)
+    (ws / "artifacts" / "out" / "a.o").write_text("x", encoding="utf-8")
     (ws / ".git").mkdir()
     (ws / ".git" / "HEAD").write_text("ref", encoding="utf-8")
     cpm.restore(cp)
-    assert not (ws / "build").exists()
+    assert not (ws / "artifacts").exists()
     assert (ws / ".git" / "HEAD").exists()
 
 

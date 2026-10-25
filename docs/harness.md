@@ -151,7 +151,12 @@ wherever they appear as a command word. File and network isolation (a dedicated 
 untrusted code) is not provided; until it is, `auto` should only be used in a folder you can lose. Hooks, rules and
 the secrets check read what a command *says*: a command that builds its address at run time needs a firewall.
 
-Checkpoints are stored outside the workspace; a rewind takes a safety snapshot of the current state first. To go back:
+Checkpoints are stored outside the workspace and are bounded: they leave out `node_modules`, `.venv`, `venv`, `__pycache__`, `build`,
+`dist`, `.basalt` and `.git/objects` (change the list with the `exclude` argument or `BASALT_CHECKPOINT_EXCLUDE`, comma separated),
+skip a file over 50 MB with a warning in the log (`BASALT_CHECKPOINT_MAX_FILE_MB`), stop one snapshot at 2 GB, and delete the oldest
+snapshots when all together pass 2 GB (`BASALT_CHECKPOINT_MAX_TOTAL_MB`); what a snapshot skipped is listed in its `meta.json`, and a
+rewind neither touches nor deletes those files. Of a `.git` folder only the hooks and the config are kept. A rewind takes a safety
+snapshot of the current state first (it is never the one rotated away). To go back:
 `python -m harness.rewind --workspace D:\proj` lists the checkpoints with what the agent did after each, and `--to ID`
 restores the files (`--keep-new` leaves files created since). Restoring files does not undo a command the agent ran, a call
 it placed or an MCP tool, so a rewind over any of those lists them and needs `--yes`; the rewind is written in the audit log
@@ -276,8 +281,12 @@ and the bridge the page talks to.
   alternative and, if you decline, becomes yours and blocks what depends on it. You can rewind a step.
 - Incoming events wait in a buffer (10 events or 5 minutes after the first) and are judged by the filter. **The cloud filter
   (TypeSafe Jev) is off.** It needs your consent in Settings *and* a key in the server's `TYPESAFE_API_KEY`; only the plan
-  fields you tick are sent, with people's names replaced by labels; the answer says whether it came from the cloud, from
-  the local keyword filter or from a failure. When the filter says wake, the local model proposes two or three alternatives
+  fields you tick are sent. People's names are replaced by labels (a full name also by its first name and its surname on their
+  own, case-insensitively; common words such as "amico" or "nonna" are not taken for names), and e-mail addresses and phone
+  numbers are taken out of the events and the card; one switch ("replace names") controls both. **By default the participants'
+  health, allergies and personal constraints (`profilo_e_vincoli_partecipanti`) are not sent**; they go only when you tick that
+  field in Settings (a highlighted label and two questions), and the filter judges events that depend on them less well without it. The
+  answer says whether it came from the cloud, from the local keyword filter or from a failure. When the filter says wake, the local model proposes two or three alternatives
   as diffs; only the ones that apply cleanly are shown, and nothing changes until you approve.
 - Every change to a plan raises its **revision** and adds a line to its **history** that says who made it (`user`, `chat`,
   `planner` or `system`; the sender states it, so it is a note and not proof of identity). An edit that writes straight into
