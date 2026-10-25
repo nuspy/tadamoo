@@ -384,7 +384,13 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   `remember` (a short note and a category; the same text is kept once, at most 5000 notes), reads them with `recall` and deletes
   one with `forget`. What `recall` returns is untrusted data like the notes that arrive after your message, and none of it goes
   into the system block, so the engine's cached start does not change when a note is added. With `use_memory` off the three tools
-  are not offered.
+  are not offered. Limits, as read in the code: the file is named by the hash of the workspace's full path (case ignored), so a
+  conversation working in its own copy of a folder has another memory, and the Chat page, which sends no folder, works in
+  `chat-workspace` of the user data folder and shares one memory between its conversations; notes are stored as written (not masked,
+  not encrypted); the model alone decides what to keep (the system prompt does not mention the tools); `remember` and `forget` are
+  reversible, so they ask nobody at the `default` and `auto` levels; the notes the retrieval adds at the tail stop a quotation from
+  confirming a plan change (`untrusted_since_user`) but, unlike a `recall` result, do not set the Rule of Two flag; the search is by
+  words (FTS5, no stemming, no embeddings).
 - `browse_url` reads a web page with the standard library only: http and https, no user name in the address, no address that is
   not a site on the internet (private, loopback, link-local, carrier-grade NAT and multicast ranges are refused) unless you allowed
   pages on this PC in the browser's settings. The address a name resolves to is checked at the moment of connecting and again at
