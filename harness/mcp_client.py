@@ -24,6 +24,7 @@ from typing import Any, Deque, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from harness.integrations._http import _OPENER
+from harness.mcp_oauth import AuthRequired
 from harness.sandbox import safe_environment
 from harness.tools.registry import EffectClass, ToolArgumentError, ToolRegistry, validate_arguments
 
@@ -51,6 +52,14 @@ class MCPError(RuntimeError):
         self.code = code                # the JSON-RPC code when the peer sent one, else the HTTP status
         self.status = status            # the HTTP status, for errors that came with one
         self.data = data
+
+
+class MCPAuthRequired(MCPError):
+    """The server wants a sign-in the person has not done (or that ran out); `www_authenticate` is what it said about where to do it."""
+
+    def __init__(self, message: str, www_authenticate: str = "") -> None:
+        super().__init__(message, 401, 401)
+        self.www_authenticate = www_authenticate
 
 
 def is_modern_error(err: "MCPError") -> bool:
@@ -419,8 +428,10 @@ class MCPClient(_Client):
 class MCPHttpClient(_Client):
     """A server reached over Streamable HTTP: JSON-RPC in POST bodies, answered as JSON or as an event stream."""
 
-    def __init__(self, url: str, token: Optional[str] = None, headers: Optional[Dict[str, str]] = None, modern: bool = True) -> None:
+    def __init__(self, url: str, token: Optional[str] = None, headers: Optional[Dict[str, str]] = None, modern: bool = True,
+                 auth: Optional[Any] = None) -> None:
         super().__init__(modern)
+        self.auth = auth                                     # a McpOAuth: the token is read from it for every request
         parts = urlparse(url)
         loopback = parts.hostname in ("127.0.0.1", "localhost", "::1")
         if parts.scheme not in ("http", "https") or not parts.hostname or (parts.scheme == "http" and not loopback):
@@ -441,6 +452,10 @@ class MCPHttpClient(_Client):
         if self.server_version:
             h["MCP-Protocol-Version"] = self.server_version
         h.update(extra or {})
+        if self.auth is not None:
+            token = self.auth.access_token()
+            if token:
+                h["Authorization"] = f"Bearer {token}"
         return h
 
     def _modern_headers(self, method: str, params: Dict[str, Any]) -> Dict[str, str]:
@@ -463,11 +478,21 @@ class MCPHttpClient(_Client):
         self._param_headers[tool["name"]] = annotations
         return True
 
-    def _post(self, payload: Dict[str, Any], timeout: float, extra: Optional[Dict[str, str]] = None):
-        req = urllib.request.Request(self.url, data=json.dumps(payload).encode("utf-8"), headers=self._headers(extra), method="POST")
+    def _post(self, payload: Dict[str, Any], timeout: float, extra: Optional[Dict[str, str]] = None, _again: bool = False):
+        try:
+            headers = self._headers(extra)
+        except AuthRequired as e:
+            raise MCPAuthRequired(f"{e} (Settings, Capabilities, Sign in)") from None
+        req = urllib.request.Request(self.url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
         try:
             return _OPENER.open(req, timeout=timeout)
         except urllib.error.HTTPError as e:
+            if e.code == 401:
+                www = e.headers.get("WWW-Authenticate", "") if e.headers else ""
+                e.read(2000)
+                if self.auth is not None and not _again and self.auth.signed_in() and self.auth.refresh():
+                    return self._post(payload, timeout, extra, True)          # the token had run out: once more with the new one
+                raise MCPAuthRequired("This MCP server answered HTTP 401: it needs you to sign in (Settings, Capabilities, Sign in).", www) from None
             detail = e.read(2000).decode("utf-8", errors="replace")
             if e.code == 404 and self.session_id:
                 raise MCPError("The MCP session expired; reconnect", 404, 404) from None

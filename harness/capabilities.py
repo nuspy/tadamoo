@@ -93,6 +93,7 @@ class Found:
     sha: str = ""
     command: str = ""          # for an MCP server: the command as shown, keys blanked
     raw_command: Optional[List[str]] = None      # what would be run; never written to disk
+    url: str = ""              # for a remote MCP server: its address without query or fragment
 
 
 def _disabled(path: Path) -> bool:
@@ -132,11 +133,12 @@ def _mcp_entries(config: Any, origin: str, source: str) -> List[Found]:
             raw = [cmd, *args]
             shown = " ".join([cmd, *redact_args(args)])
         elif url:
-            raw, shown = None, url.split("?", 1)[0]
+            raw, shown = None, url.split("?", 1)[0].split("#", 1)[0]
         else:
             continue
         out.append(Found(id=f"mcp:{name}", name=name, kind="mcp", origin=origin, description=f"MCP server: {shown}"[:DESC_CHARS], tags=["mcp"],
-                         path=source, sha=_sha(json.dumps([cmd, args, url.split("?", 1)[0]])), command=shown, raw_command=raw))
+                         path=source, sha=_sha(json.dumps([cmd, args, url.split("?", 1)[0]])), command=shown, raw_command=raw,
+                         url="" if raw else shown))
     return out
 
 
@@ -274,8 +276,9 @@ class CapabilityIndex:
             if rescan or not self.entries:
                 found = discover(self.workspace, self.home, self.appdata)
                 self._raw = {f.id: f.raw_command for f in found if f.raw_command}
+                self._urls = {f.id: f.url for f in found if f.url}
                 base = [{"id": f.id, "name": f.name, "kind": f.kind, "origin": f.origin, "path": f.path, "sha": f.sha, "command": f.command,
-                         "description": f.description, "tags": f.tags} for f in found]
+                         "description": f.description, "tags": f.tags, **({"remote": True} if f.url else {})} for f in found]
                 self._base = self._builtins() + base
             overrides, off = self.overrides(), set(self.settings()["off"])
             entries = []
@@ -441,8 +444,23 @@ class CapabilityIndex:
             raise PermissionError(f"'{entry_id}' is {e['state']}: the person approves it in Settings, under Capabilities.")
         raw = self._raw.get(entry_id)
         if not raw:
-            raise ValueError(f"'{entry_id}' is a remote server: Basalt does not start those from here.")
+            raise ValueError(f"'{entry_id}' is a remote server: it is reached at an address, not started.")
         return raw
+
+    def target(self, entry_id: str) -> Any:
+        """What an approved server is reached with: the command to start (a list) or the address of a remote one (a string)."""
+        try:
+            return self.command(entry_id)
+        except ValueError:
+            url = getattr(self, "_urls", {}).get(entry_id)
+            if not url:
+                raise
+            return url
+
+    def remote_servers(self) -> List[Dict[str, Any]]:
+        """The remote servers found, with their address: [{"id", "name", "url", "state"}]."""
+        urls = getattr(self, "_urls", {})
+        return [{"id": e["id"], "name": e["name"], "url": urls[e["id"]], "state": e["state"]} for e in self.entries if e["id"] in urls]
 
 
 def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory: Optional[Callable[[str, List[str]], Any]] = None) -> None:
@@ -466,7 +484,7 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
 
     def call_capability(id: str, tool: str = "", arguments: Optional[Dict[str, Any]] = None) -> str:
         try:
-            cmd = index.command(id)
+            cmd = index.target(id)
         except (KeyError, ValueError, PermissionError) as exc:
             return str(exc.args[0] if exc.args else exc)
         if hub_factory is None:

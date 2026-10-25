@@ -133,10 +133,18 @@ def _summarizer(client: Optional[Any]):
     return summarize
 
 
+def _oauth_for(url: str) -> Any:
+    """The sign-in of a remote MCP server, as the person did it in Settings (the tokens are in the credential store)."""
+    from harness.llm.credentials import default_store
+    from harness.mcp_oauth import McpOAuth, OAuthStore
+    from serve.userdata import user_data_dir
+    return McpOAuth(url, OAuthStore(user_data_dir() / "mcp_oauth.json", default_store(user_data_dir())))
+
+
 def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builder: Any, sandbox: Any, client: Any) -> Any:
     """The three capability tools and `analyze_image`; only the top of the tree goes into the prompt."""
     from harness.capabilities import CapabilityIndex, register_capability_tools
-    from harness.mcp_client import MCPClient, MCPHub
+    from harness.mcp_client import MCPClient, MCPHttpClient, MCPHub
     from harness.vision_tool import register_vision_tool
     if cfg.capabilities_dir:
         directory = Path(cfg.capabilities_dir)
@@ -152,9 +160,9 @@ def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builde
     class Server:
         """One approved server, started when first used, with the arguments of a call checked against the tool's schema."""
 
-        def __init__(self, command: List[str]) -> None:
+        def __init__(self, target: Any) -> None:
             self.hub = MCPHub()
-            self.hub.add("s", MCPClient(command, cwd=str(workspace)))
+            self.hub.add("s", MCPHttpClient(target, auth=_oauth_for(target)) if isinstance(target, str) else MCPClient(target, cwd=str(workspace)))
             self.hub.connect_all()
             if self.hub.errors:
                 raise RuntimeError("; ".join(self.hub.errors.values()))

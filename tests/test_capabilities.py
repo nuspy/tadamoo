@@ -167,7 +167,10 @@ def test_an_approved_server_starts_only_through_the_hub_and_with_what_was_approv
     assert registry.execute("call_capability", {"id": "mcp:vision-mcp", "tool": "look", "arguments": {"path": "a.png"}}).endswith("look/{'path': 'a.png'}")
     assert started == [("mcp:vision-mcp", ["python", "-m", "vision_server"])] and "K" not in json.dumps(started)       # once; no environment
     idx.approve("mcp:remote", idx.review("mcp:remote")["sha"])
-    assert "remote server" in registry.execute("call_capability", {"id": "mcp:remote"})
+    assert "look: Looks at an image" in registry.execute("call_capability", {"id": "mcp:remote"})
+    assert started[-1] == ("mcp:remote", "https://x.example/mcp") and SECRET not in json.dumps(started)       # an address, with the query dropped
+    assert idx.remote_servers() == [{"id": "mcp:remote", "name": "remote", "url": "https://x.example/mcp", "state": "approved"}]
+    assert by_id(idx)["mcp:remote"]["remote"] is True and "remote" not in by_id(idx)["mcp:vision-mcp"]
 
 
 def test_visual_analysis_options_list_the_models_own_then_what_was_found_then_none(world):

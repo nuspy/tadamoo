@@ -38,6 +38,7 @@ from serve.agent_sessions import SessionManager
 from harness.context_patterns import catalog as context_patterns_catalog
 from serve.capabilities_api import CapabilityApi, CapabilityError
 from serve.llm_api import LlmApi, LlmError
+from serve.mcp_auth_api import McpAuthApi, McpAuthError, result_page
 from serve.approvals import ApprovalBoard, ApprovalError
 from serve.tasks import ChangeJournal, TaskJournal
 _TASKS = TaskJournal(userdata.path("journal"))        # runtime state lives in the user's data folder, not in the assets
@@ -53,6 +54,7 @@ def stop_sessions() -> None:
     """The server ends: the conversations' processes end with it (the next start finds the conversations again)."""
     if _SESSIONS is not None:
         _SESSIONS.shutdown()
+_MCP_AUTH = None                                       # the sign-in of the remote MCP servers, made on first use
 _PLANS = None                                          # the planner's service, made on first use
 from serve.util.reqtrace import RequestTrace
 from serve.util.text import IM_END, stop_strings
@@ -365,6 +367,11 @@ def make_handler(svc: Service):
             elif path == "/api/capabilities" or path == "/api/capabilities/review":
                 if self._authorized():
                     self._capabilities_get(path)
+            elif path == "/api/mcp/auth":
+                if self._authorized():
+                    self._json(200, self._mcp_auth().overview())
+            elif path == "/api/mcp/auth/callback":
+                self._mcp_callback()
             elif path == "/api/context/patterns":
                 if self._authorized():
                     self._json(200, context_patterns_catalog())
@@ -504,6 +511,9 @@ def make_handler(svc: Service):
                 return
             if path.startswith("/api/capabilities/"):
                 self._capabilities_post(path)
+                return
+            if path in ("/api/mcp/auth/start", "/api/mcp/auth/signout"):
+                self._mcp_auth_post(path)
                 return
             if path == "/api/changes/review":
                 if not settings.is_loopback(self.client_address[0]):
@@ -1316,6 +1326,56 @@ def make_handler(svc: Service):
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"message": str(e)}})
             self._json(404, {"error": {"message": "not found"}})
+
+        def _mcp_auth(self) -> McpAuthApi:
+            global _MCP_AUTH
+            if _MCP_AUTH is None:
+                from harness.llm.credentials import default_store
+                from harness.mcp_oauth import OAuthStore
+                port = self.server.server_address[1]
+                _MCP_AUTH = McpAuthApi(self._caps(), OAuthStore(userdata.path("mcp_oauth.json"), default_store(userdata.user_data_dir())),
+                                       lambda: f"http://127.0.0.1:{port}/api/mcp/auth/callback")
+            return _MCP_AUTH
+
+        def _mcp_callback(self):
+            """The browser comes back from the authorization server with a code. Only this PC; the `state` says which sign-in it is."""
+            if not settings.is_loopback(self.client_address[0]):
+                return self._json(403, {"error": {"type": "forbidden", "message": "signing in is done only from the PC the server runs on"}})
+            query = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
+            ok, message = self._mcp_auth().callback(query)
+            body = result_page(ok, message)
+            self.send_response(200 if ok else 400)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _mcp_auth_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "signing in is done only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 16)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            if not self._own_page("signing in"):
+                return
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                api = self._mcp_auth()
+                if path.rsplit("/", 1)[-1] == "start":
+                    return self._json(200, api.start(req.get("id")))
+                return self._json(200, api.sign_out(req.get("id")))
+            except McpAuthError as e:
+                return self._json(409 if e.code in ("gone", "needs_approval") else 400, {"error": {"type": "mcp_auth", "message": str(e), "code": e.code}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"message": str(e)}})
 
         def _llm(self) -> LlmApi:
             global _LLM

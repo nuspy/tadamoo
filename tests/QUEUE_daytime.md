@@ -26,6 +26,7 @@ con quel valore) e avviare il server su 127.0.0.1.
 | 16 | Una GPU, più chiamanti (Fase 5): perdita di cache alternando Chat ed Esecutore; tempo di caricamento a freddo | numeri etichettati con il limite di potenza della GPU | due conversazioni che alternano funzioni | in attesa |
 | 17 | Copie di lavoro (Fase 7a/7d): due conversazioni sulla stessa cartella git con il modello vero; una cartella con file non committati; applicare un file, poi il resto; buttare via | che le due non si pestino, che «Applica» non tocchi file cambiati da te nel frattempo, che nulla si perda su Windows (percorsi lunghi, CRLF) | Chat > con strumenti; cartella git di prova | in attesa |
 | 18 | Language server vero (Fase 7d): `diagnostics`, `go_to_definition` e `find_references` con pyright (o quello che hai) su un progetto vero | che i risultati siano giusti, che il server parta una volta e finisca con la conversazione, tempi su un progetto grande | Chat > con strumenti, su un progetto Python | in attesa |
+| 19 | Server MCP remoto vero con OAuth (Fase 7c): un server a tua scelta che chiede l'accesso | che «Accedi» apra il browser, che il ritorno arrivi al server e che il modello usi lo strumento; scadenza e rinnovo del token | Impostazioni > Capacità | in attesa (serve un server e un account tuo) |
 
 ## Regole
 

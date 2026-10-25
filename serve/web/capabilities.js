@@ -5,7 +5,7 @@
 (() => {
   const body = document.getElementById("st-caps-body");
   if (!body) return;
-  let state = null, filter = "", note = "", noteBad = false, review = null, visionOn = null;
+  let state = null, filter = "", note = "", noteBad = false, review = null, visionOn = null, signed = {}, waiting = 0;
   const opened = new Set();
 
   const h = (tag, cls, ...kids) => {
@@ -34,7 +34,31 @@
   const say = (t, bad) => { note = t; noteBad = !!bad; paintNote(); };
   function paintNote() { const n = body.querySelector(".cp-note"); if (n) { n.textContent = note; n.dataset.bad = noteBad ? "1" : ""; n.hidden = !note; } }
 
+  async function loadSignins() {
+    const a = await call("GET", "api/mcp/auth");
+    if (a.ok) signed = Object.fromEntries((a.data.servers || []).map(s => [s.id, !!s.signed_in]));
+    return signed;
+  }
+  /* the person signs in in their browser: look again every few seconds until the server says it worked */
+  function watchSignin(id, name) {
+    clearInterval(waiting);
+    let left = 100;
+    waiting = setInterval(async () => {
+      await loadSignins();
+      if (signed[id]) { clearInterval(waiting); say(T("cp.signin.done", name)); draw(); } else if (--left <= 0) { clearInterval(waiting); say(T("cp.signin.late"), true); }
+    }, 3000);
+  }
+  async function signIn(e) {
+    const r = await call("POST", "api/mcp/auth/start", { id: e.id });
+    if (!r.ok) { say(why(r), true); return; }
+    if (!r.data.authorization_url) { say(T(r.data.signed_in ? "cp.signin.already" : "cp.signin.none", e.name)); await loadSignins(); draw(); return; }
+    const w = window.open(r.data.authorization_url, "_blank");            // noopener would make it return null
+    if (w) w.opener = null;
+    say(T(w ? "cp.signin.opened" : "cp.signin.blocked", e.name));
+    watchSignin(e.id, e.name);
+  }
   async function load() {
+    await loadSignins();
     const r = await call("GET", "api/capabilities");
     if (r.ok) { state = r.data; draw(); } else if (!state) body.replaceChildren(h("p", "setnote warnnote", why(r)));
     try {
@@ -65,6 +89,14 @@
     if (e.kind !== "builtin") {
       const acts = h("div", "cp-actions");
       if (e.state === "pending") acts.append(btn(T("cp.review"), "", async () => { const r = await call("GET", "api/capabilities/review?id=" + encodeURIComponent(e.id)); if (r.ok) { review = r.data; draw(); } else say(why(r), true); }));
+      if (e.remote && e.state === "approved") {
+        acts.append(h("span", "cp-badge", T(signed[e.id] ? "cp.signed" : "cp.notsigned")));
+        acts.append(btn(T(signed[e.id] ? "cp.signin.again" : "cp.signin"), "", () => signIn(e)));
+        if (signed[e.id]) acts.append(btn(T("cp.signout"), "ghost", async () => {
+          const o = await call("POST", "api/mcp/auth/signout", { id: e.id });
+          if (o.ok) { await loadSignins(); say(T("cp.signout.done", e.name)); draw(); } else say(why(o), true);
+        }));
+      }
       if (e.state === "approved") acts.append(btn(T("cp.revoke"), "ghost", async () => { if (await act("api/capabilities/revoke", { id: e.id })) say(T("cp.saved")); draw(); }));
       const off = state.settings.off.includes(e.id);
       acts.append(btn(off ? T("cp.turnon") : T("cp.turnoff"), "ghost", async () => {

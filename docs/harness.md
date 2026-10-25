@@ -413,6 +413,27 @@ folder, started from the folder's last commit plus the changes not yet committed
 This is also how an edit is held back until it is approved: the conversation's commands see its own files as they are, and the person's folder
 changes only when they apply.
 
+## Signing in to remote MCP servers
+
+A remote MCP server (an address in a `.mcp.json`, not a command) is found like the others and approved by the person after they look at its address
+(the query part of an address is dropped: a key does not belong there). One that wants a sign-in answers 401, and Settings, under Capabilities,
+shows **Sign in** next to it (`harness/mcp_oauth.py`, `serve/mcp_auth_api.py`). The flow is the one the MCP authorization specification asks of
+a client: the server's resource metadata (RFC 9728) names the authorization server, whose metadata (RFC 8414 or OpenID discovery) gives the
+endpoints; a client id is registered by itself (RFC 7591) when the server allows it; the person approves in their browser (authorization code, PKCE
+with S256, a `state` that must come back, the server's address as `resource`, RFC 8707); the code becomes tokens. The answer comes back to
+`/api/mcp/auth/callback` on this server, only from this PC, and only for a sign-in this server started.
+
+- Tokens are in the credential store (the Windows credential manager), in pieces when long, never in a file in clear. A file keeps only where the
+  endpoints are and the client id. A refresh token that the server refuses means signing in again; the client id is kept.
+- Every address the discovery documents name must be https (plain http only when the MCP server itself is on this PC), and for a server that is not
+  on this PC it must not be on a private network; metadata for another resource or issuer, or without S256, is refused.
+- The agent calls an approved remote server through `call_capability` like a local one; the token goes only to that server, in the `Authorization`
+  header of every request, and a token that ran out is renewed once before the call is given up. A server that is not signed in says so in the
+  tool's answer.
+
+Not done: servers that need a client id registered by hand (it says so; there is no place to type one yet), a sign-in from a different PC than the one
+the server runs on, and the other transports' own sign-ins.
+
 ## Language servers
 
 When a language server is installed (pyright or pylsp for Python, typescript-language-server, clangd, rust-analyzer, gopls), a conversation
@@ -485,5 +506,5 @@ An approval from the page asks the server for an answer, and any process on this
 one, so it matters that an agent which can run arbitrary code (an allow rule such as `python *`, or Automatic mode) can approve
 its own later requests: such a rule already grants that power, and only the isolation below would take it away.
 
-Not done: file and network isolation for commands (the job object limits resources only); OAuth for MCP; `fs/*` and `session/load` in ACP;
+Not done: file and network isolation for commands (the job object limits resources only); `fs/*` and `session/load` in ACP;
 a payment connector; the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.
