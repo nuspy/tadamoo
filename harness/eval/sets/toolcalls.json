@@ -11,7 +11,7 @@
         {"name": "get_weather", "description": "Current weather of a city.", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}, "returns": "Sunny, 24 C"},
         {"name": "get_time", "description": "Current time in a city.", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}, "returns": "14:05"}
       ],
-      "checks": [{"type": "tool_args", "name": "get_weather", "args": {"city": "Rome"}}, {"type": "tool_not_called", "name": "get_time"}, {"type": "answer_contains", "text": "24"}],
+      "checks": [{"type": "tool_args", "name": "get_weather", "args": {"city": "Rome"}}, {"type": "tool_not_called", "name": "get_time"}, {"type": "answer_contains", "text": "24", "word": true}],
       "max_turns": 4
     },
     {
@@ -21,7 +21,7 @@
       "tools": [
         {"name": "add", "description": "Adds two numbers.", "parameters": {"type": "object", "properties": {"a": {"type": "number"}, "b": {"type": "number"}}, "required": ["a", "b"]}, "returns": "42"}
       ],
-      "checks": [{"type": "tool_args", "name": "add", "args": {"a": 17, "b": 25}}, {"type": "answer_contains", "text": "42"}],
+      "checks": [{"type": "tool_args", "name": "add", "args": {"a": 17, "b": 25}}, {"type": "answer_contains", "text": "42", "word": true}],
       "max_turns": 4
     },
     {

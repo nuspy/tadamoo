@@ -1502,9 +1502,7 @@ def make_handler(svc: Service):
             global _ROUTINES
             sessions = self._agent_sessions()
             if _ROUTINES is None:
-                tel = getattr(svc, "telemetry", None)       # the power the GPUs draw, for the energy of each run
-                _ROUTINES = RoutinesApi(userdata.path("journal"), sessions,
-                                        power_source=(lambda: tel.snapshot()["now"].get("gpus") or []) if tel else None)
+                _ROUTINES = RoutinesApi(userdata.path("journal"), sessions)
             return _ROUTINES
 
         def _routines_get(self, path):

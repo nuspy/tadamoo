@@ -85,7 +85,7 @@ def generate_eval_report(
         f"- **Model**: {model}",
         f"- **Hardware**: {hw}",
         f"- **GPU power limit**: {f'{limit} W' if limit else 'not recorded (pass --gpu-power-limit-w); numbers are not comparable without it'}",
-        f"- **Harness**: commit {env.get('harness_commit', 'unknown')}{' (uncommitted changes)' if env.get('harness_dirty') else ''}",
+        f"- **Harness**: {env.get('harness_version', 'unknown')}, commit {env.get('harness_commit', 'unknown')}{' (uncommitted changes)' if env.get('harness_dirty') else ''}",
         f"- **Endpoint**: {env.get('endpoint', 'unknown')}",
         f"- **Python / platform**: {env.get('python', '?')} / {env.get('platform', '?')}",
     ]

@@ -21,7 +21,7 @@
     {"id": "branch_prefix", "category": "knowledge", "uses_knowledge": true, "prompt": "What branch prefix is used for bug fixes?", "checks": [{"type": "answer_contains", "text": "fix/"}], "max_turns": 6},
     {"id": "api_limit", "category": "knowledge", "uses_knowledge": true, "prompt": "How many requests per minute does the public API allow per key? Number only.", "checks": [{"type": "answer_regex", "pattern": "(^|\\D)240(\\D|$)"}], "max_turns": 6},
     {"id": "backup_retention", "category": "knowledge", "uses_knowledge": true, "prompt": "For how many days are the nightly database backups kept? Number only.", "checks": [{"type": "answer_regex", "pattern": "(^|\\D)35(\\D|$)"}], "max_turns": 6},
-    {"id": "finance_extension", "category": "knowledge", "uses_knowledge": true, "prompt": "What is the extension of the finance desk?", "checks": [{"type": "answer_contains", "text": "4410"}], "max_turns": 6},
+    {"id": "finance_extension", "category": "knowledge", "uses_knowledge": true, "prompt": "What is the extension of the finance desk?", "checks": [{"type": "answer_contains", "text": "4410", "word": true}], "max_turns": 6},
     {"id": "reef_meaning", "category": "knowledge", "uses_knowledge": true, "prompt": "In this company's vocabulary, what is a reef?", "checks": [{"type": "answer_regex", "pattern": "read-only replica|replica"}], "max_turns": 6}
   ]
 }

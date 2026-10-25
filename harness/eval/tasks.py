@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -37,6 +38,51 @@ class Task:
     strategy: str = "none"                                    # how they are offered: none, rag or cag
 
 
+NEEDS = {"file_contains": ("path", "text"), "file_not_contains": ("path", "text"), "file_equals": ("path", "content"), "file_regex": ("path", "pattern"),
+         "file_unchanged": ("path",), "no_file": ("path",), "command": ("cmd",), "answer_regex": ("pattern",), "tool_called": ("name",),
+         "tool_not_called": ("name",), "tool_args": ("name", "args")}
+
+
+def _validate_check(task_id: str, check: Dict[str, Any]) -> None:
+    kind = check.get("type")
+    missing = [k for k in NEEDS.get(kind, ()) if k not in check]
+    if kind in ("answer_contains", "answer_not_contains") and "text" not in check and not check.get("any_of"):
+        missing = ["text (or any_of)"]
+    if missing:
+        raise ValueError(f"task {task_id}: a {kind} check needs {', '.join(missing)}")
+    if kind in ("answer_regex", "file_regex"):
+        try:
+            re.compile(check["pattern"])
+        except re.error as exc:
+            raise ValueError(f"task {task_id}: the pattern of a {kind} check is not valid: {exc}") from None
+
+
+_SPACES = dict.fromkeys(map(ord, "    ​"), " ")
+_QUOTES = {ord("‘"): "'", ord("’"): "'", ord("“"): '"', ord("”"): '"', ord("–"): "-", ord("—"): "-", ord("−"): "-"}
+
+
+def normalize_text(text: str) -> str:
+    """Text as compared by the answer checks: Unicode-normalized, lower case, curly quotes and dashes plain, Markdown emphasis and code
+    marks removed, runs of spaces made one."""
+    text = unicodedata.normalize("NFKC", text).translate(_SPACES).translate(_QUOTES).replace("*", "").replace("`", "")
+    return " ".join(text.casefold().split())
+
+
+def answer_has(answer: str, check: Dict[str, Any]) -> bool:
+    """Whether the answer holds the check's `text` (or any of `any_of`); with `word`, only as a whole word or number."""
+    haystack = normalize_text(answer)
+    for needle in check.get("any_of") or [check["text"]]:
+        n = normalize_text(str(needle))
+        if not n:
+            continue
+        if check.get("word"):
+            if re.search((r"(?<!\w)" if n[0].isalnum() else "") + re.escape(n) + (r"(?!\w)" if n[-1].isalnum() else ""), haystack):
+                return True
+        elif n in haystack:
+            return True
+    return False
+
+
 def _validate(task: Dict[str, Any]) -> None:
     for key in ("id", "prompt"):
         if not isinstance(task.get(key), str) or not task[key].strip():
@@ -44,6 +90,7 @@ def _validate(task: Dict[str, Any]) -> None:
     for check in task.get("checks", []):
         if check.get("type") not in CHECK_TYPES:
             raise ValueError(f"task {task['id']}: unknown check type {check.get('type')!r}; expected one of {CHECK_TYPES}")
+        _validate_check(task["id"], check)
     for rel in task.get("files", {}):
         parts = Path(rel).parts
         if Path(rel).is_absolute() or rel.startswith(("/", "\\")) or ".." in parts:
@@ -139,11 +186,11 @@ def run_checks(task: Task, workspace: Path, answer: str, calls: Sequence[Dict[st
             elif check.get("stdout_contains") and check["stdout_contains"] not in res["stdout"]:
                 failures.append(f"`{check['cmd'][:60]}` did not print {check['stdout_contains']!r}")
         elif kind == "answer_contains":
-            if check["text"].lower() not in answer.lower():
-                failures.append(f"the answer does not contain {check['text']!r}")
+            if not answer_has(answer, check):
+                failures.append(f"the answer does not contain {(check.get('any_of') or [check['text']])[0]!r}" + (" (or an alternative)" if check.get("any_of") else ""))
         elif kind == "answer_not_contains":
-            if check["text"].lower() in answer.lower():
-                failures.append(f"the answer contains {check['text']!r}")
+            if answer_has(answer, check):
+                failures.append(f"the answer contains {(check.get('any_of') or [check['text']])[0]!r}")
         elif kind == "answer_regex":
             if not re.search(check["pattern"], answer, re.IGNORECASE | re.MULTILINE):
                 failures.append(f"the answer does not match {check['pattern']!r}")

@@ -182,7 +182,12 @@ class EvalRunner:
     def run_set(self, tasks: List[Task], k: int = 5, on_result: Optional[Callable[[EvalResult], None]] = None) -> List[EvalResult]:
         out = []
         for task in tasks:
-            result = self.evaluate_task(task, k)
+            try:
+                result = self.evaluate_task(task, k)
+            except Exception as exc:                       # a task that cannot even start is a failed task, not the end of the run
+                reason = f"{type(exc).__name__}: {exc}"
+                result = EvalResult(task.id, task.category, k, 0.0, False,
+                                    [Trial(repetition=i + 1, passed=False, error=reason, failures=[f"the task could not be run: {reason}"]) for i in range(k)])
             out.append(result)
             if on_result:
                 on_result(result)
@@ -194,7 +199,13 @@ def collect_environment(client: Optional[BasaltClient] = None, endpoint: str = "
     """What a result must say about where it was produced: harness version, model, hardware, power limit."""
     root = repo_root or Path(__file__).resolve().parents[2]
     env: Dict[str, Any] = {"python": platform.python_version(), "platform": platform.platform(), "endpoint": endpoint or "(injected client)",
-                           "harness_commit": "unknown", "harness_dirty": None, "model": "unknown", "gpus": [], "gpu_power_limit_w": gpu_power_limit_w}
+                           "harness_version": "unknown", "harness_commit": "unknown", "harness_dirty": None, "model": "unknown", "gpus": [], "gpu_power_limit_w": gpu_power_limit_w}
+    try:
+        import json
+        release = json.loads((root / "VERSION").read_text(encoding="utf-8-sig"))
+        env["harness_version"] = str(release.get("release") or release.get("version") or "unknown")
+    except (OSError, ValueError, AttributeError):
+        pass
     try:
         env["harness_commit"] = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=root, capture_output=True, text=True, timeout=10).stdout.strip() or "unknown"
         env["harness_dirty"] = bool(subprocess.run(["git", "status", "--porcelain", "--", "harness", "serve"], cwd=root, capture_output=True, text=True, timeout=10).stdout.strip())

@@ -606,7 +606,11 @@ python -m harness.eval --set knowledge --k 3 --strategies none,rag,cag
 ```
 
 Each trial is a fresh agent run on a fresh workspace with its own seed, checked on what happened (files, commands, the
-answer, the tools called). A crash or a server error is a failed trial with its reason. The report gives the harness
+answer, the tools called). A crash, a timeout or a server error is a failed trial with its reason, and a task that cannot even start is a
+failed task; neither ends the run. `tool_called` and `tool_args` count only calls that ran, not calls the permissions refused. An answer
+check compares normalized text (case, Unicode form, curly quotes and dashes, Markdown emphasis and code marks, runs of spaces), takes
+`any_of` for alternative wordings, and with `"word": true` matches a number or word only as a whole (`24` is not in `124`); a check with
+a missing part is refused when the set loads. The report gives the harness release and
 commit, the model, the hardware, the GPU power limit (or says it was not recorded), pass@k and pass^k, a 95% interval, tool-call
 validity, cost per trial and the prefix cache hit rate. These are development A/Bs, not headline numbers; a difference under about 3
 points is noise until repeated. The task sets are small starting points; add private tasks of your own. Running other

@@ -112,13 +112,11 @@ def _write_json(path: Path, data: Dict[str, Any]) -> None:
 
 class Scheduler:
     def __init__(self, directory: str | Path, runner: Runner, busy: Optional[Callable[[], bool]] = None,
-                 clock: Callable[[], float] = time.time, tick_s: float = 5.0, max_wait_s: float = 3600.0, poll_s: float = 1.0,
-                 meter: Optional[Callable[[], Any]] = None) -> None:
+                 clock: Callable[[], float] = time.time, tick_s: float = 5.0, max_wait_s: float = 3600.0, poll_s: float = 1.0) -> None:
         self.directory = Path(directory)
         self.runner = runner
         self.busy = busy or getattr(runner, "busy", None) or (lambda: False)
         self.clock, self.tick_s, self.max_wait_s, self.poll_s = clock, tick_s, max_wait_s, poll_s
-        self.meter = meter                                                   # makes an EnergyMeter (harness/energy.py) for each run
         self._lock = threading.RLock()
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -312,14 +310,10 @@ class Scheduler:
             self.running = routine_id
         self._cancel.clear()
         started = self.clock()
-        meter = self.meter().start() if self.meter else None
         try:
             outcome = self.runner.run(routine, self._cancel)
         except Exception as exc:
             outcome = {"status": "failed", "summary": f"{type(exc).__name__}: {exc}"}
-        energy = meter.stop() if meter else {}
-        if energy:
-            outcome = {**outcome, "energy": energy}
         self._finish(routine_id, outcome, started)
 
     def _finish(self, routine_id: str, outcome: Dict[str, Any], started: float) -> None:

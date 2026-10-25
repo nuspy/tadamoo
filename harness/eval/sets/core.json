@@ -26,7 +26,7 @@
       "prompt": "Which port does the service in data/config.json listen on? Answer with the number.",
       "files": {"data/config.json": "{\"name\": \"orion\", \"port\": 7311, \"debug\": false}\n"},
       "checks": [
-        {"type": "answer_contains", "text": "7311"},
+        {"type": "answer_contains", "text": "7311", "word": true},
         {"type": "tool_called", "name": "read_file"}
       ]
     },
