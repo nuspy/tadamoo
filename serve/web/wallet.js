@@ -206,6 +206,32 @@
     say(T("wl.import.done", r.data.added, (r.data.skipped || {}).duplicate || 0, skipped - ((r.data.skipped || {}).duplicate || 0) + (r.data.refused || []).length));
     await load();
   }
+  function backupBox() {
+    const pass = textInput("", { placeholder: T("wl.backup.pass") }); pass.type = "password"; pass.autocomplete = "off"; pass.setAttribute("aria-label", T("wl.backup.pass"));
+    const file = h("input"); file.type = "file"; file.accept = ".bvb"; file.hidden = true;
+    const out = h("p", "dim", "");
+    const need = () => { if (pass.value) return true; out.textContent = T("wl.backup.need"); pass.focus(); return false; };
+    const make = btn(T("wl.backup.make"), "", async () => {
+      if (!need()) return;
+      const r = await call("POST", "api/wallet/backup", { passphrase: pass.value });
+      if (!r.ok) { out.textContent = why(r); return; }
+      const bin = Uint8Array.from(atob(r.data.file), c => c.charCodeAt(0));
+      const a = h("a"); a.href = URL.createObjectURL(new Blob([bin], { type: "application/octet-stream" })); a.download = r.data.name;
+      document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      out.textContent = T("wl.backup.done", r.data.name);
+    });
+    const restore = btn(T("wl.backup.restore"), "", () => { if (need()) file.click(); });
+    file.onchange = async () => {
+      const f = file.files[0]; file.value = "";
+      if (!f) return;
+      if (f.size > 8 * 1024 * 1024) { out.textContent = T("wl.import.big"); return; }
+      const buf = new Uint8Array(await f.arrayBuffer()); let bin = ""; buf.forEach(b => { bin += String.fromCharCode(b); });
+      const r = await call("POST", "api/wallet/restore", { file: btoa(bin), passphrase: pass.value });
+      out.textContent = r.ok ? T("wl.backup.restored", r.data.added, (r.data.refused || []).length) : why(r);
+      if (r.ok) await load();
+    };
+    return h("div", "wl-body", h("b", "", T("wl.backup")), h("p", "help", T("wl.backup.help")), field(T("wl.backup.pass"), pass), h("div", "wl-actions", make, restore, file), out);
+  }
   function vaultSection() {
     const pick = h("input"); pick.type = "file"; pick.accept = ".csv,text/csv"; pick.hidden = true; pick.onchange = () => { importLogins(pick.files[0]); pick.value = ""; };
     const sec = h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.vault")), h("span", "grow"),
@@ -213,7 +239,7 @@
     const body = h("div", "wl-body", h("p", "help", T("wl.vault.help")), h("p", "help", T("wl.import.help")));
     if (editing) body.append(editor());
     const entries = data.entries || [];
-    if (!entries.length) { body.append(h("p", "dim", T("wl.vault.none"))); sec.append(body); return sec; }
+    if (!entries.length) { body.append(h("p", "dim", T("wl.vault.none")), backupBox()); sec.append(body); return sec; }
     const kinds = select([["all", T("wl.filter.all")], ...Object.keys(data.kinds).map(k => [k, T("wl.kind." + k)])], vaultFilter);
     const find = textInput(vaultSearch, { placeholder: T("wl.search") }); find.type = "search"; find.setAttribute("aria-label", T("wl.search"));
     const list = h("ul", "wl-list"), none = h("p", "dim", T("wl.nomatch"));
@@ -228,7 +254,7 @@
     kinds.onchange = () => { vaultFilter = kinds.value; paint(); };
     find.oninput = () => { vaultSearch = find.value; paint(); };
     paint();
-    body.append(h("div", "wl-tools", kinds, find), list, none);
+    body.append(h("div", "wl-tools", kinds, find), list, none, backupBox());
     sec.append(body);
     return sec;
   }
@@ -332,7 +358,7 @@
   /* ---- automatic payments: the three dialogs, in order ---- */
   const norm = t => t.replace(/[’‘]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, " ").trim().toLowerCase();
   function openWizard(system) {
-    wizard = { step: 1, system, name: "", per: "", cum: "", days: "30", typed: "", pasted: false, intervals: [], last: 0, phrase: "", seen2: false, seen3: false, ack2: false, ack3: false, n2: "", n3: "", error: "", timer: 0 };
+    wizard = { step: 1, system, name: "", per: "", cum: "", days: "30", sites: "", typed: "", pasted: false, intervals: [], last: 0, phrase: "", seen2: false, seen3: false, ack2: false, ack3: false, n2: "", n3: "", error: "", timer: 0 };
     drawWizard();
     if (!dlg.open) dlg.showModal();
   }
@@ -374,6 +400,7 @@
       per.oninput = () => { w.per = per.value; clearTimeout(w.timer); w.timer = setTimeout(refreshPhrase, 250); };
       cum.oninput = () => { w.cum = cum.value; paintPhrase(); };
       days.oninput = () => { w.days = days.value; };
+      const sites = textInput(w.sites, { placeholder: "shop.example, hotel.example" }); sites.oninput = () => { w.sites = sites.value; };
       typed.oninput = () => { w.typed = typed.value; paintPhrase(); };
       typed.addEventListener("paste", () => { w.pasted = true; });
       typed.addEventListener("keydown", e => { const t = performance.now(); if (w.last && w.intervals.length < 2000) w.intervals.push(Math.round(t - w.last)); w.last = t; });
@@ -381,7 +408,7 @@
         try { await navigator.clipboard.writeText(w.phrase); copy.textContent = T("wl.w.copied"); } catch (e) { const r = document.createRange(); r.selectNodeContents(dlg.querySelector(".wl-phrase")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
       });
       body.append(field(T("wl.w.name"), name), field(T("wl.w.per") + (w.system.currency ? ` (${w.system.currency})` : ""), per), field(T("wl.w.cum") + (w.system.currency ? ` (${w.system.currency})` : ""), cum),
-        field(T("wl.w.days"), days), h("div", "field", h("b", "", T("wl.w.phrase")), h("p", "wl-phrase", T("wl.w.fill")), copy), field(T("wl.w.typed"), typed), h("p", "wl-mismatch dim", ""));
+        field(T("wl.w.days"), days), field(T("wl.w.sites"), sites, T("wl.w.sites.help")), h("div", "field", h("b", "", T("wl.w.phrase")), h("p", "wl-phrase", T("wl.w.fill")), copy), field(T("wl.w.typed"), typed), h("p", "wl-mismatch dim", ""));
       next.onclick = () => { w.step = 2; drawWizard(); };
     } else {
       const two = w.step === 2, key = two ? "2" : "3";
@@ -400,7 +427,7 @@
           next.disabled = true;
           const r = await call("POST", "api/wallet/grant", { system_id: w.system.id, user_name: w.name, typed_text: w.typed, per_payment: w.per, cumulative: w.cum,
             read_to_end: w.seen2 && w.seen3, release_ack: w.ack2, retyped_names: { release: w.n2, acceptance: w.n3 }, pasted: w.pasted, ttl_days: Number(w.days) || 30,
-            lang: LANG, typing_intervals_ms: w.intervals });
+            lang: LANG, typing_intervals_ms: w.intervals, sites: w.sites.split(/[\s,;]+/).filter(Boolean) });
           if (r.ok) { dlg.close(); say(T("wl.w.done", w.system.name)); wizard = null; await load(); }
           else { w.error = why(r); next.disabled = false; msg.textContent = w.error; }
         };
