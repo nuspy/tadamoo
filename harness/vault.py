@@ -298,6 +298,8 @@ class Vault:
                 if hosts or tools:
                     raise SecretDestinationError(f"'{entry_id}' is for local use only; it cannot be put in a command that reaches the network")
             else:
+                if tools and not hosts:
+                    raise SecretDestinationError(f"'{entry_id}' may only be sent to {', '.join(allowed)}; this command runs a network tool but names no site, so where it would go cannot be checked")
                 bad = [h for h in hosts if h not in allowed and not any(h.endswith("." + a) for a in allowed)]
                 if bad:
                     raise SecretDestinationError(f"'{entry_id}' may only be sent to {', '.join(allowed)}, not to {', '.join(bad)}")

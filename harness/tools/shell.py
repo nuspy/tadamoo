@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from harness.sandbox import ProcessSandbox, command_words
-from harness.secrets_broker import NETWORK_TOOLS, SecretsBroker, url_hosts
+from harness.secrets_broker import NETWORK_TOOLS, SecretsBroker, command_hosts
 from harness.vault import VaultError
 
 
@@ -21,7 +21,8 @@ def execute_shell_command(
     sandbox = ProcessSandbox(cwd, timeout=timeout, max_output_bytes=max_output_bytes)
     if secrets and secrets.has_references(command):
         try:
-            secrets.check_destinations(command, url_hosts(command), [w for w in command_words(command) if w in NETWORK_TOOLS])
+            tools = [w for w in command_words(command) if w in NETWORK_TOOLS]
+            secrets.check_destinations(command, command_hosts(command, tools), tools)
         except PermissionError as exc:
             return {"exit_code": -1, "stdout": "", "stderr": str(exc), "success": False, "blocked": True,
                     "timed_out": False, "truncated": False}

