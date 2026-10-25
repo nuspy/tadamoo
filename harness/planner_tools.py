@@ -269,6 +269,10 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
             res = client.event(plan_id, {"type": "plan:mark", "node_id": node_id, "status": status, "base_rev": seen[plan_id]})
         except Exception as exc:
             return failure(exc)
+        try:
+            seen[plan_id] = int(client.snapshot(plan_id).get("rev") or seen[plan_id])     # the next change is made on what this one left
+        except Exception:
+            seen.pop(plan_id, None)                                                       # unknown now: the plan is read again
         if status in ("completed", "failed", "skipped"):
             link_task(plan_id, node, {"completed": "done", "failed": "failed", "skipped": "closed"}[status])
         return f"Step {node_id} marked {status} ({how}). Ready now: {', '.join(res.get('ready', [])) or 'nothing'}."

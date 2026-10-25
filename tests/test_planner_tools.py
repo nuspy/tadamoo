@@ -321,3 +321,17 @@ def test_the_profile_is_changed_with_the_persons_yes_and_a_wrong_one_is_refused_
     ok = reg.execute("plan_set_profile", {"plan_id": plan_id, "profile": {"cost": {"amount": "80", "currency": "EUR"}}, "quote": "Metti il costo del piano a 80 euro"})
     assert ok.startswith("Saved (quoted)")
     assert client.snapshot(plan_id)["profile"]["cost"] == {"amount": "80.00", "currency": "EUR"}
+
+
+def test_two_marks_in_a_row_both_go_through_without_reading_the_plan_again(world):
+    client, agent, build = world
+    reg, ask = build("default", "confirm", "confirm")
+    t = title()
+    create_with_quote(reg, agent, t)
+    pid = next(p["plan_id"] for p in client.list() if p["title"] == t)
+    reg.execute("plan_get", {"plan_id": pid})
+    agent.last_user_text = "boh"
+    assert "marked in_progress" in reg.execute("plan_mark", {"plan_id": pid, "node_id": "s1", "status": "in_progress"})
+    out = reg.execute("plan_mark", {"plan_id": pid, "node_id": "s1", "status": "completed"})
+    assert "marked completed" in out and "changed since you read it" not in out
+    assert client.snapshot(pid)["plan"]["nodes"]["s1"]["status"] == "completed"
