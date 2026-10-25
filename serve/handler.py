@@ -275,13 +275,11 @@ def make_handler(svc: Service):
             if path.startswith("/web/"):
                 name = path[len("/web/"):]
                 types = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-                         ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json; charset=utf-8"}
+                         ".svg": "image/svg+xml", ".png": "image/png"}
                 f = ROOT / "serve" / "web" / name
                 ext = os.path.splitext(name)[1]
                 if "/" in name or "\\" in name or ext not in types or not f.is_file():
                     self._json(404, {"error": {"message": "not found"}})
-                    return
-                if ext == ".json" and not self._authorized():     # data files hold task and change records
                     return
                 body = f.read_bytes()
                 self.send_response(200)

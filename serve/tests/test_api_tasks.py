@@ -106,10 +106,15 @@ class ApiTasksKeyedTest(_Server):
     api_key = "s3cret"
     auth = {"Authorization": "Bearer s3cret"}
 
-    def test_data_files_need_the_key(self):
-        for path in ("/web/tasks.json", "/web/changes.json", "/api/tasks", "/api/changes"):
+    def test_the_records_need_the_key(self):
+        for path in ("/api/tasks", "/api/changes"):
             self.assertEqual(self.call("GET", path)[0], 401, path)
             self.assertEqual(self.call("GET", path, headers=self.auth)[0], 200, path)
+
+    def test_no_record_file_is_served_from_the_assets(self):
+        # the journals live in the user's data folder; the assets hold no JSON, so none of these names is a file to fetch
+        for path in ("/web/tasks.json", "/web/changes.json", "/web/logs.json"):
+            self.assertEqual(self.call("GET", path, headers=self.auth)[0], 404, path)
 
     def test_post_needs_the_key(self):
         self.assertEqual(self.call("POST", "/api/tasks", {"id": "k"})[0], 401)
