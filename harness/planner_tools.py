@@ -108,6 +108,12 @@ def render_plan(snap: Dict[str, Any]) -> str:
         lines.append(f'  {nid} [{n.get("status")}] {n.get("title")} (by {n.get("assignee")}{after})')
         if n.get("description"):
             lines.append(f'      {n["description"][:200]}')
+        if n.get("call_request"):
+            lines.append(f'      call prepared (not placed): {n["call_request"]["number"]} - {n["call_request"]["reason"][:100]}')
+        if n.get("wiki_query"):
+            lines.append(f'      wants from the wiki: {n["wiki_query"][:100]}')
+        if (n.get("state_variables") or {}).get("retry_at"):
+            lines.append(f'      failed {n["state_variables"].get("attempts", 1)} time(s), waits to try again')
     if snap.get("ready"):
         lines.append("Ready now: " + ", ".join(snap["ready"]))
     for p in snap.get("proposals", []):
@@ -343,6 +349,65 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         seen[plan_id] = int(res.get("rev") or seen[plan_id])
         return f"Change applied ({how}): {'; '.join(parts)}. Read the plan again before the next change."
 
+    def plan_prepare_call(plan_id: str, node_id: str, number: str = "", reason: str = "", text: str = "", wiki_query: str = "",
+                          clear: bool = False, quote: str = "") -> str:
+        """Prepares, on an action step, a call (number, why, what to say) and/or a question for the wiki. Preparing places nothing: the call
+        is placed only by phone_call, which asks the person each time. The person says yes to what is written into the plan."""
+        if (msg := need_read(plan_id)):
+            return msg
+        changes: Dict[str, Any] = {}
+        if clear:
+            changes = {"call_request": None, "wiki_query": None}
+        else:
+            if number or reason or text:
+                changes["call_request"] = {"number": number, "reason": reason, "text": text}
+            if wiki_query:
+                changes["wiki_query"] = wiki_query
+        if not changes:
+            return "Give a number and a reason for a call, and/or a wiki_query, or clear=true to remove what was prepared."
+        try:
+            snap = client.snapshot(plan_id)
+        except Exception as exc:
+            return failure(exc)
+        node = snap["plan"]["nodes"].get(node_id)
+        if node is None:
+            return f"The plan has no step '{node_id}'."
+        shown = ("remove the prepared call and wiki question" if clear else
+                 "; ".join(([f'prepare a call to {number}: {reason[:100]}'] if "call_request" in changes else []) + ([f'ask the wiki: {wiki_query[:100]}'] if wiki_query else [])))
+        ok, how = confirmer.check({"kind": "plan_change", "plan": snap["plan"]["title"], "title": f'step "{node["title"]}": {shown}'},
+                                  f'In the plan "{snap["plan"]["title"]}", on the step "{node["title"]}": {shown}. This places no call by itself.', quote)
+        if not ok:
+            return how
+        try:
+            client.event(plan_id, {"type": "plan:update_node", "node_id": node_id, "changes": changes, "base_rev": seen[plan_id]})
+            seen[plan_id] = int(client.snapshot(plan_id).get("rev") or seen[plan_id])
+        except Exception as exc:
+            return failure(exc)
+        return f"Saved on step {node_id} ({how}). Nothing was called: a call is placed only with phone_call, which asks the user."
+
+    def plan_step_requests(plan_id: str, node_id: str) -> str:
+        """What a step has prepared: a call and/or a question for the wiki, and how to carry them out."""
+        try:
+            snap = client.snapshot(plan_id)
+        except Exception as exc:
+            return failure(exc)
+        node = snap["plan"]["nodes"].get(node_id)
+        if node is None:
+            return f"The plan has no step '{node_id}'."
+        call, wiki = node.get("call_request"), node.get("wiki_query")
+        if not call and not wiki:
+            return f'Step {node_id} "{node["title"]}" has nothing prepared.'
+        lines = [f'Step {node_id} "{node["title"]}":']
+        if call:
+            lines.append(f'Call prepared (it has NOT been placed): number {call["number"]}; reason: {call["reason"]}' + (f'; what to say: {call["text"]}' if call.get("text") else ""))
+            lines.append(f'To place it: phone_call(number="{call["number"]}", purpose=<the reason>), and only if the user wants it now; the phone tool asks them every time. '
+                         "Do not place it in any other way." if registry.get("phone_call") is not None else
+                         "The phone tool is not available in this conversation, so the call cannot be placed from here: tell the user.")
+        if wiki:
+            lines.append(f'The step wants this from the wiki: "{wiki}". ' + ("Ask it with wiki_context(query=...)." if registry.get("wiki_context") is not None else
+                                                                          "The wiki is not connected in this conversation."))
+        return "\n".join(lines)
+
     def plan_archive(plan_id: str, quote: str = "") -> str:
         try:
             snap = client.snapshot(plan_id)
@@ -387,6 +452,15 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                       obj({"plan_id": {"type": "string"}, "title": {"type": "string"}, "rationale": {"type": "string"},
                            "diff": {"type": "object", "description": "{add_nodes: [node], remove_nodes: [id], update_nodes: {id: fields}, add_edges: [[parent, child]], remove_edges: [[parent, child]]}"},
                            "quote": quote_param}, ["plan_id", "title", "diff"]), EffectClass.REVERSIBLE, plan_propose_change)
+    registry.register("plan_prepare_call", "Prepares a phone call (number, reason, what to say) and/or a wiki question on an action step of a plan. It places nothing: "
+                                           "only phone_call places a call, and it asks the user each time. Needs the user's yes.",
+                      obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}, "number": {"type": "string", "description": "phone number with the country code"},
+                           "reason": {"type": "string", "description": "why to call, in a sentence"}, "text": {"type": "string", "description": "what to say or ask"},
+                           "wiki_query": {"type": "string", "description": "what the step wants to know from the knowledge wiki"},
+                           "clear": {"type": "boolean", "description": "remove what was prepared"}, "quote": quote_param}, ["plan_id", "node_id"]),
+                      EffectClass.REVERSIBLE, plan_prepare_call)
+    registry.register("plan_step_requests", "Reads the call and the wiki question a step has prepared, and how to carry them out.",
+                      obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}}, ["plan_id", "node_id"]), EffectClass.PURE, plan_step_requests, untrusted=True)
     registry.register("plan_archive", "Archives a plan (it can be restored). Needs the user's yes.",
                       obj({"plan_id": {"type": "string"}, "quote": quote_param}, ["plan_id"]), EffectClass.REVERSIBLE, plan_archive)
 
