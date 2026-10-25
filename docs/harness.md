@@ -141,7 +141,9 @@ shell command and the words inside `cmd /c`, `powershell -c`); tools that always
 never cover a command that chains or redirects (`pytest && rm -rf ~` is not `pytest`); then the level: read-only asks for
 anything, `default` allows reversible workspace edits and asks for irreversible actions, `auto` allows everything **unless
 the Rule of Two is broken**: once the session has read untrusted content (web, MCP, phone, wiki, memory) and can reach
-sensitive data (secrets), irreversible actions ask again.
+sensitive data (secrets), irreversible actions ask again. `write_file` and `edit_file` are reversible, except inside a `.git` folder
+(a hook or the config can make git run code later): there the person is asked, once per file, as for an irreversible action (the
+level and the Rule of Two decide it, and with nobody to ask it is refused), and the checkpoint before it holds the hooks and the config.
 
 What this is **not**: an OS sandbox. A command runs with your files and network rights, with a scrubbed environment, no
 stdin, a time limit and capped output. On Windows each command also runs in its own job object, created before the command

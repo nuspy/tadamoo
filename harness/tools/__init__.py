@@ -14,9 +14,16 @@ def create_standard_tool_registry(
     secrets: Optional[SecretsBroker] = None,
     allow_private_pages: bool | Callable[[], bool] = False,
     mcp_hub: Any = None,
+    permissions: Any = None,
 ) -> tuple[ToolRegistry, WorkspaceSandbox]:
     sandbox = WorkspaceSandbox(workspace_path)
     registry = ToolRegistry()
+    if permissions is not None:
+        def confirm_git_write(tool: str, arguments: dict) -> tuple[bool, str]:
+            """A write inside .git is decided like an irreversible action, once per file: the person is asked."""
+            return permissions.evaluate(f"{tool}:{arguments['path']}", EffectClass.IRREVERSIBLE,
+                                        {**arguments, "reason": "this file is inside .git, where a hook or the config can make git run code"})
+        sandbox.confirm_git_write = confirm_git_write
 
     def run_shell(command: str, timeout: float = 30.0):
         with sandbox.watching():                       # a command that edits files is reviewed like the file tools

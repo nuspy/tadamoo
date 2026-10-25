@@ -7,7 +7,7 @@ import stat
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 MAX_RECORDED_TEXT = 200_000        # larger files keep their diff but not the full before/after text
 MAX_LISTED = 500
@@ -19,6 +19,15 @@ MAX_WATCHED_BYTES = 30_000_000     # the text kept in memory to compare against
 MAX_SHELL_CHANGES = 50             # recorded for one command; a command that writes more is a build, not an edit
 
 
+def touches_git(parts: Sequence[str]) -> bool:
+    """Whether a path (its parts below the workspace) is, or is inside, a `.git` folder or file, however the name is spelled."""
+    for part in parts:
+        name = part.lower().rstrip(". ")
+        if name == ".git" or name == "git~1" or part.lower().startswith(".git:"):
+            return True
+    return False
+
+
 class WorkspaceSandbox:
     def __init__(self, root_dir: str | Path) -> None:
         self.root = Path(root_dir).resolve()
@@ -26,6 +35,8 @@ class WorkspaceSandbox:
         self.changes: List[Dict[str, Any]] = []
         self._known: Dict[str, Tuple[int, int, Optional[str]]] = {}
         self.watch_off = False                       # set when the workspace is too large to compare around a command
+        # (tool, {"path"}) -> (allowed, reason): asked before a write inside .git, where a hook or the config can make git run code
+        self.confirm_git_write: Optional[Callable[[str, Dict[str, Any]], Tuple[bool, str]]] = None
 
     def resolve_safe(self, rel_path: str | Path) -> Path:
         """Resolves path and enforces that it remains strictly inside self.root."""
@@ -35,6 +46,13 @@ class WorkspaceSandbox:
         except ValueError:
             raise PermissionError(f"Access denied: Path '{rel_path}' escapes workspace boundary")
         return path
+
+    def _guard_git(self, tool: str, path: str, resolved: Path) -> None:
+        if self.confirm_git_write is None or not touches_git(resolved.relative_to(self.root).parts):
+            return
+        allowed, reason = self.confirm_git_write(tool, {"path": path})
+        if not allowed:
+            raise PermissionError(reason)
 
     @staticmethod
     def _read_text(path: Path) -> str:
@@ -87,6 +105,7 @@ class WorkspaceSandbox:
         safe_path = self.resolve_safe(path)
         if safe_path.is_dir():
             raise IsADirectoryError(f"'{path}' is a directory")
+        self._guard_git("write_file", path, safe_path)
         old_content, kind = "", "added"
         if safe_path.exists():
             old_content, kind = self._read_text(safe_path), "modified"
@@ -99,6 +118,7 @@ class WorkspaceSandbox:
             raise FileNotFoundError(f"File not found: {path}")
         if not target:
             raise ValueError("The text to replace must not be empty")
+        self._guard_git("edit_file", path, safe_path)
 
         old_content = self._read_text(safe_path)
         if "\r\n" in old_content and "\r\n" not in target:        # the model writes \n; the file uses CRLF
