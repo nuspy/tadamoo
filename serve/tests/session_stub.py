@@ -2,7 +2,8 @@
 
 What the text of a message makes it do: "die" ends the process abruptly (the first --die-times starts only), "hang" stops its
 heartbeat and sleeps, "block" says the turn is blocked, "irreversible" leaves a note of an action in flight and ends
-abruptly, anything else is answered with an echo."""
+abruptly, "tool NAME EFFECT [JSON]" runs a tool call of that name and effect and answers, "write FILE TEXT" writes a file in the folder it works in
+(--workdir), anything else is answered with an echo."""
 import argparse
 import json
 import os
@@ -16,6 +17,7 @@ ap.add_argument("--session-id", default="")
 ap.add_argument("--history-dir", required=True)
 ap.add_argument("--die-times", type=int, default=1)
 ap.add_argument("--heartbeat", type=float, default=0.1)
+ap.add_argument("--workdir", default="")
 args, _ = ap.parse_known_args()
 H = Path(args.history_dir)
 H.mkdir(parents=True, exist_ok=True)
@@ -102,6 +104,18 @@ for line in sys.stdin:
             emit({"event": "blocked", "turn": cmd.get("id"), "reason": "refused", "detail": "no", "options": ["resume", "close"]})
             busy["v"] = False
             continue
+        if text.startswith("tool "):
+            _, tool_name, tool_effect, *rest = text.split(" ", 3)
+            tool_args = json.loads(rest[0]) if rest and rest[0].startswith("{") else {}
+            call_id = "c%d" % len(data["messages"])
+            emit({"event": "agent", "turn": cmd.get("id"), "data": {"type": "tool_start", "call_id": call_id, "name": tool_name, "arguments": tool_args, "effect": tool_effect}})
+            output = "Step %s started (ok)." % tool_args.get("node_id") if tool_name == "plan_step_start" else "ok"
+            data["messages"].append({"role": "assistant", "content": "", "tool_calls": [{"id": call_id, "type": "function", "function": {"name": tool_name, "arguments": json.dumps(tool_args)}}]})
+            data["messages"].append({"role": "tool", "tool_call_id": call_id, "name": tool_name, "content": output})
+            emit({"event": "agent", "turn": cmd.get("id"), "data": {"type": "tool_end", "call_id": call_id, "name": tool_name, "status": "completed", "output": output}})
+        if text.startswith("write ") and args.workdir:
+            _, file_name, *body = text.split(" ", 2)
+            (Path(args.workdir) / file_name).write_text(body[0] if body else "", encoding="utf-8")
         data["messages"].append({"role": "assistant", "content": "echo: " + text})
         data["turns"] += 1
         save(data)

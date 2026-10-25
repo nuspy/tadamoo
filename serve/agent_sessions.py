@@ -16,6 +16,8 @@ list of conversations, starts and stops the processes, buffers their events for 
 from __future__ import annotations
 
 import collections
+import copy
+import difflib
 import json
 import os
 import secrets
@@ -24,7 +26,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Deque, Dict, List, Optional
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 from harness import context_patterns as context_patterns_mod
 from harness.vault import valid_code
@@ -42,6 +44,11 @@ SESSIONS_FILE = "agent_sessions.json"
 TITLE_CHARS = 80
 OPTIONS = ("resume", "close")
 ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free")
+COMPARES_FILE = "compares.json"
+COMPARE_SETTINGS = ("mode", "max_turns", "ask_only", "end_turn_bias")      # what the two sides of a comparison may differ in
+EFFECTS_FILE = "tool_effects.json"                                          # the effect class of each tool this conversation has used
+SNIPPET_CHARS = 80
+FILE_DIFF_BYTES = 200_000
 
 
 class Live:
@@ -65,7 +72,8 @@ class SessionManager:
                  default_workspace: Optional[Path] = None, router: str = "model", pipeline: str = "full",
                  attachments_dir: Optional[Path] = None, outputs_dir: Optional[Path] = None, worktrees: Optional[Worktrees] = None,
                  vault_dir: Optional[Path] = None, payments_dir: Optional[Path] = None,
-                 browser_prefs: Optional[Callable[[], Dict[str, bool]]] = None, browser_profile: Optional[Path] = None) -> None:
+                 browser_prefs: Optional[Callable[[], Dict[str, bool]]] = None, browser_profile: Optional[Path] = None,
+                 plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: float = 1800.0) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -88,6 +96,13 @@ class SessionManager:
         self._seq: Dict[str, int] = {}
         self._restarts: Dict[str, List[float]] = {}
         self._unconfirmed: Dict[str, Dict[str, Any]] = {}      # the message sent and not yet accepted
+        self.plan_effect = plan_effect                          # told what a conversation did while it worked on a plan's step (plan, step, tool, effect, what)
+        self._step: Dict[str, Tuple[Any, Any]] = {}            # the plan step each conversation is working on, from its own tool calls
+        self._calls: Dict[str, Dict[str, Tuple[str, Dict[str, Any], Any]]] = {}      # tool calls started and not yet ended
+        self._learned: Dict[str, Dict[str, str]] = {}
+        self.compare_wait_s = compare_wait_s
+        self._compare_lock = threading.Lock()                   # the two sides of a comparison, and two comparisons, run one after the other
+        self.compares: List[Dict[str, Any]] = self._load_compares()
         self.records: List[Dict[str, Any]] = self._load()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._supervise, name="session-supervisor", daemon=True)
@@ -220,15 +235,79 @@ class SessionManager:
             self._save()
         return dict(child)
 
-    def go_back(self, sid: str, turn: Any) -> Dict[str, Any]:
-        """The conversation goes back to the end of the person's `turn`-th request: what came after is taken off (a copy is kept in the
-        conversation's folder). It is the conversation only: files the agent changed are put back from the Changes panel, not from here."""
+    def _split(self, sid: str, data: Dict[str, Any], turn: int) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """The messages up to the end of the person's `turn`-th request, and those after it."""
+        kept: List[Dict[str, Any]] = []
+        dropped: List[Dict[str, Any]] = []
+        users = 0
+        for msg in self._transcript(sid, data):
+            if msg.get("role") == "user":
+                users += 1
+            if users > turn:
+                dropped.append(msg)
+            else:
+                kept.append({k: v for k, v in msg.items() if k not in ("masked", "stripped")})
+        if users < turn:
+            raise RunError(f"That conversation has only {users} requests.", "bad_turn")
+        return kept, dropped
+
+    @staticmethod
+    def _check_turn(turn: Any) -> None:
         if not isinstance(turn, int) or isinstance(turn, bool) or turn < 1:
             raise RunError("Say which request to go back to: a number from 1.", "bad_turn")
+
+    def _tool_effects(self, sid: str) -> Dict[str, str]:
+        """The effect class each tool declared when this conversation used it (see `_learn`)."""
+        with self._lock:
+            if sid not in self._learned:
+                try:
+                    found = json.loads((self.history_dir(sid) / EFFECTS_FILE).read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    found = {}
+                found = found if isinstance(found, dict) else {}
+                self._learned[sid] = {k: v for k, v in found.items() if isinstance(k, str) and isinstance(v, str)}
+            return dict(self._learned[sid])
+
+    def _learn(self, sid: str, name: str, effect: Any) -> None:
+        if effect not in ("pure", "reversible", "irreversible") or self._tool_effects(sid).get(name) == effect:
+            return
+        with self._lock:
+            self._learned[sid][name] = effect
+            try:
+                self.history_dir(sid).mkdir(parents=True, exist_ok=True)
+                _write_json(self.history_dir(sid) / EFFECTS_FILE, self._learned[sid])
+            except OSError:
+                pass                                        # the class is then read from the known tools next time
+
+    def back_impact(self, sid: str, turn: Any) -> Dict[str, Any]:
+        """What going back to the end of request `turn` would take off the conversation, and which of the actions in it stay done: files
+        changed in the conversation's copy can be put back from the Changes panel; a command, a call, a payment, a message sent, a tool
+        of unknown effect or a file outside the copy cannot."""
+        from harness.rewind import session_impact
+        self._check_turn(turn)
+        with self._lock:
+            rec = self._record(sid)
+        data = self._read_history(sid)
+        if data is None:
+            raise RunError("That conversation has nothing to go back in.", "empty")
+        _, dropped = self._split(sid, data, turn)
+        found = session_impact(dropped, rec.get("workdir") or rec.get("workspace"), self._tool_effects(sid))
+        return {"turn": turn, "removes": {"requests": sum(1 for m in dropped if m.get("role") == "user"), "messages": len(dropped)},
+                "reversible": found["reversible"], "not_undone": found["not_undone"], "needs_yes": bool(found["not_undone"])}
+
+    def go_back(self, sid: str, turn: Any, accept_irreversible: bool = False) -> Dict[str, Any]:
+        """The conversation goes back to the end of the person's `turn`-th request: what came after is taken off (a copy is kept in the
+        conversation's folder). It is the conversation only: files the agent changed are put back from the Changes panel, not from here,
+        and an action that cannot be undone stays done: going back over one needs `accept_irreversible`."""
+        self._check_turn(turn)
         with self._lock:
             rec = self._record(sid)
             if rec["state"] in ("busy", "starting", "asking"):
                 raise RunError("Wait for the agent to finish, or stop it, before going back.", "busy")
+        impact = self.back_impact(sid, turn)
+        if impact["not_undone"] and accept_irreversible is not True:
+            raise RunError("Some of the actions after that point cannot be undone by going back.", "needs_yes")
+        with self._lock:
             live = self._live.get(sid)
             if live is not None:
                 live.ending = True
@@ -239,19 +318,11 @@ class SessionManager:
         data = self._read_history(sid)
         if data is None:
             raise RunError("That conversation has nothing to go back in.", "empty")
-        kept: List[Dict[str, Any]] = []
-        users = 0
-        for msg in self._transcript(sid, data):
-            if msg.get("role") == "user":
-                users += 1
-                if users > turn:
-                    break
-            kept.append({k: v for k, v in msg.items() if k not in ("masked", "stripped")})
-        if users < turn:
-            raise RunError(f"That conversation has only {users} requests.", "bad_turn")
+        kept, _ = self._split(sid, data, turn)
         folder = self.history_dir(sid)
         stamp = time.strftime("%Y%m%d-%H%M%S")
-        (folder / f"before-going-back-{stamp}.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        backup = f"before-going-back-{stamp}.json"
+        (folder / backup).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         for name in ("archive.jsonl", "inflight.json"):
             try:
                 (folder / name).replace(folder / f"{name}.{stamp}") if name == "archive.jsonl" else (folder / name).unlink()
@@ -260,9 +331,51 @@ class SessionManager:
         _write_json(folder / "history.json", {**{k: v for k, v in data.items() if k not in ("messages", "pending", "announced")},
                                               "turns": turn, "saved": time.time(), "messages": kept, "pending": []})
         with self._lock:
-            self._set(self._record(sid), state="dormant", blocked=None, question=None, ask=None, turns=turn, waiting_requests=0, put_aside=0)
-        self._push(sid, {"event": "went_back", "turn": turn})
+            now = self._record(sid)
+            mark = {"turn": turn, "was": now.get("turns", 0), "at": time.time(), "backup": backup, "still_done": impact["not_undone"][:20]}
+            self._set(now, state="dormant", blocked=None, question=None, ask=None, turns=turn, waiting_requests=0, put_aside=0,
+                      rewinds=[*(now.get("rewinds") or []), mark][-50:])
+        self._push(sid, {"event": "went_back", "turn": turn, "still_done": impact["not_undone"][:20]})
         return self.get(sid)
+
+    # -- the tree of a conversation's branches -------------------------------------------------------------------
+
+    def _request_text(self, sid: str, turn: int, cache: Dict[str, List[str]]) -> str:
+        if sid not in cache:
+            data = self._read_history(sid)
+            cache[sid] = [" ".join(str(m.get("content") or "").split()) for m in (self._transcript(sid, data) if data else []) if m.get("role") == "user"]
+        asked = cache[sid]
+        return asked[turn - 1][:SNIPPET_CHARS] if 0 < turn <= len(asked) else ""
+
+    def tree(self) -> Dict[str, Any]:
+        """Every conversation placed under the one it was branched from, at the request it was branched after. A conversation that went
+        back keeps a mark of where. Conversations whose parent is gone are roots of their own."""
+        with self._lock:
+            records = [dict(r) for r in self.records]
+        known = {r["id"] for r in records}
+        children: Dict[Any, List[Dict[str, Any]]] = {}
+        roots: List[Dict[str, Any]] = []
+        for r in sorted(records, key=lambda r: (r.get("created") or 0)):
+            parent = (r.get("branched_from") or {}).get("session")
+            if parent in known and parent != r["id"]:
+                children.setdefault(parent, []).append(r)
+            else:
+                roots.append(r)
+        cache: Dict[str, List[str]] = {}
+        seen: set = set()
+
+        def build(r: Dict[str, Any]) -> Dict[str, Any]:
+            seen.add(r["id"])
+            origin = r.get("branched_from") or {}
+            turn = origin.get("turn") if isinstance(origin.get("turn"), int) else 0
+            mine = sorted(children.get(r["id"], []), key=lambda c: ((c.get("branched_from") or {}).get("turn") or 0, c.get("created") or 0))
+            return {"id": r["id"], "title": r.get("title") or r["id"], "state": r.get("state"), "turns": r.get("turns", 0), "created": r.get("created"),
+                    "updated": r.get("updated"), "workspace": r.get("workspace"), "copy": bool(r.get("worktree")),
+                    "branched_from": {"session": origin["session"], "turn": turn, "request": self._request_text(origin["session"], turn, cache)} if origin.get("session") else None,
+                    "rewinds": [{**{k: m.get(k) for k in ("turn", "was", "at")}, "still_done": len(m.get("still_done") or [])} for m in r.get("rewinds") or []][-10:],
+                    "compare": r.get("compare"), "children": [build(c) for c in mine if c["id"] not in seen]}
+
+        return {"roots": [build(r) for r in sorted(roots, key=lambda r: -(r.get("updated") or 0))], "count": len(records)}
 
     def snapshots(self, sid: str) -> Dict[str, Any]:
         with self._lock:
@@ -278,6 +391,217 @@ class SessionManager:
             return context_patterns_mod.Snapshots(self.history_dir(sid) / "snapshots").diff(int(a), int(b))
         except (KeyError, TypeError, ValueError):
             raise RunError("There is no such snapshot.", "gone") from None
+
+    # -- two continuations from one point, one after the other ---------------------------------------------------
+
+    def _load_compares(self) -> List[Dict[str, Any]]:
+        try:
+            data = json.loads((self.directory / COMPARES_FILE).read_text(encoding="utf-8"))
+            items = data.get("compares") if isinstance(data, dict) else None
+        except (OSError, ValueError):
+            items = None
+        out = [c for c in (items or []) if isinstance(c, dict) and c.get("id") and isinstance(c.get("sides"), list)]
+        for c in out:
+            if c.get("state") == "running":                      # the thread that ran it did not survive the server
+                c["state"] = "interrupted"
+                for side in c["sides"]:
+                    if side.get("state") in ("waiting", "running"):
+                        side["state"] = "interrupted"
+        return out
+
+    def _save_compares(self) -> None:
+        _write_json(self.directory / COMPARES_FILE, {"schema": "1.0", "compares": self.compares})
+
+    def _compare(self, cid: str) -> Dict[str, Any]:
+        found = next((c for c in self.compares if c["id"] == cid), None)
+        if found is None:
+            raise RunError("That comparison is not in the list any more.", "gone")
+        return found
+
+    def compare_start(self, sid: str, turn: Any, variants: Any) -> Dict[str, Any]:
+        """Two continuations from the end of request `turn`: each is a branch that gets its own request (and, if it names them, its own
+        mode, number of steps, question-only flag or end-of-turn bias). They run one after the other, not together: there is one GPU."""
+        if not isinstance(turn, int) or isinstance(turn, bool) or turn < 1:
+            raise RunError("Say which request to continue from: a number from 1.", "bad_turn")
+        if not isinstance(variants, list) or len(variants) != 2 or any(not isinstance(v, dict) for v in variants):
+            raise RunError("Give exactly two continuations to compare.", "bad_variants")
+        sides = []
+        for v in variants:
+            text = v.get("text")
+            if not isinstance(text, str) or not text.strip() or len(text) > TEXT_CHARS:
+                raise RunError(f"Each continuation needs a message of at most {TEXT_CHARS} characters.", "text_missing")
+            settings = {k: v[k] for k in COMPARE_SETTINGS if k in v}
+            if settings.get("mode") not in (None, *[m for m in MODES if m != "auto"]):
+                raise RunError("A comparison runs in default, plan or read-only mode: automatic mode is not offered here.", "bad_mode")
+            if "max_turns" in settings and (not isinstance(settings["max_turns"], int) or isinstance(settings["max_turns"], bool) or not 1 <= settings["max_turns"] <= 50):
+                raise RunError("The number of steps must be between 1 and 50.", "bad_steps")
+            if "ask_only" in settings and not isinstance(settings["ask_only"], bool):
+                raise RunError("Question-only is true or false.", "bad_policy")
+            if "end_turn_bias" in settings:
+                try:
+                    logit_bias.add_end_turn({"end_turn_bias": settings["end_turn_bias"]}, [0])
+                except ValueError as e:
+                    raise RunError(str(e), "bad_policy") from None
+            sides.append({"label": str(v.get("label") or "")[:40], "text": text, "settings": settings, "session": None, "state": "waiting"})
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] in ("busy", "starting", "asking"):
+                raise RunError("Wait for the agent to finish, or stop it, before comparing.", "busy")
+        data = self._read_history(sid)
+        if data is None:
+            raise RunError("That conversation has nothing to continue from.", "empty")
+        self._split(sid, data, turn)                                  # the point must exist
+        cid = secrets.token_hex(4)
+        entry = {"id": cid, "from": {"session": sid, "turn": turn}, "created": time.time(), "state": "running", "sides": sides}
+        with self._lock:
+            self.compares.append(entry)
+            self._save_compares()
+        threading.Thread(target=self._run_compare, args=(cid,), name=f"session-compare-{cid}", daemon=True).start()
+        return copy.deepcopy(entry)
+
+    def _tag_side(self, child_id: str, cid: str, index: int, side: Dict[str, Any], base_title: str) -> None:
+        with self._lock:
+            self._set(self._record(child_id), compare={"id": cid, "side": "ab"[index]}, title=f"{base_title} ({'AB'[index]})".strip()[:TITLE_CHARS],
+                      **{k: v for k, v in side["settings"].items()})
+
+    def _wait_side(self, sid: str) -> str:
+        end = time.monotonic() + self.compare_wait_s
+        while not self._stop.is_set() and time.monotonic() < end:
+            state = self.get(sid)["state"]
+            if state == "idle":
+                return "done"
+            if state in ("blocked", "asking"):
+                return "needs_you"                                  # the person answers it from the branch; the next side does not wait for that
+            if state in ("closed", "dormant"):
+                return "ended"
+            time.sleep(0.1)
+        try:
+            self.cancel(sid)
+        except RunError:
+            pass
+        return "timeout"
+
+    def _run_compare(self, cid: str) -> None:
+        with self._compare_lock:
+            with self._lock:
+                entry = self._compare(cid)
+                origin = dict(entry["from"])
+                base_title = self._record(origin["session"]).get("title") or ""
+            for index in range(2):
+                with self._lock:
+                    side = entry["sides"][index]
+                    side["state"] = "running"
+                    self._save_compares()
+                try:
+                    child = self.branch(origin["session"], origin["turn"])
+                    self._tag_side(child["id"], cid, index, side, base_title)
+                    with self._lock:
+                        side["session"] = child["id"]
+                        self._save_compares()
+                    self.send(child["id"], side["text"])
+                    outcome = self._wait_side(child["id"])
+                    error = ""
+                except RunError as exc:
+                    outcome, error = "failed", str(exc)
+                with self._lock:
+                    side["state"] = outcome
+                    if error:
+                        side["error"] = error
+                    self._save_compares()
+            with self._lock:
+                entry["state"] = "done"
+                self._save_compares()
+
+    def compare_list(self) -> Dict[str, Any]:
+        with self._lock:
+            return {"compares": [{k: c[k] for k in ("id", "from", "created", "state")} | {"sides": [{k: s.get(k) for k in ("label", "session", "state")} for s in c["sides"]]}
+                                 for c in sorted(self.compares, key=lambda c: -c["created"])]}
+
+    def _answer_of(self, sid: str) -> str:
+        data = self._read_history(sid)
+        for m in reversed(self._transcript(sid, data) if data else []):
+            if m.get("role") == "assistant" and isinstance(m.get("content"), str) and m["content"].strip():
+                return m["content"][:TEXT_CHARS]
+        return ""
+
+    def _side_files(self, sid: Optional[str]) -> Optional[Dict[str, str]]:
+        """{path: status} of what the side changed in its copy of the folder; None when it has no copy (or no branch yet)."""
+        if not sid:
+            return None
+        with self._lock:
+            info = self._record(sid).get("worktree")
+        if not info:
+            return None
+        try:
+            self.worktrees.ensure(info)
+            return {c["path"]: c["status"] for c in self.worktrees.changes(info)}
+        except WorktreeError:
+            return None
+
+    def _file_text(self, sid: str, path: str) -> List[str]:
+        with self._lock:
+            info = self._record(sid).get("worktree")
+        target = Path(info["dir"]) / path
+        try:
+            raw = target.read_bytes()[:FILE_DIFF_BYTES]
+        except OSError:
+            return []
+        return [] if b"\0" in raw else raw.decode("utf-8", errors="replace").splitlines()
+
+    def compare_result(self, cid: str) -> Dict[str, Any]:
+        """Both sides' answers next to each other, a diff of the two answers and, when both worked in a copy of the folder, which files each
+        changed and a diff of each file between the two."""
+        with self._lock:
+            entry = copy.deepcopy(self._compare(cid))
+        sides = []
+        for side in entry["sides"]:
+            sid = side.get("session")
+            sides.append({**{k: side.get(k) for k in ("label", "text", "settings", "state", "error", "session")},
+                          "answer": self._answer_of(sid) if sid else "", "files": self._side_files(sid)})
+        a, b = sides
+        answers = list(difflib.unified_diff(a["answer"].splitlines(), b["answer"].splitlines(), "A", "B", lineterm="", n=2))
+        files = None
+        if a["files"] is not None and b["files"] is not None:
+            files = []
+            for path in sorted(set(a["files"]) | set(b["files"])):
+                if path.startswith("-") or ".." in Path(path).parts:
+                    continue
+                before, after = self._file_text(a["session"], path), self._file_text(b["session"], path)
+                diff = list(difflib.unified_diff(before, after, f"A/{path}", f"B/{path}", lineterm="", n=2))
+                files.append({"path": path, "a": a["files"].get(path), "b": b["files"].get(path), "same": not diff and a["files"].get(path) == b["files"].get(path),
+                              "diff": "\n".join(diff)[:60_000]})
+        return {"id": cid, "from": entry["from"], "state": entry["state"], "sides": sides, "answers_diff": "\n".join(answers), "files": files}
+
+    # -- what the process says while it works: the effects it learned and the plan step it is on -----------------
+
+    def _watch(self, sid: str, event: Dict[str, Any]) -> None:
+        data = event.get("data") if event.get("event") == "agent" else None
+        if not isinstance(data, dict):
+            return
+        kind, name, call_id = data.get("type"), data.get("name"), data.get("call_id")
+        if kind == "tool_start" and isinstance(name, str):
+            self._learn(sid, name, data.get("effect"))
+            calls = self._calls.setdefault(sid, {})
+            if len(calls) > 50:
+                calls.pop(next(iter(calls)))
+            calls[call_id] = (name, data.get("arguments") if isinstance(data.get("arguments"), dict) else {}, data.get("effect"))
+        elif kind == "tool_end":
+            call = self._calls.get(sid, {}).pop(call_id, None)
+            if call is None or data.get("status") != "completed":
+                return
+            tool, args, effect = call
+            step = self._step.get(sid)
+            if tool == "plan_step_start" and " started" in str(data.get("output") or "")[:300]:
+                self._step[sid] = (args.get("plan_id"), args.get("node_id"))
+            elif tool == "plan_mark":
+                if step == (args.get("plan_id"), args.get("node_id")) and args.get("status") in ("completed", "failed", "skipped"):
+                    self._step.pop(sid, None)
+            elif step and effect in ("reversible", "irreversible") and not tool.startswith("plan_") and self.plan_effect is not None:
+                from harness.rewind import describe_call
+                try:
+                    self.plan_effect(step[0], step[1], tool, effect, describe_call(tool, args))
+                except Exception:
+                    pass                                          # the plan not taking the note never stops the conversation
 
     # -- creating ----------------------------------------------------------------------------------------
 
@@ -476,6 +800,7 @@ class SessionManager:
                 self._set(rec, state="blocked", ask=None, blocked={k: event.get(k) for k in ("reason", "detail", "options", "tool", "arguments")})
             elif kind == "closed":
                 live.ending = True
+        self._watch(sid, event)
         self._push(sid, event)
 
     def _on_exit(self, sid: str, live: Live) -> None:

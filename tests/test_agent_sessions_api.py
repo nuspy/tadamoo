@@ -145,3 +145,43 @@ def test_a_conversation_works_in_its_own_copy_and_the_person_applies_what_it_mad
     assert code == 200 and body["session"]["state"] == "closed" and not Path(session["workdir"]).exists()
     code, body = api("GET", f"/api/agent/sessions/{sid}/copy")
     assert code in (400, 404) and body["error"]["code"] == "no_copy"
+
+
+def test_going_back_over_a_command_asks_first_and_the_tree_and_a_comparison_are_served(setup, tmp_path):
+    import subprocess
+
+    def git(*args):
+        subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@t", *args], cwd=str(repo), capture_output=True, text=True, check=True)
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    git("init", "-q")
+    (repo / "a.txt").write_text("one\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "first")
+    s = setup([tool_call("write_file", path="nota.txt", content="uno"), answer("Scritto."), tool_call("shell_command", command="python -c \"print(1)\""), answer("Eseguito."),
+               answer("Risposta A."), answer("Risposta B.")])
+    api = s["api"]
+    sid = api("POST", "/api/agent/sessions", {"workspace": str(repo), "mode": "auto", "confirm_auto": True, "worktree": "always"})[1]["session"]["id"]
+    for n, text in enumerate(("scrivi una nota", "esegui un comando"), 1):
+        assert api("POST", f"/api/agent/sessions/{sid}/send", {"text": text})[0] == 200
+        wait_for(lambda: sum(e["event"] == "done" for e in events(api, sid)["events"]) == n, seconds=60)
+    code, impact = api("GET", f"/api/agent/sessions/{sid}/back-impact?turn=1")
+    assert code == 200 and impact["needs_yes"] and [a["tool"] for a in impact["not_undone"]] == ["shell_command"] and impact["reversible"] == []
+    assert api("GET", f"/api/agent/sessions/{sid}/back-impact?turn=x")[0] == 400
+    code, body = api("POST", f"/api/agent/sessions/{sid}/back", {"turn": 1})
+    assert code == 409 and body["error"]["code"] == "needs_yes"
+    code, body = api("POST", f"/api/agent/sessions/{sid}/back", {"turn": 1, "accept_irreversible": True})
+    assert code == 200 and body["session"]["turns"] == 1 and body["session"]["rewinds"][0]["still_done"][0]["tool"] == "shell_command"
+    root = api("GET", "/api/agent/sessions/tree")[1]["roots"][0]
+    assert root["id"] == sid and root["rewinds"][0]["turn"] == 1
+    code, started = api("POST", f"/api/agent/sessions/{sid}/compare", {"turn": 1, "variants": [{"text": "riassumi"}, {"text": "riassumi meglio"}]})
+    assert code == 200
+    cid = started["compare"]["id"]
+    wait_for(lambda: api("GET", f"/api/agent/sessions/compares/{cid}")[1]["state"] == "done", seconds=120)
+    result = api("GET", f"/api/agent/sessions/compares/{cid}")[1]
+    assert [x["answer"] for x in result["sides"]] == ["Risposta A.", "Risposta B."] and result["files"] == []
+    assert api("GET", "/api/agent/sessions/compares")[1]["compares"][0]["id"] == cid
+    assert api("POST", f"/api/agent/sessions/{sid}/compare", {"turn": 1, "variants": [{"text": "solo uno"}]})[0] == 400
+    assert api("GET", "/api/agent/sessions/compares/nope")[0] == 404
+    kids = api("GET", "/api/agent/sessions/tree")[1]["roots"][0]["children"]
+    assert [k["compare"]["side"] for k in kids] == ["a", "b"]

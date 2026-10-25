@@ -567,3 +567,163 @@ def test_what_a_conversation_gets_follows_the_wallet_choices(make, ws, tmp_path)
     assert "--browser" not in mgr._command("s1", rec, tmp_path / "h")
     asking = mgr._command("s1", {**rec, "ask_only": True}, tmp_path / "h")                    # a question-only conversation gets none of it
     assert not {"--vault-dir", "--payments-dir", "--browser"} & set(asking)
+
+
+# -- going back over actions that stay done, the tree of branches, two continuations compared -----------------------------------
+
+
+def _stub_in(workdir_of):
+    return lambda sid, rec, history: [sys.executable, STUB, "--session-id", sid, "--history-dir", str(history), "--workdir", workdir_of(rec)]
+
+
+def _said(mgr, sid, text, n):
+    mgr.send(sid, text)
+    until(lambda: kinds(mgr, sid).count("done") == n)
+
+
+def test_going_back_names_the_actions_that_stay_done_and_asks_for_a_yes(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    _said(mgr, sid, "uno", 1)
+    _said(mgr, sid, 'tool write_file reversible {"path": "a.txt"}', 2)
+    _said(mgr, sid, 'tool shell_command irreversible {"command": "rm -rf x"}', 3)
+    _said(mgr, sid, 'tool phone_call irreversible {"number": "+39 1"}', 4)
+    seen = mgr.back_impact(sid, 1)
+    assert [a["tool"] for a in seen["reversible"]] == ["write_file"] and [a["tool"] for a in seen["not_undone"]] == ["shell_command", "phone_call"]
+    assert seen["needs_yes"] and seen["removes"]["requests"] == 3 and "rm -rf x" in seen["not_undone"][0]["what"]
+    with pytest.raises(RunError) as err:
+        mgr.go_back(sid, 1)
+    assert err.value.code == "needs_yes" and mgr.get(sid)["turns"] == 4                      # nothing was touched
+    assert len(mgr.back_impact(sid, 3)["not_undone"]) == 1 and mgr.back_impact(sid, 4)["not_undone"] == []
+    back = mgr.go_back(sid, 1, accept_irreversible=True)
+    assert back["turns"] == 1 and back["rewinds"][0]["turn"] == 1 and back["rewinds"][0]["was"] == 4
+    assert [a["tool"] for a in back["rewinds"][0]["still_done"]] == ["shell_command", "phone_call"]           # it says they stayed done
+    assert any(e["event"] == "went_back" and len(e["still_done"]) == 2 for e in mgr.events(sid)["events"])
+
+
+def test_a_call_that_was_refused_or_a_read_does_not_count_and_an_unknown_tool_does(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    _said(mgr, sid, "uno", 1)
+    _said(mgr, sid, 'tool read_file pure {"path": "a"}', 2)
+    assert mgr.back_impact(sid, 1)["not_undone"] == [] and mgr.back_impact(sid, 1)["reversible"] == []
+    path = mgr.history_dir(sid) / "history.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["messages"].append({"role": "assistant", "content": "", "tool_calls": [{"id": "r1", "type": "function", "function": {"name": "send_money", "arguments": "{}"}},
+                                                                               {"id": "r2", "type": "function", "function": {"name": "shell_command", "arguments": "{\"command\": \"x\"}"}}]})
+    data["messages"].append({"role": "tool", "tool_call_id": "r2", "name": "shell_command", "content": "Permission denied: not allowed."})
+    path.write_text(json.dumps(data), encoding="utf-8")
+    left = mgr.back_impact(sid, 1)["not_undone"]
+    assert [(a["tool"], a["effect"]) for a in left] == [("send_money", "unknown")]               # the refused command did not happen
+
+
+def test_a_conversation_learns_the_effect_of_a_tool_from_what_it_declares(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    _said(mgr, sid, "uno", 1)
+    _said(mgr, sid, 'tool brand_new_tool reversible {"x": 1}', 2)
+    assert json.loads((mgr.history_dir(sid) / "tool_effects.json").read_text(encoding="utf-8")) == {"brand_new_tool": "reversible"}
+    seen = mgr.back_impact(sid, 1)
+    assert [a["tool"] for a in seen["reversible"]] == ["brand_new_tool"] and seen["not_undone"] == []
+
+
+def test_a_file_written_outside_the_working_copy_stays_done(make, ws, tmp_path):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    _said(mgr, sid, "uno", 1)
+    _said(mgr, sid, "tool write_file reversible " + json.dumps({"path": str(tmp_path / "elsewhere.txt")}), 2)
+    _said(mgr, sid, 'tool write_file reversible {"path": "inside.txt"}', 3)
+    seen = mgr.back_impact(sid, 1)
+    assert [a["what"] for a in seen["reversible"]] == ["write_file inside.txt"] and [a["tool"] for a in seen["not_undone"]] == ["write_file"]
+
+
+def test_the_tree_places_branches_under_their_point_and_remembers_where_it_went_back(make, ws):
+    mgr = make()
+    root = mgr.create(ws, title="main")["id"]
+    for i, text in enumerate(("uno", "due", "tre"), 1):
+        _said(mgr, root, text, i)
+    first = mgr.branch(root, 1)["id"]
+    second = mgr.branch(root, 2)["id"]
+    grand = mgr.branch(first, 1)["id"]
+    mgr.go_back(root, 2)
+    other = mgr.create(ws, title="alone")["id"]
+    tree = mgr.tree()
+    assert tree["count"] == 5
+    roots = {r["id"]: r for r in tree["roots"]}
+    assert set(roots) == {root, other} and roots[other]["children"] == []
+    top = roots[root]
+    assert [c["id"] for c in top["children"]] == [first, second]                              # ordered by the request they leave from
+    assert top["children"][0]["branched_from"] == {"session": root, "turn": 1, "request": "uno"}
+    assert top["children"][1]["branched_from"]["request"] == "due"
+    assert [c["id"] for c in top["children"][0]["children"]] == [grand]
+    assert top["rewinds"] == [{"turn": 2, "was": 3, "at": top["rewinds"][0]["at"], "still_done": 0}]
+
+
+def test_a_conversation_whose_parent_is_gone_is_a_root_and_old_records_without_the_new_fields_work(make, ws):
+    mgr = make()
+    sid = mgr.create(ws, title="old")["id"]
+    assert "rewinds" not in mgr.records[0] and mgr.tree()["roots"][0]["rewinds"] == []
+    child = mgr.create(ws, title="child")["id"]
+    mgr._record(child)["branched_from"] = {"session": "vanished", "turn": 2}
+    assert {r["id"] for r in mgr.tree()["roots"]} == {sid, child}
+    mgr._record(sid)["branched_from"] = {"session": sid, "turn": 1}                          # a loop is not followed
+    assert {r["id"] for r in mgr.tree()["roots"]} == {sid, child}
+
+
+def test_two_continuations_run_one_after_the_other_and_come_back_side_by_side(make, repo):
+    mgr = make(command=_stub_in(lambda rec: rec.get("workdir") or rec["workspace"]))
+    mgr.create(repo)
+    sid = mgr.create(repo)["id"]                                                              # the second conversation has its own copy
+    _said(mgr, sid, "uno", 1)
+    out = mgr.compare_start(sid, 1, [{"text": "write a.txt first", "label": "gentle"}, {"text": "write a.txt second", "max_turns": 5, "mode": "plan"}])
+    until(lambda: mgr.compare_result(out["id"])["state"] == "done", seconds=60)
+    result = mgr.compare_result(out["id"])
+    a, b = result["sides"]
+    assert (a["state"], b["state"]) == ("done", "done") and len({a["session"], b["session"], sid}) == 3
+    assert a["answer"] == "echo: write a.txt first" and b["answer"] == "echo: write a.txt second"
+    assert "-echo: write a.txt first" in result["answers_diff"] and "+echo: write a.txt second" in result["answers_diff"]
+    assert mgr.get(b["session"])["max_turns"] == 5 and mgr.get(b["session"])["mode"] == "plan" and mgr.get(a["session"])["compare"] == {"id": out["id"], "side": "a"}
+    assert [p["path"] for p in result["files"]] == ["a.txt"] and result["files"][0]["a"] == "modified" and not result["files"][0]["same"]
+    assert "-first" in result["files"][0]["diff"] and "+second" in result["files"][0]["diff"]
+    first_done = max(e["t"] for e in mgr.events(a["session"])["events"] if e["event"] == "done")
+    second_start = min(e["t"] for e in mgr.events(b["session"])["events"] if e["event"] == "accepted")
+    assert first_done <= second_start                                                         # never together
+    assert mgr.compare_list()["compares"][0]["id"] == out["id"]
+    assert {c["id"] for r in mgr.tree()["roots"] if r["id"] == sid for c in r["children"]} == {a["session"], b["session"]}
+    again = SessionManager(mgr.directory.parent, "http://127.0.0.1:1", command=mgr.command)
+    try:
+        assert again.compare_result(out["id"])["state"] == "done"                              # it is kept across a restart
+    finally:
+        again.shutdown()
+
+
+def test_a_comparison_without_copies_has_no_file_diff_and_bad_requests_are_refused(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    _said(mgr, sid, "uno", 1)
+    for bad in (None, [], [{"text": "a"}], [{"text": "a"}, {"text": ""}], [{"text": "a"}, {"text": "b", "mode": "auto"}], [{"text": "a"}, {"text": "b", "max_turns": 99}],
+                [{"text": "a"}, "b"], [{"text": "a"}, {"text": "b", "end_turn_bias": 99}]):
+        with pytest.raises(RunError):
+            mgr.compare_start(sid, 1, bad)
+    for turn in (0, "1", True, 9):
+        with pytest.raises(RunError):
+            mgr.compare_start(sid, turn, [{"text": "a"}, {"text": "b"}])
+    out = mgr.compare_start(sid, 1, [{"text": "uno bis"}, {"text": "uno ter"}])
+    until(lambda: mgr.compare_result(out["id"])["state"] == "done", seconds=60)
+    assert mgr.compare_result(out["id"])["files"] is None
+    with pytest.raises(RunError):
+        mgr.compare_result("ghost")
+
+
+def test_a_step_of_a_plan_collects_the_actions_done_while_it_was_worked_on(make, ws):
+    notes = []
+    mgr = make(plan_effect=lambda *a: notes.append(a))
+    sid = mgr.create(ws)["id"]
+    _said(mgr, sid, 'tool shell_command irreversible {"command": "before"}', 1)                # no step yet: not recorded
+    _said(mgr, sid, 'tool plan_step_start reversible {"plan_id": "p1", "node_id": "n1"}', 2)
+    _said(mgr, sid, 'tool phone_call irreversible {"number": "+39 1"}', 3)
+    _said(mgr, sid, 'tool read_file pure {"path": "x"}', 4)
+    _said(mgr, sid, 'tool plan_mark reversible {"plan_id": "p1", "node_id": "n1", "status": "completed"}', 5)
+    _said(mgr, sid, 'tool shell_command irreversible {"command": "after"}', 6)
+    assert [(n[0], n[1], n[2], n[3]) for n in notes] == [("p1", "n1", "phone_call", "irreversible")]
+    assert "+39 1" in notes[0][4]

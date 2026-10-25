@@ -1493,8 +1493,16 @@ def make_handler(svc: Service):
                                            attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
                                            browser_prefs=BrowserPrefs(userdata.path("browser.json")).read,
-                                           browser_profile=userdata.path("browser-profile"))
+                                           browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink())
             return _SESSIONS
+
+        def _plan_effect_sink(self):
+            """What the conversations tell the plans: an action done while a plan's step was being worked on is written on the step."""
+            service = self._plan_service()
+
+            def note(plan_id, node_id, tool, effect, what):
+                service.handle_event(plan_id, {"type": "plan:note_effect", "node_id": node_id, "tool": tool, "effect": effect, "what": what, "actor": "system"})
+            return note
 
         def _agent_get(self, path):
             parts = path[len("/api/agent/"):].split("/")
@@ -1503,6 +1511,14 @@ def make_handler(svc: Service):
                     mgr = self._agent_sessions()
                     if parts == ["sessions"]:
                         return self._json(200, mgr.view())
+                    if parts == ["sessions", "tree"]:
+                        return self._json(200, mgr.tree())
+                    if parts == ["sessions", "compares"]:
+                        return self._json(200, mgr.compare_list())
+                    if len(parts) == 3 and parts[1] == "compares":
+                        return self._json(200, mgr.compare_result(parts[2]))
+                    if len(parts) == 3 and parts[2] == "back-impact":
+                        return self._json(200, mgr.back_impact(parts[1], int((parse_qs(urlsplit(self.path).query).get("turn", ["0"])[0]) or 0)))
                     if len(parts) == 3 and parts[2] == "events":
                         after = int((parse_qs(urlsplit(self.path).query).get("after", ["0"])[0]) or 0)
                         return self._json(200, mgr.events(parts[1], after))
@@ -1564,7 +1580,9 @@ def make_handler(svc: Service):
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
                         return self._json(200, {"session": mgr.copy_discard(parts[1])})
                     if len(parts) == 3 and parts[2] == "back":
-                        return self._json(200, {"session": mgr.go_back(parts[1], req.get("turn"))})
+                        return self._json(200, {"session": mgr.go_back(parts[1], req.get("turn"), req.get("accept_irreversible") is True)})
+                    if len(parts) == 3 and parts[2] == "compare":
+                        return self._json(200, {"compare": mgr.compare_start(parts[1], req.get("turn"), req.get("variants"))})
                     if len(parts) == 3 and parts[2] == "branch":
                         return self._json(200, {"session": mgr.branch(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "send":
