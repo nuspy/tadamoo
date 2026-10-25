@@ -360,6 +360,31 @@ def fetch_page(url: str, allow_private: bool = False) -> Dict[str, Any]:
     raise PageError(f"more than {MAX_REDIRECTS} redirects")
 
 
+_MENU_LINE = re.compile(r"^\s*(?:-\s*)?\[[^\]\n]{0,40}\](?:\([^)\n]*\))?\s*$")     # a bare link or an empty one: a menu entry, not a sentence
+_BARE_DASH = re.compile(r"^\s*[-*]\s*$")
+
+
+def readable(text: str) -> str:
+    """The page's text without the menus and the lists of short links that surround it, which can fill the room the article needs."""
+    kept: List[str] = []
+    for line in text.split("\n"):
+        if _MENU_LINE.match(line) or _BARE_DASH.match(line):
+            continue
+        if not line.strip() and (not kept or not kept[-1].strip()):
+            continue
+        kept.append(line.rstrip())
+    return "\n".join(kept).strip()
+
+
+def format_page(page: Dict[str, Any]) -> str:
+    """What the model reads of a page: a short header and the text in lines, not the whole page as one JSON line (a line that long is cut
+    in the middle before the model sees it)."""
+    head = [f"URL: {page['final_url']}", f"Title: {page['title']}", f"Status: {page['status']}"]
+    if page["truncated"]:
+        head.append("The page is longer than this: the rest was cut.")
+    return "\n".join(head) + "\n\n" + readable(page["text"])
+
+
 def browse_url(url: str, allow_private: bool | Callable[[], bool] = False) -> Dict[str, Any]:
     """The readable text of a page, marked untrusted. Pages on this PC or its network are read only when the person allowed them."""
     from harness.context import html_to_markdown

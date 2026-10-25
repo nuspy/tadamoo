@@ -6,7 +6,7 @@ from harness.secrets_broker import SecretsBroker
 from .registry import ToolRegistry, ToolDefinition, EffectClass
 from .filesystem import WorkspaceSandbox
 from .shell import execute_shell_command
-from .search import browse_url, offer_search
+from .search import browse_url, format_page, offer_search
 from harness.repomap import register_repo_map
 
 
@@ -100,7 +100,7 @@ def create_standard_tool_registry(
     )
 
     def read_page(url: str):
-        return browse_url(url, allow_private=allow_private_pages)
+        return format_page(browse_url(url, allow_private=allow_private_pages))
 
     registry.register(
         name="browse_url",

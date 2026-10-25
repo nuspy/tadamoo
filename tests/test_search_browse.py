@@ -174,7 +174,7 @@ def test_the_browse_tool_follows_the_browser_setting(tmp_path, site):
     with pytest.raises(PageError):
         registry.execute("browse_url", {"url": site + "/page"})
     registry, _ = create_standard_tool_registry(tmp_path, allow_private_pages=True)
-    assert registry.execute("browse_url", {"url": site + "/page"})["title"] == "Basalt & friends"
+    assert "Title: Basalt & friends" in registry.execute("browse_url", {"url": site + "/page"})
 
 
 # -- search backends -------------------------------------------------------------------------------------------
