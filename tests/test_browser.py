@@ -28,6 +28,14 @@ FORM = """<!doctype html><title>Reserve</title><h1>Reserve</h1>
 <button type="submit">Pay now</button></form>"""
 
 
+LOGIN = """<!doctype html><title>Sign in</title><h1>Sign in</h1>
+<form method="post" action="/done">
+<label for="e">Email or username</label><input id="e" name="user">
+<label for="p">Password</label><input id="p" name="password" type="password">
+<button type="submit">Log in</button></form>"""
+STEP_ONE = """<!doctype html><title>Sign in</title><form method="post" action="/done"><label for="e">Phone, email or username</label><input id="e" name="user"><button>Next</button></form>"""
+
+
 class Shop(http.server.BaseHTTPRequestHandler):
     posts = []
 
@@ -43,7 +51,7 @@ class Shop(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        self._send({"/": HOME, "/form": FORM}.get(self.path, "<h1>Other</h1>"))
+        self._send({"/": HOME, "/form": FORM, "/login": LOGIN, "/step": STEP_ONE}.get(self.path, "<h1>Other</h1>"))
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
@@ -163,3 +171,40 @@ def test_a_stale_element_number_is_refused_with_advice(agent, shop):
     out = registry.execute("browser_click", {"ref": 99})
     assert "read the page again" in out["error"]
     assert "URL: about:blank" in registry.execute("browser_back", {})           # the page before was the empty one
+
+
+@needs_browser
+def test_a_login_from_the_vault_is_filled_in_and_never_shown(agent, shop):
+    registry, vault, browser = agent
+    vault.put("mysite", kind="login", fields={"username": "mario@example.com", "password": "hunter2hunter2"}, hosts=["127.0.0.1"])
+    page = registry.execute("browser_open", {"url": shop + "/login"})
+    out = registry.execute("browser_sign_in", {"entry": "mysite"})
+    assert "mario@example.com" not in out and "hunter2" not in out and out.count("value=(set)") == 2
+    registry.execute("browser_click", {"ref": ref_of(page, "Log in")})
+    assert Shop.posts == [{"user": "mario@example.com", "password": "hunter2hunter2"}]
+
+
+@needs_browser
+def test_sign_in_can_submit_and_a_two_step_page_gets_the_user_name_first(agent, shop):
+    registry, vault, browser = agent
+    vault.put("mysite", kind="login", fields={"username": "mario", "password": "hunter2hunter2"}, hosts=["127.0.0.1"])
+    registry.execute("browser_open", {"url": shop + "/step"})
+    done = registry.execute("browser_sign_in", {"entry": "mysite", "submit": True})
+    assert "Thanks, paid" in done and Shop.posts == [{"user": "mario"}]
+    Shop.posts.clear()
+    registry.execute("browser_open", {"url": shop + "/login"})
+    assert "Thanks, paid" in registry.execute("browser_sign_in", {"entry": "mysite", "submit": True})
+    assert Shop.posts == [{"user": "mario", "password": "hunter2hunter2"}]
+
+
+@needs_browser
+def test_sign_in_is_refused_on_a_site_the_login_does_not_name_and_for_what_is_not_a_login(agent, shop):
+    registry, vault, browser = agent
+    vault.put("other", kind="login", fields={"username": "mario", "password": "hunter2hunter2"}, hosts=["bank.example"])
+    vault.put("card", kind="card", fields={"number": "4242424242424242"}, hosts=["127.0.0.1"])
+    registry.execute("browser_open", {"url": shop + "/login"})
+    assert "may only be sent to bank.example" in registry.execute("browser_sign_in", {"entry": "other"})["error"]
+    assert "not a login" in registry.execute("browser_sign_in", {"entry": "card"})["error"]
+    assert "no vault entry" in registry.execute("browser_sign_in", {"entry": "ghost"})["error"]
+    registry.execute("browser_open", {"url": shop})
+    assert "No sign-in field" in registry.execute("browser_sign_in", {"entry": "other"})["error"]

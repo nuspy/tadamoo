@@ -11,6 +11,7 @@ reachable here.
 from __future__ import annotations
 
 import base64
+import re
 import hashlib
 import ipaddress
 import json
@@ -530,6 +531,51 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
                       {"type": "object", "properties": {**ref_prop, "text": {"type": "string"}, "submit": {"type": "boolean", "description": "press Enter after"},
                                                         "clear": {"type": "boolean", "description": "replace what is in the field (default true)"}},
                        "required": ["ref", "text"]}, EffectClass.IRREVERSIBLE, guard(type_into), untrusted=True)
+    def sign_in(entry: str, submit: bool = False) -> Any:
+        """Fills the sign-in fields of the page from a login in the vault: the user name in the field before the password, the password in
+        the password field. Only on a site the entry names. A page that asks for the user name first shows just that field: it is filled and
+        the password comes on the next page."""
+        if secrets is None or getattr(secrets, "vault", None) is None:
+            return {"error": "There is no vault to sign in from."}
+        try:
+            fields = secrets.vault.describe(str(entry))
+        except Exception:
+            return {"error": f"There is no vault entry '{entry}'."}
+        if fields["kind"] != "login":
+            return {"error": f"'{entry}' is not a login."}
+
+        def places() -> tuple:
+            items = b.snapshot()["items"]
+            inputs = [i for i in items if i["tag"] == "input" and not i.get("disabled")]
+            pw = next((i for i in inputs if i["type"] == "password"), None)
+            texty = [i for i in inputs if i["type"] in ("text", "email", "tel", "")]
+            hint = re.compile(r"user|mail|login|account|utente|accesso|identifiant|usuario|phone|telefono", re.I)
+            pool = [i for i in texty if pw is None or i["ref"] < pw["ref"]]
+            user = next((i for i in reversed(pool) if hint.search(i["name"])), None) or (pool[-1] if pool else None)
+            return user, pw
+
+        user, pw = places()
+        if user is None and pw is None:
+            return {"error": "No sign-in field was found on this page. Read the page and open the sign-in first."}
+        out: Any = None
+        if user is not None and "username" in fields["fields"]:
+            out = type_into(user["ref"], "{{vault:%s.username}}" % entry, False, True)
+            if isinstance(out, dict):
+                return out
+            _, pw = places()
+        if pw is not None and "password" in fields["fields"]:
+            out = type_into(pw["ref"], "{{vault:%s.password}}" % entry, submit, True)
+            if isinstance(out, dict):
+                return out
+        elif submit and out is not None:
+            out = shown(b.press("Enter"))
+        return out if out is not None else {"error": f"'{entry}' has no user name or password to fill in."}
+
+    registry.register("browser_sign_in", "Signs in on the open page with a login from the person's vault: fills the user name and the password (never shown to you). "
+                      "Only on a site the entry names. If the page asks for a code, write {{vault:ENTRY.totp}} in the field with browser_type.",
+                      {"type": "object", "properties": {"entry": {"type": "string", "description": "the name of the login in the vault"},
+                                                        "submit": {"type": "boolean", "description": "press Enter after the password"}}, "required": ["entry"]},
+                      EffectClass.IRREVERSIBLE, guard(sign_in), untrusted=True)
     registry.register("browser_select", "Chooses an option in a list of the page, by its value or its visible text.",
                       {"type": "object", "properties": {**ref_prop, "value": {"type": "string"}}, "required": ["ref", "value"]}, EffectClass.IRREVERSIBLE,
                       guard(lambda ref, value: shown(b.select(ref, value))), untrusted=True)

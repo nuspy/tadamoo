@@ -6,7 +6,7 @@
 (() => {
   const root = document.getElementById("wl-root"), dlg = document.getElementById("wl-wizard");
   if (!root || !dlg) return;
-  let data = null, editing = null, sysForm = null, note = "", noteBad = false, wizard = null;
+  let data = null, editing = null, sysForm = null, note = "", noteBad = false, wizard = null, vaultFilter = "all", vaultSearch = "";
   const again = new Map();                                    // press-again buttons: key -> timer
 
   const h = (tag, cls, ...kids) => {
@@ -69,6 +69,25 @@
   }
 
   /* ---- the vault ---- */
+  async function revealed(id, field) {
+    const r = await call("POST", "api/wallet/reveal", { id, field });
+    if (!r.ok) { say(why(r), true); return null; }
+    return r.data.value;
+  }
+  async function copy(id, field) {
+    const v = await revealed(id, field);
+    if (v === null) return;
+    try { await navigator.clipboard.writeText(v); say(T("wl.copied")); } catch (e) { say(T("wl.copy.fail"), true); }
+  }
+  function generated(length = 20) {                                  // random from the browser's own source, with every kind of character
+    const sets = ["abcdefghijkmnopqrstuvwxyz", "ABCDEFGHJKLMNPQRSTUVWXYZ", "23456789", "!@#$%^&*-_=+?"];
+    const all = sets.join("");
+    const pick = s => s[crypto.getRandomValues(new Uint32Array(1))[0] % s.length];
+    const out = sets.map(pick);
+    while (out.length < length) out.push(pick(all));
+    for (let i = out.length - 1; i > 0; i--) { const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1); [out[i], out[j]] = [out[j], out[i]]; }
+    return out.join("");
+  }
   function entryCard(en) {
     const lines = [];
     const order = data.kinds[en.kind] || [], rank = n => (order.includes(n) ? order.indexOf(n) : order.length);
@@ -84,7 +103,8 @@
     return h("li", "wl-card",
       h("div", "wl-head", h("b", "", en.label), h("span", "wl-tag", T("wl.kind." + en.kind)), h("code", "wl-id", en.id)),
       lines, h("p", "wl-facts", facts.join(" · ")), ...entryRisks(en).map(([, text]) => riskLabel(text)),
-      h("div", "wl-actions", btn(T("wl.edit"), "", () => { editing = { id: en.id, kind: en.kind, isNew: false, en }; draw(); }), del));
+      h("div", "wl-actions", btn(T("wl.edit"), "", () => { editing = { id: en.id, kind: en.kind, isNew: false, en }; draw(); }),
+        ...(en.kind === "login" ? [btn(T("wl.copy.user"), "ghost", () => copy(en.id, "username")), btn(T("wl.copy.pw"), "ghost", () => copy(en.id, "password"))] : []), del));
   }
   /* the settings of an entry that raise a risk: each is a label wherever it is on, and is asked about twice when it is set */
   const entryRisks = e => {
@@ -113,8 +133,15 @@
       if (set) {
         const rm = h("input"); rm.type = "checkbox"; rm.id = "wl-rm-" + name; removes[name] = rm;
         const l = h("label", "wl-rm", rm, h("span", "", T("wl.f.remove"))); l.htmlFor = rm.id;
-        row.append(l);
+        const show = btn(T("wl.show"), "ghost", async () => {
+          if (input.dataset.shown) { input.value = ""; input.type = SECRET_FIELDS.has(name) ? "password" : "text"; delete input.dataset.shown; show.textContent = T("wl.show"); return; }
+          const v = await revealed(e.id, name);
+          if (v === null) return;
+          input.value = v; input.type = "text"; input.dataset.shown = "1"; show.textContent = T("wl.hide");
+        });
+        row.append(h("div", "wl-actions", show, btn(T("wl.copy"), "ghost", () => copy(e.id, name))), l);
       }
+      if (name === "password") row.append(btn(T("wl.gen"), "ghost", () => { input.value = generated(); input.type = "text"; input.dataset.shown = "1"; }));
       form.append(row);
     };
     names.forEach(addField);
@@ -165,14 +192,38 @@
     };
     return form;
   }
+  async function importLogins(file) {
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { say(T("wl.import.big"), true); return; }
+    const r = await call("POST", "api/wallet/import", { csv: await file.text() });
+    if (!r.ok) { say(T("wl.import.bad", why(r)), true); return; }
+    const skipped = Object.values(r.data.skipped || {}).reduce((a, b) => a + b, 0);
+    say(T("wl.import.done", r.data.added, (r.data.skipped || {}).duplicate || 0, skipped - ((r.data.skipped || {}).duplicate || 0) + (r.data.refused || []).length));
+    await load();
+  }
   function vaultSection() {
+    const pick = h("input"); pick.type = "file"; pick.accept = ".csv,text/csv"; pick.hidden = true; pick.onchange = () => { importLogins(pick.files[0]); pick.value = ""; };
     const sec = h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.vault")), h("span", "grow"),
-      btn(T("wl.add"), "primary", () => { editing = { id: "", kind: "card", isNew: true }; draw(); })));
-    const body = h("div", "wl-body", h("p", "help", T("wl.vault.help")));
+      btn(T("wl.import"), "", () => pick.click()), btn(T("wl.add"), "primary", () => { editing = { id: "", kind: "card", isNew: true }; draw(); }), pick));
+    const body = h("div", "wl-body", h("p", "help", T("wl.vault.help")), h("p", "help", T("wl.import.help")));
     if (editing) body.append(editor());
-    const list = h("ul", "wl-list");
-    (data.entries || []).forEach(en => list.append(entryCard(en)));
-    body.append((data.entries || []).length ? list : h("p", "dim", T("wl.vault.none")));
+    const entries = data.entries || [];
+    if (!entries.length) { body.append(h("p", "dim", T("wl.vault.none"))); sec.append(body); return sec; }
+    const kinds = select([["all", T("wl.filter.all")], ...Object.keys(data.kinds).map(k => [k, T("wl.kind." + k)])], vaultFilter);
+    const find = textInput(vaultSearch, { placeholder: T("wl.search") }); find.type = "search"; find.setAttribute("aria-label", T("wl.search"));
+    const list = h("ul", "wl-list"), none = h("p", "dim", T("wl.nomatch"));
+    const paint = () => {
+      const q = vaultSearch.trim().toLowerCase();
+      const shown = entries.filter(en => (vaultFilter === "all" || en.kind === vaultFilter)
+        && (!q || [en.label, en.id, en.kind, ...(en.hosts || [])].some(t => String(t).toLowerCase().includes(q))));
+      list.replaceChildren(...shown.map(entryCard));
+      none.hidden = shown.length > 0;
+    };
+    kinds.setAttribute("aria-label", T("wl.filter"));
+    kinds.onchange = () => { vaultFilter = kinds.value; paint(); };
+    find.oninput = () => { vaultSearch = find.value; paint(); };
+    paint();
+    body.append(h("div", "wl-tools", kinds, find), list, none);
     sec.append(body);
     return sec;
   }

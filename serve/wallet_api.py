@@ -1,6 +1,6 @@
 """What the person keeps for payments and bookings: the vault (cards, personal data, logins, secrets) and the payment systems with their limits.
 
-A value goes in and never comes out: the page lists what is set, with the last four digits of a card, and an edit replaces a field or leaves it.
+The list shows what is set, with the last four digits of a card; the owner can show or copy a value when editing, and an edit replaces a field or leaves it.
 The three dialogs of a waiver are the ones the dossier records; the declaration is checked here, in the server, not only on the page.
 """
 from __future__ import annotations
@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List
 from harness.browser import BrowserPrefs, find_browser
 from harness.payments_broker import PaymentsBroker
 from harness.vault import CARD_KINDS, KINDS, SECOND_FACTORS, Vault, VaultError
+from harness.vault_import import parse_logins
 from harness.waiver import DIALOG_TEXTS, PaymentSystem, parse_amount, required_phrase
 from harness.waiver.cards import CREDENTIAL_KINDS, VAULT_KINDS
 from harness.waiver.dossier import DossierUnavailable
@@ -63,6 +64,26 @@ class WalletApi:
                                      currency=req.get("currency"), guard=req.get("guard") if isinstance(req.get("guard"), bool) else None)
         except VaultError as e:
             raise WalletError(str(e)) from None
+
+    def reveal(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """A value, for the owner to read or copy in their own page (a password manager shows what it keeps)."""
+        try:
+            return {"value": self._vault().reveal(str(req.get("id", "")), str(req.get("field", "")))}
+        except VaultError as e:
+            raise WalletError(str(e)) from None
+
+    def import_logins(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """The logins of a browser's or a password manager's CSV export, each sent only to its own site."""
+        text = req.get("csv")
+        if not isinstance(text, str) or not text.strip():
+            raise WalletError("send the text of the exported file")
+        vault = self._vault()
+        try:
+            parsed = parse_logins(text, vault.login_facts())
+            made = vault.put_many(parsed["entries"])
+        except (ValueError, VaultError) as e:
+            raise WalletError(str(e)) from None
+        return {"added": len(made["added"]), "refused": made["refused"][:20], "skipped": parsed["skipped"]}
 
     def delete_entry(self, entry_id: Any) -> Dict[str, Any]:
         entry_id = str(entry_id or "")

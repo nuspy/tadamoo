@@ -167,7 +167,7 @@ and its safety snapshot can be rewound to as well. The audit log
   with AES-256-GCM under the device key (Windows DPAPI wraps the key for this user; code running as the same user can still ask
   Windows for it). The model writes `{{vault:ENTRY.FIELD}}`; the value is put in only where a tool uses it, only toward the
   sites the entry names (none: this PC only; a star: any site), and masked again in what comes back, one-time codes included.
-  The page never shows a value, only which fields are set and the last four digits of a card. A conversation that holds a vault
+  The list shows which fields are set and the last four digits of a card; the owner can show or copy a value when editing an entry (the page asks the server on that press, nothing the model can call does), generate a password, search and filter, and import the logins exported by Edge, Chrome, Firefox or a password manager as CSV, each one sent only to its own site. `browser_sign_in` fills a login's user name and password into the page's sign-in fields. A conversation that holds a vault
   entry counts as holding a secret for the Rule of Two.
 - **The second factor** is the person's choice for each login: none; a code typed each time (the conversation stops and asks in
   a box whose answer reaches the tool and is kept in neither the conversation nor the history); or the TOTP secret, so that

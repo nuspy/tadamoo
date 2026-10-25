@@ -44,7 +44,7 @@ KINDS: Dict[str, List[str]] = {
 GUARDED = ("number", "expiry", "cvc")            # the fields of a guarded card, released only by an approved payment
 ARMED_SECONDS = 600
 MAX_VALUE = 4096
-MAX_ENTRIES = 200
+MAX_ENTRIES = 5000
 
 
 class VaultError(Exception):
@@ -148,56 +148,90 @@ class Vault:
             second_factor: Optional[str] = None, card_kind: Optional[str] = None, currency: Optional[str] = None,
             guard: Optional[bool] = None) -> Dict[str, Any]:
         """Creates or changes an entry. A field sent as None keeps its old value and one sent as "" is removed; the others replace."""
+        with self._lock:
+            entries = dict(self._read())
+            self._apply(entries, entry_id, kind=kind, label=label, fields=fields, hosts=hosts, second_factor=second_factor, card_kind=card_kind,
+                        currency=currency, guard=guard)
+            self._write(entries)
+            return self.describe(entry_id)
+
+    def put_many(self, specs: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Many entries in one write (an import). The ones that cannot be made are listed with why; the others are kept."""
+        added, refused = [], []
+        with self._lock:
+            entries = dict(self._read())
+            for spec in specs:
+                try:
+                    self._apply(entries, spec["id"], kind=spec["kind"], label=spec.get("label", ""), fields=spec.get("fields"), hosts=spec.get("hosts"),
+                                second_factor=spec.get("second_factor"), card_kind=spec.get("card_kind"), currency=spec.get("currency"), guard=spec.get("guard"))
+                    added.append(spec["id"])
+                except VaultError as e:
+                    refused.append({"id": spec.get("id", ""), "why": str(e)})
+            if added:
+                self._write(entries)
+        return {"added": added, "refused": refused}
+
+    def _apply(self, entries: Dict[str, Dict[str, Any]], entry_id: str, *, kind: str, label: str, fields: Optional[Dict[str, Any]], hosts: Optional[Iterable[Any]],
+               second_factor: Optional[str], card_kind: Optional[str], currency: Optional[str], guard: Optional[bool]) -> None:
         if not ID.match(entry_id or ""):
             raise VaultError("the name of an entry is 1 to 40 letters, digits, - or _")
         if kind not in KINDS:
             raise VaultError(f"the kind is one of: {', '.join(KINDS)}")
-        with self._lock:
-            entries = dict(self._read())
-            old = entries.get(entry_id)
-            if old and old["kind"] != kind:
-                raise VaultError("an entry cannot change its kind: make a new one")
-            if not old and len(entries) >= MAX_ENTRIES:
-                raise VaultError("the vault holds up to %d entries" % MAX_ENTRIES)
-            values = dict((old or {}).get("fields", {}))
-            for name, value in (fields or {}).items():
-                if not FIELD.match(str(name)):
-                    raise VaultError(f"'{name}' is not a field name: lowercase letters, digits and _")
-                if value is None:
-                    continue
-                if not isinstance(value, str) or len(value) > MAX_VALUE:
-                    raise VaultError(f"{name}: a text of up to {MAX_VALUE} characters")
-                if value == "":
-                    values.pop(name, None)
-                else:
-                    values[name] = value
-            entry = {"kind": kind, "label": (label if label else (old or {}).get("label", "")) or entry_id, "fields": values,
-                     "hosts": _clean_hosts(hosts) if hosts is not None else (old or {}).get("hosts", [])}
-            if kind == "login":
-                level = second_factor if second_factor is not None else (old or {}).get("second_factor", "none")
-                if level not in SECOND_FACTORS:
-                    raise VaultError(f"the second factor is one of: {', '.join(SECOND_FACTORS)}")
-                if level == "automatic" and not values.get("totp_secret"):
-                    raise VaultError("to make the codes on its own the login needs its TOTP secret")
-                if values.get("totp_secret"):
-                    totp_code(values["totp_secret"], 0)                      # refuses a secret that is not base32
-                entry["second_factor"] = level
-            if kind == "card":
-                ck = card_kind if card_kind is not None else (old or {}).get("card_kind", "virtual")
-                if ck not in CARD_KINDS:
-                    raise VaultError(f"the card is one of: {', '.join(CARD_KINDS)}")
-                entry["card_kind"] = ck
-                cur = (currency if currency is not None else (old or {}).get("currency", "")).strip().upper()
-                if cur and not re.fullmatch(r"[A-Z]{3}", cur):
-                    raise VaultError("the currency is a three-letter code")
-                entry["currency"] = cur
-                entry["guard"] = bool(guard) if guard is not None else bool((old or {}).get("guard", True))
-                number = re.sub(r"[\s\-]", "", values.get("number", ""))
-                if number and not (number.isdigit() and 12 <= len(number) <= 19):
-                    raise VaultError("a card number is 12 to 19 digits")
-            entries[entry_id] = entry
-            self._write(entries)
-            return self.describe(entry_id)
+        old = entries.get(entry_id)
+        if old and old["kind"] != kind:
+            raise VaultError("an entry cannot change its kind: make a new one")
+        if not old and len(entries) >= MAX_ENTRIES:
+            raise VaultError("the vault holds up to %d entries" % MAX_ENTRIES)
+        values = dict((old or {}).get("fields", {}))
+        for name, value in (fields or {}).items():
+            if not FIELD.match(str(name)):
+                raise VaultError(f"'{name}' is not a field name: lowercase letters, digits and _")
+            if value is None:
+                continue
+            if not isinstance(value, str) or len(value) > MAX_VALUE:
+                raise VaultError(f"{name}: a text of up to {MAX_VALUE} characters")
+            if value == "":
+                values.pop(name, None)
+            else:
+                values[name] = value
+        entry = {"kind": kind, "label": (label if label else (old or {}).get("label", "")) or entry_id, "fields": values,
+                 "hosts": _clean_hosts(hosts) if hosts is not None else (old or {}).get("hosts", [])}
+        if kind == "login":
+            level = second_factor if second_factor is not None else (old or {}).get("second_factor", "none")
+            if level not in SECOND_FACTORS:
+                raise VaultError(f"the second factor is one of: {', '.join(SECOND_FACTORS)}")
+            if level == "automatic" and not values.get("totp_secret"):
+                raise VaultError("to make the codes on its own the login needs its TOTP secret")
+            if values.get("totp_secret"):
+                totp_code(values["totp_secret"], 0)                      # refuses a secret that is not base32
+            entry["second_factor"] = level
+        if kind == "card":
+            ck = card_kind if card_kind is not None else (old or {}).get("card_kind", "virtual")
+            if ck not in CARD_KINDS:
+                raise VaultError(f"the card is one of: {', '.join(CARD_KINDS)}")
+            entry["card_kind"] = ck
+            cur = (currency if currency is not None else (old or {}).get("currency", "")).strip().upper()
+            if cur and not re.fullmatch(r"[A-Z]{3}", cur):
+                raise VaultError("the currency is a three-letter code")
+            entry["currency"] = cur
+            entry["guard"] = bool(guard) if guard is not None else bool((old or {}).get("guard", True))
+            number = re.sub(r"[\s\-]", "", values.get("number", ""))
+            if number and not (number.isdigit() and 12 <= len(number) <= 19):
+                raise VaultError("a card number is 12 to 19 digits")
+        entries[entry_id] = entry
+
+    def reveal(self, entry_id: str, field: str) -> str:
+        """A value, for the person who owns the vault to read or copy it in their own page, or for code on this PC that has to use it itself.
+        Nothing the model can call returns it."""
+        entry = self._read().get(entry_id)
+        if entry is None or field not in entry["fields"]:
+            raise VaultError(f"'{entry_id}' has no field '{field}'")
+        return entry["fields"][field]
+
+    def login_facts(self) -> List[Dict[str, Any]]:
+        """What an import needs to tell what is already here: each entry's name, its first site, and for a login its user and password."""
+        return [{"id": i, "host": (e["hosts"][0] if e["hosts"] else ""), "username": e["fields"].get("username") if e["kind"] == "login" else None,
+                 "password": e["fields"].get("password") if e["kind"] == "login" else None} for i, e in self._read().items()]
 
     def delete(self, entry_id: str) -> bool:
         with self._lock:

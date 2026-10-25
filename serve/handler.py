@@ -1378,7 +1378,7 @@ def make_handler(svc: Service):
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "the vault is changed only from the PC the server runs on"}})
             try:
-                raw = self._body(1 << 16)
+                raw = self._body(10 << 20)                         # a file of logins can be large
             except BadBody as e:
                 return self._json(e.status, {"error": {"message": str(e)}})
             if not self._own_page("the vault and the payment limits can be changed"):
@@ -1390,6 +1390,10 @@ def make_handler(svc: Service):
                 api, action = self._wallet(), path[len("/api/wallet/"):]
                 if action == "entry":
                     return self._json(200, {"entry": api.put_entry(req)})
+                if action == "reveal":
+                    return self._json(200, api.reveal(req))
+                if action == "import":
+                    return self._json(200, api.import_logins(req))
                 if action == "entry/delete":
                     return self._json(200, api.delete_entry(req.get("id")))
                 if action == "system":

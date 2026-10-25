@@ -143,3 +143,27 @@ def test_the_browser_choice_is_kept_and_read_by_the_conversations(setup):
     assert code == 200 and body["browser"]["enabled"] is False and body["browser"]["headless"] is True and body["browser"]["private"] is False
     assert call(base, "POST", "/api/wallet/browser", {"enabled": True, "headless": False, "private": True})[1]["browser"]["private"] is True
     assert BrowserPrefs(tmp / "browser.json").read() == {"enabled": True, "headless": False, "private": True}
+
+
+def test_the_owner_can_read_a_value_back_and_an_unknown_one_is_a_clear_error(setup):
+    base, _ = setup
+    card(base)
+    assert call(base, "POST", "/api/wallet/reveal", {"id": "trip", "field": "number"}) == (200, {"value": NUMBER})
+    code, body = call(base, "POST", "/api/wallet/reveal", {"id": "trip", "field": "passport"})
+    assert code == 400 and "no field" in body["error"]["message"]
+    assert call(base, "POST", "/api/wallet/reveal", {"id": "ghost", "field": "number"})[0] == 400
+
+
+def test_logins_from_an_exported_file_are_added_once_and_for_their_own_sites(setup):
+    base, tmp = setup
+    csv_text = "name,url,username,password\nExample,https://www.example.com,mario,pw-one-1234\nBank,https://bank.example.org,mrossi,pw-two-5678\n"
+    code, body = call(base, "POST", "/api/wallet/import", {"csv": csv_text})
+    assert code == 200 and body["added"] == 2 and body["skipped"]["duplicate"] == 0 and body["refused"] == []
+    again = call(base, "POST", "/api/wallet/import", {"csv": csv_text})[1]
+    assert again["added"] == 0 and again["skipped"]["duplicate"] == 2
+    listing = call(base, "GET", "/api/wallet")[1]
+    assert sorted(e["id"] for e in listing["entries"]) == ["bank-example-org", "example-com"]
+    assert "pw-one" not in json.dumps(listing)
+    assert Vault(tmp / "vault").resolve("{{vault:bank-example-org.password}}", hosts=["bank.example.org"]) == "pw-two-5678"
+    assert call(base, "POST", "/api/wallet/import", {"csv": "name,note\nx,y\n"})[0] == 400
+    assert call(base, "POST", "/api/wallet/import", {})[0] == 400
