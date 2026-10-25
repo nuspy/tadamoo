@@ -18,6 +18,7 @@ from harness.hooks import HookManager, load_hook_files
 from harness.knowledge import LocalKnowledge, cag_prefix, choose_strategy, register_local_search
 from harness.memory import MemoryStore, default_db_path, register_memory_tools
 from harness.permissions import PermissionLevel, PermissionManager
+from harness.plan_mode import MODES_AFTER_PLAN, PLAN_TOOL, PlanGate, register_plan_tool
 from harness.secrets_broker import SecretsBroker
 from harness.skills import ApprovalStore, SkillCatalog, find_project_guidelines, register_skill_tool
 from harness.tools import create_standard_tool_registry
@@ -93,6 +94,7 @@ class AgentConfig:
     outputs_dir: Optional[str] = None        # the files the agent made for the person
     capabilities_home: Optional[str] = None  # the home folder whose skills, plugins and MCP configs are looked at (default: this user's)
     hooks_file: str = ""                # the person's hooks (harness/hooks.py); empty: hooks.json in the user data folder
+    after_plan: str = "default"         # the mode a plan approved in plan mode goes on in: default (ask before risky actions) or auto
     workspace_hooks: bool = False       # also run the hooks in the workspace's .basalt/hooks.json (a folder under work can name commands: the person opts in)
     confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None
 
@@ -122,6 +124,14 @@ class BuiltAgent:
     lsp: Optional[Any] = None
     payment_confirm: Optional["PaymentConfirm"] = None
     browser: Optional[Any] = None
+    plan_gate: Optional[PlanGate] = None
+    mode_switch: Optional[Callable[[str], None]] = None
+
+    def set_mode(self, mode: str) -> None:
+        """Changes the permission mode of the running conversation; plan mode brings `present_plan`, any other takes it away."""
+        if mode not in PERMISSION_MODES:
+            raise ValueError(f"permission mode must be one of {sorted(PERMISSION_MODES)}")
+        self.mode_switch(mode)
 
     def retrieved_message(self, goal: str, limit: int = 4) -> Optional[Dict[str, Any]]:
         """Memories relevant to a goal, as an untrusted-data message for the tail of the conversation."""
@@ -261,6 +271,19 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
                                   on_authorized=(lambda entry, payment_id, site: secrets.vault.arm(entry, payment_id=payment_id, site=site))
                                   if secrets.vault is not None else None)
     audit = AuditLedger(data / "audit.jsonl", redactor=secrets.mask_secrets)
+    if cfg.after_plan not in MODES_AFTER_PLAN:
+        raise ValueError(f"after_plan must be one of {list(MODES_AFTER_PLAN)}")
+    plan_gate = PlanGate()
+
+    def switch_mode(mode: str) -> None:
+        level, plan = PERMISSION_MODES[mode]
+        permissions.level, permissions.plan_mode = level, plan
+        if not plan:
+            registry.unregister(PLAN_TOOL)
+        elif registry.get(PLAN_TOOL) is None:
+            register_plan_tool(registry, permissions, plan_gate, switch_mode, cfg.after_plan, audit)
+    if permissions.plan_mode:
+        register_plan_tool(registry, permissions, plan_gate, switch_mode, cfg.after_plan, audit)
     hooks = HookManager()
     hooks.mask = secrets.mask_secrets
     for path, specs in load_hook_files(_hook_files(cfg, workspace)):
@@ -360,4 +383,5 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         cancel=cancel,
         sampling={"end_turn_bias": cfg.end_turn_bias} if cfg.end_turn_bias else None,
     )
-    return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser)
+    return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser,
+                      plan_gate=plan_gate, mode_switch=switch_mode)

@@ -551,3 +551,81 @@ def test_the_time_a_tool_waits_for_the_person_does_not_count_against_its_limit(t
     assert session.answer(ask["id"], "confirm")
     done = ev.wait("done")
     assert answers == [True] and done["stop_reason"] == al.FINAL
+
+
+def _plan_session(tmp_path, client, **cfg):
+    ws = tmp_path / "ws"
+    ws.mkdir(exist_ok=True)
+    built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False,
+                                    permission_mode="plan", max_turns=8, **cfg), client=client)
+    events = Events()
+    session = Session(built, SessionStore(tmp_path / "hist"), events, session_id="s1", waits=(0,), sleep=lambda s: None)
+    return session, events, built, ws
+
+
+def test_a_plan_the_person_approves_ends_plan_mode_and_the_work_goes_on(tmp_path):
+    client = Scripted(call("write_file", path="a.txt", content="early"), call("present_plan", plan="1. write a.txt\n2. run the tests"),
+                      call("write_file", path="a.txt", content="after approval"), say("done"))
+    session, ev, built, ws = _plan_session(tmp_path, client)
+    assert "present_plan" in built.agent.tools.names() and built.permissions.plan_mode
+    session.send("m1", "do it")
+    ask = ev.wait("ask")
+    assert ask["kind"] == "plan_approval" and "1. write a.txt" in ask["question"] and not (ws / "a.txt").exists()      # plan mode refused the early write
+    assert session.answer(ask["id"], "confirm")
+    done = ev.wait("done")
+    assert done["stop_reason"] == al.FINAL and (ws / "a.txt").read_text(encoding="utf-8") == "after approval"
+    assert not built.permissions.plan_mode and built.permissions.level.value == "default"
+    assert "present_plan" not in built.agent.tools.names()
+    assert [r["action"] for r in built.audit.records if r["action"].startswith("plan_")] == ["plan_approved"]
+    assert any("Plan mode active" in m["content"] for m in built.agent.messages if m["role"] == "tool")
+
+
+def test_a_plan_the_person_sends_back_keeps_plan_mode_and_tells_the_model(tmp_path):
+    client = Scripted(call("present_plan", plan="rewrite everything"), call("write_file", path="a.txt", content="x"), say("I will revise"))
+    session, ev, built, ws = _plan_session(tmp_path, client)
+    session.send("m1", "do it")
+    session.answer(ev.wait("ask")["id"], "cancel")
+    ev.wait("done")
+    assert built.permissions.plan_mode and "present_plan" in built.agent.tools.names() and not (ws / "a.txt").exists()
+    told = [m["content"] for m in built.agent.messages if m["role"] == "tool"]
+    assert "did not approve" in told[0] and "Plan mode active" in told[1]
+    assert [r["action"] for r in built.audit.records if r["action"].startswith("plan_")] == ["plan_rejected"]
+
+
+def test_the_mode_a_plan_goes_on_in_is_the_persons_choice(tmp_path):
+    client = Scripted(call("present_plan", plan="p"), say("ok"))
+    session, ev, built, ws = _plan_session(tmp_path, client, after_plan="auto")
+    session.send("m1", "go")
+    session.answer(ev.wait("ask")["id"], "confirm")
+    ev.wait("done")
+    assert built.permissions.level.value == "auto" and not built.permissions.plan_mode
+
+
+def test_a_run_with_nobody_to_ask_stays_a_plan_and_the_mode_can_be_set_back_to_plan(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False, permission_mode="plan"), client=object())
+    try:
+        tool = built.agent.tools
+        assert "Nobody can approve" in tool.execute("present_plan", {"plan": "do x"}) and built.permissions.plan_mode
+        assert "plan is empty" in tool.execute("present_plan", {"plan": "  "})
+        built.set_mode("auto")
+        assert "present_plan" not in tool.names() and not built.permissions.plan_mode
+        built.set_mode("plan")
+        assert "present_plan" in tool.names() and built.permissions.plan_mode
+        with pytest.raises(ValueError):
+            built.set_mode("anything")
+        with pytest.raises(ValueError):
+            build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d2"), use_memory=False, after_plan="read_only"), client=object())
+    finally:
+        built.close()
+
+
+def test_plan_mode_is_not_left_by_a_model_that_only_says_it_was_approved(tmp_path):
+    client = Scripted(call("present_plan", plan="p"), call("write_file", path="b.txt", content="sneaky"), say("done"))
+    session, ev, built, ws = _plan_session(tmp_path, client)
+    session.send("m1", "go")
+    ev.wait("ask")
+    session.cancel()                                          # Stop while the question is open counts as no
+    ev.wait("done")
+    assert built.permissions.plan_mode and not (ws / "b.txt").exists()

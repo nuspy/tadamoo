@@ -204,6 +204,8 @@ class Session:
         self.current = _Current(self)
         self.main = Task("main", "", self.agent)
         self._adopt(self.main)
+        if built.plan_gate is not None:
+            built.plan_gate.ask = self.ask_plan                  # a plan in plan mode is put to the person in the conversation
 
     @property
     def waiting(self) -> bool:
@@ -343,6 +345,14 @@ class Session:
         question = f"Pay {request['amount']} to {request['recipient']} ({request['reason']}) with {request['system']}?"
         return self._ask({"mode": "confirm", "kind": "payment", "facts": request, "question": question,
                           "options": [{"label": "Allow", "value": "confirm"}, {"label": "Deny", "value": "cancel"}]}) == "confirm"
+
+    def ask_plan(self, plan: str, modes: List[str], outside: bool) -> str:
+        """The plan the agent presents in plan mode. Yes goes on in the mode the person chose for it (the first of `modes`); no keeps plan mode."""
+        note = "\n\nThe agent read content from outside this conversation before it wrote this plan." if outside else ""
+        answer = self._ask({"mode": "confirm", "kind": "plan_approval", "facts": {"plan": plan, "mode": modes[0], "outside_content": outside},
+                            "question": f"Approve this plan and go on in '{modes[0]}' mode?\n\n{plan}{note}",
+                            "options": [{"label": "Approve", "value": "confirm"}, {"label": "Not yet", "value": "cancel"}]})
+        return modes[0] if answer == "confirm" else ""
 
     def permission_confirm(self, tool: str, arguments: Dict[str, Any]) -> bool:
         """The permission manager's question, put to the person in the conversation."""

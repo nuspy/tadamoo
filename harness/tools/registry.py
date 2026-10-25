@@ -176,6 +176,10 @@ class ToolRegistry:
             untrusted=untrusted,
         )
 
+    def unregister(self, name: str) -> bool:
+        self._timeouts.pop(name, None)
+        return self._tools.pop(name, None) is not None
+
     def get(self, name: str) -> Optional[ToolDefinition]:
         return self._tools.get(name)
 
