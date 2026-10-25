@@ -10,7 +10,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "serve" / "web"
-NEW_SCRIPTS = ("plans.js", "tasks.js", "changes.js", "shell.js", "agent.js", "agentchat.js", "providers.js", "patterns.js", "capabilities.js", "wallet.js")
+# the scripts the page loads, read from index.html so a new one is checked without being listed here
+PAGE_SCRIPTS = tuple(re.findall(r'<script[^>]+src="web/([^"]+)"', (WEB / "index.html").read_text(encoding="utf-8")))
+# older scripts that still build some of their markup as HTML strings; every other script is held to the stricter checks
+LEGACY_SCRIPTS = ("i18n.js", "app.js", "chat.js", "chatset.js", "download.js", "loader.js", "models.js", "wizard.js")
+NEW_SCRIPTS = tuple(n for n in PAGE_SCRIPTS if n not in LEGACY_SCRIPTS)
 # keys the scripts build at run time, as prefix + each value
 DYNAMIC = {
     "pl.type.": ["action", "sensor", "decision", "merge"],
@@ -137,6 +141,12 @@ class MarkupTest(unittest.TestCase):
         for src in re.findall(r'<script[^>]+src="web/([^"]+)"', self.html) + re.findall(r'<link[^>]+href="web/([^"]+\.css)"', self.html):
             self.assertTrue((WEB / src).is_file(), src)
 
+    def test_every_script_of_the_folder_is_loaded_by_the_page(self):
+        orphans = sorted(p.name for p in WEB.glob("*.js") if p.name not in PAGE_SCRIPTS)
+        self.assertEqual(orphans, [], "scripts that no page loads")
+        for name in ("risk.js", "wallet.js", "changes.js", "tasks.js"):
+            self.assertIn(name, NEW_SCRIPTS)                                # found from the page, checked as new code
+
     def test_no_dead_scripts_remain(self):
         for name in ("canvas.js", "dag_viewer.js", "artifacts.js"):
             self.assertFalse((WEB / name).exists(), name)
@@ -169,7 +179,8 @@ class MarkupTest(unittest.TestCase):
     def test_the_scripts_send_the_api_key_and_use_relative_urls(self):
         for name in NEW_SCRIPTS:
             text = (WEB / name).read_text(encoding="utf-8")
-            self.assertIn("authHeaders()", text, name)
+            if "fetch(" in text:
+                self.assertIn("authHeaders()", text, name)
             self.assertNotRegex(text, r'fetch\(\s*["`]/', name)          # an absolute path breaks behind a path prefix
 
     def test_diff_lines_do_not_borrow_the_downloads_list_class(self):
@@ -284,6 +295,68 @@ class ContrastTest(unittest.TestCase):
         v = css_vars()
         for c in ("--pl-done", "--pl-run", "--pl-fail", "--pl-block", "--pl-skip", "--pl-add", "--pl-upd", "--pl-del", "--fg-2"):
             self.assertGreaterEqual(contrast(v[c], v["--panel"]), 3.0, c)                  # non-text: 3:1
+
+
+class WalletViewTest(unittest.TestCase):
+    """The wallet page is rebuilt on a timer: that must not re-read the page to a screen reader, nor take a field away from the person typing."""
+    html = (WEB / "index.html").read_text(encoding="utf-8")
+    js = (WEB / "wallet.js").read_text(encoding="utf-8")
+
+    def test_the_page_container_is_not_a_live_region_but_a_small_status_is(self):
+        root = re.search(r'<div[^>]*id="wl-root"[^>]*>', self.html).group(0)
+        self.assertNotIn("aria-live", root)
+        self.assertRegex(self.html, r'<p[^>]*id="wl-live"[^>]*aria-live="polite"')
+        self.assertNotIn('"role", "status"', self.js)                       # the rebuilt note is not a second announcer
+
+    def test_the_timer_does_not_rebuild_a_field_in_use(self):
+        self.assertIn("async function load(quiet)", self.js)
+        self.assertIn("inField()", self.js)
+        self.assertIn("load(true)", self.js[self.js.index("setInterval"):])
+        self.assertIn("sig === shown", self.js)                             # an unchanged page is not rebuilt at all
+
+    def test_the_pill_shows_the_limits_and_opens_a_panel_from_the_keyboard(self):
+        self.assertIn('aria-expanded="false"', self.html)
+        self.assertIn('id="wl-pop"', self.html)
+        self.assertIn("pill.textContent = `${T(\"wl.pill\")}", self.js)
+        self.assertIn('"Escape"', self.js)
+        self.assertNotIn("pill.title", self.js)                             # nothing is only in a tooltip
+
+    def test_small_targets_of_the_bar_and_the_wallet_are_40_px_tall(self):
+        for name, selector in (("wallet.css", ".wl-pill"), ("shell.css", ".pal-open"), ("shell.css", ".nomodel .btn"), ("shell.css", ".st-link")):
+            css = (WEB / name).read_text(encoding="utf-8")
+            rule = re.search(re.escape(selector) + r" \{([^}]*)\}", css).group(1)
+            self.assertIn("min-height: 40px", rule, selector)
+
+
+class TopBarTest(unittest.TestCase):
+    css = (WEB / "app.css").read_text(encoding="utf-8")
+
+    def test_the_nine_tabs_wrap_to_a_second_row_instead_of_breaking_words(self):
+        tabs = re.search(r"(?m)^\.tabs \{([^}]*)\}", self.css).group(1)
+        self.assertIn("flex-wrap: wrap", tabs)
+        self.assertIn("white-space: nowrap", re.search(r"(?m)^\.tab \{([^}]*)\}", self.css).group(1))
+        bar = re.search(r"(?m)^\.bar \{([^}]*)\}", self.css).group(1)
+        self.assertIn("min-height: 76px", bar)                               # a second row of tabs makes the bar taller, it does not overflow it
+        self.assertNotIn("five", self.css.lower().split("max-width: 640px")[1][:600])
+
+
+class ChangesViewTest(unittest.TestCase):
+    def test_a_redraw_keeps_the_scroll_of_the_panel_and_of_the_open_diffs(self):
+        js = (WEB / "changes.js").read_text(encoding="utf-8")
+        self.assertIn("scrollTop", js)
+        self.assertIn("function scroller", js)
+
+    def test_the_text_of_the_changes_and_tasks_is_at_least_12_px(self):
+        css = (WEB / "plans.css").read_text(encoding="utf-8")
+        for line in css.splitlines():
+            if re.match(r"\s*\.(chg|tk|dfl)", line):
+                for size in re.findall(r"font(?:-size)?:\s*(?:\d{3} )?(\d+(?:\.\d+)?)px", line):
+                    self.assertGreaterEqual(float(size), 12, line)
+
+    def test_no_text_of_the_two_panels_is_written_in_the_script(self):
+        for name in ("changes.js", "tasks.js"):
+            js = (WEB / name).read_text(encoding="utf-8")
+            self.assertNotRegex(js, r'textContent = "[^"]*[A-Za-z]{3}', name)
 
 
 if __name__ == "__main__":
