@@ -1100,3 +1100,45 @@ def test_by_default_the_participants_health_and_constraints_do_not_leave_and_a_c
     gate(chosen, card_fields=list(CARD_FIELDS)).triage_event_batch(card, ["Gianni è ricoverato"])
     sent = json.dumps(chosen.requests[0]["body"], ensure_ascii=False)
     assert "asma" in sent and "Allergica agli ovini" in sent and "Gianni" not in sent and "Diana" not in sent
+
+
+# -- the gate: any strong sign (or), or a strong blocker that is also serious (and) ----------------------
+
+# the single-event answers of the real service that the design counts as right to ignore: strong relevance, little impact
+FALSE_2 = jev_answer(0.86, "MIXED_SOME_IMPACTFUL", "POCO")                  # prices of skis up 300%: they are already bought
+FALSE_4 = jev_answer(0.88, "MIXED_SOME_IMPACTFUL", "POCO")                  # a feast of bovines for a guest allergic to ovines
+DIR_1 = jev_answer(0.97, "MIXED_SOME_IMPACTFUL", "CRITICAL")                # a participant has pneumonia
+
+
+def test_the_default_gate_is_or_and_it_wakes_on_the_two_false_positives():
+    assert JevTriageGatekeeper(api_key="k").gate_mode == "or"
+    g = JevTriageGatekeeper(api_key="k")
+    assert g.parse_response(FALSE_2).wake_system_2 and g.parse_response(FALSE_4).wake_system_2
+
+
+def test_the_and_gate_leaves_the_false_positives_asleep_and_still_wakes_on_real_threats():
+    g = JevTriageGatekeeper(api_key="k", gate_mode="and")
+    assert not g.parse_response(FALSE_2).wake_system_2 and not g.parse_response(FALSE_4).wake_system_2
+    assert g.parse_response(DIR_1).wake_system_2
+    assert g.parse_response(jev_answer(0.9, "ALL_EVENTS_IMPACTFUL", "POCO")).wake_system_2             # a total scope is serious on its own
+    assert g.parse_response(jev_answer(0.9, "MIXED_SOME_IMPACTFUL", "MOLTO")).wake_system_2
+    assert not g.parse_response(jev_answer(0.8, "MIXED_SOME_IMPACTFUL", "CRITICAL")).wake_system_2      # the blocker probability must be strictly above
+    assert not g.parse_response(jev_answer(0.5, "ALL_EVENTS_IMPACTFUL", "CRITICAL")).wake_system_2
+    assert not g.parse_response({"answers": {"has_blocker": {"noul": 0.95}, "batch_impact_scope": {"choice": "MIXED_SOME_IMPACTFUL"}}}).wake_system_2   # no impact answer
+
+
+def test_the_gate_is_checked_and_can_change_while_the_telemetry_stays(jev):
+    with pytest.raises(ValueError, match="gate_mode"):
+        JevTriageGatekeeper(gate_mode="xor")
+    fake = jev(answer=FALSE_2)
+    g = gate(fake)
+    assert g.triage_event_batch(CARD, ["x"]).wake_system_2
+    g.reconfigure(gate_mode="and")
+    assert not g.triage_event_batch(CARD, ["x"]).wake_system_2 and g.telemetry.summary()["calls"] == 2
+    with pytest.raises(ValueError):
+        g.reconfigure(gate_mode="maybe")
+    with pytest.raises(ValueError, match="unknown"):
+        g.reconfigure(colour="red")
+    with pytest.raises(ValueError, match="https"):
+        g.reconfigure(endpoint="http://api.example.com/x")
+    assert g.gate_mode == "and"

@@ -26,6 +26,7 @@ from .card import PlanInsightCard, Pseudonymizer, scrub_contacts, share_card
 
 DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 HIGH_IMPACT = ("MOLTO", "CRITICAL")
+GATE_MODES = ("or", "and")        # or: any strong sign wakes the model; and: a strong blocker probability must also come with a high impact or a total scope
 SCOPE_ORDER = ("ZERO_EVENTS_IMPACTFUL", "MIXED_SOME_IMPACTFUL", "ALL_EVENTS_IMPACTFUL")
 MAX_EVENT_CHARS = 500
 CRITICAL_KEYWORDS = ["blocco", "sciopero", "precettat", "ricoverat", "chiusa", "interrotta", "valanga", "emergenza",
@@ -97,7 +98,7 @@ class EventBuffer:
 
 class TriageTelemetry:
     def __init__(self) -> None:
-        self.calls = self.cloud = self.offline = self.errors = self.wakes = 0
+        self.calls = self.cloud = self.offline = self.errors = self.wakes = 0           # errors: the cloud failed and the local filter answered
         self.tokens = 0
         self.latencies: Deque[float] = deque(maxlen=200)
         self._lock = threading.Lock()
@@ -116,7 +117,7 @@ class TriageTelemetry:
     def summary(self) -> Dict[str, Any]:
         with self._lock:
             lat = list(self.latencies)
-            return {"calls": self.calls, "cloud": self.cloud, "offline": self.offline, "errors": self.errors,
+            return {"calls": self.calls, "cloud": self.cloud, "offline": self.offline, "errors": self.errors, "fell_back": self.errors,
                     "wakes": self.wakes, "tokens": self.tokens,
                     "latency_ms_median": round(statistics.median(lat), 1) if lat else None,
                     "latency_ms_max": round(max(lat), 1) if lat else None}
@@ -144,7 +145,11 @@ class JevTriageGatekeeper:
         pseudonymize: bool = True,
         max_events: int = 20,
         timeout: float = 5.0,
+        gate_mode: str = "or",
     ) -> None:
+        if gate_mode not in GATE_MODES:
+            raise ValueError(f"gate_mode must be one of: {', '.join(GATE_MODES)}")
+        self.gate_mode = gate_mode
         self.api_key = api_key
         self.model = model
         self.endpoint = _check_endpoint(endpoint)
@@ -160,6 +165,21 @@ class JevTriageGatekeeper:
     def from_environment(cls, **kwargs: Any) -> "JevTriageGatekeeper":
         """The key comes from TYPESAFE_API_KEY. Having a key is not consent: cloud_consent stays false until set."""
         return cls(api_key=os.environ.get("TYPESAFE_API_KEY") or None, **kwargs)
+
+    def reconfigure(self, **settings: Any) -> None:
+        """Changes how this gatekeeper behaves from now on (the key, the address, consent, the fields, the gate) and keeps its telemetry."""
+        known = ("api_key", "model", "endpoint", "blocker_threshold", "cloud_consent", "card_fields", "pseudonymize", "max_events", "timeout", "gate_mode")
+        unknown = [k for k in settings if k not in known]
+        if unknown:
+            raise ValueError(f"unknown settings: {', '.join(unknown)}")
+        if "endpoint" in settings:
+            _check_endpoint(settings["endpoint"])
+        if settings.get("gate_mode", "or") not in GATE_MODES:
+            raise ValueError(f"gate_mode must be one of: {', '.join(GATE_MODES)}")
+        if "card_fields" in settings and settings["card_fields"] is not None:
+            settings["card_fields"] = list(settings["card_fields"])
+        for key, value in settings.items():
+            setattr(self, key, value)
 
     @property
     def cloud_allowed(self) -> bool:
@@ -235,7 +255,8 @@ class JevTriageGatekeeper:
         max_impact = impact_ans.get("choice") if isinstance(impact_ans, dict) else None
         usage = data.get("usage") or {}
         tokens = int(usage.get("input_tokens", 0)) + int(usage.get("output_tokens", 0))
-        wake = prob > self.blocker_threshold or scope == "ALL_EVENTS_IMPACTFUL" or max_impact in HIGH_IMPACT
+        strong = scope == "ALL_EVENTS_IMPACTFUL" or max_impact in HIGH_IMPACT
+        wake = (prob > self.blocker_threshold and strong) if self.gate_mode == "and" else (prob > self.blocker_threshold or strong)
         return TriageResult(
             wake_system_2=wake, has_blocker_prob=prob, impact_scope=scope,
             reasons=[f"Jev: blocker probability {prob:.2f}, scope {scope}" + (f", impact {max_impact}" if max_impact else "")],
