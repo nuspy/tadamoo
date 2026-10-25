@@ -357,7 +357,12 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   not a site on the internet (private, loopback, link-local, carrier-grade NAT and multicast ranges are refused) unless you allowed
   pages on this PC in the browser's settings. The address a name resolves to is checked at the moment of connecting and again at
   every redirect (at most 5); the page is capped at 2 MB and 20 seconds, only text is read, and HTML becomes Markdown. The result
-  is untrusted. `search_web` is offered only when there is something to search with: a search tool of a connected MCP server, or a
+  is untrusted. The page reaches the model as a short header and lines of text with the bare links of menus left out, not as one
+  long line (a line over 2,000 characters is cut in the middle, which once left the model only a page's menu and footer).
+  `search_web` uses **DuckDuckGo** unless you set another engine: the tool reads the results page of `html.duckduckgo.com` (title,
+  address, snippet; advertisements dropped), with no key, so the **words of each search go to DuckDuckGo**. The address is checked like
+  any page's. It is a page meant for people, not an API: DuckDuckGo may ask for a check after many searches (the tool says so) or change
+  the page. `BASALT_WEB_SEARCH=off` removes it. The other engines add to it and are the default only when DuckDuckGo is off: a search tool of a connected MCP server, or a
   provider of `harness/tools/search/providers.json` for which you have a key (its environment variable, or a vault entry named
   after the provider, e.g. `tavily`, with the key in its `value` field). The provider's server is started when the first search is
   made. The Exa endpoint is reached with the key in an `x-api-key` header, which has not been tried against the live service.

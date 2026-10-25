@@ -19,9 +19,10 @@ import socket
 import time
 import zlib
 from html import unescape
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 CONFIG_FILE = Path(__file__).with_name("providers.json")
 
@@ -196,6 +197,63 @@ def discover_providers(secrets: Any = None, environ: Optional[Mapping[str, str]]
     return out
 
 
+# -- DuckDuckGo: the engine used when the person has set no other, with no key -------------------------------------
+
+DDG_URL = "https://html.duckduckgo.com/html/"
+DDG_AGENT = "Mozilla/5.0 (compatible; Basalt/1; +local agent)"
+
+
+class _DdgResults(HTMLParser):
+    """The results page: each result is a title link (class result__a) followed by its snippet (class result__snippet)."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.items: List[Dict[str, str]] = []
+        self._field: Optional[str] = None
+
+    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
+        a = dict(attrs)
+        classes = (a.get("class") or "").split()
+        if tag == "a" and "result__a" in classes:
+            link = a.get("href") or ""
+            target = parse_qs(urlparse(link).query).get("uddg", [link])[0]
+            self.items.append({"title": "", "url": target, "snippet": ""})
+            self._field = "title"
+        elif tag in ("a", "td", "div") and "result__snippet" in classes and self.items:
+            self._field = "snippet"
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("a", "td", "div"):
+            self._field = None
+
+    def handle_data(self, data: str) -> None:
+        if self._field and self.items:
+            self.items[-1][self._field] += data
+
+
+def duckduckgo_search(query: str, limit: int = 5, base: str = "", allow_private: bool = False) -> List[Dict[str, Any]]:
+    """The first results of DuckDuckGo's HTML page for a query: title, address and snippet. No key. The query goes to DuckDuckGo; the address is
+    checked like any page's."""
+    url = (base or DDG_URL) + "?" + urlencode({"q": query})
+    try:
+        page = fetch_page(url, allow_private, user_agent=DDG_AGENT)
+    except PageError as exc:
+        raise ProviderUnavailable(f"DuckDuckGo could not be searched: {exc}") from None
+    if page["status"] == 202 or re.search(r"anomaly|unusual traffic|captcha", page["text"][:6000], re.I):
+        raise ProviderUnavailable("DuckDuckGo asked for a check instead of results (too many searches from this PC); try again later")
+    parser = _DdgResults()
+    parser.feed(page["text"])
+    out: List[Dict[str, Any]] = []
+    for item in parser.items:
+        host = (urlparse(item["url"]).hostname or "").lower()
+        if not item["url"].startswith(("http://", "https://")) or host.endswith("duckduckgo.com"):
+            continue                                        # an advertisement or an internal link, not a result
+        out.append({"title": re.sub(r"\s+", " ", item["title"]).strip(), "url": item["url"], "snippet": re.sub(r"\s+", " ", item["snippet"]).strip()})
+        if len(out) >= max(1, int(limit)):
+            break
+    return out
+
+
 def offer_search(registry: Any, secrets: Any = None, hub: Any = None, environ: Optional[Mapping[str, str]] = None) -> List[str]:
     """Registers `search_web` when a backend exists and returns the providers it can use; with none, the model is not told of it."""
     from harness.tools.registry import EffectClass
@@ -204,10 +262,12 @@ def offer_search(registry: Any, secrets: Any = None, hub: Any = None, environ: O
         own.update(hub_backends(hub))
     for provider, fn in discover_providers(secrets, environ).items():
         own.setdefault(provider, fn)
+    if str((environ if environ is not None else os.environ).get("BASALT_WEB_SEARCH", "")).lower() != "off":
+        own.setdefault("duckduckgo", duckduckgo_search)      # the engine of the person's choice when none is set; BASALT_WEB_SEARCH=off removes it
     ready = sorted(set(own) | set(_SEARCH_BACKENDS))
     if not ready:
         return []
-    default = "tavily" if "tavily" in ready else ready[0]
+    default = "duckduckgo" if "duckduckgo" in ready else "tavily" if "tavily" in ready else ready[0]
 
     def handler(query: str, provider: str = default, limit: int = 5) -> List[Dict[str, Any]]:
         return search_web(query, provider, limit, backends=own)
@@ -322,7 +382,7 @@ def _decode(body: bytes, content_type: str) -> str:
         return body.decode("utf-8", errors="replace")
 
 
-def fetch_page(url: str, allow_private: bool = False) -> Dict[str, Any]:
+def fetch_page(url: str, allow_private: bool = False, user_agent: str = "Basalt/1 (+reader)") -> Dict[str, Any]:
     """GET a page, following up to MAX_REDIRECTS redirects and checking the address of each hop; returns the raw result."""
     deadline = time.monotonic() + PAGE_SECONDS
     current = _validate(url, allow_private)
@@ -334,7 +394,7 @@ def fetch_page(url: str, allow_private: bool = False) -> Dict[str, Any]:
         try:
             target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
             try:
-                conn.request("GET", target, headers={"User-Agent": "Basalt/1 (+reader)", "Accept": "text/html,text/plain,application/json;q=0.9,*/*;q=0.1",
+                conn.request("GET", target, headers={"User-Agent": user_agent, "Accept": "text/html,text/plain,application/json;q=0.9,*/*;q=0.1",
                                                      "Accept-Encoding": "gzip, identity"})
                 resp = conn.getresponse()
             except PageError:
