@@ -62,6 +62,7 @@ class AgentConfig:
     browser: bool = False               # offer the browser tools (Edge or Chrome on this PC): forms, purchases, bookings
     browser_headless: bool = False      # without a window
     browser_private: bool = False       # may open pages on this PC or its network (off: only sites on the internet)
+    browser_profile: str = ""           # a profile folder that keeps the browser's sign-ins between conversations (empty: a new one each time)
     payments_dir: str = ""              # the person's payment systems and limits: with it the agent can ask to pay, and the broker decides
     context_window: int = 32768
     max_output_tokens: int = 4096
@@ -298,7 +299,8 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     if cfg.browser:
         from harness.browser import find_browser, register_browser_tools
         if find_browser():
-            browser = register_browser_tools(registry, secrets, profile_dir=data / "browser", headless=cfg.browser_headless, allow_private=cfg.browser_private)
+            browser = register_browser_tools(registry, secrets, profile_dir=cfg.browser_profile or data / "browser", headless=cfg.browser_headless,
+                                             allow_private=cfg.browser_private, persistent=bool(cfg.browser_profile))
     if cfg.council:
         from harness.council import offer_council
         from harness.llm import client_for as routed_for, registry as llm_registry

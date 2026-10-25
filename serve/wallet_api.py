@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List
 
-from harness.browser import BrowserPrefs, find_browser
+from harness.browser import BrowserError, BrowserPrefs, find_browser, forget_signins, open_signin_window
 from harness.payments_broker import PaymentsBroker
 from harness.vault import CARD_KINDS, KINDS, SECOND_FACTORS, Vault, VaultError
 from harness.vault_import import parse_logins
@@ -21,8 +21,8 @@ class WalletError(ValueError):
 
 
 class WalletApi:
-    def __init__(self, vault: Callable[[], Vault], payments: Callable[[], PaymentsBroker], browser: BrowserPrefs) -> None:
-        self._vault, self._payments, self._browser = vault, payments, browser
+    def __init__(self, vault: Callable[[], Vault], payments: Callable[[], PaymentsBroker], browser: BrowserPrefs, profile: Any = None) -> None:
+        self._vault, self._payments, self._browser, self._profile = vault, payments, browser, profile
 
     # -- what the page shows ---------------------------------------------------------------------
 
@@ -45,9 +45,26 @@ class WalletApi:
 
     def set_browser(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """Whether the agent has a browser in the conversations it starts from now, and whether the browser shows a window."""
-        if not isinstance(req.get("enabled"), bool) or not isinstance(req.get("headless"), bool) or not isinstance(req.get("private", False), bool):
+        if (not isinstance(req.get("enabled"), bool) or not isinstance(req.get("headless"), bool) or not isinstance(req.get("private", False), bool)
+                or not isinstance(req.get("persistent", False), bool)):
             raise WalletError("send enabled and headless as true or false")
-        return {"browser": {"found": bool(find_browser()), **self._browser.write(req["enabled"], req["headless"], req.get("private", False))}}
+        return {"browser": {"found": bool(find_browser()), **self._browser.write(req["enabled"], req["headless"], req.get("private", False), req.get("persistent", False))}}
+
+    def signin_window(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """The browser that keeps sign-ins, in a window, for the person to sign in to an account (Google, a bank, a shop) themselves."""
+        url = str(req.get("url") or "https://accounts.google.com").strip()
+        try:
+            open_signin_window(self._profile, url)
+        except BrowserError as e:
+            raise WalletError(str(e)) from None
+        return {"opened": True}
+
+    def forget_signins(self) -> Dict[str, Any]:
+        try:
+            forget_signins(self._profile)
+        except BrowserError as e:
+            raise WalletError(str(e)) from None
+        return {"forgotten": True}
 
     # -- the vault -------------------------------------------------------------------------------
 

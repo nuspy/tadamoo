@@ -33,7 +33,7 @@ def call(base, method, path, body=None):
 
 @pytest.fixture
 def setup(tmp_path, monkeypatch, start_server):  # noqa: F811
-    api = WalletApi(lambda: Vault(tmp_path / "vault"), lambda: PaymentsBroker(tmp_path / "payments"), BrowserPrefs(tmp_path / "browser.json"))
+    api = WalletApi(lambda: Vault(tmp_path / "vault"), lambda: PaymentsBroker(tmp_path / "payments"), BrowserPrefs(tmp_path / "browser.json"), tmp_path / "profile")
     monkeypatch.setattr(handler, "_WALLET", api)
     return start_server([answer("x")]), tmp_path
 
@@ -142,7 +142,7 @@ def test_the_browser_choice_is_kept_and_read_by_the_conversations(setup):
     code, body = call(base, "POST", "/api/wallet/browser", {"enabled": False, "headless": True})
     assert code == 200 and body["browser"]["enabled"] is False and body["browser"]["headless"] is True and body["browser"]["private"] is False
     assert call(base, "POST", "/api/wallet/browser", {"enabled": True, "headless": False, "private": True})[1]["browser"]["private"] is True
-    assert BrowserPrefs(tmp / "browser.json").read() == {"enabled": True, "headless": False, "private": True}
+    assert BrowserPrefs(tmp / "browser.json").read() == {"enabled": True, "headless": False, "private": True, "persistent": False}
 
 
 def test_the_owner_can_read_a_value_back_and_an_unknown_one_is_a_clear_error(setup):
@@ -167,3 +167,33 @@ def test_logins_from_an_exported_file_are_added_once_and_for_their_own_sites(set
     assert Vault(tmp / "vault").resolve("{{vault:bank-example-org.password}}", hosts=["bank.example.org"]) == "pw-two-5678"
     assert call(base, "POST", "/api/wallet/import", {"csv": "name,note\nx,y\n"})[0] == 400
     assert call(base, "POST", "/api/wallet/import", {})[0] == 400
+
+
+def test_the_kept_browser_choice_and_the_window_to_sign_in_and_forgetting(setup, monkeypatch):
+    base, tmp = setup
+    opened = []
+    monkeypatch.setattr("serve.wallet_api.open_signin_window", lambda profile, url: opened.append((str(profile), url)))
+    assert call(base, "GET", "/api/wallet")[1]["browser"]["persistent"] is False                    # sign-ins are not kept until the person says so
+    code, body = call(base, "POST", "/api/wallet/browser", {"enabled": True, "headless": False, "persistent": True})
+    assert code == 200 and body["browser"]["persistent"] is True
+    assert BrowserPrefs(tmp / "browser.json").read()["persistent"] is True
+    assert call(base, "POST", "/api/wallet/browser/signin", {}) == (200, {"opened": True})
+    assert call(base, "POST", "/api/wallet/browser/signin", {"url": "https://bank.example/login"})[0] == 200
+    assert opened == [(str(tmp / "profile"), "https://accounts.google.com"), (str(tmp / "profile"), "https://bank.example/login")]
+    (tmp / "profile").mkdir()
+    (tmp / "profile" / "Cookies").write_bytes(b"x")
+    assert call(base, "POST", "/api/wallet/browser/forget", {}) == (200, {"forgotten": True})
+    assert not (tmp / "profile").exists()
+
+
+def test_the_window_to_sign_in_says_when_the_profile_is_in_use(setup):
+    from harness.browser import ProfileLock
+    base, tmp = setup
+    held = ProfileLock(tmp / "profile")
+    assert held.acquire()
+    try:
+        code, body = call(base, "POST", "/api/wallet/browser/signin", {})
+        assert code == 400 and "in use" in body["error"]["message"]
+        assert call(base, "POST", "/api/wallet/browser/forget", {})[0] == 400
+    finally:
+        held.release()

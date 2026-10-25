@@ -186,15 +186,20 @@ and its safety snapshot can be rewound to as well. The audit log
   payment lets the fields of the system's card out of the vault for ten minutes, as placeholders, unless the person turned that
   guard off for that card. **No payment connector moves money by itself**: what is paid is paid when the form is sent through
   the browser tools. Stripe and Google Pay are paid as any web checkout is, in the page, when the person asks the agent to do it: there
-  is no connector for them (a Stripe-hosted checkout has its fields on the page itself; a Google Pay button needs a browser signed in
-  to Google, which the agent's throw-away profile is not). Decisions still yours: the default 30-day expiry and a lawyer's review of the three dialogs.
+  is no connector for them. A Stripe form, hosted by Stripe or embedded in the shop's page, is reached; a Google Pay button needs a browser signed in
+  to Google, which is the kept profile above, and its sheet is a window the browser follows. None of these was tried against the real services. Decisions still yours: the default 30-day expiry and a lawyer's review of the three dialogs.
 - **The browser** (`browser.py`, `--browser`): Edge or Chrome on this PC, driven over the DevTools protocol, for forms, purchases and
   bookings (`browser_open`, `browser_read`, `browser_click`, `browser_type`, `browser_select`, `browser_press`, `browser_back`).
   A page is read as numbered elements and text, fenced as untrusted. A vault value is typed only if the page's site is one the
-  entry names, and a field that holds one is listed as set. Each conversation has its own browser and a throw-away profile, and the
-  browser ends with it, however it ends. Only sites on the internet are opened (not this PC or its network). It reaches the page and
-  the frames of its own site: a card field inside a payment provider's own frame is not reachable. Whether the conversations have a
-  browser, and whether it shows a window, is set in the Wallet view.
+  entry names, and a field that holds one is listed as set. Each conversation has its own browser, and the
+  browser ends with it, however it ends. By default its profile is thrown away with it; the person can choose to keep one profile, so that
+  the sign-ins they make in it (Google, a bank, a shop: **Open the browser to sign in** in the Wallet view) are there in every conversation.
+  Only one browser at a time can use that profile; another conversation starts with a fresh one and is told so. Pages on this PC or its
+  network are opened only if the person allowed them. It reaches the page, the frames of its own site, the frames of other sites the page
+  holds (an embedded Stripe card form: each is a session of its own, and a value typed there goes only to a site the vault entry names), and
+  the windows the page opens (a payment sheet), which become the page it works on until they close. Whether the conversations have a
+  browser, whether it shows a window, whether it may open pages of this PC and whether it keeps sign-ins is set in the Wallet view, each risky
+  choice with a highlighted label and two questions.
 - **Phone calls** (`--phone`): `phone_call` always asks, even at the `auto` level and with an allow rule; the call opens by
   saying it is an AI assistant calling for you; what the other person says is untrusted. Tests of real calls are skipped
   and queued in `tests/QUEUE_live_calls.md` until you authorize them (`BASALT_LIVE_CALLS=1`).
@@ -557,5 +562,4 @@ one, so it matters that an agent which can run arbitrary code (an allow rule suc
 its own later requests: such a rule already grants that power, and only the isolation below would take it away.
 
 Not done: file and network isolation for commands (the job object limits resources only); `fs/*` and `session/load` in ACP;
-reading bank accounts through an authorized aggregator, a browser that keeps its sign-ins between conversations (Google Pay needs one),
-and card fields inside a payment provider's own frame (an embedded Stripe form on a merchant's page); the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.
+reading bank accounts through an authorized aggregator, and a test of Google Pay or an embedded Stripe form on a real site; the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.

@@ -548,7 +548,7 @@ def test_a_code_is_typed_by_the_person_and_is_not_kept_in_the_conversation(make,
 def test_what_a_conversation_gets_follows_the_wallet_choices(make, ws, tmp_path):
     vault, payments = tmp_path / "vault", tmp_path / "payments"
     prefs = {"enabled": True, "headless": False}
-    mgr = make(command=None, vault_dir=vault, payments_dir=payments, browser_prefs=lambda: dict(prefs))
+    mgr = make(command=None, vault_dir=vault, payments_dir=payments, browser_prefs=lambda: dict(prefs), browser_profile=tmp_path / "kept")
     mgr.command = mgr._command
     rec = {"id": "s1", "workspace": ws, "mode": "default", "ask_only": False}
     cmd = mgr._command("s1", rec, tmp_path / "h")
@@ -559,6 +559,10 @@ def test_what_a_conversation_gets_follows_the_wallet_choices(make, ws, tmp_path)
     assert "--browser-private" not in mgr._command("s1", rec, tmp_path / "h")
     prefs["private"] = True
     assert "--browser-private" in mgr._command("s1", rec, tmp_path / "h")
+    assert "--browser-profile" not in mgr._command("s1", rec, tmp_path / "h")
+    prefs["persistent"] = True
+    kept = mgr._command("s1", rec, tmp_path / "h")
+    assert kept[kept.index("--browser-profile") + 1] == str(tmp_path / "kept")
     prefs["enabled"] = False
     assert "--browser" not in mgr._command("s1", rec, tmp_path / "h")
     asking = mgr._command("s1", {**rec, "ask_only": True}, tmp_path / "h")                    # a question-only conversation gets none of it

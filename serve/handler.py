@@ -1370,7 +1370,7 @@ def make_handler(svc: Service):
         def _wallet(self) -> WalletApi:
             global _WALLET
             if _WALLET is None:
-                _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments")), BrowserPrefs(userdata.path("browser.json")))
+                _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments")), BrowserPrefs(userdata.path("browser.json")), userdata.path("browser-profile"))
             return _WALLET
 
         def _wallet_post(self, path):
@@ -1408,6 +1408,10 @@ def make_handler(svc: Service):
                     return self._json(200, api.revoke(req.get("id")))
                 if action == "browser":
                     return self._json(200, api.set_browser(req))
+                if action == "browser/signin":
+                    return self._json(200, api.signin_window(req))
+                if action == "browser/forget":
+                    return self._json(200, api.forget_signins())
                 return self._json(404, {"error": {"message": "not found"}})
             except (WalletError, VaultError, ValueError, TypeError, PermissionError) as e:
                 return self._json(400, {"error": {"type": "wallet", "message": str(e)}})
@@ -1490,7 +1494,8 @@ def make_handler(svc: Service):
                                            svc.api_key or "", board=_APPROVALS, default_workspace=userdata.path("chat-workspace"),
                                            attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
-                                           browser_prefs=BrowserPrefs(userdata.path("browser.json")).read)
+                                           browser_prefs=BrowserPrefs(userdata.path("browser.json")).read,
+                                           browser_profile=userdata.path("browser-profile"))
             return _SESSIONS
 
         def _agent_get(self, path):

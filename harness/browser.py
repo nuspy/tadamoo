@@ -2,11 +2,11 @@
 
 The page's content is untrusted data: the tools return it fenced, and what the person keeps in the vault reaches a page only as a
 placeholder the agent writes in `browser_type`, filled in here, at the last step, and only if the page's site is one the vault entry names.
-A value is never echoed back: what the model reads of a page is masked of every value in the vault. Each conversation has its own browser
-and its own throw-away profile, so a sign-in made for one is not there for another.
+A value is never echoed back: what the model reads of a page is masked of every value in the vault. Each conversation has its own browser. Its
+profile is thrown away with it, unless the person chose to keep sign-ins: then one profile is kept and one browser at a time uses it.
 
-Reaches: the page and the frames that share its site. A card field inside a payment provider's own frame is another site's page and is not
-reachable here.
+Reaches: the page, the frames of its own site, the frames of other sites it holds (a card field in a payment provider's frame is a session of its
+own, and a value typed there goes only to a site the vault entry names), and the windows the page opens (a payment sheet).
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ import threading
 import time
 import urllib.request
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 PAGE_TEXT_CHARS = 5000
@@ -139,34 +139,52 @@ class WebSocket:
 
 
 class Cdp:
-    """Calls and events of the DevTools protocol on one page."""
+    """Calls and events of the DevTools protocol on one page, and on the frames of other sites it holds (each is a session of its own)."""
 
-    def __init__(self, ws: WebSocket) -> None:
+    def __init__(self, ws: WebSocket, target_id: str = "") -> None:
         self.ws, self._id, self.events, self._lock = ws, 0, [], threading.RLock()
+        self.target_id = target_id
+        self.closed = False                                    # the page went away (a window that closed itself)
+        self.frames: Dict[str, Dict[str, Any]] = {}          # session id -> the frame of another site: {"target", "url"}
 
-    def call(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 30.0) -> Dict[str, Any]:
+    def call(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 30.0, session: Optional[str] = None) -> Dict[str, Any]:
         with self._lock:
             self._id += 1
             mine = self._id
-            self.ws.send_text(json.dumps({"id": mine, "method": method, "params": params or {}}))
+            message: Dict[str, Any] = {"id": mine, "method": method, "params": params or {}}
+            if session:
+                message["sessionId"] = session
+            try:
+                self.ws.send_text(json.dumps(message))
+            except OSError:
+                self.closed = True
+                raise BrowserError("the page was closed") from None
             deadline = time.monotonic() + timeout
             while True:
                 try:
-                    message = json.loads(self.ws.recv_text(max(0.05, deadline - time.monotonic())))
+                    reply = json.loads(self.ws.recv_text(max(0.05, deadline - time.monotonic())))
                 except TimeoutError:
                     raise BrowserError(f"the browser did not answer {method}") from None
-                if message.get("id") == mine:
-                    if "error" in message:
-                        raise BrowserError(f"{method}: {message['error'].get('message', 'failed')}")
-                    return message.get("result", {})
-                self._event(message)
+                except (BrowserError, OSError):
+                    self.closed = True
+                    raise BrowserError("the page was closed") from None
+                if reply.get("id") == mine:
+                    if "error" in reply:
+                        raise BrowserError(f"{method}: {reply['error'].get('message', 'failed')}")
+                    return reply.get("result", {})
+                self._event(reply)
 
     def _event(self, message: Dict[str, Any]) -> None:
         self.events.append(message)
         del self.events[:-200]
-        if message.get("method") == "Page.javascriptDialogOpening":     # an alert or a question would stop the page: answer it
-            kind = (message.get("params") or {}).get("type")
-            self.ws.send_text(json.dumps({"id": self._next(), "method": "Page.handleJavaScriptDialog", "params": {"accept": kind == "alert"}}))
+        method, params = message.get("method"), message.get("params") or {}
+        if method == "Page.javascriptDialogOpening":            # an alert or a question would stop the page: answer it
+            self.ws.send_text(json.dumps({"id": self._next(), "method": "Page.handleJavaScriptDialog", "params": {"accept": params.get("type") == "alert"}}))
+        elif method == "Target.attachedToTarget" and (params.get("targetInfo") or {}).get("type") == "iframe":
+            info = params["targetInfo"]
+            self.frames[params["sessionId"]] = {"target": info.get("targetId", ""), "url": info.get("url", "")}
+        elif method == "Target.detachedFromTarget":
+            self.frames.pop(params.get("sessionId", ""), None)
 
     def _next(self) -> int:
         self._id += 1
@@ -181,6 +199,9 @@ class Cdp:
                     self._event(json.loads(self.ws.recv_text(max(0.05, end - time.monotonic()))))
                 except TimeoutError:
                     return
+                except (BrowserError, OSError):
+                    self.closed = True
+                    return
 
     def saw(self, method: str, since: int = 0) -> bool:
         return any(e.get("method") == method for e in self.events[since:])
@@ -190,15 +211,17 @@ class Cdp:
 
 SNAPSHOT_JS = r"""
 (() => {
-  const visible = e => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
+  const visible = e => { const r = e.getBoundingClientRect(); const s = e.ownerDocument.defaultView.getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
   const label = e => {
     const aria = e.getAttribute('aria-label'); if (aria) return aria.trim();
     if (e.labels && e.labels.length) return [...e.labels].map(l => l.innerText).join(' ').trim();
-    const by = e.getAttribute('aria-labelledby'); if (by) { const t = by.split(/\s+/).map(i => (document.getElementById(i) || {}).innerText || '').join(' ').trim(); if (t) return t; }
+    const by = e.getAttribute('aria-labelledby'); if (by) { const t = by.split(/\s+/).map(i => (e.ownerDocument.getElementById(i) || {}).innerText || '').join(' ').trim(); if (t) return t; }
     return (e.placeholder || e.title || e.alt || ((e.tagName === 'INPUT' && /^(submit|button|reset)$/.test(e.type)) ? e.value : '') || e.innerText || e.getAttribute('name') || '').trim();
   };
   const sel = 'a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],[onclick],[contenteditable=true]';
-  const found = [...document.querySelectorAll(sel)].filter(e => e.type !== 'hidden' && visible(e));
+  const roots = [document];
+  document.querySelectorAll('iframe').forEach(f => { try { if (f.contentDocument) roots.push(f.contentDocument); } catch (x) { /* another site: its own session */ } });
+  const found = roots.flatMap(d => [...d.querySelectorAll(sel)]).filter(e => e.type !== 'hidden' && visible(e));
   window.__bref = found.slice(0, MAX);
   const items = window.__bref.map((e, i) => {
     const tag = e.tagName.toLowerCase(), type = (e.type || '').toLowerCase();
@@ -211,14 +234,24 @@ SNAPSHOT_JS = r"""
     if (e.required) o.required = true;
     return o;
   });
-  return JSON.stringify({ url: location.href, host: location.hostname, title: document.title, items, more: Math.max(0, found.length - MAX), text: (document.body ? document.body.innerText : '').replace(/\n{3,}/g, '\n\n').slice(0, TEXT) });
+  const text = roots.map(d => (d.body ? d.body.innerText : '')).join('\n').replace(/\n{3,}/g, '\n\n').slice(0, TEXT);
+  return JSON.stringify({ url: location.href, host: location.hostname, title: document.title, items, more: Math.max(0, found.length - MAX), text });
 })()
 """.replace("MAX", str(MAX_ELEMENTS)).replace("TEXT", str(PAGE_TEXT_CHARS))
 
-# links open in the same tab, so the agent never loses the page it works on
+# where to click an element: the middle of it in the page's own viewport, counting the frames of the same site it sits in
+CENTER_JS = r"""
+(() => {
+  const e = window.__bref[%I%]; e.scrollIntoView({block: 'center', inline: 'center'});
+  const r = e.getBoundingClientRect(); let x = r.left + r.width / 2, y = r.top + r.height / 2, w = e.ownerDocument.defaultView;
+  while (w && w.frameElement) { const f = w.frameElement.getBoundingClientRect(); x += f.left; y += f.top; w = w.parent; }
+  return [x, y];
+})()
+"""
+
+# links and forms open in the same tab; a window a page opens itself (a payment sheet) is a page of its own, which the browser follows
 INIT_JS = r"""
 (() => {
-  window.open = u => { if (u) location.href = u; return null; };
   document.addEventListener('click', e => { const a = e.target.closest && e.target.closest('a[target]'); if (a) a.removeAttribute('target'); }, true);
   document.addEventListener('submit', e => { if (e.target && e.target.removeAttribute) e.target.removeAttribute('target'); }, true);
 })();
@@ -229,7 +262,7 @@ KEYS = {"Enter": (13, "Enter", "\r"), "Tab": (9, "Tab", ""), "Escape": (27, "Esc
 
 
 def check_url(url: str, allow_private: bool = False) -> str:
-    """Only web pages, and not this PC's or its network's own (a page there can be an admin panel, not a shop)."""
+    """Only web pages, and not this PC's or its network's own unless the person allowed them (a page there can be an admin panel, not a shop)."""
     parsed = urlparse(url.strip())
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise BrowserError("only web addresses (http or https) can be opened")
@@ -242,12 +275,13 @@ def check_url(url: str, allow_private: bool = False) -> str:
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
-            raise BrowserError(f"{parsed.hostname} is an address inside this PC or its network, not a site on the internet: it is not opened")
+            raise BrowserError(f"{parsed.hostname} is an address inside this PC or its network, not a site on the internet: the person has not allowed such pages")
     return parsed.geturl()
 
 
 class BrowserPrefs:
-    """What the person chose about the agent's browser: whether it has one, whether it shows a window, and whether it may open pages on this PC and its network."""
+    """What the person chose about the agent's browser: whether it has one, whether it shows a window, whether it may open pages on this PC and
+    its network, and whether it keeps its sign-ins between conversations."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -257,39 +291,130 @@ class BrowserPrefs:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             data = {}
-        return {"enabled": data.get("enabled") is not False, "headless": data.get("headless") is True, "private": data.get("private") is True}
+        return {"enabled": data.get("enabled") is not False, "headless": data.get("headless") is True, "private": data.get("private") is True,
+                "persistent": data.get("persistent") is True}
 
-    def write(self, enabled: bool, headless: bool, private: bool = False) -> Dict[str, bool]:
+    def write(self, enabled: bool, headless: bool, private: bool = False, persistent: bool = False) -> Dict[str, bool]:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({"enabled": bool(enabled), "headless": bool(headless), "private": bool(private)}), encoding="utf-8")
+        self.path.write_text(json.dumps({"enabled": bool(enabled), "headless": bool(headless), "private": bool(private), "persistent": bool(persistent)}), encoding="utf-8")
         return self.read()
+
+
+class ProfileLock:
+    """One browser at a time on a profile that keeps sign-ins: a browser cannot share its profile folder, and two would overwrite each other's sign-ins."""
+
+    def __init__(self, directory: str | Path) -> None:
+        self.path = Path(directory) / "basalt.lock"
+        self.handle: Any = None
+
+    def acquire(self) -> bool:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(self.path, "a+b")
+        try:
+            if os.name == "nt":
+                import msvcrt
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            handle.close()
+            return False
+        self.handle = handle
+        return True
+
+    def release(self) -> None:
+        if self.handle is None:
+            return
+        try:
+            if os.name == "nt":
+                import msvcrt
+                self.handle.seek(0)
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+        finally:
+            self.handle.close()
+            self.handle = None
+
+
+def open_signin_window(profile_dir: str | Path, url: str, executable: str = "") -> None:
+    """The browser that keeps sign-ins, in a window of its own, for the person to sign in to Google, a bank or a shop. The profile is theirs while the
+    window is open; when it is closed the agent's browsers can use it."""
+    exe = find_browser(executable)
+    if not exe:
+        raise BrowserError("no Edge or Chrome was found on this PC")
+    if urlparse(url).scheme not in ("http", "https"):
+        raise BrowserError("only web addresses (http or https) can be opened")
+    lock = ProfileLock(profile_dir)
+    if not lock.acquire():
+        raise BrowserError("the browser that keeps sign-ins is in use: finish the conversation that uses it, or close its window, first")
+    try:
+        proc = subprocess.Popen([exe, f"--user-data-dir={profile_dir}", "--no-first-run", "--no-default-browser-check", url],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+    except OSError as e:
+        lock.release()
+        raise BrowserError(f"the browser could not be started: {e}") from None
+    threading.Thread(target=lambda: (proc.wait(), lock.release()), daemon=True, name="signin-window").start()
+
+
+def forget_signins(profile_dir: str | Path) -> None:
+    """Throws the kept profile away: every sign-in in it is gone."""
+    lock = ProfileLock(profile_dir)
+    if not lock.acquire():
+        raise BrowserError("the browser that keeps sign-ins is in use: finish the conversation that uses it, or close its window, first")
+    try:
+        for child in Path(profile_dir).iterdir():
+            if child.name != "basalt.lock":                       # the lock file stays while it is held
+                shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink(missing_ok=True)
+    finally:
+        lock.release()
+    shutil.rmtree(profile_dir, ignore_errors=True)
 
 
 class Browser:
     def __init__(self, profile_dir: str | Path = "", headless: bool = False, executable: str = "", allow_private: bool = False,
-                 mask: Optional[Callable[[str], str]] = None) -> None:
+                 mask: Optional[Callable[[str], str]] = None, persistent: bool = False) -> None:
+        self.persistent = bool(persistent and profile_dir)             # the profile is kept, and its sign-ins with it
         self.profile_dir = Path(profile_dir) if profile_dir else Path(tempfile.mkdtemp(prefix="basalt-browser-"))
+        self.keep_profile = self.persistent
         self.headless, self.executable, self.allow_private = headless, executable, allow_private
         self.mask = mask or (lambda t: t)
         self.proc: Optional[subprocess.Popen] = None
         self.job: Any = None
-        self.cdp: Optional[Cdp] = None
+        self.lock: Optional[ProfileLock] = None
+        self.pages: List[Cdp] = []                                      # the page the agent works on, and above it the windows that page opened
+        self.seen: set = set()
+        self.refs: List[Tuple[Optional[str], int, str]] = []            # element number - 1 -> (frame session or None, index in that frame, its site)
         self.host = ""
+        self.notice = ""                                                # said to the model once, with the next page it reads
         self.hidden: set = set()                      # what was typed from the vault: a field that holds it is listed as set, not as its value
+
+    @property
+    def cdp(self) -> Optional[Cdp]:
+        return self.pages[-1] if self.pages else None
 
     # -- starting and stopping -------------------------------------------------------------------
 
     def start(self) -> None:
-        if self.cdp is not None:
+        if self.pages:
             return
         exe = find_browser(self.executable)
         if not exe:
             raise BrowserError("no Edge or Chrome was found on this PC (set BASALT_BROWSER to its program)")
+        if self.persistent:
+            self.lock = ProfileLock(self.profile_dir)
+            if not self.lock.acquire():                               # another conversation, or the window the person signs in with, has it
+                self.lock, self.keep_profile = None, False
+                self.profile_dir = Path(tempfile.mkdtemp(prefix="basalt-browser-"))
+                self.notice = ("The browser that keeps the person's sign-ins is in use by another conversation or window, so this one started without "
+                               "any sign-in. Sign in here again if you must, or tell the person.")
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
-            port = s.getsockname()[1]
+            self.port = s.getsockname()[1]
         self.profile_dir.mkdir(parents=True, exist_ok=True)
-        args = [exe, f"--remote-debugging-port={port}", f"--user-data-dir={self.profile_dir}", "--no-first-run", "--no-default-browser-check",
+        args = [exe, f"--remote-debugging-port={self.port}", f"--user-data-dir={self.profile_dir}", "--no-first-run", "--no-default-browser-check",
                 "--disable-extensions", "--window-size=1280,900", "--disable-background-networking"]
         if self.headless:
             args.append("--headless=new")
@@ -305,8 +430,7 @@ class Browser:
             if self.proc.poll() is not None:
                 raise BrowserError("the browser closed as soon as it started")
             try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=2) as r:
-                    pages = [t for t in json.loads(r.read()) if t.get("type") == "page"]
+                pages = self._targets()
                 if pages:
                     target = pages[0]
                     break
@@ -316,26 +440,56 @@ class Browser:
         if target is None:
             self.close()
             raise BrowserError("the browser did not open a page")
-        path = urlparse(target["webSocketDebuggerUrl"]).path
-        self.cdp = Cdp(WebSocket("127.0.0.1", port, path))
-        for method in ("Page.enable", "Runtime.enable"):
-            self.cdp.call(method)
-        self.cdp.call("Page.addScriptToEvaluateOnNewDocument", {"source": INIT_JS})
+        self.seen = {target["id"]}
+        self._attach(target)
         try:
             self.cdp.call("Browser.setDownloadBehavior", {"behavior": "deny"})
         except BrowserError:
             pass
 
+    def _targets(self) -> List[Dict[str, Any]]:
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json/list", timeout=2) as r:
+            return [t for t in json.loads(r.read()) if t.get("type") == "page" and str(t.get("url", "")).startswith(("http://", "https://", "about:blank"))]   # not the browser's own dialogs
+
+    def _attach(self, target: Dict[str, Any]) -> None:
+        """Speaks to a page: its own protocol connection, with the frames of other sites it holds followed as sessions."""
+        cdp = Cdp(WebSocket("127.0.0.1", self.port, urlparse(target["webSocketDebuggerUrl"]).path), target["id"])
+        for method, params in (("Page.enable", None), ("Runtime.enable", None), ("DOM.enable", None),
+                               ("Target.setAutoAttach", {"autoAttach": True, "waitForDebuggerOnStart": False, "flatten": True}),
+                               ("Page.addScriptToEvaluateOnNewDocument", {"source": INIT_JS})):
+            cdp.call(method, params)
+        self.pages.append(cdp)
+
+    def _sync_pages(self) -> None:
+        """A window the page opened becomes the page the agent works on; when it closes, the agent is back on the page that opened it."""
+        if not self.pages:
+            return
+        try:
+            targets = self._targets()
+        except Exception:
+            return
+        ids = {t["id"] for t in targets}
+        for t in targets:
+            if t["id"] not in self.seen:
+                self.seen.add(t["id"])
+                try:
+                    self._attach(t)
+                except BrowserError:
+                    pass
+        while len(self.pages) > 1 and (self.pages[-1].closed or self.pages[-1].target_id not in ids):
+            self.pages.pop().ws.close()
+
     def close(self) -> None:
         try:
-            if self.cdp is not None:
+            if self.pages:
                 try:
-                    self.cdp.call("Browser.close", timeout=3)
+                    self.pages[0].call("Browser.close", timeout=3)
                 except Exception:
                     pass
-                self.cdp.ws.close()
+                for p in self.pages:
+                    p.ws.close()
         finally:
-            self.cdp = None
+            self.pages = []
             if self.proc is not None:
                 try:
                     self.proc.wait(timeout=5)
@@ -345,13 +499,17 @@ class Browser:
             if self.job is not None:
                 self.job.close()
                 self.job = None
-            shutil.rmtree(self.profile_dir, ignore_errors=True)
+            if self.lock is not None:
+                self.lock.release()
+                self.lock = None
+            if not self.keep_profile:
+                shutil.rmtree(self.profile_dir, ignore_errors=True)
 
     # -- the page --------------------------------------------------------------------------------
 
-    def _js(self, expression: str) -> Any:
+    def _js(self, expression: str, session: Optional[str] = None) -> Any:
         self.start()
-        out = self.cdp.call("Runtime.evaluate", {"expression": expression, "returnByValue": True, "awaitPromise": True})
+        out = self.cdp.call("Runtime.evaluate", {"expression": expression, "returnByValue": True, "awaitPromise": True}, session=session)
         if "exceptionDetails" in out:
             raise BrowserError("the page refused: " + str((out["exceptionDetails"].get("exception") or {}).get("description", "script error"))[:200])
         return (out.get("result") or {}).get("value")
@@ -359,13 +517,18 @@ class Browser:
     def settle(self, since: int) -> None:
         """After an action: if the page started to navigate, wait for it to load; a change inside the page needs no wait."""
         self.cdp.pump(0.4)
+        if self.cdp.closed:
+            self._sync_pages()
+            return
         if self.cdp.saw("Page.navigatedWithinDocument", since) and not self.cdp.saw("Page.frameStartedLoading", since):
+            self._sync_pages()
             return
         if self.cdp.saw("Page.frameStartedLoading", since) or self.cdp.saw("Page.frameNavigated", since):
             end = time.monotonic() + 12.0
             while time.monotonic() < end and not self.cdp.saw("Page.loadEventFired", since):
                 self.cdp.pump(0.25)
             self.cdp.pump(0.3)
+        self._sync_pages()
 
     def open(self, url: str) -> Dict[str, Any]:
         url = check_url(url, self.allow_private)
@@ -388,32 +551,78 @@ class Browser:
         return page
 
     def snapshot(self) -> Dict[str, Any]:
-        raw = self._js(SNAPSHOT_JS)
-        page = json.loads(raw)
-        self.host = page["host"]
-        return page
+        """The page and, after its own elements, those of the frames of other sites it holds (a card field in a payment provider's frame)."""
+        self.start()
+        self._sync_pages()
+        self.cdp.pump(0.05)
+        page = json.loads(self._js(SNAPSHOT_JS))
+        items = list(page["items"])
+        refs: List[Tuple[Optional[str], int, str]] = [(None, i, page["host"]) for i in range(len(items))]
+        texts = [page["text"]]
+        for session, frame in list(self.cdp.frames.items()):
+            try:
+                sub = json.loads(self._js(SNAPSHOT_JS, session=session))
+            except (BrowserError, ValueError):
+                continue
+            if not sub["items"] and not sub["text"].strip():
+                continue
+            for k, it in enumerate(sub["items"]):
+                items.append({**it, "frame": sub["host"] or "frame"})
+                refs.append((session, k, sub["host"]))
+            if sub["text"].strip():
+                texts.append(f"[frame {sub['host'] or 'frame'}] " + sub["text"].strip())
+        for n, it in enumerate(items, 1):
+            it["ref"] = n
+        self.refs, self.host = refs, page["host"]
+        return {**page, "items": items, "text": "\n".join(texts)[:2 * PAGE_TEXT_CHARS]}
 
-    def _element(self, ref: int) -> None:
-        count = self._js("(window.__bref || []).length")
-        if not isinstance(ref, int) or not 1 <= ref <= (count or 0):
+    def _where(self, ref: int) -> Tuple[Optional[str], int, str]:
+        """Which frame an element is in and its place there, refused when the page has changed since it was read."""
+        if isinstance(ref, bool) or not isinstance(ref, int) or not 1 <= ref <= len(self.refs):
             raise BrowserError("there is no element with that number on this page: read the page again (the page may have changed)")
+        session, local, host = self.refs[ref - 1]
+        count = self._js("(window.__bref || []).length", session=session)
+        if local >= (count or 0):
+            raise BrowserError("the page has changed since it was read: read the page again")
+        return session, local, host
+
+    def host_for(self, ref: int) -> str:
+        """The site that would receive what is typed into an element: the frame's own, not the page's."""
+        return self._where(ref)[2]
+
+    def _frame_origin(self, session: str) -> Tuple[float, float]:
+        """Where a frame of another site starts in the page, so that a click in it can be made in the page's own coordinates."""
+        frame = self.cdp.frames.get(session)
+        if frame is None:
+            raise BrowserError("the frame went away: read the page again")
+        owner = self.cdp.call("DOM.getFrameOwner", {"frameId": frame["target"]})["backendNodeId"]
+        quad = self.cdp.call("DOM.getBoxModel", {"backendNodeId": owner})["model"]["content"]
+        return quad[0], quad[1]
 
     def click(self, ref: int) -> Dict[str, Any]:
-        self._element(ref)
-        box = self._js(f"(() => {{ const e = window.__bref[{ref - 1}]; e.scrollIntoView({{block: 'center', inline: 'center'}}); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }})()")
+        session, local, _ = self._where(ref)
+        x, y = self._js(CENTER_JS.replace("%I%", str(local)), session=session)
+        if session is not None:
+            dx, dy = self._frame_origin(session)
+            x, y = x + dx, y + dy
         since = len(self.cdp.events)
-        for kind in ("mouseMoved", "mousePressed", "mouseReleased"):
-            self.cdp.call("Input.dispatchMouseEvent", {"type": kind, "x": box[0], "y": box[1], "button": "left", "buttons": 1 if kind == "mousePressed" else 0, "clickCount": 1})
+        page = self.cdp
+        try:
+            for kind in ("mouseMoved", "mousePressed", "mouseReleased"):
+                page.call("Input.dispatchMouseEvent", {"type": kind, "x": x, "y": y, "button": "left", "buttons": 1 if kind == "mousePressed" else 0, "clickCount": 1})
+        except BrowserError:
+            if not page.closed:
+                raise                                                   # the click closed the window it was made in: that is a result, not a failure
         self.settle(since)
         return self.snapshot()
 
     def type(self, ref: int, text: str, submit: bool = False, clear: bool = True) -> Dict[str, Any]:
-        self._element(ref)
-        kind = self._js(f"(() => {{ const e = window.__bref[{ref - 1}]; e.scrollIntoView({{block: 'center'}}); e.focus(); return e.type || e.tagName.toLowerCase(); }})()")
+        session, local, _ = self._where(ref)
+        kind = self._js(f"(() => {{ const e = window.__bref[{local}]; e.scrollIntoView({{block: 'center'}}); e.focus(); return e.type || e.tagName.toLowerCase(); }})()", session=session)
         if kind in ("checkbox", "radio", "submit", "button", "file", "image", "reset"):
             raise BrowserError(f"that element is a {kind}: click it instead of typing")
         if clear:
-            self._js(f"(() => {{ const e = window.__bref[{ref - 1}]; if (e.select) e.select(); else if (e.isContentEditable) document.execCommand('selectAll'); }})()")
+            self._js(f"(() => {{ const e = window.__bref[{local}]; if (e.select) e.select(); else if (e.isContentEditable) e.ownerDocument.execCommand('selectAll'); }})()", session=session)
             self.cdp.call("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Backspace", "code": "Backspace", "windowsVirtualKeyCode": 8})
             self.cdp.call("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Backspace", "code": "Backspace", "windowsVirtualKeyCode": 8})
         if text:
@@ -425,10 +634,10 @@ class Browser:
         return self.snapshot()
 
     def select(self, ref: int, value: str) -> Dict[str, Any]:
-        self._element(ref)
-        ok = self._js(f"(() => {{ const e = window.__bref[{ref - 1}]; if (e.tagName !== 'SELECT') return 'notselect'; const want = {json.dumps(value)}.toLowerCase(); "
+        session, local, _ = self._where(ref)
+        ok = self._js(f"(() => {{ const e = window.__bref[{local}]; if (e.tagName !== 'SELECT') return 'notselect'; const want = {json.dumps(value)}.toLowerCase(); "
                       "const o = [...e.options].find(x => x.value.toLowerCase() === want || x.text.trim().toLowerCase() === want); if (!o) return 'nooption'; "
-                      "e.value = o.value; e.dispatchEvent(new Event('input', {bubbles: true})); e.dispatchEvent(new Event('change', {bubbles: true})); return 'ok'; })()")
+                      "e.value = o.value; e.dispatchEvent(new Event('input', {bubbles: true})); e.dispatchEvent(new Event('change', {bubbles: true})); return 'ok'; })()", session=session)
         if ok == "notselect":
             raise BrowserError("that element is not a list to choose from")
         if ok == "nooption":
@@ -468,7 +677,7 @@ def describe(page: Dict[str, Any], hidden: Optional[set] = None) -> str:
     lines = [f"URL: {page['url']}", f"Title: {page['title']}", "Elements:"]
     for it in page["items"]:
         kind = "link" if it["tag"] == "a" else (it["tag"] if it["tag"] not in ("input", "button") else (f"{it['tag']}[{it['type']}]" if it["type"] else it["tag"]))
-        bits = [f"[{it['ref']}] {kind}", f"\"{it['name']}\""]
+        bits = [f"[{it['ref']}] {kind}", f"\"{it['name']}\""] + ([f"(in {it['frame']})"] if it.get("frame") else [])
         for key in ("value", "href"):
             if it.get(key):
                 bits.append(f"{key}={'(set)' if key == 'value' and hidden and it[key] in hidden else it[key]}")
@@ -487,16 +696,19 @@ def describe(page: Dict[str, Any], hidden: Optional[set] = None) -> str:
 
 
 def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path = "", headless: bool = False, executable: str = "",
-                           allow_private: bool = False, browser: Optional[Browser] = None) -> Browser:
+                           allow_private: bool = False, browser: Optional[Browser] = None, persistent: bool = False) -> Browser:
     """Adds the browser tools. The browser starts at the first use and is closed with the conversation."""
     from harness.tools.registry import EffectClass
 
     mask = secrets.mask_secrets if secrets is not None else (lambda t: t)
-    b = browser or Browser(profile_dir, headless, executable, allow_private, mask)
+    b = browser or Browser(profile_dir, headless, executable, allow_private, mask, persistent)
     b.mask = mask
 
     def shown(page: Dict[str, Any]) -> str:
-        return mask(describe(page, b.hidden))
+        text = mask(describe(page, b.hidden))
+        if b.notice:
+            text, b.notice = b.notice + "\n" + text, ""
+        return text
 
     def guard(fn: Callable[..., Any]) -> Callable[..., Any]:
         def run(**kw: Any) -> Any:
@@ -517,7 +729,7 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
 
     def type_into(ref: int, text: str, submit: bool = False, clear: bool = True) -> Any:
         if secrets is not None and secrets.has_references(text):
-            host = b.snapshot()["host"]                                     # the site the value would be typed into, as the page is now
+            host = b.host_for(ref)                                          # the site that would receive it: the frame's own, when the field is in one
             try:
                 text = secrets.resolve_tokens(text, destinations=[host])
                 b.hidden.add(text[:60])                                      # the page lists a field's value cut to 60 characters

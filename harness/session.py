@@ -804,6 +804,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--browser", action="store_true", help="offer the browser tools: Edge or Chrome on this PC, for forms, purchases and bookings")
     parser.add_argument("--browser-headless", action="store_true", help="the browser has no window")
     parser.add_argument("--browser-private", action="store_true", help="the browser may open pages on this PC and its network")
+    parser.add_argument("--browser-profile", default="", help="a profile folder that keeps the browser's sign-ins between conversations")
     parser.add_argument("--vault-dir", default="", help="the person's vault: the model writes {{vault:ENTRY.FIELD}} and the value is filled in for it")
     parser.add_argument("--skills", action="append", default=[], metavar="DIR")
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of in the conversation")
@@ -864,7 +865,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                       capabilities=args.capabilities and not args.ask_only, lsp=args.lsp and not args.ask_only, council=not args.ask_only,
                       vault_dir="" if args.ask_only else args.vault_dir,
                       payments_dir="" if args.ask_only else args.payments_dir, browser=args.browser and not args.ask_only,
-                      browser_headless=args.browser_headless, browser_private=args.browser_private)
+                      browser_headless=args.browser_headless, browser_private=args.browser_private, browser_profile=args.browser_profile)
     from harness.client import BasaltClient
     from harness.llm import client_for, judge_for
     from harness.llm.judge import router_judge
