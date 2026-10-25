@@ -100,7 +100,10 @@
       const outside = f.provider && !(state.providers.find(p => p.id === f.provider) || {}).is_local;
       const consent = h("input"); consent.type = "checkbox"; consent.checked = f.consent; consent.disabled = !f.needs_consent;
       consent.setAttribute("aria-label", T("pv.consent.for", f.label));
-      consent.onchange = async () => { const r = await call("POST", "api/llm/consent", { function: f.id, allowed: consent.checked }); if (r.ok) state = r.data; else say(explain(r), true); draw(); };
+      consent.onchange = async () => {
+        if (consent.checked && !(await riskConfirm([T("pv.risk.consent", f.label)]))) { draw(); return; }
+        const r = await call("POST", "api/llm/consent", { function: f.id, allowed: consent.checked }); if (r.ok) state = r.data; else say(explain(r), true); draw();
+      };
       body.append(h("tr", "", h("td", "", f.label), h("td", "", T("pv.data." + f.data)), h("td", "", sel),
         h("td", "", f.needs_consent ? consent : h("span", "dim", "—"), outside && !f.consent ? h("span", "dim", " " + T("pv.consent.need")) : null),
         h("td", f.ok ? "" : "pv-bad", f.provider ? (f.ok ? T("pv.ok") : f.why) : T("pv.local.short"))));

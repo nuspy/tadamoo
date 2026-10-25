@@ -359,7 +359,7 @@ class SessionManager:
             cmd += ["--payments-dir", str(self.payments_dir)]
         prefs = self.browser_prefs() if self.browser_prefs else {}
         if not rec.get("ask_only") and prefs.get("enabled"):
-            cmd += ["--browser"] + (["--browser-headless"] if prefs.get("headless") else [])
+            cmd += ["--browser"] + (["--browser-headless"] if prefs.get("headless") else []) + (["--browser-private"] if prefs.get("private") else [])
         if rec.get("context_patterns"):
             cmd += ["--context-patterns", json.dumps(rec["context_patterns"])]
         if rec.get("context_threshold"):

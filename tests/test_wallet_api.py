@@ -137,7 +137,9 @@ def test_the_browser_choice_is_kept_and_read_by_the_conversations(setup):
     base, tmp = setup
     code, body = call(base, "GET", "/api/wallet")
     assert body["browser"]["enabled"] is True and body["browser"]["headless"] is False        # on, with a window, until the person says otherwise
+    assert body["browser"]["private"] is False                                                 # pages of this PC and its network: off until they say so
     assert call(base, "POST", "/api/wallet/browser", {"enabled": True})[0] == 400
     code, body = call(base, "POST", "/api/wallet/browser", {"enabled": False, "headless": True})
-    assert code == 200 and body["browser"]["enabled"] is False and body["browser"]["headless"] is True
-    assert BrowserPrefs(tmp / "browser.json").read() == {"enabled": False, "headless": True}
+    assert code == 200 and body["browser"]["enabled"] is False and body["browser"]["headless"] is True and body["browser"]["private"] is False
+    assert call(base, "POST", "/api/wallet/browser", {"enabled": True, "headless": False, "private": True})[1]["browser"]["private"] is True
+    assert BrowserPrefs(tmp / "browser.json").read() == {"enabled": True, "headless": False, "private": True}

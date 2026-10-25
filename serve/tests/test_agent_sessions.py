@@ -556,6 +556,9 @@ def test_what_a_conversation_gets_follows_the_wallet_choices(make, ws, tmp_path)
     assert "--browser" in cmd and "--browser-headless" not in cmd
     prefs["headless"] = True
     assert "--browser-headless" in mgr._command("s1", rec, tmp_path / "h")
+    assert "--browser-private" not in mgr._command("s1", rec, tmp_path / "h")
+    prefs["private"] = True
+    assert "--browser-private" in mgr._command("s1", rec, tmp_path / "h")
     prefs["enabled"] = False
     assert "--browser" not in mgr._command("s1", rec, tmp_path / "h")
     asking = mgr._command("s1", {**rec, "ask_only": True}, tmp_path / "h")                    # a question-only conversation gets none of it

@@ -246,7 +246,7 @@ def check_url(url: str, allow_private: bool = False) -> str:
 
 
 class BrowserPrefs:
-    """What the person chose about the agent's browser: whether it has one, and whether it shows a window."""
+    """What the person chose about the agent's browser: whether it has one, whether it shows a window, and whether it may open pages on this PC and its network."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -256,11 +256,11 @@ class BrowserPrefs:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             data = {}
-        return {"enabled": data.get("enabled") is not False, "headless": data.get("headless") is True}
+        return {"enabled": data.get("enabled") is not False, "headless": data.get("headless") is True, "private": data.get("private") is True}
 
-    def write(self, enabled: bool, headless: bool) -> Dict[str, bool]:
+    def write(self, enabled: bool, headless: bool, private: bool = False) -> Dict[str, bool]:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({"enabled": bool(enabled), "headless": bool(headless)}), encoding="utf-8")
+        self.path.write_text(json.dumps({"enabled": bool(enabled), "headless": bool(headless), "private": bool(private)}), encoding="utf-8")
         return self.read()
 
 

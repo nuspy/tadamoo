@@ -14,7 +14,9 @@
 <link rel="stylesheet" href="web/agent.css">
 <link rel="stylesheet" href="web/shell.css">
 <link rel="stylesheet" href="web/wallet.css">
+<link rel="stylesheet" href="web/risk.css">
 <script defer src="web/i18n.js"></script>
+<script defer src="web/risk.js"></script>
 <script defer src="web/app.js"></script>
 <script defer src="web/shell.js"></script>
 <script defer src="web/patterns.js"></script>
@@ -381,7 +383,7 @@
               <label class="ag-mode"><input type="radio" name="ag-mode" value="default" checked><span><b data-t="ag.mode.default">Ask first</b><small data-t="ag.mode.default.d">Edits files in the folder. Asks you before it runs a command.</small></span></label>
               <label class="ag-mode"><input type="radio" name="ag-mode" value="auto"><span><b data-t="ag.mode.auto">Automatic</b><small data-t="ag.mode.auto.d">Runs commands without asking. Use it only in a folder you can lose.</small></span></label>
             </fieldset>
-            <label class="ag-check" id="ag-auto-row" hidden><input type="checkbox" id="ag-auto"><span data-t="ag.auto.confirm">I understand that the agent will run commands on this PC without asking me.</span></label>
+            <div id="ag-auto-row" hidden></div>
             <details class="ag-adv">
               <summary data-t="ag.adv">More options</summary>
               <label for="ag-steps" data-t="ag.steps">Most steps</label>

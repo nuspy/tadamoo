@@ -808,6 +808,7 @@
       el("p", { class: "help", text: T("pl.set.help") }),
       el("p", { class: "pl-fact", text: s.key_present ? T("pl.set.key.yes") : T("pl.set.key.no") }),
       el("label", { class: "pl-check" }, el("input", { type: "checkbox", id: "pl-s-cloud", checked: s.cloud_triage, disabled: !s.key_present }), el("span", { text: T("pl.set.cloud") })),
+      ...(s.cloud_triage ? [riskLabel(T("pl.risk.cloud"))] : []),
       el("label", { class: "pl-check" }, el("input", { type: "checkbox", id: "pl-s-pseudo", checked: s.pseudonymize }), el("span", { text: T("pl.set.pseudo") })),
       el("fieldset", { class: "pl-parents" }, el("legend", { text: T("pl.set.fields") }),
         FIELDS.map(f => el("label", { class: "pl-check" }, el("input", { type: "checkbox", name: "field", value: f, checked: picked.includes(f) }), el("span", { text: T("pl.card." + f) })))),
@@ -824,6 +825,7 @@
     const fields = [...ui.setBody.querySelectorAll("input[name=field]:checked")].map(i => i.value);
     const body = { cloud_triage: ui.setBody.querySelector("#pl-s-cloud").checked, pseudonymize: ui.setBody.querySelector("#pl-s-pseudo").checked,
       card_fields: fields.length === FIELDS.length ? null : fields };
+    if (body.cloud_triage && !(S.settings && S.settings.cloud_triage) && !(await riskConfirm([T("pl.risk.cloud")]))) { drawSettings(); return; }
     const r = await api("api/planner/settings", body);
     if (!r.ok) { say(errText(r.data) || T("pl.failed"), true); return; }
     S.settings = r.data;

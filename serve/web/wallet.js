@@ -83,9 +83,17 @@
     });
     return h("li", "wl-card",
       h("div", "wl-head", h("b", "", en.label), h("span", "wl-tag", T("wl.kind." + en.kind)), h("code", "wl-id", en.id)),
-      lines, h("p", "wl-facts", facts.join(" · ")),
+      lines, h("p", "wl-facts", facts.join(" · ")), ...entryRisks(en).map(([, text]) => riskLabel(text)),
       h("div", "wl-actions", btn(T("wl.edit"), "", () => { editing = { id: en.id, kind: en.kind, isNew: false, en }; draw(); }), del));
   }
+  /* the settings of an entry that raise a risk: each is a label wherever it is on, and is asked about twice when it is set */
+  const entryRisks = e => {
+    const out = [];
+    if (e.kind === "card" && e.guard === false) out.push(["guard", T("wl.risk.guard")]);
+    if ((e.hosts || []).includes("*")) out.push(["anysite", T("wl.risk.anysite")]);
+    if (e.kind === "login" && e.second_factor === "automatic") out.push(["totp", T("wl.risk.totp")]);
+    return out;
+  };
   const SECRET_FIELDS = new Set(["cvc", "password", "totp_secret", "value"]);
   function editor() {
     const e = editing, en = e.en || { fields: {}, hosts: [] };
@@ -146,6 +154,10 @@
       const body = { id: id.value.trim(), kind: e.kind, label: lab.value.trim(), fields, hosts: hosts.value };
       if (e.kind === "card") Object.assign(body, { card_kind: cardKind.value, currency: currency.value.trim(), guard: guard.checked });
       if (e.kind === "login") body.second_factor = second;
+      const was = new Set(entryRisks(en).map(r => r[0]));
+      const now = entryRisks({ kind: e.kind, guard: body.guard, hosts: body.hosts.replace(/,/g, " ").split(/\s+/), second_factor: body.second_factor });
+      const added = now.filter(r => !was.has(r[0])).map(r => r[1]);
+      if (added.length && !(await riskConfirm(added))) return;
       save.disabled = true;
       const r = await call("POST", "api/wallet/entry", body);
       save.disabled = false;
@@ -229,13 +241,16 @@
     const on = h("input"); on.type = "checkbox"; on.id = "wl-br-on"; on.checked = b.enabled; on.disabled = !b.found;
     const hide = h("input"); hide.type = "checkbox"; hide.id = "wl-br-hide"; hide.checked = b.headless; hide.disabled = !b.found;
     const save = async () => {
-      const r = await call("POST", "api/wallet/browser", { enabled: on.checked, headless: hide.checked });
+      const r = await call("POST", "api/wallet/browser", { enabled: on.checked, headless: hide.checked, private: priv.checked });
       if (r.ok) { data.browser = r.data.browser; say(T("wl.saved")); draw(); } else say(why(r), true);
     };
+    const priv = h("input"); priv.type = "checkbox"; priv.id = "wl-br-priv"; priv.checked = !!b.private; priv.disabled = !b.found;
     on.onchange = save; hide.onchange = save;
+    priv.onchange = async () => { if (priv.checked && !(await riskConfirm([T("wl.risk.private")]))) { priv.checked = false; return; } save(); };
     const row = (input, text) => { const l = h("label", "wl-rm", input, h("span", "", text)); l.htmlFor = input.id; return l; };
     return h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.br"))), h("div", "wl-body", h("p", "help", T("wl.br.help")),
-      b.found ? null : h("p", "wl-note", T("wl.br.none")), row(on, T("wl.br.on")), row(hide, T("wl.br.hide")), h("p", "help", T("wl.br.next"))));
+      b.found ? null : h("p", "wl-note", T("wl.br.none")), row(on, T("wl.br.on")), row(hide, T("wl.br.hide")), row(priv, T("wl.br.private")),
+      ...(b.private ? [riskLabel(T("wl.risk.private"))] : []), h("p", "help", T("wl.br.next"))));
   }
 
   /* ---- the history ---- */

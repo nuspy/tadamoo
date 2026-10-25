@@ -87,9 +87,11 @@
     el.classList.toggle("bad", bad && !!message);
   }
 
+  let autoOk = false, lastMode = "default";                    // Automatic is on only after the two questions, and only while it stays chosen
   function syncForm() {
     const busy = starting || !!active;
-    $id("ag-auto-row").hidden = modeValue() !== "auto";
+    $id("ag-auto-row").hidden = modeValue() !== "auto" || !autoOk;
+    $id("ag-auto-row").replaceChildren(...(autoOk ? [riskLabel(T("ag.auto.risk"))] : []));
     $id("ag-start").disabled = busy || !loaded;
     $id("ag-stop").hidden = !active;
     $id("ag-nomodel").hidden = loaded;
@@ -101,7 +103,7 @@
     if (event) event.preventDefault();
     if (starting || active) return;
     const mode = modeValue();
-    if (mode === "auto" && !$id("ag-auto").checked) { showMessage(T("ag.e.auto_confirm")); $id("ag-auto").focus(); return; }
+    if (mode === "auto" && !autoOk) { showMessage(T("ag.e.auto_confirm")); return; }
     const allow = $id("ag-allow").value.split("\n").map(s => s.trim()).filter(Boolean);
     rememberForm();
     starting = true;
@@ -109,12 +111,11 @@
     syncForm();
     const res = await call("POST", "api/agent/runs", {
       workspace: $id("ag-folder").value.trim(), goal: $id("ag-goal").value, mode, allow,
-      max_turns: Number($id("ag-steps").value) || 15, confirm_auto: mode === "auto" && $id("ag-auto").checked,
+      max_turns: Number($id("ag-steps").value) || 15, confirm_auto: mode === "auto" && autoOk,
     });
     starting = false;
     if (!res.ok) { showMessage(explain(res)); syncForm(); return; }
     showMessage("");
-    $id("ag-auto").checked = false;
     selected = res.data.run.id;
     logSig = "";
     await tick();
@@ -429,7 +430,16 @@
     savedForm();
     $id("ag-form").addEventListener("submit", submit);
     $id("ag-stop").addEventListener("click", stop);
-    document.querySelectorAll('input[name="ag-mode"]').forEach(r => r.addEventListener("change", syncForm));
+    lastMode = modeValue();
+    document.querySelectorAll('input[name="ag-mode"]').forEach(r => r.addEventListener("change", async () => {
+      if (modeValue() === "auto" && !autoOk) {
+        if (await riskConfirm([T("ag.auto.risk")])) autoOk = true;
+        else document.querySelector(`input[name="ag-mode"][value="${lastMode}"]`).checked = true;
+      }
+      if (modeValue() !== "auto") autoOk = false;
+      lastMode = modeValue();
+      syncForm();
+    }));
     $id("ag-goal").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submit(e); });
     $id("ag-nomodel-go").addEventListener("click", () => view("loader"));
     renderAll();

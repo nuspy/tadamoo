@@ -44,9 +44,9 @@ class WalletApi:
 
     def set_browser(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """Whether the agent has a browser in the conversations it starts from now, and whether the browser shows a window."""
-        if not isinstance(req.get("enabled"), bool) or not isinstance(req.get("headless"), bool):
+        if not isinstance(req.get("enabled"), bool) or not isinstance(req.get("headless"), bool) or not isinstance(req.get("private", False), bool):
             raise WalletError("send enabled and headless as true or false")
-        return {"browser": {"found": bool(find_browser()), **self._browser.write(req["enabled"], req["headless"])}}
+        return {"browser": {"found": bool(find_browser()), **self._browser.write(req["enabled"], req["headless"], req.get("private", False))}}
 
     # -- the vault -------------------------------------------------------------------------------
 
