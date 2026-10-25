@@ -545,6 +545,20 @@ def test_a_code_is_typed_by_the_person_and_is_not_kept_in_the_conversation(make,
     assert answered and answered[0]["value"] == ""                                 # the conversation did not
 
 
+def test_the_choice_of_a_capability_may_be_a_button_or_a_short_sentence_after_other(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "capability")
+    until(lambda: mgr.get(sid)["state"] == "asking")
+    assert mgr.get(sid)["ask"]["free_prefix"] == "other:" and mgr.get(sid)["ask"]["kind"] == "capability_choice"
+    for bad in ("install:2", "use pdftotext", "other" + ":" + "x" * 501, None, ""):
+        with pytest.raises(RunError, match="not one of the answers"):
+            mgr.answer(sid, "k1", bad)
+    mgr.answer(sid, "k1", "other:use pdftotext")
+    done = until(lambda: next((e for e in mgr.events(sid)["events"] if e["event"] == "done" and e["final"].startswith("answered")), None))
+    assert done["final"] == "answered: other:use pdftotext"
+
+
 def test_what_a_conversation_gets_follows_the_wallet_choices(make, ws, tmp_path):
     vault, payments = tmp_path / "vault", tmp_path / "payments"
     prefs = {"enabled": True, "headless": False}

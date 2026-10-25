@@ -43,7 +43,7 @@ EVENTS_KEPT = 3000
 SESSIONS_FILE = "agent_sessions.json"
 TITLE_CHARS = 80
 OPTIONS = ("resume", "close")
-ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free")
+ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free", "free_prefix")
 COMPARES_FILE = "compares.json"
 COMPARE_SETTINGS = ("mode", "max_turns", "ask_only", "end_turn_bias")      # what the two sides of a comparison may differ in
 EFFECTS_FILE = "tool_effects.json"                                          # the effect class of each tool this conversation has used
@@ -922,7 +922,8 @@ class SessionManager:
             if free:
                 if not valid_code(value):
                     raise RunError("A code is up to 32 letters, digits, spaces or dashes.", "bad_answer")
-            elif value not in [o.get("value") for o in ask.get("options") or []]:
+            elif value not in [o.get("value") for o in ask.get("options") or []] and not (        # one answer may be a sentence after a fixed prefix
+                    ask.get("free_prefix") and isinstance(value, str) and value.startswith(ask["free_prefix"]) and len(value) <= len(ask["free_prefix"]) + 500):
                 raise RunError("That is not one of the answers.", "bad_answer")
             self._set(rec, state="busy", ask=None)
             if not self._write(sid, live, {"cmd": "answer", "id": ask_id, "value": value}):

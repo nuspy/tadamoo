@@ -308,7 +308,8 @@ class Session:
         """A confirmation: shown with its buttons, and the task waits for the answer ("confirm", "cancel" or "" if it was
         cancelled). A task waiting for the person is not stuck."""
         aid = uuid.uuid4().hex[:8]
-        slot = {"event": threading.Event(), "value": "", "values": {o["value"] for o in payload.get("options", [])}, "free": bool(payload.get("free"))}
+        slot = {"event": threading.Event(), "value": "", "values": {o["value"] for o in payload.get("options", [])}, "free": bool(payload.get("free")),
+                "free_prefix": str(payload.get("free_prefix") or "")}
         cancel = self._cur_cancel()
         with self._ask_lock:
             self._asks[aid] = slot
@@ -329,7 +330,8 @@ class Session:
     def answer(self, aid: Any, value: Any) -> bool:
         with self._ask_lock:
             slot = self._asks.get(str(aid))
-        if slot is None or not (value in slot["values"] or (slot["free"] and valid_code(value))):
+        sentence = bool(slot and slot["free_prefix"] and isinstance(value, str) and value.startswith(slot["free_prefix"]) and len(value) <= len(slot["free_prefix"]) + 500)
+        if slot is None or not (value in slot["values"] or (slot["free"] and valid_code(value)) or sentence):
             self.emit({"event": "error", "code": "bad_answer", "message": "no such question, or not one of its answers"})
             return False
         slot["value"] = value
@@ -893,6 +895,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     session.endpoint, session.api_key = cfg.endpoint, cfg.api_key
     if built.agent.secrets is not None:
         built.agent.secrets.ask_code = session.ask_code
+    if getattr(built.agent.tools, "capability_ask", None) is not None:
+        built.agent.tools.capability_ask.ask = session._ask                      # find_online_capability puts its choice to the person here
     if built.payment_confirm is not None:
         built.payment_confirm.ask = session.ask_payment
         built.payment_confirm.notice = session.payment_notice

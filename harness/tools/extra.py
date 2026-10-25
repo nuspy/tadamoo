@@ -1,4 +1,4 @@
-"""The tools added to the standard registry: run_code, spawn_subagent, delegate_to_acp_agent and ask_a2a_agent.
+"""The tools added to the standard registry: run_code, spawn_subagent, delegate_to_acp_agent, ask_a2a_agent and find_online_capability.
 
 `register_extra_tools` is the one place `harness.stack` calls. `run_code` and `spawn_subagent` are always offered unless the
 configuration lists the tools it wants (`extra_tools`). The other two exist only for agents the person wrote down in a file
@@ -6,6 +6,9 @@ in the user data folder, so the model can name an agent but never an address or 
 
 * `acp_agents.json`: {"agents": {"name": {"command": ["program", "arg"], "env": ["VARIABLE_TO_PASS"], "description": "..."}}}
 * `a2a_agents.json`: {"agents": {"name": {"url": "https://...", "token_env": "VARIABLE_WITH_A_BEARER_TOKEN", "description": "..."}}}
+
+`find_online_capability` exists when the capability index does (harness/discovery); the conversation puts its question to the person
+through `registry.capability_ask`.
 
 An ACP agent starts with a clean environment plus the variables listed in `env`; its permission requests are put to the
 person through the same permission manager as the harness's own tools.
@@ -20,7 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from harness.tools.registry import EffectClass
 
-ALL = ("run_code", "spawn_subagent", "delegate_to_acp_agent", "ask_a2a_agent")
+ALL = ("run_code", "spawn_subagent", "delegate_to_acp_agent", "ask_a2a_agent", "find_online_capability")
 TASK_MAX = 8000
 
 
@@ -67,7 +70,7 @@ def _task_error(task: Any) -> Optional[str]:
 
 def register_extra_tools(registry: Any, config: Any = None, *, workspace: Any = None, sandbox: Any = None, client: Any = None,
                          permissions: Any = None, hooks: Any = None, audit: Any = None, checkpoints: Any = None,
-                         secrets: Any = None, output_filter: Any = None, cancel: Optional[threading.Event] = None) -> List[str]:
+                         secrets: Any = None, output_filter: Any = None, cancel: Optional[threading.Event] = None, capabilities: Any = None) -> List[str]:
     """Adds the extra tools to `registry` and returns their names."""
     wanted = _get(config, "extra_tools")
     chosen = set(ALL) if wanted is None else set(wanted) & set(ALL)
@@ -95,6 +98,10 @@ def register_extra_tools(registry: Any, config: Any = None, *, workspace: Any = 
         remote = read_agents(directory, "a2a_agents.json", "url")
         if remote and _register_a2a(registry, remote, cancel):
             added.append("ask_a2a_agent")
+    if "find_online_capability" in chosen and capabilities is not None:       # with the capability index: the search online for a missing MCP server or skill
+        from harness.discovery.tool import register_discovery_tools
+        registry.capability_ask = register_discovery_tools(registry, capabilities, vault_dir=_get(config, "vault_dir") or None)
+        added.append("find_online_capability")
     return added
 
 

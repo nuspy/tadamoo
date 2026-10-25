@@ -99,10 +99,10 @@ def _norm(name: str) -> str:
 
 class Installer:
     def __init__(self, root: Path, store: CandidateStore, *, index: Any = None, runner: Optional[Runner] = None,
-                 which: Callable[[str], Optional[str]] = shutil.which, github: Optional[src.GithubClient] = None,
+                 which: Optional[Callable[[str], Optional[str]]] = None, github: Optional[src.GithubClient] = None,
                  python: str = "", now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> None:
         self.root = Path(root)
-        self.store, self.index, self.runner, self.which, self.github, self.now = store, index, runner or default_runner, which, github, now
+        self.store, self.index, self.runner, self.which, self.github, self.now = store, index, runner or default_runner, which or shutil.which, github, now
         self.python = python or sys.executable
         self.records = InstalledStore(self.root)
         self.approvals = ApprovalStore(self.root / "approved.json")
