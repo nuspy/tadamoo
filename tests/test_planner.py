@@ -982,3 +982,72 @@ def test_a_bad_field_in_an_update_leaves_the_node_untouched():
     with pytest.raises(PlanError):
         dag.update_node("a", title="changed", position={"x": "no", "y": 1})
     assert dag.nodes["a"].title == "A"
+
+
+# -- sensors ---------------------------------------------------------------------------------------------
+
+def snow_plan():
+    dag = PlanDAG(plan_id="neve", title="Neve", target_type="occasional")
+    dag.add_node(node("meteo", NodeType.SENSOR, title="Neve giovedì notte",
+                      conditions={"when": "'nev' in text and source == 'meteo' and 'cervinia' in text",
+                                  "set": {"meteo_confermato": True, "ultimo_meteo": "=text"}}))
+    dag.add_node(node("parti", title="Parti", dependencies=["meteo"]))
+    return dag
+
+
+def test_a_sensor_resolves_on_the_event_that_satisfies_it_and_writes_the_plans_values():
+    dag = snow_plan()
+    assert dag.feed_event({"text": "Nevicata a Cervinia in arrivo", "source": "rss"}) == []             # wrong source
+    assert dag.feed_event({"text": "Pioggia a Cervinia", "source": "meteo"}) == []
+    assert dag.nodes["meteo"].status == "pending" and dag.ready_nodes() == ["meteo"]
+    assert dag.feed_event({"text": "Nevicata a CERVINIA giovedì notte", "source": "meteo", "at": 1.7e9}) == ["meteo"]
+    node_ = dag.nodes["meteo"]
+    assert node_.status == "completed" and dag.shared_state == {"meteo_confermato": True, "ultimo_meteo": "nevicata a cervinia giovedì notte"}
+    assert node_.state_variables["matched"] == {"text": "Nevicata a CERVINIA giovedì notte", "source": "meteo", "at": 1.7e9}
+    assert dag.ready_nodes() == ["parti"]
+    assert dag.feed_event({"text": "Nevicata a Cervinia", "source": "meteo"}) == []                    # resolved: it listens no more
+
+
+def test_a_sensor_listens_only_when_its_turn_has_come_and_reads_the_plans_values():
+    dag = snow_plan()
+    dag.add_node(node("dopo", NodeType.SENSOR, title="Dopo", dependencies=["parti"],
+                      conditions={"when": "meteo_confermato and 'ok' in text", "set": {"via": "=len(text)"}}))
+    assert dag.feed_event({"text": "ok", "source": "x"}) == []                                          # `parti` is not done: not listening
+    dag.mark("meteo", "completed", {"meteo_confermato": True})
+    dag.mark("parti", "completed")
+    assert dag.feed_event({"text": "ok", "source": "x"}) == ["dopo"] and dag.shared_state["via"] == 2
+
+
+def test_a_sensor_that_cannot_judge_waits_and_says_why_and_a_sensor_without_a_condition_is_left_alone():
+    dag = snow_plan()
+    dag.nodes["meteo"].conditions = {"when": "neve_prevista and 'x' in text"}                          # a value nobody set yet
+    assert dag.feed_event({"text": "x", "source": "s"}) == []
+    assert "neve_prevista" in dag.nodes["meteo"].state_variables["sensor_error"] and dag.nodes["meteo"].status == "pending"
+    dag.add_node(node("manuale", NodeType.SENSOR, title="A mano"))
+    assert dag.feed_event({"text": "qualunque cosa", "source": "s"}) == [] and dag.nodes["manuale"].status == "pending"
+
+
+def test_a_sensors_conditions_are_checked_when_they_are_set():
+    dag = snow_plan()
+    for bad in ({"when": "__import__('os')"}, {"when": "a +"}, {"when": ""}, {"when": "x" * 301}, {"set": {"1x": 1}}, {"set": {"v": "=open('f')"}}, {"set": ["v"]}):
+        with pytest.raises(PlanError):
+            dag.update_node("meteo", conditions=bad)
+    dag.update_node("meteo", conditions={"when": "'frana' in text", "note": "kept as is"})
+    with pytest.raises(PlanError):
+        node_from = {"id": "z", "type": "sensor", "title": "z", "description": "", "assignee": "agent", "conditions": {"when": "exec('1')"}}
+        dag.apply_diff({"add_nodes": [node_from]})
+    assert "z" not in dag.nodes
+
+
+def test_the_bridge_feeds_events_to_the_sensors_and_tells_the_viewers():
+    bridge = PlanCanvasBridge(snow_plan())
+    heard = []
+    bridge.subscribe(heard.append)
+    quiet = bridge.handle({"type": "plan:event", "text": "Sole a Cervinia", "source": "meteo", "actor": "system"})
+    assert quiet["ok"] and quiet["resolved"] == [] and bridge.rev == 0 and heard == []
+    res = bridge.handle({"type": "plan:event", "text": "Neve a Cervinia", "source": "meteo", "actor": "system"})
+    assert res["resolved"] == ["meteo"] and res["ready"] == ["parti"] and bridge.rev == 1
+    assert bridge.history[-1]["actor"] == "system" and bridge.history[-1]["type"] == "sensor"
+    assert heard[-1]["type"] == "plan:graph" and heard[-1]["resolved"] == ["meteo"]
+    assert bridge.handle({"type": "plan:event", "text": "  "})["ok"] is False
+    assert bridge.handle({"type": "plan:event"})["ok"] is False

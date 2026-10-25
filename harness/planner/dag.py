@@ -172,6 +172,7 @@ EDITABLE = ("title", "description", "assignee", "conditions", "state_variables",
 # -- what a node may carry ---------------------------------------------------------------------------------
 
 MAX_ATTEMPTS, MAX_WAIT_SECONDS, MAX_BACKOFF = 10, 7 * 86400, 10
+EVENT_TEXT_CHARS = 2000
 POSITION_LIMIT = 1_000_000
 _NUMBER = re.compile(r"^\+?[0-9][0-9 ()\-]{5,19}$")
 CALL_REASON_CHARS, CALL_TEXT_CHARS, WIKI_QUERY_CHARS = 300, 500, 300
@@ -595,6 +596,42 @@ class PlanDAG:
         n.status = "skipped"
         for c in n.outputs:
             self._skip(c, because=node_id)
+
+    def _listening(self, node: PlanNode) -> bool:
+        """A sensor listens from the moment its turn comes (every parent done) until it has resolved."""
+        if node.type != NodeType.SENSOR or node.status not in ("pending", "in_progress") or self._blockers(node):
+            return False
+        parents = [self.nodes[p].status for p in node.dependencies]
+        return all(s in DONE for s in parents) and (not parents or "completed" in parents)
+
+    def feed_event(self, event: Dict[str, Any]) -> List[str]:
+        """Offers an event ({"text", "source", "at"}) to the sensors that are listening. A sensor whose `when` condition
+        holds is completed, and what its `set` names is written into the plan's values; its condition reads `text` (in lower
+        case), `source`, `at` and the plan's values. Returns the ids of the sensors that resolved."""
+        text = str(event.get("text", ""))[:EVENT_TEXT_CHARS]
+        at = event.get("at")
+        seen = {"text": text.lower(), "source": str(event.get("source", ""))[:100],
+                "at": float(at) if isinstance(at, (int, float)) and not isinstance(at, bool) and math.isfinite(at) else time.time()}
+        resolved: List[str] = []
+        for nid in self.topological_order():
+            node = self.nodes[nid]
+            when = node.conditions.get("when")
+            if not when or not self._listening(node):
+                continue
+            variables = {**self.shared_state, **seen}
+            try:
+                if not safe_eval(when, variables):
+                    node.state_variables.pop("sensor_error", None)
+                    continue
+                outputs = {var: safe_eval(value[1:], variables) if isinstance(value, str) and value.startswith("=") else value
+                           for var, value in (node.conditions.get("set") or {}).items()}
+            except PlanError as exc:
+                node.state_variables["sensor_error"] = str(exc)[:200]         # a sensor that cannot judge waits for the next event
+                continue
+            node.state_variables["matched"] = {"text": text[:200], "source": seen["source"], "at": seen["at"]}
+            self.mark(nid, "completed", outputs or None)
+            resolved.append(nid)
+        return resolved
 
     def rewind(self, node_id: str, accept_irreversible: bool = False) -> List[str]:
         """Time travel: puts a node and everything after it back to pending, forgetting what they produced.

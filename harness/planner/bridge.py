@@ -148,7 +148,7 @@ class PlanCanvasBridge:
             "plan:get": self._get, "plan:update_node": self._update_node, "plan:mark": self._mark,
             "plan:rewind": self._rewind, "plan:rewind_impact": self._rewind_impact, "plan:note_effect": self._note_effect, "plan:propose_diff": self._propose, "plan:approve": self._approve,
             "plan:reject": self._reject, "plan:human_fallback": self._offer_fallback,
-            "plan:fallback_response": self._answer_fallback, "plan:update_meta": self._update_meta,
+            "plan:fallback_response": self._answer_fallback, "plan:update_meta": self._update_meta, "plan:event": self._feed,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -198,6 +198,16 @@ class PlanCanvasBridge:
         self._bump("mark", f"{node.title}: {node.status}" + (f", try {retry['attempt']} of {retry['of']} failed, tries again" if retry else ""))
         self._emit("plan:graph", {"seq_graph": True, **({"retry": {"node_id": node.id, **retry}} if retry else {})})
         return {"ready": self.dag.ready_nodes(), "shared_state": self.dag.shared_state, "status": node.status, **({"retry": retry} if retry else {})}
+
+    def _feed(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        """An event from the world ({"text", "source", "at"}) offered to the plan's sensors; the ones it satisfies resolve."""
+        if not isinstance(e.get("text"), str) or not e["text"].strip():
+            raise ValueError("an event needs a text")
+        resolved = self.dag.feed_event(e)
+        if resolved:
+            self._bump("sensor", ", ".join(self.dag.nodes[i].title for i in resolved))
+            self._emit("plan:graph", {"resolved": resolved})
+        return {"resolved": resolved, "ready": self.dag.ready_nodes()}
 
     def _rewind(self, e: Dict[str, Any]) -> Dict[str, Any]:
         from harness.rewind import plan_impact                 # imported here: the plan does not need the checkpoints
