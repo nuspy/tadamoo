@@ -55,7 +55,10 @@
   </nav>
   <span class="grow"></span>
   <button type="button" class="pal-open" id="pal-open" aria-haspopup="dialog" aria-keyshortcuts="Control+K"><span data-t="pal.open">Find a command</span> <kbd>Ctrl K</kbd></button>
-  <button type="button" class="wl-pill" id="wl-pill" hidden></button>
+  <span class="wl-pillwrap" id="wl-pillwrap" hidden>
+    <button type="button" class="wl-pill" id="wl-pill" aria-expanded="false" aria-controls="wl-pop"></button>
+    <div class="wl-pop" id="wl-pop" role="region" aria-labelledby="wl-pill" hidden></div>
+  </span>
   <span class="state" id="state" data-s="offline">Connecting</span>
   <span class="where" id="host"></span>
   <span class="where" id="keyed" hidden>API key</span>
@@ -501,7 +504,8 @@
   </div>
 
   <div class="view wallet" id="view-wallet" role="tabpanel" aria-labelledby="tab-wallet" hidden>
-    <div class="wl-grid" id="wl-root" aria-live="polite"></div>
+    <p class="sr" id="wl-live" role="status" aria-live="polite"></p>
+    <div class="wl-grid" id="wl-root"></div>
   </div>
   <div class="view settings" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
     <nav class="stindex" id="st-index" aria-label="Settings sections"></nav>

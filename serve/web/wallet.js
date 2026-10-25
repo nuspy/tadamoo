@@ -6,7 +6,8 @@
 (() => {
   const root = document.getElementById("wl-root"), dlg = document.getElementById("wl-wizard");
   if (!root || !dlg) return;
-  let data = null, editing = null, sysForm = null, note = "", noteBad = false, wizard = null, vaultFilter = "all", vaultSearch = "";
+  const live = document.getElementById("wl-live");              // the one place a screen reader is told of a result; the page itself is not a live region
+  let data = null, editing = null, sysForm = null, note = "", noteBad = false, wizard = null, vaultFilter = "all", vaultSearch = "", shown = "";
   const again = new Map();                                    // press-again buttons: key -> timer
 
   const h = (tag, cls, ...kids) => {
@@ -28,7 +29,11 @@
     } catch (e) { return { ok: false, status: 0, data: {} }; }
   }
   const why = r => (r.status === 0 ? T("wl.e.offline") : ((r.data.error || {}).message || `HTTP ${r.status}`));
-  function say(text, bad) { note = text; noteBad = !!bad; const n = root.querySelector(".wl-note"); if (n) { n.textContent = note; n.dataset.bad = noteBad ? "1" : ""; n.hidden = !note; } }
+  function say(text, bad) {
+    note = text; noteBad = !!bad;
+    const n = root.querySelector(".wl-note"); if (n) { n.textContent = note; n.dataset.bad = noteBad ? "1" : ""; n.hidden = !note; }
+    if (live) { live.textContent = ""; setTimeout(() => { live.textContent = note; }, 50); }
+  }
   const field = (labelText, input, help) => {
     const id = input.id || (input.id = "wl-f-" + Math.random().toString(36).slice(2, 8));
     const l = h("label", "", labelText); l.htmlFor = id;
@@ -412,32 +417,59 @@
   dlg.addEventListener("cancel", () => { wizard = null; });
 
   /* ---- the page ---- */
-  const pill = document.getElementById("wl-pill");
-  function paintPill() {                                          // while automatic payments are on, every screen says so, and one press goes to the switch
+  const pill = document.getElementById("wl-pill"), wrap = document.getElementById("wl-pillwrap"), pop = document.getElementById("wl-pop");
+  function closePop(focus) {
+    if (!pop || pop.hidden) return;
+    pop.hidden = true; pill.setAttribute("aria-expanded", "false");
+    if (focus) pill.focus();
+  }
+  function paintPop(on) {                                          // the detail behind the pill: the limits and the expiry of each system, as text
+    pop.setAttribute("aria-label", T("wl.pill.panel"));
+    pop.replaceChildren(...on.map(s => h("p", "", T("wl.stop.line", s.name, s.waiver.per_payment, s.waiver.cumulative, s.waiver.spent, s.waiver.remaining, when(s.waiver.expires_at)))),
+      h("div", "wl-actions", btn(T("wl.pill.open"), "primary", () => { closePop(false); view("wallet", true); }), btn(T("wl.pill.close"), "ghost", () => closePop(true))));
+  }
+  function paintPill() {                                          // while automatic payments are on, every screen says so; the pill opens the detail
     if (!pill || !data) return;
     const on = (data.systems || []).filter(s => s.waiver);
-    pill.hidden = !on.length;
-    pill.textContent = T("wl.pill");
-    pill.title = on.map(s => `${s.name}: ${s.waiver.per_payment} / ${s.waiver.cumulative}`).join(" · ");
+    wrap.hidden = !on.length;
+    if (!on.length) { closePop(false); return; }
+    const short = on.length === 1 ? `${on[0].waiver.per_payment} / ${on[0].waiver.cumulative}` : T("wl.pill.many", on.length);
+    pill.textContent = `${T("wl.pill")} · ${short}`;
+    if (!pop.hidden) paintPop(on);
   }
-  if (pill) pill.onclick = () => view("wallet", true);
+  if (pill) {
+    pill.onclick = () => {
+      if (!pop.hidden) { closePop(false); return; }
+      paintPop((data.systems || []).filter(s => s.waiver));
+      pop.hidden = false; pill.setAttribute("aria-expanded", "true");
+    };
+    wrap.addEventListener("keydown", e => { if (e.key === "Escape" && !pop.hidden) { e.stopPropagation(); closePop(true); } });
+    wrap.addEventListener("focusout", e => { if (!pop.hidden && e.relatedTarget && !wrap.contains(e.relatedTarget)) closePop(false); });
+    document.addEventListener("pointerdown", e => { if (!pop.hidden && !wrap.contains(e.target)) closePop(false); });
+  }
   function draw() {
     paintPill();
     if (!data) return;
-    const n = h("p", "wl-note", note); n.setAttribute("role", "status"); n.hidden = !note; n.dataset.bad = noteBad ? "1" : "";
+    const n = h("p", "wl-note", note); n.hidden = !note; n.dataset.bad = noteBad ? "1" : "";
     const problems = (data.problems || []).map(p => h("p", "wl-note", p));
     problems.forEach(p => { p.dataset.bad = "1"; });
     root.replaceChildren(...[banner(), h("div", "wl-top", h("p", "wl-lead", T("wl.lead")), n, ...problems), vaultSection(), paySection(), browserSection(), histSection()].filter(Boolean));
   }
-  async function load() {
+  const inField = () => { const a = document.activeElement; return !!a && root.contains(a) && a.matches("input, select, textarea"); };
+  /* quiet: a periodic or view refresh. It redraws only when the data changed, and never while a field of the page has the focus (the next one does),
+     so what is being typed, and the cursor, stay where they are. A load after an action always redraws. */
+  async function load(quiet) {
     const r = await call("GET", "api/wallet");
-    if (!r.ok) { if (!document.getElementById("view-wallet").hidden) root.replaceChildren(h("p", "wl-note", why(r))); return; }
+    if (!r.ok) { if (!document.getElementById("view-wallet").hidden) root.replaceChildren(h("p", "wl-note", why(r))); shown = ""; return; }
     data = r.data;
-    if (document.getElementById("view-wallet").hidden || !(editing || sysForm || wizard)) draw(); else paintPill();
+    const sig = LANG + JSON.stringify(data);
+    if (editing || sysForm || wizard) { if (document.getElementById("view-wallet").hidden) { draw(); shown = sig; } else paintPill(); return; }
+    if (quiet && (sig === shown || inField())) { paintPill(); return; }
+    draw(); shown = sig;
   }
   load();
-  setInterval(() => { if (!document.hidden) load(); }, 30000);
-  document.addEventListener("basalt:view", e => { if (e.detail === "wallet") load(); });
-  document.addEventListener("basalt:key", () => { if (!document.getElementById("view-wallet").hidden) load(); });
+  setInterval(() => { if (!document.hidden) load(true); }, 30000);
+  document.addEventListener("basalt:view", e => { if (e.detail === "wallet") load(true); });
+  document.addEventListener("basalt:key", () => { if (!document.getElementById("view-wallet").hidden) load(true); });
   applyT(document.getElementById("view-wallet"));
 })();
