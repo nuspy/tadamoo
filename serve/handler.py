@@ -11,6 +11,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import urllib.parse
+from pathlib import Path
 from http.cookies import CookieError, SimpleCookie
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -36,6 +37,7 @@ from serve import review as review_mod
 from serve.agent_runs import AgentRunner, RunBusy, RunError
 from harness.browser import BrowserPrefs
 from harness.payments_broker import PaymentsBroker
+from harness.waiver.dossier import sntp_offset
 from harness.vault import Vault, VaultError
 from serve.agent_sessions import SessionManager
 from serve.routines_api import RoutinesApi
@@ -1379,7 +1381,7 @@ def make_handler(svc: Service):
         def _wallet(self) -> WalletApi:
             global _WALLET
             if _WALLET is None:
-                _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments")), BrowserPrefs(userdata.path("browser.json")), userdata.path("browser-profile"))
+                _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments"), app_root=Path(__file__).resolve().parents[1], network_time=sntp_offset), BrowserPrefs(userdata.path("browser.json")), userdata.path("browser-profile"))
             return _WALLET
 
         def _wallet_post(self, path):
