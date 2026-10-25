@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "serve" / "web"
-NEW_SCRIPTS = ("plans.js", "tasks.js", "changes.js", "shell.js", "agent.js", "agentchat.js", "providers.js", "patterns.js", "capabilities.js")
+NEW_SCRIPTS = ("plans.js", "tasks.js", "changes.js", "shell.js", "agent.js", "agentchat.js", "providers.js", "patterns.js", "capabilities.js", "wallet.js")
 # keys the scripts build at run time, as prefix + each value
 DYNAMIC = {
     "pl.type.": ["action", "sensor", "decision", "merge"],
@@ -25,7 +25,15 @@ DYNAMIC = {
     "pl.kind.": ["occasional", "constant"],
     "ch.state.": ["dormant", "starting", "idle", "busy", "blocked", "asking", "closed"],
     "ch.tool.": ["running", "ok", "failed"],
-    "ch.q.": ["plan_create", "plan_mark", "plan_change", "plan_archive", "permission"],
+    "ch.q.": ["plan_create", "plan_mark", "plan_change", "plan_archive", "permission", "code", "payment"],
+    "wl.kind.": ["card", "identity", "login", "secret"],
+    "wl.field.": ["holder", "number", "expiry", "cvc", "full_name", "birth_date", "address", "city", "postal_code", "country", "phone", "email", "document_number",
+                  "username", "password", "totp_secret", "value"],
+    "wl.cardkind.": ["virtual", "real", "test"],
+    "wl.sf.": ["none", "manual", "automatic", "none.d", "manual.d", "automatic.d"],
+    "wl.credkind.": ["vault_card", "vault_login", "delegated_card", "delegated_token", "mandate"],
+    "wl.act.": ["payment_authorized", "payment_confirmed", "payment_refused", "waiver_granted", "waiver_revoked", "system_registered", "system_removed"],
+    "wl.w.": ["1", "2", "3"],
     "ch.routed.": ["steer", "queue", "urgent", "parallel"],
     "pv.data.": ["personal", "general"],
     "pt.": ["what", "pros", "cons", "when", "cache"],
@@ -42,7 +50,7 @@ DYNAMIC = {
     "ag.mode.": ["plan", "read_only", "default", "auto"],
     "ag.e.": ["folder_missing", "folder_relative", "folder_not_found", "folder_drive", "goal_missing", "goal_long", "bad_mode", "auto_confirm", "bad_rules", "bad_steps", "busy", "start_failed", "not_running", "gone", "approval", "offline", "key", "local", "needs_yes", "no_checkpoint", "rewind_failed"],
     "ch.state.": ["pending", "partial", "kept", "reverted", "superseded"],
-    "tab.": ["chat", "agent", "plans", "stats", "loader", "hardware", "logs", "settings"],
+    "tab.": ["chat", "agent", "plans", "stats", "loader", "hardware", "logs", "wallet", "settings"],
 }
 NODE = shutil.which("node")
 
@@ -119,6 +127,12 @@ class TranslationsTest(unittest.TestCase):
 class MarkupTest(unittest.TestCase):
     html = (WEB / "index.html").read_text(encoding="utf-8")
 
+    @unittest.skipUnless(NODE, "node is needed to check the scripts")
+    def test_every_script_of_the_page_parses(self):
+        for src in re.findall(r'<script[^>]+src="web/([^"]+)"', self.html):
+            out = subprocess.run([NODE, "--check", str(WEB / src)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(out.returncode, 0, f"{src}: {out.stderr}")
+
     def test_every_script_and_stylesheet_exists(self):
         for src in re.findall(r'<script[^>]+src="web/([^"]+)"', self.html) + re.findall(r'<link[^>]+href="web/([^"]+\.css)"', self.html):
             self.assertTrue((WEB / src).is_file(), src)
@@ -138,7 +152,7 @@ class MarkupTest(unittest.TestCase):
 
     def test_navigation_order_and_the_palette_and_the_notice_exist(self):
         tabs = re.findall(r'<button class="tab" role="tab" id="tab-(\w+)" data-view=', self.html)
-        self.assertEqual(tabs, ["chat", "agent", "plans", "stats", "loader", "hardware", "logs", "settings"])
+        self.assertEqual(tabs, ["chat", "agent", "plans", "stats", "loader", "hardware", "logs", "wallet", "settings"])
         for needle in ('id="palette"', 'id="pal-input"', 'id="pal-list"', 'id="pal-open"', 'id="nomodel"', 'id="st-index"',
                        'id="st-ui-scale"', 'id="st-planner-body"', 'aria-keyshortcuts="Control+K"'):
             self.assertIn(needle, self.html, needle)

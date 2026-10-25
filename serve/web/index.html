@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="web/plans.css">
 <link rel="stylesheet" href="web/agent.css">
 <link rel="stylesheet" href="web/shell.css">
+<link rel="stylesheet" href="web/wallet.css">
 <script defer src="web/i18n.js"></script>
 <script defer src="web/app.js"></script>
 <script defer src="web/shell.js"></script>
@@ -32,6 +33,7 @@
 <script defer src="web/changes.js"></script>
 <script defer src="web/plans.js"></script>
 <script defer src="web/agent.js"></script>
+<script defer src="web/wallet.js"></script>
 </head>
 <body>
 
@@ -46,10 +48,12 @@
     <button class="tab" role="tab" id="tab-loader" data-view="loader" aria-controls="view-loader" aria-selected="false" tabindex="-1" data-t="tab.loader">Models</button>
     <button class="tab" role="tab" id="tab-hardware" data-view="hardware" aria-controls="view-hardware" aria-selected="false" tabindex="-1" data-t="tab.hardware">Hardware</button>
     <button class="tab" role="tab" id="tab-logs" data-view="logs" aria-controls="view-logs" aria-selected="false" tabindex="-1" data-t="tab.logs">LOGS</button>
+    <button class="tab" role="tab" id="tab-wallet" data-view="wallet" aria-controls="view-wallet" aria-selected="false" tabindex="-1" data-t="tab.wallet">Wallet</button>
     <button class="tab" role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1" data-t="tab.settings">Settings</button>
   </nav>
   <span class="grow"></span>
   <button type="button" class="pal-open" id="pal-open" aria-haspopup="dialog" aria-keyshortcuts="Control+K"><span data-t="pal.open">Find a command</span> <kbd>Ctrl K</kbd></button>
+  <button type="button" class="wl-pill" id="wl-pill" hidden></button>
   <span class="state" id="state" data-s="offline">Connecting</span>
   <span class="where" id="host"></span>
   <span class="where" id="keyed" hidden>API key</span>
@@ -87,6 +91,8 @@
   <span>Disk read <b id="s-disk">—</b></span>
 </div>
 </div>
+
+<dialog class="wl-dialog" id="wl-wizard" aria-label="Allow automatic payments"></dialog>
 
 <dialog class="palette" id="palette" aria-label="Commands">
   <input class="pal-input" id="pal-input" type="text" role="combobox" aria-expanded="true" aria-controls="pal-list" aria-autocomplete="list" autocomplete="off" spellcheck="false" data-t-ph="pal.ph" placeholder="Type a command or a place">
@@ -492,6 +498,9 @@
     </div>
   </div>
 
+  <div class="view wallet" id="view-wallet" role="tabpanel" aria-labelledby="tab-wallet" hidden>
+    <div class="wl-grid" id="wl-root" aria-live="polite"></div>
+  </div>
   <div class="view settings" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
     <nav class="stindex" id="st-index" aria-label="Settings sections"></nav>
     <section class="sec stlang" aria-labelledby="st-lang-h">

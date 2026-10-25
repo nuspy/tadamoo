@@ -215,8 +215,6 @@ class Vault:
         if kind == "card" and name == "number":
             digits = re.sub(r"\D", "", value)
             return "•••• " + digits[-4:] if len(digits) >= 4 else "set"
-        if kind == "identity":
-            return value if len(value) <= 3 else value[:2] + "…"
         return "set"
 
     def describe(self, entry_id: str) -> Dict[str, Any]:

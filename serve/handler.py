@@ -34,7 +34,10 @@ from serve.util.reqlog import export_jsonl, export_text
 from serve import plans as plans_mod, userdata
 from serve import review as review_mod
 from serve.agent_runs import AgentRunner, RunBusy, RunError
+from harness.payments_broker import PaymentsBroker
+from harness.vault import Vault, VaultError
 from serve.agent_sessions import SessionManager
+from serve.wallet_api import WalletApi, WalletError
 from harness.context_patterns import catalog as context_patterns_catalog
 from serve.capabilities_api import CapabilityApi, CapabilityError
 from serve.llm_api import LlmApi, LlmError
@@ -54,6 +57,7 @@ def stop_sessions() -> None:
     """The server ends: the conversations' processes end with it (the next start finds the conversations again)."""
     if _SESSIONS is not None:
         _SESSIONS.shutdown()
+_WALLET = None                                         # the vault and the payment systems, made on first use
 _MCP_AUTH = None                                       # the sign-in of the remote MCP servers, made on first use
 _PLANS = None                                          # the planner's service, made on first use
 from serve.util.reqtrace import RequestTrace
@@ -367,6 +371,11 @@ def make_handler(svc: Service):
             elif path == "/api/capabilities" or path == "/api/capabilities/review":
                 if self._authorized():
                     self._capabilities_get(path)
+            elif path == "/api/wallet":
+                if self._authorized():
+                    if not settings.is_loopback(self.client_address[0]):
+                        return self._json(403, {"error": {"type": "forbidden", "message": "the vault is shown only on the PC the server runs on"}})
+                    self._json(200, self._wallet().overview())
             elif path == "/api/mcp/auth":
                 if self._authorized():
                     self._json(200, self._mcp_auth().overview())
@@ -514,6 +523,9 @@ def make_handler(svc: Service):
                 return
             if path in ("/api/mcp/auth/start", "/api/mcp/auth/signout"):
                 self._mcp_auth_post(path)
+                return
+            if path.startswith("/api/wallet/"):
+                self._wallet_post(path)
                 return
             if path == "/api/changes/review":
                 if not settings.is_loopback(self.client_address[0]):
@@ -1353,6 +1365,45 @@ def make_handler(svc: Service):
             self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
             self.end_headers()
             self.wfile.write(body)
+
+        def _wallet(self) -> WalletApi:
+            global _WALLET
+            if _WALLET is None:
+                _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments")))
+            return _WALLET
+
+        def _wallet_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the vault is changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 16)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            if not self._own_page("the vault and the payment limits can be changed"):
+                return
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                api, action = self._wallet(), path[len("/api/wallet/"):]
+                if action == "entry":
+                    return self._json(200, {"entry": api.put_entry(req)})
+                if action == "entry/delete":
+                    return self._json(200, api.delete_entry(req.get("id")))
+                if action == "system":
+                    return self._json(200, api.put_system(req))
+                if action == "system/remove":
+                    return self._json(200, api.remove_system(req.get("id")))
+                if action == "phrase":
+                    return self._json(200, api.phrase(req))
+                if action == "grant":
+                    return self._json(200, api.grant(req))
+                if action == "revoke":
+                    return self._json(200, api.revoke(req.get("id")))
+                return self._json(404, {"error": {"message": "not found"}})
+            except (WalletError, VaultError, ValueError, TypeError, PermissionError) as e:
+                return self._json(400, {"error": {"type": "wallet", "message": str(e)}})
 
         def _mcp_auth_post(self, path):
             if not settings.is_loopback(self.client_address[0]):

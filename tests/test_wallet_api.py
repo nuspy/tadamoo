@@ -1,0 +1,132 @@
+"""The page that keeps the vault and the payment limits: values go in and never come out, and the declaration is checked by the server."""
+import json
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from harness.payments_broker import PaymentsBroker
+from harness.vault import Vault
+from harness.waiver import required_phrase
+from serve import handler
+from serve.wallet_api import WalletApi
+from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)
+
+NAME = "Mario Rossi"
+NUMBER = "4242 4242 4242 4242"
+
+
+def call(base, method, path, body=None):
+    data = None if body is None else json.dumps(body).encode()
+    req = urllib.request.Request(base + path, data=data, method=method, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+@pytest.fixture
+def setup(tmp_path, monkeypatch, start_server):  # noqa: F811
+    api = WalletApi(lambda: Vault(tmp_path / "vault"), lambda: PaymentsBroker(tmp_path / "payments"))
+    monkeypatch.setattr(handler, "_WALLET", api)
+    return start_server([answer("x")]), tmp_path
+
+
+def card(base, **kw):
+    return call(base, "POST", "/api/wallet/entry", {"id": "trip", "kind": "card", "label": "Trip card", "card_kind": "virtual", "currency": "eur",
+                                                    "fields": {"holder": NAME, "number": NUMBER, "expiry": "12/30", "cvc": "123"}, "hosts": "shop.example, pay.example", **kw})
+
+
+def system(base, **kw):
+    return call(base, "POST", "/api/wallet/system", {"id": "vcard", "name": "Trip card", "kind": "virtual card", "credential_kind": "vault_card",
+                                                      "vault_entry": "trip", "currency": "EUR", "terms_url": "https://provider.example/terms",
+                                                      "terms_checked_on": "2026-10-24", "how_to_revoke": "Block the card in the provider app", **kw})
+
+
+def test_a_card_goes_in_and_only_its_last_four_digits_come_out(setup):
+    base, tmp = setup
+    code, body = card(base)
+    assert code == 200 and body["entry"]["fields"]["number"] == "•••• 4242" and body["entry"]["hosts"] == ["shop.example", "pay.example"]
+    code, body = call(base, "GET", "/api/wallet")
+    assert code == 200 and [e["id"] for e in body["entries"]] == ["trip"]
+    shown = json.dumps(body)
+    for needle in ("4242 4242", "Rossi", "123"):
+        assert needle not in shown
+    assert not any(NUMBER.encode() in f.read_bytes() for f in (tmp / "vault").rglob("*") if f.is_file())     # nor on disk
+
+
+def test_an_edit_that_leaves_a_field_out_keeps_it(setup):
+    base, tmp = setup
+    card(base)
+    call(base, "POST", "/api/wallet/entry", {"id": "trip", "kind": "card", "fields": {"cvc": "999"}, "guard": False})
+    stored = Vault(tmp / "vault").resolve("{{vault:trip.number}}{{vault:trip.cvc}}")
+    assert stored == NUMBER + "999"
+
+
+def test_bad_input_is_a_clear_400(setup):
+    base, _ = setup
+    code, body = call(base, "POST", "/api/wallet/entry", {"id": "bad id", "kind": "card"})
+    assert code == 400 and "name of an entry" in body["error"]["message"]
+    assert call(base, "POST", "/api/wallet/entry", {"id": "x", "kind": "login", "second_factor": "automatic"})[0] == 400
+    assert call(base, "POST", "/api/wallet/nothing", {})[0] == 404
+
+
+def test_a_system_needs_its_vault_entry_and_an_entry_in_use_stays(setup):
+    base, _ = setup
+    assert call(base, "POST", "/api/wallet/system", {})[0] == 400
+    code, body = system(base)
+    assert code == 400 and "no vault entry" in body["error"]["message"]
+    card(base)
+    assert system(base)[0] == 200
+    code, body = call(base, "POST", "/api/wallet/entry/delete", {"id": "trip"})
+    assert code == 400 and "remove the system first" in body["error"]["message"]
+    assert call(base, "POST", "/api/wallet/system/remove", {"id": "vcard"}) == (200, {"removed": True})
+    assert call(base, "POST", "/api/wallet/entry/delete", {"id": "trip"}) == (200, {"deleted": True})
+
+
+def test_a_login_system_cannot_use_a_card_entry(setup):
+    base, _ = setup
+    card(base)
+    code, body = system(base, credential_kind="vault_login")
+    assert code == 400 and "needs a login entry" in body["error"]["message"]
+
+
+def grant(base, **kw):
+    per = kw.pop("per_payment", "50")
+    body = {"system_id": "vcard", "user_name": NAME, "typed_text": required_phrase(NAME, per, "it"), "per_payment": per, "cumulative": "120",
+            "read_to_end": True, "release_ack": True, "retyped_names": {"release": NAME, "acceptance": NAME}, "lang": "it", **kw}
+    return call(base, "POST", "/api/wallet/grant", body)
+
+
+def test_the_declaration_is_given_checked_shown_and_revoked(setup):
+    base, tmp = setup
+    card(base)
+    system(base)
+    code, body = call(base, "POST", "/api/wallet/phrase", {"name": NAME, "amount": "50", "lang": "it"})
+    assert code == 200 and body["phrase"] == required_phrase(NAME, "50", "it")
+    code, body = grant(base, typed_text="I agree")
+    assert code == 400 and "declaration" in body["error"]["message"]
+    assert grant(base, read_to_end=False)[0] == 400
+    code, body = grant(base)
+    assert code == 200 and body["waiver"]["system_id"] == "vcard"
+    code, body = call(base, "GET", "/api/wallet")
+    system_row = body["systems"][0]
+    assert system_row["waiver"]["per_payment"] == "50.00 EUR" and system_row["waiver"]["cumulative"] == "120.00 EUR"
+    assert [r["action"] for r in body["ledger"]][:2] == ["waiver_granted", "system_registered"]
+    assert call(base, "POST", "/api/wallet/revoke", {})[1] == {"ended": 1}                 # the kill switch, with no system named
+    assert call(base, "GET", "/api/wallet")[1]["systems"][0]["waiver"] is None
+    assert PaymentsBroker(tmp / "payments").ledger.verify_integrity()[0]
+
+
+def test_a_pasted_declaration_is_accepted_and_recorded_as_pasted(setup):
+    base, tmp = setup
+    card(base)
+    system(base)
+    assert grant(base, pasted=True)[0] == 200
+    ledger = json.loads((tmp / "payments" / "payments.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+    assert ledger["details"]["pasted"] is True

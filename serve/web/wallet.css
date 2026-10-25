@@ -1,0 +1,54 @@
+/* Wallet: the vault, the payment systems and their limits, and the dialogs that turn on automatic payments. Sections are stacked and take the
+   height their content needs; nothing is placed at a fixed position, so a larger text pushes what follows instead of covering it. */
+#view-wallet { overflow: auto; }
+.wl-grid { display: grid; grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; gap: 16px; align-content: start; align-items: start; max-width: 1100px; margin-inline: auto; width: 100%; }
+@media (min-width: 1500px) { .wl-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 1800px; } .wl-grid > .wl-on, .wl-grid > .wl-top { grid-column: 1 / -1; } }
+.wl-pill { min-height: 36px; padding: 4px 12px; border: 1px solid var(--warn); border-radius: 999px; background: transparent; color: var(--warn); font: 600 13px/1.2 var(--font-sans); cursor: pointer; }
+.wl-pill[hidden] { display: none; }
+.wl-sec { min-width: 0; }
+.wl-body { display: flex; flex-direction: column; gap: 12px; padding: 14px 20px 18px; min-width: 0; }
+.wl-top { display: flex; flex-direction: column; gap: 8px; }
+.wl-lead { margin: 0; color: var(--fg-2); line-height: 1.55; max-width: 100ch; }
+.wl-note { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); overflow-wrap: anywhere; }
+.wl-note[hidden] { display: none; }
+.wl-note[data-bad="1"] { border-color: var(--err); }
+.wl-on { border-color: var(--warn); }
+.wl-on .wl-body p { margin: 0; overflow-wrap: anywhere; }
+.wl-list, .wl-hist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.wl-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); min-width: 0; }
+.wl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.wl-head b { overflow-wrap: anywhere; }
+.wl-tag { font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; color: var(--fg-2); }
+.wl-id { font: 400 13px/1.4 var(--font-mono); color: var(--fg-2); overflow-wrap: anywhere; }
+.wl-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.wl-chips li { font-size: 14px; padding: 2px 8px; border-radius: 6px; background: var(--raised); overflow-wrap: anywhere; }
+.wl-facts, .wl-status { margin: 0; font-size: 14px; color: var(--fg-2); overflow-wrap: anywhere; line-height: 1.5; }
+.wl-status { color: var(--fg); }
+.wl-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.wl-actions .btn, .wl-sec .sh .btn { min-height: 44px; }
+.wl-form { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px; border: 1px solid var(--accent); border-radius: 8px; min-width: 0; }
+.wl-form .field, .wl-wbody .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.wl-form label, .wl-wbody label { font: 500 15px/1.4 var(--font-sans); }
+.wl-form input:not([type=checkbox]):not([type=radio]), .wl-form select, .wl-form textarea,
+.wl-wbody input:not([type=checkbox]):not([type=radio]), .wl-wbody select, .wl-wbody textarea { width: 100%; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 44px; }
+.wl-form textarea, .wl-wbody textarea { resize: vertical; }
+.wl-rm { display: flex; align-items: center; gap: 10px; min-height: 44px; font-weight: 400; cursor: pointer; }
+.wl-rm input { width: 22px; height: 22px; flex: none; }
+.wl-extra { display: flex; flex-direction: column; gap: 8px; }
+.wl-sf { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.wl-sf .radio { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; cursor: pointer; }
+.wl-sf .radio input { width: 22px; height: 22px; flex: none; margin-top: 10px; }
+.wl-sf .radio span { display: flex; flex-direction: column; gap: 2px; padding-block: 8px; min-width: 0; }
+.wl-sf small { font-size: 14px; color: var(--fg-2); line-height: 1.5; }
+.wl-msg { margin: 0; color: var(--err); min-height: 1.5em; overflow-wrap: anywhere; }
+.wl-row { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); overflow-wrap: anywhere; }
+.wl-when { color: var(--fg-2); font-size: 13.5px; }
+.wl-dialog { width: min(640px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 0; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.wl-dialog::backdrop { background: rgba(0, 0, 0, .6); }
+.wl-wbody { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; max-height: calc(100dvh - 26px); overflow: auto; }
+.wl-wbody h2 { margin: 0; font-size: 20px; }
+.wl-wbody p { margin: 0; line-height: 1.55; overflow-wrap: anywhere; }
+.wl-phrase { padding: 10px 12px; border: 1px dashed var(--line); border-radius: 6px; background: var(--bg); user-select: all; font-weight: 500; }
+.wl-read { max-height: 36vh; overflow: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.wl-mismatch { min-height: 1.5em; }
+@media (max-width: 700px) { .wl-body { padding: 12px 14px 16px; } .wl-wbody { padding: 14px; } }
