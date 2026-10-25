@@ -19,6 +19,7 @@
   const S = {
     plans: [], id: "", snap: null, selected: "", proposal: "", mode: "", seq: 0, running: false, ready: false,
     settings: null, refreshTimer: null, abort: null, flash: {}, align: null, rewindAsk: null, rewindFocus: false,
+    local: {}, drag: null, refocus: "", justDragged: false,
   };
 
   /* ---- small helpers ---- */
@@ -267,7 +268,22 @@
       p.x = PAD + p.layer * (W + GX);
       p.y = PAD + p.row * (H + GY) + ((maxRows - rows[p.layer]) * (H + GY)) / 2;
     });
-    return { pos, ghosts, width: PAD * 2 + cols * W + (cols - 1) * GX, height: PAD * 2 + maxRows * H + (maxRows - 1) * GY };
+    let width = PAD * 2 + cols * W + (cols - 1) * GX, height = PAD * 2 + maxRows * H + (maxRows - 1) * GY;
+    Object.entries(pos).forEach(([id, p]) => {
+      const own = placeOf(id);
+      if (own) { p.x = own.x; p.y = own.y; }
+      width = Math.max(width, p.x + W + PAD);
+      height = Math.max(height, p.y + H + PAD);
+    });
+    return { pos, ghosts, width, height };
+  }
+
+  /* where a step is drawn when it has a place of its own: being dragged, moved and not yet saved, or saved in the step */
+  function placeOf(id) {
+    if (S.drag && S.drag.id === id) return S.drag;
+    if (S.local[id]) return S.local[id];
+    const n = S.snap && S.snap.plan.nodes[id];
+    return n && n.position ? n.position : null;
   }
 
   function hlClass(id) {
@@ -289,6 +305,7 @@
 
   function drawGraph() {
     const lay = layoutOf(S.snap);
+    S.lastLayout = lay;
     const nodes = S.snap.plan.nodes;
     const root_ = svg("svg", { class: "pl-svg", viewBox: `0 0 ${lay.width} ${lay.height}`, role: "img", "aria-label": T("pl.graph.label") },
       svg("defs", {}, svg("marker", { id: "pl-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" },
@@ -317,8 +334,8 @@
       if (!p) return;
       const status = ghost ? "pending" : n.status;
       const g = svg("g", {
-        class: `pl-node t-${n.type} st-${status} ${ghost ? "ghost hl-added" : hlClass(n.id)} ${S.selected === n.id ? "sel" : ""}`,
-        tabindex: "0", role: "button", "aria-pressed": String(S.selected === n.id),
+        class: `pl-node t-${n.type} st-${status} ${ghost ? "ghost hl-added" : hlClass(n.id)} ${S.selected === n.id ? "sel" : ""}${S.drag && S.drag.id === n.id ? " dragging" : ""}`,
+        "data-id": n.id, tabindex: "0", role: "button", "aria-pressed": String(S.selected === n.id),
         "aria-label": `${n.title}. ${T("pl.type." + n.type)}, ${T("pl.status." + status)}, ${T("pl.assignee." + n.assignee)}`,
       }, svg("title", {}, document.createTextNode(`${n.title}\n${n.description || ""}`)), shape(n.type, p.x, p.y));
       const label = svg("text", { x: p.x + W / 2, y: p.y + H / 2 - 4, class: "pl-t", "text-anchor": "middle" });
@@ -326,14 +343,101 @@
       const sub = svg("text", { x: p.x + W / 2, y: p.y + H / 2 + 14, class: "pl-s", "text-anchor": "middle" });
       sub.textContent = `${ICON[status]} ${T("pl.status." + status)} · ${T("pl.assignee.short." + n.assignee)}`;
       g.append(label, sub);
-      g.addEventListener("click", () => select(n.id));
-      g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(n.id); } });
+      g.addEventListener("click", () => { if (S.justDragged) { S.justDragged = false; return; } select(n.id); });
+      g.addEventListener("keydown", e => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); S.refocus = n.id; select(n.id); }
+        else if (!ghost && S.selected === n.id && ARROWS[e.key]) {
+          e.preventDefault();
+          const [dx, dy] = ARROWS[e.key], step = e.shiftKey ? STEP * 4 : STEP;
+          moveBy(n.id, dx * step, dy * step, true);
+        }
+      });
+      if (!ghost) g.addEventListener("pointerdown", e => startDrag(e, n.id, lay));
       if (ghost) g.setAttribute("aria-disabled", "true");
       root_.append(g);
     };
     Object.values(nodes).forEach(n => drawNode(n, false));
     lay.ghosts.forEach(n => drawNode({ ...n, status: "pending", description: n.description || "" }, true));
     ui.graph.replaceChildren(root_);
+    S.svg = root_;
+    if (S.refocus) {
+      const g = root_.querySelector(`[data-id="${S.refocus}"]`);
+      if (g) g.focus();
+      S.refocus = "";
+    }
+  }
+
+  /* ---- moving a step: with the pointer, with the arrow keys of a selected step, or with the buttons of its panel ---- */
+  const STEP = 16, LIMIT = 4000;
+  const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  const clamp = v => Math.max(0, Math.min(LIMIT, Math.round(v)));
+  let saveTimers = {};
+
+  function shownAt(id) {
+    const p = placeOf(id);
+    if (p) return { x: p.x, y: p.y };
+    const l = S.lastLayout && S.lastLayout.pos[id];
+    return l ? { x: l.x, y: l.y } : { x: PAD, y: PAD };
+  }
+  async function savePosition(id, pos) {
+    const r = await api(planPath("/events"), { type: "plan:update_node", node_id: id, changes: { position: pos } });
+    delete S.local[id];
+    if (!r.ok) { say(errText(r.data) || T("pl.failed"), true); }
+    await refresh();
+  }
+  /* by one step; `later`: a run of key presses is saved once, a moment after the last */
+  function moveBy(id, dx, dy, later) {
+    const at = shownAt(id), to = { x: clamp(at.x + dx), y: clamp(at.y + dy) };
+    S.local[id] = to;
+    const n = S.snap.plan.nodes[id];
+    say(T("pl.moved", n ? n.title : id, to.x, to.y));
+    if (later) {
+      S.refocus = id;
+      render();
+      clearTimeout(saveTimers[id]);
+      saveTimers[id] = setTimeout(() => savePosition(id, to), 400);
+    } else {
+      render();
+      savePosition(id, to);
+    }
+  }
+  function resetPosition(id) {
+    delete S.local[id];
+    savePosition(id, null);
+  }
+  function startDrag(e, id, lay) {
+    if (e.button !== undefined && e.button !== 0) return;
+    const svgEl = S.svg, ctm = svgEl && svgEl.getScreenCTM();
+    if (!ctm) return;
+    const toSvg = ev => { const pt = svgEl.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; return pt.matrixTransform(ctm.inverse()); };
+    S.lastLayout = lay;
+    const start = toSvg(e), at = shownAt(id);
+    let moved = false, frame = 0;
+    const move = ev => {
+      const q = toSvg(ev), dx = q.x - start.x, dy = q.y - start.y;
+      if (!moved && Math.hypot(dx, dy) < 5) return;                   // a click is not a move
+      moved = true;
+      S.drag = { id, x: clamp(at.x + dx), y: clamp(at.y + dy) };
+      if (!frame) frame = requestAnimationFrame(() => { frame = 0; drawGraph(); });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      if (frame) cancelAnimationFrame(frame);
+      if (!moved) return;
+      const to = { x: S.drag.x, y: S.drag.y };
+      S.drag = null;
+      S.justDragged = true;                                          // the click that follows a drag must not select
+      setTimeout(() => { S.justDragged = false; }, 0);
+      S.local[id] = to;
+      S.selected = id;
+      render();
+      savePosition(id, to);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   }
 
   function drawList() {
@@ -394,7 +498,11 @@
         el("button", { type: "button", class: "btn pl-btn", text: T("pl.done"), onclick: () => mark(n.id, "completed", out) }),
         el("button", { type: "button", class: "btn pl-btn", text: T("pl.fail"), onclick: () => mark(n.id, "failed") }),
         el("button", { type: "button", class: "btn pl-btn", text: T("pl.rewind"), onclick: () => rewind(n.id) }),
-        removeButton(n))));
+        removeButton(n)),
+      el("div", { class: "pl-acts pl-move", role: "group", "aria-label": T("pl.move") },
+        [["←", -1, 0, "pl.move.left"], ["↑", 0, -1, "pl.move.up"], ["↓", 0, 1, "pl.move.down"], ["→", 1, 0, "pl.move.right"]].map(([sym, dx, dy, key]) =>
+          el("button", { type: "button", class: "btn pl-btn pl-arrow", text: sym, "aria-label": T(key), onclick: () => moveBy(n.id, dx * STEP, dy * STEP, false) })),
+        n.position ? el("button", { type: "button", class: "btn pl-btn", text: T("pl.move.reset"), onclick: () => resetPosition(n.id) }) : [])));
   }
 
   function removeButton(n) {

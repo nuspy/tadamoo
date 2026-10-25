@@ -428,3 +428,30 @@ class RewindConfirmationTest(unittest.TestCase):
         text = (WEB / "i18n.js").read_text(encoding="utf-8")
         for key in ("pl.rewind.stays", "pl.rewind.anyway", "pl.rewind.cancel"):
             self.assertEqual(text.count(f'"{key}"'), 2, key)
+
+
+class CanvasMoveTest(unittest.TestCase):
+    """A step can be moved with the pointer, with arrow keys and with buttons; the place is saved in the step and nothing moves by itself."""
+    js = (WEB / "plans.js").read_text(encoding="utf-8")
+    css = (WEB / "plans.css").read_text(encoding="utf-8")
+
+    def test_pointer_keyboard_and_buttons_all_save_the_position_through_the_node_update(self):
+        for needle in ('"pointerdown"', '"pointermove"', '"pointerup"', "ArrowLeft", "ArrowDown", "ARROWS[e.key]", "moveBy(", "resetPosition(", "pl-arrow"):
+            self.assertIn(needle, self.js, needle)
+        save = self.js[self.js.index("async function savePosition"):self.js.index("/* by one step")]
+        self.assertIn('type: "plan:update_node"', save)
+        self.assertIn("position:", save)
+
+    def test_a_click_is_not_a_move_and_the_keyboard_keeps_its_focus(self):
+        self.assertIn("Math.hypot(dx, dy) < 5", self.js)
+        self.assertIn("S.justDragged", self.js)
+        self.assertIn("S.refocus", self.js)
+        self.assertIn("S.selected === n.id && ARROWS[e.key]", self.js)             # the arrows act on the selected step
+
+    def test_the_buttons_are_touch_sized_and_nothing_animates_for_those_who_asked_for_less_motion(self):
+        self.assertIn("min-width: 44px", re.search(r"\.pl-arrow \{([^}]*)\}", self.css).group(1))
+        reduce = self.css[self.css.index("prefers-reduced-motion: reduce"):]
+        self.assertIn("transition: none", reduce)
+        text = (WEB / "i18n.js").read_text(encoding="utf-8")
+        for key in ("pl.move", "pl.move.left", "pl.move.right", "pl.move.up", "pl.move.down", "pl.move.reset", "pl.moved"):
+            self.assertEqual(text.count(f'"{key}"'), 2, key)

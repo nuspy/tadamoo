@@ -1159,3 +1159,18 @@ def test_the_bridge_lists_what_would_stay_done_and_rewinds_only_when_that_is_acc
     assert not refused["ok"] and bridge.dag.nodes["pay"].status == "completed"
     done = bridge.handle({"type": "plan:rewind", "node_id": "book", "accept_irreversible": True})
     assert done["ok"] and bridge.dag.nodes["pay"].status == "pending"
+
+
+# -- the place of a step on the canvas ---------------------------------------------------------------------
+
+def test_a_steps_place_is_saved_through_the_bridge_survives_saving_and_can_go_back_to_automatic(tmp_path, bridge):
+    res = bridge.handle({"type": "plan:update_node", "node_id": "terrazza", "changes": {"position": {"x": 300, "y": 120}}, "base_rev": 0})
+    assert res["ok"] and res["node"]["position"] == {"x": 300.0, "y": 120.0}
+    bad = bridge.handle({"type": "plan:update_node", "node_id": "terrazza", "changes": {"position": {"x": "left", "y": 1}}})
+    assert not bad["ok"] and bridge.dag.nodes["terrazza"].position == {"x": 300.0, "y": 120.0}
+    store = PlanStore(tmp_path)
+    made = store.create(bridge.dag, bridge.card)
+    store2 = PlanStore(tmp_path)
+    assert store2.get("cervinia").dag.nodes["terrazza"].position == {"x": 300.0, "y": 120.0}
+    assert bridge.handle({"type": "plan:update_node", "node_id": "terrazza", "changes": {"position": None}})["node"]["position"] is None
+    assert made.snapshot()["plan"]["nodes"]["terrazza"]["position"] is None

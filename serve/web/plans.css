@@ -52,7 +52,11 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-svg { display: block; width: 100%; height: auto; max-height: 70vh; }
 
 /* graph */
-.pl-node { cursor: pointer; outline: none; }
+.pl-node { cursor: grab; outline: none; touch-action: none; }
+.pl-node.dragging { cursor: grabbing; opacity: .85; }
+.pl-node.ghost { cursor: default; }
+.pl-move { align-items: center; }
+.pl-arrow { min-width: 44px; font-size: 18px; }
 .pl-node rect, .pl-node polygon { fill: var(--surface); stroke: var(--fg-2); stroke-width: 2; }
 .pl-node.st-completed rect, .pl-node.st-completed polygon { stroke: var(--pl-done); }
 .pl-node.st-in_progress rect, .pl-node.st-in_progress polygon { stroke: var(--pl-run); }
@@ -137,6 +141,7 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-modes .btn[aria-pressed="true"] { background: var(--raised); color: var(--fg); }
 @media (prefers-reduced-motion: reduce) {
   .pl-node.flash rect, .pl-node.flash polygon, .pl-li.flash { animation: none; }
+  .pl-node, .pl-node.dragging { transition: none; }
 }
 
 /* history of a plan, and archiving */
