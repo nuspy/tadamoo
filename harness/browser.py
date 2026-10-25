@@ -146,6 +146,7 @@ class Cdp:
         self.target_id = target_id
         self.closed = False                                    # the page went away (a window that closed itself)
         self.frames: Dict[str, Dict[str, Any]] = {}          # session id -> the frame of another site: {"target", "url"}
+        self.request_guard: Optional[Callable[[str], bool]] = None   # says whether a request may go out; none means all may
 
     def call(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 30.0, session: Optional[str] = None) -> Dict[str, Any]:
         with self._lock:
@@ -180,11 +181,31 @@ class Cdp:
         method, params = message.get("method"), message.get("params") or {}
         if method == "Page.javascriptDialogOpening":            # an alert or a question would stop the page: answer it
             self.ws.send_text(json.dumps({"id": self._next(), "method": "Page.handleJavaScriptDialog", "params": {"accept": params.get("type") == "alert"}}))
-        elif method == "Target.attachedToTarget" and (params.get("targetInfo") or {}).get("type") == "iframe":
-            info = params["targetInfo"]
-            self.frames[params["sessionId"]] = {"target": info.get("targetId", ""), "url": info.get("url", "")}
+        elif method == "Fetch.requestPaused" and self.request_guard is not None:
+            ok = self.request_guard(str((params.get("request") or {}).get("url", "")))
+            self._raw("Fetch.continueRequest" if ok else "Fetch.failRequest",
+                      {"requestId": params.get("requestId")} if ok else {"requestId": params.get("requestId"), "errorReason": "AccessDenied"},
+                      message.get("sessionId"))
+        elif method == "Target.attachedToTarget":
+            info, sid = params.get("targetInfo") or {}, params.get("sessionId")
+            if info.get("type") == "iframe":
+                self.frames[sid] = {"target": info.get("targetId", ""), "url": info.get("url", "")}
+            if self.request_guard is not None:                  # a frame or worker is held at its start until its requests are watched too
+                self._raw("Fetch.enable", {"patterns": [{"urlPattern": "*"}]}, sid)
+            if params.get("waitingForDebugger"):
+                self._raw("Runtime.runIfWaitingForDebugger", {}, sid)
         elif method == "Target.detachedFromTarget":
             self.frames.pop(params.get("sessionId", ""), None)
+
+    def _raw(self, method: str, params: Dict[str, Any], session: Optional[str] = None) -> None:
+        """A call whose answer nobody waits for."""
+        message: Dict[str, Any] = {"id": self._next(), "method": method, "params": params}
+        if session:
+            message["sessionId"] = session
+        try:
+            self.ws.send_text(json.dumps(message))
+        except OSError:
+            self.closed = True
 
     def _next(self) -> int:
         self._id += 1
@@ -227,7 +248,7 @@ SNAPSHOT_JS = r"""
     const tag = e.tagName.toLowerCase(), type = (e.type || '').toLowerCase();
     const o = { ref: i + 1, tag, type, name: label(e).replace(/\s+/g, ' ').slice(0, 90) };
     if (tag === 'a') { try { o.href = new URL(e.href).host + new URL(e.href).pathname.slice(0, 40); } catch (x) {} }
-    if (tag === 'input' || tag === 'textarea') { o.value = type === 'password' ? (e.value ? '(set)' : '') : String(e.value || '').slice(0, 60); }
+    if (tag === 'input' || tag === 'textarea') { o.value = (type === 'password' || e.__bsecret) ? (e.value ? '(set)' : '') : String(e.value || '').slice(0, 60); }
     if (type === 'checkbox' || type === 'radio') o.checked = !!e.checked;
     if (tag === 'select') { o.value = e.value; o.options = [...e.options].slice(0, 30).map(x => x.value + '=' + x.text.trim().slice(0, 30)); }
     if (e.disabled) o.disabled = true;
@@ -261,6 +282,33 @@ KEYS = {"Enter": (13, "Enter", "\r"), "Tab": (9, "Tab", ""), "Escape": (27, "Esc
         "ArrowUp": (38, "ArrowUp", ""), "ArrowLeft": (37, "ArrowLeft", ""), "ArrowRight": (39, "ArrowRight", ""), "Space": (32, " ", " ")}
 
 
+_RESOLVED: Dict[str, Tuple[float, Optional[bool]]] = {}           # host -> (until, whether it is not on the internet)
+
+
+def blocked_host(host: str, port: int = 443) -> Optional[bool]:
+    """Whether a host is an address inside this PC or its network (private, loopback, link-local, shared-carrier, multicast, reserved):
+    anything that is not a public address. None when the name cannot be resolved. Answers are kept for a minute."""
+    host = host.strip("[]").lower()
+    now = time.monotonic()
+    hit = _RESOLVED.get(host)
+    if hit and hit[0] > now:
+        return hit[1]
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+        answer: Optional[bool] = False
+        for info in infos:
+            ip = ipaddress.ip_address(info[4][0])
+            ip = getattr(ip, "ipv4_mapped", None) or ip
+            if not ip.is_global:
+                answer = True
+    except (OSError, ValueError):
+        answer = None
+    if len(_RESOLVED) > 2000:
+        _RESOLVED.clear()
+    _RESOLVED[host] = (now + 60.0, answer)
+    return answer
+
+
 def check_url(url: str, allow_private: bool = False) -> str:
     """Only web pages, and not this PC's or its network's own unless the person allowed them (a page there can be an admin panel, not a shop)."""
     parsed = urlparse(url.strip())
@@ -268,14 +316,11 @@ def check_url(url: str, allow_private: bool = False) -> str:
         raise BrowserError("only web addresses (http or https) can be opened")
     if allow_private:
         return parsed.geturl()
-    try:
-        infos = socket.getaddrinfo(parsed.hostname, parsed.port or 443, proto=socket.IPPROTO_TCP)
-    except OSError:
-        raise BrowserError(f"the site {parsed.hostname} could not be found") from None
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
-            raise BrowserError(f"{parsed.hostname} is an address inside this PC or its network, not a site on the internet: the person has not allowed such pages")
+    verdict = blocked_host(parsed.hostname, parsed.port or 443)
+    if verdict is None:
+        raise BrowserError(f"the site {parsed.hostname} could not be found")
+    if verdict:
+        raise BrowserError(f"{parsed.hostname} is an address inside this PC or its network, not a site on the internet: the person has not allowed such pages")
     return parsed.geturl()
 
 
@@ -390,6 +435,8 @@ class Browser:
         self.host = ""
         self.notice = ""                                                # said to the model once, with the next page it reads
         self.hidden: set = set()                      # what was typed from the vault: a field that holds it is listed as set, not as its value
+        self.page_url = ""                                              # the page the agent works on, as last read
+        self.blocked: List[str] = []                                    # the hosts a request was refused for, until the model is told
 
     @property
     def cdp(self) -> Optional[Cdp]:
@@ -454,11 +501,33 @@ class Browser:
     def _attach(self, target: Dict[str, Any]) -> None:
         """Speaks to a page: its own protocol connection, with the frames of other sites it holds followed as sessions."""
         cdp = Cdp(WebSocket("127.0.0.1", self.port, urlparse(target["webSocketDebuggerUrl"]).path), target["id"])
+        if not self.allow_private:
+            cdp.request_guard = self._request_ok                        # every request, of the page and of its frames, is looked at before it goes out
         for method, params in (("Page.enable", None), ("Runtime.enable", None), ("DOM.enable", None),
-                               ("Target.setAutoAttach", {"autoAttach": True, "waitForDebuggerOnStart": False, "flatten": True}),
+                               ("Target.setAutoAttach", {"autoAttach": True, "waitForDebuggerOnStart": cdp.request_guard is not None, "flatten": True}),
                                ("Page.addScriptToEvaluateOnNewDocument", {"source": INIT_JS})):
             cdp.call(method, params)
+        if cdp.request_guard is not None:
+            cdp.call("Fetch.enable", {"patterns": [{"urlPattern": "*"}]})
         self.pages.append(cdp)
+
+    def _request_ok(self, url: str) -> bool:
+        """A page on the internet reaches the internet only: not this PC or its network, and no local file. Redirects, links, scripts and
+        images are all requests, so all go through here."""
+        p = urlparse(url)
+        if p.scheme in ("data", "blob", "about"):
+            return True
+        if p.scheme not in ("http", "https", "ws", "wss") or not p.hostname:
+            return False
+        if blocked_host(p.hostname, p.port or (443 if p.scheme in ("https", "wss") else 80)) is True:
+            if p.hostname not in self.blocked:
+                self.blocked.append(p.hostname)
+            return False
+        return True
+
+    def insecure_public(self, host: str) -> bool:
+        """Whether a page is plain http on a site of the internet: what is typed there crosses the network in the clear."""
+        return self.page_url.startswith("http://") and blocked_host(host, 80) is False
 
     def _sync_pages(self) -> None:
         """A window the page opened becomes the page the agent works on; when it closes, the agent is back on the page that opened it."""
@@ -541,14 +610,7 @@ class Browser:
         while time.monotonic() < deadline and not self.cdp.saw("Page.loadEventFired", since):
             self.cdp.pump(0.25)
         self.cdp.pump(0.3)
-        page = self.snapshot()
-        if not self.allow_private:
-            try:
-                check_url(page["url"], False)
-            except BrowserError:
-                self.cdp.call("Page.navigate", {"url": "about:blank"})
-                raise
-        return page
+        return self.snapshot()
 
     def snapshot(self) -> Dict[str, Any]:
         """The page and, after its own elements, those of the frames of other sites it holds (a card field in a payment provider's frame)."""
@@ -556,6 +618,18 @@ class Browser:
         self._sync_pages()
         self.cdp.pump(0.05)
         page = json.loads(self._js(SNAPSHOT_JS))
+        self.page_url = page["url"]
+        if not self.allow_private:
+            if self.page_url.startswith("chrome-error:") and self.blocked:
+                host = self.blocked.pop()
+                self.blocked.clear()
+                raise BrowserError(f"{host} is an address inside this PC or its network, not a site on the internet: the person has not allowed such pages")
+            if self.page_url.startswith(("http://", "https://")):
+                try:
+                    check_url(self.page_url, False)
+                except BrowserError:
+                    self.cdp.call("Page.navigate", {"url": "about:blank"})
+                    raise
         items = list(page["items"])
         refs: List[Tuple[Optional[str], int, str]] = [(None, i, page["host"]) for i in range(len(items))]
         texts = [page["text"]]
@@ -616,7 +690,7 @@ class Browser:
         self.settle(since)
         return self.snapshot()
 
-    def type(self, ref: int, text: str, submit: bool = False, clear: bool = True) -> Dict[str, Any]:
+    def type(self, ref: int, text: str, submit: bool = False, clear: bool = True, secret: bool = False) -> Dict[str, Any]:
         session, local, _ = self._where(ref)
         kind = self._js(f"(() => {{ const e = window.__bref[{local}]; e.scrollIntoView({{block: 'center'}}); e.focus(); return e.type || e.tagName.toLowerCase(); }})()", session=session)
         if kind in ("checkbox", "radio", "submit", "button", "file", "image", "reset"):
@@ -627,6 +701,8 @@ class Browser:
             self.cdp.call("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Backspace", "code": "Backspace", "windowsVirtualKeyCode": 8})
         if text:
             self.cdp.call("Input.insertText", {"text": text})
+        if secret:                                                      # the element is marked, so that what it holds is never listed
+            self._js(f"(() => {{ window.__bref[{local}].__bsecret = true; }})()", session=session)
         since = len(self.cdp.events)
         if submit:
             self._key("Enter")
@@ -671,6 +747,11 @@ class Browser:
         return self.snapshot()
 
 
+def _squeeze(value: str) -> str:
+    """A value without the spaces, dashes and dots a page may add or take away, and in lower case, to tell it from another."""
+    return re.sub(r"[\s\-.]", "", value).lower()
+
+
 def describe(page: Dict[str, Any], hidden: Optional[set] = None) -> str:
     """The page as the model reads it: numbered elements, then the text. A password field, or one holding what came from the vault, says only
     that it is set (a short value, like a card's security code, could not be masked in text without damaging it)."""
@@ -680,7 +761,7 @@ def describe(page: Dict[str, Any], hidden: Optional[set] = None) -> str:
         bits = [f"[{it['ref']}] {kind}", f"\"{it['name']}\""] + ([f"(in {it['frame']})"] if it.get("frame") else [])
         for key in ("value", "href"):
             if it.get(key):
-                bits.append(f"{key}={'(set)' if key == 'value' and hidden and it[key] in hidden else it[key]}")
+                bits.append(f"{key}={'(set)' if key == 'value' and hidden and _squeeze(it[key]) in hidden else it[key]}")
         if "checked" in it:
             bits.append("checked" if it["checked"] else "unchecked")
         if it.get("options"):
@@ -728,14 +809,17 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
                       {"type": "object", "properties": ref_prop, "required": ["ref"]}, EffectClass.IRREVERSIBLE, guard(lambda ref: shown(b.click(ref))), untrusted=True)
 
     def type_into(ref: int, text: str, submit: bool = False, clear: bool = True) -> Any:
-        if secrets is not None and secrets.has_references(text):
+        from_vault = secrets is not None and secrets.has_references(text)
+        if from_vault:
             host = b.host_for(ref)                                          # the site that would receive it: the frame's own, when the field is in one
+            if b.insecure_public(host):
+                return {"error": f"this page is not encrypted (http) and {host} is on the internet: a value from the vault is not typed where it would cross the network in the clear"}
             try:
                 text = secrets.resolve_tokens(text, destinations=[host])
-                b.hidden.add(text[:60])                                      # the page lists a field's value cut to 60 characters
+                b.hidden.add(_squeeze(text[:60]))                            # the page lists a field's value cut to 60 characters
             except Exception as e:                                          # the site is not one the entry names, the card is guarded, a code is missing
                 return {"error": str(e)}
-        page = b.type(ref, text, submit, clear)
+        page = b.type(ref, text, submit, clear, secret=from_vault)
         return shown(page)
 
     registry.register("browser_type", "Types text into a field of the page. Write {{vault:ENTRY.FIELD}} (or {{secret:NAME}}) for a value from the person's vault; "
