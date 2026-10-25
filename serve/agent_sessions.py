@@ -48,6 +48,8 @@ COMPARES_FILE = "compares.json"
 COMPARE_SETTINGS = ("mode", "max_turns", "ask_only", "end_turn_bias")      # what the two sides of a comparison may differ in
 EFFECTS_FILE = "tool_effects.json"                                          # the effect class of each tool this conversation has used
 SNIPPET_CHARS = 80
+EFFORTS = ("", "none", "low", "medium", "high")                             # how long the model thinks; empty is its own default
+SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact")     # harness/commands.py
 FILE_DIFF_BYTES = 200_000
 
 
@@ -607,7 +609,7 @@ class SessionManager:
 
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
                confirm_auto: bool = False, max_turns: Any = 15, context_patterns: Any = None,
-               context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto") -> Dict[str, Any]:
+               context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "") -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         if (workspace is None or workspace == "") and self.default_workspace is not None:
             self.default_workspace.mkdir(parents=True, exist_ok=True)
@@ -617,6 +619,8 @@ class SessionManager:
             raise RunError("The mode must be one of: " + ", ".join(MODES) + ".", "bad_mode")
         if mode == "auto" and confirm_auto is not True:
             raise RunError("Automatic mode runs commands without asking. Confirm that you want that, in a folder you can lose.", "auto_confirm")
+        if effort not in EFFORTS:
+            raise RunError("The thinking level is none, low, medium or high; empty is the model's own.", "bad_effort")
         rules = allow if isinstance(allow, list) else []
         if len(rules) > MAX_ALLOW or any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
             raise RunError(f"Allow rules are lines of text, at most {MAX_ALLOW}.", "bad_rules")
@@ -641,7 +645,7 @@ class SessionManager:
             raise RunError("The copy of the folder is off, auto or always.", "bad_worktree")
         sid = secrets.token_hex(4)
         copy = self._copy_for(sid, path, worktree)
-        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode,
+        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "effort": effort,
                "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         if copy:
@@ -676,6 +680,8 @@ class SessionManager:
                "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp"]
         for rule in rec.get("allow", []):
             cmd += ["--allow", rule]
+        if rec.get("effort"):
+            cmd += ["--effort", rec["effort"]]
         if rec.get("ask_only"):
             cmd.append("--ask-only")
         elif self.vault_dir:
@@ -956,6 +962,69 @@ class SessionManager:
                 raise RunError("That conversation is not running.", "not_running")
             self._write(sid, live, {"cmd": "cancel"})
         return self.get(sid)
+
+    def _tell_if_running(self, sid: str, cmd: Dict[str, Any]) -> bool:
+        """Hands a setting to the conversation's process if there is one; a process started later takes it from the record."""
+        live = self._live.get(sid)
+        return bool(live is not None and live.ready.is_set() and live.proc.poll() is None and not live.ending and self._write(sid, live, cmd))
+
+    def set_mode(self, sid: str, mode: Any, confirm_auto: bool = False) -> Dict[str, Any]:
+        """Changes what the conversation may do without asking, from its next action on. Automatic needs the person's confirmation, as at the start."""
+        if mode not in MODES:
+            raise RunError("The mode must be one of: " + ", ".join(MODES) + ".", "bad_mode")
+        if mode == "auto" and confirm_auto is not True:
+            raise RunError("Automatic mode runs commands without asking. Confirm that you want that, in a folder you can lose.", "auto_confirm")
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            if rec.get("ask_only"):
+                raise RunError("A conversation without tools has no mode to change.", "bad_mode")
+            self._set(rec, mode=mode)
+            told = self._tell_if_running(sid, {"cmd": "mode", "mode": mode})
+        if not told:
+            self._push(sid, {"event": "mode", "mode": mode})
+        return self.get(sid)
+
+    def set_effort(self, sid: str, level: Any) -> Dict[str, Any]:
+        """How long the model thinks in this conversation, from its next model call on."""
+        if level not in EFFORTS:
+            raise RunError("The thinking level is none, low, medium or high; empty is the model's own.", "bad_effort")
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            self._set(rec, effort=level)
+            told = self._tell_if_running(sid, {"cmd": "effort", "level": level})
+        if not told:
+            self._push(sid, {"event": "effort", "level": level})
+        return self.get(sid)
+
+    def rename(self, sid: str, title: Any) -> Dict[str, Any]:
+        text = " ".join(str(title or "").split())[:TITLE_CHARS]
+        if not text:
+            raise RunError("Give the conversation a name.", "bad_title")
+        with self._lock:
+            self._set(self._record(sid), title=text)
+        return self.get(sid)
+
+    def slash(self, sid: str, name: Any, args: Any = "") -> Dict[str, Any]:
+        """A slash command that needs the conversation's process (harness/commands.py); its answer comes as a `command` event."""
+        if name not in SLASH_COMMANDS:
+            raise RunError("That is not a command of the conversation.", "bad_command")
+        text = str(args or "")[:2000]
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            live = self._ensure(sid)
+        if not live.ready.wait(60):
+            raise RunError("The conversation did not start in time; try again.", "start_failed")
+        cid = secrets.token_hex(3)
+        with self._lock:
+            if not self._write(sid, live, {"cmd": "command", "id": cid, "name": name, "args": text}):
+                raise RunError("The agent process did not take the command; try again.", "write_failed")
+        return {"id": cid}
 
     def resume(self, sid: str) -> Dict[str, Any]:
         """The person's answer to a block: go on from where the conversation stands."""

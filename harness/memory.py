@@ -141,6 +141,12 @@ class MemoryStore:
                     break
             return []
 
+    def recent(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """The memories last written or changed, newest first."""
+        with self._lock:
+            rows = self.conn.execute("SELECT id, category, content, created_at FROM memories ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
     def delete_memory(self, memory_id: str) -> bool:
         with self._lock, self.conn:
             cur = self.conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))

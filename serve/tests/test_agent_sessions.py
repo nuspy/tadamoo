@@ -749,3 +749,58 @@ def test_a_rule_the_person_chose_in_a_question_is_kept_for_the_next_starts(make,
     mgr.send(sid, "rule")
     until(lambda: "shell_command:pytest *" in mgr.get(sid).get("allow", []))
     assert mgr.get(sid)["allow"] == ["shell_command:git status*", "shell_command:pytest *"]          # once, however many times it is said
+
+
+def test_the_mode_is_changed_while_the_conversation_lives_and_automatic_needs_the_confirmation(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "primo")
+    until(lambda: "done" in kinds(mgr, sid))
+    assert mgr.set_mode(sid, "plan")["mode"] == "plan"
+    until(lambda: any(e["event"] == "mode" and e["mode"] == "plan" for e in mgr.events(sid)["events"]))      # the process was told
+    with pytest.raises(RunError) as e:
+        mgr.set_mode(sid, "auto")
+    assert e.value.code == "auto_confirm" and mgr.get(sid)["mode"] == "plan"
+    assert mgr.set_mode(sid, "auto", confirm_auto=True)["mode"] == "auto"
+    with pytest.raises(RunError) as e:
+        mgr.set_mode(sid, "everything")
+    assert e.value.code == "bad_mode"
+
+
+def test_a_mode_set_before_the_process_exists_is_what_it_starts_with_and_is_told_to_the_page(make, ws):
+    seen = []
+    mgr = make(command=lambda sid, rec, history: (seen.append((rec["mode"], rec.get("effort"))), stub_command()(sid, rec, history))[1])
+    sid = mgr.create(ws)["id"]
+    mgr.set_mode(sid, "read_only")
+    mgr.set_effort(sid, "low")
+    assert [e["event"] for e in mgr.events(sid)["events"]] == ["mode", "effort"]
+    mgr.send(sid, "primo")
+    until(lambda: "done" in kinds(mgr, sid))
+    assert seen == [("read_only", "low")]
+
+
+def test_the_thinking_level_is_kept_and_checked(make, ws):
+    mgr = make()
+    sid = mgr.create(ws, effort="medium")["id"]
+    assert mgr.get(sid)["effort"] == "medium"
+    assert mgr.set_effort(sid, "none")["effort"] == "none"
+    assert mgr.set_effort(sid, "")["effort"] == ""
+    with pytest.raises(RunError) as e:
+        mgr.set_effort(sid, "maximum")
+    assert e.value.code == "bad_effort"
+    with pytest.raises(RunError):
+        mgr.create(ws, effort="maximum")
+
+
+def test_a_conversation_is_renamed_and_a_command_is_answered_by_its_process(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    assert mgr.rename(sid, "  my   name ")["title"] == "my name"
+    with pytest.raises(RunError):
+        mgr.rename(sid, "   ")
+    cid = mgr.slash(sid, "status", "x")["id"]
+    until(lambda: any(e["event"] == "command" and e["id"] == cid and e["data"] == {"args": "x"} for e in mgr.events(sid)["events"]))
+    with pytest.raises(RunError) as e:
+        mgr.slash(sid, "rm", "")
+    assert e.value.code == "bad_command"
+

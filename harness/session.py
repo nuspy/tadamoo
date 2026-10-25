@@ -5,10 +5,11 @@ stdin, events out on stdout. The process builds the agent once (tools, skills, c
 for the start, and saves the history after every model turn, so a process that dies can be started again from it.
 
 Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd": "cancel"}, {"cmd": "resume"}, {"cmd": "close"},
-{"cmd": "promote", "id"}, {"cmd": "drop", "id"}, {"cmd": "ping"}.
+{"cmd": "promote", "id"}, {"cmd": "drop", "id"}, {"cmd": "ping"}, {"cmd": "mode", "mode"} (the permission mode of the conversation),
+{"cmd": "effort", "level"} (how long the model thinks), {"cmd": "command", "id", "name", "args"} (a slash command: harness/commands.py).
 Events: ready, accepted, queued, routed, started, suspended, resumed, agent (an assistant text or a tool start or end), delta
 (text as it is written), ask (a question with buttons: a confirmation the task waits for, or a question that ends the turn),
-retrying, done (with `more` when other tasks are waiting), blocked, cleared, dropped, heartbeat, error.
+retrying, done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, effort, command, heartbeat, error.
 
 A message that comes while a task is under way is looked at before the task's next model call (harness/router.py): it goes into
 that task (steer), waits its turn (queue), or, when it cannot wait and has nothing to do with the task, the task is put aside where
@@ -39,11 +40,12 @@ from harness import agent_loop as al
 from harness.client import StreamCancelled
 from harness.pipeline import Pipeline
 from harness.router import QUEUE, STEER, STRONG_URGENT, URGENT, Router
-from harness.stack import AgentConfig, BuiltAgent, add_agent_arguments, agent_settings, build_agent, data_dir_for, split_secret_specs
+from harness.stack import PERMISSION_MODES, AgentConfig, BuiltAgent, add_agent_arguments, agent_settings, build_agent, data_dir_for, split_secret_specs
 from harness.tools.registry import clock_paused
 from harness.vault import valid_code
 
 HEARTBEAT_S = 5.0
+EFFORT_LEVELS = ("none", "low", "medium", "high")
 DELTA_CHARS, DELTA_S = 400, 0.25
 EVENT_CHARS = 20_000
 TRANSIENT_STATUS = frozenset({0, 408, 425, 429, 500, 502, 503, 504})
@@ -495,6 +497,18 @@ class Session:
         self._window = (n, now)
         return n
 
+    def set_effort(self, level: str) -> None:
+        """How long the model thinks, from the next model call on; empty is the model's own default. Side tasks share the setting."""
+        if level:
+            self.agent.sampling["reasoning_effort"] = level
+        else:
+            self.agent.sampling.pop("reasoning_effort", None)
+
+    def run_command(self, cid: str, name: str, args: str) -> None:
+        """A slash command that asks this process something; the answer is an event, so the person's page shows it where it was asked."""
+        from harness.commands import run
+        self.emit({"event": "command", "id": cid, "name": name, **run(name, args, self)})
+
     def idle(self) -> bool:
         """Nothing under way, nothing waiting, nobody asked: a quiet moment."""
         with self._lock:
@@ -831,6 +845,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of in the conversation")
     parser.add_argument("--ask-only", action="store_true", help="answer without tools: a greeting does not become a loop")
     parser.add_argument("--no-planner", action="store_true", help="do not offer the planner's tools")
+    parser.add_argument("--effort", default="", choices=["", *EFFORT_LEVELS], help="how long the model thinks (empty: the model's own default)")
     parser.add_argument("--router", choices=["model", "rules"], default="model",
                         help="how a message that comes during a task is judged when its words do not decide: by the model, or not at all")
     parser.add_argument("--pipeline", choices=["off", "light", "full"], default="full",
@@ -893,6 +908,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         from harness.attachments import AttachmentStore
         session.attachment_store = AttachmentStore(Path(args.attachments_dir))
     session.endpoint, session.api_key = cfg.endpoint, cfg.api_key
+    session.set_effort(args.effort)
     if built.agent.secrets is not None:
         built.agent.secrets.ask_code = session.ask_code
     if getattr(built.agent.tools, "capability_ask", None) is not None:
@@ -948,6 +964,15 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                 session.drop(str(cmd.get("id")))
             elif name == "cancel":
                 session.cancel()
+            elif name == "mode" and cmd.get("mode") in PERMISSION_MODES and not args.ask_only:
+                built.set_mode(cmd["mode"])
+                emit({"event": "mode", "mode": cmd["mode"]})
+            elif name == "effort" and cmd.get("level", "") in ("", *EFFORT_LEVELS):
+                session.set_effort(cmd.get("level", ""))
+                emit({"event": "effort", "level": cmd.get("level", "")})
+            elif name == "command" and isinstance(cmd.get("name"), str):
+                threading.Thread(target=session.run_command, args=(str(cmd.get("id") or ""), cmd["name"], str(cmd.get("args") or "")[:2000]),
+                                 name="session-command", daemon=True).start()           # a command may take a model call; the others go on meanwhile
             elif name == "resume":
                 session.resume()
             elif name == "ping":

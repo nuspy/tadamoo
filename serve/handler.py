@@ -1641,7 +1641,7 @@ def make_handler(svc: Service):
                                                                       req.get("confirm_auto") is True, req.get("max_turns", 15),
                                                                       req.get("context_patterns"), req.get("context_policy", "stop"),
                                                                       req.get("context_threshold", 0.8), req.get("end_turn_bias"),
-                                                                      req.get("worktree", "auto"))})
+                                                                      req.get("worktree", "auto"), req.get("effort", ""))})
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
                         return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
@@ -1658,6 +1658,14 @@ def make_handler(svc: Service):
                         return self._json(200, {"session": getattr(mgr, parts[2])(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "answer":
                         return self._json(200, {"session": mgr.answer(parts[1], req.get("ask"), req.get("value"))})
+                    if len(parts) == 3 and parts[2] == "mode":
+                        return self._json(200, {"session": mgr.set_mode(parts[1], req.get("mode"), req.get("confirm_auto") is True)})
+                    if len(parts) == 3 and parts[2] == "effort":
+                        return self._json(200, {"session": mgr.set_effort(parts[1], req.get("level", ""))})
+                    if len(parts) == 3 and parts[2] == "rename":
+                        return self._json(200, {"session": mgr.rename(parts[1], req.get("title"))})
+                    if len(parts) == 3 and parts[2] == "command":
+                        return self._json(200, mgr.slash(parts[1], req.get("name"), req.get("args", "")))
                     if len(parts) == 3 and parts[2] == "cancel":
                         return self._json(200, {"session": mgr.cancel(parts[1])})
                     if len(parts) == 3 and parts[2] == "resume":
