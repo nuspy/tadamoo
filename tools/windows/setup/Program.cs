@@ -166,7 +166,7 @@ sealed class Installer
 {
     // The Python versions the pinned packages (requirements.txt) have wheels for.
     const int MinMinor = 10, MaxMinor = 14;
-    static readonly string[] ImportCheck = { "numpy", "jinja2", "markupsafe", "regex", "yaml", "tqdm", "PIL", "psutil" };
+    static readonly string[] ImportCheck = { "numpy", "jinja2", "markupsafe", "regex", "yaml", "tqdm", "PIL", "psutil", "cryptography" };
 
     readonly Options o;
     readonly Log log;
