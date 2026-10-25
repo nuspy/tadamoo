@@ -78,6 +78,7 @@ class AgentConfig:
     context_threshold: float = 0.7      # the share of the context window at which pruning or a summary starts
     end_turn_bias: float = 0.0          # 0 or less: how much less ready the model is to end its turn (0 is off)
     snapshot_dir: Optional[str] = None  # where the context of each turn is kept when versioning is on
+    lsp: bool = False                   # offer diagnostics, go_to_definition and find_references when a language server is found on this PC
     capabilities: bool = False          # offer find_capability, load_capability, call_capability and analyze_image (skills, plugins, MCP servers found on this PC)
     capabilities_dir: Optional[str] = None   # where their index and the person's approvals are kept (default: the user data folder)
     attachments_dir: Optional[str] = None    # the conversation's attached files (harness/attachments.py); with outputs_dir, the tools for them are offered
@@ -100,6 +101,7 @@ class BuiltAgent:
     reporter: Any = None
     patterns: Dict[str, Any] = field(default_factory=dict)
     capabilities: Optional[Any] = None
+    lsp: Optional[Any] = None
 
     def retrieved_message(self, goal: str, limit: int = 4) -> Optional[Dict[str, Any]]:
         """Memories relevant to a goal, as an untrusted-data message for the tail of the conversation."""
@@ -115,6 +117,8 @@ class BuiltAgent:
             self.memory.close()
         if self.kb:
             self.kb.close()
+        if self.lsp:
+            self.lsp.close()
 
 
 def _summarizer(client: Optional[Any]):
@@ -240,6 +244,12 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         from harness.integrations.call_api_client import CallAPICallClient
         register_attachment_tools(registry, AttachmentStore(Path(cfg.attachments_dir)), OutputStore(Path(cfg.outputs_dir)), cfg.run_id, sandbox.resolve_safe,
                                   call_client=CallAPICallClient.from_environment(), read_chars=max(2000, int(budget * 3.5 * 0.15)))
+    lsp_hub = None
+    if cfg.lsp:
+        from harness.lsp import LspHub, register_lsp_tools
+        lsp_hub = LspHub(workspace)
+        if not register_lsp_tools(registry, lsp_hub, sandbox.resolve_safe):
+            lsp_hub = None
     capability_index = None
     if cfg.capabilities:
         capability_index = _offer_capabilities(cfg, workspace, registry, builder, sandbox, client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key))
@@ -263,4 +273,4 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         cancel=cancel,
         sampling={"end_turn_bias": cfg.end_turn_bias} if cfg.end_turn_bias else None,
     )
-    return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index)
+    return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub)

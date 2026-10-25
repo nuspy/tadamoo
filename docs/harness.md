@@ -413,6 +413,16 @@ folder, started from the folder's last commit plus the changes not yet committed
 This is also how an edit is held back until it is approved: the conversation's commands see its own files as they are, and the person's folder
 changes only when they apply.
 
+## Language servers
+
+When a language server is installed (pyright or pylsp for Python, typescript-language-server, clangd, rust-analyzer, gopls), a conversation
+with tools gets three read-only tools: `diagnostics(path)` (the errors and warnings of a file, with line and column), `go_to_definition` and
+`find_references` (a line and column counted from 1). The server is started on first use for the language of the file and ended with the
+conversation (`harness/lsp.py`). Which program runs comes from `lsp.json` in the user data folder (`{"servers": {"python": ["pyright-langserver",
+"--stdio"]}}`) or, without it, the first known server found on the PATH. A folder under work never names a command to run. With no server found
+the tools are not offered. What the tools return is marked as untrusted text. Not done: diagnostics added to the result of an edit by themselves,
+rename and code actions, and servers that need settings of their own.
+
 ## The web pages
 
 The pages are what `BasaltWinGUI.exe` shows in its window. They are built for windows from 1024 pixels up to about 3600
