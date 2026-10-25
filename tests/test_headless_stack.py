@@ -134,3 +134,26 @@ def test_names_and_kinds_of_the_editors_servers_are_made_safe(tmp_path):
     hub = hub_from_servers([{"name": "my server!", "command": "no_such_program_xyz"}, {"name": "my server!", "command": "no_such_program_xyz"},
                             {"command": "no_such_program_xyz"}, "not a server", {"name": "web", "type": "http", "url": "ftp://x"}], str(tmp_path))
     assert set(hub.errors) == {"my_server_", "my_server__2", "server3", "web"}
+
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_python_dash_m_harness_has_a_subcommand_for_the_editors_agent():
+    import subprocess
+    out = subprocess.run([sys.executable, "-m", "harness", "acp", "--help"], cwd=ROOT, capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0 and "Basalt as an ACP agent" in out.stdout and "--capabilities" in out.stdout and "--vault-dir" in out.stdout
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the launcher is a .cmd file")
+def test_the_basalt_agent_launcher_runs_from_any_folder(tmp_path):
+    import subprocess
+    launcher = ROOT / "basalt-agent.cmd"
+    assert launcher.read_bytes().count(b"\r\n") == launcher.read_bytes().count(b"\n")           # a batch file with Windows line ends
+    out = subprocess.run(["cmd.exe", "/c", str(launcher), "--help"], cwd=tmp_path, capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0 and "--permission-mode" in out.stdout and "--prompt" in out.stdout
+    acp = subprocess.run(["cmd.exe", "/c", str(launcher), "acp", "--help"], cwd=tmp_path, capture_output=True, text=True, timeout=60)
+    assert acp.returncode == 0 and "ACP" in acp.stdout
+    missing = subprocess.run(["cmd.exe", "/c", str(launcher), "-p", "x", "--workspace", str(tmp_path / "nope"), "--no-report"], cwd=tmp_path,
+                             capture_output=True, text=True, timeout=60)
+    assert missing.returncode == 1 and "workspace folder not found" in missing.stderr                # the exit code comes through
