@@ -853,3 +853,27 @@ def test_safe_eval_still_does_ordinary_arithmetic_and_small_repetition():
 def test_a_comparison_the_conditions_do_not_support_is_an_error_not_false(expr):
     with pytest.raises(PlanError, match="comparison"):
         safe_eval(expr, {"a": 1, "b": 1})
+
+
+# -- replacing a node ------------------------------------------------------------------------------------
+
+def test_replacing_a_node_with_fewer_edges_keeps_both_lists_in_step():
+    dag = chain("a", "b", "c")
+    dag.add_node(node("x"))
+    dag.add_edge("x", "b")
+    assert dag.nodes["b"].dependencies == ["a", "x"]
+    dag.add_node(node("b", title="Nuovo b", dependencies=["a"], outputs=["c"]), replace=True)      # no longer waits for x
+    assert dag.nodes["b"].title == "Nuovo b" and dag.nodes["b"].dependencies == ["a"] and dag.nodes["x"].outputs == []
+    assert dag.nodes["a"].outputs == ["b"] and dag.nodes["c"].dependencies == ["b"]
+    dag.validate_acyclic()
+    dag.add_node(node("b", title="Solo", dependencies=[], outputs=[]), replace=True)               # no edges at all
+    assert dag.nodes["a"].outputs == [] and dag.nodes["c"].dependencies == [] and dag.nodes["b"].outputs == []
+    dag.validate_acyclic()
+
+
+def test_a_replacement_that_would_make_a_cycle_leaves_the_plan_as_it_was():
+    dag = chain("a", "b", "c")
+    before = json.dumps(dag.to_dict()["nodes"], sort_keys=True)
+    with pytest.raises(PlanError, match="Cycle"):
+        dag.add_node(node("a", dependencies=["c"], outputs=["b"]), replace=True)
+    assert json.dumps(dag.to_dict()["nodes"], sort_keys=True) == before

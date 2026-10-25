@@ -182,7 +182,9 @@ class PlanDAG:
     # structure ---------------------------------------------------------------------------------------
 
     def add_node(self, node: PlanNode, replace: bool = False) -> None:
-        """Adds a node and the edges it declares; the parents and children it names must already exist."""
+        """Adds a node and the edges it declares; the parents and children it names must already exist.
+
+        With `replace`, a node that exists is swapped for this one and its edges become exactly the declared ones."""
         if node.id in self.nodes and not replace:
             raise PlanError(f"node '{node.id}' already exists")
         if not node.id or not str(node.id).strip():
@@ -193,6 +195,8 @@ class PlanDAG:
                 raise PlanError(f"node '{node.id}' refers to unknown node '{ref}'")
         backup = copy.deepcopy((self.nodes, self.shared_state))
         try:
+            if node.id in self.nodes:
+                self._detach(node.id)
             node.dependencies, node.outputs = [], []
             self.nodes[node.id] = node
             for p in dict.fromkeys(declared_parents):
@@ -204,6 +208,17 @@ class PlanDAG:
             self.nodes, self.shared_state = backup
             raise
         self._touch()
+
+    def _detach(self, node_id: str) -> None:
+        """Takes a node's edges out of both lists on both sides, leaving the node itself in place."""
+        node = self.nodes[node_id]
+        for p in node.dependencies:
+            if p in self.nodes and node_id in self.nodes[p].outputs:
+                self.nodes[p].outputs.remove(node_id)
+        for c in node.outputs:
+            if c in self.nodes and node_id in self.nodes[c].dependencies:
+                self.nodes[c].dependencies.remove(node_id)
+        node.dependencies, node.outputs = [], []
 
     def _link(self, parent_id: str, child_id: str) -> None:
         if child_id not in self.nodes[parent_id].outputs:
