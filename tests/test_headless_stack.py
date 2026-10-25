@@ -57,6 +57,18 @@ def test_the_timeouts_set_on_the_command_line_reach_the_registry(tmp_path):
         built.close()
 
 
+def test_tools_that_wait_with_a_limit_of_their_own_are_not_cut_by_the_default(tmp_path):
+    from harness.stack import OWN_TIME_LIMIT
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False), client=object())
+    try:
+        assert built.agent.tools.default_timeout == 900.0 and "spawn_subagent" in OWN_TIME_LIMIT
+        assert all(built.agent.tools.timeout_for(name) is None for name in OWN_TIME_LIMIT)
+    finally:
+        built.close()
+
+
 def test_a_headless_run_finds_skills_and_servers_the_way_the_chat_does(tmp_path):
     ws, home = tmp_path / "ws", tmp_path / "home"
     ws.mkdir()
