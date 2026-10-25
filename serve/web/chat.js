@@ -435,7 +435,7 @@
     const a = agent();
     if (a) { a.newChat(); prompt.focus(); return; }
     if (busy) busy.controller.abort();
-    messages = []; save(); render(); status("New chat"); prompt.focus(); meter();
+    messages = []; save(); render(); status(T("ch.new")); prompt.focus(); meter();
   };
 
   /* ---- images (only when the server reads them) ---- */

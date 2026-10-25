@@ -43,7 +43,10 @@
     list.parentElement.hidden = !on;
     $("#ctx-meter").hidden = on;
     $("#attach").hidden = on ? false : $("#attach").dataset.can !== "1";
-    $("#attach").textContent = on ? T("ch.att.btn") : "Attach image";
+    const attachName = T(on ? "ch.att.btn" : "ch.att.img");
+    $("#attach").setAttribute("aria-label", attachName); $("#attach").title = attachName;
+    $("#conv-help").hidden = !on;
+    $("#mode-help").textContent = T("ch.mode." + mode + ".d");
     drawPend();
     if (on) { $("#chat-hint").textContent = T("ch.hint"); poll(true); } else { clearTimeout(timer); $("#chat-hint").textContent = T("ch.hint.direct"); }
     setControls();
@@ -68,7 +71,7 @@
     if (!r.ok) { supported = r.status === 404 || r.status === 0 ? false : supported; return; }
     supported = true;
     const sel = list.value || sid;
-    list.replaceChildren(Object.assign(mk("option", "", T("ch.new")), { value: "" }),
+    list.replaceChildren(Object.assign(mk("option", "", T("ch.new.opt")), { value: "" }),
       ...r.json.sessions.filter(s => s.state !== "closed").map(s => Object.assign(mk("option", "", `${s.title || s.id} · ${T("ch.state." + s.state)}`), { value: s.id })));
     list.value = [...list.options].some(o => o.value === sel) ? sel : "";
   }
@@ -562,7 +565,7 @@
   window.agentChat = { active, send, stop, newChat };
   window.chatUi.agentActive = active;
 
-  applyT(box);                                        // the static texts, in the page's language
+  [box, $("#chathelp"), $("#acopy")].forEach(root => applyT(root));   // the static texts, in the page's language
   (async () => {
     await refreshList();
     $("#attach").dataset.can = $("#attach").hidden ? "" : "1";

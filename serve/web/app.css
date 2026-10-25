@@ -265,7 +265,7 @@ mark { background: var(--hit); color: var(--fg); padding: 0 1px; border-radius: 
 .qsec .empty { padding: 20px; }
 /* desktop: one viewport, no page scroll. Slots on top right, Requests and Log side by side under it, speed and queue on the left. */
 @media (min-width: 981px) {
-  .bar { height: 56px; padding-inline: 28px; }
+  .bar { height: auto; min-height: 56px; padding-block: 6px; row-gap: 6px; padding-inline: 28px; }
   .brand img { width: 32px; height: 32px; }
   .wordmark { font-size: 24px; }
   .top { margin-bottom: 12px; }
@@ -1013,3 +1013,14 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .acopy-msg { margin: 8px 0 0; overflow-wrap: anywhere; }
 @media (max-width: 700px) { .acopy { padding: 6px 12px; } .acopy-panel { margin: 0 12px 8px; } }
 .aback { min-height: 44px; font-size: 14px; align-self: flex-end; opacity: .85; }
+
+/* what the mode and the conversation list do, always in view; the copy choice with its explanation; the attach button as a plus */
+.chathelp { display: flex; flex-direction: column; gap: 4px; padding: 8px 28px; font-size: 14px; line-height: 1.5; color: var(--fg-2); border-bottom: 1px solid var(--line-soft); }
+.chathelp p { margin: 0; max-width: 100ch; overflow-wrap: anywhere; }
+.chathelp p[hidden] { display: none; }
+.acopy-ask { align-items: flex-start; }
+.acopy-ask input { margin-top: 10px; }
+.acopy-ask span { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-block: 8px; }
+.acopy-ask small { font-size: 14px; line-height: 1.5; color: var(--fg-2); max-width: 100ch; }
+.btn.attach { min-width: 48px; min-height: 48px; padding: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 28px; line-height: 1; }
+@media (max-width: 700px) { .chathelp { padding: 8px 12px; } }

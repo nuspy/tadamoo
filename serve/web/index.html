@@ -117,11 +117,15 @@
           </select>
         </label>
         <button type="button" class="btn" id="cs-open" aria-expanded="false" aria-controls="chatset" data-t="cs.open">Settings</button>
-        <button type="button" class="btn" id="new-chat">New chat</button>
+        <button type="button" class="btn" id="new-chat" data-t="ch.newbtn">New conversation</button>
         <button type="button" class="btn" id="branch-chat" data-t="ch.branch" hidden>Branch here</button>
       </div>
+      <div class="chathelp" id="chathelp">
+        <p id="mode-help"></p>
+        <p id="conv-help" data-t="ch.conv.help"></p>
+      </div>
       <div class="acopy" id="acopy" hidden>
-        <label class="acopy-ask" id="acopy-ask"><input type="checkbox" id="acopy-always"><span data-t="wc.always">Keep the changes of a new conversation apart until I approve them</span></label>
+        <label class="acopy-ask" id="acopy-ask"><input type="checkbox" id="acopy-always" aria-describedby="acopy-help"><span><b data-t="wc.always">Work on a copy of the folder</b><small id="acopy-help" data-t="wc.always.help"></small></span></label>
         <span class="acopy-text" id="acopy-text" role="status"></span>
         <button type="button" class="btn" id="acopy-open" aria-expanded="false" aria-controls="acopy-panel" hidden></button>
       </div>
@@ -146,7 +150,7 @@
         <div class="crow">
           <input type="file" id="file" accept="image/*" multiple hidden>
           <input type="file" id="afile" multiple hidden>
-          <button type="button" class="btn" id="attach" hidden>Attach image</button>
+          <button type="button" class="btn attach" id="attach" hidden aria-label="Attach files" title="Attach files" data-t-aria="ch.att.btn" data-t-title="ch.att.btn">+</button>
           <span class="hint" id="chat-hint">Enter sends, Shift+Enter adds a line</span>
           <span class="grow"></span>
           <div class="ctxm" id="ctx-meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Context">
@@ -186,6 +190,7 @@
         </div>
         <fieldset class="csgroup">
           <legend data-t="cs.context">When the context is full</legend>
+          <p class="help" data-t="cs.context.help"></p>
           <label class="radio"><input type="radio" name="cs-policy" value="stop" checked><span><b data-t="cs.policy.stop">Stop at the limit</b><small data-t="cs.policy.stop.help"></small></span></label>
           <label class="radio"><input type="radio" name="cs-policy" value="rolling"><span><b data-t="cs.policy.rolling">Sliding window</b><small data-t="cs.policy.rolling.help"></small></span></label>
           <label class="radio"><input type="radio" name="cs-policy" value="compact"><span><b data-t="cs.policy.compact">Compact</b><small data-t="cs.policy.compact.help"></small></span></label>
