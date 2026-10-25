@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-DEFAULTS = {"cloud_triage": False, "pseudonymize": True, "card_fields": None}
+DEFAULTS = {"cloud_triage": False, "pseudonymize": True, "card_fields": None, "gate_mode": "or"}
 EVENTS_MAX = 100
 EVENT_CHARS = 2000
 
@@ -43,6 +43,8 @@ class PlanService:
         self._store = None
         self._settings_path = self.dir / "planner.json"
         self._lock = threading.RLock()
+        self._gate = None                                  # the one gatekeeper of this process: its telemetry adds up
+        self._replanning: Dict[str, float] = {}            # plans the local model is re-planning now, and since when
 
     @property
     def store(self):
@@ -75,6 +77,10 @@ class PlanService:
                 if not isinstance(changes[key], bool):
                     raise ValueError(f"{key} must be true or false")
                 current[key] = changes[key]
+        if "gate_mode" in changes:
+            if changes["gate_mode"] not in _planner().triage.GATE_MODES:
+                raise ValueError(f"gate_mode must be one of: {', '.join(_planner().triage.GATE_MODES)}")
+            current["gate_mode"] = changes["gate_mode"]
         if "card_fields" in changes:
             fields = changes["card_fields"]
             allowed = _planner().card.CARD_FIELDS
@@ -89,13 +95,23 @@ class PlanService:
     registry = None                                        # Basalt's providers (harness.llm): set by the server
 
     def gatekeeper(self):
+        """The process's gatekeeper, set to the settings and the key as they are now. It is the same object every time, so
+        its telemetry counts every judgement made since the server started."""
         s = self.settings()
-        kw = dict(cloud_consent=bool(s["cloud_triage"]), pseudonymize=bool(s["pseudonymize"]), card_fields=s["card_fields"])
+        planner = _planner()
         found = self._jev_from_registry()
-        if found:
-            key, endpoint, model = found
-            return _planner().JevTriageGatekeeper(api_key=key, endpoint=endpoint, model=model, **kw)
-        return _planner().JevTriageGatekeeper.from_environment(**kw)
+        with self._lock:
+            if self._gate is None:
+                self._gate = planner.JevTriageGatekeeper()
+            key, endpoint, model = found if found else (os.environ.get("TYPESAFE_API_KEY") or None, planner.triage.DEFAULT_ENDPOINT, "jev-latest")
+            self._gate.reconfigure(api_key=key, endpoint=endpoint, model=model, cloud_consent=bool(s["cloud_triage"]),
+                                   pseudonymize=bool(s["pseudonymize"]), card_fields=s["card_fields"], gate_mode=s["gate_mode"])
+            return self._gate
+
+    def telemetry(self) -> Dict[str, Any]:
+        """What the filter has done since the server started: judgements, where they were answered (the cloud, the local filter by
+        choice, the local filter because the cloud failed), tokens, and which plans are being re-planned."""
+        return {"triage": self.gatekeeper().telemetry.summary(), "replanning": sorted(self._replanning)}
 
     def _jev_from_registry(self):
         """(key, address, model) of the Jev provider the person pointed the triage at, when the registry allows it."""
@@ -205,7 +221,9 @@ class PlanService:
         return _planner().Replanner(self.client_factory())
 
     def snapshot(self, plan_id: str) -> Dict[str, Any]:
-        return self.store.get(plan_id, self._replanner()).snapshot()
+        snap = self.store.get(plan_id, self._replanner()).snapshot()
+        snap["replanning"] = plan_id in self._replanning
+        return snap
 
     def archive(self, plan_id: str, actor: str = "user") -> Dict[str, Any]:
         """Takes a plan out of the list, keeping it so it can be restored."""
@@ -254,15 +272,31 @@ class PlanService:
                "impact_scope": result.impact_scope, "max_impact": result.max_impact, "source": result.source,
                "sent_to_cloud": result.sent_to_cloud, "reasons": result.reasons, "latency_ms": result.latency_ms,
                "token_usage": result.token_usage, "replanning": False}
-        bridge._emit("plan:triage", {"result": out})
-        if result.wake_system_2 and replan:
-            if bridge.replanner is None:
+        out["replan_state"] = "not_asked" if not replan else "not_needed" if not result.wake_system_2 else None
+        if out["replan_state"] is None:
+            out["replan_state"] = self.start_replan(plan_id, bridge, result, texts)
+            out["replanning"] = out["replan_state"] in ("started", "in_progress")
+            if out["replan_state"] == "unavailable":
                 out["replan_error"] = "no model is connected for re-planning"
-            else:
-                out["replanning"] = True
-                threading.Thread(target=self._replan, args=(plan_id, bridge, result, texts), daemon=True,
-                                 name=f"replan-{plan_id}").start()
+        bridge._emit("plan:triage", {"result": out})
         return out
+
+    def start_replan(self, plan_id: str, bridge: Any, result: Any, events: List[str]) -> str:
+        """Starts the local model re-planning in the background, one plan at a time: "started", "in_progress" when it is already
+        at work on this plan (nothing new is started, so no duplicate proposals), or "unavailable" without a model."""
+        if bridge.replanner is None:
+            return "unavailable"
+        with self._lock:
+            if plan_id in self._replanning:
+                return "in_progress"
+            self._replanning[plan_id] = time.time()
+        try:
+            threading.Thread(target=self._replan, args=(plan_id, bridge, result, events), daemon=True, name=f"replan-{plan_id}").start()
+        except BaseException:
+            with self._lock:
+                self._replanning.pop(plan_id, None)
+            raise
+        return "started"
 
     def _replan(self, plan_id: str, bridge: Any, result: Any, events: List[str]) -> None:
         try:
@@ -270,3 +304,6 @@ class PlanService:
             self.store.save(plan_id)
         except Exception as exc:
             bridge._emit("plan:replan_failed", {"error": f"{type(exc).__name__}: {exc}"})
+        finally:
+            with self._lock:
+                self._replanning.pop(plan_id, None)

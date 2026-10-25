@@ -1694,6 +1694,8 @@ def make_handler(svc: Service):
                 query = parse_qs(urlsplit(self.path).query)
                 if path == "/api/plans":
                     return self._json(200, {"plans": service.list(archived=query.get("archived", ["0"])[0] == "1")})
+                if path == "/api/plans/telemetry":
+                    return self._json(200, service.telemetry())
                 parts = path[len("/api/plans/"):].split("/")
                 plan_id, action = parts[0], (parts[1] if len(parts) > 1 else "")
                 after = int(query.get("after", ["0"])[0] or 0)

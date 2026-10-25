@@ -24,6 +24,7 @@ from .replan import ReplanProposal, Replanner
 from .triage import TriageResult
 
 PLAN_ID = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+RESERVED_IDS = ("events", "telemetry")            # paths of the server's own routes under /api/plans
 LOG_SIZE = 500
 HISTORY_SIZE = 200
 HISTORY_SHOWN = 30
@@ -386,6 +387,8 @@ class PlanStore:
     def create(self, dag: PlanDAG, card: Optional[PlanInsightCard] = None, replanner: Optional[Replanner] = None,
                profile: Optional[PlanProfile] = None) -> PlanCanvasBridge:
         with self._lock:
+            if dag.plan_id in RESERVED_IDS:
+                raise ValueError(f"'{dag.plan_id}' is kept for the server's own routes: choose another plan id")
             if self._path(dag.plan_id).exists() or dag.plan_id in self._bridges:
                 raise ValueError(f"plan '{dag.plan_id}' already exists")
             if self._archived_path(dag.plan_id).exists():

@@ -229,6 +229,7 @@
       say(T("pl.ev.offer", ev.offer.node_id));
     } else if (ev.type === "plan:triage") {
       showTriage(ev.result);
+      if (ui.triage.open) loadTele();
     } else if (ev.type === "plan:diff_applied") {
       say(T("pl.ev.applied"));
     } else if (ev.type === "plan:archived") {
@@ -762,13 +763,22 @@
   let triageOut;
   function buildTriage() {
     triageOut = el("div", { class: "pl-tout", role: "status", "aria-live": "polite" });
+    ui.tele = el("p", { class: "pl-tele help" });
+    ui.triage.addEventListener("toggle", () => { if (ui.triage.open) loadTele(); });
     ui.triage.replaceChildren(el("summary", { text: T("pl.triage") }),
       el("form", { class: "pad pl-dform", onsubmit: runTriage },
-        el("p", { class: "help", text: T("pl.triage.help") }),
+        el("p", { class: "help", text: T("pl.triage.help") }), ui.tele,
         el("label", { for: "pl-t-events", text: T("pl.triage.events") }),
         el("textarea", { id: "pl-t-events", rows: "4", placeholder: T("pl.triage.ph") }),
         el("label", { class: "pl-check" }, el("input", { type: "checkbox", id: "pl-t-replan", checked: true }), el("span", { text: T("pl.triage.replan") })),
         el("button", { class: "btn primary pl-btn", text: T("pl.triage.go") }), triageOut));
+  }
+  /* what the filter has done since the server started: how many judgements, where they were answered, tokens */
+  async function loadTele() {
+    const r = await api("api/plans/telemetry");
+    if (!r.ok || !ui.tele) return;
+    const t = r.data.triage;
+    ui.tele.textContent = t.calls ? T("pl.tele", t.calls, t.cloud, t.offline, t.fell_back, t.tokens, t.wakes) : T("pl.tele.none");
   }
   async function runTriage(e) {
     e.preventDefault();
@@ -777,6 +787,7 @@
     const r = await api(planPath("/triage"), { events, replan: document.getElementById("pl-t-replan").checked });
     if (!r.ok) { say(errText(r.data) || T("pl.failed"), true); return; }
     showTriage(r.data);
+    loadTele();
   }
   function showTriage(r) {
     if (!triageOut) return;
@@ -785,7 +796,8 @@
       el("p", { text: T("pl.t.source." + r.source) + " · " + (r.sent_to_cloud ? T("pl.t.sent") : T("pl.t.local")) }),
       el("p", { text: T("pl.t.detail", Math.round(r.has_blocker_prob * 100), r.impact_scope, r.max_impact || "—") }),
     ];
-    if (r.replanning) lines.push(el("p", { text: T("pl.t.replanning") }));
+    if (r.replan_state === "in_progress") lines.push(el("p", { text: T("pl.t.inprogress") }));
+    else if (r.replanning) lines.push(el("p", { text: T("pl.t.replanning") }));
     if (r.replan_error) lines.push(el("p", { class: "bad", text: r.replan_error }));
     (r.reasons || []).slice(0, 5).forEach(x => lines.push(el("p", { class: "pl-treason", text: x })));
     triageOut.replaceChildren(...lines);
@@ -811,6 +823,9 @@
       el("label", { class: "pl-check" }, el("input", { type: "checkbox", id: "pl-s-cloud", checked: s.cloud_triage, disabled: !s.key_present }), el("span", { text: T("pl.set.cloud") })),
       ...(s.cloud_triage ? [riskLabel(T("pl.risk.cloud"))] : []),
       el("label", { class: "pl-check" }, el("input", { type: "checkbox", id: "pl-s-pseudo", checked: s.pseudonymize }), el("span", { text: T("pl.set.pseudo") })),
+      el("label", { for: "pl-s-gate", text: T("pl.set.gate") }),
+      el("select", { id: "pl-s-gate" }, ["or", "and"].map(m => el("option", { value: m, text: T("pl.set.gate." + m), selected: (s.gate_mode || "or") === m }))),
+      el("p", { class: "help", text: T("pl.set.gate.help") }),
       el("fieldset", { class: "pl-parents" }, el("legend", { text: T("pl.set.fields") }),
         FIELDS.map(f => [el("label", { class: "pl-check" }, el("input", { type: "checkbox", name: "field", value: f, checked: picked.includes(f) }), el("span", { text: T("pl.card." + f) })),
           personal.includes(f) ? el("p", { class: "help", text: T("pl.set.personal.help") }) : []]).flat()),
@@ -830,7 +845,7 @@
     const personal = (S.settings && S.settings.card_fields_personal) || [];
     const isStandard = fields.length === standard.length && standard.every(f => fields.includes(f));
     const body = { cloud_triage: ui.setBody.querySelector("#pl-s-cloud").checked, pseudonymize: ui.setBody.querySelector("#pl-s-pseudo").checked,
-      card_fields: isStandard ? null : fields };
+      gate_mode: ui.setBody.querySelector("#pl-s-gate").value, card_fields: isStandard ? null : fields };
     if (body.cloud_triage && !(S.settings && S.settings.cloud_triage) && !(await riskConfirm([T("pl.risk.cloud")]))) { drawSettings(); return; }
     const hadPersonal = S.settings && S.settings.card_fields && personal.some(f => S.settings.card_fields.includes(f));
     if (fields.some(f => personal.includes(f)) && !hadPersonal && !(await riskConfirm([T("pl.risk.personal")]))) { drawSettings(); return; }
