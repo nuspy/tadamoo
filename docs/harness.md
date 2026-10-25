@@ -529,6 +529,92 @@ top and the four tools cost about 400.
 Not done: a second, embedding-based search pass, and a server that needs environment variables or a remote address
 (these are listed but not started from here).
 
+## Finding a missing capability online
+
+When a capability is missing that usually exists as an MCP server or a skill, the agent can look for one online, show the best
+candidates to the person and install the one they choose (`harness/discovery/`). The tool is `find_online_capability(need,
+look_anyway)`; it exists in a conversation that has the capability index (`--capabilities`), and `find_capability` points to it when it
+finds nothing. The base prompt says to try it before working around the gap with the shell.
+
+**What the tool does.** It first looks at what is already here: a tool the agent has (for example `search_web`) or an entry of the index
+whose name and description match most words of the need; if one does, that is the answer and nothing goes online (`look_anyway=true`
+searches anyway, for a better one). Otherwise it asks the sources that are turned on, scores the candidates and, by default, puts the
+best five (at most) to the person in the Chat as a question of kind `capability_choice`: for each, name, source, version, score, the
+reasons in a line, the warnings, the command that would run and the keys it needs, with the buttons *Install N*, *Other: I will tell
+you* (a sentence of up to 500 characters, sent as `other:<sentence>` and returned to the model as the person's words) and *Do not
+install*. After a choice it installs and tells the model the id (`mcp:<name>` or `skill:<name>`) and that `call_capability` (with an
+empty `tool` to list the server's tools) or `load_capability` uses it; it does not start the server itself. Without a way to ask
+(no Chat), nothing is installed and the options come back as text. The tool is registered as reversible, so plan mode refuses it.
+The model gives only the need: the tool has no argument that names a package, a command or an address.
+
+**What goes onto the network.** Only GET requests, with the User-Agent `basalt-capability-search/1.0`, a 12 s timeout, a cap on the
+bytes read (2 MB; 4 MB for an npm package record, 3 MB for PyPI), no cookie, no credential, and a redirect is followed only inside the
+same host. The need (the words the model wrote, at most 300 characters; the tool asks for no secrets and no personal data, and the call is
+shown in the Chat with its arguments) appears in the address of the searches:
+the MCP registry `registry.modelcontextprotocol.io/v0.1/servers?search=<word>` (up to three words of the need, one request each), npm
+`registry.npmjs.org/-/v1/search?text=<words> mcp`, and GitHub `api.github.com/search/repositories?q=<two words> topic:agent-skills` (and
+`topic:claude-skills`). For each candidate it then asks by name: npm (`/<package>/<version>`, `/<package>`, and the downloads at
+`api.npmjs.org`), PyPI (`pypi.org/pypi/<package>/json`), GitHub (`/repos/<owner>/<repo>`, at most eight per search; for skills
+`/commits/<branch>` and `/git/trees/<commit>?recursive=1`) and `raw.githubusercontent.com` for `SKILL.md` and for the
+`.claude-plugin/marketplace.json` of the marketplaces the person lists. The sources are turned on or off one by one in Settings; a turned
+off source is not asked and its candidates are not offered (the npm and PyPI switches also stop installing from them). The optional
+GitHub token is read from the vault (a secret entry named `github`, field `value`), sent only to the GitHub API address, and raises
+the limit of 60 requests an hour for unidentified requests; when the limit is reached the answer says so and when it resets, and the
+candidates come back without stars and activity (the warning says so) instead of failing.
+
+**The score** (`harness/discovery/scoring.py`) is 0 to 100. It measures popularity and upkeep, **not safety**: a popular, well kept
+package can still do harm, and numbers such as stars and downloads can be inflated. The parts, with their default weights: weekly
+downloads (20, logarithmic, the whole share at 100,000), age of the last release (20), releases in the last year (10), stars (10, log),
+forks (5, log), open issues against the project's size (5), a declared licence (5), a publisher the registry verified (10; for a name
+`io.github.<owner>/...` it must match the repository's owner), age (5) and ratings (10, where a source has them; none does today). A
+fact the source does not give is left out and the others are weighed among themselves; a fact that is absent (no repository, no
+licence) counts as zero; an archived or deprecated package scores 0. The card shows the part each played. The warnings, in plain words:
+not updated for more than a year, few downloads, no repository, a name almost equal to a very well known one (a fixed list), keys or
+settings it asks for, install scripts (not run), it is a program that runs on this PC, a remote service, a skill whose folder holds
+scripts, archived, deprecated, no licence, GitHub not asked. The weights, the minimum score and the sources are in Settings,
+Capabilities, *Search online*, and in `discovery.json`.
+
+**What is downloaded, and what is never run.**
+- *npm*: `npm install --prefix <user data>/capabilities/mcp/<name> <package>@<exact version> --ignore-scripts --no-audit --no-fund`.
+  No script of any package runs at install (a package that needs one may not work). The `integrity` npm wrote in the lock file is
+  compared with the one the registry published for that release; a different hash deletes the folder. The server is started from the
+  installed program in `node_modules/.bin`, never through `npx -y`.
+- *PyPI*: the release is downloaded as a wheel only (`pip download --no-deps --only-binary=:all:`), its sha256 is compared with the ones
+  PyPI lists for the release, then it is installed with `uv pip install --no-build` (if `uv` is on the PC) or `pip install
+  --only-binary=:all:` into its own folder, so no build script runs. Its dependencies come from the index without a hash check of
+  their own. Without pip the hash is not checked and the record says so. A package with no wheel is not installed.
+- *A remote server*: nothing is downloaded; the address is recorded. A remote server that needs a key in a header is not offered
+  (Basalt signs in to remote servers with OAuth, in Settings).
+- *A skill*: only its folder, from the commit that was shown (up to 100 files and 5 MB), file by file; each file's git hash is
+  compared with the one in the commit's tree. A skill's text is instructions for the model; the scripts in its folder are files, which
+  the model could later run only through the shell tool under the usual permissions. From a plugin marketplace only skill folders are
+  taken, not the plugin's commands, hooks or servers.
+- Candidates that would need an argument Basalt cannot fill, another kind of package (OCI, NuGet, MCPB) or a missing `npm`, `uv` or
+  `pip` are not offered, and the answer names what is missing.
+
+**Registration.** The entry is written to `installed.json` as installed by Basalt (origin `basalt`) and approved with the hash of
+exactly what was shown: the start command or the address, or the text of `SKILL.md`. It shows in Settings, Capabilities, can be turned
+off or moved like any other, and `find_capability` finds it at once. Using it is still a `call_capability`, which asks like any
+action that cannot be undone.
+
+**Keys.** The key a server asks for is a secret entry in the person's vault named like the variable (`TAVILY_API_KEY`), field `value`.
+When the server starts, that one variable is read from the vault, handed to the new process and forgotten: it is not written to any
+file and the model never sees it (and the output is masked like any vault value). A required key that is not in the vault stops the
+start with a message naming the entry to create.
+
+**Installing without asking.** *Install the best one by itself when its score is above the minimum* is off by default. Turning it
+on shows the highlighted risk label and asks twice; from then on the first candidate whose score reaches the minimum is installed at
+once, and the result in the Chat says that this was a standing instruction.
+
+**Where the files are** (the capabilities folder of the user data folder): `discovery.json` (the settings; `base_urls` there points the
+sources at other addresses and is not written by the page), `installed.json` (one record per install: source, version, score, command,
+integrity, the variables and their vault entries), `mcp/<name>/`, `skills/<name>/`, `approved.json`. **Removing**: Settings,
+Capabilities, *Search online*, *Remove* (it asks for a second press); it deletes the folder, the record and the approval. Doing it by hand
+is the same three things. Both installers are told to install into that folder; their own download caches stay where npm and pip keep them.
+
+Not done: no update of what was installed; no download counts for PyPI and no ratings from any source; the installed server's tools
+are not listed by the install; the score does not read the code or any security database.
+
 ## Context patterns
 
 Six ways to shape what the model reads, chosen in the Chat settings (each with a checkbox, a strategy and a description with
