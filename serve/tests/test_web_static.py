@@ -405,3 +405,26 @@ class ChangesViewTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RewindConfirmationTest(unittest.TestCase):
+    """Going back over a step whose actions cannot be undone asks the server what would stay done and waits for an explicit yes."""
+    js = (WEB / "plans.js").read_text(encoding="utf-8")
+
+    def test_the_page_asks_for_the_impact_first_and_sends_the_acceptance_only_from_the_button(self):
+        body = self.js[self.js.index("async function rewind(id)"):self.js.index("function rewindBox")]
+        self.assertIn('"plan:rewind_impact"', body)
+        self.assertLess(body.index('"plan:rewind_impact"'), body.index('type: "plan:rewind"'))
+        self.assertEqual(self.js.count("accept_irreversible: true"), 1)                 # only the confirmed path sends it
+        self.assertIn("async function rewindAnyway", self.js[self.js.index("accept_irreversible: true") - 300:self.js.index("accept_irreversible: true")])
+
+    def test_the_confirmation_is_made_of_buttons_with_text_in_both_languages(self):
+        self.assertIn('type: "button", id: "pl-rw-go"', self.js)
+        self.assertIn('id: "pl-rw-no"', self.js)
+        self.assertIn(".focus()", self.js[self.js.index("pl-rw-no\")"):][:200])         # the keyboard lands on the safe button
+        css = (WEB / "plans.css").read_text(encoding="utf-8")
+        for selector in (".pl-ptitle", ".chg-row summary"):
+            self.assertIn("min-height: 40px", re.search(re.escape(selector) + r" \{([^}]*)\}", css).group(1), selector)
+        text = (WEB / "i18n.js").read_text(encoding="utf-8")
+        for key in ("pl.rewind.stays", "pl.rewind.anyway", "pl.rewind.cancel"):
+            self.assertEqual(text.count(f'"{key}"'), 2, key)

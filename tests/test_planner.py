@@ -1142,3 +1142,20 @@ def test_the_gate_is_checked_and_can_change_while_the_telemetry_stays(jev):
     with pytest.raises(ValueError, match="https"):
         g.reconfigure(endpoint="http://api.example.com/x")
     assert g.gate_mode == "and"
+
+
+# -- going back over actions that cannot be undone -------------------------------------------------------
+
+def test_the_bridge_lists_what_would_stay_done_and_rewinds_only_when_that_is_accepted():
+    bridge = PlanCanvasBridge(chain("book", "call", "pay"))
+    for nid in ("book", "call", "pay"):
+        assert bridge.handle({"type": "plan:mark", "node_id": nid, "status": "completed"})["ok"]
+    assert bridge.handle({"type": "plan:rewind_impact", "node_id": "book"})["not_undone"] == []              # nothing recorded: no question
+    bridge.handle({"type": "plan:note_effect", "node_id": "call", "tool": "phone_call", "effect": "irreversible", "what": "phone_call +39 1"})
+    impact = bridge.handle({"type": "plan:rewind_impact", "node_id": "book"})
+    assert impact["ok"] and [(e["step"], e["what"]) for e in impact["not_undone"]] == [("call", "phone_call +39 1")]
+    assert impact["not_undone"][0]["title"] == "Call"                                                          # the page shows the step's title
+    refused = bridge.handle({"type": "plan:rewind", "node_id": "book"})
+    assert not refused["ok"] and bridge.dag.nodes["pay"].status == "completed"
+    done = bridge.handle({"type": "plan:rewind", "node_id": "book", "accept_irreversible": True})
+    assert done["ok"] and bridge.dag.nodes["pay"].status == "pending"

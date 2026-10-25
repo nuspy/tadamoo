@@ -18,7 +18,7 @@
   const DIRECT = ["plan:update_node", "plan:mark", "plan:rewind", "plan:update_meta", "plan:fallback_response"];
   const S = {
     plans: [], id: "", snap: null, selected: "", proposal: "", mode: "", seq: 0, running: false, ready: false,
-    settings: null, refreshTimer: null, abort: null, flash: {}, align: null,
+    settings: null, refreshTimer: null, abort: null, flash: {}, align: null, rewindAsk: null, rewindFocus: false,
   };
 
   /* ---- small helpers ---- */
@@ -351,6 +351,7 @@
   }
 
   function select(id) {
+    if (S.rewindAsk && S.rewindAsk.id !== id) S.rewindAsk = null;
     S.selected = id;
     render();
     const h = document.getElementById("pl-detail-h");
@@ -377,7 +378,9 @@
     if (n.state_variables.selected) facts.push(T("pl.selected", n.state_variables.selected.join(", ")));
     if (n.state_variables.outputs) facts.push(T("pl.outputs", JSON.stringify(n.state_variables.outputs)));
     const isReady = S.snap.ready.includes(n.id);
+    if (S.rewindAsk && S.rewindAsk.id !== n.id) S.rewindAsk = null;
     ui.detail.append(el("form", { class: "pad pl-dform", onsubmit: e => { e.preventDefault(); saveNode(n.id, cond); } },
+      S.rewindAsk ? rewindBox(S.rewindAsk) : [],
       el("p", { class: "pl-dmeta", text: `${T("pl.type." + n.type)} · ${ICON[n.status]} ${T("pl.status." + n.status)}${isReady ? " · " + T("pl.ready") : ""}` }),
       ...facts.map(f => el("p", { class: "pl-fact", text: f })),
       el("label", { for: "pl-d-title", text: T("pl.f.title") }), title,
@@ -433,7 +436,33 @@
     }
     await event({ type: "plan:mark", node_id: id, status, ...(outputs ? { outputs } : {}) }, T("pl.marked"));
   }
-  async function rewind(id) { await event({ type: "plan:rewind", node_id: id }, T("pl.rewound")); }
+  /* Going back does not undo what already happened outside (a call, a payment, a command): the page asks the server what would stay done,
+     and when something would, lists it and waits for an explicit "Rewind anyway". */
+  async function rewind(id) {
+    const r = await api(planPath("/events"), { type: "plan:rewind_impact", node_id: id });
+    if (!r.ok) { say(errText(r.data) || T("pl.failed"), true); return; }
+    const stays = r.data.not_undone || [];
+    if (!stays.length) { S.rewindAsk = null; await event({ type: "plan:rewind", node_id: id }, T("pl.rewound")); return; }
+    S.rewindAsk = { id, stays };
+    S.rewindFocus = true;
+    render();
+  }
+  async function rewindAnyway() {
+    const ask = S.rewindAsk;
+    if (!ask) return;
+    S.rewindAsk = null;
+    await event({ type: "plan:rewind", node_id: ask.id, accept_irreversible: true }, T("pl.rewound"));
+  }
+  function cancelRewind() { S.rewindAsk = null; render(); }
+  function rewindBox(ask) {
+    const node = S.snap.plan.nodes[ask.id];
+    return el("div", { class: "pl-rewind", role: "group", "aria-labelledby": "pl-rw-h" },
+      el("p", { class: "pl-rw-h", id: "pl-rw-h", text: T("pl.rewind.stays", node ? node.title : ask.id) }),
+      el("ul", { class: "pl-rw-list" }, ask.stays.map(e => el("li", { text: T("pl.rewind.line", e.title || e.step, e.what || e.tool || "") }))),
+      el("div", { class: "pl-acts" },
+        el("button", { type: "button", id: "pl-rw-go", class: "btn pl-btn pl-danger", text: T("pl.rewind.anyway"), onclick: rewindAnyway }),
+        el("button", { type: "button", id: "pl-rw-no", class: "btn pl-btn", text: T("pl.rewind.cancel"), onclick: cancelRewind })));
+  }
   async function userDiff(diff, title) {
     const p = await api(planPath("/events"), { type: "plan:propose_diff", title, source: "user", diff });
     if (!p.ok) { say(errText(p.data) || T("pl.failed"), true); return; }
@@ -870,6 +899,11 @@
     drawList();
     const editing = ui.detail.contains(document.activeElement) && document.activeElement.matches("input, textarea, select");
     if (!editing) drawDetail();
+    if (S.rewindAsk && (S.rewindFocus || document.activeElement === document.body)) {
+      const no = document.getElementById("pl-rw-no");
+      if (no) no.focus();
+      S.rewindFocus = false;
+    }
     drawProposals();
     drawOffers();
     drawHistory();
