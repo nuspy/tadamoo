@@ -25,6 +25,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--gpu-power-limit-w", type=float, default=None, help="the GPU power limit this run used (it labels every number)")
     p.add_argument("--out", default=None, help="write the Markdown report here")
     p.add_argument("--json", default=None, help="write the full results here")
+    p.add_argument("--council", action="store_true", help="offer ask_council (the council must be set up on the Providers page); run the set with and without it to compare")
     p.add_argument("--keep-workspaces", default=None, help="keep every trial's workspace in this folder, for reading failures")
     args = p.parse_args(argv)
     if args.k < 1:
@@ -38,8 +39,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             p.error("no task matches --only")
     client = BasaltClient(base_url=args.endpoint, api_key=args.api_key)
     env = collect_environment(client, args.endpoint, gpu_power_limit_w=args.gpu_power_limit_w)
-    runner = EvalRunner(client=client, temperature=args.temperature, keep_workspaces=Path(args.keep_workspaces) if args.keep_workspaces else None)
-    config = {"k": args.k, "temperature": args.temperature, "seeds": "1000 + repetition", "max turns": "per task"}
+    runner = EvalRunner(client=client, temperature=args.temperature, keep_workspaces=Path(args.keep_workspaces) if args.keep_workspaces else None, council=args.council)
+    config = {"k": args.k, "temperature": args.temperature, "seeds": "1000 + repetition", "max turns": "per task", "council": "on" if args.council else "off"}
 
     def show(r):
         print(f"{'PASS' if r.pass_pow_k else 'FAIL'}  {r.task_id:<34} {sum(t.passed for t in r.trials)}/{r.k_trials}", file=sys.stderr, flush=True)

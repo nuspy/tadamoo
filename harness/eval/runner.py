@@ -76,6 +76,7 @@ class EvalRunner:
         keep_workspaces: Optional[Path] = None,
         max_total_tokens: Optional[int] = 60_000,
         max_seconds: Optional[float] = 600.0,
+        council: bool = False,
     ) -> None:
         self.client = client
         self.client_factory = client_factory
@@ -84,6 +85,7 @@ class EvalRunner:
         self.keep = keep_workspaces
         self.max_total_tokens = max_total_tokens
         self.max_seconds = max_seconds
+        self.council = council
 
     def load_task_set(self, path: str | Path) -> List[Task]:
         return load_task_set(path)[1]
@@ -114,7 +116,7 @@ class EvalRunner:
                 cfg = AgentConfig(workspace=str(workspace), max_turns=task.max_turns, permission_mode="default", allow=task.allow,
                                   use_memory=False, use_checkpoints=False, data_dir=str(data), max_total_tokens=self.max_total_tokens,
                                   max_seconds=self.max_seconds, reference_docs=task.knowledge if task.strategy != "none" else {},
-                                  reference_strategy=task.strategy)
+                                  reference_strategy=task.strategy, council=self.council)
                 built = build_agent(cfg, client=client)
                 agent = built.agent
                 agent.sampling = sampling

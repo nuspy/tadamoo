@@ -844,7 +844,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                       skill_paths=args.skills, confirm=confirm, run_id=sid,
                       context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold, end_turn_bias=args.end_turn_bias, snapshot_dir=str(history / "snapshots"),
                       attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
-                      capabilities=args.capabilities and not args.ask_only, lsp=args.lsp and not args.ask_only)
+                      capabilities=args.capabilities and not args.ask_only, lsp=args.lsp and not args.ask_only, council=not args.ask_only)
     from harness.client import BasaltClient
     from harness.llm import client_for, judge_for
     from harness.llm.judge import router_judge

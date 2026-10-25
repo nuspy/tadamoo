@@ -26,6 +26,10 @@ FUNCTIONS: Dict[str, Dict[str, Any]] = {
     "pipeline": {"label": "Checks of the answer (pipeline)", "kind": "judge", "data": "personal"},
     "triage": {"label": "Plan events (triage)", "kind": "judge", "data": "personal"},
     "relevance": {"label": "Relevance of excerpts", "kind": "judge", "data": "general"},
+    "council_1": {"label": "Council member 1 (answers)", "kind": "chat", "data": "personal", "tools": False},
+    "council_2": {"label": "Council member 2 (reviews)", "kind": "chat", "data": "personal", "tools": False},
+    "council_3": {"label": "Council member 3 (proposes another way)", "kind": "chat", "data": "personal", "tools": False},
+    "council_chair": {"label": "Council chair (sums up)", "kind": "chat", "data": "personal", "tools": False},
 }
 
 

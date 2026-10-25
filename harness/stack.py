@@ -78,6 +78,7 @@ class AgentConfig:
     context_threshold: float = 0.7      # the share of the context window at which pruning or a summary starts
     end_turn_bias: float = 0.0          # 0 or less: how much less ready the model is to end its turn (0 is off)
     snapshot_dir: Optional[str] = None  # where the context of each turn is kept when versioning is on
+    council: bool = False               # offer ask_council when the person set a council up on the Providers page
     lsp: bool = False                   # offer diagnostics, go_to_definition and find_references when a language server is found on this PC
     capabilities: bool = False          # offer find_capability, load_capability, call_capability and analyze_image (skills, plugins, MCP servers found on this PC)
     capabilities_dir: Optional[str] = None   # where their index and the person's approvals are kept (default: the user data folder)
@@ -258,6 +259,11 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         lsp_hub = LspHub(workspace)
         if not register_lsp_tools(registry, lsp_hub, sandbox.resolve_safe):
             lsp_hub = None
+    if cfg.council:
+        from harness.council import offer_council
+        from harness.llm import client_for as routed_for, registry as llm_registry
+        here = getattr(client, "local", None) or client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key)
+        offer_council(registry, lambda function: routed_for(function, here), llm_registry())
     capability_index = None
     if cfg.capabilities:
         capability_index = _offer_capabilities(cfg, workspace, registry, builder, sandbox, client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key))

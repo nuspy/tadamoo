@@ -434,6 +434,21 @@ with S256, a `state` that must come back, the server's address as `resource`, RF
 Not done: servers that need a client id registered by hand (it says so; there is no place to type one yet), a sign-in from a different PC than the one
 the server runs on, and the other transports' own sign-ins.
 
+## A council for hard questions
+
+`ask_council(question, context)` asks three advisers and a chair (`harness/council.py`). The advisers are the functions *Council member 1, 2, 3* on the
+Providers page, the chair is *Council chair*, so each can be a different model, local or in the cloud; they get different jobs (answer, find what is wrong
+or risky, propose another way). They answer at the same time, a member that fails is reported and the others go on, and the chair, told that the answers are
+untrusted text, writes where they agree, where they differ and what to do (at most 250 words). It costs several model calls and is meant for a decision that is
+worth it.
+
+The tool exists only when the person pointed at least one of those functions somewhere (a provider, or "Basalt (this server)" for the loaded model in
+several roles); with nothing chosen it is not offered, and what leaves this PC follows the rules of any other function (personal data to a cloud provider only
+where the person said yes for that function, daily caps, fallback only to a route that is as local or more).
+
+Whether it helps has not been measured: `python -m harness.eval --set council` runs six decisions about code (five with a flaw a reviewer finds, one sound);
+run it without `--council` and with it, after setting a council up, and compare (a difference under 3 points is noise until it repeats).
+
 ## Language servers
 
 When a language server is installed (pyright or pylsp for Python, typescript-language-server, clangd, rust-analyzer, gopls), a conversation

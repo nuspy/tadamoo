@@ -1,0 +1,117 @@
+{
+  "name": "council",
+  "version": "1",
+  "description": "Decisions about code that can be shipped or held: five have a flaw a careful reviewer finds, one is sound. Run it without --council and with it (after setting a council up on the Providers page) and compare; a difference under 3 points is noise until it repeats. A development comparison, not a benchmark.",
+  "tasks": [
+    {
+      "id": "retry_without_idempotency",
+      "category": "decision",
+      "files": {
+        "pay.py": "def charge(card, amount, api):\n    for attempt in range(3):\n        try:\n            return api.post('/charge', {'card': card, 'amount': amount})\n        except TimeoutError:\n            continue\n    raise RuntimeError('payment failed')\n"
+      },
+      "max_turns": 8,
+      "checks": [
+        {
+          "type": "answer_regex",
+          "pattern": "\\A\\W*HOLD\\b"
+        },
+        {
+          "type": "answer_regex",
+          "pattern": "idempot|twice|duplicate|double"
+        }
+      ],
+      "prompt": "Read pay.py. We want to ship it today. Decide: reply with DEPLOY or HOLD on the first line (only that word, not the other), then at most three lines saying why."
+    },
+    {
+      "id": "cache_key_without_locale",
+      "category": "decision",
+      "files": {
+        "views.py": "cache = {}\n\ndef page(user, locale, render):\n    key = ('page', user.id)\n    if key not in cache:\n        cache[key] = render(user, locale)\n    return cache[key]\n"
+      },
+      "max_turns": 8,
+      "checks": [
+        {
+          "type": "answer_regex",
+          "pattern": "\\A\\W*HOLD\\b"
+        },
+        {
+          "type": "answer_regex",
+          "pattern": "locale|language"
+        }
+      ],
+      "prompt": "Read views.py. We want to ship it today. Decide: reply with DEPLOY or HOLD on the first line (only that word, not the other), then at most three lines saying why."
+    },
+    {
+      "id": "money_as_float",
+      "category": "decision",
+      "files": {
+        "invoice.py": "def total(items):\n    t = 0.0\n    for price, qty in items:\n        t += price * qty\n    return t\n\n\ndef split_in_three(t):\n    return [round(t / 3, 2)] * 3\n"
+      },
+      "max_turns": 8,
+      "checks": [
+        {
+          "type": "answer_regex",
+          "pattern": "\\A\\W*HOLD\\b"
+        },
+        {
+          "type": "answer_regex",
+          "pattern": "float|decimal|round|cent"
+        }
+      ],
+      "prompt": "Read invoice.py. We want to ship it today. Decide: reply with DEPLOY or HOLD on the first line (only that word, not the other), then at most three lines saying why."
+    },
+    {
+      "id": "sql_by_concatenation",
+      "category": "decision",
+      "files": {
+        "db.py": "def find_user(conn, name):\n    cur = conn.cursor()\n    cur.execute(f\"SELECT id FROM users WHERE name = '{name}'\")\n    return cur.fetchone()\n"
+      },
+      "max_turns": 8,
+      "checks": [
+        {
+          "type": "answer_regex",
+          "pattern": "\\A\\W*HOLD\\b"
+        },
+        {
+          "type": "answer_regex",
+          "pattern": "inject|parameter|prepared|escape"
+        }
+      ],
+      "prompt": "Read db.py. We want to ship it today. Decide: reply with DEPLOY or HOLD on the first line (only that word, not the other), then at most three lines saying why."
+    },
+    {
+      "id": "naive_datetimes",
+      "category": "decision",
+      "files": {
+        "report.py": "from datetime import datetime\n\ndef age_seconds(created_iso):\n    return (datetime.now() - datetime.fromisoformat(created_iso)).total_seconds()\n\n# created_iso comes from servers in several time zones, e.g. 2026-03-01T10:00:00+05:30\n"
+      },
+      "max_turns": 8,
+      "checks": [
+        {
+          "type": "answer_regex",
+          "pattern": "\\A\\W*HOLD\\b"
+        },
+        {
+          "type": "answer_regex",
+          "pattern": "time ?zone|aware|utc|offset|naive"
+        }
+      ],
+      "prompt": "Read report.py. We want to ship it today. Decide: reply with DEPLOY or HOLD on the first line (only that word, not the other), then at most three lines saying why."
+    },
+    {
+      "id": "sound_code",
+      "category": "decision",
+      "files": {
+        "stats.py": "def mean(xs):\n    xs = list(xs)\n    if not xs:\n        raise ValueError('mean of no values')\n    return sum(xs) / len(xs)\n\n\ndef test_mean():\n    assert mean([1, 2, 3]) == 2\n"
+      },
+      "max_turns": 8,
+      "checks": [
+        {
+          "type": "answer_regex",
+          "pattern": "\\A\\W*DEPLOY\\b"
+        }
+      ],
+      "prompt": "Read stats.py. We want to ship it today. Decide: reply with DEPLOY or HOLD on the first line (only that word, not the other), then at most three lines saying why."
+    }
+  ]
+}

@@ -49,6 +49,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--wiki-project", default="", help="wikibridge project slug used when a call names none")
     parser.add_argument("--no-report", action="store_true", help="do not show the run and its edits in the server's Monitor")
     parser.add_argument("--no-memory", action="store_true")
+    parser.add_argument("--council", action="store_true", help="offer ask_council when a council is set up on the Providers page")
     parser.add_argument("--no-checkpoints", action="store_true")
     parser.add_argument("--json", action="store_true", help="print the result as JSON")
     return parser.parse_args(args)
@@ -130,7 +131,7 @@ def config_from_args(args: argparse.Namespace) -> AgentConfig:
         use_checkpoints=not args.no_checkpoints, skill_paths=args.skills,
         phone=args.phone, phone_on_behalf_of=args.on_behalf_of, reference_docs=read_reference(args.reference),
         report=not args.no_report, reference_strategy=args.reference_strategy, wiki=args.wiki, wiki_project=args.wiki_project,
-        confirm=_confirmer(args), run_id=args.run_id, progress=args.progress,
+        confirm=_confirmer(args), run_id=args.run_id, progress=args.progress, council=args.council,
     )
 
 
