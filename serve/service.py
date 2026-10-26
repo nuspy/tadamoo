@@ -43,7 +43,7 @@ CTX_SLACK = 8               # the engine rejects prompt + max_new + 8 > context
 RATE_WINDOW_S = 2.0
 LOG_FIRST_LINES = 300        # lines /api/logs returns to a client with none
 LOG_MAX_LINES = 500          # ... and its maximum per answer
-REQUESTS_SHOWN = 12        # finished requests /metrics lists
+REQUESTS_SHOWN = 100       # finished requests /metrics lists
 RATE_MIN_SPAN_S = 0.25      # below this span there is no rate yet: use the mean with the span floored
 # diagnostics, off unless the server flag sets them
 DEBUG = False            # --debug: one line per request plus the raw model text

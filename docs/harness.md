@@ -55,7 +55,7 @@ the Chat can reach, the others can reach:
 A headless run has nobody to type a second-factor code; a login that needs one fails there. Payments and plans go through the same question as
 a risky action (`--interactive`, `--ask-server`); with neither, a payment above the person's waiver is refused and a plan stays a plan.
 
-The run and its file edits appear in the Monitor (tasks and changes) while it works, unless `--no-report`; the reporting
+The run and its file edits appear in the Agent tab (the edits under Changes) while it works, unless `--no-report`; the reporting
 never changes the run, and stops after two failed attempts. An edit made by a shell command (`sed -i`, a script that rewrites
 a file) is recorded too: the workspace's text files are compared before and after each command, so it can be reviewed block
 by block like the file tools' edits. Binary files, files over 200 000 characters, `.git`, `node_modules` and similar folders
@@ -884,12 +884,12 @@ wide, not for phones.
 - **Sources**: after a link or an address in an answer, and for each site a `search_web` or `browse_url` step used, a small button opens the
   page in the system's browser (`target="_blank"`; the app hands a new window to the default browser). Only `http` and `https` addresses
   without a user name get one.
-- **Tabs**: Chat, Agent, Plans, Monitor, Models, Hardware, LOGS, Wallet, Settings; **Alt+1…9** open them. **Ctrl+K** opens a palette that
-  reaches every view and the common actions and settings.
-- A notice under the top bar says when no model is loaded and opens Models. Settings has an index of its sections and
-  holds the cloud-filter consent. The Monitor shows the agent's tasks and edits: under the requests, or in a column of
-  their own on windows from 1700 pixels.
-- **Reviewing the agent's edits**: the agent applies an edit when it makes it. In the Monitor each edit lists its blocks
+- **Tabs**: Chat, Agent, Plans, Monitor, Models, Settings; **Alt+1…6** open them. Under Monitor a strip of pages: *Server LLM* (the
+  Monitor itself, open by default), *Hardware* and *LOGS*. Under Settings: *General*, *Models and capabilities*, *Cloud and privacy* (the
+  cloud-filter consent) and *Wallet*. **Ctrl+K** opens a palette that reaches every page and the common actions and settings.
+- A notice under the top bar says when no model is loaded and opens Models. The Monitor lists the last 100 requests; the agent's tasks
+  and edits are not there (the edits are reviewed in the Agent tab).
+- **Reviewing the agent's edits**: the agent applies an edit when it makes it. In the Agent tab each edit lists its blocks
   with *Keep* and *Undo* (and *Keep all*, *Undo all*); undoing asks to be pressed twice. A block is undone only while the
   file on disk is exactly what the agent wrote, so nothing you did since is overwritten; if you changed the file, or
   a later edit touched it, the panel says so and does nothing. Only the latest 30 edits can be undone, only for text
@@ -900,7 +900,7 @@ wide, not for phones.
   from the agent (a command to run, an MCP tool) appears at the top of the right column and on the tab as a count, with
   *Approve* and *Deny*; one nobody answers within 15 minutes, or whose run ended, counts as a refusal. Under *More options*:
   the most steps, and rules for commands it may run without asking. The page shows the run's status and a readable log (one
-  line for each tool, then its answer) and a button to the Monitor, where its edits can be reviewed; *Stop* ends the
+  line for each tool, then its answer) and the Changes panel, where its edits can be reviewed; *Stop* ends the
   agent and everything it started. *Go back* lists the checkpoints of the folder, with what the agent did after each, and puts the
   files back to one of them (press twice); actions that stay done, such as a command it ran, are listed and the button warns. The
   state before the rewind is itself a checkpoint, so going back can be undone. One run at a time. It works only from the PC the server runs on, with the API key if the

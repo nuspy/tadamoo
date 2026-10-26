@@ -171,7 +171,7 @@ class AgentConfig:
     reference_strategy: str = "auto"   # auto, cag (a fixed block at the start), rag (searched passages) or none
     wiki: bool = False                 # offer the wikibridge tools (address and key from the environment)
     wiki_project: str = ""
-    report: bool = False               # tell the server's Monitor about the run and its edits
+    report: bool = False               # tell the server's Agent tab about the run and its edits
     run_id: str = ""                    # names the run in the Monitor; the server gives one when it starts the agent
     progress: bool = False              # print a line for each tool call as the run goes
     phone: bool = False                 # offer the phone tools (callAPIcall from the environment)

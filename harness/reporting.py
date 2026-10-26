@@ -1,4 +1,4 @@
-"""Tells the server's Monitor what the agent is doing and what it edited.
+"""Tells the server's Agent tab what the agent is doing and what it edited.
 
 The agent posts to the server it already talks to, to /api/tasks (one task per run, with its progress) and
 /api/changes (each file edit with its diff). Reporting is a courtesy: it never changes a run, and after two
@@ -80,7 +80,7 @@ class PanelReporter:
         for c in fresh:
             edit = {k: c[k] for k in ("file", "kind", "added", "removed", "diff") if k in c}
             if isinstance(c.get("old_text"), str) and isinstance(c.get("new_text"), str):
-                # the texts let the person keep or undo single blocks from the Monitor
+                # the texts let the person keep or undo single blocks from the Agent tab
                 edit["review"] = {"root": str(getattr(self.sandbox, "root", "")), "old_text": c["old_text"], "new_text": c["new_text"]}
             edits.append(edit)
         if self._post("/api/changes", {"edits": edits}):

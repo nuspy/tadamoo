@@ -42,8 +42,9 @@ class Page(unittest.TestCase):
         code, ctype, html = self.get("/")
         self.assertEqual(code, 200)
         self.assertIn("text/html", ctype)
-        self.assertRegex(html, r'<button class="tab" role="tab" id="tab-logs" data-view="logs"[^>]*data-t="tab.logs">LOGS</button>')
-        self.assertIn('id="view-logs" role="tabpanel" aria-labelledby="tab-logs"', html)
+        self.assertNotIn('id="tab-logs"', html)                                  # LOGS is a page under Monitor, not a tab of its own
+        self.assertIn('id="viewsub"', html)
+        self.assertIn('id="view-logs" role="tabpanel" aria-labelledby="sub-logs"', html)
         self.assertIn('<script defer src="web/reqlog.js"></script>', html)
         for control in ("rl-pause", "rl-clear", "rl-save", "rl-format", "rl-q", "rl-prev", "rl-next", "rl-count", "rl-log", "rl-latest"):
             self.assertIn(f'id="{control}"', html)
