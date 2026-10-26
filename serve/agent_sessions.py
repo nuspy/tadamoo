@@ -54,6 +54,7 @@ COMPARES_FILE = "compares.json"
 COMPARE_SETTINGS = ("mode", "max_turns", "ask_only", "end_turn_bias")      # what the two sides of a comparison may differ in
 EFFECTS_FILE = "tool_effects.json"                                          # the effect class of each tool this conversation has used
 SNIPPET_CHARS = 80
+LEVELS = ("", "very_low", "low", "normal", "high", "very_high", "highest")     # how much of pictures or diagrams the person wants; empty is none
 EFFORTS = ("", "none", "low", "medium", "high")                             # how long the model thinks; empty is its own default
 SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact")     # harness/commands.py
 FILE_DIFF_BYTES = 200_000
@@ -626,7 +627,8 @@ class SessionManager:
 
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
                confirm_auto: bool = False, max_turns: Any = 15, context_patterns: Any = None,
-               context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "") -> Dict[str, Any]:
+               context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
+               images: Any = "", charts: Any = "") -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         if (workspace is None or workspace == "") and self.default_workspace is not None:
             self.default_workspace.mkdir(parents=True, exist_ok=True)
@@ -636,6 +638,9 @@ class SessionManager:
             raise RunError("The mode must be one of: " + ", ".join(MODES) + ".", "bad_mode")
         if mode == "auto" and confirm_auto is not True:
             raise RunError("Automatic mode runs commands without asking. Confirm that you want that, in a folder you can lose.", "auto_confirm")
+        for name, level in (("images", images), ("charts", charts)):
+            if level not in LEVELS:
+                raise RunError(f"How much {name} are wanted is one of: off, " + ", ".join(LEVELS[1:]) + ".", "bad_visuals")
         if effort not in EFFORTS:
             raise RunError("The thinking level is none, low, medium or high; empty is the model's own.", "bad_effort")
         rules = allow if isinstance(allow, list) else []
@@ -662,7 +667,7 @@ class SessionManager:
             raise RunError("The copy of the folder is off, auto or always.", "bad_worktree")
         sid = secrets.token_hex(4)
         copy = self._copy_for(sid, path, worktree)
-        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "effort": effort,
+        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "effort": effort, "images": images, "charts": charts,
                "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         if copy:
@@ -702,6 +707,9 @@ class SessionManager:
             cmd += ["--allow", rule]
         if rec.get("effort"):
             cmd += ["--effort", rec["effort"]]
+        for flag in ("images", "charts"):
+            if rec.get(flag):
+                cmd += [f"--{flag}", rec[flag]]
         if rec.get("ask_only"):
             cmd.append("--ask-only")
         elif self.vault_dir:

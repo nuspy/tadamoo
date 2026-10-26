@@ -309,6 +309,13 @@ aspetta.
   non li spunti.
 - Nulla in un piano cambia alle tue spalle: il planner prepara solo proposte, che approvi tu.
 
+## 12b. Immagini e grafici nelle risposte
+
+*Chat → Impostazioni → Immagini e grafici* ha due interruttori, ciascuno con il suo livello di presenza (molto bassa, bassa, normale, alta, molto alta, altissima).
+Valgono per la prossima nuova conversazione. **Immagini**: l'agente le cerca in rete, di preferenza nell'articolo che cita, ne tiene una nella conversazione e la mostra
+con la fonte; la pagina mostra solo immagini che l'agente ha tenuto, mai una da un indirizzo scritto nel testo. **Grafici**: l'agente disegna flussi di lavoro,
+deployment e interazioni come diagrammi che la pagina disegna; *Sorgente del diagramma* mostra il testo da cui è nato.
+
 ## 13. La scheda Agente
 
 La scheda Agente è la pagina delle conversazioni che lavora in una **cartella tua**. A sinistra la colonna elenca le cartelle che hai

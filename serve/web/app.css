@@ -1160,3 +1160,16 @@ dialog.afolder .brd-b { display: grid; gap: 8px; padding: 12px 16px 16px; }
 .abranch .aicon-svg { width: 14px; height: 14px; }
 .aend { align-self: flex-start; justify-content: flex-start; margin-top: 4px; }
 .think-end { display: flex; justify-content: flex-end; padding: 2px 6px 4px; }
+
+/* pictures the agent fetched and diagrams it drew, in an answer */
+.afig { display: block; margin: 8px 0; }
+.aimg { display: block; max-width: min(100%, 720px); max-height: 460px; height: auto; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); }
+.afigc { display: block; margin-top: 4px; font: 400 12.5px/1.4 var(--font-sans); color: var(--fg-3); }
+.diagram { margin: 10px 0; }
+.diagram-svg { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: auto; }
+.diagram-svg svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.diagram-src { margin-top: 4px; }
+.diagram-src > summary { cursor: pointer; color: var(--fg-3); font: 500 12px/1.6 var(--font-sans); }
+.diagram-err { margin: 4px 0 0; color: #FF8FA3; font: 400 12.5px/1.4 var(--font-sans); }
+.csgroup .check { display: flex; align-items: center; gap: 10px; min-height: 36px; margin-top: 6px; cursor: pointer; }
+.csgroup .check input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; flex: none; }

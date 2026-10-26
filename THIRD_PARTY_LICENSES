@@ -148,3 +148,11 @@ requests (https://github.com/psf/requests)
 
 Apache License 2.0. Copyright (c) Kenneth Reitz and the requests contributors.
 The licence text is at https://www.apache.org/licenses/LICENSE-2.0.
+
+================================================================================
+Mermaid (https://mermaid.js.org/; serve/web/vendor/mermaid.min.js, loaded only when an answer holds a diagram)
+================================================================================
+
+MIT License. Copyright (c) 2014 - 2022 Knut Sveidqvist. The licence text is kept in serve/web/vendor/LICENSE-mermaid.txt. The bundle also
+carries libraries with permissive licences of their own (d3, DOMPurify, dayjs, khroma, lodash-es and others); their notices are in the
+header comments and in the package at https://www.npmjs.com/package/mermaid/v/11.4.1.
