@@ -12,6 +12,7 @@
       { id: "general", view: "settings", label: () => T("sub.general") },
       { id: "models", view: "settings", label: () => T("sub.models") },
       { id: "privacy", view: "settings", label: () => T("sub.privacy") },
+      { id: "mobile", view: "settings", label: () => T("sub.mobile") },
       { id: "wallet", view: "wallet", label: () => T("tab.wallet") }],
   };
   const strip = document.getElementById("viewsub");
@@ -50,6 +51,7 @@
       return b;
     }));
     if (viewOn === "settings") showSettingsSub();
+    document.dispatchEvent(new CustomEvent("basalt:sub", { detail: viewOn === "settings" ? settingsSub : viewOn }));
   }
 
   // arrow keys move along the strip, Home and End go to the ends

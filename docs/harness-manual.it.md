@@ -322,6 +322,13 @@ Valgono per la prossima nuova conversazione. **Immagini**: l'agente le cerca in 
 con la fonte; la pagina mostra solo immagini che l'agente ha tenuto, mai una da un indirizzo scritto nel testo. **Grafici**: l'agente disegna flussi di lavoro,
 deployment e interazioni come diagrammi che la pagina disegna; *Sorgente del diagramma* mostra il testo da cui è nato.
 
+## 12c. Telefoni
+
+*Impostazioni > Telefoni* prepara l'app Basalt per un telefono. 1) **Tailscale** su questo PC: la pagina lo installa (con winget), lo collega e mostra l'indirizzo che questo PC ha nella tua rete privata. 2) **Lascia
+collegare i telefoni**: il server ascolta anche su quell'indirizzo, solo per Tailscale, mai su internet. 3) **Una chiave per ogni telefono**: dai un nome al telefono, premi *Crea una chiave* e inquadra il
+codice QR con l'app (o copia la chiave). La chiave si vede una volta sola; per fermare un telefono, togli la sua chiave. Sul telefono installa Tailscale dal Play Store e accedi con lo stesso account. Un telefono può
+usare il modello, le conversazioni, i file e le routine; non raggiunge il portafoglio, la cassaforte, le impostazioni né il caricamento dei modelli.
+
 ## 13. La scheda Agente
 
 La scheda Agente è la pagina delle conversazioni che lavora in una **cartella tua**. A sinistra la colonna elenca le cartelle che hai

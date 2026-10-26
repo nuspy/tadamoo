@@ -301,6 +301,13 @@ the next new conversation. **Pictures**: the agent looks for them on the web, pr
 source named; the page shows only pictures the agent kept, never one from an address written in the text. **Charts**: the agent draws workflows, deployments and
 interactions as diagrams that the page draws; *Source of the diagram* shows the text it was made from.
 
+## 12c. Phones
+
+*Settings > Phones* sets up the Basalt app for a phone. 1) **Tailscale** on this PC: the page installs it (with winget) and connects it, and shows the address this PC has on your private network. 2) **Let phones connect**:
+the server then also listens on that address, only for Tailscale, never on the internet. 3) **A key for each phone**: give the phone a name, press *Make a key*, and scan the QR code with the app
+(or copy the key). The key is shown once; to stop a phone, take its key away. On the phone, install Tailscale from the Play Store and sign in with the same account. A phone can use the model, the
+conversations, files and routines; it cannot reach the wallet, the vault, the settings or the loading of models.
+
 ## 13. The Agent tab
 
 The Agent tab is the conversation page working in a **folder of yours**. At the left, the column lists the folders you added, each with its
