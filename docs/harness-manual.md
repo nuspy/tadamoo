@@ -404,8 +404,10 @@ never files, programs or the network directly, so everything it does goes throug
 may use anything Python can, with your rights, without those controls; it is saved only after the risk label and its two questions. The check
 on a restricted script is a fence against mistakes, not a wall against someone who means harm: read the script of a skill that comes from others.
 
-**Not done yet:** running a skill on a schedule (it will use the routines), a test run that compares with what was recorded, and going on with the
-agent from the step that failed.
+**On a schedule:** in the **Cron Jobs** tab a job can run one of your skills instead of a task you write. Fill in its values once; a date in words such as *today* or
+*tomorrow* is worked out again each time the job runs. The job's mode and rules decide what the skill may do without asking.
+
+**Not done yet:** a test run that compares with what was recorded, and going on with the agent from the step that failed.
 
 ## 18. When something goes wrong
 

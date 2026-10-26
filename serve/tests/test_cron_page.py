@@ -49,5 +49,13 @@ class CronPageTest(unittest.TestCase):
         self.assertIn("@media (max-width: 1100px)", CSS)
 
 
+    def test_a_job_can_run_a_personal_skill_with_values_that_are_read_at_each_run(self):
+        for needle in ('api("GET", "api/personal-skills")', "window.pskills.valueField(p,", 'skill: skill ? f.skillSel.value : ""', "values: skill ? f.valuesNow() : {}", "cj.values.help"):
+            self.assertIn(needle, JS)
+        self.assertIn("valueField,", (WEB / "pskills.js").read_text(encoding="utf-8"))
+        for key in ("cj.kind", "cj.kind.task", "cj.kind.skill", "cj.skill", "cj.skillrow", "cj.values.none"):
+            self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+
+
 if __name__ == "__main__":
     unittest.main()

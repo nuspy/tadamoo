@@ -434,8 +434,10 @@ liste…), mai file, programmi o rete direttamente, quindi tutto ciò che fa pas
 le sue due domande. Il controllo su uno script ristretto è una staccionata contro gli errori, non un muro contro chi vuole fare danno: leggi lo
 script di una skill che viene da altri.
 
-**Non ancora fatto:** eseguire una skill a un orario (userà le routine), una prova che confronta con ciò che era stato registrato e il riprendere
-con l'agente dal passo che è fallito.
+**A un orario:** nella scheda **Cron Jobs** un job può eseguire una delle tue skill invece di un compito scritto da te. Compili i valori una volta; una data in parole come *oggi*
+o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job decidono cosa la skill può fare senza chiedere.
+
+**Non ancora fatto:** una prova che confronta con ciò che era stato registrato e il riprendere con l'agente dal passo che è fallito.
 
 ## 18. Quando qualcosa non va
 
