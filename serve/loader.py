@@ -68,7 +68,7 @@ MTP_EXPERT_BLOB = 1382400
 ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.prefill": None, "engine.spec": 0,
                    "engine.spec-min-p": 0, "engine.expert-cache": 0, "engine.resident-experts": False,
                    "engine.vram-reserve-mib": 700, "engine.ple-io": "direct", "engine.pool-workers": None,
-                   "server.parallel": 1, "server.slot-full-context": False, "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep",
+                   "server.parallel": 1, "server.slot-full-context": False, "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep", "engine.relaxed-drafting": None,
                    "server.port": 7232}
 
 # "Valori sicuri" are computed from this PC and the model (safe()); SAFE is what that gives on one example PC (an RTX
@@ -479,7 +479,11 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
                              "en": "this model file has no vision projector and the models folders hold none that fits"})
         elif projector["problem"]:
             problems.append({"code": "vision", "it": projector["problem"]["it"], "en": projector["problem"]["en"]})
+    rd = v["engine.relaxed-drafting"]
+    p_relaxed = 0.5 if rd is True else float(rd or 0)
+    why_not = [] if not p_relaxed else [code for code, bad in (("spec", spec < 2), ("mtp", not facts.get("has_mtp")), ("parallel", par > 1)) if bad]
     return {
+        "relaxed": {"p": p_relaxed, "effective": not why_not, "why": why_not},
         "values": v, "slot_context": ctx, "parallel": par,
         "vram": {"items": [_item("dense", dense), _item("drafter", drafter), _item("kv", kv),
                            _item("vision", vision_vram), _item("buffers", buffers),

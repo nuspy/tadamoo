@@ -50,7 +50,7 @@ def settings_info(a, words: list[str], argv: list[str]) -> dict:
                "server.vision-projector": getattr(a, "vision_projector", "auto"),
                "server.vision-hold": getattr(a, "vision_hold", "keep"),
                "server.slot-full-context": bool(a.slot_full_context)}
-    for name in ("max-context", "kv", "spec", "spec-min-p", "expert-cache", "prefill", "resident-experts",
+    for name in ("max-context", "kv", "spec", "spec-min-p", "relaxed-drafting", "expert-cache", "prefill", "resident-experts",
                  "vram-reserve-mib", "ple-io", "pool-workers"):
         running[f"engine.{name}"] = flag_setting(words, f"--{name}")
     if getattr(a, "shared_context", None):              # the total, before it was divided among the slots
