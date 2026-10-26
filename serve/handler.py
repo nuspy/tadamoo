@@ -1127,6 +1127,7 @@ def make_handler(svc: Service, remote: bool = False):
             out["power_w"] = benchrun.power_limit_w()
             out["job"] = benchrun.JOBS.status()
             out["editable"] = listing.get("editable")
+            out["out_dir"] = listing.get("output_dir") or models.default_output_dir()
             return out
 
         def _bench_precheck(self, path: str, settings_: dict) -> None:
@@ -1155,7 +1156,7 @@ def make_handler(svc: Service, remote: bool = False):
             except BadBody as e:
                 self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
                 return
-            if what not in ("availability", "run", "cancel"):
+            if what not in ("availability", "run", "cancel", "unload", "reload"):
                 self._json(404, {"error": {"message": "not found"}})
                 return
             if not settings.is_loopback(self.client_address[0]):
@@ -1173,6 +1174,17 @@ def make_handler(svc: Service, remote: bool = False):
             try:
                 if what == "cancel":
                     self._json(200, {"cancelled": benchrun.JOBS.cancel(), **benchrun.JOBS.status()})
+                    return
+                if what == "unload":                         # a test loads its own copy of the model: this one has to give the GPU and the memory back
+                    r = svc.unload()
+                    self._json(409 if r == "busy" else 200, {"status": r})
+                    return
+                if what == "reload":
+                    try:
+                        svc.load()
+                        self._json(200, {"status": "loaded"})
+                    except (GpuBusy, EngineDied, EngineStarting) as e:
+                        self._json(503, {"error": {"type": "server_error", "message": str(e)}})
                     return
                 path = str(req.get("path") or "")
                 ready = [m for m in self._models_listing(False).get("models") or []

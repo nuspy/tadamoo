@@ -7,7 +7,7 @@
 (() => {
   const SUB_KEY = "basalt.models.sub";
   const view = document.getElementById("view-loader");
-  const panel = document.getElementById("ld-providers"), qwen = document.getElementById("ld-qwen");
+  const panel = document.getElementById("ld-providers"), qwen = document.getElementById("ld-qwen"), conv = document.getElementById("ld-converter");
   if (!view || !panel) return;
   const load = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } };
   const keep = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* this page only */ } };
@@ -41,15 +41,21 @@
 
   /* ---- the two sub-tabs ---- */
   function sub(which) {
-    const prov = which === "providers";
-    panel.hidden = !prov; qwen.hidden = prov;
+    const prov = which === "providers", cv = which === "converter";
+    panel.hidden = !prov; qwen.hidden = prov || cv;
+    if (conv) conv.hidden = !cv;
     document.getElementById("sub-providers").setAttribute("aria-selected", String(prov));
-    document.getElementById("sub-qwen").setAttribute("aria-selected", String(!prov));
+    document.getElementById("sub-qwen").setAttribute("aria-selected", String(!prov && !cv));
+    const tab = document.getElementById("sub-converter");
+    if (tab) tab.setAttribute("aria-selected", String(cv));
     keep(SUB_KEY, which);
     if (prov) refresh();
+    if (cv) document.dispatchEvent(new CustomEvent("basalt:models-sub", { detail: "converter" }));
   }
   document.getElementById("sub-providers").onclick = () => sub("providers");
   document.getElementById("sub-qwen").onclick = () => sub("qwen");
+  const convTab = document.getElementById("sub-converter");
+  if (convTab) convTab.onclick = () => sub("converter");
 
   /* ---- reading ---- */
   async function refresh() {
@@ -198,5 +204,5 @@
 
   document.addEventListener("basalt:view", e => { if (e.detail === "loader" && !panel.hidden) refresh(); });
   applyT(view.querySelector(".subtabs"));
-  sub(load(SUB_KEY, "qwen") === "providers" ? "providers" : "qwen");
+  sub(["providers", "converter"].includes(load(SUB_KEY, "qwen")) ? load(SUB_KEY, "qwen") : "qwen");
 })();
