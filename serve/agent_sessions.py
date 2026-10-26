@@ -54,6 +54,7 @@ COMPARES_FILE = "compares.json"
 COMPARE_SETTINGS = ("mode", "max_turns", "ask_only", "end_turn_bias")      # what the two sides of a comparison may differ in
 EFFECTS_FILE = "tool_effects.json"                                          # the effect class of each tool this conversation has used
 SNIPPET_CHARS = 80
+MAX_SAVED_FILE = 200 * 1024 * 1024                                          # the largest file of the folder the page offers to save
 LEVELS = ("", "very_low", "low", "normal", "high", "very_high", "highest")     # how much of pictures or diagrams the person wants; empty is none
 EFFORTS = ("", "none", "low", "medium", "high")                             # how long the model thinks; empty is its own default
 SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact")     # harness/commands.py
@@ -154,6 +155,25 @@ class SessionManager:
     def _set(self, rec: Dict[str, Any], **changes: Any) -> None:
         rec.update(changes, updated=time.time())
         self._save()
+
+    def workspace_file(self, sid: str, path: Any) -> Tuple[Path, str]:
+        """A file in the folder the conversation works in (its own copy when it has one), for the person to save: only a regular file inside that folder,
+        never in the agent's own `.basalt` or in `.git`, and not a huge one."""
+        rec = self.get(sid)
+        root = Path(rec.get("workdir") or rec["workspace"]).resolve()
+        text = str(path or "").replace("\\", "/").strip("/")
+        if not text or len(text) > 400 or "\0" in text:
+            raise RunError("Name the file, with its path inside the folder.", "bad_path")
+        target = (root / text).resolve()
+        try:
+            inside = target.relative_to(root)
+        except ValueError:
+            raise RunError("That file is not inside the folder this conversation works in.", "bad_path") from None
+        if any(part in (".basalt", ".git") for part in inside.parts) or not target.is_file():
+            raise RunError("That file is not there, or it is one the agent keeps for itself.", "no_file")
+        if target.stat().st_size > MAX_SAVED_FILE:
+            raise RunError("That file is too large to save from here.", "too_large")
+        return target, target.name
 
     def view(self) -> Dict[str, Any]:
         with self._lock:
@@ -702,7 +722,7 @@ class SessionManager:
 
     def _command(self, sid: str, rec: Dict[str, Any], history: Path) -> List[str]:
         cmd = [self.python, "-m", "harness", "session", "--session-id", sid, "--history-dir", str(history), "--workspace", rec.get("workdir") or rec["workspace"],
-               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp", "--report-changes"]
+               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp", "--report-changes", "--page-files"]
         for rule in rec.get("allow", []):
             cmd += ["--allow", rule]
         if rec.get("effort"):

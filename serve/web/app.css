@@ -1173,3 +1173,8 @@ dialog.afolder .brd-b { display: grid; gap: 8px; padding: 12px 16px 16px; }
 .diagram-err { margin: 4px 0 0; color: #FF8FA3; font: 400 12.5px/1.4 var(--font-sans); }
 .csgroup .check { display: flex; align-items: center; gap: 10px; min-height: 36px; margin-top: 6px; cursor: pointer; }
 .csgroup .check input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; flex: none; }
+
+/* a link to a file in an answer is a button that saves it */
+.afile { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 2px 10px; margin: 0 2px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--fg); font: 500 13px/1.6 var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.afile:hover, .afile:focus-visible { border-color: var(--accent); }
+.afile:disabled { opacity: .6; }

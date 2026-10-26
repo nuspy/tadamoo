@@ -460,6 +460,8 @@
       el.querySelector(".atool-o").hidden = !b.output;
       const made = /^\[file:([a-f0-9]{12}):([^\]]{1,120})\]/.exec(b.output || "");          // written by the tool, never by the model's own text
       let save = el.querySelector(".asave");
+      const wrote = ["write_file", "edit_file"].includes(b.name) && b.status === "ok" && b.args && typeof b.args.path === "string" ? b.args.path : "";   // a file it wrote or edited can be saved too
+      if (wrote && !save) { const leaf = wrote.split(/[\\/]/).pop(); save = btn(T("ch.out.save", leaf), "ghost asave", () => saveWorkspace(wrote, leaf, save)); el.querySelector("summary").after(save); }
       if (made && !save) { save = btn(T("ch.out.save", made[2]), "primary asave", () => saveOutput(made[1], made[2], save)); el.querySelector("summary").after(save); }
       let chip = el.querySelector(".chip");
       const pid = b.name.startsWith("plan_") ? planIdOf(b) : "";
@@ -737,6 +739,26 @@
     } catch (e) { if (!(e && e.name === "AbortError")) status(T("ch.out.fail", name)); }
     button.disabled = false;
   }
+  /* a file of the conversation's folder: the button of a link the agent wrote, or of a file it wrote or edited */
+  async function saveWorkspace(path, name, button) {
+    if (button) button.disabled = true;
+    try {
+      const r = await fetch(`api/agent/sessions/${encodeURIComponent(sid)}/file?path=${encodeURIComponent(path)}`, { headers: authHeaders() });
+      if (!r.ok) {
+        let why = ""; try { why = ((await r.json()).error || {}).message || ""; } catch (e) { /* no body */ }
+        throw new Error(why || `HTTP ${r.status}`);
+      }
+      await saveBlob(await r.blob(), name || path.split(/[\\/]/).pop());
+    } catch (e) { if (!(e && e.name === "AbortError")) status(T("ch.out.fail", name || path) + (e && e.message ? ` (${e.message})` : "")); }
+    if (button) button.disabled = false;
+  }
+  /* every button a link to a file became, in any answer, saves through the same two functions */
+  box.addEventListener("click", e => {
+    const b = e.target.closest && e.target.closest("button.afile");
+    if (!b || !sid) return;
+    if (b.dataset.kind === "file") saveOutput(b.dataset.id, b.dataset.name, b);
+    else saveWorkspace(b.dataset.path, b.dataset.name, b);
+  });
   async function saveBlob(blob, name) {
     try {
       const app = window.chrome && window.chrome.webview;

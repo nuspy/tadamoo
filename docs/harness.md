@@ -907,6 +907,12 @@ wide, not for phones.
   file on disk is exactly what the agent wrote, so nothing you did since is overwritten; if you changed the file, or
   a later edit touched it, the panel says so and does nothing. Only the latest 30 edits can be undone, only for text
   files up to 200 000 characters, and only from the PC the server runs on.
+- **Files in answers**: a link written as `[name](basalt-file:ID)` (a file the agent made with `write_output_file` or `publish_output_file`) or
+  `[name](basalt-path:relative/path)` (a file in the folder the conversation works in) becomes a button in the answer that saves it; so does a file the agent wrote or edited,
+  with a *Save* button in its step. The page asks for the file with the API key and saves it the way the place it runs in allows: the *Save as* window of the desktop app, the browser's
+  save window, or a plain download. The folder's files come from `GET /api/agent/sessions/<id>/file?path=`, which sends only a regular file inside the folder the conversation works in
+  (its own copy when it has one), never one in `.basalt` or `.git`, never above 200 MB, as an attachment with `nosniff` and a sandboxing policy. The agent is told how to write these links
+  (`--page-files`, `FILES_GUIDANCE` in `harness/visuals.py`), only in the conversations of this page.
 - **Pictures and charts in answers**: two switches in *Chat settings → Pictures and charts*, each with a level of presence (very low, low,
   normal, high, very high, highest), for the next new conversation (`images` and `charts` of `POST /api/agent/sessions`, `--images` and `--charts` of the
   conversation's process). With pictures on, the agent has `page_images` (the pictures a page shows: its own headline picture, then the article's,
