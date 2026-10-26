@@ -112,6 +112,17 @@ class Bench(Base):
         self.assertEqual(self.req("POST", "/api/bench/explode", {})[0], 404)
         self.assertEqual(self.req("POST", "/api/bench/run", {"path": str(self.models / "missing.basalt")})[0], 404)
         self.assertEqual(self.req("POST", "/api/bench/cancel", {})[1]["cancelled"], False)
+        self.assertEqual(self.req("POST", "/api/bench/unload", {}, {**JS, "Origin": "http://evil.example.com"})[0], 403)
+
+    def test_unloading_and_loading_again_go_through_the_service(self):
+        with mock.patch.object(self.svc, "unload", return_value="unloaded") as unload:
+            self.assertEqual(self.req("POST", "/api/bench/unload", {}), (200, {"status": "unloaded"}))
+            unload.assert_called_once()
+        with mock.patch.object(self.svc, "unload", return_value="busy"):
+            self.assertEqual(self.req("POST", "/api/bench/unload", {})[0], 409)
+        with mock.patch.object(self.svc, "load") as load:
+            self.assertEqual(self.req("POST", "/api/bench/reload", {}), (200, {"status": "loaded"}))
+            load.assert_called_once()
 
     def test_the_conversion_plan_takes_the_options(self):
         conv = next(m for m in self.req("GET", "/api/models")[1]["models"] if m["status"] == "convert")
