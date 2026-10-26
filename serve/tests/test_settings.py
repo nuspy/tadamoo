@@ -292,6 +292,18 @@ class Tabs(unittest.TestCase):
                     for value in re.findall(r'"([^"]+)"', options):
                         self.assertIn(f'"o.{name}.{value}":', block, f"{name} {value}")
 
+    def test_the_controls_that_had_no_explanation_now_have_one_in_both_languages(self):
+        i18n = self.text("i18n.js")
+        en, it = i18n.index("  en: {"), i18n.index("  it: {")
+        keys = ("st.lang.help", "cp.rescan.tip", "cp.actions.help", "cp.turnoff.tip", "cp.turnon.tip", "cp.revoke.tip", "cp.signin.tip",
+                "cp.signout.tip", "cp.move.tip", "cp.on.min.tip", "cp.w.tip", "pl.set.cloud.help", "pl.set.pseudo.help",
+                "pl.set.fields.help", "mb.allow.needts", "mb.fresh.copy.tip", "me.sec.field", "me.sec.tip", "me.kind.field", "me.kind.tip")
+        for key in keys:
+            self.assertIn(f'"{key}":', i18n[en:it], key)
+            self.assertIn(f'"{key}":', i18n[it:], key)
+            self.assertTrue(any(key in self.text(f) for f in ("index.html", "capabilities.js", "plans.js", "mobile.js", "memories.js")), key)
+        self.assertIn('aria-describedby="st-lang-h"', self.text("index.html"))
+
     def test_every_new_string_in_english_and_italian(self):
         i18n = self.text("i18n.js")
         en, it = i18n.index("  en: {"), i18n.index("  it: {")
