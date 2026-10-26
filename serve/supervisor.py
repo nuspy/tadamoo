@@ -211,7 +211,7 @@ class Supervisor:
         svc, engine = self.svc, self.svc.engine
         cfg = engine_config(a, words)
         defaults = sampling_defaults_of(a, cfg)         # a bad value refuses the reload while the engine still runs
-        env = child_env(cfg)
+        env = child_env(cfg, loader.free_share_chosen())
         old = svc.vision
         if old is not None and not getattr(old, "in_engine", False):
             old.close()                                  # its VRAM is free before the engine sizes its cache

@@ -143,7 +143,7 @@ def main() -> int:
         print("[server] standby without a model: choose one in the Loader", flush=True)
     elif not a.mock_engine:
         vision = None
-        env = child_env(cfg)
+        env = child_env(cfg, loader.free_share_chosen())
         sampling_defaults = {**sampling_defaults_from_config(cfg), **a.sampling_launch}
         if sampling_defaults:
             print(sampling_line(sampling_defaults, a.sampling_cli, set(a.sampling_launch) - a.sampling_cli), flush=True)

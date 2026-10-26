@@ -27,6 +27,17 @@
 
 namespace basalt::platform {
 
+namespace {
+// The share of the RAM kept free: the person's, which the server hands over in BASALT_RAM_FREE_PCT (5 to 50 per cent), else `fallback`.
+uint64_t free_percent(uint64_t fallback) {
+    const char* v = std::getenv("BASALT_RAM_FREE_PCT");
+    if (v == nullptr || *v == '\0') return fallback;
+    char* end = nullptr;
+    const unsigned long n = std::strtoul(v, &end, 10);
+    return (*end == '\0' && n >= 5 && n <= 50) ? (uint64_t) n : fallback;
+}
+}  // namespace
+
 #if defined(_WIN32)
 // ------------------------------------------------------------------------------------------------ Windows
 LockResult lock_resident(void* p, uint64_t bytes) {
@@ -105,7 +116,7 @@ uint64_t available_memory() {
 // 15% of the RAM stays free: Windows trims working sets and pages to the SSD well before RAM is exhausted, so the
 // Linux 5% would let a load push the rest of the machine into the page file.
 uint64_t ram_margin() {
-    return std::max<uint64_t>(2ull << 30, total_physical_memory() / 100 * 15);
+    return std::max<uint64_t>(2ull << 30, total_physical_memory() / 100 * free_percent(15));
 }
 
 bool read_ahead_enabled() { return true; }
@@ -198,7 +209,7 @@ uint64_t meminfo_bytes(const char* key) {
 uint64_t available_memory() { return meminfo_bytes("MemAvailable"); }
 
 uint64_t ram_margin() {
-    return std::max<uint64_t>(2ull << 30, meminfo_bytes("MemTotal") / 20);
+    return std::max<uint64_t>(2ull << 30, meminfo_bytes("MemTotal") / 100 * free_percent(5));
 }
 #endif
 

@@ -252,6 +252,15 @@ def free_share() -> float:
         return FREE_SHARE
 
 
+def free_share_chosen() -> float | None:
+    """The share of RAM the person set (Settings or the wizard); None when they never did, and the engine keeps its own."""
+    try:
+        value = machine_settings().get("free_share")
+        return None if value is None else check_free_share(value)
+    except ValueError:
+        return None
+
+
 def keep_bytes(total: int | None, share: float) -> int:
     return max(int(share * total), FREE_FLOOR) if total else 0
 

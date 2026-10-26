@@ -2,6 +2,7 @@
 // only, no GPU, no model).
 #include "basalt/platform/memory.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -89,10 +90,38 @@ int ram_floor_cases() {
     }
     return fail;
 }
+// The margin follows the share the person chose (BASALT_RAM_FREE_PCT, 5 to 50) and ignores anything else
+void set_free_pct(const char* v) {
+#if defined(_WIN32)
+    _putenv_s("BASALT_RAM_FREE_PCT", v);
+#else
+    if (*v) setenv("BASALT_RAM_FREE_PCT", v, 1); else unsetenv("BASALT_RAM_FREE_PCT");
+#endif
+}
+int free_share_cases() {
+    using basalt::platform::ram_margin;
+    using basalt::platform::total_physical_memory;
+    set_free_pct("");
+    const uint64_t usual = ram_margin(), total = total_physical_memory();
+    struct Case { const char* value; uint64_t pct; };       // pct 0: not taken, the usual margin stays
+    const Case cases[] = {{"10", 10}, {"5", 5}, {"50", 50}, {"4", 0}, {"51", 0}, {"abc", 0}, {"12x", 0}, {"-10", 0}};
+    int bad = 0;
+    for (const Case& c : cases) {
+        set_free_pct(c.value);
+        const uint64_t want = c.pct ? std::max<uint64_t>(2ull << 30, total / 100 * c.pct) : usual, got = ram_margin();
+        if (got != want) {
+            std::printf("FAIL free share '%s': margin %llu MiB, want %llu MiB\n", c.value, (unsigned long long) (got >> 20),
+                        (unsigned long long) (want >> 20));
+            bad = 1;
+        }
+    }
+    set_free_pct("");
+    return bad;
+}
 }  // namespace
 
 int main() {
-    int fail_keeps = file_cache_keeps_cases() | ram_floor_cases();
+    int fail_keeps = file_cache_keeps_cases() | ram_floor_cases() | free_share_cases();
     const uint64_t bytes = 256ull << 20;
     void* p = std::malloc(bytes);
     if (p == nullptr) return 2;

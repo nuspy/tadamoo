@@ -415,6 +415,20 @@ class Cli(Isolated):
         self.assertIn("engine.vram-reserve-mib = 3072", out.getvalue())
 
 
+class FreeShareReachesTheEngine(Isolated):
+    def test_the_share_the_person_set_is_the_engines_margin_and_without_one_the_engine_keeps_its_own(self):
+        from serve.engine.vision import child_env
+        self.assertIsNone(loader.free_share_chosen())                          # never set
+        self.assertNotIn("BASALT_RAM_FREE_PCT", child_env({}, loader.free_share_chosen()))
+        loader.save_machine_settings({"free_share": 0.1})
+        self.assertEqual(loader.free_share_chosen(), 0.1)
+        self.assertEqual(child_env({}, loader.free_share_chosen())["BASALT_RAM_FREE_PCT"], "10")
+        loader.save_machine_settings({"free_share": 0.07})
+        self.assertEqual(child_env({}, loader.free_share_chosen())["BASALT_RAM_FREE_PCT"], "7")
+        loader.save_machine_settings({"free_share": 0.9})                      # out of range: not taken
+        self.assertIsNone(loader.free_share_chosen())
+
+
 class PendingMeasure(Isolated):
     def test_the_measurement_after_the_restart_with_the_model(self):
         from serve import loader_api

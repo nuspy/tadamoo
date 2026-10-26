@@ -275,9 +275,12 @@ def engine_args(cfg: dict) -> list[str]:
     return list(cfg["args"])
 
 
-def child_env(cfg: dict) -> dict:
-    """The engine environment: only the --gpu cards are visible."""
+def child_env(cfg: dict, free_share: float | None = None) -> dict:
+    """The engine environment: only the --gpu cards are visible, and the share of the RAM the person keeps free is the engine's own
+    margin too (BASALT_RAM_FREE_PCT), so a request is not stopped for RAM the person agreed to use."""
     env = dict(os.environ)
+    if free_share is not None:
+        env["BASALT_RAM_FREE_PCT"] = str(round(free_share * 100))
     if gpu_list(cfg):                              # number cards as nvidia-smi does
         env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"      # CUDA's default order differs
         env["CUDA_VISIBLE_DEVICES"] = ",".join(str(i) for i in gpu_list(cfg))
