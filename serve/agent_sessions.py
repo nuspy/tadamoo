@@ -173,7 +173,7 @@ class SessionManager:
             return {"messages": [], "turns": 0, "session": dict(rec)}
         shown = []
         for m in self._transcript(sid, data):
-            shown.append({k: (v[:TEXT_CHARS] if isinstance(v, str) else v) for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts")})
+            shown.append({k: (v[:TEXT_CHARS] if isinstance(v, str) else v) for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts", "raw")})
         return {"messages": shown, "turns": data.get("turns", 0), "session": dict(rec)}
 
     def _read_history(self, sid: str) -> Optional[Dict[str, Any]]:
@@ -923,6 +923,62 @@ class SessionManager:
                 raise RunError("The agent process did not take the message; try again.", "write_failed")
         self._push(sid, {"event": "user", "turn": turn, "text": text, **({"attachments": [{k: c[k] for k in ("id", "name", "family", "size")} for c in cards]} if cards else {})})
         return {"turn": turn, "session": self.get(sid)}
+
+    def _skill_source(self, sid: str, turns: Any) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """The requests the person chose (by number, as the page counts them) and the steps taken to answer them."""
+        from harness.personal_skills import distill
+        if not isinstance(turns, list) or not turns or len(turns) > distill.MAX_REQUESTS or any(not isinstance(t, int) or isinstance(t, bool) or t < 1 for t in turns):
+            raise RunError(f"Choose the requests to make the skill from: from 1 to {distill.MAX_REQUESTS}.", "bad_turns")
+        with self._lock:
+            self._record(sid)
+        data = self._read_history(sid)
+        if data is None:
+            raise RunError("That conversation has nothing to make a skill from.", "empty")
+        messages = self._transcript(sid, data)
+        every = distill.requests_of(messages)
+        if max(turns) > len(every):
+            raise RunError(f"That conversation has only {len(every)} requests.", "bad_turns")
+        chosen = [r for r in every if r["n"] in set(turns)]
+        steps = distill.steps_of(messages, every, turns)
+        if not any(s["kind"] == "tool" for s in steps):
+            raise RunError("Nothing was done in those requests that a skill could repeat: no tool was used.", "nothing_to_repeat")
+        return chosen, steps
+
+    def _skill_client(self) -> Any:
+        from harness.client import BasaltClient
+        return BasaltClient(base_url=self.endpoint, api_key=self.api_key or None)
+
+    def skill_propose(self, sid: str, turns: Any) -> Dict[str, Any]:
+        """The first step of making a skill from requests: the values that probably change, named and explained."""
+        from harness.client import BasaltError
+        from harness.personal_skills import distill
+        chosen, steps = self._skill_source(sid, turns)
+        try:
+            proposal = distill.propose(self._skill_client(), chosen, steps)
+        except BasaltError as exc:
+            raise RunError(f"The model could not be reached: {exc}", "model") from None
+        return {**proposal, "requests": [{"n": r["n"], "raw": r["raw"]} for r in chosen],
+                "steps": [{"kind": s["kind"], "turn": s["turn"], **({"name": s["name"], "ok": s["ok"]} if s["kind"] == "tool" else {})} for s in steps]}
+
+    def skill_script(self, sid: str, turns: Any, name: Any, description: Any, params: Any) -> Dict[str, Any]:
+        """The second step: the Python script, written from the requests, the recorded steps and the parameters the person kept."""
+        from harness.client import BasaltError
+        from harness.personal_skills import distill
+        from harness.personal_skills.values import check_spec
+        if not isinstance(params, list) or len(params) > 20 or any(not isinstance(p, dict) for p in params):
+            raise RunError("Send the parameters you kept.", "bad_params")
+        for p in params:
+            problems = check_spec(p)
+            if problems:
+                raise RunError("; ".join(problems), "bad_params")
+        chosen, steps = self._skill_source(sid, turns)
+        try:
+            written = distill.write_script(self._skill_client(), str(name or "")[:60], str(description or "")[:500], params, chosen, steps)
+        except BasaltError as exc:
+            raise RunError(f"The model could not be reached: {exc}", "model") from None
+        keep = ("name", "label", "explanation", "type", "default", "required", "choices", "item_type", "format")
+        return {**written, "skill": {"name": str(name or "")[:60], "description": str(description or "")[:500], "mode": "restricted",
+                                     "params": [{k: p[k] for k in keep if k in p} for p in params], "source": {"conversation": sid, "requests": sorted(set(turns))}}}
 
     def run_skill(self, sid: str, slug: Any, values: Any = None) -> Dict[str, Any]:
         """Runs one of the person's skills in this conversation with the values they gave (a date in words is worked out now). The skill must

@@ -508,7 +508,17 @@ class Session:
 
     def _add_message(self, agent: Any, text: str, origin: str, attachments: Optional[List[str]], steer: bool = False) -> None:
         """Puts the person's message in the conversation: with files attached, they come first as data in blocks of their own and the
-        person's words after; what the person can confirm with is only their words."""
+        person's words after; what the person can confirm with is only their words. The phrases they marked with # (a skill's variable parts)
+        are given to the model as plain text; what they wrote is kept beside it, for a skill made from it."""
+        raw = text
+        if origin == "user" and "#" in text:
+            from harness.personal_skills import markers
+            text = markers.clean(text)
+        self._add_user(agent, text, origin, attachments, steer)
+        if raw != text and agent.messages and agent.messages[-1].get("role") == "user":
+            agent.messages[-1]["raw"] = raw
+
+    def _add_user(self, agent: Any, text: str, origin: str, attachments: Optional[List[str]], steer: bool) -> None:
         if origin == "user" and attachments and self.attachment_store is not None:
             from harness.attachments import compose_message
             full, inlined = compose_message(self.attachment_store, self.session_id, attachments, text, self.window_tokens())
