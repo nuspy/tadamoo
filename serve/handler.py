@@ -1792,6 +1792,11 @@ def make_handler(svc: Service, remote: bool = False):
                 if action == "keys/create":
                     row, key = svc.keys.create(req.get("label"))
                     return self._json(200, {"key": key, "row": row, **self._remote_view()})
+                if action == "keys/show":
+                    found = svc.keys.reveal(req.get("id"))
+                    if found is None:
+                        return self._json(404, {"error": {"message": "That key cannot be shown again: take it away and make a new one."}})
+                    return self._json(200, {"key": found[1], "row": {"label": found[0]}, **self._remote_view()})
                 if action == "keys/revoke":
                     if not svc.keys.revoke(req.get("id")):
                         return self._json(404, {"error": {"message": "That key is not there any more."}})
@@ -2364,7 +2369,7 @@ def serve(svc: Service, host="127.0.0.1", port=7232) -> ThreadingHTTPServer:
     svc.start_telemetry()
     httpd = _listen(svc, host, port)
     if getattr(svc, "keys", None) is None:
-        svc.keys = ApiKeys(userdata.path("api-keys.json"))
+        svc.keys = ApiKeys(userdata.path("api-keys.json"), key_dir=userdata.path("vault"))
     if getattr(svc, "remote", None) is None:
         svc.remote = RemoteAccess(userdata.path("remote.json"), httpd.server_address[1], lambda ip, p: _listen(svc, ip, p, remote=True))
         threading.Thread(target=svc.remote.apply, daemon=True, name="remote-listener").start()      # asking Tailscale for its address can take a moment

@@ -336,7 +336,7 @@ interactions as diagrams that the page draws; *Source of the diagram* shows the 
 
 *Settings > Phones* sets up the Basalt app for a phone. 1) **Tailscale** on this PC: the page installs it (with winget) and connects it, and shows the address this PC has on your private network. 2) **Let phones connect**:
 the server then also listens on that address, only for Tailscale, never on the internet. 3) **A key for each phone**: give the phone a name, press *Make a key*, and scan the QR code with the app
-(or copy the key). The key is shown once; to stop a phone, take its key away. On the phone, install Tailscale from the Play Store and sign in with the same account. A phone can use the model, the
+(or copy the key). The key stays on this PC, encrypted, so *Show code* in the list shows its QR code again (for example after reinstalling the app); the phone also keeps its settings through an update, and Android's backup restores them after an uninstall and reinstall when the phone's backup is on. To stop a phone, take its key away. On the phone, install Tailscale from the Play Store and sign in with the same account. A phone can use the model, the
 conversations, files and routines; it cannot reach the wallet, the vault, the settings or the loading of models.
 
 The Android app (`mobile/`, see its README) then needs only the address and the key: scan the QR code in its Settings. Its **+** button offers *Image*, *Photo* and *Documents/Files* (*Local*, *Server*: the folders added on the PC, and

@@ -1,13 +1,16 @@
 """Phones and other clients away from this PC.
 
-Several API keys: each one has a name (the device it was made for), is kept only as a hash, shown once when it is made, and can be revoked on its own.
+Several API keys: each one has a name (the device it was made for), is checked by its hash, and can be revoked on its own. The key itself is kept
+encrypted under the device key (the one that wraps the vault), so its QR code can be shown again for a phone that was reinstalled.
 A client that is not on this PC may reach only the routes a phone needs (the model, conversations, files, routines, plans), never the vault, the
 wallet, the settings or the loading of models. The server listens for such clients on one address only, the PC's Tailscale address, and only after the
 person turned that on; Tailscale itself is installed and connected from here.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
 import ipaddress
 import json
 import os
@@ -48,10 +51,32 @@ def _digest(key: str) -> str:
 
 
 class ApiKeys:
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, key_dir: Optional[str | Path] = None, key: Optional[bytes] = None) -> None:
+        """`key_dir` holds the device key that seals the keys (or `key`, the sealing key itself); with neither, only hashes are kept."""
         self.path = Path(path)
+        self.key_dir = Path(key_dir) if key_dir else None
+        self._seal_key = key
         self._lock = threading.RLock()
         self._rows: List[Dict[str, Any]] = self._load()
+
+    def _sealing_key(self) -> Optional[bytes]:
+        if self._seal_key is None and self.key_dir is not None:
+            from harness.waiver.keystore import load_or_create_key
+            raw = load_or_create_key(self.key_dir / "device.key")
+            self._seal_key = hmac.new(raw, b"basalt phone keys", hashlib.sha256).digest()
+        return self._seal_key
+
+    def _seal(self, key_id: str, key: str) -> Optional[str]:
+        """The key encrypted for the file, or None when no sealing key is available (the key is then shown once, as before)."""
+        try:
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            sealing = self._sealing_key()
+            if sealing is None:
+                return None
+            nonce = secrets.token_bytes(12)
+            return base64.b64encode(nonce + AESGCM(sealing).encrypt(nonce, key.encode("utf-8"), key_id.encode("utf-8"))).decode("ascii")
+        except (ImportError, OSError, ValueError):
+            return None
 
     def _load(self) -> List[Dict[str, Any]]:
         try:
@@ -73,7 +98,7 @@ class ApiKeys:
     def list(self) -> List[Dict[str, Any]]:
         """The keys without what would let one be used: the name, when it was made and when it last came."""
         with self._lock:
-            return [{k: r.get(k) for k in ("id", "label", "created", "last_used")} for r in self._rows]
+            return [{**{k: r.get(k) for k in ("id", "label", "created", "last_used")}, "recoverable": bool(r.get("sealed"))} for r in self._rows]
 
     def create(self, label: Any) -> Tuple[Dict[str, Any], str]:
         text = " ".join(str(label or "").split())[:LABEL_MAX]
@@ -81,10 +106,27 @@ class ApiKeys:
             raise ValueError("Give the key a name, such as the phone it is for.")
         key = KEY_PREFIX + secrets.token_urlsafe(32)
         row = {"id": secrets.token_hex(4), "label": text, "hash": _digest(key), "created": time.time(), "last_used": None}
+        sealed = self._seal(row["id"], key)
+        if sealed:
+            row["sealed"] = sealed
         with self._lock:
             self._rows.append(row)
             self._save()
-        return {k: row[k] for k in ("id", "label", "created", "last_used")}, key
+        return {**{k: row[k] for k in ("id", "label", "created", "last_used")}, "recoverable": bool(sealed)}, key
+
+    def reveal(self, key_id: Any) -> Optional[Tuple[str, str]]:
+        """The name and the key of a phone, to show its QR code again; None when there is no such key or it was made without being kept."""
+        with self._lock:
+            row = next((r for r in self._rows if r["id"] == key_id), None)
+        if row is None or not row.get("sealed"):
+            return None
+        try:
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            blob = base64.b64decode(row["sealed"])
+            key = AESGCM(self._sealing_key()).decrypt(blob[:12], blob[12:], row["id"].encode("utf-8")).decode("utf-8")
+        except Exception:
+            return None
+        return (row["label"], key) if _digest(key) == row["hash"] else None
 
     def verify(self, given: str) -> Optional[Dict[str, Any]]:
         """The key row for a key a client sent, or None. Compared by hash, in constant time."""
