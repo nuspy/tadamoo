@@ -15,6 +15,7 @@ PAGE_SCRIPTS = tuple(re.findall(r'<script[^>]+src="web/([^"]+)"', (WEB / "index.
 # older scripts that still build some of their markup as HTML strings; every other script is held to the stricter checks
 LEGACY_SCRIPTS = ("i18n.js", "app.js", "chat.js", "chatset.js", "download.js", "loader.js", "models.js", "wizard.js")
 NEW_SCRIPTS = tuple(n for n in PAGE_SCRIPTS if n not in LEGACY_SCRIPTS)
+ESCAPED_MARKUP = ("converter.js", "charts.js")
 # keys the scripts build at run time, as prefix + each value
 DYNAMIC = {
     "pl.type.": ["action", "sensor", "decision", "merge"],
@@ -184,7 +185,9 @@ class MarkupTest(unittest.TestCase):
     def test_plan_text_is_never_inserted_as_markup(self):
         for name in NEW_SCRIPTS:
             text = (WEB / name).read_text(encoding="utf-8")
-            for banned in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval("):
+            # these two build markup from templates in which every server string passes through esc() (test_converter_page checks it)
+            banned_here = ("document.write", "eval(") if name in ESCAPED_MARKUP else ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(")
+            for banned in banned_here:
                 self.assertNotIn(banned, text, f"{name}: {banned}")
 
     def test_the_scripts_send_the_api_key_and_use_relative_urls(self):

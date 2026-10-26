@@ -525,6 +525,24 @@ The catalog was read from the repositories on 2026-10-17 (`serve/catalog.py`); s
 planned. The routes (this PC and the server's own page only): `GET /api/models/catalog | download | hf`, `POST
 /api/models/download-plan | download | download-cancel | hf-token`.
 
+### Model converter (Models > Model converter)
+
+Convert a GGUF set to a `.basalt` file with the choices that decide how it will behave: the **expert profile** (the one found next to the
+model, none, a file, or another model's), the **drafter** (Qwen's original layer, none, or the layer fine-tuned on the model's own output that
+the official packs carry, read from the pack with range requests, not downloaded whole), the **image projector** (the folder's, none or a
+file) and the BF16 rounding. The plan shows the command, the steps, the size and the disk, and refuses a wrong choice before anything is
+written.
+
+Next to it, every ready model can be **tested** in a server of its own with the same settings for all (so the figures compare): the memory it
+takes at load (RAM, commit, VRAM) and the load time, decode speed with exact sampling and with relaxed drafting 0.5, 0.3 and 0.2 (and without
+the drafter), prompt reading speed, an image request, and 100 to 300 maths questions (gsm8k) scored on the final number. The test needs the GPU:
+a loaded model is unloaded first, and the Loader's own check must say the model fits. A test already made with the same settings is **offered
+for reuse** (a dialog asks, step by step: reuse or test again); results are kept in the user data folder (`bench`) with the settings and the
+power limit they were measured under, and the quality result is shared by files with the same weights. The comparison shows the models you tick,
+and the published figures of the official packs as references, as a **star** (every axis from the worst to the best of the models shown, the
+outer edge always better), **bars** (one panel for each measure, values at the tip), **points** (two measures against each other, a third as
+the size) or a **table**; every mark has the same figures in its hover text, and a model keeps its colour.
+
 ### VRAM to leave free
 
 **VRAM to leave free** (in the Loader and in the wizard; `engine.vram-reserve-mib`, saved in profiles) is

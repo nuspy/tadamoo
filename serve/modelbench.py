@@ -213,6 +213,7 @@ METRICS = [
     {"id": "vram_gib", "group": "weight", "unit": "GiB", "better": "lower"},
     {"id": "load_s", "group": "weight", "unit": "s", "better": "lower"},
     {"id": "decode", "group": "speed", "unit": "tok/s", "better": "higher"},
+    {"id": "decode_off", "group": "speed", "unit": "tok/s", "better": "higher"},
     {"id": "decode_r05", "group": "speed", "unit": "tok/s", "better": "higher"},
     {"id": "decode_r03", "group": "speed", "unit": "tok/s", "better": "higher"},
     {"id": "decode_r02", "group": "speed", "unit": "tok/s", "better": "higher"},
