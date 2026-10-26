@@ -1055,7 +1055,7 @@ budget among roles and run a mock; nothing uses it and `spawn_subagent` does not
 ## Phones and several API keys
 
 `serve/remote.py`. The server has the one key of `--api-key` (kept as it was) and, besides it, any number of **device keys**: each has a name (the phone it is for), is made on this PC in
-*Settings > Phones*, is shown once, and is kept only as a SHA-256 hash in `api-keys.json` of the user data folder. A key is taken away on its own and stops working at once. On the server's own address nothing changes: the master key, when there is one, and no key otherwise. A device key counts only on the **listener for phones** described below, where every request
+*Settings > Phones*, and is checked by its SHA-256 hash in `api-keys.json` of the user data folder. The key itself is kept in the same file encrypted (AES-256-GCM under a key derived from the vault's device key, with the key's id as associated data), so its code can be shown again (`keys/show`, this PC only); a key made before that, or where `cryptography` is missing, is shown once only. A key is taken away on its own and stops working at once. On the server's own address nothing changes: the master key, when there is one, and no key otherwise. A device key counts only on the **listener for phones** described below, where every request
 needs the master key or a device key, as `Authorization: Bearer ...` or `x-api-key`.
 
 A phone comes through a second listener, which is bound to **this PC's Tailscale address and nothing else** (`remote.json` keeps whether it is on; it starts
@@ -1068,8 +1068,8 @@ of a phone, whose own key is the proof.
 
 *Settings > Phones* does the setup: it shows whether Tailscale is installed (`tailscale status --json`), installs it with `winget` when asked (`POST /api/remote/tailscale/install`; with no
 winget it points to tailscale.com/download), connects it (`tailscale/up`; when a sign-in is needed the page shows the address to open), turns phones on or off (`enable`, `disable`), and makes
-(`keys/create`) and takes away (`keys/revoke`, asked twice) the keys. A new key is shown with a **QR code** that holds `{"v":1,"url":"http://<tailscale address>:<port>","key":"bsk_...","name":"..."}`
-for the app. All these routes work only from this PC and the server's own page. The phone needs Tailscale too (Play Store), signed in to the same account.
+(`keys/create`) and takes away (`keys/revoke`, asked twice) the keys. A key is shown with a **QR code** (when it is made and, from the list, any time after) that holds `{"v":1,"url":"http://<tailscale address>:<port>","key":"bsk_...","name":"..."}`
+for the app. All these routes work only from this PC and the server's own page. The phone needs Tailscale too (Play Store), signed in to the same account. The app's settings (the address, the key, the preferences) survive an update; for an uninstall and reinstall the app allows Android's backup of that one settings file only (`res/xml/backup_rules.xml`, `data_extraction_rules.xml`), which restores it when the phone's backup and automatic restore are on. Without it, the key is shown again from the PC and scanned once.
 
 **The Android app** (`mobile/`, Flutter; see `mobile/README.md`) is the phone's side: the address (IP:port) and the key are in its Settings, with a QR scan, and it uses the routes above plus
 `GET /api/remote/peers` (the other devices Tailscale sees, for *+ > Documents/Files > Network*). The conversation page is a port of the web page's: the same events (`user`, `delta`, `agent`,

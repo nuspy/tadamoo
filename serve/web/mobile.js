@@ -1,6 +1,7 @@
 "use strict";
 /* Settings > Phones: install and connect Tailscale, allow phones, make and take away the keys of the phones, and show a key as a QR code for the app to read.
-   A key is shown once, when it is made; the server keeps only what checks it. Everything shown enters the page as text. */
+   A key's code is shown when it is made and can be shown again from the list (the server keeps the key encrypted); one made before that
+   is shown once only. Everything shown enters the page as text. */
 (function () {
   const host = document.getElementById("mb-root");
   if (!host) return;
@@ -81,8 +82,13 @@
     const list = el("ul", "mb-keys");
     S.keys.forEach(k => {
       const li = el("li", "mb-key"), sure = armed === k.id;
-      li.append(el("span", "mb-kname", k.label), el("span", "mb-kmeta", T("mb.keys.meta", when(k.created), k.last_used ? when(k.last_used) : T("mb.keys.never"))),
-        btn(sure ? T("mb.keys.revoke.sure") : T("mb.keys.revoke"), sure ? "mb-sure" : "ghost", async () => {
+      li.append(el("span", "mb-kname", k.label), el("span", "mb-kmeta", T("mb.keys.meta", when(k.created), k.last_used ? when(k.last_used) : T("mb.keys.never")) + (k.recoverable ? "" : " · " + T("mb.keys.noshow"))));
+      if (k.recoverable) li.append(btn(T("mb.keys.show"), "ghost", async () => {
+        const r = await api("POST", "api/remote/keys/show", { id: k.id });
+        if (!r.ok) { note = errText(r); paint(); return; }
+        shown = { key: r.data.key, label: r.data.row.label, again: true }; note = ""; S = r.data; paint();
+      }, T("mb.keys.show.tip")));
+      li.append(btn(sure ? T("mb.keys.revoke.sure") : T("mb.keys.revoke"), sure ? "mb-sure" : "ghost", async () => {
           if (!sure) { armed = k.id; clearTimeout(armTimer); armTimer = setTimeout(() => { armed = ""; paint(); }, 4000); paint(); return; }
           armed = ""; const r = await api("POST", "api/remote/keys/revoke", { id: k.id }); if (!r.ok) note = errText(r); await refresh();
         }, sure ? T("mb.keys.revoke.tip2") : T("mb.keys.revoke.tip")));
@@ -96,7 +102,7 @@
       e.preventDefault();
       const r = await api("POST", "api/remote/keys/create", { label: name.value });
       if (!r.ok) { note = errText(r); paint(); return; }
-      shown = { key: r.data.key, label: r.data.row.label };
+      shown = { key: r.data.key, label: r.data.row.label, again: !!r.data.row.recoverable };
       note = "";
       S = r.data;
       paint();
@@ -108,7 +114,7 @@
 
   async function qrBlock() {
     const box = el("div", "mb-block mb-fresh");
-    box.append(el("h3", "", T("mb.fresh.title", shown.label)), el("p", "mb-bad", T("mb.fresh.once")));
+    box.append(el("h3", "", T("mb.fresh.title", shown.label)), shown.again ? el("p", "help", T("mb.fresh.again")) : el("p", "mb-bad", T("mb.fresh.once")));
     const address = S.address || (S.tailscale.ip ? `${S.tailscale.ip}:${S.port}` : "");
     const payload = JSON.stringify({ v: 1, url: address ? `http://${address}` : "", key: shown.key, name: shown.label });
     const key = el("pre", "mb-keytext"); key.textContent = shown.key; key.tabIndex = 0;

@@ -44,6 +44,27 @@ class KeysTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 keys.create("   ")
 
+    def test_a_key_can_be_shown_again_for_a_reinstalled_phone_but_is_never_in_the_file_in_clear(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path, sealing = Path(tmp) / "k.json", bytes(range(32))
+            keys = ApiKeys(path, key=sealing)
+            row, key = keys.create("Galaxy")
+            self.assertTrue(row["recoverable"] and keys.list()[0]["recoverable"])
+            self.assertNotIn(key, path.read_text(encoding="utf-8"))
+            self.assertEqual(ApiKeys(path, key=sealing).reveal(row["id"]), ("Galaxy", key))                      # after a restart
+            self.assertIsNone(ApiKeys(path, key=bytes(32)).reveal(row["id"]))                                    # another device key opens nothing
+            self.assertIsNone(keys.reveal("zzzz"))
+            self.assertTrue(keys.revoke(row["id"]))
+            self.assertIsNone(keys.reveal(row["id"]))
+
+    def test_a_key_made_without_a_device_key_is_shown_once_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            keys = ApiKeys(Path(tmp) / "k.json")
+            row, key = keys.create("Old")
+            self.assertFalse(row["recoverable"])
+            self.assertIsNone(keys.reveal(row["id"]))
+            self.assertEqual(keys.verify(key)["label"], "Old")
+
     def test_the_addresses_and_paths_a_phone_may_use(self):
         for ok in ("100.64.0.1", "100.101.102.103", "100.127.255.254", "fd7a:115c:a1e0::1"):
             self.assertTrue(in_tailscale(ok), ok)
@@ -65,7 +86,7 @@ class Remote(unittest.TestCase):
         cls.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
         cls.tmp = tempfile.TemporaryDirectory()
         base = Path(cls.tmp.name)
-        cls.svc.keys = ApiKeys(base / "keys.json")
+        cls.svc.keys = ApiKeys(base / "keys.json", key=bytes(32))
         cls.svc.remote = RemoteAccess(base / "remote.json", 0, lambda ip, port: None)
         cls.patches = [mock.patch.object(handler, "_TASKS", TaskJournal(base / "j")), mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
                        mock.patch.object(handler, "_PLANS", PlanService(base / "planner")),
@@ -166,14 +187,18 @@ class Remote(unittest.TestCase):
         self.svc.keys.revoke(row["id"])
         self.assertEqual(self.call("GET", "/api/remote/hello", key=key, outside=True)[0], 401)
 
-    def test_the_setup_routes_work_from_this_pc_only_and_a_key_is_given_once(self):
+    def test_the_setup_routes_work_from_this_pc_only_and_a_key_can_be_shown_again_there(self):
         with mock.patch.object(handler, "tailscale_status", lambda: {"installed": True, "state": "Running", "ip": "100.64.1.2", "dns_name": "pc.tail.ts.net", "version": "1"}):
             code, status = self.call("GET", "/api/remote")
             self.assertEqual((code, status["tailscale"]["ip"], status["enabled"], status["listening"]), (200, "100.64.1.2", False, False))
             code, made = self.call("POST", "/api/remote/keys/create", {"label": "Tablet"})
             self.assertEqual(code, 200)
             self.assertTrue(made["key"].startswith("bsk_") and "Tablet" in [k["label"] for k in made["keys"]])
-            self.assertNotIn(made["key"], json.dumps(self.call("GET", "/api/remote")[1]))                           # not shown again
+            self.assertNotIn(made["key"], json.dumps(self.call("GET", "/api/remote")[1]))                           # the status never carries it
+            code, again = self.call("POST", "/api/remote/keys/show", {"id": made["row"]["id"]})                      # but its code can be asked for again
+            self.assertEqual((code, again["key"], again["row"]["label"]), (200, made["key"], "Tablet"))
+            self.assertEqual(self.call("POST", "/api/remote/keys/show", {"id": made["row"]["id"]}, outside=True)[0], 403)
+            self.assertEqual(self.call("POST", "/api/remote/keys/show", {"id": "nope"})[0], 404)
             self.assertEqual(self.call("POST", "/api/remote/keys/create", {"label": ""})[0], 400)
             self.assertEqual(self.call("POST", "/api/remote/keys/revoke", {"id": made["row"]["id"]})[0], 200)
             self.assertEqual(self.call("POST", "/api/remote/keys/revoke", {"id": "nope"})[0], 404)
