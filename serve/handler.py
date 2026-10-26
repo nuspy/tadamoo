@@ -40,6 +40,7 @@ from harness.payments_broker import PaymentsBroker
 from harness.waiver.dossier import sntp_offset
 from harness.vault import Vault, VaultError
 from serve.agent_sessions import SessionManager
+from serve.projects import ProjectStore
 from serve.personal_skills_api import PersonalSkillsApi
 from harness.personal_skills.store import SkillError
 from serve.routines_api import RoutinesApi
@@ -56,6 +57,7 @@ _CHANGES = ChangeJournal(userdata.path("journal"))
 _APPROVALS = ApprovalBoard()
 _RUNNER = None                                        # made on first use: it needs this server's address
 _SESSIONS = None                                      # the Chat's conversations with the agent, made on first use
+_PROJECTS = None                                      # the folders of the Agent tab, made on first use
 _ROUTINES = None                                      # the agent's recurring routines, made with the conversations or on first use
 _PSKILLS = None                                       # the person's personal skills, made on first use
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
@@ -1624,6 +1626,12 @@ def make_handler(svc: Service):
                 return self._json(400, {"error": {"message": str(e)}})
             self._json(404, {"error": {"message": "not found"}})
 
+        def _projects(self) -> ProjectStore:
+            global _PROJECTS
+            if _PROJECTS is None:
+                _PROJECTS = ProjectStore(userdata.path("journal"))
+            return _PROJECTS
+
         def _agent_sessions(self) -> SessionManager:
             global _SESSIONS
             if _SESSIONS is None:
@@ -1633,7 +1641,7 @@ def make_handler(svc: Service):
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
                                            browser_prefs=BrowserPrefs(userdata.path("browser.json")).read,
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
-                                           skills_dir=userdata.path("personal-skills"))
+                                           skills_dir=userdata.path("personal-skills"), projects=self._projects())
                 self._routines()                          # the clock of the routines starts with the conversations
             return _SESSIONS
 
@@ -1676,6 +1684,8 @@ def make_handler(svc: Service):
                         return self._json(200, mgr.snapshot_diff(parts[1], (q.get("a") or [""])[0], (q.get("b") or [""])[0]))
                     if len(parts) == 2:
                         return self._json(200, {"session": mgr.get(parts[1])})
+                if parts == ["projects"]:
+                    return self._json(200, {"projects": self._projects().list()})
                 if parts == ["runs"]:
                     return self._json(200, self._agent_runner().view())
                 if len(parts) == 3 and parts[0] == "runs" and parts[2] == "log":
@@ -1707,6 +1717,10 @@ def make_handler(svc: Service):
                 req = json.loads(self._body(1 << 16) or b"{}")
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
+                if parts == ["projects"]:
+                    return self._json(200, {"project": self._projects().add(req.get("path"))})
+                if parts == ["projects", "remove"]:
+                    return self._json(200, {"removed": self._projects().remove(req.get("path"))})
                 if parts[0] == "sessions":
                     mgr = self._agent_sessions()
                     if parts == ["sessions"]:
