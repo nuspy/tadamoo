@@ -184,7 +184,7 @@ plain decoding would give.
 
 | Setting | Where | Type, values | Default | What it does and when to change it |
 | --- | --- | --- | --- | --- |
-| `vision` | server | `off`, `on`, `peer`, `dynamic`, `cpu` | `off` | Image input; booleans are refused. `on`: encoder sidecar on the main GPU (about 2.2 GiB of expert cache). `peer`: the sidecar on the second `gpu` card. `dynamic`: inside the engine, borrowing expert-cache slots only while it reads an image. `cpu`: sidecar on the CPU, no VRAM, slow. Latencies: README, "Vision". `on` and `peer` need the `basalt-vision` binary next to `bin/basalt`. Needs a model file with a vision projector. |
+| `vision` | server | `off`, `on`, `peer`, `dynamic`, `cpu` | `off` | Image input; booleans are refused. `on`: encoder sidecar on the main GPU (about 2.2 GiB of expert cache). `peer`: the sidecar on the second `gpu` card. `dynamic`: inside the engine, borrowing expert-cache slots only while it reads an image. `cpu`: sidecar on the CPU, no VRAM, slow. Latencies: README, "Vision". `on` and `peer` need the `basalt-vision` binary next to `bin/basalt`. Needs a model file with a vision projector; one with F16 tensors (the encoder reads BF16 matrices and F32 vectors) is rewritten at the load, kept in the cache. |
 
 ## Logging and diagnostics
 

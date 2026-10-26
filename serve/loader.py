@@ -120,19 +120,24 @@ def model_facts(path: str | None) -> dict:
     head = tensors.get("output.weight") or {}
     shape = head.get("shape") or [0, 0]
     profile = meta.get("profile") if isinstance(meta.get("profile"), dict) else {}
-    vision_problem = None
+    vision_problem, vision_fix, mmproj_bytes = None, None, size("vision/mmproj")
     if "vision/mmproj" in mf.sections:                  # a projector the engine's encoder would refuse at start
         from serve import models
         vision_problem = models.embedded_projector_problem(str(path))
+        vision_fix = None if vision_problem else models.embedded_projector_fix(str(path))
+        if vision_fix and vision_fix["tensors"]:        # with other tensor types: rewritten at the load, a little larger
+            mmproj_bytes = vision_fix["bytes"]
+        else:
+            vision_fix = None
     return {"name": meta.get("name") or Path(path).stem, "path": str(path), "experts_bytes": size("experts"),
             "n_layers": len(blobs), "n_expert": n_expert, "max_blob": max(blobs) if blobs else 0,
             "dense_bytes": size("dense"), "head_bytes": tb("output.weight"),
             "has_mtp": "mtp/dense" in mf.sections, "mtp_bytes": size("mtp/dense") + size("mtp/experts"),
             "n_vocab": int(shape[-1]) if shape else 0, "token_embd_bytes": tb("token_embd.weight"),
-            "ple_bytes": tb("per_layer_token_embd.weight"), "mmproj_bytes": size("vision/mmproj"),
+            "ple_bytes": tb("per_layer_token_embd.weight"), "mmproj_bytes": mmproj_bytes,
             "profile_slots": int(profile.get("slots") or 0), "has_profile": "profile" in mf.sections,
             "meta_hash": mf.sections["meta"][2].hex()[:16], "sampling": meta_sampling(meta)[0],
-            "vision_problem": vision_problem}
+            "vision_problem": vision_problem, "vision_fix": vision_fix}
 
 
 # ------------------------------------------------------------------------------------------------ this PC now
