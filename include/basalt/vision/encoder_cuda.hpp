@@ -35,6 +35,11 @@ public:
     bool attach(void* arena, size_t bytes, int max_tokens, std::string& err);
     void detach();
 
+    /// Frees the host image of the weights, and with it the memory it commits; the layout and sizes are kept, so `arena_bytes` still
+    /// answers, and `attach` needs `stage` again.  Does nothing while the encoder is attached.
+    void unstage();
+    bool staged() const;
+
     /// As CpuEncoder::encode; the taps copy to the host and are for parity runs only.
     bool encode(const std::vector<float>& patches, Size canvas, std::vector<float>& out, const TapFn& tap = {});
 
