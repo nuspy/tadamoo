@@ -1,6 +1,6 @@
 "use strict";
 /* The strip of pages under a tab: Monitor (Server LLM, Hardware, LOGS) and Settings (General, Models, Cloud and
-   privacy, Wallet). Hardware, LOGS and Wallet are still views of their own, so the scripts that serve them keep
+   privacy, Phones, Memories, Wallet). Hardware, LOGS and Wallet are still views of their own, so the scripts that serve them keep
    working; the strip only chooses which one shows. The Settings groups are sections of one view. */
 (function () {
   const GROUPS = {
@@ -13,6 +13,7 @@
       { id: "models", view: "settings", label: () => T("sub.models") },
       { id: "privacy", view: "settings", label: () => T("sub.privacy") },
       { id: "mobile", view: "settings", label: () => T("sub.mobile") },
+      { id: "memories", view: "settings", label: () => T("sub.memories") },
       { id: "wallet", view: "wallet", label: () => T("tab.wallet") }],
   };
   const strip = document.getElementById("viewsub");
