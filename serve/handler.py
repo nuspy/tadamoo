@@ -42,7 +42,7 @@ from harness.vault import Vault, VaultError
 from serve.agent_sessions import SessionManager
 from serve.files_api import FilesApi, FilesError
 from serve.projects import ProjectStore
-from serve.remote import ApiKeys, Installer, RemoteAccess, in_tailscale, remote_path_ok, tailscale_status, tailscale_up
+from serve.remote import ApiKeys, Installer, RemoteAccess, in_tailscale, remote_path_ok, tailscale_peers, tailscale_status, tailscale_up
 from serve.personal_skills_api import PersonalSkillsApi
 from harness.personal_skills.store import SkillError
 from serve.routines_api import RoutinesApi
@@ -100,9 +100,11 @@ def _size_text(n: int) -> str:
     return f"{n >> 20} MiB" if n >= 1 << 20 else f"{n >> 10} KiB"
 
 
-def make_handler(svc: Service):
+def make_handler(svc: Service, remote: bool = False):
+    """`remote`: the handler of the listener on the Tailscale address, which serves phones: device keys count only there, and only what a phone needs is served."""
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.0"                       # SSE ends by closing the connection
+        remote_listener = remote
 
         watch_done = None                                   # stops this request's disconnect watcher
         trace = None                                        # this request's entries in the request log
@@ -114,7 +116,7 @@ def make_handler(svc: Service):
             """Without an API key, check the Host header (DNS-rebinding protection); a key makes the check moot."""
             if not super().parse_request():
                 return False
-            if self._outside() and not remote_path_ok(self.path.split("?")[0].rstrip("/") or "/"):
+            if self.remote_listener and not remote_path_ok(self.path.split("?")[0].rstrip("/") or "/"):
                 self._json(403, {"error": {"type": "forbidden", "message": "this address does not serve that to a client away from the PC"}})
                 return False
             host = self.headers.get("Host")
@@ -264,15 +266,16 @@ def make_handler(svc: Service):
             if self.trace is not None and code >= 400:
                 self.trace.error_body(code, obj)
 
-        _key_row = None                                      # the key a client from outside this PC came with
+        _key_row = None                                      # the device key a phone came with
+        _via_key = False                                     # a phone proved itself with a key
 
         def _outside(self) -> bool:
-            """A client that is not on this PC: it can only have come through the Tailscale listener."""
-            return not settings.is_loopback(self.client_address[0])
+            """A request that came through the listener for phones."""
+            return self.remote_listener
 
         def _folder_ok(self, workspace) -> bool:
             """A phone works only in the folders added on this PC (or the Chat's own, when it names none): it cannot point the agent at any folder of the disk."""
-            if not self._outside() or workspace in (None, ""):
+            if not self.remote_listener or workspace in (None, ""):
                 return True
             try:
                 want = os.path.normcase(str(Path(str(workspace)).resolve()))
@@ -282,22 +285,23 @@ def make_handler(svc: Service):
 
         def _local_or_device(self) -> bool:
             """This PC, or a phone that came through Tailscale with one of the keys: for the few writes a phone may make."""
-            if not self._outside():
-                return True
+            if not self.remote_listener:
+                return settings.is_loopback(self.client_address[0])
             remote = getattr(svc, "remote", None)
-            return self._key_row is not None and in_tailscale(self.client_address[0]) and remote is not None and remote.listening
+            return self._via_key and in_tailscale(self.client_address[0]) and remote is not None and remote.listening
 
         def _authorized(self) -> bool:
             auth = self.headers.get("Authorization", "")
             given = auth[7:].strip() if auth.lower().startswith("bearer ") else self.headers.get("x-api-key", "")
             if svc.api_key and key_matches(given, svc.api_key):
+                self._via_key = self.remote_listener
                 return True
             keys = getattr(svc, "keys", None)
-            row = keys.verify(given) if keys is not None and given else None
+            row = keys.verify(given) if self.remote_listener and keys is not None and given else None
             if row is not None:
-                self._key_row = row
+                self._key_row, self._via_key = row, True
                 return True
-            if not svc.api_key and not self._outside():          # no key set: this PC's own page works as before
+            if not svc.api_key and not self.remote_listener:      # no key set: the server's own page works as before
                 return True
             self._json(401, {"error": {"type": "authentication_error", "message": "missing or wrong API key"}})
             return False
@@ -417,6 +421,9 @@ def make_handler(svc: Service):
             elif path == "/api/remote/hello":
                 if self._authorized():
                     self._json(200, {"name": "Basalt", "ok": True, "device": (self._key_row or {}).get("label", ""), "loaded": bool(svc.loaded())})
+            elif path == "/api/remote/peers":
+                if self._authorized():
+                    self._json(200, {"peers": tailscale_peers()})
             elif path == "/api/remote":
                 if self._authorized():
                     self._remote_get()
@@ -830,7 +837,7 @@ def make_handler(svc: Service):
             loaded: a program that merely reaches the port, or a page of another site, changes nothing. With no secret set (an
             embedded service) only the checks of each route apply."""
             token = svc.control_token
-            if not token or (self._key_row is not None and self._outside()):          # a phone's own key is the stronger proof
+            if not token or self._via_key:                                               # a phone's own key is the stronger proof
                 return True
             given = self.headers.get(CONTROL_HEADER, "")
             if not given:
@@ -1835,7 +1842,7 @@ def make_handler(svc: Service):
                 req = json.loads(self._body(1 << 16) or b"{}")
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
-                if parts[0] == "projects" and self._outside():
+                if parts[0] == "projects" and self.remote_listener:
                     return self._json(403, {"error": {"type": "forbidden", "message": "folders are added only from the PC the server runs on"}})
                 if parts == ["sessions"] and not self._folder_ok(req.get("workspace")):
                     return self._json(403, {"error": {"type": "forbidden", "message": "a phone works only in the folders added on the PC"}})
@@ -2283,8 +2290,8 @@ class Server(ThreadingHTTPServer):
             super().handle_error(request, client_address)
 
 
-def _listen(svc: Service, host: str, port: int) -> ThreadingHTTPServer:
-    httpd = Server((host, port), make_handler(svc))
+def _listen(svc: Service, host: str, port: int, remote: bool = False) -> ThreadingHTTPServer:
+    httpd = Server((host, port), make_handler(svc, remote))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return httpd
 
@@ -2296,6 +2303,6 @@ def serve(svc: Service, host="127.0.0.1", port=7232) -> ThreadingHTTPServer:
     if getattr(svc, "keys", None) is None:
         svc.keys = ApiKeys(userdata.path("api-keys.json"))
     if getattr(svc, "remote", None) is None:
-        svc.remote = RemoteAccess(userdata.path("remote.json"), httpd.server_address[1], lambda ip, p: _listen(svc, ip, p))
+        svc.remote = RemoteAccess(userdata.path("remote.json"), httpd.server_address[1], lambda ip, p: _listen(svc, ip, p, remote=True))
         threading.Thread(target=svc.remote.apply, daemon=True, name="remote-listener").start()      # asking Tailscale for its address can take a moment
     return httpd

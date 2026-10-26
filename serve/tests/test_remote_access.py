@@ -52,14 +52,13 @@ class KeysTest(unittest.TestCase):
         for ok in ("/v1/chat/completions", "/v1/models", "/api/agent/sessions", "/api/agent/sessions/ab12/events", "/api/attachments", "/api/outputs/s/i/file", "/api/routines",
                    "/api/routines/ab/run", "/api/plans", "/api/personal-skills", "/api/remote/hello"):
             self.assertTrue(remote_path_ok(ok), ok)
+        self.assertTrue(remote_path_ok("/api/remote/peers"))
         for bad in ("/", "/web/app.js", "/api/wallet/state", "/api/vault", "/api/settings", "/api/loader/load", "/api/remote", "/api/remote/keys/create", "/api/models",
                     "/api/control/stop", "/api/profiles/export", "/metrics", "/api/agentx", "/v1x"):
             self.assertFalse(remote_path_ok(bad), bad)
 
 
 class Remote(unittest.TestCase):
-    outside = [False]
-
     @classmethod
     def setUpClass(cls):
         tok = ByteTokenizer()
@@ -70,35 +69,37 @@ class Remote(unittest.TestCase):
         cls.svc.remote = RemoteAccess(base / "remote.json", 0, lambda ip, port: None)
         cls.patches = [mock.patch.object(handler, "_TASKS", TaskJournal(base / "j")), mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
                        mock.patch.object(handler, "_PLANS", PlanService(base / "planner")),
-                       mock.patch.object(handler.settings, "is_loopback", lambda address: not cls.outside[0]),
                        mock.patch.object(handler, "in_tailscale", lambda address: True)]
         for p in cls.patches:
             p.start()
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
+        cls.phone = handler._listen(cls.svc, "127.0.0.1", 0, remote=True)                 # stands for the listener on the Tailscale address
+        cls.phone_base = f"http://127.0.0.1:{cls.phone.server_address[1]}"
         cls.row, cls.key = cls.svc.keys.create("Phone")
 
     @classmethod
     def tearDownClass(cls):
         cls.httpd.shutdown()
         cls.httpd.server_close()
+        cls.phone.shutdown()
+        cls.phone.server_close()
         for p in cls.patches:
             p.stop()
         cls.tmp.cleanup()
 
     def setUp(self):
-        Remote.outside[0] = False
         self.svc.remote._httpd = None
         self.svc.api_key = ""
 
     def call(self, method, path, payload=None, key=None, outside=False):
-        Remote.outside[0] = outside
+        base = self.phone_base if outside else self.base
         headers = {"Content-Type": "application/json"} if method == "POST" else {}
         if key:
             headers["Authorization"] = "Bearer " + key
         data = None if payload is None else json.dumps(payload).encode("utf-8")
         try:
-            with urllib.request.urlopen(urllib.request.Request(self.base + path, data=data, headers=headers, method=method), timeout=10) as r:
+            with urllib.request.urlopen(urllib.request.Request(base + path, data=data, headers=headers, method=method), timeout=10) as r:
                 body = r.read()
                 return r.status, (json.loads(body) if body[:1] in (b"{", b"[") else body)
         except urllib.error.HTTPError as e:
@@ -113,7 +114,9 @@ class Remote(unittest.TestCase):
         self.svc.api_key = "master"
         self.assertEqual(self.call("GET", "/api/agent/sessions")[0], 401)
         self.assertEqual(self.call("GET", "/api/agent/sessions", key="master")[0], 200)
-        self.assertEqual(self.call("GET", "/api/agent/sessions", key=self.key)[0], 200)
+        self.assertEqual(self.call("GET", "/api/agent/sessions", key=self.key)[0], 401)                  # a phone's key counts only on the listener for phones
+        self.assertEqual(self.call("GET", "/api/agent/sessions", key=self.key, outside=True)[0], 200)
+        self.assertEqual(self.call("GET", "/api/agent/sessions", key="master", outside=True)[0], 200)
 
     def test_a_client_from_outside_needs_one_of_the_keys_and_sees_nothing_else_of_this_pc(self):
         self.assertEqual(self.call("GET", "/api/agent/sessions", outside=True)[0], 401)
@@ -180,6 +183,17 @@ class Remote(unittest.TestCase):
             self.assertEqual((code, status["enabled"], status["listening"]), (200, True, False))
             self.assertIn("Tailscale is not connected", status["error"])
             self.assertEqual(self.call("POST", "/api/remote/disable", {})[1]["enabled"], False)
+
+
+class PeersTest(unittest.TestCase):
+    def test_the_other_devices_are_listed_with_the_ones_that_are_on_first(self):
+        data = {"Peer": {"a": {"HostName": "tablet", "DNSName": "tablet.tail.ts.net.", "TailscaleIPs": ["100.64.0.5", "fd7a::5"], "OS": "android", "Online": False},
+                         "b": {"HostName": "nas", "TailscaleIPs": ["100.64.0.7"], "OS": "linux", "Online": True},
+                         "c": {"HostName": "noaddress", "TailscaleIPs": []}}}
+        peers = remote.parse_peers(data)
+        self.assertEqual([(p["name"], p["ip"], p["online"]) for p in peers], [("nas", "100.64.0.7", True), ("tablet", "100.64.0.5", False)])
+        self.assertEqual(peers[1]["dns_name"], "tablet.tail.ts.net")
+        self.assertEqual(remote.parse_peers({}), [])
 
 
 class ListenerTest(unittest.TestCase):
