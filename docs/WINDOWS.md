@@ -281,12 +281,14 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
   Exit code 75 starts the server again with `--listen-first` and the new model; any
   other end shows the reason, the log's last lines and the native start panel (model, profile, VRAM, port, memory
   check, Avvia / Avvia solo server) as a fallback. Without WebView2 the page opens in the default browser. Closing the
-  window hides it to the notification area; the icon's menu has Open, Reload with other settings… (the Loader), Start
+  window hides it to the notification area (the window's place and size, and whether it was maximized, are kept in
+  `desktop.json` and used at the next start; a place that no screen shows any more falls back to the centre); the icon's menu has Open, Reload with other settings… (the Loader), Start
   the server alone (for agents)… and Turn off (unload, end the job, report the RAM freed). A second start brings the
   first window to the front; when a Basalt server already runs it offers "Connect to the running server" or "Change
   model" (stops only that server's tree with `Ferma-Basalt.ps1 --port N`, then opens the Loader). Hidden test
   options: `--test-mock` (the mock engine on port 7288), `--test-screenshot FILE`, `--test-exit`, `--test-no-wizard`,
-  `--test-fallback`, `--test-folder-prompt [--test-models-dir DIR]`, `--test-no-webview`.
+  `--test-fallback`, `--test-folder-prompt [--test-models-dir DIR]`, `--test-no-webview`, `--test-window` (with `--test-mock`: keep
+  the window's place and size in the test state file).
 
 ### For agents
 

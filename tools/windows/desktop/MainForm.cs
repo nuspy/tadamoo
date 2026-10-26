@@ -78,6 +78,9 @@ sealed class MainForm : Form
         string data = Environment.GetEnvironmentVariable("BASALT_DATA");
         statePath = opt.TestMock ? Path.Combine(Path.GetTempPath(), "basalt-desktop-test", "desktop.json")
                   : Path.Combine(string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello") : data, "desktop.json");
+        LoadWindow();
+        Resize += (_, _) => { if (WindowState != FormWindowState.Minimized) lastState = WindowState; };
+        ResizeEnd += (_, _) => SaveWindow();
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(Tr.T("Apri", "Open"), null, (_, _) => ShowWindow());
@@ -977,8 +980,40 @@ sealed class MainForm : Form
         Activate();
     }
 
+    // ------------------------------------------------------------------ the window's place and size, kept between runs
+    FormWindowState lastState = FormWindowState.Normal;       // the state before a minimize
+
+    bool KeepsWindow => !opt.TestMock || opt.TestWindow;
+
+    /// <summary>Opens where and as large as the window was last, when enough of it still lies on a screen.</summary>
+    void LoadWindow()
+    {
+        if (!KeepsWindow || ReadState("window") is not string text) return;
+        try
+        {
+            var w = JsonDocument.Parse(text).RootElement;
+            var r = new Rectangle(w.GetProperty("x").GetInt32(), w.GetProperty("y").GetInt32(), w.GetProperty("w").GetInt32(), w.GetProperty("h").GetInt32());
+            r.Width = Math.Max(r.Width, MinimumSize.Width);
+            r.Height = Math.Max(r.Height, MinimumSize.Height);
+            var bar = new Rectangle(r.X, r.Y, r.Width, 40);                  // the title bar must be reachable
+            if (!Screen.AllScreens.Any(s => Rectangle.Intersect(s.WorkingArea, bar) is { Width: >= 100, Height: >= 20 })) return;
+            StartPosition = FormStartPosition.Manual;
+            Bounds = r;
+            if (w.TryGetProperty("max", out var m) && m.ValueKind == JsonValueKind.True) WindowState = FormWindowState.Maximized;
+        }
+        catch { }
+    }
+
+    void SaveWindow()
+    {
+        if (!KeepsWindow || !IsHandleCreated) return;
+        var r = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        WriteState("window", new { x = r.X, y = r.Y, w = r.Width, h = r.Height, max = lastState == FormWindowState.Maximized });
+    }
+
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        SaveWindow();
         if (!exiting && e.CloseReason == CloseReason.UserClosing && (web.Visible || ours))
         {
             e.Cancel = true;                               // the server keeps running: the window goes to the tray
