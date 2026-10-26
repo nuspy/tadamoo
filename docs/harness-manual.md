@@ -271,6 +271,15 @@ The agent can keep short notes about a project and read them in later conversati
 The **Plans** view shows plans as graphs: actions, sensors (they wait for an event), decisions, merges, and tasks handed to you. A step
 can be moved, retried (with a limit and a wait) and rewound; rewinding over actions that stay done lists them first.
 
+The parts of the view, from the left: a **column of plans** (like the Chat's column of conversations; the arrow shuts it) where each plan has
+three buttons, *Open*, *Duplicate* and *Delete* (deleting asks for a second press and erases for good; archiving keeps the plan), and at the
+right the open plan in four tabs: *Aims, dates and amounts*, *Plan details and archive*, *Judge incoming events* and *Plan definition*. In
+the definition you choose **Graph** or **List**. On the graph you drag steps and draw a link from the round end of one step to another (the
+step it reaches waits for the one it starts from); a click on a link picks it, the cross or the Delete key removes it; the arrows and
+*Automatic place* in a step's panel move the box on the graph. In the list each row has an up and a down arrow: two steps that do not wait for
+each other swap, two steps in a plain chain swap and their links are redrawn, anything else is refused with the reason. A step's panel also
+has *Waits for* boxes to set from the keyboard what it waits for.
+
 - In the Chat the agent can read plans and, **with your yes**, create and change them. The yes is either a quotation of your own words
   in your last message, or a question made from the real change (the real title, steps and diff) that you answer with a button. A plan
   must be read before it is changed, and a plan that moved on meanwhile is refused until it is read again.

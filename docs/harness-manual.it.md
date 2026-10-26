@@ -290,6 +290,16 @@ La vista **Piani** mostra i piani come grafi: azioni, sensori (aspettano un even
 passo si può spostare, riprovare (con un limite e un'attesa) e far tornare indietro; tornare indietro su azioni che restano avvenute
 le elenca prima.
 
+Le parti della vista, da sinistra: una **colonna di piani** (come quella delle conversazioni della Chat, si chiude con la freccia) dove ogni
+piano ha tre pulsanti, *Apri*, *Duplica* ed *Elimina* (l'eliminazione chiede una seconda pressione e cancella per sempre; archiviare invece
+lo conserva), e a destra il piano aperto in quattro schede: *Obiettivi, date e importi*, *Dettagli del piano e archivio*, *Valuta gli eventi
+in arrivo* e *Definizione del piano*. Nella definizione scegli **Grafo** o **Elenco**. Nel grafo trascini i passi e tiri un collegamento dal
+capo rotondo di un passo a un altro (il passo di arrivo aspetta quello di partenza); un clic su un collegamento lo sceglie, la croce o il
+tasto Canc lo toglie; le frecce e *Posizione automatica* del pannello del passo spostano il riquadro sul grafo. Nell'elenco ogni riga ha le
+frecce su e giù: due passi che non si aspettano si scambiano, due passi in catena semplice si scambiano e i collegamenti vengono ridisegnati,
+altrimenti la mossa è rifiutata con il motivo. Il pannello di un passo ha anche le caselle *Aspetta* per decidere da tastiera cosa
+aspetta.
+
 - Nella Chat l'agente può leggere i piani e, **col tuo sì**, crearli e cambiarli. Il sì è o una citazione delle tue parole nel tuo
   ultimo messaggio, o una domanda fatta con la modifica vera (il titolo, i passi e il diff reali) a cui rispondi con un pulsante. Un
   piano va letto prima di essere cambiato, e un piano andato avanti nel frattempo viene rifiutato finché non lo si rilegge.
