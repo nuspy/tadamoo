@@ -82,13 +82,14 @@ class SessionManager:
                  vault_dir: Optional[Path] = None, payments_dir: Optional[Path] = None,
                  browser_prefs: Optional[Callable[[], Dict[str, bool]]] = None, browser_profile: Optional[Path] = None,
                  plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: float = 1800.0,
-                 skills_dir: Optional[Path] = None) -> None:
+                 skills_dir: Optional[Path] = None, projects: Any = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
         self.router = router                                    # how a message that comes during a task is judged: "model" or "rules"
         self.attachments_dir, self.outputs_dir = attachments_dir, outputs_dir      # the conversation's attached files and the files the agent made
         self.skills = PersonalSkills(skills_dir) if skills_dir else None            # the person's skills, which a conversation can run
+        self.projects = projects                                # the folders of the Agent tab, whose own registry lists the conversations held in them
         self.browser_profile = browser_profile                  # where the browser keeps its sign-ins when the person chose that
         self.browser_prefs = browser_prefs                      # whether the conversations have a browser, and whether it shows a window
         self.payments_dir = payments_dir                        # the person's payment systems and limits, for the agent's request_payment
@@ -155,7 +156,15 @@ class SessionManager:
 
     def view(self) -> Dict[str, Any]:
         with self._lock:
-            return {"sessions": [dict(r) for r in sorted(self.records, key=lambda r: r.get("updated", 0), reverse=True)]}
+            return {"sessions": [dict(r) for r in sorted(self.records, key=lambda r: r.get("updated", 0), reverse=True)],
+                    "default_workspace": str(self.default_workspace) if self.default_workspace else ""}
+
+    def _registry(self, workspace: Any) -> None:
+        """Tells the folder's own registry what conversations are held in it."""
+        if self.projects is not None and workspace:
+            with self._lock:
+                rows = [dict(r) for r in self.records]
+            self.projects.sync(workspace, rows)
 
     def get(self, sid: str) -> Dict[str, Any]:
         with self._lock:
@@ -662,6 +671,9 @@ class SessionManager:
             self.records.append(rec)
             self._events[sid], self._seq[sid] = collections.deque(maxlen=EVENTS_KEPT), 0
             self._save()
+        if self.projects is not None:
+            self.projects.touch(rec["workspace"])
+        self._registry(rec["workspace"])
         return dict(rec)
 
     def _copy_for(self, sid: str, path: Path, mode: str) -> Optional[Dict[str, Any]]:
@@ -685,7 +697,7 @@ class SessionManager:
 
     def _command(self, sid: str, rec: Dict[str, Any], history: Path) -> List[str]:
         cmd = [self.python, "-m", "harness", "session", "--session-id", sid, "--history-dir", str(history), "--workspace", rec.get("workdir") or rec["workspace"],
-               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp"]
+               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp", "--report-changes"]
         for rule in rec.get("allow", []):
             cmd += ["--allow", rule]
         if rec.get("effort"):
@@ -1112,7 +1124,9 @@ class SessionManager:
         if not text:
             raise RunError("Give the conversation a name.", "bad_title")
         with self._lock:
-            self._set(self._record(sid), title=text)
+            rec = self._record(sid)
+            self._set(rec, title=text)
+        self._registry(rec.get("workspace"))
         return self.get(sid)
 
     def favorite(self, sid: str, value: Any) -> Dict[str, Any]:
@@ -1153,6 +1167,7 @@ class SessionManager:
             self._save()
         for folder in folders:
             shutil.rmtree(folder, ignore_errors=True)
+        self._registry(rec.get("workspace"))
         return {"deleted": sid}
 
     def slash(self, sid: str, name: Any, args: Any = "") -> Dict[str, Any]:

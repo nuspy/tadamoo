@@ -22,12 +22,13 @@ STATUS_BY_STOP = {"final": "done", "cancelled": "closed"}
 
 class PanelReporter:
     def __init__(self, base_url: str, api_key: Optional[str], sandbox: Any, goal: str, timeout: float = 3.0,
-                 session: Optional[str] = None) -> None:
+                 session: Optional[str] = None, tasks: bool = True) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.sandbox = sandbox
         self.goal = " ".join(goal.split())[:RESULT_CHARS]
         self.timeout = timeout
+        self.tasks = tasks                                       # a conversation reports only its edits: it is not one task with an end
         self.task_id = f"agent-{session or secrets.token_hex(3)}"
         self.error = ""
         self._failures = 0
@@ -57,6 +58,8 @@ class PanelReporter:
             return False
 
     def _task(self, status: str, result: str) -> None:
+        if not self.tasks:
+            return
         self._post("/api/tasks", {"id": self.task_id, "status": status, "result": result[:RESULT_CHARS],
                                   "metadata": {"kind": "agent", "goal": self.goal}})
 

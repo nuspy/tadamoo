@@ -198,6 +198,7 @@ class Session:
         self._ask_lock = threading.Lock()
         self._waiting_n = 0                                     # a task waiting for the person is not stuck
         self.planner: Any = None
+        self.reporter: Any = None                               # sends the file edits to the server's Changes panel, when asked to
         self._summary = ""                                      # the plans summary the conversation last got
         self.attachment_store: Any = None                       # AttachmentStore of this conversation's files, when it has one
         self.endpoint, self.api_key = "", None
@@ -297,6 +298,8 @@ class Session:
             if isinstance(shown.get(key), str) and len(shown[key]) > EVENT_CHARS:
                 shown[key] = shown[key][:EVENT_CHARS] + f"\n[... {len(event[key]) - EVENT_CHARS} more characters]"
         self.emit({"event": "agent", "turn": task.turn, "data": shown})
+        if self.reporter is not None:
+            self.reporter.on_event(event)
 
     # -- questions to the person -------------------------------------------------------------------------
 
@@ -898,6 +901,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     add_agent_arguments(parser, max_turns=15)
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of in the conversation")
     parser.add_argument("--ask-only", action="store_true", help="answer without tools: a greeting does not become a loop")
+    parser.add_argument("--report-changes", action="store_true", help="send each file edit to the server's Changes panel, to keep or undo by block")
     parser.add_argument("--no-planner", action="store_true", help="do not offer the planner's tools")
     parser.add_argument("--effort", default="", choices=["", *EFFORT_LEVELS], help="how long the model thinks (empty: the model's own default)")
     parser.add_argument("--router", choices=["model", "rules"], default="model",
@@ -958,6 +962,9 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         built.agent.context.on_removed = store.archive
     built.agent.pipeline = Pipeline(args.pipeline, (lambda q, o, c, j=judge_for("pipeline", here): j.choose(q, o, c)) if args.pipeline == "full" else None)
     session = Session(built, store, emit, session_id=sid, health=lambda: server_health(cfg.endpoint, cfg.api_key), router=router)
+    if args.report_changes and not args.ask_only:
+        from harness.reporting import PanelReporter
+        session.reporter = PanelReporter(cfg.endpoint, cfg.api_key, built.sandbox, "", session=sid, tasks=False)
     if args.attachments_dir:
         from harness.attachments import AttachmentStore
         session.attachment_store = AttachmentStore(Path(args.attachments_dir))
