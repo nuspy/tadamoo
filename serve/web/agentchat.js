@@ -5,7 +5,7 @@
    Everything the agent or a tool wrote enters the page through text nodes; the Markdown of its answers goes through the
    same safe renderer as the model-only chat. */
 (() => {
-  const MODE_KEY = "basalt.chatmode", LAST_KEY = "basalt.chat.session";
+  const MODE_KEY = "basalt.chatmode", LAST_KEYS = { chat: "basalt.chat.session", agent: "basalt.agent.session" }, PROJECT_KEY = "basalt.agent.project";
   const MODES = ["agent", "ask", "direct"];
   const FAST_MS = 350, SLOW_MS = 3000, SHOWN_OUTPUT = 1500;
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } };
@@ -15,6 +15,13 @@
 
   let mode = load(MODE_KEY, "agent");
   if (!MODES.includes(mode)) mode = "agent";
+  const inAgent = () => document.body.dataset.view === "agent";           // the Agent tab is this page, working in a folder
+  const lastKey = () => LAST_KEYS[inAgent() ? "agent" : "chat"];
+  let projects = [], curProject = load(PROJECT_KEY, ""), defaultWs = "", lastCtx = null;
+  const sameDir = (a, b) => String(a || "").replace(/[\\/]+$/, "").toLowerCase() === String(b || "").replace(/[\\/]+$/, "").toLowerCase();
+  const isChatSession = x => !x.workspace || (defaultWs && sameDir(x.workspace, defaultWs));
+  const inContext = x => (inAgent() ? !isChatSession(x) : isChatSession(x));
+  const curPath = () => (projects.some(x => sameDir(x.path, curProject)) ? curProject : "");
   let supported = null;                               // whether this server offers conversations
   let sid = "", after = 0, state = "dormant", rec = null, timer = 0, items = [], current = null, busyNow = false;
   const status = t => { $("#chat-status").textContent = t; };
@@ -49,12 +56,21 @@
     $("#attach").setAttribute("aria-label", attachName); $("#attach").title = attachName;
     $("#branches-open").hidden = !on;
     $("#pskills-open").hidden = !on;
+    $("#chatmode-label").hidden = inAgent();
     modeSel.title = T("ch.mode." + mode + ".d");                              // what the kind of conversation is, as a tooltip
     drawPend();
     if (on) { $("#chat-hint").textContent = T("ch.hint"); poll(true); } else { clearTimeout(timer); $("#chat-hint").textContent = T("ch.hint.direct"); }
     setControls();
   }
+  function paintFolder() {
+    const agent = inAgent(), chipEl = $("#folder-chip");
+    const p = projects.find(x => sameDir(x.path, rec && rec.workspace ? rec.workspace : curProject));
+    chipEl.hidden = !(agent && p);
+    if (!chipEl.hidden) { chipEl.textContent = T("ag.folder.chip", p.name); chipEl.title = p.path; }
+    $("#chg-open").hidden = !agent;
+  }
   function setControls() {
+    paintFolder();
     paintChip();
     const on = active();
     if (!on) return;
@@ -121,8 +137,47 @@
     li.append(open, star, del);
     return li;
   }
+  /* the Agent tab's column: the folders added, each with the conversations held in it */
+  function setProject(path) { curProject = path; keep(PROJECT_KEY, path); }
+  async function addFolder() {
+    const p = await window.agentProjects.open();
+    if (!p) return null;
+    projects = window.agentProjects.list();
+    setProject(p.path);
+    paintList(); setControls();
+    return p;
+  }
+  function projectGroup(p) {
+    const group = mk("div", "cv-group cv-proj"), head = mk("div", "cv-projhead" + (sameDir(p.path, curProject) ? " here" : ""));
+    const name = mk("button", "cv-projname", p.name);
+    name.type = "button"; name.title = p.path;
+    name.onclick = () => { setProject(p.path); paintList(); setControls(); };
+    const plus = mk("button", "cv-act", "+"), gone = mk("button", "cv-act", "\u2715");
+    plus.type = gone.type = "button";
+    plus.title = T("ag.proj.new"); plus.setAttribute("aria-label", `${plus.title}: ${p.name}`);
+    plus.onclick = () => { setProject(p.path); newChat(); $("#prompt").focus(); };
+    gone.title = T("ag.proj.remove"); gone.setAttribute("aria-label", `${gone.title}: ${p.name}`);
+    gone.onclick = async () => { await window.agentProjects.remove(p.path); projects = window.agentProjects.list(); if (sameDir(p.path, curProject)) setProject(""); paintList(); setControls(); };
+    head.append(name, plus, gone);
+    const mine = known.filter(x => x.state !== "closed" && inContext(x) && sameDir(x.workspace, p.path));
+    const ul = mk("ul", "cv-list");
+    ul.replaceChildren(...[...mine.filter(x => x.favorite), ...mine.filter(x => !x.favorite)].map(convRow));
+    group.append(head, ul);
+    if (!p.exists) group.append(mk("p", "cv-empty", T("ag.proj.missing")));
+    else if (!mine.length) group.append(mk("p", "cv-empty", T("cv.empty")));
+    return group;
+  }
   function paintList() {
-    const shown = known.filter(s => s.state !== "closed");
+    const agent = inAgent();
+    $("#cv-projects").hidden = !agent;
+    $("#cv-chatlists").hidden = agent;
+    $("#cv-title").textContent = T(agent ? "ag.projects.title" : "cv.title");
+    if (agent) {
+      $("#cv-proj-empty").hidden = projects.length > 0;
+      $("#cv-proj-list").replaceChildren(...projects.map(projectGroup));
+      return;
+    }
+    const shown = known.filter(s => s.state !== "closed" && inContext(s));
     const fav = shown.filter(s => s.favorite), rest = shown.filter(s => !s.favorite);
     $("#cv-fav-group").hidden = !fav.length;
     $("#cv-fav").replaceChildren(...fav.map(convRow));
@@ -134,6 +189,7 @@
     if (!r.ok) { supported = r.status === 404 || r.status === 0 ? false : supported; return; }
     supported = true;
     known = r.json.sessions || [];
+    defaultWs = r.json.default_workspace || "";
     paintList();
   }
   async function branch() {
@@ -149,13 +205,17 @@
   $("#branch-chat").onclick = branch;
   document.addEventListener("basalt:chatset", () => setControls());
 
-  function forget() { pick = null; learn = null; paintPick(); paintLearn(); pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(LAST_KEY, ""); copyShown = false; }
-  function newChat() { forget(); status(T("ch.new")); setControls(); paintList(); }
+  function forget() { pick = null; learn = null; paintPick(); paintLearn(); pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(lastKey(), ""); copyShown = false; }
+  function newChat() {
+    if (inAgent() && !curPath()) { addFolder(); return; }                      // a conversation in the Agent tab needs a folder to work in
+    forget(); status(T("ch.new")); setControls(); paintList();
+  }
   async function openSession(id) {
     forget();
     const h = await api("GET", `/${id}/history`);
     if (!h.ok) { status(errText(h)); return; }
-    sid = id; keep(LAST_KEY, id); rec = h.json.session; state = rec.state;
+    sid = id; keep(lastKey(), id); rec = h.json.session; state = rec.state;
+    if (inAgent() && rec.workspace && projects.some(x => sameDir(x.path, rec.workspace))) setProject(rec.workspace);
     if (typeof rec.effort === "string") effortSel.value = rec.effort;
     fromHistory(h.json.messages || []);
     if (state === "busy" || state === "starting" || state === "asking") {      // mid-turn: rebuild what is going on from its events
@@ -796,9 +856,10 @@
   /* ---- talking to the conversation ---- */
   async function ensure() {
     if (sid) return true;
-    const r = await api("POST", "", { mode: permMode(), allow: allowRules(), confirm_auto: permMode() === "auto", ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), end_turn_bias: chatSettings.body().end_turn_bias, worktree: copyMode() });
+    if (inAgent() && !curPath() && !(await addFolder())) { status(T("ag.noproject")); return false; }
+    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath() } : {}), mode: permMode(), allow: allowRules(), confirm_auto: permMode() === "auto", ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), end_turn_bias: chatSettings.body().end_turn_bias, worktree: copyMode() });
     if (!r.ok) { status(errText(r)); return false; }
-    sid = r.json.session.id; rec = r.json.session; keep(LAST_KEY, sid); after = 0;
+    sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0;
     await refreshList();
     return true;
   }
@@ -851,7 +912,38 @@
     } else if (r.status === 404) { newChat(); }
     timer = setTimeout(() => poll(), busyNow ? FAST_MS : SLOW_MS);
   }
-  document.addEventListener("basalt:view", e => { if (e.detail === "chat") { refreshList(); poll(true); } });
+  /* the same page serves two tabs: the conversation held with no folder, and the conversations of the folders added */
+  const chgSide = $("#chg-side"), chgOpen = $("#chg-open");
+  function showChanges(on) { chgSide.hidden = !on; chgOpen.setAttribute("aria-expanded", String(on)); }
+  chgOpen.onclick = () => showChanges(chgSide.hidden);
+  $("#chg-close").onclick = () => showChanges(false);
+  $("#cv-addfolder").onclick = () => { addFolder(); };
+  function paintContext() {
+    const agent = inAgent();
+    $("#achat-empty").querySelector("b").textContent = T(agent ? "ag.empty.t" : "ch.empty.t");
+    $("#achat-empty").querySelector("span").textContent = T(agent ? "ag.empty.b" : "ch.empty.b");
+    if (!agent) showChanges(false);
+  }
+  async function enterContext() {
+    const agent = inAgent();
+    if (agent === lastCtx) return;
+    lastCtx = agent;
+    const kept = { chat: load(LAST_KEYS.chat, ""), agent: load(LAST_KEYS.agent, "") };
+    forget();                                                                    // what is open belongs to the tab it was opened in
+    keep(LAST_KEYS.chat, kept.chat); keep(LAST_KEYS.agent, kept.agent);       // each tab goes back to its own last conversation
+    if (agent) mode = "agent";
+    else { mode = load(MODE_KEY, "agent"); if (!MODES.includes(mode)) mode = "agent"; }
+    modeSel.value = mode;
+    paintContext();
+    await window.agentProjects.load();
+    projects = window.agentProjects.list();
+    await refreshList();
+    applyMode();
+    const last = load(lastKey(), "");
+    if (active() && last && known.some(x => x.id === last && inContext(x))) openSession(last);
+  }
+  window.agentProjects.onChange(list => { projects = list; paintList(); setControls(); });
+  document.addEventListener("basalt:view", e => { if (e.detail === "chat" || e.detail === "agent") { enterContext().then(() => { refreshList(); poll(true); }); } });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(true); });
 
   /* ---- what the slash commands (slash.js) use ---- */
@@ -886,13 +978,15 @@
   }
   window.agentChat = { skills, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, rename, transcript, saveBlob, answers: answersOf,
     perm: { now: permNow, set: setPerm, cycle: cyclePerm, available: () => active() && mode !== "ask", modes: PERM_CYCLE },
-    sessions: () => known.filter(s => s.state !== "closed").map(s => ({ id: s.id, label: `${s.title || s.id} \u00B7 ${T("ch.state." + s.state)}` })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
+    sessions: () => known.filter(s => s.state !== "closed" && inContext(s)).map(s => ({ id: s.id, label: `${s.title || s.id} \u00B7 ${T("ch.state." + s.state)}` })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
     toggleCopy: () => copyOpen.click() };
   document.addEventListener("basalt:open-session", async e => {      // the tree of branches opens a conversation here
     const id = e.detail && e.detail.id;
     if (!id) return;
-    if (mode === "direct") { mode = "agent"; modeSel.value = mode; keep(MODE_KEY, mode); applyMode(); }
     await refreshList();
+    const there = known.find(x => x.id === id);
+    if (there && !inContext(there)) { view(inAgent() ? "chat" : "agent"); await enterContext(); }     // a conversation of the other tab: go there
+    if (mode === "direct") { mode = "agent"; modeSel.value = mode; keep(MODE_KEY, mode); applyMode(); }
     await openSession(id);
   });
   window.chatUi.agentActive = active;
@@ -900,11 +994,16 @@
   [box, $("#acopy"), convs].forEach(root => applyT(root));
   convs.setAttribute("aria-label", T("cv.title"));   // the static texts, in the page's language
   (async () => {
+    await window.agentProjects.load();
+    projects = window.agentProjects.list();
     await refreshList();
     $("#attach").dataset.can = $("#attach").hidden ? "" : "1";
     if (supported === false) { modeSel.querySelectorAll("option").forEach(o => { if (o.value !== "direct") o.disabled = true; }); modeSel.value = "direct"; }
+    lastCtx = inAgent();
+    if (lastCtx) { mode = "agent"; modeSel.value = mode; }
+    paintContext();
     applyMode();
-    const last = load(LAST_KEY, "");
-    if (active() && last && known.some(s => s.id === last)) openSession(last);
+    const last = load(lastKey(), "");
+    if (active() && last && known.some(s => s.id === last && inContext(s))) openSession(last);
   })();
 })();

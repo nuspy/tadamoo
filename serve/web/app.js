@@ -43,11 +43,13 @@ applyT($(".tabs"));                                   // the tab names in the pa
 $(".tabs").setAttribute("aria-label", T("tab.nav"));
 // pages that live under another tab: Hardware and LOGS under Monitor, Wallet under Settings
 const TAB_OF = { hardware: "stats", logs: "stats", wallet: "settings" };
+// the Agent tab shows the conversation page, working in a folder
+const SHOWN_AS = { agent: "chat" };
 let viewOn = "";
 function view(v, focus) {
   if (!VIEWS.includes(v)) v = "chat";
   viewOn = v;
-  VIEWS.forEach(x => { $("#view-" + x).hidden = x !== v; });
+  VIEWS.forEach(x => { const page = document.getElementById("view-" + x); if (page) page.hidden = x !== (SHOWN_AS[v] || v); });
   $("#top").hidden = v !== "stats";
   document.body.dataset.view = v;
   $$(".tabs .tab").forEach(t => {

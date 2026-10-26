@@ -55,9 +55,8 @@ DYNAMIC = {
     "ch.blocked.": ["refused", "error", "model_unavailable", "model_not_loaded", "process_unstable", "interrupted_irreversible", "crash", "start_failed", "other"],
     "pl.h.": ["create", "archive", "restore", "update_node", "move", "mark", "rewind", "apply", "fallback", "update_meta", "sensor"],
     "pl.tab.": ["aims", "details", "events", "define", "aims.tip", "details.tip", "events.tip", "define.tip"],
-    "ag.status.": ["running", "done", "failed", "stopped", "interrupted"],
     "ag.mode.": ["plan", "read_only", "default", "auto"],
-    "ag.e.": ["folder_missing", "folder_relative", "folder_not_found", "folder_drive", "goal_missing", "goal_long", "bad_mode", "auto_confirm", "bad_rules", "bad_steps", "busy", "start_failed", "not_running", "gone", "approval", "offline", "key", "local", "needs_yes", "no_checkpoint", "rewind_failed"],
+    "ag.add.e.": ["folder_missing", "folder_relative", "folder_not_found", "folder_drive", "folder_readonly"],
     "ch.state.": ["pending", "partial", "kept", "reverted", "superseded"],
     "br.cmp.state.": ["running", "done", "interrupted"],
     "br.side.state.": ["waiting", "running", "done", "needs_you", "ended", "timeout", "failed", "interrupted"],
@@ -167,7 +166,9 @@ class MarkupTest(unittest.TestCase):
         views = re.search(r"const VIEWS = \[([^\]]*)\]", (WEB / "app.js").read_text(encoding="utf-8")).group(1)
         for tab in re.findall(r'data-view="(\w+)"', self.html):
             self.assertIn(f'"{tab}"', views, tab)
-            self.assertIn(f'id="view-{tab}"', self.html, tab)
+            if tab != "agent":                                                    # the Agent tab shows the conversation page, in a folder
+                self.assertIn(f'id="view-{tab}"', self.html, tab)
+        self.assertNotIn('id="view-agent"', self.html)
 
     def test_navigation_order_and_the_palette_and_the_notice_exist(self):
         tabs = re.findall(r'<button class="tab" role="tab" id="tab-(\w+)" data-view=', self.html)
@@ -197,9 +198,9 @@ class MarkupTest(unittest.TestCase):
         self.assertRegex(css, r"(?m)^\.dl \{")                             # the downloads list owns .dl
         self.assertNotRegex((WEB / "changes.js").read_text(encoding="utf-8"), r'className = "dl[ "-]')
 
-    def test_the_agent_view_translates_its_own_static_texts(self):
-        text = (WEB / "agent.js").read_text(encoding="utf-8")
-        self.assertIn('applyT($id("view-agent"))', text)
+    def test_the_folder_window_translates_its_own_static_texts(self):
+        text = (WEB / "projects.js").read_text(encoding="utf-8")
+        self.assertIn("applyT(dlg)", text)
 
     def test_undoing_asks_twice_and_posts_to_the_review_route(self):
         text = (WEB / "changes.js").read_text(encoding="utf-8")

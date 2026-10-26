@@ -335,7 +335,7 @@ const chatSettings = (() => {
     await fetchPresets();
     if (!last.edited && !last.name) { followDefault(); showActive(); }
   });
-  document.addEventListener("basalt:view", e => { if (e.detail === "chat") defaults(); });
+  document.addEventListener("basalt:view", e => { if (e.detail === "chat" || e.detail === "agent") defaults(); });
 
   // whether the chat shows the model's reasoning: a display choice of this client, not part of a preset
   const SHOW = "basalt.showreasoning";

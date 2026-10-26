@@ -11,7 +11,6 @@
 <link rel="preload" href="fonts/geist-mono-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="web/app.css">
 <link rel="stylesheet" href="web/plans.css">
-<link rel="stylesheet" href="web/agent.css">
 <link rel="stylesheet" href="web/shell.css">
 <link rel="stylesheet" href="web/wallet.css">
 <link rel="stylesheet" href="web/risk.css">
@@ -24,6 +23,7 @@
 <script defer src="web/patterns.js"></script>
 <script defer src="web/chatset.js"></script>
 <script defer src="web/chat.js"></script>
+<script defer src="web/projects.js"></script>
 <script defer src="web/agentchat.js"></script>
 <script defer src="web/slash.js"></script>
 <script defer src="web/pskills.js"></script>
@@ -38,7 +38,6 @@
 <script defer src="web/reqlog.js"></script>
 <script defer src="web/changes.js"></script>
 <script defer src="web/plans.js"></script>
-<script defer src="web/agent.js"></script>
 <script defer src="web/wallet.js"></script>
 </head>
 <body>
@@ -108,6 +107,21 @@
   <div class="pal-foot" data-t="pal.foot">Up and down choose, Enter runs, Esc closes.</div>
 </dialog>
 
+<dialog class="psk afolder" id="afolder" aria-labelledby="af-title">
+  <form id="af-form" novalidate>
+    <div class="brd-h"><h2 id="af-title" data-t="ag.add.title">Add a folder</h2><button type="button" class="btn" id="af-close" data-t="br.close">Close</button></div>
+    <div class="brd-b">
+      <p class="brd-dim" data-t="ag.add.what"></p>
+      <label for="af-path" data-t="ag.add.label">Full path of the folder</label>
+      <div class="pfrow"><input id="af-path" type="text" list="af-recent" autocomplete="off" spellcheck="false" data-t-ph="ag.add.ph" placeholder="D:\projects\site">
+        <button type="button" class="btn" id="af-browse" data-t="ag.add.browse" hidden>Browse...</button></div>
+      <datalist id="af-recent"></datalist>
+      <p class="ag-msg" id="af-msg" role="alert"></p>
+      <div class="ag-buttons"><button type="submit" class="btn primary" id="af-go" data-t="ag.add.go">Add the folder</button></div>
+    </div>
+  </form>
+</dialog>
+
 <dialog class="brd" id="branches" aria-labelledby="br-title">
   <div class="brd-h"><h2 id="br-title" data-t="br.title">Branches</h2><button type="button" class="btn" id="br-close" data-t="br.close">Close</button></div>
   <div class="brd-b">
@@ -141,10 +155,16 @@
     <div class="chatrow">
     <aside class="convs" id="convs" aria-label="Conversations" data-t-aria="cv.title" hidden>
       <div class="cv-head">
-        <b data-t="cv.title">Conversations</b>
+        <b id="cv-title" data-t="cv.title">Conversations</b>
         <button type="button" class="cv-toggle" id="cv-toggle" aria-expanded="true" aria-controls="cv-body"></button>
       </div>
       <div class="cv-body" id="cv-body">
+        <div id="cv-projects" hidden>
+          <button type="button" class="btn cv-addfolder" id="cv-addfolder" data-t="ag.add" data-t-title="ag.add.tip">Add folder</button>
+          <div id="cv-proj-list"></div>
+          <p class="cv-empty" id="cv-proj-empty" data-t="ag.projects.empty" hidden>No folders yet.</p>
+        </div>
+        <div id="cv-chatlists">
         <div class="cv-group" id="cv-fav-group" hidden>
           <h3 id="cv-fav-h" data-t="cv.fav">Favorites</h3>
           <ul class="cv-list" id="cv-fav" aria-labelledby="cv-fav-h"></ul>
@@ -154,6 +174,7 @@
           <ul class="cv-list" id="cv-recent" aria-labelledby="cv-recent-h"></ul>
           <p class="cv-empty" id="cv-empty" data-t="cv.empty" hidden>No conversations yet.</p>
         </div>
+        </div>
       </div>
     </aside>
     <section class="sec chatbox" aria-label="Chat">
@@ -161,12 +182,14 @@
         <button type="button" class="btn" id="new-chat" data-t="ch.newbtn">New conversation</button>
         <button type="button" class="btn" id="branches-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="branches" data-t="br.open" hidden>Branches</button>
         <button type="button" class="btn" id="pskills-open" aria-haspopup="dialog" data-t="psk.btn" data-t-title="psk.btn.title" hidden>Skills</button>
+        <button type="button" class="btn" id="chg-open" aria-expanded="false" aria-controls="chg-side" data-t="ch.title" hidden>Changes</button>
+        <span class="folderchip" id="folder-chip" hidden></span>
         <button type="button" class="btn" id="branch-chat" data-t="ch.branch" hidden>Branch here</button>
         <button type="button" class="modechip" id="mode-chip" aria-keyshortcuts="Shift+Tab" hidden></button>
         <span class="learnbadge" id="learn-badge" role="status" hidden></span>
         <span id="chat-model" hidden></span>
         <span class="grow"></span>
-        <label class="effort" for="chatmode"><span data-t="ch.mode">Mode</span>
+        <label class="effort" for="chatmode" id="chatmode-label"><span data-t="ch.mode">Mode</span>
           <select id="chatmode">
             <option value="agent" data-t="ch.mode.agent">With tools</option>
             <option value="ask" data-t="ch.mode.ask">Question only</option>
@@ -226,6 +249,11 @@
         <div class="sr" id="chat-status" role="status"></div>
       </form>
     </section>
+    <aside class="sec chgside" id="chg-side" aria-labelledby="h-changes" hidden>
+      <div class="sh"><b id="h-changes" data-t="ch.title">Changes</b><span class="grow"></span>
+        <button type="button" class="btn ghost" id="chg-close" data-t="cs.close">Close</button></div>
+      <div class="pad"><div id="changes-root"></div></div>
+    </aside>
     </div>
     <aside class="sec chatset" id="chatset" aria-labelledby="cs-title" hidden>
       <div class="sh"><b id="cs-title" data-t="cs.title">Chat settings</b><span class="grow"></span>
@@ -421,86 +449,6 @@
         </div>
       </section>
 
-    </div>
-  </div>
-
-  <div class="view agent" id="view-agent" role="tabpanel" aria-labelledby="tab-agent" hidden>
-    <div class="ag-grid">
-      <div class="ag-col">
-        <section class="sec" aria-labelledby="ag-h">
-          <div class="sh"><b id="ag-h" data-t="ag.title">Run the agent</b></div>
-          <form class="pad ag-form" id="ag-form" novalidate>
-            <p class="ag-lead" data-t="ag.lead">The agent works on a task in a folder of this PC, using the model that is loaded. What it does shows under Monitor, where you can undo its edits.</p>
-            <p class="ag-nomodel" id="ag-nomodel" hidden><span data-t="ag.nomodel">No model is loaded, so the agent cannot start.</span> <button type="button" class="btn" id="ag-nomodel-go" data-t="ag.nomodel.go">Open Models</button></p>
-            <label for="ag-folder" data-t="ag.folder">Folder the agent works in</label>
-            <input id="ag-folder" type="text" list="ag-folders" autocomplete="off" spellcheck="false" aria-describedby="ag-folder-help" data-t-ph="ag.folder.ph" placeholder="D:\projects\site">
-            <datalist id="ag-folders"></datalist>
-            <p class="help" id="ag-folder-help" data-t="ag.folder.help">The full path. Its file tools stay inside this folder; the commands it runs are not limited to it.</p>
-            <label for="ag-goal" data-t="ag.goal">What should it do?</label>
-            <textarea id="ag-goal" rows="5" maxlength="4000" data-t-ph="ag.goal.ph" placeholder="For example: add a test for the date parser and make it pass"></textarea>
-            <fieldset class="ag-modes">
-              <legend data-t="ag.mode">How much may it do on its own?</legend>
-              <label class="ag-mode"><input type="radio" name="ag-mode" value="plan"><span><b data-t="ag.mode.plan">Plan only</b><small data-t="ag.mode.plan.d">Reads and proposes a plan. Changes nothing and runs nothing.</small></span></label>
-              <label class="ag-mode"><input type="radio" name="ag-mode" value="read_only"><span><b data-t="ag.mode.read_only">Read only</b><small data-t="ag.mode.read_only.d">Reads files. Asks you before anything else.</small></span></label>
-              <label class="ag-mode"><input type="radio" name="ag-mode" value="default" checked><span><b data-t="ag.mode.default">Ask first</b><small data-t="ag.mode.default.d">Edits files in the folder. Asks you before it runs a command.</small></span></label>
-              <label class="ag-mode"><input type="radio" name="ag-mode" value="auto"><span><b data-t="ag.mode.auto">Automatic</b><small data-t="ag.mode.auto.d">Runs commands without asking. Use it only in a folder you can lose.</small></span></label>
-            </fieldset>
-            <div id="ag-auto-row" hidden></div>
-            <details class="ag-adv">
-              <summary data-t="ag.adv">More options</summary>
-              <label for="ag-steps" data-t="ag.steps">Most steps</label>
-              <input id="ag-steps" type="number" inputmode="numeric" min="1" max="50" step="1" value="15" aria-describedby="ag-steps-help">
-              <p class="help" id="ag-steps-help" data-t="ag.steps.help">The run stops after this many turns of the model.</p>
-              <label for="ag-allow" data-t="ag.allow">Commands it may run without asking</label>
-              <textarea id="ag-allow" rows="3" spellcheck="false" aria-describedby="ag-allow-help" data-t-ph="ag.allow.ph" placeholder="shell_command:python -m pytest*"></textarea>
-              <p class="help" id="ag-allow-help" data-t="ag.allow.help">One rule per line. A rule never covers a command that chains others.</p>
-            </details>
-            <p class="ag-msg" id="ag-msg" role="alert"></p>
-            <div class="ag-buttons">
-              <button type="submit" class="btn primary" id="ag-start" data-t="ag.start">Start</button>
-              <button type="button" class="btn ag-stop" id="ag-stop" data-t="ag.stop" hidden>Stop</button>
-            </div>
-          </form>
-        </section>
-      </div>
-      <div class="ag-col">
-        <section class="sec" id="ag-cv-sec" aria-labelledby="ag-cv-h">
-          <div class="sh"><b id="ag-cv-h" data-t="ag.cv.title">Conversations</b></div>
-          <div class="pad" id="ag-conversations" aria-live="polite"></div>
-        </section>
-        <section class="sec" aria-labelledby="ag-pl-h">
-          <div class="sh"><b id="ag-pl-h" data-t="ag.pl.title">Plans</b></div>
-          <div class="pad" id="ag-plans"></div>
-        </section>
-        <section class="sec" id="ag-ap-sec" aria-labelledby="ag-ap-h">
-          <div class="sh"><b id="ag-ap-h" data-t="ag.ap.title">Waiting for you</b></div>
-          <div class="pad" id="ag-approvals" aria-live="polite"></div>
-        </section>
-        <section class="sec" aria-labelledby="ag-run-h">
-          <div class="sh"><b id="ag-run-h" tabindex="-1" data-t="ag.run.title">Current run</b></div>
-          <div class="pad">
-            <div id="ag-run"></div>
-            <h3 class="subh ag-logh" data-t="ag.log">What it printed</h3>
-            <pre class="ag-log" id="ag-log" role="log" aria-live="off" tabindex="0"></pre>
-          </div>
-        </section>
-        <section class="sec" id="sec-changes" aria-labelledby="h-changes">
-          <div class="sh"><b id="h-changes" data-t="ch.title">Changes</b></div>
-          <div class="pad"><div id="changes-root"></div></div>
-        </section>
-        <section class="sec" aria-labelledby="ag-back-h">
-          <div class="sh"><b id="ag-back-h" data-t="ag.back.title">Go back</b></div>
-          <div class="pad">
-            <p class="help" data-t="ag.back.help">Puts the folder's files back as they were before one of the agent's steps. It cannot undo a command it ran.</p>
-            <div id="ag-checkpoints"></div>
-            <p class="ag-msg" id="ag-back-msg" role="status"></p>
-          </div>
-        </section>
-        <section class="sec" aria-labelledby="ag-hist-h">
-          <div class="sh"><b id="ag-hist-h" data-t="ag.hist.title">Earlier runs</b></div>
-          <div class="pad" id="ag-history"></div>
-        </section>
-      </div>
     </div>
   </div>
 

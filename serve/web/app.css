@@ -1134,3 +1134,19 @@ dialog.psk::backdrop { background: rgba(0, 0, 0, .6); }
 .psk-bar { display: flex; gap: 8px; }
 .psk-pending { padding: 10px 12px; border: 1px solid #FFB547; border-radius: 8px; display: flex; flex-direction: column; gap: 8px; }
 .psk-asked summary { cursor: pointer; font: 500 13px/1.6 var(--font-sans); color: var(--fg-2); }
+
+/* the Agent tab: the folders added, each with its conversations, the folder in the header and the changes beside the conversation */
+.cv-addfolder { width: calc(100% - 8px); margin: 6px 4px 4px; }
+.cv-proj { margin-top: 6px; }
+.cv-projhead { display: flex; align-items: center; gap: 2px; padding: 2px 4px 2px 8px; border-radius: 6px; }
+.cv-projhead.here { background: var(--surface); box-shadow: inset 2px 0 0 var(--accent); }
+.cv-projname { flex: 1; min-width: 0; padding: 4px 2px; text-align: left; font: 600 13px/1.3 var(--font-sans); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-proj .cv-list { padding-left: 8px; }
+.folderchip { align-self: center; max-width: 260px; padding: 2px 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--fg-2); font: 500 12px/1.5 var(--font-sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chgside { flex: 0 0 min(420px, 34%); min-width: 300px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.chgside > .pad { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
+dialog.afolder { width: min(640px, 94vw); }
+dialog.afolder .brd-b { display: grid; gap: 8px; padding: 12px 16px 16px; }
+.ag-msg { min-height: 1.5em; margin: 4px 0 0; color: var(--fg-2); overflow-wrap: anywhere; }
+.ag-msg.bad { color: #FF8FA3; }
+.ag-buttons { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; }

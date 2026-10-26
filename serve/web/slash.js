@@ -258,6 +258,6 @@
     if (typeof out === "string") note(out); else note(e.name, () => out);
   });
 
-  document.addEventListener("basalt:view", e => { if (e.detail === "chat") loadSkills(); });
+  document.addEventListener("basalt:view", e => { if (e.detail === "chat" || e.detail === "agent") loadSkills(); });
   window.slash = { run, parse, byName, candidates, commands: COMMANDS };
 })();

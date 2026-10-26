@@ -36,7 +36,7 @@ class ViewSubtabsTest(unittest.TestCase):
             self.assertRegex(tag, r'data-sub="(general|models|privacy)"', tag)
 
     def test_the_monitor_has_no_tasks_or_changes_panel_and_the_requests_list_is_long(self):
-        monitor = HTML[HTML.index('id="view-stats"'):HTML.index('id="view-agent"')]
+        monitor = HTML[HTML.index('id="view-stats"'):HTML.index('id="view-plans"')]
         self.assertNotIn("task-root", monitor)
         self.assertNotIn("changes-root", monitor)
         from serve.service import REQUESTS_SHOWN
