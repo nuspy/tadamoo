@@ -391,6 +391,7 @@ class SessionRoutineRunner:
         sid = mgr.create(routine["workspace"], routine["mode"], routine.get("allow"), False, f"Routine: {routine['name']}"[:80],
                          routine.get("confirm_auto") is True, routine.get("max_turns", 10), worktree="off")["id"]
         self._own.add(sid)
+        getattr(mgr, "keep_out_of_memory", lambda _sid: None)(sid)          # a routine is not the person talking: nothing in it is learned
         try:
             if routine.get("skill"):                          # the values are worked out now: "today" is the day of this run
                 try:

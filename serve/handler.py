@@ -44,6 +44,9 @@ from serve.files_api import FilesApi, FilesError
 from serve.projects import ProjectStore
 from serve.remote import ApiKeys, Installer, RemoteAccess, in_tailscale, remote_path_ok, tailscale_peers, tailscale_status, tailscale_up
 from serve.personal_skills_api import PersonalSkillsApi
+from harness.personal_memory import PersonalMemory, PersonalMemoryError
+from serve.memories_api import MemoriesApi
+from serve.memory_worker import MemoryWorker, gpu_free
 from harness.personal_skills.store import SkillError
 from serve.routines_api import RoutinesApi
 from harness.scheduler import RoutineError
@@ -63,6 +66,9 @@ _PROJECTS = None                                      # the folders of the Agent
 _INSTALLER = Installer()                              # installs Tailscale when the person asks
 _ROUTINES = None                                      # the agent's recurring routines, made with the conversations or on first use
 _PSKILLS = None                                       # the person's personal skills, made on first use
+_PERSONAL = None                                      # the person's own memories (long-term and short-term), made on first use
+_MEMORIES = None                                      # the Memories page's side of them
+_MEM_WORKER = None                                    # learns from what the person wrote when the GPU is free
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
 _LLM = None                                           # the Providers page's side of llmswitch, made on first use
 
@@ -71,6 +77,8 @@ def stop_sessions() -> None:
     """The server ends: the conversations' processes end with it (the next start finds the conversations again)."""
     if _ROUTINES is not None:
         _ROUTINES.shutdown()
+    if _MEM_WORKER is not None:
+        _MEM_WORKER.stop()
     if _SESSIONS is not None:
         _SESSIONS.shutdown()
 _WALLET = None                                         # the vault and the payment systems, made on first use
@@ -439,6 +447,12 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online"):
                 if self._authorized():
                     self._capabilities_get(path)
+            elif path == "/api/memories":
+                if self._authorized():
+                    if not settings.is_loopback(self.client_address[0]):
+                        return self._json(403, {"error": {"type": "forbidden", "message": "the memories are shown only on the PC the server runs on"}})
+                    q = parse_qs(urlsplit(self.path).query)
+                    self._json(200, self._memories().overview((q.get("q") or [""])[0][:200], (q.get("kind") or [""])[0], (q.get("section") or [""])[0]))
             elif path == "/api/wallet":
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
@@ -603,6 +617,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/wallet/"):
                 self._wallet_post(path)
+                return
+            if path.startswith("/api/memories/"):
+                self._memories_post(path)
                 return
             if path == "/api/changes/review":
                 if not settings.is_loopback(self.client_address[0]):
@@ -1461,6 +1478,48 @@ def make_handler(svc: Service, remote: bool = False):
                 _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments"), app_root=Path(__file__).resolve().parents[1], network_time=sntp_offset), BrowserPrefs(userdata.path("browser.json")), userdata.path("browser-profile"))
             return _WALLET
 
+        def _personal(self) -> PersonalMemory:
+            global _PERSONAL
+            if _PERSONAL is None:
+                _PERSONAL = PersonalMemory(userdata.path("personal-memory"), key_dir=userdata.path("vault"))
+            return _PERSONAL
+
+        def _memory_worker(self) -> MemoryWorker:
+            """Learns from what the person wrote, in the background; it also keeps its queue across restarts, so it starts with the conversations."""
+            global _MEM_WORKER
+            if _MEM_WORKER is None:
+                from harness.client import BasaltClient
+                endpoint = f"http://127.0.0.1:{self.server.server_address[1]}"
+                worker = MemoryWorker(self._personal(), lambda: BasaltClient(base_url=endpoint, api_key=svc.api_key or None),
+                                      lambda: gpu_free(svc, mine=worker.extractor.last))
+                _MEM_WORKER = worker
+                worker.start()
+            return _MEM_WORKER
+
+        def _memories(self) -> MemoriesApi:
+            global _MEMORIES
+            if _MEMORIES is None:
+                _MEMORIES = MemoriesApi(self._personal(), self._memory_worker())
+            return _MEMORIES
+
+        def _memories_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the memories are changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 16)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            if not self._own_page("the memories can be changed"):
+                return
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                return self._json(200, self._memories().post(path[len("/api/memories/"):], req))
+            except (PersonalMemoryError, ValueError, TypeError) as e:
+                return self._json(400, {"error": {"type": "memories", "message": str(e)}})
+
         def _wallet_post(self, path):
             if not settings.is_loopback(self.client_address[0]):
                 self._discard_body()
@@ -1763,7 +1822,8 @@ def make_handler(svc: Service, remote: bool = False):
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
                                            browser_prefs=BrowserPrefs(userdata.path("browser.json")).read,
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
-                                           skills_dir=userdata.path("personal-skills"), projects=self._projects())
+                                           skills_dir=userdata.path("personal-skills"), projects=self._projects(),
+                                           personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer)
                 self._routines()                          # the clock of the routines starts with the conversations
             return _SESSIONS
 

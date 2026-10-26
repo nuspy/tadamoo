@@ -123,6 +123,14 @@ class RoutedClient:
     def metrics(self, *a: Any, **k: Any) -> Any:
         return self.local.metrics(*a, **k)
 
+    def stays_local(self) -> bool:
+        """Whether every route this function may take is the model loaded in this Basalt (nothing goes to another provider)."""
+        data = self.registry.load()
+        for pid in self.registry.fallback_chain(self.function):
+            if pid and not TYPES.get((self.registry._find(data, pid) or {}).get("type") or "", {}).get("this_server"):
+                return False
+        return True
+
     # -- the call ---------------------------------------------------------------------------------------------
 
     def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None,

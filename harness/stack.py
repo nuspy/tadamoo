@@ -120,6 +120,8 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = 15) ->
                         help="how long a tool may run before it is stopped (every tool, or NAME=SECONDS for one; 0: no limit)")
     parser.add_argument("--no-memory", action="store_true")
     parser.add_argument("--no-checkpoints", action="store_true")
+    parser.add_argument("--personal-memory", default="", help="the folder of the person's own memories (long-term and short-term): what the person switched on is put in the answers where it matters")
+    parser.add_argument("--personal-memory-keys", default="", help="the folder of the device key that opens them (the vault's)")
 
 
 def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
@@ -136,6 +138,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         end_turn_bias=args.end_turn_bias, attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
+        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys,
     )
 
 
@@ -172,6 +175,8 @@ class AgentConfig:
     max_seconds: Optional[float] = None
     use_memory: bool = True
     use_checkpoints: bool = True
+    personal_memory_dir: str = ""       # the person's own memories (harness/personal_memory.py); empty: the conversation has none
+    personal_memory_keys: str = ""      # where the device key that opens them is (default: the same folder)
     reference_docs: Dict[str, str] = field(default_factory=dict)   # path -> text of reference documents
     reference_strategy: str = "auto"   # auto, cag (a fixed block at the start), rag (searched passages) or none
     wiki: bool = False                 # offer the wikibridge tools (address and key from the environment)
@@ -239,6 +244,7 @@ class BuiltAgent:
     plan_gate: Optional[PlanGate] = None
     mode_switch: Optional[Callable[[str], None]] = None
     mcp: Optional[Any] = None                 # the MCPHub of cfg.mcp_servers
+    personal: Optional[Any] = None            # the notes about the person this conversation takes in (harness/personal_memory.py Recall)
     mcp_errors: Dict[str, str] = field(default_factory=dict)       # the servers that could not be started, and why
 
     def set_mode(self, mode: str) -> None:
@@ -250,10 +256,14 @@ class BuiltAgent:
     def retrieved_message(self, goal: str, limit: int = 4) -> Optional[Dict[str, Any]]:
         """Memories relevant to a goal, as an untrusted-data message for the tail of the conversation."""
         injection = self.patterns.get("injection") or {}
-        if not self.memory or not injection.get("on", True) or injection.get("strategy", "tail") != "tail":
-            return None                       # off, or the model asks for notes itself, or they are in the fixed start
-        self.builder.set_memories([m["content"] for m in self.memory.search(goal, limit=limit)])
-        return self.builder.memory_message()
+        message = None
+        if self.memory and injection.get("on", True) and injection.get("strategy", "tail") == "tail":     # else off, or the model asks for notes itself
+            self.builder.set_memories([m["content"] for m in self.memory.search(goal, limit=limit)])
+            message = self.builder.memory_message()
+        about = self.personal.message(goal) if self.personal is not None else None
+        if about:
+            message = {**message, "content": message["content"] + "\n" + about} if message else {"role": "user", "content": about}
+        return message
 
     def close(self) -> None:
         self.agent.close()
@@ -494,6 +504,13 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     memory = MemoryStore(default_db_path(workspace) if not cfg.data_dir else data / "memory.db") if cfg.use_memory else None
     if memory is not None:
         register_memory_tools(registry, memory)
+    personal = None
+    if cfg.personal_memory_dir:
+        from harness.personal_memory import PersonalMemory, Recall, register_personal_tools
+        notes = PersonalMemory(cfg.personal_memory_dir, key_dir=cfg.personal_memory_keys or None)
+        stays = lambda: getattr(client, "stays_local", lambda: True)()           # the notes leave this PC only when the person allowed it
+        personal = Recall(notes, local=stays)
+        register_personal_tools(registry, notes, local=stays)
     cancel = threading.Event()
     from harness.tools.extra import register_extra_tools        # run_code, subagents and, when listed in the user data folder, ACP and A2A agents
     register_extra_tools(registry, cfg, workspace=workspace, sandbox=sandbox, client=client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key),
@@ -524,5 +541,5 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         clock=local_now,
     )
     return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser,
-                      plan_gate=plan_gate, mode_switch=switch_mode,
+                      plan_gate=plan_gate, mode_switch=switch_mode, personal=personal,
                       mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {})

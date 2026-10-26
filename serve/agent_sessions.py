@@ -84,7 +84,8 @@ class SessionManager:
                  vault_dir: Optional[Path] = None, payments_dir: Optional[Path] = None,
                  browser_prefs: Optional[Callable[[], Dict[str, bool]]] = None, browser_profile: Optional[Path] = None,
                  plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: float = 1800.0,
-                 skills_dir: Optional[Path] = None, projects: Any = None) -> None:
+                 skills_dir: Optional[Path] = None, projects: Any = None, personal_dir: Optional[Path] = None, personal_keys: Optional[Path] = None,
+                 learn: Optional[Callable[[Dict[str, Any]], Any]] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -92,6 +93,10 @@ class SessionManager:
         self.attachments_dir, self.outputs_dir = attachments_dir, outputs_dir      # the conversation's attached files and the files the agent made
         self.skills = PersonalSkills(skills_dir) if skills_dir else None            # the person's skills, which a conversation can run
         self.projects = projects                                # the folders of the Agent tab, whose own registry lists the conversations held in them
+        self.personal_dir, self.personal_keys = personal_dir, personal_keys     # the person's own memories and the key that opens them: each conversation takes in the notes that matter
+        self.learn = learn                                      # told what the person wrote and what was searched for it, when a turn ends, to learn from
+        self._said: Dict[str, Dict[str, Any]] = {}              # per conversation, until its turn ends: what the person wrote and what was searched
+        self._no_learning: set = set()                          # conversations that are not the person's talking (a routine's)
         self.browser_profile = browser_profile                  # where the browser keeps its sign-ins when the person chose that
         self.browser_prefs = browser_prefs                      # whether the conversations have a browser, and whether it shows a window
         self.payments_dir = payments_dir                        # the person's payment systems and limits, for the agent's request_payment
@@ -620,6 +625,12 @@ class SessionManager:
             return
         kind, name, call_id = data.get("type"), data.get("name"), data.get("call_id")
         if kind == "tool_start" and isinstance(name, str):
+            args = data.get("arguments") if isinstance(data.get("arguments"), dict) else {}
+            if name in ("search_web",) and isinstance(args.get("query"), str):
+                with self._lock:
+                    heard = self._said.get(sid)
+                    if heard is not None and len(heard["searches"]) < 10:
+                        heard["searches"].append(args["query"])
             self._learn(sid, name, data.get("effect"))
             calls = self._calls.setdefault(sid, {})
             if len(calls) > 50:
@@ -730,6 +741,8 @@ class SessionManager:
         for flag in ("images", "charts"):
             if rec.get(flag):
                 cmd += [f"--{flag}", rec[flag]]
+        if self.personal_dir:
+            cmd += ["--personal-memory", str(self.personal_dir)] + (["--personal-memory-keys", str(self.personal_keys)] if self.personal_keys else [])
         if rec.get("ask_only"):
             cmd.append("--ask-only")
         elif self.vault_dir:
@@ -849,6 +862,8 @@ class SessionManager:
                 if rec["state"] not in ("asking", "blocked"):
                     self._set(rec, state="busy")
             elif kind == "done":
+                if not event.get("more"):
+                    threading.Thread(target=self._flush_heard, args=(sid,), name="learn-flush", daemon=True).start()
                 asked = event.get("stop_reason") == "asked"
                 state = "busy" if event.get("more") else "idle"      # other requests are still waiting: the conversation is still at work
                 self._set(rec, state=state, blocked=None, ask=None, turns=rec.get("turns", 0) + 1, **({} if asked else {"question": None}),
@@ -962,7 +977,38 @@ class SessionManager:
             elif not self._write(sid, live, cmd):
                 raise RunError("The agent process did not take the message; try again.", "write_failed")
         self._push(sid, {"event": "user", "turn": turn, "text": text, **({"attachments": [{k: c[k] for k in ("id", "name", "family", "size")} for c in cards]} if cards else {})})
+        self._hear(sid, rec, text)
         return {"turn": turn, "session": self.get(sid)}
+
+    # -- what the person wrote, for their memories -------------------------------------------------------
+
+    def keep_out_of_memory(self, sid: str) -> None:
+        """A conversation that is not the person talking (a routine's): nothing in it is learned."""
+        with self._lock:
+            self._no_learning.add(sid)
+
+    def _hear(self, sid: str, rec: Dict[str, Any], text: str) -> None:
+        if self.learn is None or sid in self._no_learning:
+            return
+        workspace = str(rec.get("workspace") or "")
+        project = "" if not workspace or (self.default_workspace and Path(workspace) == self.default_workspace) else Path(workspace).name
+        with self._lock:
+            heard = self._said.setdefault(sid, {"texts": [], "searches": [], "project": project})
+            if len(heard["texts"]) < 10:
+                heard["texts"].append(text)
+
+    def _flush_heard(self, sid: str) -> None:
+        """The turn ended: what the person wrote in it, and what was searched for them, goes to be learned from when the GPU is free."""
+        with self._lock:
+            heard = self._said.pop(sid, None)
+        if not heard or self.learn is None:
+            return
+        for n, text in enumerate(heard["texts"]):
+            last = n == len(heard["texts"]) - 1
+            try:
+                self.learn({"text": text, "project": heard["project"], "searches": heard["searches"] if last else []})
+            except Exception:
+                pass                                          # learning never gets in the way of the conversation
 
     def _skill_source(self, sid: str, turns: Any) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """The requests the person chose (by number, as the page counts them) and the steps taken to answer them."""
