@@ -308,6 +308,9 @@ the server then also listens on that address, only for Tailscale, never on the i
 (or copy the key). The key is shown once; to stop a phone, take its key away. On the phone, install Tailscale from the Play Store and sign in with the same account. A phone can use the model, the
 conversations, files and routines; it cannot reach the wallet, the vault, the settings or the loading of models.
 
+The Android app (`mobile/`, see its README) then needs only the address and the key: scan the QR code in its Settings. Its **+** button offers *Image*, *Photo* and *Documents/Files* (*Local*, *Server*: the folders added on the PC, and
+*Network*: other devices, over SMB); the microphone writes what you say and answers can be read aloud, with the phone's own speech.
+
 ## 13. The Agent tab
 
 The Agent tab is the conversation page working in a **folder of yours**. At the left, the column lists the folders you added, each with its
