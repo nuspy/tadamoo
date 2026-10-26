@@ -292,6 +292,16 @@
             <input id="cs-threshold" type="number" inputmode="numeric" min="30" max="100" step="5" placeholder="80">
           </div>
         </fieldset>
+        <fieldset class="csgroup" id="cs-visuals">
+          <legend data-t="vis.title">Pictures and charts</legend>
+          <p class="help" data-t="vis.help"></p>
+          <label class="check"><input type="checkbox" id="cs-img-on"><span data-t="vis.img">Pictures from the web, taken from the article cited when it has one</span></label>
+          <label for="cs-img-level" data-t="vis.level">How present</label>
+          <select id="cs-img-level"><option value="very_low" data-t="vis.level.very_low">very_low</option><option value="low" data-t="vis.level.low">low</option><option value="normal" selected data-t="vis.level.normal">normal</option><option value="high" data-t="vis.level.high">high</option><option value="very_high" data-t="vis.level.very_high">very_high</option><option value="highest" data-t="vis.level.highest">highest</option></select>
+          <label class="check"><input type="checkbox" id="cs-chart-on"><span data-t="vis.chart">Charts and diagrams that explain (workflows, deployments, interactions)</span></label>
+          <label for="cs-chart-level" data-t="vis.level">How present</label>
+          <select id="cs-chart-level"><option value="very_low" data-t="vis.level.very_low">very_low</option><option value="low" data-t="vis.level.low">low</option><option value="normal" selected data-t="vis.level.normal">normal</option><option value="high" data-t="vis.level.high">high</option><option value="very_high" data-t="vis.level.very_high">very_high</option><option value="highest" data-t="vis.level.highest">highest</option></select>
+        </fieldset>
         <fieldset class="csgroup" id="cs-perm">
           <legend data-t="cs.perm">What the agent may do without asking</legend>
           <p class="help" data-t="cs.perm.help"></p>

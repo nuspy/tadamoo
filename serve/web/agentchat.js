@@ -832,6 +832,21 @@
 
   /* ---- the conversation's own copy of the folder: what it changed waits here until the person applies it ---- */
   const copyBar = $("#acopy"), copyText = $("#acopy-text"), copyOpen = $("#acopy-open"), copyPanel = $("#acopy-panel");
+  /* pictures and charts: each is switched on by its own box and asked for at a level; they apply to the next new conversation */
+  const VIS_KEY = "basalt.visuals";
+  const vis = { imgOn: $("#cs-img-on"), imgLevel: $("#cs-img-level"), chartOn: $("#cs-chart-on"), chartLevel: $("#cs-chart-level") };
+  (() => {
+    let saved = {};
+    try { saved = JSON.parse(load(VIS_KEY, "{}")) || {}; } catch (e) { saved = {}; }
+    vis.imgOn.checked = !!saved.imgOn; vis.chartOn.checked = !!saved.chartOn;
+    if (saved.imgLevel) vis.imgLevel.value = saved.imgLevel;
+    if (saved.chartLevel) vis.chartLevel.value = saved.chartLevel;
+    const store = () => keep(VIS_KEY, JSON.stringify({ imgOn: vis.imgOn.checked, imgLevel: vis.imgLevel.value, chartOn: vis.chartOn.checked, chartLevel: vis.chartLevel.value }));
+    const sync = () => { vis.imgLevel.disabled = !vis.imgOn.checked; vis.chartLevel.disabled = !vis.chartOn.checked; store(); };
+    Object.values(vis).forEach(e => e.addEventListener("change", sync));
+    sync();
+  })();
+  const visuals = () => ({ images: vis.imgOn.checked ? vis.imgLevel.value : "", charts: vis.chartOn.checked ? vis.chartLevel.value : "" });
   const copyMode = () => "auto";                              // the page does not offer a choice: a copy is made only when the server finds another conversation in the same git folder
   let copyShown = false;
   const kindText = s => T("wc." + (["added", "deleted"].includes(s) ? s : "modified"));
@@ -907,7 +922,7 @@
   async function ensure() {
     if (sid) return true;
     if (inAgent() && !curPath() && !(await addFolder())) { status(T("ag.noproject")); return false; }
-    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath() } : {}), mode: permMode(), allow: allowRules(), confirm_auto: permMode() === "auto", ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), end_turn_bias: chatSettings.body().end_turn_bias, worktree: copyMode() });
+    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath() } : {}), mode: permMode(), allow: allowRules(), confirm_auto: permMode() === "auto", ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), end_turn_bias: chatSettings.body().end_turn_bias, worktree: copyMode(), ...visuals() });
     if (!r.ok) { status(errText(r)); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0;
     await refreshList();
@@ -1040,6 +1055,7 @@
     await openSession(id);
   });
   window.chatUi.agentActive = active;
+  window.chatUi.sessionId = () => sid;
 
   [box, $("#acopy"), convs].forEach(root => applyT(root));
   convs.setAttribute("aria-label", T("cv.title"));   // the static texts, in the page's language

@@ -123,3 +123,27 @@ def test_a_message_names_its_files_and_the_page_sees_the_words_and_the_chips(wor
     assert api.json("POST", f"/api/agent/sessions/{sid}/send", {"text": "x", "attachments": "nota"})[0] == 400
     other = mgr.create(str(tmp / "ws"))["id"]
     assert api.json("POST", f"/api/agent/sessions/{other}/send", {"text": "x", "attachments": [meta["id"]]})[0] == 400       # not this conversation's file
+
+
+def test_a_picture_the_agent_fetched_is_shown_inline_and_a_file_that_is_not_a_picture_is_not(world):
+    api, mgr, sid, tmp = world
+    store = at.OutputStore(tmp / "outputs")
+    picture = store.save(sid, "bridge.png", bytes([0x89]) + b"PNG" + bytes([13, 10, 26, 10]) + b"0" * 40)
+    code, headers, body = api.raw("GET", f"/api/outputs/{sid}/{picture['id']}/file")
+    assert code == 200 and headers["Content-Type"] == "image/png" and "inline" in headers["Content-Disposition"]
+    assert headers["X-Content-Type-Options"] == "nosniff" and headers["Content-Security-Policy"] == "sandbox"
+    text = store.save(sid, "notes.html", b"<script>1</script>")
+    assert api.raw("GET", f"/api/outputs/{sid}/{text['id']}/file")[0] == 404
+    assert api.raw("GET", f"/api/outputs/{sid}/{'1' * 12}/file")[0] == 404
+
+
+def test_the_levels_of_pictures_and_charts_reach_the_conversation_process_and_a_wrong_one_is_refused(world, tmp_path):
+    api, mgr, sid, tmp = world
+    made = api.json("POST", "/api/agent/sessions", {"workspace": str(tmp_path), "mode": "read_only", "images": "high", "charts": "very_low"})
+    assert made[0] == 200 and (made[1]["session"]["images"], made[1]["session"]["charts"]) == ("high", "very_low")
+    cmd = mgr._command(made[1]["session"]["id"], mgr.get(made[1]["session"]["id"]), tmp_path)
+    assert cmd[cmd.index("--images") + 1] == "high" and cmd[cmd.index("--charts") + 1] == "very_low"
+    plain = api.json("POST", "/api/agent/sessions", {"workspace": str(tmp_path), "mode": "read_only"})[1]["session"]
+    assert "--images" not in mgr._command(plain["id"], mgr.get(plain["id"]), tmp_path)
+    bad = api.json("POST", "/api/agent/sessions", {"workspace": str(tmp_path), "images": "enormous"})
+    assert bad[0] == 400 and bad[1]["error"]["code"] == "bad_visuals"

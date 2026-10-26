@@ -288,6 +288,13 @@ has *Waits for* boxes to set from the keyboard what it waits for.
   a key, replaces names, and does not send health data unless you tick it.
 - Nothing in a plan changes behind your back: the planner only prepares proposals, which you approve.
 
+## 12b. Pictures and charts in answers
+
+*Chat → Settings → Pictures and charts* has two switches, each with its own level of presence (very low, low, normal, high, very high, highest). They apply to
+the next new conversation. **Pictures**: the agent looks for them on the web, preferably on the article it cites, keeps one in the conversation and shows it with the
+source named; the page shows only pictures the agent kept, never one from an address written in the text. **Charts**: the agent draws workflows, deployments and
+interactions as diagrams that the page draws; *Source of the diagram* shows the text it was made from.
+
 ## 13. The Agent tab
 
 The Agent tab is the conversation page working in a **folder of yours**. At the left, the column lists the folders you added, each with its

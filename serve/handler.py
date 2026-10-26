@@ -290,7 +290,8 @@ def make_handler(svc: Service):
                          ".svg": "image/svg+xml", ".png": "image/png"}
                 f = ROOT / "serve" / "web" / name
                 ext = os.path.splitext(name)[1]
-                if "/" in name or "\\" in name or ext not in types or not f.is_file():
+                vendored = name.startswith("vendor/") and name.count("/") == 1 and "\\" not in name and not name.endswith(".txt")      # one folder of third-party scripts
+                if (("/" in name or "\\" in name) and not vendored) or ext not in types or not f.is_file():
                     self._json(404, {"error": {"message": "not found"}})
                     return
                 body = f.read_bytes()
@@ -1291,6 +1292,12 @@ def make_handler(svc: Service):
                     meta, file = store.get(parts[2], parts[3]), store.path(parts[2], parts[3])
                     types = {"png": "image/png", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp"}
                     return self._send_file(file, types.get(meta["kind"], "application/octet-stream"), meta["name"], inline=meta["family"] == "image")
+                if kind == "outputs" and len(parts) == 5 and parts[4] == "file":              # a picture the agent fetched, shown in the answer
+                    meta, file = outputs.get(parts[2], parts[3])
+                    shown = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}.get(file.suffix.lower().lstrip("."))
+                    if shown is None:
+                        raise KeyError(parts[3])
+                    return self._send_file(file, shown, meta["name"], inline=True)
                 if kind == "outputs" and len(parts) == 4:
                     meta, file = outputs.get(parts[2], parts[3])
                     return self._send_file(file, "application/octet-stream", meta["name"], inline=False)
@@ -1729,7 +1736,8 @@ def make_handler(svc: Service):
                                                                       req.get("confirm_auto") is True, req.get("max_turns", 15),
                                                                       req.get("context_patterns"), req.get("context_policy", "stop"),
                                                                       req.get("context_threshold", 0.8), req.get("end_turn_bias"),
-                                                                      req.get("worktree", "auto"), req.get("effort", ""))})
+                                                                      req.get("worktree", "auto"), req.get("effort", ""),
+                                                                      req.get("images", ""), req.get("charts", ""))})
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
                         return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":

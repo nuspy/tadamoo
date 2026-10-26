@@ -47,6 +47,8 @@
     s = esc(s)
       .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
       .replace(/(^|[^*\w])\*([^*\n]+)\*(?![*\w])/g, "$1<em>$2</em>")
+      .replace(/!\[([^\]\n]*)\]\(basalt-file:([a-f0-9]{12})\)/g, (_, alt, id) =>
+        `<span class="afig"><img class="aimg" data-fid="${id}" alt="${alt}" hidden><span class="afigc">${alt}</span></span>`)
       .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s"'<>]+)\)/g, (_, text, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>${sourceButton(url)}`);
     s = addressButtons(s);
     return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${esc(codes[+i])}</code>`);
@@ -96,7 +98,10 @@
       rest = rest.slice(m.index + m[0].length);
       const end = rest.match(/(^|\n)```[ \t]*(\n|$)/);
       const code = end ? rest.slice(0, end.index) : rest;              // no closing fence yet: still streaming
-      html += `<div class="code"><span class="lang">${esc(m[2].trim() || "code")}</span><pre tabindex="0"><code>${esc(code)}</code></pre></div>`;
+      const lang = m[2].trim();
+      const shown = `<div class="code"><span class="lang">${esc(lang || "code")}</span><pre tabindex="0"><code>${esc(code)}</code></pre></div>`;
+      // a diagram is drawn once its block is closed; until then (and if it cannot be drawn) its source is what shows
+      html += lang.toLowerCase() === "mermaid" ? `<div class="diagram" data-src="${esc(code)}" data-ready="${end ? 1 : 0}">${shown}</div>` : shown;
       if (!end) break;
       rest = rest.slice(end.index + end[0].length);
     }
@@ -533,8 +538,70 @@
   document.addEventListener("basalt:view", e => { if (e.detail === "chat" || e.detail === "agent") { scrollDown(true); meter(); } });
 
   // what the conversations mode shares: the safe Markdown and the reasoning box, so both chats look and behave alike
+  /* ---- pictures the agent fetched, and diagrams it wrote ---- */
+  const pictures = new Map();                           // file id -> blob address, so a redrawn answer shows its pictures at once
+  async function loadPictures(root) {
+    const sid = (window.chatUi.sessionId && window.chatUi.sessionId()) || "";
+    for (const img of root.querySelectorAll("img.aimg[data-fid]")) {
+      const id = img.dataset.fid, key = `${sid}/${id}`;
+      const show = url => { img.src = url; img.hidden = false; };
+      if (pictures.has(key)) { show(pictures.get(key)); continue; }
+      if (!sid) continue;
+      try {
+        const r = await fetch(`api/outputs/${encodeURIComponent(sid)}/${id}/file`, { headers: authHeaders() });
+        if (!r.ok) continue;
+        const url = URL.createObjectURL(await r.blob());
+        pictures.set(key, url);
+        if (img.isConnected) show(url);
+      } catch (e) { /* the alt text stays */ }
+    }
+  }
+  const drawn = new Map();                              // diagram source -> its SVG, so tokens that come after do not draw it again
+  let mermaidReady = null, drawCount = 0;
+  function loadMermaid() {
+    if (window.mermaid) return Promise.resolve(window.mermaid);
+    if (!mermaidReady) mermaidReady = new Promise((ok, no) => {
+      const s = document.createElement("script");
+      s.src = "web/vendor/mermaid.min.js";
+      s.onload = () => {
+        window.mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "dark", fontFamily: "inherit",
+          themeVariables: { background: "transparent", primaryColor: "#1b2a3a", primaryTextColor: "#e8eef5", lineColor: "#8aa0b5", primaryBorderColor: "#5b7a99" },
+          flowchart: { htmlLabels: false }, sequence: { useMaxWidth: true } });
+        ok(window.mermaid);
+      };
+      s.onerror = () => { mermaidReady = null; no(new Error("mermaid")); };
+      document.head.append(s);
+    });
+    return mermaidReady;
+  }
+  function showDiagram(node, svg) {
+    const fig = document.createElement("div"); fig.className = "diagram-svg"; fig.innerHTML = svg;   // mermaid's own sanitiser (strict) has cleaned it
+    const src = document.createElement("details"); src.className = "diagram-src";
+    const sum = document.createElement("summary"); sum.textContent = T("mmd.source");
+    const pre = document.createElement("pre"); pre.tabIndex = 0; pre.textContent = node.dataset.src;
+    src.append(sum, pre);
+    node.replaceChildren(fig, src);
+  }
+  async function drawDiagrams(root) {
+    for (const node of root.querySelectorAll('.diagram[data-ready="1"]:not([data-state])')) {
+      const code = node.dataset.src;
+      if (drawn.has(code)) { showDiagram(node, drawn.get(code)); node.dataset.state = "ok"; continue; }
+      node.dataset.state = "busy";
+      try {
+        const mermaid = await loadMermaid();
+        const { svg } = await mermaid.render(`mmd-${++drawCount}`, code);
+        drawn.set(code, svg);
+        if (node.isConnected) { showDiagram(node, svg); node.dataset.state = "ok"; }
+      } catch (e) {
+        document.querySelectorAll('[id^="dmmd-"]').forEach(x => x.remove());        // what mermaid leaves behind when it fails
+        node.dataset.state = "error";
+        if (node.isConnected) { const p = document.createElement("p"); p.className = "diagram-err"; p.textContent = T("mmd.error"); node.append(p); }
+      }
+    }
+  }
   window.chatUi = {
-    renderMarkdown: (el, text) => { el.innerHTML = markdown(text || ""); },
+    renderMarkdown: (el, text) => { el.innerHTML = markdown(text || ""); loadPictures(el); drawDiagrams(el); },
+    sessionId: () => "",
     watchThink, paintThink, scrollDown, autosize, stamp, sourceLink,
     setPrompt: t => { prompt.value = t; autosize(); prompt.focus(); },
   };

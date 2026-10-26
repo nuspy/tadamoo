@@ -907,6 +907,17 @@ wide, not for phones.
   file on disk is exactly what the agent wrote, so nothing you did since is overwritten; if you changed the file, or
   a later edit touched it, the panel says so and does nothing. Only the latest 30 edits can be undone, only for text
   files up to 200 000 characters, and only from the PC the server runs on.
+- **Pictures and charts in answers**: two switches in *Chat settings → Pictures and charts*, each with a level of presence (very low, low,
+  normal, high, very high, highest), for the next new conversation (`images` and `charts` of `POST /api/agent/sessions`, `--images` and `--charts` of the
+  conversation's process). With pictures on, the agent has `page_images` (the pictures a page shows: its own headline picture, then the article's,
+  skipping logos, icons and pixels) and `show_image` (fetches a PNG, JPEG, GIF or WebP up to 8 MB into the conversation's files, with the same address checks
+  as `browse_url`: no private address, every redirect checked, the bytes must really be a picture, never an SVG). It is told to take the picture from the
+  article it cites when that has one, to write `![caption](basalt-file:ID)` and to name the source page. **The page loads a picture only from the
+  conversation's own files** (`GET /api/outputs/<session>/<id>/file`, fetched with the API key and shown from a blob); a picture written with any other
+  address is not loaded, so a hidden instruction in a page cannot make the page call out through an image. With charts on, the agent is told when and how to draw
+  a diagram as a ` ```mermaid ` block (flow, sequence, state, class, entity, gantt, pie, mindmap, timeline). The page draws it with Mermaid
+  (`serve/web/vendor/mermaid.min.js`, MIT, `securityLevel: strict`, loaded only when an answer holds a diagram; its source stays under the diagram, and a
+  diagram that cannot be drawn shows its source). The levels are in the system prompt as a short paragraph, so they cost nothing when off.
 - **Agent**: the conversation page of the Chat, working in a **folder** you add. The column at the left lists the folders, each with the
   conversations held in it (*New conversation in this folder*, a cross takes the folder off the list and keeps its files and conversations).
   *Add folder* asks for the full path (the Windows dialog inside the app, a typed path in a browser) and checks that the agent can work there:

@@ -96,6 +96,10 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = 15) ->
     parser.add_argument("--browser-profile", default="", help="a profile folder that keeps the browser's sign-ins between conversations")
     parser.add_argument("--vault-dir", default="", help="the person's vault: the model writes {{vault:ENTRY.FIELD}} and the value is filled in for it")
     parser.add_argument("--capabilities", action="store_true", help="offer the search for skills, plugins and MCP servers found on this PC, and the visual analysis")
+    parser.add_argument("--images", default="", choices=["", "very_low", "low", "normal", "high", "very_high", "highest"],
+                        help="show pictures from the web in answers, as often as this says (empty: never); needs --attachments-dir and --outputs-dir")
+    parser.add_argument("--charts", default="", choices=["", "very_low", "low", "normal", "high", "very_high", "highest"],
+                        help="draw diagrams in answers, as often as this says (empty: only when asked)")
     parser.add_argument("--lsp", action="store_true", help="offer diagnostics, go_to_definition and find_references when a language server is found")
     parser.add_argument("--council", action="store_true", help="offer ask_council when a council is set up on the Providers page")
     parser.add_argument("--wiki", action="store_true", help="offer the wikibridge tools (BASALT_WIKIBRIDGE_URL, BASALT_WIKIBRIDGE_KEY)")
@@ -129,7 +133,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         wiki=args.wiki, wiki_project=args.wiki_project, phone=args.phone, phone_on_behalf_of=args.on_behalf_of,
         context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold,
         end_turn_bias=args.end_turn_bias, attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
-        hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan,
+        hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
     )
 
@@ -188,6 +192,8 @@ class AgentConfig:
     capabilities_dir: Optional[str] = None   # where their index and the person's approvals are kept (default: the user data folder)
     attachments_dir: Optional[str] = None    # the conversation's attached files (harness/attachments.py); with outputs_dir, the tools for them are offered
     outputs_dir: Optional[str] = None        # the files the agent made for the person
+    images: str = ""                         # how much to show pictures from the web in answers (harness/visuals.py levels; empty: never)
+    charts: str = ""                         # how much to draw diagrams (the same levels; empty: only when asked)
     capabilities_home: Optional[str] = None  # the home folder whose skills, plugins and MCP configs are looked at (default: this user's)
     mcp_servers: List[Dict[str, Any]] = field(default_factory=list)   # MCP servers to connect, as an ACP client sends them in `mcpServers`
     tool_timeout: Optional[float] = None      # seconds a tool may run; 0 for no limit (default: the registry's)
@@ -447,6 +453,12 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         from harness.integrations.call_api_client import CallAPICallClient
         register_attachment_tools(registry, AttachmentStore(Path(cfg.attachments_dir)), OutputStore(Path(cfg.outputs_dir)), cfg.run_id, sandbox.resolve_safe,
                                   call_client=CallAPICallClient.from_environment(), read_chars=max(2000, int(budget * 3.5 * 0.15)))
+        if cfg.images:
+            from harness.visuals import register_visual_tools
+            register_visual_tools(registry, OutputStore(Path(cfg.outputs_dir)), cfg.run_id, cfg.browser_private)
+    if cfg.images or cfg.charts:
+        from harness.visuals import guidance
+        builder.pin("visuals", guidance(cfg.images if cfg.attachments_dir and cfg.outputs_dir and cfg.run_id else "", cfg.charts))
     lsp_hub = None
     if cfg.lsp:
         from harness.lsp import LspHub, register_lsp_tools
