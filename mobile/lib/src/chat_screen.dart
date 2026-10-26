@@ -9,6 +9,7 @@ import 'chat_model.dart';
 import 'files.dart';
 import 'i18n.dart';
 import 'network_screen.dart';
+import 'place.dart';
 import 'settings.dart';
 import 'voice.dart';
 
@@ -53,6 +54,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (scroll.hasClients) stickToEnd = scroll.position.maxScrollExtent - scroll.offset < 160;
     });
     if (widget.sessionId != null) ctl.open(widget.sessionId!);
+    input.addListener(_warmPlace);
+  }
+
+  /// A reading is taken while the person writes, so sending does not wait for it.
+  void _warmPlace() {
+    if (input.text.isNotEmpty) PlaceFinder.of(widget.settings).current();
   }
 
   @override
@@ -108,7 +115,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (!await _ensure()) return;
     final ids = attached.map((a) => a.id).toList();
     try {
-      await ctl.send(text, attachments: ids);
+      await ctl.send(text, attachments: ids, place: await PlaceFinder.of(widget.settings).current());
       input.clear();
       setState(() => attached.clear());
       stickToEnd = true;

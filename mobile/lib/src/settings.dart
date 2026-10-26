@@ -13,6 +13,7 @@ class AppSettings extends ChangeNotifier {
   String get key => _prefs.getString('key') ?? '';
   String get deviceName => _prefs.getString('name') ?? '';
   bool get autoSpeak => _prefs.getBool('autoSpeak') ?? false;
+  bool get sendPlace => _prefs.getBool('sendPlace') ?? false;
   String get speechLocale => _prefs.getString('speechLocale') ?? '';
   String get language => _prefs.getString('language') ?? '';
   String get mode => _prefs.getString('mode') ?? 'default';
@@ -38,6 +39,11 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> setAutoSpeak(bool value) async {
     await _prefs.setBool('autoSpeak', value);
+    notifyListeners();
+  }
+
+  Future<void> setSendPlace(bool value) async {
+    await _prefs.setBool('sendPlace', value);
     notifyListeners();
   }
 
