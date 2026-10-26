@@ -30,7 +30,11 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
+from datetime import datetime
+
 from harness import context_patterns as context_patterns_mod
+from harness.personal_skills.store import PersonalSkills, SkillError
+from harness.personal_skills.values import resolve as resolve_values
 from harness.vault import valid_code
 from harness.worktrees import WorktreeError, Worktrees
 from serve import ROOT
@@ -77,12 +81,14 @@ class SessionManager:
                  attachments_dir: Optional[Path] = None, outputs_dir: Optional[Path] = None, worktrees: Optional[Worktrees] = None,
                  vault_dir: Optional[Path] = None, payments_dir: Optional[Path] = None,
                  browser_prefs: Optional[Callable[[], Dict[str, bool]]] = None, browser_profile: Optional[Path] = None,
-                 plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: float = 1800.0) -> None:
+                 plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: float = 1800.0,
+                 skills_dir: Optional[Path] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
         self.router = router                                    # how a message that comes during a task is judged: "model" or "rules"
         self.attachments_dir, self.outputs_dir = attachments_dir, outputs_dir      # the conversation's attached files and the files the agent made
+        self.skills = PersonalSkills(skills_dir) if skills_dir else None            # the person's skills, which a conversation can run
         self.browser_profile = browser_profile                  # where the browser keeps its sign-ins when the person chose that
         self.browser_prefs = browser_prefs                      # whether the conversations have a browser, and whether it shows a window
         self.payments_dir = payments_dir                        # the person's payment systems and limits, for the agent's request_payment
@@ -916,6 +922,49 @@ class SessionManager:
             elif not self._write(sid, live, cmd):
                 raise RunError("The agent process did not take the message; try again.", "write_failed")
         self._push(sid, {"event": "user", "turn": turn, "text": text, **({"attachments": [{k: c[k] for k in ("id", "name", "family", "size")} for c in cards]} if cards else {})})
+        return {"turn": turn, "session": self.get(sid)}
+
+    def run_skill(self, sid: str, slug: Any, values: Any = None) -> Dict[str, Any]:
+        """Runs one of the person's skills in this conversation with the values they gave (a date in words is worked out now). The skill must
+        be approved: the person has read it. The process runs the script; its tool calls are decided by the conversation's own rules."""
+        from serve.personal_skills_api import describe
+        if self.skills is None or not isinstance(slug, str) or (values is not None and not isinstance(values, dict)):
+            raise RunError("Choose a skill and give its values.", "bad_skill")
+        try:
+            skill = self.skills.get(slug)
+        except SkillError as exc:
+            raise RunError(str(exc), "no_skill") from None
+        if skill["status"] != "approved":
+            raise RunError("Read the skill and approve it first: it has not been approved on this PC.", "needs_approval")
+        typed, errors = resolve_values(skill.get("params") or [], values or {}, datetime.now())
+        if errors:
+            raise RunError("; ".join(f"{k}: {v}" for k, v in errors.items()), "bad_values")
+        text = describe(skill, typed)
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            if rec["state"] in ("busy", "asking", "starting"):
+                raise RunError("Wait for the agent to finish, or stop it, before running a skill.", "busy")
+            if not rec.get("worktree"):
+                other = next((r for r in self.records if r["id"] != sid and r.get("workspace") == rec["workspace"] and not r.get("worktree")
+                              and r["state"] in ("busy", "asking", "starting")), None)
+                if other is not None:
+                    raise RunError("Another conversation is working in this folder. Wait for it.", "folder_busy")
+            turn = secrets.token_hex(3)
+            live = self._ensure(sid)
+            cmd = {"cmd": "skill", "id": turn, "name": skill["name"], "display": text, "script": skill["script"], "mode": skill.get("mode", "restricted"),
+                   "values": typed, "timeout": skill.get("timeout", 1800), "cache_dir": str(self.skills.dir / slug / ".cache")}
+            self._unconfirmed[sid] = cmd
+            if not rec.get("title"):
+                rec["title"] = " ".join(skill["name"].split())[:TITLE_CHARS]
+            self._set(rec, blocked=None, question=None, state="starting" if not live.ready.is_set() else "busy")
+            if not live.ready.is_set():
+                live.after_ready.append(cmd)
+            elif not self._write(sid, live, cmd):
+                raise RunError("The agent process did not take the skill; try again.", "write_failed")
+        self.skills.note_run(slug)
+        self._push(sid, {"event": "user", "turn": turn, "text": text})
         return {"turn": turn, "session": self.get(sid)}
 
     def answer(self, sid: str, ask_id: Any, value: Any) -> Dict[str, Any]:

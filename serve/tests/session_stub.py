@@ -128,6 +128,14 @@ for line in sys.stdin:
         save(data)
         busy["v"] = False
         emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "echo: " + text})
+    elif name == "skill":
+        data["messages"].append({"role": "user", "content": cmd.get("display", "")})
+        emit({"event": "accepted", "turn": cmd.get("id")})
+        final = "skill %s %s" % (cmd.get("name"), json.dumps(cmd.get("values"), sort_keys=True, ensure_ascii=False))
+        data["messages"].append({"role": "assistant", "content": final})
+        data["turns"] += 1
+        save(data)
+        emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": final})
     elif name == "mode":
         emit({"event": "mode", "mode": cmd.get("mode")})
     elif name == "effort":
