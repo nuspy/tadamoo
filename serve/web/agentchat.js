@@ -13,6 +13,43 @@
   const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick) => { const b = mk("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; return b; };
 
+  /* a small icon button that copies a text; the icon turns into a tick for a moment */
+  const SVGNS = "http://www.w3.org/2000/svg";
+  function icon(paths) {
+    const s = document.createElementNS(SVGNS, "svg");
+    s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("aria-hidden", "true"); s.setAttribute("focusable", "false"); s.classList.add("aicon-svg");
+    paths.forEach(d => { const p = document.createElementNS(SVGNS, "path"); p.setAttribute("d", d); s.append(p); });
+    return s;
+  }
+  const COPY_ICON = ["M9 9h10v11H9z", "M5 15V4h10"], TICK_ICON = ["M5 12l5 5 9-10"], BRANCH_ICON = ["M6 4v10", "M6 14a4 4 0 0 0 4 4h4", "M18 4v6", "M6 4h0", "M18 10h0"];
+  async function clipboardCopy(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* no clipboard here: the old way */ }
+    const t = document.createElement("textarea");
+    t.value = text; t.style.position = "fixed"; t.style.opacity = "0"; document.body.append(t); t.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    t.remove();
+    return ok;
+  }
+  function copyButton(textOf) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "aicon"; b.title = T("ch.copy"); b.setAttribute("aria-label", T("ch.copy"));
+    b.append(icon(COPY_ICON));
+    let timer = 0;
+    b.onclick = async ev => {
+      ev.stopPropagation();
+      const text = textOf();
+      if (!text) return;
+      const ok = await clipboardCopy(text);
+      status(T(ok ? "ch.copied" : "ch.copy.fail"));
+      if (!ok) return;
+      b.replaceChildren(icon(TICK_ICON)); b.classList.add("done");
+      clearTimeout(timer);
+      timer = setTimeout(() => { b.replaceChildren(icon(COPY_ICON)); b.classList.remove("done"); }, 1500);
+    };
+    return b;
+  }
+
   let mode = load(MODE_KEY, "agent");
   if (!MODES.includes(mode)) mode = "agent";
   const inAgent = () => document.body.dataset.view === "agent";           // the Agent tab is this page, working in a folder
@@ -192,9 +229,9 @@
     defaultWs = r.json.default_workspace || "";
     paintList();
   }
-  async function branch() {
+  async function branch(at) {
     const h = await api("GET", `/${sid}/history`);
-    const turn = h.ok ? h.json.messages.filter(m => m.role === "user").length : 0;
+    const turn = Number.isInteger(at) ? at : (h.ok ? h.json.messages.filter(m => m.role === "user").length : 0);
     if (!turn) { status(T("ch.branch.none")); return; }
     const r = await api("POST", `/${sid}/branch`, { turn });
     if (!r.ok) { status(errText(r)); return; }
@@ -202,7 +239,7 @@
     await openSession(r.json.session.id);
     status(T("ch.branch.done"));
   }
-  $("#branch-chat").onclick = branch;
+  $("#branch-chat").onclick = () => branch();
   document.addEventListener("basalt:chatset", () => setControls());
 
   function forget() { pick = null; learn = null; paintPick(); paintLearn(); pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(lastKey(), ""); copyShown = false; }
@@ -384,6 +421,7 @@
       d.append(Object.assign(mk("summary"), {}), mk("div", "think-b"));
       d.querySelector("summary").append(mk("span", "think-t"));
       d.querySelector(".think-b").tabIndex = 0; d.querySelector(".think-b").setAttribute("role", "region"); d.querySelector(".think-b").setAttribute("aria-label", T("ch.reasoning"));
+      d.append(mk("div", "think-end", "")); d.querySelector(".think-end").append(copyButton(() => b.s || ""));
       const wrap = mk("div", "ablock"); wrap.append(d); window.chatUi.watchThink(wrap); return wrap;
     }
     if (b.t === "text") return mk("div", "answer");
@@ -519,13 +557,25 @@
           it.el.append(row);
           it.row = row;
           const acts = mk("div", "aacts");
-          acts.append(backButton(it), skillButton(it));
+          acts.append(copyButton(() => it.text || ""), backButton(it), skillButton(it));
           it.el.append(acts);
         }
         else { it.body = mk("div", "ablocks"); it.metaEl = mk("div", "meta"); it.el.append(it.body, it.metaEl); }
         box.insertBefore(it.el, null);
       }
       if (it.kind !== "assistant") return;
+      if (it.done && !it.actsEl) {                                              // at the end of an answer: copy it, or go on from there in a conversation of its own
+        it.actsEl = mk("div", "aacts aend");
+        const branchBtn = btn(T("ch.branch.from"), "ghost abranch", async () => {
+          if (busyNow || state === "busy" || state === "asking") { status(T("ch.back.busy")); return; }
+          const turn = items.slice(0, items.indexOf(it)).filter(x => x.kind === "user").length;
+          if (turn) await branch(turn);
+        });
+        branchBtn.title = T("ch.branch.from.tip");
+        branchBtn.prepend(icon(BRANCH_ICON));
+        it.actsEl.append(copyButton(() => it.blocks.filter(x => x.t === "text").map(x => x.s).join("\n\n")), branchBtn);
+        it.el.append(it.actsEl);
+      }
       it.blocks.forEach(b => {
         if (!b.el) { b.el = makeBlock(b); b.row = mk("div", "arow"); b.row.append(window.chatUi.stamp(b.ts), b.el); it.body.append(b.row); b.dirty = true; }
         if (b.dirty || b.t === "reasoning" || b.t === "text") { paintBlock(b, b.el, it); b.dirty = false; }
