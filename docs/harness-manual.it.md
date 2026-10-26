@@ -56,13 +56,21 @@ Quattro modi di usarlo, tutti con le stesse capacità:
    - *Con strumenti*: l'agente legge e modifica i file della sua cartella, cerca, esegue comandi e tiene i tuoi piani. La conversazione è salvata.
    - *Solo domanda*: risponde senza strumenti. Salvata anch'essa.
    - *Solo il modello*: una chat semplice col modello caricato, che resta in questo browser; niente strumenti, niente cartella.
-2. Guarda l'etichetta accanto a **Nuova conversazione**: dice cosa può fare l'agente senza chiedere (*Chiedi prima* all'inizio).
-   Sezione 4.
+2. Guarda l'etichetta a destra di **Rami**, nella riga in alto: due righe, *Maiusc + TAB per cambiare modalità:* in grigio e, sotto, in
+   grassetto e a colori, cosa può fare l'agente senza chiedere (*Chiedi prima* all'inizio). Sezione 4.
 3. Scrivi nel campo e premi **Invio** (**Maiusc+Invio** va a capo). L'agente lavora in sottofondo e la pagina mostra, in ordine, ciò che
    ha scritto, ciò che ha pensato e ogni strumento usato, col risultato. **Ferma** interrompe il turno.
 4. Quando gli servi, chiede: un comando da eseguire, un piano da approvare, una scelta. La risposta è un pulsante; puoi anche scrivere.
-5. Torna più tardi: l'elenco delle conversazioni le tiene tutte. Una conversazione inattiva da 30 minuti lascia andare il suo processo
-   e si risveglia dalla cronologia salvata quando scrivi di nuovo.
+5. Torna più tardi: la colonna a sinistra elenca le tue conversazioni (sotto). Una conversazione inattiva da 30 minuti lascia andare il
+   suo processo e si risveglia dalla cronologia salvata quando scrivi di nuovo.
+
+**La colonna delle conversazioni.** A sinistra della Chat, dalla più recente: clicca su una per aprirla. La stella accanto la rende una
+**preferita**: le preferite sono elencate a parte, sopra le altre. La croce la elimina: premila una volta e chiede *Elimina?*, premi ancora
+(entro pochi secondi) per eliminarla per sempre, con i suoi messaggi, i file allegati e quelli prodotti, e la sua copia della cartella se
+l'aveva (i rami fatti da lei restano). La freccia in cima alla colonna (**‹**) la chiude in una striscia stretta e **›** la riapre; la
+scelta viene ricordata. La colonna non c'è in *Solo il modello*, la cui unica conversazione resta nel browser. La riga in alto ha, a sinistra,
+**Nuova conversazione**, **Rami** e l'etichetta della modalità, e a destra il tipo di conversazione (*Modalità*), *Ragionamento* e
+*Impostazioni*.
 
 **In quale cartella lavora?** La scheda Chat non manda nessuna cartella, quindi una conversazione della Chat lavora in `chat-workspace`
 dentro la cartella dati dell'utente. I suoi strumenti per i file restano dentro quella cartella. Per lavorare su un tuo progetto usa la
@@ -93,10 +101,11 @@ Quattro modalità, dalla più prudente alla più libera:
 | **Automatico** | Esegue comandi senza chiedere. Usalo solo in una cartella che puoi perdere. |
 
 **Cambiarla mentre lavori.** Premi **Maiusc+Tab** nel campo del messaggio: la modalità passa alla successiva (Chiedi prima, Solo un
-piano, Sola lettura, Automatico, e di nuovo) e l'etichetta la mostra (*Maiusc + TAB per cambiare modalità: attuale …*). Premere
-l'etichetta fa lo stesso. Con una conversazione aperta cambia solo quella, dalla sua prossima azione; senza conversazione cambia la
-modalità con cui partirà la prossima. Passare ad **Automatico** mostra un'etichetta di rischio evidenziata e chiede due volte (*Ho
-capito il rischio*, poi *Ho letto con attenzione il messaggio precedente e ho capito il rischio*); se rifiuti, il giro lo salta.
+piano, Sola lettura, Automatico, e di nuovo) e l'etichetta la mostra, con il modo di un colore suo: grigio per *Sola lettura*, viola per *Chiedi prima*, verde per *Solo un
+piano*, rosso per *Automatico*. Premere l'etichetta fa lo stesso. Con una conversazione aperta cambia solo quella, dalla sua prossima azione; senza conversazione cambia la
+modalità con cui partirà la prossima. Passare ad **Automatico** la prima volta mostra un'etichetta di rischio evidenziata e chiede due volte (*Ho
+capito il rischio*, poi *Ho letto con attenzione il messaggio precedente e ho capito il rischio*); una volta detto sì non lo chiede più
+finché non chiudi l'app, in nessuna conversazione. Se rifiuti, il giro lo salta.
 
 **Regole per i comandi.** In *Chat → Impostazioni → Cosa può fare l'agente senza chiedere* (per le nuove conversazioni) o sotto *Altre
 opzioni* nella scheda Agente, scrivi una regola per riga, come `shell_command:python -m pytest*`. Un comando che corrisponde si
@@ -183,8 +192,8 @@ conversazione ti dice che potrebbe essere già partito. Dopo di che, o quando il
   snapshot di sicurezza, quindi si può a sua volta annullare. Non disfa un comando che l'agente ha eseguito, e lo dice.
 - **Rami.** `/branch` copia una conversazione a una richiesta; *Rami* mostra l'albero. *Esegui entrambi e confronta* manda una richiesta lungo due
   continuazioni, una dopo l'altra, e mostra le due risposte e i file cambiati da ciascuna, affiancati.
-- **Una copia tutta sua.** In una cartella git una conversazione può lavorare in un suo worktree (*Lavora su una copia della
-  cartella*). Ciò che cambia resta lì; guardi il diff di ogni file e applichi quelli che scegli, come modifiche **in staging**, mai
+- **Una copia tutta sua.** In una cartella git una conversazione può lavorare in un suo worktree. La pagina Chat non lo offre (non ha una cartella di progetto da copiare); esiste per le conversazioni su una cartella git,
+  come un ramo di una che ha già una copia. Ciò che cambia resta lì; guardi il diff di ogni file e applichi quelli che scegli, come modifiche **in staging**, mai
   come commit. Scartare la copia toglie la copia e il suo ramo.
 - **Il registro di audit** ha una riga per ogni chiamata di strumento: lo strumento, un hash degli argomenti, un'anteprima mascherata,
   la decisione, l'esito e l'ora. Si vede se è stato manomesso (catena di hash), ma non lo impedisce.

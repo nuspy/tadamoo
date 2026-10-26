@@ -88,9 +88,13 @@ class ModeLabelWiringTest(unittest.TestCase):
     slash = (WEB / "slash.js").read_text(encoding="utf-8")
 
     def test_the_label_sits_by_the_new_conversation_button_and_says_what_it_does(self):
-        self.assertRegex(self.html, r'id="new-chat"[^\n]*\n\s*<button[^>]*id="mode-chip"[^>]*aria-keyshortcuts="Shift\+Tab"')
+        self.assertRegex(self.html, r'id="new-chat"[^\n]*\n\s*<button[^>]*id="branches-open"[^\n]*\n\s*<button[^>]*id="branch-chat"[^\n]*\n\s*<button[^>]*id="mode-chip"[^>]*aria-keyshortcuts="Shift\+Tab"')
         self.assertIn('"ch.chip"', (WEB / "i18n.js").read_text(encoding="utf-8"))
-        self.assertIn("Shift + TAB to change mode: actual {0}", (WEB / "i18n.js").read_text(encoding="utf-8"))
+        i18n = (WEB / "i18n.js").read_text(encoding="utf-8")
+        self.assertIn('"ch.chip": "Shift + TAB to change mode: {0}", "ch.chip.hint": "Shift + TAB to change mode:"', i18n)
+        self.assertNotIn("actual", re.search(r'"ch.chip": "[^"]*"', i18n).group(0))
+        self.assertIn("mc-hint", self.chat)
+        self.assertIn("mc-mode", self.chat)
 
     def test_shift_tab_is_taken_only_in_the_message_box_and_only_where_there_is_a_mode(self):
         self.assertIn('e.key === "Tab" && e.shiftKey', self.slash)
@@ -99,9 +103,17 @@ class ModeLabelWiringTest(unittest.TestCase):
         self.assertNotIn("document.addEventListener(\"keydown\"", self.slash)          # the rest of the page keeps its keyboard
 
     def test_going_to_automatic_asks_twice_and_a_refusal_is_passed_over(self):
-        self.assertIn('m === "auto" && !(await riskConfirm([T("ag.auto.risk")]))', self.chat)
+        self.assertIn('m === "auto" && !(await confirmAuto())', self.chat)
+        self.assertIn('r.value === "auto" && !(await confirmAuto())', self.chat)
         self.assertIn("confirm_auto: m === \"auto\"", self.chat)
         self.assertIn("passed over", self.chat)
+
+    def test_the_two_questions_of_automatic_are_asked_the_first_time_only(self):
+        confirm = re.search(r"async function confirmAuto\(\) \{(.*?)\n  \}", self.chat, re.S).group(1)
+        self.assertEqual(self.chat.count('riskConfirm([T("ag.auto.risk")])'), 1)                 # one place asks
+        self.assertIn('sessionStorage.getItem(AUTO_OK) === "1"', confirm)                          # and does not ask again in the same session
+        self.assertIn("if (said) return true;", confirm)
+        self.assertLess(confirm.index("if (said) return true;"), confirm.index("riskConfirm"))
 
     def test_the_menu_is_a_listbox_the_message_box_controls_and_the_script_is_loaded_after_the_chat(self):
         self.assertIn('id="slash-menu" role="listbox"', self.html)

@@ -55,12 +55,20 @@ Four ways to use it, all with the same abilities:
    - *With tools*: the agent reads and changes files in its folder, searches, runs commands and keeps your plans. The conversation is saved.
    - *Question only*: it answers without any tool. Saved too.
    - *Model only*: a plain chat with the loaded model, kept in this browser; no tools, no folder.
-2. Look at the label beside **New conversation**: it says what the agent may do without asking (*Ask first* at the start). Section 4.
+2. Look at the label at the right of **Branches**, in the top row: two lines, *Shift + TAB to change mode:* in grey and, under it, in bold
+   and in a colour, what the agent may do without asking (*Ask first* at the start). Section 4.
 3. Write in the box and press **Enter** (**Shift+Enter** adds a line). The agent works in the background and the page shows, in order,
    what it wrote, what it thought and each tool it used, with the result. **Stop** ends the turn.
 4. When it needs you, it asks: a command to run, a plan to approve, a choice. The answer is a button; you can also write instead.
-5. Come back later: the conversation list keeps every conversation. A conversation idle for 30 minutes lets go of its process and wakes
-   from its saved history when you write again.
+5. Come back later: the column at the left lists your conversations (below). A conversation idle for 30 minutes lets go of its process
+   and wakes from its saved history when you write again.
+
+**The column of conversations.** At the left of the Chat, newest first: click one to open it. The star beside it makes it a **favorite**:
+favorites are listed apart, above the others. The cross deletes it: press it once and it asks *Delete?*, press again (within a few seconds)
+to delete for good, with its messages, the files attached to it and made in it, and its own copy of the folder if it had one (branches made
+from it stay). The arrow at the top of the column (**‹**) closes it to a thin strip and **›** opens it again; the choice is remembered. The
+column is not shown in *Model only*, whose one conversation stays in the browser. The top row holds, at the left, **New conversation**,
+**Branches** and the mode label, and at the right the kind of conversation (*Mode*), *Thinking* and *Settings*.
 
 **Which folder does it work in?** The Chat tab sends no folder, so a Chat conversation works in `chat-workspace` inside the user data
 folder. Its file tools stay inside that folder. To work on a project of yours, use the **Agent** tab or the command line (sections 13
@@ -89,10 +97,12 @@ Four modes, from the most careful to the freest:
 | **Automatic** | Runs commands without asking. Use it only in a folder you can lose. |
 
 **Change it while you work.** Press **Shift+Tab** in the message box: the mode goes to the next one (Ask first, Plan only, Read only,
-Automatic, and round) and the label shows it (*Shift + TAB to change mode: actual …*). Pressing the label does the same. With a
+Automatic, and round) and the label shows it, the mode in a colour of its own: grey for *Read only*, violet for *Ask first*, green for
+*Plan only*, red for *Automatic*. Pressing the label does the same. With a
 conversation open it changes that conversation only, from its next action; with none open it changes the mode the next one starts
-with. Going to **Automatic** shows a highlighted risk label and asks twice (*I understand the risk*, then *I read the previous message
-carefully and understand the risk*); if you refuse, the cycle passes over it.
+with. Going to **Automatic** the first time shows a highlighted risk label and asks twice (*I understand the risk*, then *I read the previous
+message carefully and understand the risk*); once you have said yes it is not asked again until you close the app, in any conversation. If
+you refuse, the cycle passes over it.
 
 **Rules for commands.** In *Chat → Settings → What the agent may do without asking* (for new conversations) or under *More options* in
 the Agent tab, write one rule per line, such as `shell_command:python -m pytest*`. A matching command runs without asking. A **deny**
@@ -172,7 +182,7 @@ you it may already have run. After that, or when the server refuses for good, th
   can be undone. It does not undo a command the agent ran, and says so.
 - **Branches.** `/branch` copies a conversation at a request; *Branches* shows the tree. *Run both and compare* sends one request down two
   continuations, one after the other, and shows the two answers and the files each changed, side by side.
-- **A copy of its own.** In a git folder, a conversation can work in its own worktree (*Work on a copy of the folder*). What it changes
+- **A copy of its own.** In a git folder, a conversation can work in its own worktree. The Chat page does not offer it (it has no project folder to copy); it exists for conversations on a git folder, such as a branch of one that has a copy. What it changes
   waits there; you look at each file's diff and apply the ones you choose, as **staged** changes, never a commit. Throwing the copy away
   removes it and its branch.
 - **The audit log** has one record per tool call: the tool, a hash of the arguments, a masked preview, the decision, the outcome and the

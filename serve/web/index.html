@@ -138,9 +138,31 @@
 
 <main>
   <div class="view chat" id="view-chat" role="tabpanel" aria-labelledby="tab-chat" hidden>
+    <div class="chatrow">
+    <aside class="convs" id="convs" aria-label="Conversations" data-t-aria="cv.title" hidden>
+      <div class="cv-head">
+        <b data-t="cv.title">Conversations</b>
+        <button type="button" class="cv-toggle" id="cv-toggle" aria-expanded="true" aria-controls="cv-body"></button>
+      </div>
+      <div class="cv-body" id="cv-body">
+        <div class="cv-group" id="cv-fav-group" hidden>
+          <h3 id="cv-fav-h" data-t="cv.fav">Favorites</h3>
+          <ul class="cv-list" id="cv-fav" aria-labelledby="cv-fav-h"></ul>
+        </div>
+        <div class="cv-group">
+          <h3 id="cv-recent-h" data-t="cv.recent">Recent</h3>
+          <ul class="cv-list" id="cv-recent" aria-labelledby="cv-recent-h"></ul>
+          <p class="cv-empty" id="cv-empty" data-t="cv.empty" hidden>No conversations yet.</p>
+        </div>
+      </div>
+    </aside>
     <section class="sec chatbox" aria-label="Chat">
       <div class="sh chathead">
-        <b>Chat</b><span class="chatmodel" id="chat-model"></span>
+        <button type="button" class="btn" id="new-chat" data-t="ch.newbtn">New conversation</button>
+        <button type="button" class="btn" id="branches-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="branches" data-t="br.open" hidden>Branches</button>
+        <button type="button" class="btn" id="branch-chat" data-t="ch.branch" hidden>Branch here</button>
+        <button type="button" class="modechip" id="mode-chip" aria-keyshortcuts="Shift+Tab" hidden></button>
+        <span id="chat-model" hidden></span>
         <span class="grow"></span>
         <label class="effort" for="chatmode"><span data-t="ch.mode">Mode</span>
           <select id="chatmode">
@@ -149,7 +171,6 @@
             <option value="direct" data-t="ch.mode.direct">Model only</option>
           </select>
         </label>
-        <label class="effort" for="asessions"><span data-t="ch.sessions">Conversation</span><select id="asessions"></select></label>
         <label class="effort" for="effort"><span>Thinking</span>
           <select id="effort">
             <option value="">High (default)</option>
@@ -159,17 +180,8 @@
           </select>
         </label>
         <button type="button" class="btn" id="cs-open" aria-expanded="false" aria-controls="chatset" data-t="cs.open">Settings</button>
-        <button type="button" class="btn" id="new-chat" data-t="ch.newbtn">New conversation</button>
-        <button type="button" class="modechip" id="mode-chip" aria-keyshortcuts="Shift+Tab" hidden></button>
-        <button type="button" class="btn" id="branch-chat" data-t="ch.branch" hidden>Branch here</button>
-        <button type="button" class="btn" id="branches-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="branches" data-t="br.open" hidden>Branches</button>
-      </div>
-      <div class="chathelp" id="chathelp">
-        <p id="mode-help"></p>
-        <p id="conv-help" data-t="ch.conv.help"></p>
       </div>
       <div class="acopy" id="acopy" hidden>
-        <label class="acopy-ask" id="acopy-ask"><input type="checkbox" id="acopy-always" aria-describedby="acopy-help"><span><b data-t="wc.always">Work on a copy of the folder</b><small id="acopy-help" data-t="wc.always.help"></small></span></label>
         <span class="acopy-text" id="acopy-text" role="status"></span>
         <button type="button" class="btn" id="acopy-open" aria-expanded="false" aria-controls="acopy-panel" hidden></button>
       </div>
@@ -207,6 +219,7 @@
         <div class="sr" id="chat-status" role="status"></div>
       </form>
     </section>
+    </div>
     <aside class="sec chatset" id="chatset" aria-labelledby="cs-title" hidden>
       <div class="sh"><b id="cs-title" data-t="cs.title">Chat settings</b><span class="grow"></span>
         <button type="button" class="btn ghost" id="cs-close" data-t="cs.close">Close</button></div>

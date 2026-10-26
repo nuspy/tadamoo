@@ -87,6 +87,7 @@ skills, connections) and the history is kept between messages. The server starts
 | `POST .../<id>/cancel`, `/resume`, `/close` | stop the turn; go on after a block; end the conversation |
 | `POST .../<id>/mode` | `{"mode", "confirm_auto"}`: what the conversation may do without asking, from its next action on; `auto` needs `confirm_auto: true`, as at the start |
 | `POST .../<id>/effort` | `{"level"}`: `none`, `low`, `medium`, `high` or empty (the model's own); also a field of the create call |
+| `POST .../<id>/favorite`, `/delete` | `{"favorite": true\|false}`: the page lists favorites apart, above the rest (the conversation's place in time does not change); `delete` takes the conversation away for good: its process, saved messages, attached and made files and its own copy of the folder (branches made from it stay) |
 | `POST .../<id>/rename`, `/command` | `{"title"}`; `{"name", "args"}`: a slash command the process answers (below), whose answer comes as a `command` event |
 
 The history is saved after every model turn, and a message is on disk before the model sees it. Failures are handled in
@@ -110,7 +111,8 @@ history stays). The processes end with the server. Secrets are masked before the
 The permission mode (*Plan only*, *Read only*, *Ask first*, *Automatic*) can be changed while the conversation lives: a label by the
 *New conversation* button says which one is on (*Shift + TAB to change mode: actual …*), **Shift+Tab** in the message box goes to the
 next (Ask first, Plan only, Read only, Automatic, and round), and so does pressing the label. Going to Automatic asks the two
-confirmations of the risk dialog; a refusal passes over it to the next. With no conversation yet, it changes the mode the next one starts
+confirmations of the risk dialog the first time only (kept in the page's session storage, so until the window is closed); a refusal passes
+over it to the next. With no conversation yet, it changes the mode the next one starts
 with (the Chat settings' choice); with one, it changes that one only, and the process tells the page (`mode` event). The *Thinking* list
 is the conversation's too: a new one starts with its value, a change reaches the process (`effort`), and an opened one sets the list.
 
@@ -809,7 +811,7 @@ a conversation can work in a copy of its own (`harness/worktrees.py`): a git wor
 folder, started from the folder's last commit plus the changes not yet committed to tracked files. What the conversation changes stays there.
 
 - **When**: `worktree` when a conversation is made is `auto` (the default: a copy when another open conversation already works in that folder),
-  `always` (the Chat's "Keep the changes of a new conversation apart until I approve them") or `off`. A folder that is not under git cannot be
+  `always` (the server accepts it; the Chat page no longer offers it, as it sends no project folder) or `off`. A folder that is not under git cannot be
   copied: with `always` that is an error, with `auto` the conversation works in the folder itself, and two of those never work at once
   (`folder_busy`: the second message waits until the first conversation's turn is over).
 - **Reviewing**: the Chat shows "Works in its own copy of the folder" and a button that lists the changed files (added, changed, deleted) with

@@ -346,6 +346,45 @@ def test_the_history_carries_the_time_of_each_message_and_the_clock_note_stays_o
     assert [m["content"] for m in mgr._split(sid, mgr._read_history(sid), 1)[0]] == ["one", "ok"]          # a request is still the person's words, so going back counts them
 
 
+def test_a_favourite_is_marked_without_moving_the_conversation_in_time(make, ws):
+    mgr = make()
+    first, second = mgr.create(ws, title="uno")["id"], mgr.create(ws, title="due")["id"]
+    before = mgr.get(first)["updated"]
+    assert mgr.favorite(first, True)["favorite"] is True and mgr.get(first)["updated"] == before
+    assert [r["id"] for r in mgr.view()["sessions"] if r.get("favorite")] == [first]
+    assert mgr.favorite(first, False)["favorite"] is False
+    for bad in ("yes", 1, None):
+        with pytest.raises(RunError):
+            mgr.favorite(first, bad)
+    with pytest.raises(RunError):
+        mgr.favorite("nope", True)
+    mgr2 = make()                                       # it is kept with the list
+    assert mgr2.directory == mgr.directory and [r["id"] for r in mgr2.view()["sessions"]] == [r["id"] for r in mgr.view()["sessions"]]
+
+
+def test_deleting_a_conversation_takes_away_its_process_history_and_files_and_leaves_its_branches(make, ws, tmp_path):
+    attach, outputs = tmp_path / "att", tmp_path / "out"
+    mgr = make(attachments_dir=attach, outputs_dir=outputs)
+    sid = mgr.create(ws, title="da togliere")["id"]
+    mgr.send(sid, "uno")
+    until(lambda: "done" in kinds(mgr, sid))
+    child = mgr.branch(sid, 1)["id"]
+    for folder in (attach / sid, outputs / sid):
+        folder.mkdir(parents=True)
+        (folder / "a.txt").write_text("x", encoding="utf-8")
+    assert mgr.history_dir(sid).exists()
+    assert mgr.delete(sid) == {"deleted": sid}
+    assert not mgr.history_dir(sid).exists() and not (attach / sid).exists() and not (outputs / sid).exists()
+    assert sid not in [r["id"] for r in mgr.view()["sessions"]] and child in [r["id"] for r in mgr.view()["sessions"]]
+    for call in (lambda: mgr.get(sid), lambda: mgr.events(sid), lambda: mgr.send(sid, "ancora"), lambda: mgr.delete(sid)):
+        with pytest.raises(RunError):
+            call()
+    assert mgr.history(child)["messages"]                                       # the branch still has its messages
+    for bad in ("../x", "a/b", ""):
+        with pytest.raises(RunError):
+            mgr.delete(bad)
+
+
 def test_a_branch_copies_the_history_up_to_a_request_and_leaves_the_first_alone(make, ws):
     mgr = make()
     sid = mgr.create(ws, title="plan")["id"]

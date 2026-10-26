@@ -21,7 +21,7 @@
   const scroller = () => (box.scrollHeight > box.clientHeight + 1 && getComputedStyle(box).overflowY !== "visible") ? box : document.scrollingElement;
   function scrollDown(force) { const s = scroller(); if (force || s.scrollHeight - s.scrollTop - s.clientHeight < 160) s.scrollTop = s.scrollHeight; }
 
-  const box = $("#amsgs"), empty = $("#achat-empty"), list = $("#asessions"), modeSel = $("#chatmode");
+  const box = $("#amsgs"), empty = $("#achat-empty"), modeSel = $("#chatmode");
 
   async function api(method, path, body) {
     try {
@@ -40,14 +40,13 @@
     const on = active();
     $("#msgs").hidden = on;
     box.hidden = !on;
-    list.parentElement.hidden = !on;
+    $("#convs").hidden = !on;
     $("#ctx-meter").hidden = on;
     $("#attach").hidden = on ? false : $("#attach").dataset.can !== "1";
     const attachName = T(on ? "ch.att.btn" : "ch.att.img");
     $("#attach").setAttribute("aria-label", attachName); $("#attach").title = attachName;
-    $("#conv-help").hidden = !on;
     $("#branches-open").hidden = !on;
-    $("#mode-help").textContent = T("ch.mode." + mode + ".d");
+    modeSel.title = T("ch.mode." + mode + ".d");                              // what the kind of conversation is, as a tooltip
     drawPend();
     if (on) { $("#chat-hint").textContent = T("ch.hint"); poll(true); } else { clearTimeout(timer); $("#chat-hint").textContent = T("ch.hint.direct"); }
     setControls();
@@ -67,15 +66,72 @@
   modeSel.value = mode;
   modeSel.onchange = () => { mode = modeSel.value; keep(MODE_KEY, mode); if (sid) forget(); applyMode(); };
 
-  /* ---- the list of conversations ---- */
+  /* ---- the column of conversations: the earlier ones to open again or delete, the favourites kept apart and above the rest ---- */
+  const convs = $("#convs"), CV_KEY = "basalt.chat.convs";
+  let known = [];                                                              // what the server lists, newest first
+  let delArmed = "";                                                              // the conversation whose delete button was pressed once
+  let delTimer = 0;
+  const when = ts => (ts ? new Date(ts * 1000).toLocaleString(LANG === "it" ? "it-IT" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
+  function setColumn(open) {
+    convs.classList.toggle("shut", !open);
+    const t = $("#cv-toggle");
+    t.setAttribute("aria-expanded", String(open));
+    t.textContent = open ? "\u2039" : "\u203A";                                 // an arrow to the left closes it, one to the right opens it
+    t.title = T(open ? "cv.shut" : "cv.open");
+    t.setAttribute("aria-label", t.title);
+  }
+  setColumn(load(CV_KEY, "1") !== "0");
+  $("#cv-toggle").onclick = () => { const open = convs.classList.contains("shut"); setColumn(open); keep(CV_KEY, open ? "1" : "0"); };
+  function convRow(s) {
+    const name = s.title || s.id, li = mk("li", "cv");
+    if (s.id === sid) li.setAttribute("aria-current", "true");
+    const open = mk("button", "cv-open");
+    open.type = "button";
+    open.append(mk("span", "cv-t", name), mk("span", "cv-s", `${T("ch.state." + s.state)} \u00B7 ${when(s.updated)}`));
+    open.onclick = () => { if (s.id !== sid) openSession(s.id); };
+    const star = mk("button", "cv-fav", s.favorite ? "\u2605" : "\u2606");
+    star.type = "button";
+    star.setAttribute("aria-pressed", String(!!s.favorite));
+    star.title = T(s.favorite ? "cv.unstar" : "cv.star");
+    star.setAttribute("aria-label", `${star.title}: ${name}`);
+    star.onclick = async () => {
+      const r = await api("POST", `/${s.id}/favorite`, { favorite: !s.favorite });
+      if (!r.ok) status(errText(r));
+      await refreshList();
+    };
+    const del = mk("button", "cv-del", "\u2715");
+    del.type = "button";
+    del.title = T("cv.del");
+    del.setAttribute("aria-label", `${T("cv.del")}: ${name}`);
+    if (delArmed === s.id) { del.classList.add("sure"); del.textContent = T("cv.del.sure"); }
+    del.onclick = async () => {
+      if (delArmed !== s.id) {                                                    // pressed once: it asks again, and forgets after a few seconds
+        delArmed = s.id; clearTimeout(delTimer); delTimer = setTimeout(() => { delArmed = ""; paintList(); }, 4000); paintList(); return;
+      }
+      clearTimeout(delTimer); delArmed = "";
+      const r = await api("POST", `/${s.id}/delete`);
+      if (!r.ok) { status(errText(r)); await refreshList(); return; }
+      if (s.id === sid) { forget(); setControls(); }
+      await refreshList();
+      status(T("cv.deleted"));
+    };
+    li.append(open, star, del);
+    return li;
+  }
+  function paintList() {
+    const shown = known.filter(s => s.state !== "closed");
+    const fav = shown.filter(s => s.favorite), rest = shown.filter(s => !s.favorite);
+    $("#cv-fav-group").hidden = !fav.length;
+    $("#cv-fav").replaceChildren(...fav.map(convRow));
+    $("#cv-recent").replaceChildren(...rest.map(convRow));
+    $("#cv-empty").hidden = shown.length > 0;
+  }
   async function refreshList() {
     const r = await api("GET", "");
     if (!r.ok) { supported = r.status === 404 || r.status === 0 ? false : supported; return; }
     supported = true;
-    const sel = list.value || sid;
-    list.replaceChildren(Object.assign(mk("option", "", T("ch.new.opt")), { value: "" }),
-      ...r.json.sessions.filter(s => s.state !== "closed").map(s => Object.assign(mk("option", "", `${s.title || s.id} · ${T("ch.state." + s.state)}`), { value: s.id })));
-    list.value = [...list.options].some(o => o.value === sel) ? sel : "";
+    known = r.json.sessions || [];
+    paintList();
   }
   async function branch() {
     const h = await api("GET", `/${sid}/history`);
@@ -84,16 +140,14 @@
     const r = await api("POST", `/${sid}/branch`, { turn });
     if (!r.ok) { status(errText(r)); return; }
     await refreshList();
-    list.value = r.json.session.id;
     await openSession(r.json.session.id);
     status(T("ch.branch.done"));
   }
   $("#branch-chat").onclick = branch;
   document.addEventListener("basalt:chatset", () => setControls());
-  list.onchange = () => { if (list.value) openSession(list.value); else newChat(); };
 
   function forget() { pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(LAST_KEY, ""); copyShown = false; }
-  function newChat() { forget(); list.value = ""; status(T("ch.new")); setControls(); }
+  function newChat() { forget(); status(T("ch.new")); setControls(); paintList(); }
   async function openSession(id) {
     forget();
     const h = await api("GET", `/${id}/history`);
@@ -109,7 +163,7 @@
       const e = await api("GET", `/${id}/events?after=0`);
       if (e.ok) after = e.json.next;
     }
-    syncRecord(); render(); poll(true);
+    syncRecord(); render(); paintList(); poll(true);
   }
 
   /* ---- the view model: the person's messages and, for each answer, blocks in the order things happened ---- */
@@ -546,11 +600,24 @@
     if (!on) return;
     const m = permNow();
     chip.dataset.mode = m;
-    chip.textContent = T("ch.chip", T("ag.mode." + m));
+    chip.replaceChildren(mk("span", "mc-hint", T("ch.chip.hint")), mk("b", "mc-mode", T("ag.mode." + m)));
+    chip.setAttribute("aria-label", T("ch.chip", T("ag.mode." + m)));
     chip.title = T("ag.mode." + m + ".d");
   }
+  /* the two questions of Automatic are asked the first time; once answered yes they are not asked again until the app is closed */
+  const AUTO_OK = "basalt.chat.autook";
+  let autoOk = false;
+  async function confirmAuto() {
+    let said = autoOk;
+    try { said = said || sessionStorage.getItem(AUTO_OK) === "1"; } catch (e) { /* kept in the page only */ }
+    if (said) return true;
+    if (!(await riskConfirm([T("ag.auto.risk")]))) return false;
+    autoOk = true;
+    try { sessionStorage.setItem(AUTO_OK, "1"); } catch (e) { /* kept in the page only */ }
+    return true;
+  }
   async function setPerm(m) {                                                // false when the person did not go through with it
-    if (m === "auto" && !(await riskConfirm([T("ag.auto.risk")]))) return false;
+    if (m === "auto" && !(await confirmAuto())) return false;
     if (sid) {
       const r = await api("POST", `/${sid}/mode`, { mode: m, confirm_auto: m === "auto" });
       if (!r.ok) { status(errText(r)); return false; }
@@ -578,24 +645,20 @@
   allowBox.value = load(ALLOW_KEY, "");
   allowBox.oninput = () => keep(ALLOW_KEY, allowBox.value);
   permRadios.forEach(r => r.addEventListener("change", async () => {
-    if (r.value === "auto" && !(await riskConfirm([T("ag.auto.risk")]))) { paintPerm(); return; }
+    if (r.value === "auto" && !(await confirmAuto())) { paintPerm(); return; }
     keep(PERM_KEY, r.value); paintPerm(); paintChip();
   }));
   paintPerm();
   const allowRules = () => allowBox.value.split("\n").map(s => s.trim()).filter(Boolean);
 
   /* ---- the conversation's own copy of the folder: what it changed waits here until the person applies it ---- */
-  const COPY_KEY = "basalt.chat.copy";
-  const copyBar = $("#acopy"), copyText = $("#acopy-text"), copyOpen = $("#acopy-open"), copyPanel = $("#acopy-panel"), copyAsk = $("#acopy-ask"), copyAlways = $("#acopy-always");
-  copyAlways.checked = load(COPY_KEY, "") === "always";
-  copyAlways.onchange = () => keep(COPY_KEY, copyAlways.checked ? "always" : "");
-  const copyMode = () => (copyAlways.checked ? "always" : "auto");
+  const copyBar = $("#acopy"), copyText = $("#acopy-text"), copyOpen = $("#acopy-open"), copyPanel = $("#acopy-panel");
+  const copyMode = () => "auto";                              // the page does not offer a choice: a copy is made only when the server finds another conversation in the same git folder
   let copyShown = false;
   const kindText = s => T("wc." + (["added", "deleted"].includes(s) ? s : "modified"));
   function paintCopy() {
     const on = active() && !!(rec && rec.worktree);
-    copyAsk.hidden = !!sid;                                   // the choice is made before the first message
-    copyBar.hidden = !active() || (!!sid && !on);
+    copyBar.hidden = !on;
     copyText.textContent = on ? T("wc.in.copy") : "";
     copyOpen.hidden = !on;
     if (!on) { copyPanel.hidden = true; copyShown = false; return; }
@@ -667,7 +730,7 @@
     const r = await api("POST", "", { mode: permMode(), allow: allowRules(), confirm_auto: permMode() === "auto", ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), end_turn_bias: chatSettings.body().end_turn_bias, worktree: copyMode() });
     if (!r.ok) { status(errText(r)); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(LAST_KEY, sid); after = 0;
-    await refreshList(); list.value = sid;
+    await refreshList();
     return true;
   }
   async function send(text) {
@@ -749,30 +812,30 @@
     if (!sid) return false;
     const r = await api("POST", `/${sid}/rename`, { title });
     if (!r.ok) { status(errText(r)); return false; }
-    rec = r.json.session; await refreshList(); list.value = sid;
+    rec = r.json.session; await refreshList();
     return true;
   }
   window.agentChat = { active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, rename, transcript, saveBlob, answers: answersOf,
     perm: { now: permNow, set: setPerm, cycle: cyclePerm, available: () => active() && mode !== "ask", modes: PERM_CYCLE },
-    sessions: () => [...list.options].filter(o => o.value).map(o => ({ id: o.value, label: o.textContent })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
+    sessions: () => known.filter(s => s.state !== "closed").map(s => ({ id: s.id, label: `${s.title || s.id} \u00B7 ${T("ch.state." + s.state)}` })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
     toggleCopy: () => copyOpen.click() };
   document.addEventListener("basalt:open-session", async e => {      // the tree of branches opens a conversation here
     const id = e.detail && e.detail.id;
     if (!id) return;
     if (mode === "direct") { mode = "agent"; modeSel.value = mode; keep(MODE_KEY, mode); applyMode(); }
     await refreshList();
-    if ([...list.options].some(o => o.value === id)) list.value = id;
     await openSession(id);
   });
   window.chatUi.agentActive = active;
 
-  [box, $("#chathelp"), $("#acopy")].forEach(root => applyT(root));   // the static texts, in the page's language
+  [box, $("#acopy"), convs].forEach(root => applyT(root));
+  convs.setAttribute("aria-label", T("cv.title"));   // the static texts, in the page's language
   (async () => {
     await refreshList();
     $("#attach").dataset.can = $("#attach").hidden ? "" : "1";
     if (supported === false) { modeSel.querySelectorAll("option").forEach(o => { if (o.value !== "direct") o.disabled = true; }); modeSel.value = "direct"; }
     applyMode();
     const last = load(LAST_KEY, "");
-    if (active() && last && [...list.options].some(o => o.value === last)) { list.value = last; openSession(last); }
+    if (active() && last && known.some(s => s.id === last)) openSession(last);
   })();
 })();

@@ -296,7 +296,7 @@ class ConversationChatTest(unittest.TestCase):
 
     def test_the_page_has_the_mode_the_list_and_the_message_area(self):
         html = (WEB / "index.html").read_text(encoding="utf-8")
-        for needle in ('id="chatmode"', 'id="asessions"', 'id="amsgs"', 'src="web/agentchat.js"'):
+        for needle in ('id="chatmode"', 'id="convs"', 'id="amsgs"', 'src="web/agentchat.js"'):
             self.assertIn(needle, html)
         self.assertLess(html.index("web/chat.js"), html.index("web/agentchat.js"))          # it uses what chat.js shares
 
@@ -340,7 +340,8 @@ class BranchesTest(unittest.TestCase):
         self.assertLess(self.html.index("web/agentchat.js"), self.html.index("web/branches.js"))
         for needle in ('id="branches-open"', 'id="branches"', 'role="tree"', 'id="br-tree"', 'aria-haspopup="dialog"'):
             self.assertIn(needle, self.html, needle)
-        self.assertLess(self.html.index('id="chatmode"'), self.html.index('id="branches-open"'))        # in the chat's own header
+        self.assertLess(self.html.index('class="sh chathead"'), self.html.index('id="branches-open"'))   # in the chat's own header
+        self.assertLess(self.html.index('id="branches-open"'), self.html.index('class="acopy"'))
         self.assertIn("basalt:open-session", (WEB / "agentchat.js").read_text(encoding="utf-8"))
         chat = (WEB / "agentchat.js").read_text(encoding="utf-8")
         self.assertIn("back-impact", chat)                                  # going back lists what stays done before it takes anything off

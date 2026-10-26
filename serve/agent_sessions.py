@@ -20,7 +20,9 @@ import copy
 import difflib
 import json
 import os
+import re
 import secrets
+import shutil
 import subprocess
 import sys
 import threading
@@ -1007,6 +1009,46 @@ class SessionManager:
         with self._lock:
             self._set(self._record(sid), title=text)
         return self.get(sid)
+
+    def favorite(self, sid: str, value: Any) -> Dict[str, Any]:
+        """Marks a conversation as one of the person's favourites (or not); the list shows those apart. Its place in time is not changed."""
+        if not isinstance(value, bool):
+            raise RunError("Say whether it is a favourite: true or false.", "bad_favorite")
+        with self._lock:
+            rec = self._record(sid)
+            rec["favorite"] = value
+            self._save()
+        return self.get(sid)
+
+    def delete(self, sid: str) -> Dict[str, Any]:
+        """Takes a conversation away for good: its process, its saved messages, the files attached to it and made in it, and its own copy
+        of the folder with whatever was not applied. The branches made from it stay, as conversations of their own."""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", str(sid)):
+            raise RunError("That conversation is not in the list any more.", "gone")
+        with self._lock:
+            rec = self._record(sid)
+            live = self._live.get(sid)
+            if live is not None:
+                live.ending = True
+                self._write(sid, live, {"cmd": "close"})
+        if live is not None:
+            self._end(live)
+        if self.board:
+            self.board.refuse_all(sid)
+        if rec.get("worktree"):
+            try:
+                self.worktrees.discard(rec["worktree"])
+            except (WorktreeError, OSError):
+                pass                                           # what is left of the copy is theirs to remove; the conversation still goes
+        folders = [self.history_dir(sid)] + [Path(d) / sid for d in (self.attachments_dir, self.outputs_dir) if d]
+        with self._lock:
+            self.records = [r for r in self.records if r["id"] != sid]
+            for table in (self._live, self._events, self._seq, self._restarts, self._unconfirmed, self._step, self._calls, self._learned):
+                table.pop(sid, None)
+            self._save()
+        for folder in folders:
+            shutil.rmtree(folder, ignore_errors=True)
+        return {"deleted": sid}
 
     def slash(self, sid: str, name: Any, args: Any = "") -> Dict[str, Any]:
         """A slash command that needs the conversation's process (harness/commands.py); its answer comes as a `command` event."""
