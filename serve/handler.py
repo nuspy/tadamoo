@@ -40,6 +40,8 @@ from harness.payments_broker import PaymentsBroker
 from harness.waiver.dossier import sntp_offset
 from harness.vault import Vault, VaultError
 from serve.agent_sessions import SessionManager
+from serve.personal_skills_api import PersonalSkillsApi
+from harness.personal_skills.store import SkillError
 from serve.routines_api import RoutinesApi
 from harness.scheduler import RoutineError
 from serve.wallet_api import WalletApi, WalletError
@@ -55,6 +57,7 @@ _APPROVALS = ApprovalBoard()
 _RUNNER = None                                        # made on first use: it needs this server's address
 _SESSIONS = None                                      # the Chat's conversations with the agent, made on first use
 _ROUTINES = None                                      # the agent's recurring routines, made with the conversations or on first use
+_PSKILLS = None                                       # the person's personal skills, made on first use
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
 _LLM = None                                           # the Providers page's side of llmswitch, made on first use
 
@@ -377,6 +380,9 @@ def make_handler(svc: Service):
             elif path in ("/api/routines", "/api/routines/runs"):
                 if self._authorized():
                     self._routines_get(path)
+            elif path == "/api/personal-skills" or path.startswith("/api/personal-skills/"):
+                if self._authorized():
+                    self._pskills_get(path)
             elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online"):
                 if self._authorized():
                     self._capabilities_get(path)
@@ -523,6 +529,9 @@ def make_handler(svc: Service):
                 return
             if path == "/api/routines" or path.startswith("/api/routines/"):
                 self._routines_post(path)
+                return
+            if path == "/api/personal-skills" or path.startswith("/api/personal-skills/"):
+                self._pskills_post(path)
                 return
             if path.startswith("/api/llm/"):
                 self._llm_post(path)
@@ -1517,6 +1526,70 @@ def make_handler(svc: Service):
                                         power_source=(lambda: tel.snapshot()["now"].get("gpus") or []) if tel else None)
             return _ROUTINES
 
+        def _pskills(self) -> PersonalSkillsApi:
+            global _PSKILLS
+            if _PSKILLS is None:
+                _PSKILLS = PersonalSkillsApi(userdata.path("personal-skills"))
+            return _PSKILLS
+
+        def _pskills_get(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                return self._json(403, {"error": {"type": "forbidden", "message": "personal skills can be used only from the PC the server runs on"}})
+            parts = path[len("/api/personal-skills"):].strip("/").split("/")
+            try:
+                api = self._pskills()
+                if parts == [""]:
+                    return self._json(200, api.overview())
+                if len(parts) == 1:
+                    return self._json(200, api.get(parts[0]))
+                if len(parts) == 2 and parts[1] == "export":
+                    data = api.export(parts[0])
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/octet-stream")
+                    self.send_header("Content-Disposition", f'attachment; filename="{parts[0]}.pskill"')
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+            except SkillError as e:
+                return self._json(400, {"error": {"type": "skill", "message": str(e)}})
+            self._json(404, {"error": {"message": "not found"}})
+
+        def _pskills_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "personal skills can be changed only from the PC the server runs on"}})
+            if not self._own_page("personal skills can be changed"):
+                return
+            parts = path[len("/api/personal-skills"):].strip("/").split("/")
+            try:
+                api = self._pskills()
+                req = json.loads(self._body(1 << 20) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                if parts == ["import"]:                                     # the .pskill file, a small zip, in base64
+                    return self._json(200, api.import_file(req.get("data")))
+                if parts == [""]:
+                    return self._json(200, api.save(req))
+                if parts == ["check"]:
+                    return self._json(200, api.check(req.get("script"), req.get("mode", "restricted")))
+                if parts == ["preview"]:
+                    return self._json(200, api.preview(req.get("params"), req.get("values")))
+                if len(parts) == 2 and parts[1] == "delete":
+                    return self._json(200, api.delete(parts[0]))
+                if len(parts) == 2 and parts[1] == "approve":
+                    return self._json(200, api.approve(parts[0]))
+                if len(parts) == 2 and parts[1] == "restore":
+                    return self._json(200, api.restore(parts[0], req.get("version")))
+            except SkillError as e:
+                return self._json(400, {"error": {"type": "skill", "message": str(e)}})
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"message": str(e)}})
+            self._json(404, {"error": {"message": "not found"}})
+
         def _routines_get(self, path):
             try:
                 if path == "/api/routines":
@@ -1559,7 +1632,8 @@ def make_handler(svc: Service):
                                            attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
                                            browser_prefs=BrowserPrefs(userdata.path("browser.json")).read,
-                                           browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink())
+                                           browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
+                                           skills_dir=userdata.path("personal-skills"))
                 self._routines()                          # the clock of the routines starts with the conversations
             return _SESSIONS
 
@@ -1664,6 +1738,8 @@ def make_handler(svc: Service):
                         return self._json(200, {"session": mgr.set_effort(parts[1], req.get("level", ""))})
                     if len(parts) == 3 and parts[2] == "rename":
                         return self._json(200, {"session": mgr.rename(parts[1], req.get("title"))})
+                    if len(parts) == 3 and parts[2] == "skill":
+                        return self._json(200, mgr.run_skill(parts[1], req.get("slug"), req.get("values")))
                     if len(parts) == 3 and parts[2] == "favorite":
                         return self._json(200, {"session": mgr.favorite(parts[1], req.get("favorite"))})
                     if len(parts) == 3 and parts[2] == "delete":
