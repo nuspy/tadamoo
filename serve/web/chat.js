@@ -18,13 +18,37 @@
   effort.onchange = () => keep(EFFORT, effort.value);
 
   /* ---- Markdown: escape first, then format a small, safe subset ---- */
+  /* a small button after a source: the page opens in the system's browser (the app hands a new window to it), never in the app */
+  const sourceButton = url => {
+    const t = esc(T("src.open"));
+    return `<a class="srcbtn" href="${url}" target="_blank" rel="noopener noreferrer" title="${t}" aria-label="${t}">${esc(T("src.btn"))} ↗</a>`;
+  };
+  function sourceLink(url, label) {                     // the same button, built as elements
+    const a = document.createElement("a");
+    a.className = "srcbtn"; a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer";
+    a.title = T("src.open"); a.setAttribute("aria-label", `${T("src.open")}: ${label || url}`);
+    a.textContent = `${label || T("src.btn")} ↗`;
+    return a;
+  }
+  function addressButtons(s) {                          // an address written in the text gets one too; a link already made does not get two
+    let inLink = false;
+    return s.split(/(<[^>]+>)/).map(part => {
+      if (part.startsWith("<")) { if (/^<a[\s>]/i.test(part)) inLink = true; else if (/^<\/a>/i.test(part)) inLink = false; return part; }
+      if (inLink) return part;
+      return part.replace(/https?:\/\/[^\s<>"]+/g, m => {
+        const tail = (m.match(/(?:[.,;:!?)\]]|&quot;|&#39;|&gt;|&lt;)+$/) || [""])[0], url = m.slice(0, m.length - tail.length);
+        return url.length > 8 ? url + sourceButton(url) + tail : m;
+      });
+    }).join("");
+  }
   function inline(s) {
     const codes = [];
     s = s.replace(/`([^`\n]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
     s = esc(s)
       .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
       .replace(/(^|[^*\w])\*([^*\n]+)\*(?![*\w])/g, "$1<em>$2</em>")
-      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s"'<>]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s"'<>]+)\)/g, (_, text, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>${sourceButton(url)}`);
+    s = addressButtons(s);
     return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${esc(codes[+i])}</code>`);
   }
   function blocks(text) {
@@ -80,7 +104,17 @@
   }
 
   /* ---- messages ---- */
-  const time = t => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  /* the time of a message, in a small column on its left: the hour in bold and the date under it (empty when it is not known) */
+  function stamp(seconds) {
+    const el = document.createElement("span"); el.className = "cts";
+    if (!(seconds > 0)) return el;
+    const d = new Date(seconds * 1000), loc = LANG === "it" ? "it-IT" : "en-GB";
+    const hour = document.createElement("b"); hour.textContent = d.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" });
+    const day = document.createElement("span"); day.textContent = d.toLocaleDateString(loc, { day: "2-digit", month: "2-digit", year: "numeric" });
+    el.title = d.toLocaleString(loc, { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZoneName: "short" });
+    el.append(hour, day);
+    return el;
+  }
   function msgEl(m, i) {
     const el = document.createElement("article");
     el.className = `cmsg ${m.role}${m.outside ? " outside" : ""}`;
@@ -116,13 +150,18 @@
         });
         el.append(wrap);
       }
-      const b = document.createElement("div"); b.className = "bubble"; b.textContent = m.text; el.append(b);
-      const meta = document.createElement("div"); meta.className = "meta"; meta.textContent = `You · ${time(m.time)}`; el.append(meta);
+      const row = document.createElement("div"); row.className = "arow";
+      const b = document.createElement("div"); b.className = "bubble"; b.textContent = m.text; row.append(stamp(m.time / 1000), b); el.append(row);
+      const meta = document.createElement("div"); meta.className = "meta"; meta.textContent = "You"; el.append(meta);
     } else {
       el.innerHTML = `<details class="think" hidden><summary><span class="think-t"></span></summary><div class="think-b" tabindex="0" role="region" aria-label="Reasoning"></div></details>` +
         `<div class="answer"></div><div class="meta"><span class="meta-t"></span>` +
         `<button type="button" class="btn ghost copy" hidden>Copy</button>` +
         `<button type="button" class="btn ghost retry" hidden></button></div>`;
+      const row = document.createElement("div"), body = document.createElement("div");
+      row.className = "arow"; body.className = "abody";
+      while (el.firstChild) body.append(el.firstChild);
+      row.append(stamp(m.time / 1000), body); el.append(row);
       watchThink(el);
       paint(el, m, false);
     }
@@ -496,7 +535,7 @@
   // what the conversations mode shares: the safe Markdown and the reasoning box, so both chats look and behave alike
   window.chatUi = {
     renderMarkdown: (el, text) => { el.innerHTML = markdown(text || ""); },
-    watchThink, paintThink, scrollDown, autosize,
+    watchThink, paintThink, scrollDown, autosize, stamp, sourceLink,
     setPrompt: t => { prompt.value = t; autosize(); prompt.focus(); },
   };
 

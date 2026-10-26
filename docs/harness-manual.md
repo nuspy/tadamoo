@@ -70,6 +70,10 @@ PowerPoint, PDF, images, audio and video are accepted; a long file shows its sta
 **Files it makes.** When the agent produces a file for you, the page checks it (JSON parses, CSV rows line up, Office files open, an
 image opens) and only then gives it a *Save* button.
 
+**The time.** The agent is told your local date, time and timezone before every request, by itself: you never have to tell it, and
+it never has to ask. Each message in the conversation, tool calls and notes included, has its time at its left: the hour in bold, the
+date under it; hover on it for the full date and the timezone. Messages saved before this feature have no time.
+
 **Thinking level.** The *Thinking* list sets how long the model reasons for this conversation. `/effort` does the same, and the list
 follows it.
 
@@ -230,7 +234,9 @@ The agent can keep short notes about a project and read them in later conversati
 
 - **Search and read.** `search_web` uses DuckDuckGo unless you set another engine, with no key; the words you search go to DuckDuckGo.
   `browse_url` reads a page as text and refuses addresses that are not on the internet (this PC, your network) unless you allowed them in
-  the browser settings. Everything it reads is marked untrusted.
+  the browser settings. Everything it reads is marked untrusted. After a source of information in an answer (a link, or an address written
+  in the text) a small **source ↗** button opens that page in your system's default browser; a search or page-reading step lists the
+  sites it used in the same way.
 - **The browser.** With the browser tools the agent drives Edge or Chrome to fill in forms, book and buy. Whether conversations have a
   browser, whether it shows a window, whether it may open pages of this PC and whether it keeps sign-ins is set in the **Wallet** view;
   each risky choice has a highlighted label and two questions.

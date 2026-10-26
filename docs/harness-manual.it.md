@@ -73,6 +73,11 @@ mostra l'inizio e l'agente legge il resto a pezzi.
 **File che produce.** Quando l'agente produce un file per te, la pagina lo controlla (il JSON si legge, le righe del CSV hanno le stesse
 colonne, i file Office si aprono, un'immagine si apre) e solo allora gli dà un pulsante *Salva*.
 
+**L'ora.** All'agente arrivano da sole, prima di ogni richiesta, la tua data, ora e fuso orario locali: non devi dirglieli tu, e lui non
+deve chiederli. Ogni messaggio della conversazione, chiamate agli strumenti e note comprese, ha a sinistra il suo orario: l'ora in
+grassetto, la data sotto; passandoci sopra col puntatore vedi la data completa e il fuso orario. I messaggi salvati prima di questa
+funzione non hanno l'orario.
+
 **Livello di ragionamento.** L'elenco *Ragionamento* stabilisce per quanto tempo ragiona il modello in questa conversazione. `/effort`
 fa lo stesso, e l'elenco lo segue.
 
@@ -246,7 +251,9 @@ L'agente può tenere appunti brevi su un progetto e rileggerli nelle conversazio
 
 - **Cercare e leggere.** `search_web` usa DuckDuckGo salvo un altro motore che imposti, senza chiave; le parole che cerchi vanno a
   DuckDuckGo. `browse_url` legge una pagina come testo e rifiuta gli indirizzi che non sono su internet (questo PC, la tua rete) salvo
-  che tu li abbia permessi nelle impostazioni del browser. Tutto ciò che legge è segnato come non fidato.
+  che tu li abbia permessi nelle impostazioni del browser. Tutto ciò che legge è segnato come non fidato. Dopo una fonte di informazione
+  in una risposta (un link, o un indirizzo scritto nel testo) un piccolo pulsante **fonte ↗** apre quella pagina nel browser predefinito
+  del sistema; un passo di ricerca o di lettura di una pagina elenca allo stesso modo i siti che ha usato.
 - **Il browser.** Con gli strumenti del browser l'agente guida Edge o Chrome per compilare moduli, prenotare e comprare. Se le
   conversazioni hanno un browser, se mostra una finestra, se può aprire pagine di questo PC e se conserva gli accessi si decide nella
   vista **Portafoglio**; ogni scelta rischiosa ha un'etichetta evidenziata e due domande.

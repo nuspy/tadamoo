@@ -8,4 +8,4 @@
 .risk-box h2 { margin: 0; font-size: 20px; }
 .risk-body { display: flex; flex-direction: column; gap: 10px; }
 .risk-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
-.risk-actions .btn { min-height: 48px; }
+.risk-actions .btn { min-height: 36px; }

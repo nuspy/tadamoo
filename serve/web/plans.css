@@ -161,7 +161,7 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-al.conflict { border-color: var(--pl-block); }
 .pl-al b { margin-right: 4px; }
 .pl-due { margin: 0 0 8px; font-weight: 600; overflow-wrap: anywhere; }
-.pl-align .pad .btn, .pl-horizon .btn { min-height: 44px; }
+.pl-align .pad .btn, .pl-horizon .btn { min-height: var(--btn-h); }
 
 /* what would stay done if a step is rewound: shown above the step's form until the person confirms or cancels */
 .pl-rewind { border: 1px solid var(--pl-block); border-left-width: 6px; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; background: var(--surface); }

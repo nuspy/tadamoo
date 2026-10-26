@@ -134,6 +134,18 @@ Not carried over from Claude Code, on purpose: the ones that belong to its accou
 `/vim`, `/ide`, `/remote-*`, `/install-*`, `/voice`, `/mobile`…), and `/model`'s switching, because the model is the one loaded in
 Models.
 
+### The time
+
+The agent always knows the person's local date, time and timezone, and is never asked to look them up: before each request (and each
+note that wakes it) the loop puts a line of its own in the conversation, `[harness] The person's local date and time: Monday 2026-10-26
+00:52 (UTC+01:00, CET).`, taken from the clock of the PC the harness runs on, and the system prompt says to use it. It is a note
+(`note: true`), so the page and the history do not show it and a request still counts as one; it comes after everything already in the
+conversation, so the start of the prompt is the same from turn to turn and the server's cache is kept. It costs one short line a request.
+With the clock on, each message the loop makes also carries `ts`, its time in seconds, which is saved in the history and never sent to the
+model (`INTERNAL_KEYS`); the page draws it at the left of the message: the hour in bold, the date under it, in small type (the tooltip has
+the full date and the timezone). A message saved before this has no time, and its column stays empty. `AgentLoop(clock=...)` turns it on
+(`build_agent` always does; a loop built by hand has none, as before).
+
 ### A message written while the agent works
 
 A conversation is never closed while the agent works. A message that comes meanwhile is looked at before the agent's next model
@@ -864,6 +876,11 @@ wide, not for phones.
 
 - **Interface size**: automatic on very wide windows (zoom 1.25 from 2400 pixels up to 2 from 5000), or a fixed
   percentage in Settings.
+- **Buttons** are 30 px tall with 13 px type (`--btn-h` and `--btn-fs` in `app.css`), so one setting changes them all; the pages are for
+  wide windows, so they are not sized for touch.
+- **Sources**: after a link or an address in an answer, and for each site a `search_web` or `browse_url` step used, a small button opens the
+  page in the system's browser (`target="_blank"`; the app hands a new window to the default browser). Only `http` and `https` addresses
+  without a user name get one.
 - **Tabs**: Chat, Agent, Plans, Monitor, Models, Hardware, LOGS, Wallet, Settings; **Alt+1…9** open them. **Ctrl+K** opens a palette that
   reaches every view and the common actions and settings.
 - A notice under the top bar says when no model is loaded and opens Models. Settings has an index of its sections and

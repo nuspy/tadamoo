@@ -114,7 +114,10 @@
 
   /* ---- the view model: the person's messages and, for each answer, blocks in the order things happened ---- */
   const byTurn = {};                                  // the answer of each task: tasks can take turns, and come back
-  function userItem(text, files) { const it = { kind: "user", text, files: files || [] }; items.push(it); return it; }
+  /* the time of what is being added, in seconds: the event's or the saved message's while those are applied (null when not known), else now */
+  let stampAt;
+  const stampOf = () => (stampAt === undefined ? Date.now() / 1000 : stampAt);
+  function userItem(text, files) { const it = { kind: "user", text, files: files || [], ts: stampOf() }; items.push(it); return it; }
   function assistant(turn) {
     if (turn && byTurn[turn]) { current = byTurn[turn]; return current; }
     if (!turn && current && !current.done) return current;
@@ -123,17 +126,21 @@
     items.push(current);
     return current;
   }
-  function noteItem(it) { items.push({ kind: "note", ...it }); }
+  function noteItem(it) { items.push({ kind: "note", ts: stampOf(), ...it }); }
   function textBlock(kind, text, turn) {
     const a = assistant(turn), last = a.blocks[a.blocks.length - 1];
     if (last && last.t === kind) { last.s += text; last.dirty = true; return; }
     if (last && last.t === "reasoning") last.over = true;
-    a.blocks.push({ t: kind, s: text, dirty: true });
+    a.blocks.push({ t: kind, s: text, dirty: true, ts: stampOf() });
   }
-  function addBlock(b, turn) { const a = assistant(turn); const last = a.blocks[a.blocks.length - 1]; if (last && last.t === "reasoning") last.over = true; a.blocks.push({ ...b, dirty: true }); return a.blocks[a.blocks.length - 1]; }
+  function addBlock(b, turn) { const a = assistant(turn); const last = a.blocks[a.blocks.length - 1]; if (last && last.t === "reasoning") last.over = true; a.blocks.push({ ...b, dirty: true, ts: stampOf() }); return a.blocks[a.blocks.length - 1]; }
   const toolBlock = id => { for (const it of items) { const b = (it.blocks || []).find(x => x.t === "tool" && x.id === id); if (b) return b; } return null; };
 
   function apply(e) {
+    stampAt = typeof e.t === "number" ? e.t : undefined;
+    try { applyEvent(e); } finally { stampAt = undefined; }
+  }
+  function applyEvent(e) {
     switch (e.event) {
       case "user": closeQuestions(); userItem(e.text, e.attachments); break;
       case "accepted": assistant(e.turn); started(e.turn); break;
@@ -194,6 +201,7 @@
 
   function fromHistory(messages) {
     for (const m of messages) {
+      stampAt = typeof m.ts === "number" ? m.ts : null;
       if (m.role === "user") {
         const text = typeof m.content === "string" ? m.content : "";
         if (text.startsWith("[harness]")) { assistant(); addBlock({ t: "note", s: text.replace(/^\[harness\]\s*/, "") }); } else userItem(text, (m.attachments || []).map(n => ({ name: n })));
@@ -210,6 +218,7 @@
         if (b) { b.output = String(m.content || "").slice(0, SHOWN_OUTPUT); b.dirty = true; }
       }
     }
+    stampAt = undefined;
     current = null;
   }
 
@@ -270,6 +279,19 @@
     if (b.t === "blocked") return mk("div", "ablocked");
     return mk("div", "anote");
   }
+  /* where a web tool got its information, for the buttons that open it: the page a tool read, and the addresses of a search's results */
+  function sourcesOf(b) {
+    if (b.name !== "search_web" && b.name !== "browse_url") return [];
+    const found = [], add = u => {
+      try {
+        const x = new URL(u);
+        if ((x.protocol === "https:" || x.protocol === "http:") && !x.username && !x.password && !found.some(f => f.url === x.href)) found.push({ url: x.href, host: x.hostname.replace(/^www\./, "") });
+      } catch (e) { /* not an address */ }
+    };
+    if (b.args && typeof b.args.url === "string") add(b.args.url);
+    if (b.name === "search_web") (String(b.output || "").match(/https?:\/\/[^\s"'<>\\)\]]+/g) || []).forEach(u => add(u.replace(/[.,;:!?]+$/, "")));
+    return found.slice(0, 6);
+  }
   function paintBlock(b, el, item) {
     if (b.t === "reasoning") { window.chatUi.paintThink(el, { reasoning: b.s, text: b.over || item.done ? "x" : "" }, !(b.over || item.done)); el.hidden = !b.s; return; }
     if (b.t === "text") { window.chatUi.renderMarkdown(el, b.s); return; }
@@ -287,6 +309,10 @@
       let chip = el.querySelector(".chip");
       const pid = b.name.startsWith("plan_") ? planIdOf(b) : "";
       if (pid && !chip) { chip = btn(T("ch.plan.open"), "ghost chip", () => openPlan(pid)); el.querySelector("summary").after(chip); }
+      const sources = sourcesOf(b);
+      let row = el.querySelector(".asrc");
+      if (sources.length && !row) { row = mk("div", "asrc"); el.querySelector("summary").after(row); }
+      if (row) row.replaceChildren(...sources.map(s => window.chatUi.sourceLink(s.url, s.host)));
       return;
     }
     if (b.t === "ask" && b.kind === "code") {                                  // a second-factor code: typed here, it goes to the tool and nowhere else
@@ -345,10 +371,13 @@
     }
   }
   function paintNote(it) {
-    if (it.build) { it.el.replaceChildren(it.build()); return; }
-    it.el.replaceChildren(mk("span", "", it.s));
+    const row = mk("div", "arow"), body = mk("span");
+    row.append(window.chatUi.stamp(it.ts), body);
+    it.el.replaceChildren(row);
+    if (it.build) { body.append(it.build()); return; }
+    body.append(mk("span", "", it.s));
     if (it.route && it.how === "queue" && !it.over) {                         // a request that waits: it can be made urgent or taken out
-      it.el.append(btn(T("ch.promote"), "ghost", () => tell("promote", it.route)), btn(T("ch.drop"), "ghost", () => tell("drop", it.route)));
+      body.append(btn(T("ch.promote"), "ghost", () => tell("promote", it.route)), btn(T("ch.drop"), "ghost", () => tell("drop", it.route)));
     }
   }
   async function tell(what, turn) {
@@ -366,10 +395,11 @@
       if (!it.el) {
         it.el = mk("article", `cmsg ${it.kind}`);
         if (it.kind === "user") {
-          const bubble = mk("div", "bubble");
+          const bubble = mk("div", "bubble"), row = mk("div", "arow");
           if (it.files && it.files.length) bubble.append(mk("div", "achips", it.files.map(f => f.name).join(" · ")));
           bubble.append(mk("div", "", it.text));
-          it.el.append(bubble);
+          row.append(window.chatUi.stamp(it.ts), bubble);
+          it.el.append(row);
           it.el.append(backButton(it));
         }
         else { it.body = mk("div", "ablocks"); it.metaEl = mk("div", "meta"); it.el.append(it.body, it.metaEl); }
@@ -377,8 +407,9 @@
       }
       if (it.kind !== "assistant") return;
       it.blocks.forEach(b => {
-        if (!b.el) { b.el = makeBlock(b); it.body.append(b.el); b.dirty = true; }
+        if (!b.el) { b.el = makeBlock(b); b.row = mk("div", "arow"); b.row.append(window.chatUi.stamp(b.ts), b.el); it.body.append(b.row); b.dirty = true; }
         if (b.dirty || b.t === "reasoning" || b.t === "text") { paintBlock(b, b.el, it); b.dirty = false; }
+        b.row.hidden = b.el.hidden;                                           // a reasoning box with nothing in it shows no time either
       });
       it.metaEl.textContent = it.meta;
     });

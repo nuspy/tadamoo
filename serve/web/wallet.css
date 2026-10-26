@@ -28,7 +28,7 @@
 .wl-facts, .wl-status { margin: 0; font-size: 14px; color: var(--fg-2); overflow-wrap: anywhere; line-height: 1.5; }
 .wl-status { color: var(--fg); }
 .wl-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.wl-actions .btn, .wl-sec .sh .btn { min-height: 44px; }
+.wl-actions .btn, .wl-sec .sh .btn { min-height: var(--btn-h); }
 .wl-form { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px; border: 1px solid var(--accent); border-radius: 8px; min-width: 0; }
 .wl-form .field, .wl-wbody .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .wl-form label, .wl-wbody label { font: 500 15px/1.4 var(--font-sans); }
@@ -58,4 +58,4 @@
 .wl-mismatch { min-height: 1.5em; }
 @media (max-width: 700px) { .wl-body { padding: 12px 14px 16px; } .wl-wbody { padding: 14px; } }
 .wl-tools input, .wl-tools select { width: 100%; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 44px; }
-.wl-form .wl-actions .btn { min-height: 44px; }
+.wl-form .wl-actions .btn { min-height: var(--btn-h); }

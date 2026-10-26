@@ -15,7 +15,7 @@ kbd { font: 12px/1 var(--font-mono); padding: 3px 6px; border: 1px solid var(--l
 
 .nomodel { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 28px 8px; padding: 10px 16px; border: 1px solid var(--pl-block, #E9C341); border-radius: 8px; background: var(--surface); color: var(--fg); }
 .nomodel span { flex: 1 1 320px; }
-.nomodel .btn { min-height: 40px; }
+.nomodel .btn { min-height: var(--btn-h); }
 
 /* command palette */
 .palette { width: min(680px, calc(100vw - 48px)); max-height: min(560px, calc(100vh - 96px)); margin-top: 12vh; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--fg); overflow: hidden; }

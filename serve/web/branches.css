@@ -14,7 +14,7 @@
 .brd-status { min-height: 1.5em; color: var(--fg-2); }
 .brd-status:empty { display: none; }
 .brd-status[data-bad="1"] { color: var(--pl-fail); }
-.brd .btn { min-height: 44px; }
+.brd .btn { min-height: var(--btn-h); }
 .brd :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .brd-tree, .brd-tree ul, .brd-list, .brd-files { list-style: none; margin: 0; padding: 0; }

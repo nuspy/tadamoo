@@ -412,8 +412,16 @@ class WalletViewTest(unittest.TestCase):
         self.assertIn('"Escape"', self.js)
         self.assertNotIn("pill.title", self.js)                             # nothing is only in a tooltip
 
+    def test_buttons_are_compact_and_their_size_is_set_in_one_place(self):
+        css = (WEB / "app.css").read_text(encoding="utf-8")
+        self.assertIn("--btn-h: 30px; --btn-fs: 13px;", css)                    # 30 px tall, type 2 px smaller than before (15)
+        self.assertRegex(css, r"\.btn \{ min-height: var\(--btn-h\);[^}]*font: 500 var\(--btn-fs\)")
+        for name, selector in (("shell.css", ".nomodel .btn"), ("wallet.css", ".wl-actions .btn, .wl-sec .sh .btn"), ("branches.css", ".brd .btn")):
+            rule = re.search(re.escape(selector) + r" \{([^}]*)\}", (WEB / name).read_text(encoding="utf-8")).group(1)
+            self.assertIn("var(--btn-h)", rule, selector)
+
     def test_small_targets_of_the_bar_and_the_wallet_are_40_px_tall(self):
-        for name, selector in (("wallet.css", ".wl-pill"), ("shell.css", ".pal-open"), ("shell.css", ".nomodel .btn"), ("shell.css", ".st-link")):
+        for name, selector in (("wallet.css", ".wl-pill"), ("shell.css", ".pal-open"), ("shell.css", ".st-link")):
             css = (WEB / name).read_text(encoding="utf-8")
             rule = re.search(re.escape(selector) + r" \{([^}]*)\}", css).group(1)
             self.assertIn("min-height: 40px", rule, selector)
