@@ -1876,6 +1876,12 @@ def make_handler(svc: Service):
                     return self._json(200, service.archive(plan_id, service._actor(req)))
                 if action == "restore":
                     return self._json(200, service.restore(plan_id, service._actor(req)))
+                if action == "duplicate":
+                    return self._json(201, service.duplicate(plan_id, service._actor(req), req.get("title")))
+                if action == "delete":
+                    if not service.delete(plan_id):
+                        raise KeyError(plan_id)
+                    return self._json(200, {"deleted": plan_id})
                 self._json(404, {"error": {"message": "not found"}})
             except json.JSONDecodeError as exc:
                 self._json(400, {"error": {"message": f"invalid JSON: {exc.msg}"}})

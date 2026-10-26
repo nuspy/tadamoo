@@ -481,7 +481,7 @@ and the bridge the page talks to.
   as diffs; only the ones that apply cleanly are shown, and nothing changes until you approve.
 - Every change to a plan raises its **revision** and adds a line to its **history** that says who made it (`user`, `chat`,
   `planner` or `system`; the sender states it, so it is a note and not proof of identity). An edit that writes straight into
-  the plan (`plan:update_node`, `plan:mark`, `plan:rewind`, `plan:update_meta`, `plan:fallback_response`) may carry
+  the plan (`plan:update_node`, `plan:move`, `plan:mark`, `plan:rewind`, `plan:update_meta`, `plan:fallback_response`) may carry
   `base_rev`, the revision the sender last read; if the plan has moved on it is refused with `stale: true` and nothing
   changes. A proposal needs no revision: approving it fails, and marks it stale, when its diff no longer applies.
   `plan:update_meta` changes a plan's title, its kind (`constant` or `occasional`) and its card, all or nothing.
@@ -520,12 +520,19 @@ and the bridge the page talks to.
   a call the message says why: the service is not running, it refused the token, a call is already in progress (HTTP 409), or it refused the call
   with its reason; and when the call **may have started** (no answer in time, the connection broke, a server error) the status is `unknown`, the
   tool says so and tells the model to ask the user whether the phone rang. A placement is never sent twice, whatever happened.
+- **The list of steps**: a plan keeps the order of its list (`order` in the plan, `GET /api/plans/<id>` also returns it as `order`). It is the
+  order the person arranged, adjusted so no step comes before one it waits for. `plan:move` with `{"node_id", "direction": -1 | 1}` moves a
+  step one place up or down. Neighbours that do not wait for each other change places. A step that waits for its neighbour changes places only in
+  a plain chain of pending actions (it has one step before and one after, `before -> a -> b -> after` becomes `before -> b -> a -> after`, and
+  the links are redrawn); in any other case the move is refused with the reason and nothing changes.
+- **Duplicating and deleting**: `POST /api/plans/<id>/duplicate` (`{"title"?}`) makes a copy under a new id with its steps, links, card and dates
+  and a history of its own; `POST /api/plans/<id>/delete` erases a plan for good (the Plans page asks twice; archiving keeps it).
 - **Canvas**: a step can be moved with the pointer, with the arrow keys when it is selected, or with the *Move* buttons of its panel; the place is saved in
   the step (`position`) through `plan:update_node`, also for a finished step, and a step without one keeps the automatic layout.
 - **Going back over a step** that recorded actions which cannot be undone (a call, a payment, a command) first asks `plan:rewind_impact`; the page lists
   what would stay done and goes back only with *Rewind anyway* (`plan:rewind` with `accept_irreversible`).
 - API: `GET/POST /api/plans` (`GET /api/plans?archived=1` lists the archived ones), `GET /api/plans/telemetry`, `POST /api/plans/events`, `GET /api/plans/<id>`,
-  `POST /api/plans/<id>/events`, `POST /api/plans/<id>/triage`, `POST /api/plans/<id>/archive` and `/restore`,
+  `POST /api/plans/<id>/events`, `POST /api/plans/<id>/triage`, `POST /api/plans/<id>/archive`, `/restore`, `/duplicate` and `/delete`,
   `GET /api/plans/<id>/events?after=N` and `/stream` (server-sent events), `GET/POST /api/planner/settings`.
 
 ## Attached files and files the agent makes
