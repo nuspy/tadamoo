@@ -211,6 +211,29 @@ The agent can keep short notes about a project and read them in later conversati
   in *Plan only* it can only recall.
 - **Off.** `--no-memory` on the command line removes the tools and the retrieval.
 
+## 8a. Your own memories
+
+Besides the notes about a project, the assistant can keep two memories about **you**, in *Settings > Memories*. **Nothing is learned or used until you switch it on there.**
+
+- **Long-term memory:** what changes slowly. Sections: who you are, where you live, people, companies, business partners, character, tastes, interests,
+  values, how you think, the foundations of your thinking, emotions, and one short card that sums you up. A note does not expire.
+- **Short-term memory:** what happened lately. Sections: facts, searches, topics, projects (the state of what you build in the Agent tab). Notes are kept until you
+  delete them, but only those seen in the last 14 days (you can change the number) go into answers. To use older ones, ask the assistant to look further back:
+  it then searches all of them (`recall_about_user`).
+- **Learning** (a switch for each memory). What you write is kept in an encrypted queue and, when the GPU has had nothing to do for a few seconds, a separate
+  model call decides what is worth keeping and in which section. It reads only your own messages and the searches done for you, never an answer, a page, a file
+  or a tool result, and it never touches a note you wrote or confirmed. Notes that look like a secret (card numbers, passwords, keys) or like an order to
+  an assistant are refused. A note it only guesses is marked *a guess* with how sure it is; the *It is right* button makes it count fully. A routine is never learned from.
+- **Using** (another switch for each memory). At each message only the notes that share words with it are put in, after your message and as data, up to a small
+  budget; the same note is never put in twice in a conversation. Each section has a **weight**: off, low, normal, high or highest. Low puts in one note and only on
+  a clear match; normal up to two; high up to four and the first two of the section at the start of a conversation; highest up to eight and six at the start. What
+  the assistant only guessed (character, values, how you think, emotions, the card) starts at *low*.
+- **Where it is kept.** On this PC only, encrypted with the same device key as the Wallet's vault (Windows DPAPI wraps it for your user: code running as you can
+  still ask Windows for it). A phone never sees or edits the memories, although its conversations use them. When a conversation is pointed at a provider that is not
+  this PC's model, the notes stay out of the request unless you allow it in the red box, which asks twice.
+- **Read, correct, delete.** The same page lists the notes (search and filter by section), edits, confirms and deletes them one by one or all of a memory with two
+  presses, and shows what was learned lately and how many messages wait for a free GPU.
+
 ## 9. Rules, context and reference documents
 
 - **`AGENTS.md`** (else `CLAUDE.md`, else `GEMINI.md`), searched from the folder up to the repository root, is part of every prompt.

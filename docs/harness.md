@@ -12,6 +12,7 @@ nothing from the engine. `python -m pytest tests` runs its tests without a GPU, 
 - [The planner](#the-planner)
 - [The web pages](#the-web-pages)
 - [Personal skills](#personal-skills)
+- [The person's own memories](#the-persons-own-memories)
 - [Evaluation](#evaluation)
 - [Tests and what is not done](#tests-and-what-is-not-done)
 
@@ -1075,6 +1076,35 @@ for the app. All these routes work only from this PC and the server's own page. 
 the agent kept and diagrams as their source. The **+** menu: *Image* (the phone's photo picker), *Photo* (the Camera app), *Documents/Files* with *Local* (the phone's document window),
 *Server* (the same window opened on the entry "Basalt - PC", which `BasaltDocumentsProvider.kt` fills from `/api/files/*`) and *Network* (SMB, from the devices Tailscale lists or an
 address typed). Speech to text and text to speech are the phone's own. A phone may start conversations and routines only in folders already added on the PC.
+
+## The person's own memories
+
+`harness/personal_memory.py`, `harness/memory_extract.py`, `serve/memory_worker.py`, `serve/memories_api.py`, `serve/web/memories.js`. Two memories about the person, apart from the per-project
+`MemoryStore`: **long-term** (sections identity, place, people, companies, partners, character, tastes, interests, values, thinking, foundations, emotions, card) and **short-term** (facts, searches,
+topics, projects). Each note has a section, a text of up to 400 characters, an origin (`said`, `inferred` with a confidence, `confirmed`, `manual`), the time it was last seen and how many times.
+
+- **Storage.** `personal-memory/memories.bin` in the user data folder: AES-256-GCM, key derived (HMAC-SHA256) from the vault's `device.key` (DPAPI-wrapped), so the same protection and the same
+  limit as the vault. The file also holds the queue of messages to learn from and the last 100 changes. `memory-settings.json` beside it (not secret) holds the switches: `learn_long`, `learn_short`,
+  `use_long`, `use_short`, `short_days` (default 14), `long_days` (default 0, no limit), `cloud_ok`, and a weight (`off`, `low`, `normal`, `high`, `highest`) for each section. **Everything is off by default.**
+  One process writes it (the server); each conversation process reads it again whenever the file changes, so a switch works on a running conversation.
+- **Learning.** `SessionManager` collects what the person writes in a turn (and the `search_web` queries run for it) and hands it to `MemoryWorker.offer` when the turn ends; a routine's conversation is
+  excluded (`keep_out_of_memory`). The message is queued only if a memory learns. `MemoryWorker` runs a thread: when `gpu_free(svc)` is true (the model is loaded, nothing is served or queued, the last request
+  is more than 4 s old unless it was the worker's own, and no card is above 50% utilisation) it asks the **loaded model** (never a cloud route; `BasaltClient` on this server) with `memory_extract.SYSTEM`,
+  `response_format json_object`, reasoning off, for operations `add`/`update`/`delete`. The model sees only the person's messages (each cut at 1,500 characters), the searches, the project's name and the
+  related notes already kept. `apply` refuses notes that look like a secret (long digit runs, long tokens, password/key words) or an order to an assistant (`ignore previous`, `you must`, tags, vault
+  placeholders), cannot change or delete a note the person wrote or confirmed, clamps a guess to confidence 0.3-0.9 and counts a repeated note instead of adding it. A failed call leaves the queue for
+  the next free moment; switching learning off drops what waited.
+- **Using.** `Recall.message(goal)` (`harness/personal_memory.py`) is called by `BuiltAgent.retrieved_message` and joins the project notes in the same untrusted-data message at the tail of the
+  conversation. Only notes of a memory that is on, in a section that is not `off`, and (for the short memory) seen within `short_days`, are candidates. Words are cut to five letters and matched; a match
+  is *strong* with two shared words (or one rare word among ten or more notes). The weight of a section sets how many notes it gives (low 1 and only a strong match, normal 2, high 4, highest 8; high and
+  highest also give 2 and 6 core notes at the start of a conversation); a guess always needs a strong match. A note already given in the conversation is not given again unless it changed. At most 1,800
+  characters. `recall_about_user(query, scope)` (a `PURE`, untrusted tool) searches the eligible notes, or all of them with `scope: "all"` when the person asks to look further back.
+- **Not to a provider that is not this PC.** `RoutedClient.stays_local()` says whether every route of the conversation's executor is the loaded model; when it is not, the notes stay out of the request and
+  out of the tool's answer unless `cloud_ok` was set, which the page asks twice for.
+- **The page and its routes.** `GET /api/memories?q=&kind=&section=` and `POST /api/memories/settings|item|confirm|delete|clear` answer only on this PC (loopback, the page's own origin, JSON); the
+  list a phone may reach does not include them, so a phone neither sees nor edits the memories, though its conversations use them. `clear` needs `confirm: true`.
+- **What it is not.** Matching is by words, not meaning: a question that shares none with a note does not bring it (except the core notes of a heavy section at the start, and `recall_about_user`). A note the
+  person pasted into a message as if it were their own can be learned: read the list now and then. The quality of what the loaded model keeps has not been measured (`tests/QUEUE_daytime.md`, row 27).
 
 ## Routines
 

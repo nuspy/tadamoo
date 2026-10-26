@@ -224,6 +224,30 @@ L'agente può tenere appunti brevi su un progetto e rileggerli nelle conversazio
   scrivere; in *Solo un piano* può solo richiamare.
 - **Spenta.** `--no-memory` sulla riga di comando toglie gli strumenti e il recupero.
 
+## 8a. Le tue memorie
+
+Oltre alle note su un progetto, l'assistente può tenere due memorie su **di te**, in *Impostazioni > Memorie*. **Nulla viene imparato o usato finché non lo accendi lì.**
+
+- **Memoria a lungo termine:** ciò che cambia lentamente. Sezioni: chi sei, dove vivi, persone, aziende, partner economici, carattere, gusti, interessi, valori,
+  come pensi, i fondamenti del tuo pensiero, emozioni, e una breve scheda che ti riassume. Una nota non scade.
+- **Memoria a breve termine:** ciò che è successo da poco. Sezioni: fatti, ricerche, argomenti, progetti (lo stato di ciò che costruisci nella scheda Agente). Le
+  note restano finché non le cancelli, ma nelle risposte entrano solo quelle viste negli ultimi 14 giorni (il numero si cambia). Per usare le più vecchie chiedi
+  all'assistente di guardare più indietro: allora cerca in tutte (`recall_about_user`).
+- **Imparare** (un interruttore per ogni memoria). Ciò che scrivi resta in una coda cifrata e, quando la GPU non ha avuto nulla da fare per qualche secondo, una
+  chiamata separata al modello decide cosa vale la pena tenere e in quale sezione. Legge solo i tuoi messaggi e le ricerche fatte per te, mai una risposta, una pagina,
+  un file o il risultato di uno strumento, e non tocca mai una nota scritta o confermata da te. Le note che sembrano un segreto (numeri di carta, password, chiavi) o un
+  ordine a un assistente vengono rifiutate. Una nota solo intuita è segnata *un'intuizione* con quanto è sicura; il pulsante *È giusto* la fa contare del tutto. Una
+  routine non viene mai imparata.
+- **Usare** (un altro interruttore per ogni memoria). A ogni messaggio entrano solo le note che hanno parole in comune con esso, dopo il tuo messaggio e come dati, entro
+  un piccolo budget; la stessa nota non entra due volte in una conversazione. Ogni sezione ha un **peso**: spento, basso, normale, alto o altissimo. Basso mette una nota e
+  solo con una corrispondenza chiara; normale fino a due; alto fino a quattro e le prime due della sezione all'inizio di una conversazione; altissimo fino a otto e sei
+  all'inizio. Ciò che l'assistente ha solo intuito (carattere, valori, come pensi, emozioni, scheda) parte da *basso*.
+- **Dove sta.** Solo su questo PC, cifrata con la stessa chiave del dispositivo della cassaforte del Portafoglio (Windows DPAPI la protegge per il tuo utente: un
+  programma che gira come te può comunque chiederla a Windows). Un telefono non vede né modifica le memorie, anche se le sue conversazioni le usano. Quando una
+  conversazione è diretta a un fornitore che non è il modello di questo PC, le note restano fuori dalla richiesta, salvo che tu lo permetta nel riquadro rosso, che chiede due volte.
+- **Leggere, correggere, cancellare.** La stessa pagina elenca le note (con ricerca e filtro per sezione), le modifica, le conferma e le cancella una per una, o tutte
+  quelle di una memoria con due pressioni, e mostra cosa è stato imparato di recente e quanti messaggi aspettano una GPU libera.
+
 ## 9. Regole, contesto e documenti di riferimento
 
 - **`AGENTS.md`** (altrimenti `CLAUDE.md`, altrimenti `GEMINI.md`), cercato dalla cartella in su fino alla radice del repository, fa
