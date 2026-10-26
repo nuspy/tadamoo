@@ -329,6 +329,9 @@ collegare i telefoni**: il server ascolta anche su quell'indirizzo, solo per Tai
 codice QR con l'app (o copia la chiave). La chiave si vede una volta sola; per fermare un telefono, togli la sua chiave. Sul telefono installa Tailscale dal Play Store e accedi con lo stesso account. Un telefono può
 usare il modello, le conversazioni, i file e le routine; non raggiunge il portafoglio, la cassaforte, le impostazioni né il caricamento dei modelli.
 
+L'app Android (`mobile/`, vedi il suo README) richiede poi solo l'indirizzo e la chiave: inquadra il codice QR nelle sue Impostazioni. Il suo pulsante **+** offre *Immagine*, *Foto* e *Documenti/File* (*Locale*, *Server*: le cartelle aggiunte
+sul PC, e *Rete*: altri dispositivi, via SMB); il microfono scrive ciò che dici e le risposte si possono far leggere ad alta voce, con la voce e il riconoscimento del telefono.
+
 ## 13. La scheda Agente
 
 La scheda Agente è la pagina delle conversazioni che lavora in una **cartella tua**. A sinistra la colonna elenca le cartelle che hai

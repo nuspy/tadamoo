@@ -1053,11 +1053,10 @@ budget among roles and run a mock; nothing uses it and `spawn_subagent` does not
 ## Phones and several API keys
 
 `serve/remote.py`. The server has the one key of `--api-key` (kept as it was) and, besides it, any number of **device keys**: each has a name (the phone it is for), is made on this PC in
-*Settings > Phones*, is shown once, and is kept only as a SHA-256 hash in `api-keys.json` of the user data folder. A key is taken away on its own and stops working at once. A request is
-accepted with the master key or any device key, as `Authorization: Bearer ...` or `x-api-key`. With no master key this PC's own page works as before, with no key; a client that is not on
-this PC always needs one.
+*Settings > Phones*, is shown once, and is kept only as a SHA-256 hash in `api-keys.json` of the user data folder. A key is taken away on its own and stops working at once. On the server's own address nothing changes: the master key, when there is one, and no key otherwise. A device key counts only on the **listener for phones** described below, where every request
+needs the master key or a device key, as `Authorization: Bearer ...` or `x-api-key`.
 
-A client away from this PC can come only through a second listener, which is bound to **this PC's Tailscale address and nothing else** (`remote.json` keeps whether it is on; it starts
+A phone comes through a second listener, which is bound to **this PC's Tailscale address and nothing else** (`remote.json` keeps whether it is on; it starts
 with the server and follows Tailscale's address). It is off until the person turns it on. What such a client may reach is a short list (`remote_path_ok`): the model (`/v1/`), the
 conversations (`/api/agent/`), attached files and the files the agent made (`/api/attachments`, `/api/outputs`), the routines, the plans, the personal skills (read only) and
 `GET /api/files/roots|list|read`, which let the app browse and read the folders added in the Agent tab and the Chat's own folder (nothing outside them, never `.basalt` or `.git`; `serve/files_api.py`), and `GET /api/remote/hello`, which tells the app that its address and key are good (and the name of the key). Everything else, the page itself included, is refused with 403 before any key is
@@ -1069,6 +1068,13 @@ of a phone, whose own key is the proof.
 winget it points to tailscale.com/download), connects it (`tailscale/up`; when a sign-in is needed the page shows the address to open), turns phones on or off (`enable`, `disable`), and makes
 (`keys/create`) and takes away (`keys/revoke`, asked twice) the keys. A new key is shown with a **QR code** that holds `{"v":1,"url":"http://<tailscale address>:<port>","key":"bsk_...","name":"..."}`
 for the app. All these routes work only from this PC and the server's own page. The phone needs Tailscale too (Play Store), signed in to the same account.
+
+**The Android app** (`mobile/`, Flutter; see `mobile/README.md`) is the phone's side: the address (IP:port) and the key are in its Settings, with a QR scan, and it uses the routes above plus
+`GET /api/remote/peers` (the other devices Tailscale sees, for *+ > Documents/Files > Network*). The conversation page is a port of the web page's: the same events (`user`, `delta`, `agent`,
+`ask`, `done`, ...) followed with `GET /api/agent/sessions/<id>/events?after=N`, the same buttons for questions and modes, copy, read aloud and *Branch from here*, files as buttons, pictures
+the agent kept and diagrams as their source. The **+** menu: *Image* (the phone's photo picker), *Photo* (the Camera app), *Documents/Files* with *Local* (the phone's document window),
+*Server* (the same window opened on the entry "Basalt - PC", which `BasaltDocumentsProvider.kt` fills from `/api/files/*`) and *Network* (SMB, from the devices Tailscale lists or an
+address typed). Speech to text and text to speech are the phone's own. A phone may start conversations and routines only in folders already added on the PC.
 
 ## Routines
 
