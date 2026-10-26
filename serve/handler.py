@@ -270,6 +270,16 @@ def make_handler(svc: Service):
             """A client that is not on this PC: it can only have come through the Tailscale listener."""
             return not settings.is_loopback(self.client_address[0])
 
+        def _folder_ok(self, workspace) -> bool:
+            """A phone works only in the folders added on this PC (or the Chat's own, when it names none): it cannot point the agent at any folder of the disk."""
+            if not self._outside() or workspace in (None, ""):
+                return True
+            try:
+                want = os.path.normcase(str(Path(str(workspace)).resolve()))
+            except (OSError, ValueError):
+                return False
+            return any(os.path.normcase(str(Path(p["path"]).resolve())) == want for p in self._projects().list())
+
         def _local_or_device(self) -> bool:
             """This PC, or a phone that came through Tailscale with one of the keys: for the few writes a phone may make."""
             if not self._outside():
@@ -1655,6 +1665,8 @@ def make_handler(svc: Service):
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
                 api, parts = self._routines(), path[len("/api/routines"):].strip("/").split("/")
+                if "workspace" in req and not self._folder_ok(req.get("workspace")):
+                    return self._json(403, {"error": {"type": "forbidden", "message": "a phone works only in the folders added on the PC"}})
                 if parts == [""]:
                     return self._json(200, api.create(req))
                 if parts == ["cancel"]:
@@ -1823,6 +1835,10 @@ def make_handler(svc: Service):
                 req = json.loads(self._body(1 << 16) or b"{}")
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
+                if parts[0] == "projects" and self._outside():
+                    return self._json(403, {"error": {"type": "forbidden", "message": "folders are added only from the PC the server runs on"}})
+                if parts == ["sessions"] and not self._folder_ok(req.get("workspace")):
+                    return self._json(403, {"error": {"type": "forbidden", "message": "a phone works only in the folders added on the PC"}})
                 if parts == ["projects"]:
                     return self._json(200, {"project": self._projects().add(req.get("path"))})
                 if parts == ["projects", "remove"]:
