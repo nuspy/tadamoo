@@ -137,11 +137,12 @@ def vision_config(mf: ModelFile, engine_bin: str, sidecar: bool = True, projecto
 
 
 def model_config(path: str, engine_bin: str, gpus: int | None = None, vision: bool | str = False,
-                 engine_words: list[str] | None = None, projector: str | None = None) -> dict:
+                 engine_words: list[str] | None = None, projector: str | None = None, hold: str = "keep") -> dict:
     """The engine settings the file implies; `engine_words` follow its arguments as given (the engine's parser lets a
     later flag win), `vision` (True, "peer"
     or "cpu") adds the sidecar and "dynamic" the in-engine encoder (ValueError if it cannot be set up), reading `projector`
-    when one is given. A second visible GPU becomes the peer tier."""
+    when one is given and, with "dynamic", `hold` "release" (the engine frees the encoder's weights between images). A second visible GPU
+    becomes the peer tier."""
     mf = ModelFile(path)
     meta = json.loads(mf.read("meta"))
     path = os.path.abspath(path)
@@ -162,6 +163,8 @@ def model_config(path: str, engine_bin: str, gpus: int | None = None, vision: bo
         cfg["vision"] = v
         if vision == "dynamic":     # the engine encodes: it reads the projector itself
             args += ["--vision-mmproj", v["mmproj"]]
+            if hold == "release":
+                args.append("--vision-release")
         if "--vision" not in args:   # image embeddings need --vision
             args.append("--vision")
     return cfg

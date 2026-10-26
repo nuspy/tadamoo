@@ -106,10 +106,13 @@ def main() -> int:
         words = file_engine + cli_engine
         mode = a.vision
         vision_arg = False if a.mock_engine or mode == "off" else mode
+        if vision_arg == "dynamic" and a.vision_hold == "release" and known is not None and "--vision-release" not in known:
+            fail("--vision-hold release: this engine binary does not know --vision-release; build the engine again")
         try:
+            projector = loader.projector_path(a.vision_projector, a.model) if vision_arg else None
             cfg.update({k: v for k, v in modelfile.model_config(
                 a.model, a.engine_bin, gpus=len(listed) if listed else None, vision=vision_arg,
-                engine_words=file_engine + cli_engine).items()
+                engine_words=file_engine + cli_engine, projector=projector, hold=a.vision_hold).items()
                 if k not in cfg})
         except (OSError, ValueError, KeyError) as e:
             fail(f"{a.model}: {e}")

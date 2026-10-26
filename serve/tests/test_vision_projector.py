@@ -137,5 +137,140 @@ class TheDefaults(Isolated):
         self.assertIn("Q8_0", bad["vision_problem"]["en"])
 
 
+class TheChoice(Isolated):
+    """Which projector image input reads with: the model file's own, or a file of the models folders."""
+
+    def setUp(self):
+        super().setUp()
+        patch = mock.patch.dict(models.GEOMETRY, {"n_embd": 256})              # the test projectors are 256 wide
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def files(self):
+        folder = self.root / "projectors"
+        folder.mkdir()
+        projector_gguf(folder / "mmproj-good-BF16.gguf")
+        projector_gguf(folder / "mmproj-other-F16.gguf", mat=F16, vec=F16)
+        projector_gguf(folder / "mmproj-q8.gguf", mat=Q8_0)
+        projector_gguf(folder / "mmproj-wide.gguf", proj=512)               # another model's: its width is not this model's
+        return folder
+
+    def test_the_folder_lists_the_projectors_the_engine_can_use_with_what_each_keeps_in_ram(self):
+        folder = self.files()
+        found = models.projector_files([str(folder)], ttl=0)
+        by = {p["name"]: p for p in found}
+        self.assertEqual(sorted(by), ["mmproj-good-BF16.gguf", "mmproj-other-F16.gguf"])
+        self.assertEqual(by["mmproj-good-BF16.gguf"]["fix"], 0)
+        self.assertEqual(by["mmproj-other-F16.gguf"]["fix"], 22)
+        self.assertEqual([p["name"] for p in found][0], "mmproj-good-BF16.gguf")             # the one read as it is comes first
+
+    def facts(self, **kw):
+        return {**loader.DEMO_FACTS, **kw}
+
+    def test_auto_takes_the_models_own_projector_when_it_reads_else_a_file(self):
+        file = {"path": "E:/p/mmproj-BF16.gguf", "name": "mmproj-BF16.gguf", "bytes": 907542944, "fix": 0, "from": []}
+        own = loader.pick_projector("auto", self.facts(projectors=[file]))
+        self.assertEqual(own["value"], "embedded")
+        bad = {"it": "F16", "en": "Q8_0"}
+        picked = loader.pick_projector("auto", self.facts(vision_problem=bad, projectors=[file]))
+        self.assertEqual((picked["value"], picked["bytes"]), (file["path"], 907542944))
+        none = loader.pick_projector("auto", self.facts(mmproj_bytes=0, projectors=[]))
+        self.assertIsNone(none)
+        self.assertEqual(loader.pick_projector("embedded", self.facts(vision_problem=bad, projectors=[file]))["problem"], bad)
+        self.assertEqual(loader.pick_projector(file["path"], self.facts(vision_problem=bad, projectors=[file]))["value"], file["path"])
+
+    def test_a_plan_counts_the_chosen_projectors_ram_and_a_missing_file_is_refused(self):
+        file = {"path": "E:/p/mmproj-BF16.gguf", "name": "mmproj-BF16.gguf", "bytes": 907542944, "fix": 0, "from": []}
+        bad = {"it": "Q8_0", "en": "Q8_0"}
+        facts = self.facts(vision_problem=bad, projectors=[file])
+        v = {**loader.safe(loader.DEMO_FACTS, ROOMY), "server.vision": "dynamic"}
+        p = loader.plan(v, facts, ROOMY)
+        self.assertTrue(p["fits"], p["problems"])
+        self.assertEqual(p["projector"]["value"], file["path"])
+        self.assertEqual([i["bytes"] for i in p["ram"]["items"] if i["key"] == "vision"], [907542944])
+        self.assertFalse(loader.plan({**v, "server.vision-projector": "embedded"}, facts, ROOMY)["fits"])
+        gone = loader.plan({**v, "server.vision-projector": str(self.root / "nowhere.gguf")}, facts, ROOMY)
+        self.assertFalse(gone["fits"])
+        self.assertIn("is not there", [x for x in gone["problems"] if x["code"] == "vision"][0]["en"])
+        nothing = loader.plan(v, self.facts(mmproj_bytes=0, projectors=[]), ROOMY)
+        self.assertIn("no vision projector", [x for x in nothing["problems"] if x["code"] == "vision"][0]["en"])
+        self.assertTrue(loader.plan({**v, "server.vision": "off"}, self.facts(mmproj_bytes=0, projectors=[]), ROOMY)["fits"])
+
+    def test_safe_values_turn_images_on_with_a_file_when_the_models_own_is_unusable(self):
+        file = {"path": "E:/p/mmproj-BF16.gguf", "name": "mmproj-BF16.gguf", "bytes": 907542944, "fix": 0, "from": []}
+        facts = self.facts(vision_problem={"it": "Q8_0", "en": "Q8_0"}, projectors=[file])
+        self.assertEqual(loader.safe(facts, ROOMY)["server.vision"], "dynamic")
+        self.assertEqual(loader.safe({**facts, "projectors": []}, ROOMY)["server.vision"], "off")
+
+    def test_the_setting_is_checked_and_reaches_the_server_as_an_option(self):
+        from serve import config, settings
+        self.assertEqual(settings.check_value("server", "vision-projector", " AUTO "), "auto")
+        self.assertEqual(settings.check_value("server", "vision-projector", "E:/p/x.gguf"), "E:/p/x.gguf")
+        for bad in ("", 3, None, "a" + chr(10) + "b"):
+            with self.assertRaises(ValueError):
+                settings.check_value("server", "vision-projector", bad)
+        self.assertIn(("server", "vision-projector"), settings.LOADER_FIELDS)
+        cfg = self.root / "c.json"
+        cfg.write_text('{"server": {"vision": "dynamic", "vision-projector": "embedded"}}', encoding="utf-8")
+        a = config.parse_settings(config.build_parser(), ["--config", str(cfg)])[0]
+        self.assertEqual((a.vision, a.vision_projector), ("dynamic", "embedded"))
+        self.assertEqual(config.parse_settings(config.build_parser(), [])[0].vision_projector, "auto")
+
+    def test_releasing_the_projector_takes_it_out_of_the_steady_need_and_says_so(self):
+        v = {**loader.safe(loader.DEMO_FACTS, ROOMY), "server.vision": "dynamic"}
+        keep = loader.plan(v, loader.DEMO_FACTS, ROOMY)
+        free = loader.plan({**v, "server.vision-hold": "release"}, loader.DEMO_FACTS, ROOMY)
+        held = loader.DEMO_FACTS["mmproj_bytes"]
+        self.assertEqual(keep["vision_hold"], {"release": False, "bytes": 0})
+        self.assertEqual(free["vision_hold"], {"release": True, "bytes": held})
+        self.assertEqual(keep["ram"]["need"] - free["ram"]["need"], held)
+        self.assertEqual(keep["commit"]["need"] - free["commit"]["need"], held)
+        self.assertEqual([i["bytes"] for i in free["ram"]["items"] if i["key"] == "vision"], [0])
+        other = loader.plan({**v, "server.vision": "cpu", "server.vision-hold": "release"}, loader.DEMO_FACTS, ROOMY)
+        self.assertFalse(other["vision_hold"]["release"])                     # only the engine's own encoder lets go of it
+
+    def test_the_cpu_encoder_keeps_the_projector_in_ram_and_the_sidecar_gives_it_back(self):
+        v = {**loader.safe(loader.DEMO_FACTS, ROOMY), "server.vision": "cpu"}
+        held = loader.DEMO_FACTS["mmproj_bytes"]
+        cpu = loader.plan(v, loader.DEMO_FACTS, ROOMY)
+        off = loader.plan({**v, "server.vision": "off"}, loader.DEMO_FACTS, ROOMY)
+        self.assertEqual(cpu["ram"]["need"] - off["ram"]["need"], held)
+        from types import SimpleNamespace
+        from serve import loader_api
+        me = SimpleNamespace(proc=SimpleNamespace(pid=1), alive=lambda: True)
+        fixed = SimpleNamespace(rss=100, private=300)
+        with mock.patch("psutil.Process", lambda pid: SimpleNamespace(memory_info=lambda: fixed)):
+            both = loader_api._holds(SimpleNamespace(engine=me, vision=me, settings_info={}, gpu_index=0), None)[0]
+            alone = loader_api._holds(SimpleNamespace(engine=me, vision=None, settings_info={}, gpu_index=0), None)[0]
+        self.assertEqual((alone["ram"], alone["commit"]), (100, 300))
+        self.assertEqual((both["ram"], both["commit"]), (200, 600))
+
+    def test_the_hold_is_checked_and_reaches_the_server_as_an_option(self):
+        from serve import config, settings
+        self.assertEqual(settings.check_value("server", "vision-hold", " Release "), "release")
+        for bad in ("", "never", 1, None):
+            with self.assertRaises(ValueError):
+                settings.check_value("server", "vision-hold", bad)
+        self.assertIn(("server", "vision-hold"), settings.LOADER_FIELDS)
+        cfg = self.root / "c.json"
+        cfg.write_text('{"server": {"vision": "dynamic", "vision-hold": "release"}}', encoding="utf-8")
+        a = config.parse_settings(config.build_parser(), ["--config", str(cfg)])[0]
+        self.assertEqual(a.vision_hold, "release")
+        self.assertEqual(config.parse_settings(config.build_parser(), [])[0].vision_hold, "keep")
+
+    def test_the_load_hands_the_engine_the_file_chosen(self):
+        folder = self.files()
+        model = tiny_basalt(self.root / "m.basalt", projector=Q8_0)
+        with mock.patch.object(models, "dirs", lambda: [str(folder)]), mock.patch.dict(models._PROJECTORS, {"key": None}):
+            self.assertEqual(loader.projector_path("auto", str(model)), models._posix(str(folder / "mmproj-good-BF16.gguf")))
+            with self.assertRaises(ValueError):
+                loader.projector_path("embedded", str(model))
+            with self.assertRaises(ValueError):
+                loader.projector_path(str(folder / "mmproj-q8.gguf"), str(model))
+        good = tiny_basalt(self.root / "g.basalt")
+        with mock.patch.object(models, "dirs", lambda: [str(folder)]), mock.patch.dict(models._PROJECTORS, {"key": None}):
+            self.assertIsNone(loader.projector_path("auto", str(good)))          # its own, unpacked from the file
+
+
 if __name__ == "__main__":
     unittest.main()

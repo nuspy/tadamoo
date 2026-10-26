@@ -49,6 +49,8 @@ def _holds(svc, sup):
     """What the running engine gives back when a load stops it: its process memory, and the VRAM its own settings
     planned (the GPU cannot say per process under WDDM)."""
     holds = loader.engine_holds(svc.engine)
+    side = loader.engine_holds(getattr(svc, "vision", None))        # the image encoder's own process, when it has one
+    holds = {"ram": holds["ram"] + side["ram"], "commit": holds["commit"] + side["commit"]}
     vram = 0
     if holds["ram"] or holds["commit"]:
         running = (getattr(svc, "settings_info", None) or {}).get("running") or {}
@@ -84,11 +86,17 @@ def facts_of(svc, model: str | None) -> dict:
         raise ValueError(f"model: {e}") from None
 
 
+def with_projectors(facts: dict) -> dict:
+    """The facts and the projector files of the models folders, which a model can read images with."""
+    from serve import models
+    return {**facts, "projectors": models.projector_files()}
+
+
 def evaluate(svc, values: dict, lang: str = "en", model: str | None = None) -> dict:
     """The plan and speed of `values` ({"engine.kv": "q4_0", ...}; None = the engine's default) against now, for the
     running model or `model` (a .basalt file)."""
     sup = sup_of(svc)
-    facts = facts_of(svc, model)
+    facts = with_projectors(facts_of(svc, model))
     holds, holds_vram = _holds(svc, sup)
     system = loader.system_now(getattr(svc, "gpu_index", 0))
     p = loader.plan(values, facts, system, holds, holds_vram)
@@ -146,7 +154,7 @@ def info(svc, local: bool, lang: str = "en") -> dict:
         out["plan"] = evaluate(svc, values, lang)
         facts = sup.facts
     why = {}
-    out["safe"] = loader.safe(facts, system, holds, holds_vram, why=why)
+    out["safe"] = loader.safe(with_projectors(facts), system, holds, holds_vram, why=why)
     out["safe_why"] = {k: {"en": en, "it": it} for k, (en, it) in why.items()}
     from serve import hardware
     out["gpu"] = out["plan"]["gpu"]

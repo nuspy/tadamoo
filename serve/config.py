@@ -325,6 +325,14 @@ def build_parser() -> argparse.ArgumentParser:
                          "peer (always on the second GPU), dynamic (inside the engine: it borrows expert-cache slots "
                          "on the main GPU while it reads an image, no standing VRAM) or cpu (no VRAM, slow); a value is "
                          "required")
+    ap.add_argument("--vision-hold", default="keep", choices=("keep", "release"),
+                    help="with --vision dynamic: keep (the projector's weights stay in RAM, the first image is quick) or release (they "
+                         "are freed after each batch of images and read from the file at the next: the RAM and commit they held "
+                         "are free in between)")
+    ap.add_argument("--vision-projector", default="auto", metavar="auto|embedded|FILE",
+                    help="the vision projector image input reads with: auto (the model file's own when the encoder reads it, else a "
+                         "projector found in the models folders), embedded (the model file's own) or the path of a projector GGUF; "
+                         "one with F16 tensors is rewritten at the load")
     ap.add_argument("--host", default="127.0.0.1",
                     help="the address to listen on: 127.0.0.1 = this PC only (the default), 0.0.0.0 = also other "
                          "devices on your network (give --api-key)")

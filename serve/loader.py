@@ -68,7 +68,8 @@ MTP_EXPERT_BLOB = 1382400
 ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.prefill": None, "engine.spec": 0,
                    "engine.spec-min-p": 0, "engine.expert-cache": 0, "engine.resident-experts": False,
                    "engine.vram-reserve-mib": 700, "engine.ple-io": "direct", "engine.pool-workers": None,
-                   "server.parallel": 1, "server.slot-full-context": False, "server.vision": "off", "server.port": 7232}
+                   "server.parallel": 1, "server.slot-full-context": False, "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep",
+                   "server.port": 7232}
 
 # "Valori sicuri" are computed from this PC and the model (safe()); SAFE is what that gives on one example PC (an RTX
 # 5090 with 32 GiB, 128 GiB of RAM, a processor with 8 performance and 16 efficiency cores, the IQ3_XXS file with its
@@ -319,6 +320,58 @@ def lend_tokens(v: dict) -> int:
     return min(2048, ctx)
 
 
+# ------------------------------------------------------------------------------------------------ the vision projector
+def projector_options(facts: dict) -> list[dict]:
+    """What a model can read images with: its own projector, when the file has one, and the projector files of the models folders
+    ({"value": "embedded" or the file, "name", "bytes" held in RAM, "fix" tensors rewritten at the load, "problem"})."""
+    out = []
+    if facts.get("mmproj_bytes"):
+        out.append({"value": "embedded", "name": "embedded", "bytes": int(facts["mmproj_bytes"]),
+                    "fix": int((facts.get("vision_fix") or {}).get("tensors") or 0), "problem": facts.get("vision_problem")})
+    out += [{"value": p["path"], "name": p["name"], "bytes": int(p["bytes"]), "fix": int(p["fix"]), "problem": None}
+            for p in facts.get("projectors") or []]
+    return out
+
+
+def _same_file(a, b) -> bool:
+    return os.path.normcase(os.path.abspath(str(a))) == os.path.normcase(os.path.abspath(str(b)))
+
+
+def pick_projector(choice, facts: dict) -> dict | None:
+    """The option `choice` stands for: "embedded" (the model file's own), a file, or "auto" (the model's own when it reads, else the
+    first file that does); None when the model has none to offer."""
+    options = projector_options(facts)
+    choice = str(choice or "auto")
+    if choice == "embedded":
+        return next((o for o in options if o["value"] == "embedded"), None)
+    if choice != "auto":
+        found = next((o for o in options if o["value"] != "embedded" and _same_file(o["value"], choice)), None)
+        if found:
+            return found
+        from serve import models
+        info = models.projector_info(choice) if os.path.isfile(choice) else None
+        if info:
+            return {"value": info["path"], "name": info["name"], "bytes": info["bytes"], "fix": info["fix"], "problem": None}
+        return {"value": choice, "name": Path(choice).name, "bytes": 0, "fix": 0,
+                "problem": {"it": "il file non c'è, o non è un proiettore che il motore legge con questo modello",
+                            "en": "the file is not there, or is not a projector the engine reads with this model"}}
+    usable = [o for o in options if not o["problem"]]
+    own = [o for o in usable if o["value"] == "embedded"]
+    return (own or usable or options or [None])[0]
+
+
+def projector_path(choice, model_path: str) -> str | None:
+    """The file to hand the engine for `choice` (None: the model file's own projector); ValueError when the choice cannot be used."""
+    from serve import models
+    facts = {**model_facts(model_path), "projectors": models.projector_files()}
+    picked = pick_projector(choice, facts)
+    if picked is None:
+        raise ValueError("no vision projector: this model file has none and none was found in the models folders")
+    if picked["problem"]:
+        raise ValueError(f"the vision projector is not usable: {picked['problem']['en']}")
+    return None if picked["value"] == "embedded" else picked["value"]
+
+
 # ------------------------------------------------------------------------------------------------ the plan
 def _item(key, nbytes, estimate=False):
     return {"key": key, "bytes": int(max(0, nbytes)), "estimate": estimate}
@@ -345,6 +398,7 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     if facts.get("has_mtp") and spec >= 2:
         cell = KV_CELL_BYTES["int8" if kvf == "k8v4" else kvf] + 128
         drafter = facts["mtp_bytes"] + par * cell * ctx + spec * facts.get("n_vocab", 0) * 4
+    projector = pick_projector(v["server.vision-projector"], facts)
     vision_vram = VISION_SIDECAR if mode == "on" else (ctx + 64) * 12 if mode == "dynamic" else 0
     buffers = VERIFY_WINDOWS + LATE_DEVICE
     if not facts.get("has_profile"):                    # without a profile the prompt buffers are not borrowed
@@ -370,8 +424,12 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
         arena = facts["experts_bytes"] + blob
     host = [_item("experts", arena), _item("token_embd", facts["token_embd_bytes"]),
             _item("checkpoints", PROMPT_CHECKPOINTS * par)]
+    held = projector["bytes"] if projector else 0
+    released = mode == "dynamic" and v["server.vision-hold"] == "release"      # the encoder's weights are read again for each batch of images
     if mode == "dynamic":
-        host.append(_item("vision", facts["mmproj_bytes"]))
+        host.append(_item("vision", 0 if released else held))
+    elif mode == "cpu":                                  # the sidecar keeps the projector in its own RAM
+        host.append(_item("vision", held))
     ple_ram = facts["ple_bytes"] if v["engine.ple-io"] == "ram" else 0
     host.append(_item("ple", ple_ram if ple_ram else PLE_ROW_CACHE))
     host.append(_item("other", HOST_OTHER, True))
@@ -415,8 +473,12 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     if commit_avail is not None and commit_need - lend > commit_avail - commit_keep:
         problems.append({"code": "commit", "need": commit_need - lend, "have": commit_avail, "keep": commit_keep,
                          "share": share})
-    if mode != "off" and facts.get("vision_problem"):   # the engine would stop at start on this projector
-        problems.append({"code": "vision", "it": facts["vision_problem"]["it"], "en": facts["vision_problem"]["en"]})
+    if mode != "off":                                   # the engine would stop at start without a projector it reads
+        if projector is None:
+            problems.append({"code": "vision", "it": "questo file non ha un proiettore visivo e nelle cartelle dei modelli non ce n'è uno adatto",
+                             "en": "this model file has no vision projector and the models folders hold none that fits"})
+        elif projector["problem"]:
+            problems.append({"code": "vision", "it": projector["problem"]["it"], "en": projector["problem"]["en"]})
     return {
         "values": v, "slot_context": ctx, "parallel": par,
         "vram": {"items": [_item("dense", dense), _item("drafter", drafter), _item("kv", kv),
@@ -433,6 +495,9 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
         "unknown": [k for k, x in (("vram", vram_avail), ("ram", ram_avail), ("commit", commit_avail)) if x is None],
         "fits": not problems, "problems": problems,
         "kv_bytes_per_token": KV_TOKEN_BYTES[kvf] * par,
+        "vision_hold": {"release": released, "bytes": held if released else 0},
+        "projector": None if projector is None else {k: projector[k] for k in ("value", "name", "bytes", "fix")},
+        "projectors": [{k: o[k] for k in ("value", "name", "bytes", "fix", "problem")} for o in projector_options(facts)],
     }
 
 
@@ -539,7 +604,8 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
         r_en = tuple(r_en)
     workers, w_en, w_it = hardware.pool_workers(cpu)
     mtp = bool(facts.get("has_mtp"))
-    vision = "dynamic" if facts.get("mmproj_bytes") and not facts.get("vision_problem") else "off"
+    picked = pick_projector("auto", facts)
+    vision = "dynamic" if picked and not picked["problem"] else "off"
     out = {"engine.max-context": CONTEXT_STEPS[-1], "engine.kv": "q4_0", "engine.prefill": "auto",
            "engine.spec": 7 if mtp else 0, "engine.spec-min-p": 0.5 if mtp else None, "engine.expert-cache": "auto",
            "engine.resident-experts": True, "engine.vram-reserve-mib": reserve, "engine.ple-io": "direct",
@@ -614,12 +680,12 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
         "server.slot-full-context": ("off: with one slot it changes nothing.", "spento: con un solo slot non cambia nulla."),
         "server.vision": (("dynamic: images are read inside the engine, no VRAM kept for them." if vision == "dynamic"
                            else f"off: the engine does not read this file's vision projector "
-                                f"({facts['vision_problem']['en']})." if facts.get("vision_problem")
-                           else "off: this model file has no vision projector."),
+                                f"({picked['problem']['en']})." if picked and picked["problem"]
+                           else "off: this model file has no vision projector, and the models folders hold none that fits."),
                           ("dynamic: le immagini si leggono dentro il motore, nessuna VRAM fissa." if vision == "dynamic"
                            else f"off: il motore non legge il proiettore visivo di questo file "
-                                f"({facts['vision_problem']['it']})." if facts.get("vision_problem")
-                           else "off: questo file non ha il proiettore visivo.")),
+                                f"({picked['problem']['it']})." if picked and picked["problem"]
+                           else "off: questo file non ha il proiettore visivo e nelle cartelle dei modelli non ce n'è uno adatto.")),
     })
     return out
 
