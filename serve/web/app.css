@@ -1150,3 +1150,13 @@ dialog.afolder .brd-b { display: grid; gap: 8px; padding: 12px 16px 16px; }
 .ag-msg { min-height: 1.5em; margin: 4px 0 0; color: var(--fg-2); overflow-wrap: anywhere; }
 .ag-msg.bad { color: #FF8FA3; }
 .ag-buttons { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
+
+/* copy at the end of a prompt, a reasoning window and an answer; Branch from here after an answer */
+.aicon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; color: var(--fg-3); }
+.aicon:hover, .aicon:focus-visible { background: var(--raised); color: var(--fg); }
+.aicon.done { color: var(--pl-done, #4CC66A); }
+.aicon-svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.abranch { display: inline-flex; align-items: center; gap: 6px; }
+.abranch .aicon-svg { width: 14px; height: 14px; }
+.aend { align-self: flex-start; justify-content: flex-start; margin-top: 4px; }
+.think-end { display: flex; justify-content: flex-end; padding: 2px 6px 4px; }
