@@ -26,7 +26,7 @@ TOUCH_EVERY_S = 60                                       # the last use of a key
 TAILSCALE_NET = ipaddress.ip_network("100.64.0.0/10")
 TAILSCALE_NET6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
 # what a client from outside this PC may ask for: the model, the conversations and what they hold, the routines, the plans
-REMOTE_PREFIXES = ("/v1/", "/api/agent/", "/api/attachments", "/api/outputs", "/api/routines", "/api/plans", "/api/personal-skills", "/api/files/", "/api/remote/hello")
+REMOTE_PREFIXES = ("/v1/", "/api/agent/", "/api/attachments", "/api/outputs", "/api/routines", "/api/plans", "/api/personal-skills", "/api/files/", "/api/remote/hello", "/api/remote/peers")
 
 
 def remote_path_ok(path: str) -> bool:
@@ -150,6 +150,29 @@ def tailscale_status() -> Dict[str, Any]:
     ips = [i for i in (data.get("TailscaleIPs") or me.get("TailscaleIPs") or []) if ":" not in i]
     return {"installed": True, "state": data.get("BackendState") or "Unknown", "ip": ips[0] if ips else "",
             "dns_name": str(me.get("DNSName") or "").rstrip("."), "version": str(data.get("Version") or "")}
+
+
+def parse_peers(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The other devices on the Tailscale network, from `tailscale status --json`: name, address, system and whether it is on now."""
+    out = []
+    for peer in (data.get("Peer") or {}).values():
+        ips = [i for i in (peer.get("TailscaleIPs") or []) if ":" not in i]
+        if not ips:
+            continue
+        out.append({"name": str(peer.get("HostName") or peer.get("DNSName") or ips[0]), "dns_name": str(peer.get("DNSName") or "").rstrip("."), "ip": ips[0],
+                    "os": str(peer.get("OS") or ""), "online": bool(peer.get("Online"))})
+    return sorted(out, key=lambda p: (not p["online"], p["name"].lower()))
+
+
+def tailscale_peers() -> List[Dict[str, Any]]:
+    exe = tailscale_exe()
+    if not exe:
+        return []
+    code, text = _run([exe, "status", "--json"])
+    try:
+        return parse_peers(json.loads(text[text.index("{"):]))
+    except ValueError:
+        return []
 
 
 class Installer:
