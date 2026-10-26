@@ -253,6 +253,11 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   small type.
 - **Sources open outside.** After a news item or a fact taken from the web, a small *source ↗* button opens that page in the system's
   default browser (also after an address written in the text, and for the sites a search or a page-reading step used).
+- **Personal skills.** Press *Make a skill* under a request, check the requests that belong to the task (or write `/start-learn-skill` and
+  `/stop-learn-skill`), and the harness keeps what you did as a Python script with the parts that change as parameters: marked by you with
+  `# a phrase #`, or found from your words and dates. Run it again from the *Skills* button or with `/skilluse`, with a form that reads dates in
+  words. Most of it is plain code, so it costs no tokens; the model is used once to write it and then only where the language must be understood. A
+  skill moves to another PC as one `.pskill` file and arrives *to approve*. See the [manual](docs/harness-manual.md#17-personal-skills).
 - **A message while it works** is steered into the task, queued, or treated as urgent; **Stop** means stop.
 - **Branches, going back, comparing**: a tree of conversations, *Back to here* on any request (actions that stay done are listed
   first), and two continuations of one request side by side.

@@ -11,6 +11,7 @@ nothing from the engine. `python -m pytest tests` runs its tests without a GPU, 
 - [MCP and ACP](#mcp-and-acp)
 - [The planner](#the-planner)
 - [The web pages](#the-web-pages)
+- [Personal skills](#personal-skills)
 - [Evaluation](#evaluation)
 - [Tests and what is not done](#tests-and-what-is-not-done)
 
@@ -912,6 +913,44 @@ wide, not for phones.
 view at 1024, 1920 and 3600 pixels and fails on page overflow, console errors, a body the zoom does not fit, controls
 under 24 pixels, or a broken shortcut or palette; it saves screenshots. Static checks of translations, contrast and markup
 run with `python -m pytest serve/tests/test_web_static.py`.
+
+## Personal skills
+
+A personal skill is a folder in the user data folder, `personal-skills/<slug>/`, with `skill.json` (name, description, parameters, mode, the tools the
+script names, version, counts) and `skill.py`, plus `.versions/` (the last ten) and `.cache/` (the answers of `ai()`). `harness/personal_skills/`
+holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/pskills.js` the windows.
+
+- **The script** defines `main(params)` and uses `from basalt_skill import tool, ai, ask, say`: `tool(name, **arguments)` returns the tool's answer as text
+  and raises `ToolError` when it is refused or fails; `ai(prompt, cache=True, **inputs)` is one model call at temperature 0 with no thinking, and its answer
+  is kept for the same prompt and inputs; `ask(question, options)` asks the person with buttons; `say(text)` tells how it is going. `params.name` holds
+  each value (`datetime.date` for a date, `datetime.datetime` for a moment, numbers, lists). What `print` writes is the run's output.
+- **Where it runs.** In a process of its own (`harness/personal_skills/runner.py`: the interpreter in isolated mode, the scrubbed environment, a job object
+  with a memory and process cap on Windows, a time limit, Stop ends it and what it started), talking in lines of JSON. The calls are answered in the
+  conversation's process (`hosting.py`): `tool` goes through `AgentLoop.call_tool`, which is the same gate as a model's call (arguments checked, hooks,
+  permissions, a checkpoint, the audit record, a question to the person when one is needed, secrets masked, outside content fenced) and keeps the call and
+  its answer in the conversation; it is not counted as a loop when a script repeats a call. A skill is a task of the conversation (`Session.run_skill`):
+  one at a time, Stop works, and what it returns is the answer.
+- **Access modes.** *Restricted* (the default) is checked before it is saved (`check.py`: only a short list of modules, no `open`, `eval`, `exec`,
+  `getattr`, dunder attributes, files, programs or network) and again when it runs (the builtins are cut and `import` is guarded). It is a fence against
+  mistakes, not a sandbox. *Free* only needs a `main`; the server saves it only with `confirm_free`, which the page sends after the risk label and its
+  two questions.
+- **Approval.** A skill saved from the page is approved (the person saw it). One imported, or whose files changed outside the app, is *to approve*:
+  the approval is the hash of the definition and the script (`approved.json`), and `run_skill` refuses it until the person approves.
+- **Values.** Types: text, number, date, datetime, choice, list (numbers, texts or mixed), path, bool (`values.py`). A date is read as a date or in
+  Italian or English words (yesterday, now, in 3 days, next monday, start of month…); a default written in words is worked out at each run, so a
+  skill started later gets that day. `POST /api/personal-skills/preview` reads a form as it is filled.
+- **The marks.** `# phrase #` (`markers.py`; with a space inside, in one line, not in code, `\#` is a plain #): the model gets the request without them
+  and the message keeps what was written in `raw` (never sent to the server), which the page shows.
+- **Making one** (`distill.py`): the steps are the recorded tool calls, copied. Without the model, the program finds the values that probably change:
+  the marked phrases, the arguments that come from the person's words, and dates (a date that was the day of the request gets the default *today*, *yesterday*
+  or *tomorrow*). The model is asked twice: to name and explain the parameters (`skill-propose`), and, once the person has kept the ones they want, to write the
+  program (`skill-script`), told to use code for everything that can be code and `ai()` only where the language must be understood; a script the check
+  refuses is sent back with the reasons, twice at most.
+- **Routes.** `GET /api/personal-skills`, `GET /api/personal-skills/<slug>` and `.../export` (the `.pskill` zip: `manifest.json` with a hash, `skill.json`,
+  `skill.py`); `POST /api/personal-skills` (save), `/check`, `/preview`, `/import` (the file in base64; it arrives to approve), `/<slug>/delete`, `/approve`
+  and `/restore`; `POST /api/agent/sessions/<id>/skill` (run), `/skill-propose` and `/skill-script`. All from this PC and the server's own page only.
+- **Not done:** running a skill on a schedule (the routines have no skill yet), a test run that compares with the recording, going on with the agent from the step
+  that failed, and a skill for the Agent tab or the command line.
 
 ## Evaluation
 

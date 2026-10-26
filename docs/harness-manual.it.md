@@ -21,8 +21,9 @@ cosa non è fatto. Il motore non ha bisogno di un manuale e qui non ne ha.
 - [14. La riga di comando e l'editor](#14-la-riga-di-comando-e-leditor)
 - [15. Gli hook](#15-gli-hook)
 - [16. Routine, valutazione e riesecuzione](#16-routine-valutazione-e-riesecuzione)
-- [17. Quando qualcosa non va](#17-quando-qualcosa-non-va)
-- [18. Cosa non fa](#18-cosa-non-fa)
+- [17. Skill personali](#17-skill-personali)
+- [18. Quando qualcosa non va](#18-quando-qualcosa-non-va)
+- [19. Cosa non fa](#19-cosa-non-fa)
 
 ## 1. Cos'è
 
@@ -368,7 +369,47 @@ scaduto, non autorizzato a girare) blocca anch'esso. Un file con un errore imped
 - **Riesecuzione**: `python -m harness.replay trace.jsonl --mode auto` rifà una sessione registrata con le risposte registrate del modello
   e riporta il primo punto in cui le chiamate agli strumenti divergono. Prova l'harness, non il modello.
 
-## 17. Quando qualcosa non va
+## 17. Skill personali
+
+Una skill personale è ciò che hai fatto in una conversazione, conservato come uno script Python che puoi rieseguire con altri valori. Quasi tutto
+è codice semplice, quindi non costa token, è veloce e dà ogni volta lo stesso risultato; il modello si usa solo dove bisogna capire il linguaggio.
+
+**Farne una**
+1. Fai il compito in una conversazione con strumenti. Puoi segnare le parti che la prossima volta cambieranno tra due `#` con uno spazio dentro,
+   come in `trova le notizie # di oggi # riguardanti # la guerra in Ucraina #`. Una parte segnata può essere di più parole, e `# città: Roma #` le
+   dà anche un nome. Il modello riceve la richiesta senza i segni, e la conversazione mostra ciò che hai scritto.
+2. Premi **Trasforma in skill** sotto una richiesta. Accanto a ogni richiesta precedente compare una casella: spunta quelle che fanno parte del
+   compito (quelle che si sono susseguite da vicino sono già spuntate). La skill finisce con la risposta alla richiesta di cui hai premuto il
+   bottone, quindi puoi premerlo anche su una precedente. Oppure scrivi `/start-learn-skill` prima del compito e `/stop-learn-skill` dopo, e le
+   richieste in mezzo sono scelte.
+3. **Cosa cambia ogni volta.** La pagina propone dei parametri, trovati dai tuoi `#`, dai valori che una chiamata ha preso dalle tue parole (un
+   nome di file, una città, un numero) e dalle date, e battezzati dal modello. Tieni o scarta ciascuno, rinominalo, dagli un tipo (testo, numero,
+   data, data e ora, scelta, lista di numeri, di testi o di entrambi, file o cartella, sì o no) e un valore abituale, oppure aggiungine un altro. Una
+   data può essere scritta a parole (ieri, adesso, tra 3 giorni) e allora viene calcolata ogni volta che la skill gira.
+4. **Lo script.** Lo scrive il modello una volta sola, da ciò che è stato fatto e dai parametri che hai tenuto. Lo leggi, lo cambi se vuoi, premi
+   *Verifica* e poi *Salva la skill*. Finché non lo fai non si salva nulla.
+
+**Usarla.** Il bottone **Skill** (dopo Rami) le elenca; `/skilluse nome` apre il modulo di una (`/skilluse nome città=Roma` compila un valore). Il
+modulo chiede ogni valore con la sua spiegazione e il suo tipo: una data ha un selettore e si può scrivere a parole, con sotto ciò che diventerà
+(*→ 2026-10-25*); una lista prende un valore per riga, oppure separati da `;` o da una virgola. La skill gira **nella conversazione aperta**: le
+sue chiamate agli strumenti compaiono come quelle dell'agente, seguono gli stessi permessi e le stesse domande e restano nella cronologia;
+**Ferma** la interrompe.
+
+**L'elenco.** *Esegui*, *Modifica* (la definizione, i parametri, lo script e le versioni precedenti), *Esporta* (un solo file `.pskill`, da tenere o
+da copiare su un altro PC con una chiavetta o per e-mail), *Elimina* (premi due volte) e *Importa skill personali…*. Una skill che arriva da un
+file, o i cui file sono stati cambiati a mano, è **da approvare**: leggi lo script e approvalo prima che possa girare. Una che hai fatto tu è
+approvata.
+
+**Accesso.** *Ristretto* (il solito): lo script usa solo `tool(...)`, `ai(...)`, `ask(...)`, `say(...)` e Python semplice (testo, JSON, date,
+liste…), mai file, programmi o rete direttamente, quindi tutto ciò che fa passa dai permessi, dagli hook e dal registro di audit dell'agente.
+*Libero*: lo script può usare tutto ciò che Python sa fare, con i tuoi diritti, senza quei controlli; si salva solo dopo l'etichetta di rischio e
+le sue due domande. Il controllo su uno script ristretto è una staccionata contro gli errori, non un muro contro chi vuole fare danno: leggi lo
+script di una skill che viene da altri.
+
+**Non ancora fatto:** eseguire una skill a un orario (userà le routine), una prova che confronta con ciò che era stato registrato e il riprendere
+con l'agente dal passo che è fallito.
+
+## 18. Quando qualcosa non va
 
 | Cosa vedi | Perché | Cosa fare |
 |---|---|---|
@@ -386,7 +427,7 @@ scaduto, non autorizzato a girare) blocca anch'esso. Un file con un errore imped
 | Ha dimenticato ciò che gli hai detto | non ha tenuto un appunto, o la cartella è diversa | vedi la sezione 8 |
 | Un riavvio ha interrotto uno strumento irreversibile | potrebbe essere già partito | controlla tu il risultato, poi prosegui |
 
-## 18. Cosa non fa
+## 19. Cosa non fa
 
 - Non isola file e rete per i comandi: *Automatico* va in una cartella che puoi perdere.
 - Basalt è solo un **client** A2A; non riceve compiti da altri agenti. ACP non ha `fs/*` né `session/load`.

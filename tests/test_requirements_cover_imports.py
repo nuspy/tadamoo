@@ -16,7 +16,8 @@ OPTIONAL = {
     "fitz": "PyMuPDF, the other PDF reader",
 }
 # modules of this repository that the code reaches through sys.path (tools/ is added at run time)
-LOCAL_FOLDERS = (ROOT, ROOT / "tools", ROOT / "tools" / "convert")
+# (the personal skills' runtime folder holds basalt_skill, which a skill's script imports from the process that runs it)
+LOCAL_FOLDERS = (ROOT, ROOT / "tools", ROOT / "tools" / "convert", ROOT / "harness" / "personal_skills" / "runtime")
 
 
 def required():

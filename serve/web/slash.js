@@ -100,6 +100,10 @@
     { name: "diff", alias: ["changes"], run: () => { if (A() && A().hasCopy()) A().toggleCopy(); else note(T("sl.diff.none")); } },
     { name: "plans", alias: ["tasks"], run: () => goTo("plans") },
     { name: "wallet", run: () => goTo("wallet") },
+    { name: "skilluse", args: "[name]", run: rest => { if (needChat() && window.pskills) window.pskills.use(rest); } },
+    { name: "skills", alias: ["personal-skills"], run: () => { if (needChat() && window.pskills) window.pskills.openList(); } },
+    { name: "start-learn-skill", run: () => { if (needChat()) A().skills.startLearn(); } },
+    { name: "stop-learn-skill", run: () => { if (needChat()) A().skills.stopLearn(); } },
     { name: "init", ask: true }, { name: "review", ask: true, args: "[what to look at]" }, { name: "security-review", ask: true },
     { name: "research", alias: ["search"], ask: true, args: "<question>" },
   ];

@@ -22,6 +22,7 @@ def result(i, text):
 MESSAGES = [
     {"role": "system", "content": "sys"},
     {"role": "user", "content": "[harness] The user's plans now: none"},
+    {"role": "user", "content": "[planner] a step failed"},
     {"role": "user", "content": "trova le notizie di oggi riguardanti la guerra in Ucraina e salvale", "raw": "trova le notizie # di oggi # riguardanti # la guerra in Ucraina # e salvale", "ts": DAY},
     call(1, "search_web", query="guerra in Ucraina notizie"), result(1, "1. Title - https://news.example/a\n2. Other - https://news.example/b"),
     call(2, "browse_url", url="https://news.example/a"), result(2, "page text about the war"),
@@ -36,7 +37,7 @@ MESSAGES = [
 
 def test_requests_are_numbered_as_the_page_counts_them():
     reqs = distill.requests_of(MESSAGES)
-    assert [(r["n"], r["index"]) for r in reqs] == [(1, 2), (2, 12)]                      # the harness's own notes are not requests
+    assert [(r["n"], r["index"]) for r in reqs] == [(1, 3), (2, 13)]                      # the harness's own notes are not requests
     assert reqs[0]["raw"].count("#") == 4 and reqs[0]["text"] == "trova le notizie di oggi riguardanti la guerra in Ucraina e salvale"
     assert reqs[1]["raw"] == reqs[1]["text"]
 

@@ -34,7 +34,7 @@ class ConversationColumnTest(unittest.TestCase):
 
     def test_the_header_is_one_row_with_the_buttons_at_the_left_and_the_choices_at_the_right(self):
         head = HTML[HTML.index('<div class="sh chathead">'):HTML.index('<div class="acopy"')]
-        order = [head.index(f'id="{i}"') for i in ("new-chat", "branches-open", "mode-chip", "chatmode", "effort", "cs-open")]
+        order = [head.index(f'id="{i}"') for i in ("new-chat", "branches-open", "pskills-open", "mode-chip", "chatmode", "effort", "cs-open")]
         self.assertEqual(order, sorted(order))
         self.assertLess(head.index('id="mode-chip"'), head.index('class="grow"'))
         self.assertGreater(head.index('id="chatmode"'), head.index('class="grow"'))

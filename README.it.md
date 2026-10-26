@@ -276,6 +276,12 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
   l'ora in grassetto, la data sotto, in caratteri piccoli.
 - **Le fonti si aprono fuori.** Dopo una notizia o un dato preso dal web, un piccolo pulsante *fonte ↗* apre quella pagina nel browser
   predefinito del sistema (anche dopo un indirizzo scritto nel testo, e per i siti usati da una ricerca o dalla lettura di una pagina).
+- **Skill personali.** Premi *Trasforma in skill* sotto una richiesta, spunta le richieste che fanno parte del compito (oppure scrivi
+  `/start-learn-skill` e `/stop-learn-skill`), e l'harness conserva ciò che hai fatto come uno script Python con le parti che cambiano come
+  parametri: segnate da te con `# una frase #`, o trovate dalle tue parole e dalle date. La riesegui dal bottone *Skill* o con `/skilluse`, con un
+  modulo che legge le date a parole. Quasi tutto è codice semplice, quindi non costa token; il modello serve una volta per scriverla e poi solo dove
+  bisogna capire il linguaggio. Una skill passa a un altro PC come un solo file `.pskill` e arriva *da approvare*. Vedi il
+  [manuale](docs/harness-manual.it.md#17-skill-personali).
 - **Un messaggio mentre lavora** viene indirizzato nel compito, messo in coda o trattato come urgente; **Ferma** vuol dire ferma.
 - **Rami, tornare indietro, confrontare**: un albero di conversazioni, *Torna qui* su ogni richiesta (le azioni che restano avvenute
   sono elencate prima) e due continuazioni della stessa richiesta affiancate.

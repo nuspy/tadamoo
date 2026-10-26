@@ -22,6 +22,8 @@
   function scrollDown(force) { const s = scroller(); if (force || s.scrollHeight - s.scrollTop - s.clientHeight < 160) s.scrollTop = s.scrollHeight; }
 
   const box = $("#amsgs"), empty = $("#achat-empty"), modeSel = $("#chatmode");
+  let pick = null, learn = null;                                // making a skill: the requests being chosen, and where a recording began
+  const bar = $("#pskill-bar"), badge = $("#learn-badge");
 
   async function api(method, path, body) {
     try {
@@ -46,6 +48,7 @@
     const attachName = T(on ? "ch.att.btn" : "ch.att.img");
     $("#attach").setAttribute("aria-label", attachName); $("#attach").title = attachName;
     $("#branches-open").hidden = !on;
+    $("#pskills-open").hidden = !on;
     modeSel.title = T("ch.mode." + mode + ".d");                              // what the kind of conversation is, as a tooltip
     drawPend();
     if (on) { $("#chat-hint").textContent = T("ch.hint"); poll(true); } else { clearTimeout(timer); $("#chat-hint").textContent = T("ch.hint.direct"); }
@@ -146,7 +149,7 @@
   $("#branch-chat").onclick = branch;
   document.addEventListener("basalt:chatset", () => setControls());
 
-  function forget() { pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(LAST_KEY, ""); copyShown = false; }
+  function forget() { pick = null; learn = null; paintPick(); paintLearn(); pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(LAST_KEY, ""); copyShown = false; }
   function newChat() { forget(); status(T("ch.new")); setControls(); paintList(); }
   async function openSession(id) {
     forget();
@@ -258,7 +261,7 @@
       stampAt = typeof m.ts === "number" ? m.ts : null;
       if (m.role === "user") {
         const text = typeof m.content === "string" ? m.content : "";
-        if (text.startsWith("[harness]")) { assistant(); addBlock({ t: "note", s: text.replace(/^\[harness\]\s*/, "") }); } else userItem(text, (m.attachments || []).map(n => ({ name: n })));
+        if (text.startsWith("[harness]")) { assistant(); addBlock({ t: "note", s: text.replace(/^\[harness\]\s*/, "") }); } else userItem(typeof m.raw === "string" ? m.raw : text, (m.attachments || []).map(n => ({ name: n })));
       } else if (m.role === "assistant") {
         if (m.content) textBlock("text", m.content);
         (m.tool_calls || []).forEach(tc => {
@@ -454,7 +457,10 @@
           bubble.append(mk("div", "", it.text));
           row.append(window.chatUi.stamp(it.ts), bubble);
           it.el.append(row);
-          it.el.append(backButton(it));
+          it.row = row;
+          const acts = mk("div", "aacts");
+          acts.append(backButton(it), skillButton(it));
+          it.el.append(acts);
         }
         else { it.body = mk("div", "ablocks"); it.metaEl = mk("div", "meta"); it.el.append(it.body, it.metaEl); }
         box.insertBefore(it.el, null);
@@ -500,6 +506,69 @@
     b.setAttribute("aria-label", T("ch.back.n", it.text.slice(0, 60)));
     return b;
   }
+
+  /* ---- making a skill from requests: "Make a skill" on a request puts a box beside each request up to it, the person checks the ones that
+     belong to the task, and pskills.js goes on from there; /start-learn-skill and /stop-learn-skill mark the first and the last request ---- */
+  function requestsOf() { return items.filter(x => x.kind === "user"); }
+  const GAP_S = 30 * 60;
+  function suggested(end) {                                     // back from the request pressed, while the requests follow each other closely
+    const users = requestsOf(), out = [end];
+    for (let n = end - 1; n >= 1 && out.length < 10; n--) {
+      const before = users[n - 1], after = users[n];
+      if (before.ts && after.ts && after.ts - before.ts > GAP_S) break;
+      out.push(n);
+    }
+    return out;
+  }
+  function paintPick() {
+    requestsOf().forEach((it, i) => {
+      const n = i + 1, want = !!pick && n <= pick.end && !!it.row;
+      if (want && !it.box) {
+        const cb = mk("input", "askill-box"); cb.type = "checkbox";
+        cb.setAttribute("aria-label", T("psk.sel.check", n));
+        cb.onchange = () => { if (!pick) return; if (cb.checked) pick.picked.add(n); else pick.picked.delete(n); paintPick(); };
+        it.row.prepend(cb); it.box = cb;
+      }
+      if (!want && it.box) { it.box.remove(); it.box = null; }
+      if (it.box) it.box.checked = pick.picked.has(n);
+    });
+    bar.hidden = !pick;
+    if (pick) $("#pskill-bar-text").textContent = T("psk.sel.bar", [...pick.picked].sort((a, b) => a - b).join(", ") || "-", pick.end);
+  }
+  function startPick(end, picked) {
+    if (!sid || !window.pskills) return;
+    pick = { end, picked: new Set(picked || suggested(end)) };
+    paintPick();
+    bar.scrollIntoView({ block: "nearest" });
+  }
+  $("#pskill-cancel").onclick = () => { pick = null; paintPick(); };
+  $("#pskill-go").onclick = () => {
+    if (!pick || !pick.picked.size) { status(T("psk.sel.none")); return; }
+    const turns = [...pick.picked].sort((a, b) => a - b);
+    pick = null; paintPick();
+    window.pskills.make(sid, turns);
+  };
+  function skillButton(it) {
+    const b = btn(T("psk.make.btn"), "ghost aback askill", () => startPick(requestsOf().indexOf(it) + 1));
+    b.title = T("psk.make.btn.title");
+    b.setAttribute("aria-label", `${T("psk.make.btn")}: ${it.text.slice(0, 60)}`);
+    return b;
+  }
+  function paintLearn() {
+    badge.hidden = !learn;
+    if (learn) badge.textContent = T("psk.learn.on", learn.from);
+  }
+  const skills = {
+    startLearn() { learn = { from: requestsOf().length + 1 }; paintLearn(); note(T("psk.learn.started")); },
+    stopLearn() {
+      if (!learn) { note(T("psk.learn.none")); return; }
+      const end = requestsOf().length, from = learn.from;
+      learn = null; paintLearn();
+      if (end < from || !sid) { note(T("psk.learn.empty")); return; }
+      startPick(end, Array.from({ length: end - from + 1 }, (_, k) => from + k));
+    },
+    learning: () => !!learn,
+  };
 
   /* ---- files to attach: uploaded to this conversation as they are picked ---- */
   let pend = [];                                      // [{id, name, family, size} | {name, uploading, pct}]
@@ -815,7 +884,7 @@
     rec = r.json.session; await refreshList();
     return true;
   }
-  window.agentChat = { active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, rename, transcript, saveBlob, answers: answersOf,
+  window.agentChat = { skills, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, rename, transcript, saveBlob, answers: answersOf,
     perm: { now: permNow, set: setPerm, cycle: cyclePerm, available: () => active() && mode !== "ask", modes: PERM_CYCLE },
     sessions: () => known.filter(s => s.state !== "closed").map(s => ({ id: s.id, label: `${s.title || s.id} \u00B7 ${T("ch.state." + s.state)}` })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
     toggleCopy: () => copyOpen.click() };
