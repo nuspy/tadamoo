@@ -16,6 +16,7 @@
     { group: "speed", name: "mtp", kind: "bool", virtual: true },
     { group: "speed", name: "engine.spec", kind: "int", min: 2, max: 8, step: 1 },
     { group: "speed", name: "engine.spec-min-p", kind: "float", min: 0, max: 1, step: 0.05 },
+    { group: "speed", name: "engine.relaxed-drafting", kind: "choice", options: ["0.5", "0.3", "0.2"] },
     { group: "memory", name: "engine.expert-cache", kind: "text", list: ["auto"] },
     { group: "memory", name: "engine.resident-experts", kind: "bool" },
     { group: "memory", name: "engine.ple-io", kind: "choice", options: ["direct", "mmap", "ram"] },
@@ -29,7 +30,8 @@
   const GiBn = 2 ** 30;
   const gib = n => nfmt(n / GiBn, 1);
   let INFO = null, PROF = null, seq = 0, timer = 0, poll = 0;
-  const fallback = { "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep", "engine.kv": "fp16", "engine.ple-io": "direct" };
+  const RX = "engine.relaxed-drafting";
+  const fallback = { "engine.relaxed-drafting": "off", "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep", "engine.kv": "fp16", "engine.ple-io": "direct" };
 
   /* ---- the form ---- */
   function build() {
@@ -67,6 +69,7 @@
             `${f.list ? ` list="${id}-l"` : ""} aria-describedby="${help}">${list}`;
         }
         d.insertAdjacentHTML("beforeend", `<p class="help" id="${help}">${esc(T("h." + key))}</p>`);
+        if (f.name === RX) d.insertAdjacentHTML("beforeend", '<div class="rx-note" id="rx-note" role="status" aria-live="polite"></div>');
         grid.append(d);
       }
       return fs;
@@ -154,12 +157,67 @@
       const e = el(f.name), x = v[f.name];
       if (f.kind === "bool") e.checked = x === true;
       else if (f.kind === "reserve") { e.value = toGB(x); syncReserve("lf", e); }
-      else e.value = x == null ? "" : String(x);
+      else if (f.kind === "choice") {                 // a value the list does not have (written in the file by hand) is added, not lost
+        const s = x == null ? "" : x === true ? "0.5" : String(x);
+        if (s && !e.querySelector(`option[value="${s}"]`)) e.insertAdjacentHTML("beforeend", `<option value="${esc(s)}">${esc(s)}</option>`);
+        e.value = s;
+      } else e.value = x == null ? "" : String(x);
     }
     const spec = Number(v["engine.spec"] ?? 0);
     el("mtp").checked = spec >= 2;
     if (spec < 2) el("engine.spec").value = "";
+    rxResync();
     syncMtp();
+  }
+
+  /* ---- relaxed drafting: the settings it needs are set, shown with what they do, and given back when it is switched off ---- */
+  const rxKey = () => "basalt.relaxed:" + ((INFO && INFO.config) || "");
+  const rxStore = v => { try { if (v) localStorage.setItem(rxKey(), JSON.stringify(v)); else localStorage.removeItem(rxKey()); } catch (e) { /* no storage: nothing is remembered */ } };
+  const rxStored = () => { try { return JSON.parse(localStorage.getItem(rxKey()) || "null"); } catch (e) { return null; } };
+  const rxRead = name => { const e = el(name); return e.type === "checkbox" ? e.checked : e.value.trim(); };
+  const rxWrite = (name, v) => { const e = el(name); if (e.type === "checkbox") e.checked = !!v; else e.value = v == null ? "" : String(v); };
+  const rxCurrent = () => Object.fromEntries(BasaltRelaxed.NAMES.map(n => [n, rxRead(n)]));
+  let rxUndo = null;
+  function rxResync() {                               // the form was filled (a reload, a profile): is what was set still there?
+    const stored = el(RX).value ? rxStored() : null;
+    rxUndo = stored && BasaltRelaxed.holds(rxCurrent(), stored) ? stored : null;
+    if (!rxUndo) rxStore(null);
+    rxNote(null);
+  }
+  function rxChanged() {
+    const on = !!el(RX).value;
+    let gave = null;
+    if (on && !rxUndo) {
+      rxUndo = BasaltRelaxed.enter(rxCurrent());
+      Object.entries(rxUndo.set).forEach(([n, v]) => rxWrite(n, v));
+      rxStore(Object.keys(rxUndo.set).length ? rxUndo : null);
+    } else if (!on && rxUndo) {
+      const r = BasaltRelaxed.leave(rxCurrent(), rxUndo);
+      Object.entries(r.restore).forEach(([n, v]) => rxWrite(n, v));
+      gave = { restored: Object.keys(r.restore), kept: r.kept, before: rxUndo.before };
+      rxUndo = null;
+      rxStore(null);
+    }
+    rxNote(gave);
+  }
+  const rxLabel = name => T(name === "mtp" ? "f.mtp" : "f." + name);
+  const rxShow = (name, v) => typeof v === "boolean" ? T(v ? "opt.on" : "opt.off") : (v === "" || v == null ? T("rx.unset") : String(v));
+  function rxNote(gave) {
+    const box = $("#rx-note");
+    if (!box) return;
+    const parts = [];
+    if (el(RX).value) {
+      const set = (rxUndo && rxUndo.set) || {};
+      parts.push(`<p>${esc(T("rx.on"))}</p>`);
+      const rows = Object.keys(set).map(n => `<li>${esc(T("rx.chg", rxLabel(n), rxShow(n, rxUndo.before[n]), rxShow(n, set[n])))} ${esc(T("rx.why." + n))}</li>`);
+      if (rows.length) parts.push(`<ul>${rows.join("")}</ul>`);
+      parts.push(`<p>${esc(T("rx.fixed"))}</p><p>${esc(T("rx.exact"))}</p>`);
+    } else if (gave && (gave.restored.length || gave.kept.length)) {
+      if (gave.restored.length) parts.push(`<p>${esc(T("rx.restored", gave.restored.map(n => `${rxLabel(n)}: ${rxShow(n, gave.before[n])}`).join("; ")))}</p>`);
+      if (gave.kept.length) parts.push(`<p>${esc(T("rx.kept", gave.kept.map(rxLabel).join(", ")))}</p>`);
+    }
+    box.innerHTML = parts.join("");
+    box.hidden = !parts.length;
   }
   function syncMtp() {
     const on = el("mtp").checked;
@@ -171,6 +229,10 @@
     const mode = el("server.vision").value || ((INFO && INFO.defaults) || {})["server.vision"] || "off";
     el("server.vision-projector").disabled = mode === "off";
     el("server.vision-hold").disabled = mode !== "dynamic";
+    // while relaxed drafting is on, the drafter stays on and one conversation at a time is served (what it needs)
+    const rx = !!el(RX).value;
+    el("mtp").disabled = rx && el("mtp").checked;
+    el("server.parallel").disabled = rx && par <= 1;
   }
 
   /* ---- the prediction: resources, speed, the Load button ---- */
@@ -211,6 +273,7 @@
           ${bar("vram", v.need + v.reserve, v.available, 0, v.items, vnotes)}
           ${bar("ram", r.need, r.available, r.keep, r.items, holds, r.keep_share)}
           ${bar("commit", c.need, c.available, c.keep, [], [T("pr.commit.parts", gib(c.ram_part), gib(c.vram_part))], c.keep_share)}
+          ${p.relaxed && p.relaxed.p && !p.relaxed.effective ? `<p class="rsv-warn" role="alert">⚠ ${esc(T("rx.noeffect", p.relaxed.why.map(w => T("rx.no." + w)).join(" ")))}</p>` : ""}
         </div>
       </section>
       <section class="sec ldspeed" aria-label="${esc(T("sp.title"))}">
@@ -583,6 +646,7 @@
     formTouched = true;
     if (e.target.id === "lf-rsv-range") syncReserve("lf", el("engine.vram-reserve-mib"), "range");
     else if (e.target === el("engine.vram-reserve-mib")) syncReserve("lf", e.target);
+    if (e.target === el(RX)) rxChanged();
     syncMtp(); replan();
   };
   $("#ld-form").addEventListener("input", formInput);

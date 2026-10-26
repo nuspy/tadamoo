@@ -682,6 +682,10 @@ fieldset:disabled input, fieldset:disabled select { opacity: .7; }
 /* the VRAM left free: slider + number, and the live figures under it */
 .rsv { gap: 8px; }
 .ldgroup .fields .rsv { grid-column: 1 / -1; }
+.rx-note { margin: 8px 0 0; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--surface); font-size: 14px; line-height: 1.5; color: var(--fg-2); }
+.rx-note[hidden] { display: none; }
+.rx-note p { margin: 0 0 6px; }
+.rx-note ul { margin: 0 0 6px; padding-left: 18px; }
 .rsv label { font: 600 16px/1.4 var(--font-sans); }
 .rsv-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .rsv-row input[type=range] { flex: 1 1 220px; min-width: 0; height: 44px; accent-color: var(--accent); margin: 0; }

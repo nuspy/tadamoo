@@ -29,7 +29,7 @@ READ_ONLY = (("server", "model"),)
 LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-full-context"), ("server", "vision"),
                  ("server", "vision-projector"), ("server", "vision-hold"),
                  ("engine", "max-context"), ("engine", "kv"), ("engine", "prefill"), ("engine", "spec"),
-                 ("engine", "spec-min-p"), ("engine", "expert-cache"), ("engine", "resident-experts"),
+                 ("engine", "spec-min-p"), ("engine", "relaxed-drafting"), ("engine", "expert-cache"), ("engine", "resident-experts"),
                  ("engine", "vram-reserve-mib"), ("engine", "ple-io"), ("engine", "pool-workers"))
 # the model a load profile or the Loader writes (with the API name, when the file sets one)
 MODEL_FIELDS = (("server", "model"), ("server", "alias"))
@@ -70,6 +70,16 @@ def check_value(section: str, key: str, value):
             return vision_mode(value)
         except ValueError:
             raise ValueError(f"{what}: one of {', '.join(VISION_MODES)}, not {value!r}") from None
+    if key == "relaxed-drafting":
+        if value is True:
+            return 0.5                                   # the engine's own default for the bare flag
+        try:
+            p = float(str(value).strip()) if not isinstance(value, bool) and isinstance(value, (int, float, str)) else None
+        except ValueError:
+            p = None
+        if p is None or not 0 < p <= 1:
+            raise ValueError(f"{what}: a number above 0 and up to 1 (the probability a draft needs), or leave it off, not {value!r}")
+        return p
     if key == "vision-hold":
         text = value.strip().lower() if isinstance(value, str) else ""
         if text not in VISION_HOLDS:
