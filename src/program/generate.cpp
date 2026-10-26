@@ -612,6 +612,9 @@ struct Options {
     /// --vision-mmproj PATH: the image encoder runs in this process on the model's GPU (implies --vision).  Its weights
     /// stay in pinned host memory; each ENC command borrows expert-cache slots, encodes in them and refills them.
     std::string vision_mmproj;
+    /// --vision-release: the encoder's pinned copy of the weights is freed after the warm-up and after each batch of images, and
+    /// read from the file again at the next one; the commit it held is free in between.
+    bool vision_release = false;
     int adapt_swaps = 96;
     /// --serve: how many conversation checkpoints to keep between requests (0 = every request reads its whole prompt
     /// again).  One is the GDN recurrence of the 36 layers, the QSA indexer tails and the PLE history (~118 MB of host
@@ -878,6 +881,8 @@ void usage() {
                  "  --vision             --serve takes images too (GENI requests; embeddings from basalt-vision)\n"
                  "  --vision-mmproj PATH --vision, with the image encoder in this process: ENC requests borrow\n"
                  "                       expert-cache slots for the encoder and give them back refilled\n"
+                 "  --vision-release     with --vision-mmproj: free the encoder's pinned weights after each batch of\n"
+                 "                       images (and after the warm-up) and read them from the file at the next one\n"
                  "  --prompt-cache N     --serve: keep N conversation checkpoints between requests (default 6, ~118 MB\n"
                  "                       of RAM each; 0 = read every prompt from the start)\n"
                  "  --conversation-cache-mib N  --serve: RAM budget for parked conversations (default 0 = off)\n"
@@ -1695,6 +1700,7 @@ int main(int argc, char** argv) {
         else if (a == "--serve") o.serve = true;
         else if (a == "--vision") o.vision = true;
         else if (a == "--vision-mmproj") { o.vision_mmproj = next("--vision-mmproj"); o.vision = true; }
+        else if (a == "--vision-release") o.vision_release = true;
         else if (a == "--prompt-cache") o.prompt_cache = std::max(0, std::atoi(next("--prompt-cache")));
         else if (a == "--conversation-cache-mib" || a == "--conversation-cache-slots" ||
                  a == "--conversation-cache-min-free-mib") {
@@ -2787,14 +2793,16 @@ int main(int argc, char** argv) {
         const bool warm = vis_enc.encode(patches, sz, out);
         vis_enc.detach();
         cudaFree(tmp);
+        if (warm && o.vision_release) vis_enc.unstage();
         if (!warm) {
             std::fprintf(stderr, "basalt generate: the image encoder warm-up failed: %s\n", vis_enc.last_error().c_str());
             return 1;
         }
-        std::fprintf(stderr, "basalt serve: image encoder staged: %.0f MiB of weights in pinned memory, %.2f GiB of expert-cache "
+        std::fprintf(stderr, "basalt serve: image encoder staged: %.0f MiB of weights %s, %.2f GiB of expert-cache "
                              "slots borrowed per image at most (%.1f s)\n",
-                     (double) vis_enc.weights_bytes() / 1048576.0, (double) tmp_bytes / 1073741824.0,
-                     std::chrono::duration<double>(Clock::now() - t0).count());
+                     (double) vis_enc.weights_bytes() / 1048576.0,
+                     o.vision_release ? "read from the file for each batch of images (nothing held between them)" : "in pinned memory",
+                     (double) tmp_bytes / 1073741824.0, std::chrono::duration<double>(Clock::now() - t0).count());
     }
 
     float* d_parts = nullptr;
@@ -6668,6 +6676,21 @@ int main(int argc, char** argv) {
                 jobs.push_back(std::move(j));
             }
             const int tokens = std::max(max_patches / 4, geo.min_tokens);
+            // the weights come back from the file when they were let go; with --vision-release they go again however this ends
+            if (!vis_enc.staged()) {
+                basalt::vision::Mmproj mp;
+                std::string serr;
+                if (!mp.open(o.vision_mmproj, serr) || !vis_enc.stage(mp, true, serr)) {
+                    reply_err("the encoder weights could not be read again: " + serr);
+                    return;
+                }
+                mp.release();
+            }
+            struct Unstage {
+                basalt::vision::CudaEncoder& enc;
+                bool on;
+                ~Unstage() { if (on) enc.unstage(); }
+            } unstage_after{vis_enc, o.vision_release};
             const auto t_dec = Clock::now();
             // the work that touches the cache starts from a quiet cache and device
             std::string e;

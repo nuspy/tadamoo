@@ -3,11 +3,14 @@
 //
 //   vision_cuda_parity kernels
 //   vision_cuda_parity encoder <mmproj.gguf> <image>
+//   vision_cuda_parity release <mmproj.gguf> <image>
 //
 // kernels: random inputs at the real geometry (1152 columns, 16 heads of 72); each result against a double
 // precision host computation of the same operation, bitwise repeatability, and a row's independence of the rows
 // around it; then a timing line per kernel.  encoder: per tap relative L2 against the CPU encoder run with the same
-// bf16 input rounding, and the end-to-end time.  Exit status 1 when a gate fails.
+// bf16 input rounding, and the end-to-end time.  release: the encoder staged in pinned memory, used, its host weights freed,
+// staged again from the file and used again (the same embeddings to the last bit, none while unstaged, nothing freed while
+// attached).  Exit status 1 when a gate fails.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -368,6 +371,56 @@ int run_encoder(const char* mmproj, const char* image) {
     return 0;
 }
 
+int run_release(const char* mmproj, const char* image) {
+    std::string err;
+    std::ifstream f(image, std::ios::binary);
+    const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    Image img;
+    if (!decode_image(bytes.data(), bytes.size(), img, err)) { std::printf("%s\n", err.c_str()); return 2; }
+    const Geometry geo;
+    const Size sz = fit_size(img.w, img.h, geo);
+    std::vector<float> planar, patches;
+    normalize_planar(to_canvas(img, sz), planar);
+    patchify(planar, sz, geo, patches);
+    const int tokens = std::max(sz.w / 32 * (sz.h / 32), geo.min_tokens);
+    CudaEncoder enc;
+    auto stage = [&] {
+        Mmproj mp;
+        err.clear();
+        if (!mp.open(mmproj, err)) { if (err.empty()) err = "the projector did not open"; return false; }
+        if (!enc.stage(mp, true, err)) { if (err.empty()) err = "the weights were not staged"; return false; }
+        if (!enc.create(err)) { if (err.empty()) err = "the stream was not made"; return false; }
+        mp.release();
+        return true;
+    };
+    void* arena = nullptr;
+    auto use = [&](std::vector<float>& out) {
+        const size_t bytes_needed = enc.arena_bytes(tokens);
+        if (!arena && cudaMalloc(&arena, bytes_needed) != cudaSuccess) { err = "out of device memory"; return false; }
+        const bool ok = enc.attach(arena, bytes_needed, tokens, err) && enc.encode(patches, sz, out);
+        if (!ok && err.empty()) err = enc.last_error();
+        enc.detach();
+        return ok;
+    };
+    std::vector<float> first, second;
+    if (!stage()) { std::printf("stage: %s\n", err.c_str()); return 2; }
+    const size_t arena_before = enc.arena_bytes(tokens);
+    verdict("staged", enc.staged() ? 0.0 : 1.0, 0.5);
+    if (!use(first)) { std::printf("first encode: %s\n", err.c_str()); return 2; }
+    enc.unstage();
+    verdict("unstaged after use", enc.staged() ? 1.0 : 0.0, 0.5);
+    verdict("sizes kept while unstaged", enc.arena_bytes(tokens) == arena_before ? 0.0 : 1.0, 0.5);
+    err.clear();
+    verdict("attach refused while unstaged", enc.attach(arena, arena_before, tokens, err) ? 1.0 : 0.0, 0.5);
+    enc.detach();
+    if (!stage()) { std::printf("stage again: %s\n", err.c_str()); return 2; }
+    if (!use(second)) { std::printf("second encode: %s\n", err.c_str()); return 2; }
+    verdict("same embeddings after staging again", first == second ? 0.0 : 1.0, 0.5);
+    std::printf("  %zu floats, %.0f MiB of weights\n", first.size(), enc.weights_bytes() / 1048576.0);
+    if (arena) cudaFree(arena);
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -378,8 +431,10 @@ int main(int argc, char** argv) {
         test_attention();
     } else if (argc >= 4 && !std::strcmp(argv[1], "encoder")) {
         run_encoder(argv[2], argv[3]);
+    } else if (argc >= 4 && !std::strcmp(argv[1], "release")) {
+        if (run_release(argv[2], argv[3]) == 2) return 2;
     } else {
-        std::fprintf(stderr, "usage: vision_cuda_parity kernels | encoder <mmproj.gguf> <image>\n");
+        std::fprintf(stderr, "usage: vision_cuda_parity kernels | encoder <mmproj.gguf> <image> | release <mmproj.gguf> <image>\n");
         return 2;
     }
     std::printf(g_fail ? "FAILED (%d)\n" : "all passed\n", g_fail);
