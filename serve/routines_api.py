@@ -11,10 +11,13 @@ The scheduler is made when first needed and runs the routines through the server
 """
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from harness.energy import EnergyMeter
+from harness.personal_skills.store import SkillError
+from harness.personal_skills.values import resolve as resolve_values
 from harness.scheduler import RoutineError, Scheduler, SessionRoutineRunner
 
 RECENT_RUNS = 20
@@ -24,6 +27,7 @@ class RoutinesApi:
     def __init__(self, directory: str | Path, sessions: Any, scheduler: Optional[Scheduler] = None,
                  power_source: Optional[Callable[[], Any]] = None) -> None:
         """`power_source()` returns the GPUs' power readings (the server's telemetry); with it each result carries its energy."""
+        self.sessions = sessions                          # its personal skills are what a skill routine runs
         meter = (lambda: EnergyMeter(power_source)) if power_source else None
         self.scheduler = scheduler or Scheduler(directory, SessionRoutineRunner(sessions), meter=meter).start()
 
@@ -37,10 +41,28 @@ class RoutinesApi:
             raise RoutineError("The limit is a number.", "bad_limit") from None
         return {"runs": self.scheduler.runs(routine_id, count)}
 
+    def _skill_ok(self, slug: Any, values: Any) -> None:
+        """A routine that runs a skill names one that is approved on this PC, and gives values the skill takes (a date in words is read at each run;
+        here it is only tried, so a wrong one is refused now and not at three in the morning)."""
+        skills = getattr(self.sessions, "skills", None)
+        if skills is None:
+            raise RoutineError("The personal skills are not available.", "bad_skill")
+        try:
+            skill = skills.get(slug)
+        except SkillError as exc:
+            raise RoutineError(str(exc), "bad_skill") from None
+        if skill.get("status") != "approved":
+            raise RoutineError("Read the skill and approve it first: it has not been approved on this PC.", "needs_approval")
+        _, errors = resolve_values(skill.get("params") or [], values or {}, datetime.now())
+        if errors:
+            raise RoutineError("; ".join(f"{k}: {v}" for k, v in errors.items()), "bad_values")
+
     def create(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        if req.get("skill"):
+            self._skill_ok(req.get("skill"), req.get("values"))
         return {"routine": self.scheduler.add(req.get("name"), req.get("prompt"), req.get("workspace"), req.get("schedule"),
                                               req.get("mode", "read_only"), req.get("allow"), req.get("max_turns", 10),
-                                              req.get("confirm_auto") is True)}
+                                              req.get("confirm_auto") is True, req.get("skill") or "", req.get("values"))}
 
     def act(self, routine_id: str, action: str, req: Dict[str, Any]) -> Dict[str, Any]:
         s = self.scheduler
@@ -54,7 +76,12 @@ class RoutinesApi:
             s.remove(routine_id)
             return {"removed": routine_id}
         if action == "update":
-            return {"routine": s.update(routine_id, **{k: v for k, v in req.items() if k != "id"})}
+            fields = {k: v for k, v in req.items() if k != "id"}
+            current = s.get(routine_id)
+            slug = fields.get("skill", current.get("skill"))
+            if slug:
+                self._skill_ok(slug, fields.get("values", current.get("values")))
+            return {"routine": s.update(routine_id, **fields)}
         raise RoutineError("Unknown action.", "unknown")
 
     def cancel(self) -> Dict[str, Any]:

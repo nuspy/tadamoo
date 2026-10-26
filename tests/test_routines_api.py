@@ -71,3 +71,51 @@ def test_a_form_that_is_not_json_is_refused(api, ws):
     with pytest.raises(urllib.error.HTTPError) as e:
         urllib.request.urlopen(req, timeout=10)
     assert e.value.code in (403, 415)
+
+
+SKILL_SPEC = {"name": "Daily report", "description": "writes the report of a day",
+              "params": [{"name": "day", "type": "date", "explanation": "which day"}, {"name": "topic", "type": "text", "explanation": "about what"}]}
+SKILL_SCRIPT = "def main(params):\n    return 'ok'\n"
+
+
+@pytest.fixture
+def skills_api(tmp_path, monkeypatch, start_server):  # noqa: F811
+    url = start_server(["unused"])
+    mgr = SessionManager(tmp_path / "j", url, board=ApprovalBoard(), tick_s=0.2, skills_dir=tmp_path / "skills",
+                         command=lambda sid, rec, history: [sys.executable, STUB, "--session-id", sid, "--history-dir", str(history)])
+    sched = Scheduler(tmp_path / "routines", SessionRoutineRunner(mgr, poll_s=0.05), tick_s=3600, poll_s=0.05).start()
+    monkeypatch.setattr(handler, "_SESSIONS", mgr)
+    monkeypatch.setattr(handler, "_ROUTINES", RoutinesApi(tmp_path, mgr, scheduler=sched))
+    mgr.skills.save(SKILL_SPEC, SKILL_SCRIPT)
+    yield Api(url), mgr
+    sched.shutdown()
+    mgr.shutdown()
+
+
+def test_a_routine_can_run_a_personal_skill_and_the_date_in_words_is_worked_out_at_each_run(skills_api, ws):
+    api, mgr = skills_api
+    code, made = api("POST", "/api/routines", body(ws, skill="daily-report", values={"day": "today", "topic": "tests"}, prompt=""))
+    assert code == 200
+    routine = made["routine"]
+    assert (routine["skill"], routine["values"]) == ("daily-report", {"day": "today", "topic": "tests"}) and routine["prompt"] == "Skill: daily-report"
+    assert api("POST", f"/api/routines/{routine['id']}/run", {})[0] == 200
+    wait_for(lambda: api("GET", f"/api/routines/runs?id={routine['id']}")[1]["runs"], seconds=30)
+    run = api("GET", f"/api/routines/runs?id={routine['id']}")[1]["runs"][0]
+    assert run["status"] == "done" and run["summary"].startswith("skill Daily report ")
+    from datetime import date
+    assert f'"value": "{date.today().isoformat()}"' in run["summary"]                  # 'today' became the day of this run, and the stored routine still says 'today'
+    assert api("GET", "/api/routines")[1]["routines"][0]["values"]["day"] == "today"
+
+
+def test_a_skill_routine_with_a_wrong_value_a_missing_skill_or_a_skill_not_approved_is_refused_when_saved(skills_api, ws):
+    api, mgr = skills_api
+    code, res = api("POST", "/api/routines", body(ws, skill="daily-report", values={"day": "when the moon is blue", "topic": "x"}))
+    assert code == 400 and res["error"]["code"] == "bad_values" and "day" in res["error"]["message"]
+    assert api("POST", "/api/routines", body(ws, skill="no-such-skill", values={}))[1]["error"]["code"] == "bad_skill"
+    assert api("POST", "/api/routines", body(ws, values={"day": "today"}))[1]["error"]["code"] == "bad_values"            # values need a skill
+    mgr.skills.save({**SKILL_SPEC, "name": "Unread"}, SKILL_SCRIPT + "# changed\n", approve=False)
+    assert api("POST", "/api/routines", body(ws, skill="unread", values={"day": "today", "topic": "x"}))[1]["error"]["code"] == "needs_approval"
+    made = api("POST", "/api/routines", body(ws, skill="daily-report", values={"day": "tomorrow", "topic": "x"}))[1]["routine"]
+    code, res = api("POST", f"/api/routines/{made['id']}/update", {"values": {"day": "nonsense", "topic": "x"}})
+    assert code == 400 and res["error"]["code"] == "bad_values"
+    assert api("POST", f"/api/routines/{made['id']}/update", {"skill": "", "values": {}, "prompt": "plain task"})[1]["routine"]["skill"] == ""

@@ -33,6 +33,8 @@ ROUTINES_FILE = "routines.json"
 RUNS_FILE = "routine_runs.json"
 KEEP_RUNS = 200
 NAME_MAX, PROMPT_MAX, SUMMARY_MAX = 80, 4000, 4000
+VALUES_MAX = 8000                                                     # what is kept of a skill's values: names and short values
+_SKILL = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 MIN_INTERVAL_S = 60
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 _INTERVAL = re.compile(r"^every\s+(\d{1,4})\s*([mhd])$")
@@ -176,9 +178,9 @@ class Scheduler:
         return r
 
     def add(self, name: Any, prompt: Any, workspace: Any, schedule: Any, mode: Any = "read_only", allow: Any = None,
-            max_turns: Any = 10, confirm_auto: bool = False) -> Dict[str, Any]:
-        """A new routine, disabled: the person turns it on."""
-        routine = self._check(None, name, prompt, workspace, schedule, mode, allow, max_turns, confirm_auto)
+            max_turns: Any = 10, confirm_auto: bool = False, skill: Any = "", values: Any = None) -> Dict[str, Any]:
+        """A new routine, disabled: the person turns it on. With a `skill` it runs that personal skill with `values` instead of a prompt."""
+        routine = self._check(None, name, prompt, workspace, schedule, mode, allow, max_turns, confirm_auto, skill, values)
         routine.update(id=secrets.token_hex(3), enabled=False, created=self.clock(), last_run=0, last_status="")
         with self._lock:
             self.routines.append(routine)
@@ -189,9 +191,9 @@ class Scheduler:
     def update(self, routine_id: str, **fields: Any) -> Dict[str, Any]:
         with self._lock:
             current = self._find(routine_id)
-            merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "mode", "allow", "max_turns", "confirm_auto")}}
+            merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "mode", "allow", "max_turns", "confirm_auto", "skill", "values")}}
             checked = self._check(routine_id, merged["name"], merged["prompt"], merged["workspace"], merged["schedule"], merged["mode"],
-                                  merged.get("allow"), merged["max_turns"], merged.get("confirm_auto") is True)
+                                  merged.get("allow"), merged["max_turns"], merged.get("confirm_auto") is True, merged.get("skill", ""), merged.get("values"))
             current.update(checked)
             self._due[routine_id] = self._advance(current, self.clock())
             self._save()
@@ -199,9 +201,18 @@ class Scheduler:
 
     @staticmethod
     def _check(routine_id: Optional[str], name: Any, prompt: Any, workspace: Any, schedule: Any, mode: Any, allow: Any,
-               max_turns: Any, confirm_auto: bool) -> Dict[str, Any]:
+               max_turns: Any, confirm_auto: bool, skill: Any = "", values: Any = None) -> Dict[str, Any]:
         if not isinstance(name, str) or not name.strip() or len(name) > NAME_MAX:
             raise RoutineError(f"Give the routine a name of at most {NAME_MAX} characters.", "bad_name")
+        if skill:
+            if not isinstance(skill, str) or not _SKILL.match(skill):
+                raise RoutineError("Name one of your personal skills.", "bad_skill")
+            if values is not None and (not isinstance(values, dict) or len(values) > 40 or len(json.dumps(values, default=str)) > VALUES_MAX
+                                       or any(not isinstance(k, str) or len(k) > 60 for k in values)):
+                raise RoutineError("The values of the skill are a short list of names and values.", "bad_values")
+            prompt = prompt if isinstance(prompt, str) and prompt.strip() else f"Skill: {skill}"
+        elif values:
+            raise RoutineError("Values go with a skill.", "bad_values")
         if not isinstance(prompt, str) or not prompt.strip():
             raise RoutineError("Write what the agent should do.", "bad_prompt")
         if len(prompt) > PROMPT_MAX:
@@ -220,7 +231,8 @@ class Scheduler:
             raise RoutineError("The number of steps must be between 1 and 50.", "bad_steps")
         return {"name": name.strip(), "prompt": prompt.strip(), "workspace": str(Path(workspace.strip()).resolve()),
                 "schedule": " ".join(str(schedule).lower().split()), "mode": mode, "allow": [r.strip() for r in rules],
-                "max_turns": max_turns, "confirm_auto": bool(confirm_auto and mode == "auto")}
+                "max_turns": max_turns, "confirm_auto": bool(confirm_auto and mode == "auto"),
+                **({"skill": skill, "values": dict(values or {})} if skill else {"skill": "", "values": {}})}
 
     def set_enabled(self, routine_id: str, enabled: bool) -> Dict[str, Any]:
         with self._lock:
@@ -380,7 +392,13 @@ class SessionRoutineRunner:
                          routine.get("confirm_auto") is True, routine.get("max_turns", 10), worktree="off")["id"]
         self._own.add(sid)
         try:
-            mgr.send(sid, routine["prompt"])
+            if routine.get("skill"):                          # the values are worked out now: "today" is the day of this run
+                try:
+                    mgr.run_skill(sid, routine["skill"], routine.get("values") or {})
+                except Exception as exc:
+                    return {"status": "failed", "summary": f"The skill could not start: {exc}", "session": sid, "seconds": round(time.monotonic() - started, 1)}
+            else:
+                mgr.send(sid, routine["prompt"])
             seen, cancelled_at = 0, None
             while True:
                 data = mgr.events(sid, seen)

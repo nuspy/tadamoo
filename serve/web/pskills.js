@@ -345,7 +345,7 @@
   }
 
   window.pskills = {
-    openList, make, edit: editor, runForm, skillBy,
+    openList, make, edit: editor, runForm, skillBy, valueField,
     use: async text => {                                             // /skilluse name  [key=value ...]
       const m = /^(?:"([^"]+)"|(\S+))(?:\s+(.*))?$/.exec(text.trim());
       if (!m) { openList(); return; }

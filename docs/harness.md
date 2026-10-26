@@ -979,8 +979,11 @@ holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/
 - **Routes.** `GET /api/personal-skills`, `GET /api/personal-skills/<slug>` and `.../export` (the `.pskill` zip: `manifest.json` with a hash, `skill.json`,
   `skill.py`); `POST /api/personal-skills` (save), `/check`, `/preview`, `/import` (the file in base64; it arrives to approve), `/<slug>/delete`, `/approve`
   and `/restore`; `POST /api/agent/sessions/<id>/skill` (run), `/skill-propose` and `/skill-script`. All from this PC and the server's own page only.
-- **Not done:** running a skill on a schedule (the routines have no skill yet), a test run that compares with the recording, going on with the agent from the step
-  that failed, and a skill for the Agent tab or the command line.
+- **On a schedule:** a routine can run a skill instead of a prompt (`skill` and `values` of `POST /api/routines`, chosen in the Cron Jobs tab). The values are kept as the person
+  wrote them and read at each run, so a date in words (`today`, `tomorrow`, `in 3 days`) is the day of that run. The skill must be approved on this PC, and its values are tried when the routine is
+  saved, so a wrong one is refused then and not at night. The routine's mode and rules for commands are the permissions the skill's tool calls run under (read-only by default: a call that needs
+  an answer ends the run as `asked`, with the question). The run is a conversation of its own, closed when it ends, like any routine.
+- **Not done:** a test run that compares with the recording, going on with the agent from the step that failed, and a skill for the Agent tab or the command line.
 
 ## Evaluation
 
