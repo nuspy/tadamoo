@@ -180,3 +180,63 @@ def test_a_skill_waits_for_the_agent_to_finish_and_a_closed_conversation_takes_n
     with pytest.raises(RunError) as err:
         manager.run_skill(sid, "read-a-day", {"file": "a"})
     assert err.value.code == "closed"
+
+
+# ---- making a skill from requests ------------------------------------------------------------------------------------------------------
+
+class Model:
+    def __init__(self, *answers):
+        self.answers, self.sent = list(answers), []
+
+    def chat_completion(self, messages, **kwargs):
+        self.sent.append(messages)
+        return {"choices": [{"message": {"role": "assistant", "content": self.answers.pop(0)}}]}
+
+
+def conversation_with_a_tool(manager, tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    sid = manager.create(str(ws))["id"]
+    folder = manager.history_dir(sid)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "history.json").write_text(json.dumps({"turns": 2, "messages": [
+        {"role": "user", "content": "leggi notes.txt", "ts": 1791935520.0},
+        {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": json.dumps({"path": "notes.txt"})}}]},
+        {"role": "tool", "tool_call_id": "c1", "name": "read_file", "content": "the notes"},
+        {"role": "assistant", "content": "Done: the notes."},
+        {"role": "user", "content": "grazie"}, {"role": "assistant", "content": "prego"}]}), encoding="utf-8")
+    return sid
+
+
+def test_the_values_that_change_are_proposed_from_the_chosen_requests(manager, tmp_path, monkeypatch):
+    sid = conversation_with_a_tool(manager, tmp_path)
+    model = Model(json.dumps({"name": "Leggi", "description": "reads a file", "params": [{"name": "file", "type": "path", "value_seen": "notes.txt", "explanation": "which"}]}))
+    monkeypatch.setattr(manager, "_skill_client", lambda: model)
+    got = manager.skill_propose(sid, [1])
+    assert got["name"] == "Leggi" and got["params"][0]["name"] == "file" and got["params"][0]["unverified"] is False
+    assert got["requests"] == [{"n": 1, "raw": "leggi notes.txt"}] and got["steps"] == [{"kind": "tool", "turn": 1, "name": "read_file", "ok": True}, {"kind": "answer", "turn": 1}]
+    assert [c["value"] for c in got["candidates"]] == ["notes.txt"]
+
+
+def test_the_script_is_written_from_the_parameters_the_person_kept(manager, tmp_path, monkeypatch):
+    sid = conversation_with_a_tool(manager, tmp_path)
+    model = Model("```python\nfrom basalt_skill import tool\n\ndef main(params):\n    return tool('read_file', path=params.file)\n```")
+    monkeypatch.setattr(manager, "_skill_client", lambda: model)
+    got = manager.skill_script(sid, [1], "Leggi", "reads a file", [{"name": "file", "type": "path", "value_seen": "notes.txt", "label": "File"}])
+    assert got["problems"] == [] and got["unused"] == [] and "params.file" in got["script"]
+    assert got["skill"]["name"] == "Leggi" and got["skill"]["mode"] == "restricted" and got["skill"]["source"] == {"conversation": sid, "requests": [1]}
+    assert "<<params.file>>" in model.sent[0][1]["content"]
+    saved = manager.skills.save(got["skill"], got["script"])                             # and it can be saved as it came
+    assert saved["status"] == "approved" and saved["params"][0]["name"] == "file"
+
+
+def test_what_cannot_be_made_into_a_skill_is_said(manager, tmp_path, monkeypatch):
+    sid = conversation_with_a_tool(manager, tmp_path)
+    monkeypatch.setattr(manager, "_skill_client", lambda: Model())
+    for turns, code in (([], "bad_turns"), ("1", "bad_turns"), ([0], "bad_turns"), ([True], "bad_turns"), ([1] * 13, "bad_turns"), ([9], "bad_turns"), ([2], "nothing_to_repeat")):
+        with pytest.raises(RunError) as err:
+            manager.skill_propose(sid, turns)
+        assert err.value.code == code, turns
+    with pytest.raises(RunError) as err:
+        manager.skill_script(sid, [1], "x", "", [{"name": "A B"}])
+    assert err.value.code == "bad_params"

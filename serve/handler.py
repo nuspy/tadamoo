@@ -1738,6 +1738,10 @@ def make_handler(svc: Service):
                         return self._json(200, {"session": mgr.set_effort(parts[1], req.get("level", ""))})
                     if len(parts) == 3 and parts[2] == "rename":
                         return self._json(200, {"session": mgr.rename(parts[1], req.get("title"))})
+                    if len(parts) == 3 and parts[2] == "skill-propose":
+                        return self._json(200, mgr.skill_propose(parts[1], req.get("turns")))
+                    if len(parts) == 3 and parts[2] == "skill-script":
+                        return self._json(200, mgr.skill_script(parts[1], req.get("turns"), req.get("name"), req.get("description"), req.get("params")))
                     if len(parts) == 3 and parts[2] == "skill":
                         return self._json(200, mgr.run_skill(parts[1], req.get("slug"), req.get("values")))
                     if len(parts) == 3 and parts[2] == "favorite":
