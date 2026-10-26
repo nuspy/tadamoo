@@ -54,7 +54,7 @@ class KeysTest(unittest.TestCase):
             self.assertTrue(remote_path_ok(ok), ok)
         self.assertTrue(remote_path_ok("/api/remote/peers"))
         for bad in ("/", "/web/app.js", "/api/wallet/state", "/api/vault", "/api/settings", "/api/loader/load", "/api/remote", "/api/remote/keys/create", "/api/models",
-                    "/api/control/stop", "/api/profiles/export", "/metrics", "/api/agentx", "/v1x"):
+                    "/api/control/stop", "/api/profiles/export", "/metrics", "/api/agentx", "/v1x", "/api/memories", "/api/memories/item"):
             self.assertFalse(remote_path_ok(bad), bad)
 
 
