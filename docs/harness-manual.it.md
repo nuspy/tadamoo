@@ -384,7 +384,8 @@ scaduto, non autorizzato a girare) blocca anch'esso. Un file con un errore imped
 
 - Le **routine** eseguono un prompt secondo un orario (`every 30m`, `daily 08:30`, `weekdays 08:30`, `mon,wed,fri 18:15`) in una cartella
   e in una modalità. Una routine nasce **disattivata** e in sola lettura; ne gira una alla volta e solo quando nessuna conversazione è
-  occupata. Si gestiscono tramite `/api/routines`; non c'è ancora una pagina.
+  occupata. Si gestiscono dalla scheda **Cron Jobs**: un elenco con *Accendi/Spegni*, *Esegui ora* ed *Elimina*, un editor, gli ultimi risultati di ogni job e una
+  piccola chat a destra per discuterne uno. La chat propone soltanto: *Usa nell'editor* riempie il modulo, e nulla è salvato o acceso finché non premi *Salva* e *Accendi*.
 - **Valutazione**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` esegue ogni compito k volte su una
   cartella nuova e riporta pass@k, pass^k, costo e uso della cache. Sono confronti di sviluppo, non numeri da titolo.
 - **Riesecuzione**: `python -m harness.replay trace.jsonl --mode auto` rifà una sessione registrata con le risposte registrate del modello

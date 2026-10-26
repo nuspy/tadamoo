@@ -11,6 +11,7 @@
 <link rel="preload" href="fonts/geist-mono-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="web/app.css">
 <link rel="stylesheet" href="web/plans.css">
+<link rel="stylesheet" href="web/cron.css">
 <link rel="stylesheet" href="web/shell.css">
 <link rel="stylesheet" href="web/wallet.css">
 <link rel="stylesheet" href="web/risk.css">
@@ -38,6 +39,7 @@
 <script defer src="web/reqlog.js"></script>
 <script defer src="web/changes.js"></script>
 <script defer src="web/plans.js"></script>
+<script defer src="web/cron.js"></script>
 <script defer src="web/wallet.js"></script>
 </head>
 <body>
@@ -49,6 +51,7 @@
     <button class="tab" role="tab" id="tab-chat" data-view="chat" aria-controls="view-chat" aria-selected="false" tabindex="-1" data-t="tab.chat" aria-keyshortcuts="Alt+1">Chat</button>
     <button class="tab" role="tab" id="tab-agent" data-view="agent" aria-controls="view-agent" aria-selected="false" tabindex="-1" data-t="tab.agent">Agent</button>
     <button class="tab" role="tab" id="tab-plans" data-view="plans" aria-controls="view-plans" aria-selected="false" tabindex="-1" data-t="tab.plans">Plans</button>
+    <button class="tab" role="tab" id="tab-cron" data-view="cron" aria-controls="view-cron" aria-selected="false" tabindex="-1" data-t="tab.cron">Cron Jobs</button>
     <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats" aria-selected="true" data-t="tab.stats">Monitor</button>
     <button class="tab" role="tab" id="tab-loader" data-view="loader" aria-controls="view-loader" aria-selected="false" tabindex="-1" data-t="tab.loader">Models</button>
     <button class="tab" role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1" data-t="tab.settings">Settings</button>
@@ -464,6 +467,39 @@
 
   <div class="view plans" id="view-plans" role="tabpanel" aria-labelledby="tab-plans" hidden>
     <div class="chatrow plrow" id="plans-root"></div>
+  </div>
+
+  <div class="view cron" id="view-cron" role="tabpanel" aria-labelledby="tab-cron" hidden>
+    <div class="cj-grid" id="cron-root">
+      <section class="sec cj-listsec" aria-labelledby="cj-h">
+        <div class="sh"><b id="cj-h" data-t="cj.title">Cron Jobs</b><span class="grow"></span><button type="button" class="btn primary" id="cj-new" data-t="cj.newbtn" data-t-title="cj.tip.new">New job</button></div>
+        <p class="help pad" id="cj-running" role="status" hidden></p>
+        <ul class="cj-list" id="cj-list" aria-label="Cron Jobs" data-t-aria="cj.title"></ul>
+        <p class="pad dim" id="cj-empty" data-t="cj.empty" hidden>No jobs yet.</p>
+        <p class="cj-status pad" id="cj-status" role="status" aria-live="polite"></p>
+      </section>
+      <section class="sec cj-edsec" aria-label="Job" data-t-aria="cj.job">
+        <p class="pad dim" id="cj-pick" data-t="cj.pick">Choose a job, or press New job.</p>
+        <div id="cj-editor" hidden></div>
+        <datalist id="cj-folders"></datalist>
+        <div class="cj-runs" id="cj-runs" hidden>
+          <div class="sh"><b data-t="cj.runs">Latest results</b></div>
+          <ul class="cj-runlist" id="cj-runs-list"></ul>
+          <p class="pad dim" id="cj-runs-none" data-t="cj.runs.none">Not run yet.</p>
+        </div>
+      </section>
+      <aside class="sec cj-chat" aria-labelledby="cj-chat-h">
+        <div class="sh"><b id="cj-chat-h" data-t="cj.chat.title">Talk it over</b><span class="grow"></span><button type="button" class="btn ghost" id="cj-chat-clear" data-t="cj.chat.clear">Clear</button></div>
+        <p class="help pad" data-t="cj.chat.help"></p>
+        <div class="cj-msgs" id="cj-chat-msgs" role="log" aria-live="polite"></div>
+        <p class="pad dim" id="cj-chat-empty" data-t="cj.chat.empty"></p>
+        <form id="cj-chat-form" class="cj-chatform">
+          <label class="sr" for="cj-chat-input" data-t="cj.chat.title">Talk it over</label>
+          <textarea id="cj-chat-input" rows="2" data-t-ph="cj.chat.ph" placeholder="Describe the job"></textarea>
+          <button type="submit" class="btn primary" id="cj-chat-send" data-t="cj.chat.send">Send</button>
+        </form>
+      </aside>
+    </div>
   </div>
 
   <div class="view hw" id="view-hardware" role="tabpanel" aria-labelledby="sub-hardware" hidden>

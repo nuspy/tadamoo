@@ -358,7 +358,8 @@ run) blocks too. A file with a mistake stops the agent from starting, with the r
 
 - **Routines** run a prompt on a schedule (`every 30m`, `daily 08:30`, `weekdays 08:30`, `mon,wed,fri 18:15`) in a folder and a mode.
   A routine is created **disabled** and read-only; only one runs at a time and only while no conversation is busy. They are managed
-  through `/api/routines`; there is no page for them yet.
+  through the **Cron Jobs** tab: a list with *Turn on/off*, *Run now* and *Delete*, an editor, the latest results of each job, and a small chat at the right to
+  talk a job over. The chat only proposes: *Use in the editor* fills the form, and nothing is saved or turned on until you press *Save* and *Turn on*.
 - **Evaluation**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` runs each task k times on a fresh
   folder and reports pass@k, pass^k, cost and cache use. These are development comparisons, not headline numbers.
 - **Replay**: `python -m harness.replay trace.jsonl --mode auto` runs a recorded session again with the recorded model answers and

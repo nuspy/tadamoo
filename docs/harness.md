@@ -897,7 +897,7 @@ wide, not for phones.
 - **Sources**: after a link or an address in an answer, and for each site a `search_web` or `browse_url` step used, a small button opens the
   page in the system's browser (`target="_blank"`; the app hands a new window to the default browser). Only `http` and `https` addresses
   without a user name get one.
-- **Tabs**: Chat, Agent, Plans, Monitor, Models, Settings; **Alt+1…6** open them. Under Monitor a strip of pages: *Server LLM* (the
+- **Tabs**: Chat, Agent, Plans, Cron Jobs, Monitor, Models, Settings; **Alt+1…7** open them. Under Monitor a strip of pages: *Server LLM* (the
   Monitor itself, open by default), *Hardware* and *LOGS*. Under Settings: *General*, *Models and capabilities*, *Cloud and privacy* (the
   cloud-filter consent) and *Wallet*. **Ctrl+K** opens a palette that reaches every page and the common actions and settings.
 - A notice under the top bar says when no model is loaded and opens Models. The Monitor lists the last 100 requests; the agent's tasks
@@ -1058,7 +1058,13 @@ The API is `GET /api/routines` (routines, what runs, the latest results) and `GE
 `POST /api/routines` (create), `POST /api/routines/<id>/update|enable|disable|run|remove` and `POST /api/routines/cancel`, behind
 the same control-secret gate, loopback check and own-page check as the other writes. The scheduler is made when the
 conversation manager is first made (when the Chat first asks for its conversations) or when the routines API is first used, not
-when the server starts, so routines do not run in a server that nobody has opened a page on. There is no page for routines yet.
+when the server starts, so routines do not run in a server that nobody has opened a page on.
+
+The **Cron Jobs** tab is their page: a list (each job with its schedule, the next time, the last result, and *Turn on/off*, *Run now* and *Delete*, the delete
+asking twice), an editor (name, task, folder with the folders of the Agent tab suggested, the schedule with a few quick choices, the four modes, the most steps, the
+rules for commands; Automatic asks the two questions) and, under it, the job's latest results. A new job starts off. At the right a small chat talks a job over with the
+loaded model (a plain request to `/v1/chat/completions`, no tools): it is given the schedule syntax, the folders and the current jobs, and it may answer with a
+```` ```job ```` block of JSON; the page turns that into a card with *Use in the editor*, which only fills the editor. Nothing is saved or turned on by the chat.
 
 ## Other agents: ACP client and A2A
 
