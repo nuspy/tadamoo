@@ -165,7 +165,7 @@ class SessionManager:
             return {"messages": [], "turns": 0, "session": dict(rec)}
         shown = []
         for m in self._transcript(sid, data):
-            shown.append({k: (v[:TEXT_CHARS] if isinstance(v, str) else v) for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments")})
+            shown.append({k: (v[:TEXT_CHARS] if isinstance(v, str) else v) for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts")})
         return {"messages": shown, "turns": data.get("turns", 0), "session": dict(rec)}
 
     def _read_history(self, sid: str) -> Optional[Dict[str, Any]]:

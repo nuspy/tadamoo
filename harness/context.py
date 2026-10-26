@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 PIN_ORDER = ("system_core", "project_rules", "knowledge", "user_profile", "vault", "active_skills", "capabilities")
-INTERNAL_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary")
+INTERNAL_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts")
 ERROR_LINE = re.compile(
     r"(error|exception|traceback|fatal|panic|failed|failure|assertion|segmentation fault|stack trace)"
     r"|^\s+at\s+\S+\(|^\s+File \".*\", line \d+|^E\s{2,}",

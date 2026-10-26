@@ -14,6 +14,12 @@ from harness.session import Session, SessionStore, main
 from harness.stack import AgentConfig, build_agent
 from harness.tools.registry import EffectClass
 
+@pytest.fixture(autouse=True)
+def _no_clock(monkeypatch):
+    """These tests count the messages the model is sent; the time note has its own tests (test_clock.py)."""
+    monkeypatch.setattr("harness.stack.local_now", None)
+
+
 
 class Scripted:
     def __init__(self, *steps):

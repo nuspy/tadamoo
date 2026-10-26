@@ -17,6 +17,12 @@ from serve.util.text import ByteTokenizer
 
 ROOT = Path(__file__).resolve().parents[1]
 
+@pytest.fixture(autouse=True)
+def _no_clock(monkeypatch):
+    """These tests count the messages the model is sent; the time note has its own tests (test_clock.py)."""
+    monkeypatch.setattr("harness.stack.local_now", None)
+
+
 
 class _NoTelemetry:
     def snapshot(self):

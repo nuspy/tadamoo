@@ -13,6 +13,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from harness.audit import AuditLedger
@@ -32,6 +33,19 @@ PARAMETER_REGEX = re.compile(r"<parameter=([^>\s]+)>\n?(.*?)\n?</parameter>", re
 FINAL, MAX_TURNS, CANCELLED, BUDGET, LOOP, ERROR = "final", "max_turns", "cancelled", "budget", "loop", "error"
 SUSPENDED = "suspended"   # put aside at a safe point for something more urgent; it can go on from where it stands
 ASKED = "asked"       # the turn ended on a question for the person; their answer is the next message
+
+
+def local_now() -> datetime:
+    """The time on this PC's clock, with its timezone."""
+    return datetime.now().astimezone()
+
+
+def local_time_line(now: datetime) -> str:
+    """What the model is told before each request: the person's date, time and timezone (offset, and the zone's name when there is one)."""
+    offset = now.strftime("%z")
+    zone = f"UTC{offset[:3]}:{offset[3:]}" if len(offset) == 5 else "UTC"
+    name = now.tzname() or ""
+    return f"[harness] The person's local date and time: {now:%A %Y-%m-%d %H:%M} ({zone}{', ' + name if name and name != zone else ''})."
 
 
 @dataclass
@@ -123,6 +137,7 @@ class AgentLoop:
         on_delta: Optional[Callable[[str, str], None]] = None,
         before_inference: Optional[Callable[[], Optional[str]]] = None,
         pipeline: Optional[Pipeline] = None,
+        clock: Optional[Callable[[], datetime]] = None,
     ) -> None:
         self.client = client
         self.tools = tool_registry
@@ -144,6 +159,7 @@ class AgentLoop:
         self.on_delta = on_delta                  # the model's text as it is written ("content" or "reasoning"), when set
         self.before_inference = before_inference  # looked at before every model call; it may add messages or ask to be put aside
         self.pipeline = pipeline                  # checks the final answer against the request's card (harness/pipeline.py)
+        self.clock = clock                        # when set: each request is preceded by the local time, and each message carries its time (`ts`)
         self._card: Optional[Card] = None
         self._retried = False
         self.sampling = dict(sampling or {})      # temperature, seed, top_p...; the default is greedy
@@ -168,19 +184,28 @@ class AgentLoop:
             on_turn_end=self.on_turn_end, permissions=self.permissions, hooks=self.hooks, audit=self.audit, checkpoints=self.checkpoints,
             secrets=self.secrets, output_filter=self.output_filter, max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds,
             cancel=threading.Event(), max_loop_strikes=self.max_loop_strikes, context=self.context, on_event=self.on_event,
-            sampling=self.sampling, on_delta=self.on_delta, pipeline=self.pipeline)
+            sampling=self.sampling, on_delta=self.on_delta, pipeline=self.pipeline, clock=self.clock)
+
+    def append(self, message: Dict[str, Any]) -> None:
+        """Puts a message at the end of the conversation; with a clock it carries the time it was made, which never goes to the server."""
+        if self.clock is not None and "ts" not in message:
+            message["ts"] = self.clock().timestamp()
+        self.messages.append(message)
 
     def add_user_message(self, text: str, origin: str = "user", steer: bool = False, shown: Optional[str] = None) -> None:
         """Puts a message at the end of the conversation. From the person it is also what their next confirmation may quote and
         the request the answer is checked against (a steering message adds to the constraints already found); a note from the
-        planner is neither: nothing in it can stand for the person's words."""
+        planner is neither: nothing in it can stand for the person's words. With a clock, the local time goes in first, as a note of
+        the harness's: it is the one thing in the conversation that changes with every request, so it comes after everything that is kept."""
+        if self.clock is not None:
+            self.append({"role": "user", "content": local_time_line(self.clock()), "note": True})
         if origin != "user":
-            self.messages.append({"role": "user", "content": text})
+            self.append({"role": "user", "content": text})
             self.last_user_text, self.untrusted_since_user = "", True
             return
         rewrite = getattr(self.context, "rewrite", None)
         words = shown if shown is not None else text                     # `shown`: the person's own words, when `text` also holds their files
-        self.messages.append({"role": "user", "content": rewrite(text) if rewrite and not steer and shown is None else text})
+        self.append({"role": "user", "content": rewrite(text) if rewrite and not steer and shown is None else text})
         self.last_user_text, self.untrusted_since_user = words, False
         if self.pipeline:
             card = self.pipeline.card(words)
@@ -384,7 +409,7 @@ class AgentLoop:
         if user_goal is not None:
             self.add_user_message(user_goal)
         if retrieved:
-            self.messages.append(retrieved)     # memories and wiki text go after the goal, at the tail
+            self.append(retrieved)     # memories and wiki text go after the goal, at the tail
             self.untrusted_since_user = True
         run_turns: List[AgentTurn] = []
 
@@ -433,7 +458,7 @@ class AgentLoop:
             self._emit({"type": "assistant", "reasoning": reasoning, "content": content})
             calls = self.parse_calls(msg, content)
             if not calls:
-                self.messages.append({"role": "assistant", "content": content})
+                self.append({"role": "assistant", "content": content})
                 turn.seconds = round(time.monotonic() - t0, 3)
                 self._finish_turn(turn, run_turns)
                 if self._check_answer(content):
@@ -441,7 +466,7 @@ class AgentLoop:
                 self.stop_reason = FINAL
                 break
 
-            self.messages.append({
+            self.append({
                 "role": "assistant",
                 "content": content,
                 "tool_calls": [{
@@ -453,8 +478,8 @@ class AgentLoop:
             checkpointed = [False]
             for call in calls:
                 if self.cancel.is_set():
-                    self.messages.append({"role": "tool", "tool_call_id": call.call_id, "name": call.name,
-                                          "content": "Cancelled before it ran."})
+                    self.append({"role": "tool", "tool_call_id": call.call_id, "name": call.name,
+                                 "content": "Cancelled before it ran."})
                     self._audit_call("tool_cancelled", call.name, call.arguments, "not_reached", "cancelled", time.monotonic(),
                                      reason="cancelled before it ran")
                     continue
@@ -473,7 +498,7 @@ class AgentLoop:
                 self._emit({"type": "tool_end", "call_id": call.call_id, "name": call.name,
                             "status": "completed" if result.decision == "executed" and not result.is_error else "failed",
                             "decision": result.decision, "output": text})
-                self.messages.append({"role": "tool", "tool_call_id": call.call_id, "name": call.name, "content": text})
+                self.append({"role": "tool", "tool_call_id": call.call_id, "name": call.name, "content": text})
 
             turn.seconds = round(time.monotonic() - t0, 3)
             self._finish_turn(turn, run_turns)
@@ -510,7 +535,7 @@ class AgentLoop:
                     "seconds": verdict.seconds, "constraints": [c.text for c in card.constraints]})
         if retry:
             self._retried = True
-            self.messages.append({"role": "user", "content": feedback(verdict.violations)})
+            self.append({"role": "user", "content": feedback(verdict.violations)})
         return retry
 
     def _finish_turn(self, turn: AgentTurn, run_turns: List[AgentTurn]) -> None:

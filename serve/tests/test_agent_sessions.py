@@ -331,6 +331,21 @@ def test_a_request_the_model_saw_reframed_shows_as_the_person_wrote_it_and_prune
     assert [m["content"] for m in mgr.history(sid)["messages"]] == ["old question", "old answer", "in 5 parole", "ok"]
 
 
+def test_the_history_carries_the_time_of_each_message_and_the_clock_note_stays_out_of_the_way(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    h = mgr.history_dir(sid)
+    h.mkdir(parents=True, exist_ok=True)
+    (h / "history.json").write_text(json.dumps({"turns": 2, "messages": [
+        {"role": "user", "content": "[harness] The person's local date and time: Monday 2026-10-26 00:52 (UTC+01:00, CET).", "note": True, "ts": 1791935520.0},
+        {"role": "user", "content": "one", "ts": 1791935521.5}, {"role": "assistant", "content": "ok", "ts": 1791935530.0},
+        {"role": "user", "content": "[harness] The person's local date and time: Monday 2026-10-26 00:53 (UTC+01:00, CET).", "note": True, "ts": 1791935580.0},
+        {"role": "user", "content": "two", "ts": 1791935581.0}]}), encoding="utf-8")
+    shown = mgr.history(sid)["messages"]
+    assert [(m["content"], m["ts"]) for m in shown] == [("one", 1791935521.5), ("ok", 1791935530.0), ("two", 1791935581.0)]
+    assert [m["content"] for m in mgr._split(sid, mgr._read_history(sid), 1)[0]] == ["one", "ok"]          # a request is still the person's words, so going back counts them
+
+
 def test_a_branch_copies_the_history_up_to_a_request_and_leaves_the_first_alone(make, ws):
     mgr = make()
     sid = mgr.create(ws, title="plan")["id"]

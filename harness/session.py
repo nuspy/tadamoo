@@ -411,16 +411,16 @@ class Session:
         agent = self.agent
         agent.cancel.clear()
         if self._pending_note:
-            agent.messages.append({"role": "user", "content": self._pending_note})
+            agent.append({"role": "user", "content": self._pending_note})
             self._pending_note = None
         note = self._plans_note()
         if note:
-            agent.messages.append({"role": "user", "content": note})
+            agent.append({"role": "user", "content": note})
         self._add_message(agent, text, origin, attachments)
         retrieved = self.built.retrieved_message(text) if origin == "user" else None
         agent.untrusted_since_user = agent.untrusted_since_user or bool(retrieved)
         if retrieved:
-            agent.messages.append(retrieved)
+            agent.append(retrieved)
         self._save()                                   # the message is kept before the model sees it
         task = Task(turn, text, agent)
         self._adopt(task)
@@ -590,7 +590,7 @@ class Session:
             self.busy, self.blocked = True, None
         self.agent.cancel.clear()
         if self._pending_note:
-            self.agent.messages.append({"role": "user", "content": self._pending_note})
+            self.agent.append({"role": "user", "content": self._pending_note})
             self._pending_note = None
             self._save()
         if self._main_unfinished():
@@ -807,7 +807,7 @@ class Session:
                 side = True
             elif self.stack:
                 back = self.stack.pop()
-                back.agent.messages.append({"role": "user", "content": RESUME_NOTE})
+                back.agent.append({"role": "user", "content": RESUME_NOTE})
                 back.agent.cancel.clear()
                 self.emit({"event": "resumed", "turn": back.turn})
                 return back

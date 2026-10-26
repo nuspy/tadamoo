@@ -14,6 +14,12 @@ from harness.client import BasaltError
 from harness.tools.registry import EffectClass
 from test_agent_loop import ScriptedClient, call, say
 
+@pytest.fixture(autouse=True)
+def _no_clock(monkeypatch):
+    """These tests count the messages the model is sent; the time note has its own tests (test_clock.py)."""
+    monkeypatch.setattr("harness.stack.local_now", None)
+
+
 
 class Pipe:
     def __init__(self):
