@@ -572,6 +572,25 @@ stati eseguiti con Basalt. Il catalogo è stato letto dai repository il 17/10/20
 si rileggono quando si prepara un download. Le rotte (solo da questo PC e dalla pagina del server): `GET
 /api/models/catalog | download | hf`, `POST /api/models/download-plan | download | download-cancel | hf-token`.
 
+### Convertitore di modelli (Modelli > Convertitore di modelli)
+
+Converte un set GGUF in un file `.basalt` con le scelte che decidono come si comporterà: il **profilo degli esperti** (quello trovato accanto al
+modello, nessuno, un file o quello di un altro modello), il **drafter** (il livello originale di Qwen, nessuno, oppure il livello affinato
+sull'output del modello stesso che hanno i pacchetti ufficiali, letto dal pacchetto con richieste a intervalli e non scaricato intero), il
+**proiettore delle immagini** (quello della cartella, nessuno o un file) e l'arrotondamento a BF16. Il piano mostra il comando, i passi, la
+dimensione e il disco, e rifiuta una scelta sbagliata prima di scrivere qualsiasi cosa.
+
+Accanto, ogni modello pronto si può **provare** in un server a parte con le stesse impostazioni per tutti (così i numeri si confrontano): la
+memoria occupata al caricamento (RAM, commit, VRAM) e il tempo di caricamento, la velocità di scrittura con campionamento esatto e con bozze
+rilassate 0,5, 0,3 e 0,2 (e senza drafter), la velocità di lettura del prompt, una richiesta con immagine e da 100 a 300 domande di matematica
+(gsm8k) valutate sul numero finale. La prova richiede la GPU: un modello caricato viene prima scaricato, e il controllo del Loader deve dire che
+il modello ci sta. Una prova già fatta con le stesse impostazioni viene **proposta per il riuso** (un dialogo chiede, passo per passo: riusa o
+rifai); i risultati restano nella cartella dei dati dell'utente (`bench`) con le impostazioni e il limite di potenza con cui sono stati misurati,
+e il risultato di qualità è condiviso dai file con gli stessi pesi. Il confronto mostra i modelli spuntati e i dati pubblicati dei pacchetti
+ufficiali come riferimento, come **stella** (ogni asse va dal peggiore al migliore dei modelli mostrati, il bordo esterno è sempre il migliore),
+**barre** (un pannello per ogni misura, valori in punta), **punti** (due misure una contro l'altra, una terza come dimensione) o **tabella**;
+ogni segno ha gli stessi numeri nel testo al passaggio, e un modello conserva il suo colore.
+
 ### VRAM da lasciare libera
 
 **VRAM da lasciare libera** (nel Loader e nella configurazione guidata; `engine.vram-reserve-mib`,
