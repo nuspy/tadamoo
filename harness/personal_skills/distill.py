@@ -33,7 +33,7 @@ def requests_of(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for i, m in enumerate(messages):
         text = m.get("content")
-        if m.get("role") != "user" or not isinstance(text, str) or text.startswith("[harness]") or m.get("note") or m.get("summary"):
+        if m.get("role") != "user" or not isinstance(text, str) or text.startswith(("[harness]", "[planner]")) or m.get("note") or m.get("summary"):
             continue
         raw = m.get("raw") if isinstance(m.get("raw"), str) else text
         out.append({"n": len(out) + 1, "index": i, "raw": raw, "text": markers.clean(raw), "ts": m.get("ts")})

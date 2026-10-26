@@ -21,8 +21,9 @@ done. The engine needs no manual and has none here.
 - [14. The command line and the editor](#14-the-command-line-and-the-editor)
 - [15. Hooks](#15-hooks)
 - [16. Routines, evaluation and replay](#16-routines-evaluation-and-replay)
-- [17. When something goes wrong](#17-when-something-goes-wrong)
-- [18. What it does not do](#18-what-it-does-not-do)
+- [17. Personal skills](#17-personal-skills)
+- [18. When something goes wrong](#18-when-something-goes-wrong)
+- [19. What it does not do](#19-what-it-does-not-do)
 
 ## 1. What it is
 
@@ -343,7 +344,43 @@ run) blocks too. A file with a mistake stops the agent from starting, with the r
 - **Replay**: `python -m harness.replay trace.jsonl --mode auto` runs a recorded session again with the recorded model answers and
   reports the first place where the tool calls differ. It tests the harness, not the model.
 
-## 17. When something goes wrong
+## 17. Personal skills
+
+A personal skill is what you did in a conversation, kept as a Python script you can run again with other values. Most of it is plain code,
+so it costs no tokens, is fast and gives the same result every time; the model is used only where the language has to be understood.
+
+**Making one**
+1. Do the task in a conversation with tools. You can mark the parts that will change next time between two `#` with a space inside, as in
+   `find the news # of today # about # the war in Ukraine #`. A marked part can be several words, and `# city: Rome #` also names it. The model
+   gets the request without the marks, and the conversation shows what you wrote.
+2. Press **Make a skill** under a request. A box appears next to each earlier request: check the ones that belong to the task (those that
+   followed each other closely are checked for you). The skill ends with the answer to the request whose button you pressed, so you can press it on
+   an earlier one. Or write `/start-learn-skill` before the task and `/stop-learn-skill` after it, and the requests in between are chosen.
+3. **What changes each time.** The page proposes parameters, found from your `#` marks, from the values a call took from your words (a file name, a
+   city, a number) and from dates, and named by the model. Keep or drop each one, rename it, give it a type (text, number, date, date and time, choice,
+   list of numbers, texts or both, file or folder, yes or no) and a usual value, or add another. A date can be written in words (yesterday, now,
+   in 3 days) and is then worked out each time the skill runs.
+4. **The script.** The model writes it once, from what was done and the parameters you kept. You read it, change it if you like, press *Check* and
+   then *Save the skill*. Nothing is saved until you do.
+
+**Using it.** The **Skills** button (after Branches) lists them; `/skilluse name` opens the form of one (`/skilluse name city=Rome` fills a value).
+The form asks each value with its explanation and type: a date has a picker and can be written in words, with what it will be shown under it
+(*→ 2026-10-25*); a list takes one value per line, or separated by `;` or a comma. The skill runs **in the open conversation**: its tool calls
+appear like the agent's, follow the same permissions and questions, and stay in the history; **Stop** ends it.
+
+**The list.** *Run*, *Edit* (the definition, the parameters, the script, and the earlier versions), *Export* (one `.pskill` file, to keep or to
+copy to another PC by pen drive or e-mail), *Delete* (press twice) and *Import personal skills…*. A skill that arrives from a file, or whose
+files were changed by hand, is **to approve**: read its script and approve it before it can run. One you made yourself is approved.
+
+**Access.** *Restricted* (the usual): the script uses only `tool(...)`, `ai(...)`, `ask(...)`, `say(...)` and plain Python (text, JSON, dates, lists…),
+never files, programs or the network directly, so everything it does goes through the agent's permissions, hooks and audit log. *Free*: the script
+may use anything Python can, with your rights, without those controls; it is saved only after the risk label and its two questions. The check
+on a restricted script is a fence against mistakes, not a wall against someone who means harm: read the script of a skill that comes from others.
+
+**Not done yet:** running a skill on a schedule (it will use the routines), a test run that compares with what was recorded, and going on with the
+agent from the step that failed.
+
+## 18. When something goes wrong
 
 | What you see | Why | What to do |
 |---|---|---|
@@ -361,7 +398,7 @@ run) blocks too. A file with a mistake stops the agent from starting, with the r
 | It forgot what you told it | it did not keep a note, or the folder differs | see section 8 |
 | A restart interrupted an irreversible tool | it may already have run | check the result yourself, then go on |
 
-## 18. What it does not do
+## 19. What it does not do
 
 - It does not isolate files and network for commands: *Automatic* belongs in a folder you can lose.
 - Basalt is an A2A **client** only; it does not receive tasks from other agents. ACP has no `fs/*` and no `session/load`.

@@ -25,6 +25,7 @@
 <script defer src="web/chat.js"></script>
 <script defer src="web/agentchat.js"></script>
 <script defer src="web/slash.js"></script>
+<script defer src="web/pskills.js"></script>
 <script defer src="web/branches.js"></script>
 <script defer src="web/settings.js"></script>
 <script defer src="web/capabilities.js"></script>
@@ -160,8 +161,10 @@
       <div class="sh chathead">
         <button type="button" class="btn" id="new-chat" data-t="ch.newbtn">New conversation</button>
         <button type="button" class="btn" id="branches-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="branches" data-t="br.open" hidden>Branches</button>
+        <button type="button" class="btn" id="pskills-open" aria-haspopup="dialog" data-t="psk.btn" data-t-title="psk.btn.title" hidden>Skills</button>
         <button type="button" class="btn" id="branch-chat" data-t="ch.branch" hidden>Branch here</button>
         <button type="button" class="modechip" id="mode-chip" aria-keyshortcuts="Shift+Tab" hidden></button>
+        <span class="learnbadge" id="learn-badge" role="status" hidden></span>
         <span id="chat-model" hidden></span>
         <span class="grow"></span>
         <label class="effort" for="chatmode"><span data-t="ch.mode">Mode</span>
@@ -197,6 +200,11 @@
           <b data-t="ch.empty.t">Ask, or ask it to do something.</b>
           <span data-t="ch.empty.b"></span>
         </div>
+      </div>
+      <div class="pskill-bar" id="pskill-bar" role="region" aria-label="Personal skill" data-t-aria="psk.make.title" hidden>
+        <span id="pskill-bar-text"></span>
+        <button type="button" class="btn primary" id="pskill-go" data-t="psk.sel.continue">Continue</button>
+        <button type="button" class="btn ghost" id="pskill-cancel" data-t="psk.sel.cancel">Cancel</button>
       </div>
       <form class="composer" id="composer">
         <div class="slashhost"><div class="slashmenu" id="slash-menu" role="listbox" aria-label="Commands" data-t-aria="sl.menu" hidden></div></div>
