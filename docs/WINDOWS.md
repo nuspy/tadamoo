@@ -63,8 +63,12 @@ The Linux code paths are unchanged; the Windows ones sit behind `_WIN32` / `MSVC
 * **Memory** (`src/platform/memory.cpp`): `VirtualLock` after raising the working-set minimum (the Windows
   `mlock`); the available memory is the smaller of the free RAM and the commit left (RAM + page file - committed),
   because Windows charges every allocation - and the VRAM a WDDM driver backs - to the commit, and a budget from
-  the RAM alone could be granted only by growing the page file.  The RAM margin left free is 15% of the RAM (5% on
-  Linux).  Read-ahead hints are `PrefetchVirtualMemory`.
+  the RAM alone could be granted only by growing the page file.  The RAM margin left free is the share the person
+  chose (5 to 50%; Settings or the configuration wizard), which the server hands to the engine in `BASALT_RAM_FREE_PCT`
+  when it starts it, else 15% of the RAM (5% on Linux); never less than 2 GiB.  The same margin sizes the RAM copy of the
+  experts at load and, while serving, decides when a request is stopped for low RAM: the guard is the margin plus 3.5 GiB
+  of prompt reads when experts are read from the file (the margin alone when none are).  The engine reads the variable
+  when it starts, so a changed share applies at the next load.  Read-ahead hints are `PrefetchVirtualMemory`.
 * **The commit of the GPU memory** (`src/platform/vram_backing.cpp`, `--release-vram-commit`, off by default):
   see the section of that name below.
 * **Pinned arena** (`src/core/pinned.cu`): large pages when the account holds `SeLockMemoryPrivilege` (it is
