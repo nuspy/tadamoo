@@ -108,7 +108,7 @@
     return T("me.origin." + i.origin);
   }
   function sectionSelect(kind, value, id) {
-    const sel = el("select"); sel.id = id;
+    const sel = el("select"); sel.id = id; sel.setAttribute("aria-label", T("me.sec.field")); sel.title = T("me.sec.tip");
     S.sections[kind].forEach(name => { const o = el("option", "", T("me.sec." + name)); o.value = name; o.selected = name === value; sel.append(o); });
     return sel;
   }
@@ -161,6 +161,7 @@
     const form = el("form", "me-add"), kind = el("select"), text = el("input"), tl = el("label", "sr", T("me.add.text"));
     let sec = sectionSelect("long", "identity", "me-as");
     kind.id = "me-ak"; text.id = "me-at"; tl.htmlFor = "me-at";
+    kind.setAttribute("aria-label", T("me.kind.field")); kind.title = T("me.kind.tip");
     [["long", T("me.long.name")], ["short", T("me.short.name")]].forEach(([v, t]) => { const o = el("option", "", t); o.value = v; kind.append(o); });
     kind.onchange = () => { const next = sectionSelect(kind.value, S.sections[kind.value][0], "me-as"); sec.replaceWith(next); sec = next; };
     text.maxLength = 400; text.placeholder = T("me.add.ph"); text.autocomplete = "off";

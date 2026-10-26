@@ -570,11 +570,12 @@
       <div class="sh"><b id="st-lang-h" data-t="st.lang.title">Language</b></div>
       <div class="stlang-body">
         <label for="st-lang" data-t="st.lang.label">Language</label>
-        <select id="st-lang">
+        <select id="st-lang" aria-describedby="st-lang-h">
           <option value="auto" data-t="st.lang.auto">Automatic</option>
           <option value="it" lang="it">Italiano</option>
           <option value="en" lang="en">English</option>
         </select>
+        <p class="help" id="st-lang-h" data-t="st.lang.help"></p>
         <p class="setstatus" id="st-lang-msg" role="status" aria-live="polite"></p>
       </div>
     </section>

@@ -68,6 +68,7 @@
     box.append(el("h3", "", T("mb.allow.title")));
     const label = el("label", "mb-check"), cb = el("input");
     cb.type = "checkbox"; cb.checked = S.enabled; cb.disabled = S.tailscale.state !== "Running";
+    if (cb.disabled) cb.title = T("mb.allow.needts");
     cb.onchange = async () => { const r = await api("POST", `api/remote/${cb.checked ? "enable" : "disable"}`, {}); if (!r.ok) note = errText(r); await refresh(); };
     label.append(cb, el("span", "", T("mb.allow.label")));
     box.append(label, el("p", "help", T("mb.allow.help")));
@@ -118,7 +119,7 @@
     const address = S.address || (S.tailscale.ip ? `${S.tailscale.ip}:${S.port}` : "");
     const payload = JSON.stringify({ v: 1, url: address ? `http://${address}` : "", key: shown.key, name: shown.label });
     const key = el("pre", "mb-keytext"); key.textContent = shown.key; key.tabIndex = 0;
-    const copy = btn(T("mb.fresh.copy"), "", async () => { try { await navigator.clipboard.writeText(shown.key); copy.textContent = T("mb.fresh.copied"); } catch (e) { copy.textContent = T("mb.fresh.copyfail"); } });
+    const copy = btn(T("mb.fresh.copy"), "", async () => { try { await navigator.clipboard.writeText(shown.key); copy.textContent = T("mb.fresh.copied"); } catch (e) { copy.textContent = T("mb.fresh.copyfail"); } }, T("mb.fresh.copy.tip"));
     const addr = el("p", "", T("mb.fresh.address", address || T("mb.fresh.noaddress")));
     box.append(addr, key, copy);
     if (address) {
