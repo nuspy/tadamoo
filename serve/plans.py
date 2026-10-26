@@ -8,8 +8,11 @@ cloud-triage consent saved here.
 from __future__ import annotations
 
 import atexit
+import copy
 import json
 import os
+import re
+import secrets
 import threading
 import time
 from pathlib import Path
@@ -261,6 +264,21 @@ class PlanService:
 
     def delete(self, plan_id: str) -> bool:
         return self.store.delete(plan_id)
+
+    def duplicate(self, plan_id: str, actor: str = "user", title: Any = None) -> Dict[str, Any]:
+        """A copy of a plan under a new id: its steps, links, card and dates, with a history of its own."""
+        bridge = self.store.get(plan_id)
+        plan = copy.deepcopy(bridge.dag.to_dict())
+        new_title = " ".join(str(title).split())[:200] if isinstance(title, str) and title.strip() else f"{plan['title']} (copy)"
+        base = re.sub(r"_[0-9a-f]{4}$", "", plan_id)[:40]
+        new_id = ""
+        while not new_id or self.store.exists(new_id):
+            new_id = f"{base}_{secrets.token_hex(2)}"
+        card = bridge.card.to_dict() if bridge.card else None
+        if card and card.get("titolo") == plan["title"]:
+            card["titolo"] = new_title
+        plan.update(plan_id=new_id, title=new_title)
+        return self.create({"plan": plan, "card": card, "profile": bridge.profile.to_dict(), "actor": actor})
 
     def handle_event(self, plan_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
         bridge = self.store.get(plan_id, self._replanner())
