@@ -12,6 +12,7 @@ nothing from the engine. `python -m pytest tests` runs its tests without a GPU, 
 - [The planner](#the-planner)
 - [The web pages](#the-web-pages)
 - [Personal skills](#personal-skills)
+- [Where the person is](#where-the-person-is)
 - [The person's own memories](#the-persons-own-memories)
 - [Evaluation](#evaluation)
 - [Tests and what is not done](#tests-and-what-is-not-done)
@@ -1076,6 +1077,24 @@ for the app. All these routes work only from this PC and the server's own page. 
 the agent kept and diagrams as their source. The **+** menu: *Image* (the phone's photo picker), *Photo* (the Camera app), *Documents/Files* with *Local* (the phone's document window),
 *Server* (the same window opened on the entry "Basalt - PC", which `BasaltDocumentsProvider.kt` fills from `/api/files/*`) and *Network* (SMB, from the devices Tailscale lists or an
 address typed). Speech to text and text to speech are the phone's own. A phone may start conversations and routines only in folders already added on the PC.
+
+## Where the person is
+
+`harness/place.py`, `mobile/lib/src/place.dart`. The Android app can send its position with each message; it is **off** until the person switches it on in the app's Settings, which also asks Android for the permission
+(only while the app is open: there is no background reading). The phone reads a fix (3 s at most, else the last one it knows), turns it into street, number, postcode, city, region and country with the phone's own
+geocoder when it has one (coordinates alone otherwise), and puts it in the body of `POST /api/agent/sessions/<id>/send` as `place`. A message never waits long for it and never fails because of it.
+
+- **Nothing goes into the prompt.** `SessionManager._place_for` cleans the position (`harness.place.clean`: coordinates in range, a few short plain fields, no other key, so the geocoder's place names or any text it
+  returns cannot carry a sentence for the model), keeps the last one **in memory only** and hands it to the conversation's process in the `send` command, once per process unless a newer one comes. A position
+  older than a day is not handed over. The process keeps it and offers the tool `where_is_user` from then on (`BuiltAgent.take_place`): a conversation with no position has no such tool and pays no tokens for it.
+- **The tool** (`PURE`, untrusted) returns the address, the coordinates, the accuracy and how long ago the fix was taken, with a note when the position is old, rough, or has no address. Its description tells the model to call
+  it only when the task depends on the place (what is near, local services, directions, telling someone where to find the person) and not to bring the address into other answers.
+- **Not to another provider.** When the conversation's executor is not this PC's model (`RoutedClient.stays_local()`), the tool answers that the position stays on this PC. The words the model then puts in a web search
+  (a district, a city) do go to the search engine, as any search does.
+- **Forgetting.** Switching the app's setting off calls `POST /api/agent/place/forget`, which erases the last position from the server; a restart of the server erases it too. It is not written to the conversation's history
+  or to the person's memories.
+- **What it does not do.** It does not place a call. A conversation of the Chat has no phone tools (`--phone` is not passed to it), so in an emergency the assistant can tell the person the address to give and what number to
+  call, but does not call for them; `phone_call` exists in the harness, asks every time, and is not offered to the Chat.
 
 ## The person's own memories
 

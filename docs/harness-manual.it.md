@@ -248,6 +248,14 @@ Oltre alle note su un progetto, l'assistente può tenere due memorie su **di te*
 - **Leggere, correggere, cancellare.** La stessa pagina elenca le note (con ricerca e filtro per sezione), le modifica, le conferma e le cancella una per una, o tutte
   quelle di una memoria con due pressioni, e mostra cosa è stato imparato di recente e quanti messaggi aspettano una GPU libera.
 
+## 8b. Dove sei (app Android)
+
+Nelle Impostazioni dell'app, **Invia la mia posizione con i messaggi** è spento all'inizio. Accenderlo chiede ad Android il permesso di leggere la posizione mentre l'app è aperta. Con l'interruttore acceso, ogni
+messaggio dice al PC dove si trova il telefono (via, numero, città quando il telefono riesce a ricavarli, altrimenti le coordinate). L'assistente non la legge a ogni messaggio: la chiede solo quando il compito
+dipende dal luogo, per esempio i ristoranti vicino a te o un'emergenza in cui qualcuno deve sapere dove sei. Resta solo nella memoria del PC, per al massimo un giorno, non viene scritta nella conversazione né nelle
+tue memorie, e si cancella quando spegni l'interruttore o riavvii il server. Se una conversazione è diretta a un fornitore che non è il modello di questo PC, la posizione non gli viene data. L'assistente non chiama
+nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare.
+
 ## 9. Regole, contesto e documenti di riferimento
 
 - **`AGENTS.md`** (altrimenti `CLAUDE.md`, altrimenti `GEMINI.md`), cercato dalla cartella in su fino alla radice del repository, fa

@@ -234,6 +234,14 @@ Besides the notes about a project, the assistant can keep two memories about **y
 - **Read, correct, delete.** The same page lists the notes (search and filter by section), edits, confirms and deletes them one by one or all of a memory with two
   presses, and shows what was learned lately and how many messages wait for a free GPU.
 
+## 8b. Where you are (Android app)
+
+In the app's Settings, **Send my position with messages** is off at first. Switching it on asks Android for the permission to read the location while the app is open. With it on, each message tells the PC where
+the phone is (street, number, city when the phone can work them out, coordinates otherwise). The assistant does not read it at every message: it asks for it only when the task depends on the place, for example
+restaurants near you, or an emergency where someone must be told where you are. It is kept in the PC's memory only, for at most a day, is not written to the conversation or to your memories, and is erased when you
+switch the setting off or restart the server. If a conversation is pointed at a provider that is not this PC's model, the position is not given to it. The assistant does not call anyone for you: in an emergency it gives
+you the address and the number to call.
+
 ## 9. Rules, context and reference documents
 
 - **`AGENTS.md`** (else `CLAUDE.md`, else `GEMINI.md`), searched from the folder up to the repository root, is part of every prompt.
