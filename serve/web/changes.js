@@ -1,5 +1,5 @@
 "use strict";
-/* Changes panel (Monitor view): the agent's recent file edits with their diffs, from GET api/changes, and the
+/* Changes panel (Agent view): the agent's recent file edits with their diffs, from GET api/changes, and the
    review of each edit block by block through POST api/changes/review. The agent applies an edit when it makes it;
    "Undo" puts the old lines back. Colour is never the only signal: every row has a sign (+, ±, −), every diff line
    keeps its own, and a review state is always written out. */
@@ -234,7 +234,7 @@
   function schedule() {
     clearInterval(timer);
     timer = null;
-    if (document.body.dataset.view === "stats" && !document.hidden) {
+    if (document.body.dataset.view === "agent" && !document.hidden) {
       refresh();
       timer = setInterval(refresh, POLL_MS);
     }

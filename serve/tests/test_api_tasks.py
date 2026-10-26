@@ -121,6 +121,6 @@ class ApiTasksKeyedTest(_Server):
         self.assertEqual(self.call("POST", "/api/tasks", {"id": "k"}, headers=self.auth)[0], 200)
 
     def test_scripts_stay_public(self):
-        req = urllib.request.Request(self.base + "/web/tasks.js")
+        req = urllib.request.Request(self.base + "/web/changes.js")
         with urllib.request.urlopen(req, timeout=5) as r:
             self.assertEqual(r.status, 200)

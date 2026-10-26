@@ -20,6 +20,7 @@
 <script defer src="web/risk.js"></script>
 <script defer src="web/app.js"></script>
 <script defer src="web/shell.js"></script>
+<script defer src="web/subtabs.js"></script>
 <script defer src="web/patterns.js"></script>
 <script defer src="web/chatset.js"></script>
 <script defer src="web/chat.js"></script>
@@ -35,7 +36,6 @@
 <script defer src="web/providers.js"></script>
 <script defer src="web/wizard.js"></script>
 <script defer src="web/reqlog.js"></script>
-<script defer src="web/tasks.js"></script>
 <script defer src="web/changes.js"></script>
 <script defer src="web/plans.js"></script>
 <script defer src="web/agent.js"></script>
@@ -52,9 +52,6 @@
     <button class="tab" role="tab" id="tab-plans" data-view="plans" aria-controls="view-plans" aria-selected="false" tabindex="-1" data-t="tab.plans">Plans</button>
     <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats" aria-selected="true" data-t="tab.stats">Monitor</button>
     <button class="tab" role="tab" id="tab-loader" data-view="loader" aria-controls="view-loader" aria-selected="false" tabindex="-1" data-t="tab.loader">Models</button>
-    <button class="tab" role="tab" id="tab-hardware" data-view="hardware" aria-controls="view-hardware" aria-selected="false" tabindex="-1" data-t="tab.hardware">Hardware</button>
-    <button class="tab" role="tab" id="tab-logs" data-view="logs" aria-controls="view-logs" aria-selected="false" tabindex="-1" data-t="tab.logs">LOGS</button>
-    <button class="tab" role="tab" id="tab-wallet" data-view="wallet" aria-controls="view-wallet" aria-selected="false" tabindex="-1" data-t="tab.wallet">Wallet</button>
     <button class="tab" role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1" data-t="tab.settings">Settings</button>
   </nav>
   <span class="grow"></span>
@@ -67,6 +64,8 @@
   <span class="where" id="host"></span>
   <span class="where" id="keyed" hidden>API key</span>
 </header>
+
+<nav class="subtabs viewsub" id="viewsub" role="tablist" aria-label="Sections" hidden></nav>
 
 <div class="nomodel" id="nomodel" role="status" hidden>
   <span></span>
@@ -422,13 +421,6 @@
         </div>
       </section>
 
-      <section class="sec" id="sec-tasks" aria-labelledby="h-tasks">
-        <div class="sh"><b id="h-tasks" data-t="tk.heading">Agent tasks and changes</b></div>
-        <div class="pad tkgrid">
-          <div><h3 class="subh" data-t="tk.tasks">Tasks</h3><div id="task-root"></div></div>
-          <div><h3 class="subh" data-t="ch.title">Changes</h3><div id="changes-root"></div></div>
-        </div>
-      </section>
     </div>
   </div>
 
@@ -492,6 +484,10 @@
             <pre class="ag-log" id="ag-log" role="log" aria-live="off" tabindex="0"></pre>
           </div>
         </section>
+        <section class="sec" id="sec-changes" aria-labelledby="h-changes">
+          <div class="sh"><b id="h-changes" data-t="ch.title">Changes</b></div>
+          <div class="pad"><div id="changes-root"></div></div>
+        </section>
         <section class="sec" aria-labelledby="ag-back-h">
           <div class="sh"><b id="ag-back-h" data-t="ag.back.title">Go back</b></div>
           <div class="pad">
@@ -515,7 +511,7 @@
     </section>
   </div>
 
-  <div class="view hw" id="view-hardware" role="tabpanel" aria-labelledby="tab-hardware" hidden>
+  <div class="view hw" id="view-hardware" role="tabpanel" aria-labelledby="sub-hardware" hidden>
     <div class="hwgrid">
       <section class="sec wide">
         <div class="sh"><b>Devices</b></div>
@@ -570,13 +566,12 @@
     </div>
   </div>
 
-  <div class="view wallet" id="view-wallet" role="tabpanel" aria-labelledby="tab-wallet" hidden>
+  <div class="view wallet" id="view-wallet" role="tabpanel" aria-labelledby="sub-wallet" hidden>
     <p class="sr" id="wl-live" role="status" aria-live="polite"></p>
     <div class="wl-grid" id="wl-root"></div>
   </div>
   <div class="view settings" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
-    <nav class="stindex" id="st-index" aria-label="Settings sections"></nav>
-    <section class="sec stlang" aria-labelledby="st-lang-h">
+    <section class="sec stlang" data-sub="general" aria-labelledby="st-lang-h">
       <div class="sh"><b id="st-lang-h" data-t="st.lang.title">Language</b></div>
       <div class="stlang-body">
         <label for="st-lang" data-t="st.lang.label">Language</label>
@@ -588,7 +583,7 @@
         <p class="setstatus" id="st-lang-msg" role="status" aria-live="polite"></p>
       </div>
     </section>
-    <section class="sec stui" aria-labelledby="st-ui-h">
+    <section class="sec stui" data-sub="general" aria-labelledby="st-ui-h">
       <div class="sh"><b id="st-ui-h" data-t="ui.title">Interface size</b></div>
       <div class="st-ui-body">
         <label for="st-ui-scale" data-t="ui.scale">Size of text and controls</label>
@@ -597,7 +592,7 @@
         <p class="help" id="st-ui-note" role="status" aria-live="polite"></p>
       </div>
     </section>
-    <section class="sec stload" id="st-load" aria-labelledby="st-load-h">
+    <section class="sec stload" data-sub="models" id="st-load" aria-labelledby="st-load-h">
       <div class="sh"><b id="st-load-h" data-t="st.load.title">Loading parameters</b></div>
       <div class="stload-body">
         <p class="stload-help" data-t="st.load.help"></p>
@@ -606,16 +601,16 @@
         <div class="stload-act"><button type="button" class="btn primary" id="st-open-loader" data-t="ld.open">Open the Loader</button></div>
       </div>
     </section>
-    <section class="sec stmodels" id="st-models" aria-label="Models folders"></section>
-    <section class="sec stplanner" id="st-planner" aria-labelledby="st-planner-h">
+    <section class="sec stmodels" data-sub="models" id="st-models" aria-label="Models folders"></section>
+    <section class="sec stplanner" data-sub="privacy" id="st-planner" aria-labelledby="st-planner-h">
       <div class="sh"><b id="st-planner-h" data-t="pl.set">Cloud filter and privacy</b></div>
       <div id="st-planner-body"></div>
     </section>
-    <section class="sec stcaps" id="st-caps" aria-labelledby="st-caps-h">
+    <section class="sec stcaps" data-sub="models" id="st-caps" aria-labelledby="st-caps-h">
       <div class="sh"><b id="st-caps-h" data-t="cp.title">Capabilities and visual analysis</b></div>
       <div id="st-caps-body" class="stcaps-body"></div>
     </section>
-    <section class="sec stprefs" id="st-prefs" aria-labelledby="st-prefs-h">
+    <section class="sec stprefs" data-sub="general" id="st-prefs" aria-labelledby="st-prefs-h">
       <div class="sh"><b id="st-prefs-h" data-t="st.prefs.title">Memory and start</b></div>
       <form class="stprefs-body" id="st-share-form" novalidate>
         <div class="field">
@@ -632,7 +627,7 @@
       </form>
     </section>
   </div>
-  <div class="view logs" id="view-logs" role="tabpanel" aria-labelledby="tab-logs" hidden>
+  <div class="view logs" id="view-logs" role="tabpanel" aria-labelledby="sub-logs" hidden>
     <svg class="rl-sprite" width="0" height="0" aria-hidden="true" focusable="false">
       <symbol id="rl-i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="rl-i-save" viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>

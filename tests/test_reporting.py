@@ -1,4 +1,4 @@
-"""The agent shows its run and its edits in the server's Monitor."""
+"""The agent shows its run and its edits in the server's Agent tab."""
 import json
 import sys
 import urllib.request

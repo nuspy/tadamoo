@@ -41,6 +41,8 @@ async function get(path) {
 const VIEWS = ["chat", "agent", "stats", "plans", "hardware", "loader", "wallet", "settings", "logs"];
 applyT($(".tabs"));                                   // the tab names in the page's language
 $(".tabs").setAttribute("aria-label", T("tab.nav"));
+// pages that live under another tab: Hardware and LOGS under Monitor, Wallet under Settings
+const TAB_OF = { hardware: "stats", logs: "stats", wallet: "settings" };
 let viewOn = "";
 function view(v, focus) {
   if (!VIEWS.includes(v)) v = "chat";
@@ -49,7 +51,7 @@ function view(v, focus) {
   $("#top").hidden = v !== "stats";
   document.body.dataset.view = v;
   $$(".tabs .tab").forEach(t => {
-    const on = t.dataset.view === v;
+    const on = t.dataset.view === (TAB_OF[v] || v);
     t.setAttribute("aria-selected", String(on));
     t.tabIndex = on ? 0 : -1;
     if (on && focus) t.focus();

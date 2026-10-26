@@ -60,9 +60,13 @@
     tabs().forEach((t, i) => { nth[t.dataset.view] = i + 1; });
     const go = (v, key) => ({ label: T("pal.go", T("tab." + v)), hint: key, group: T("pal.g.views"), run: () => goto(v) });
     const click = id => () => { const b = document.getElementById(id); if (b) b.click(); };
-    const settingsAt = id => () => goto("settings", () => { const h = document.getElementById(id); if (h) h.scrollIntoView({ block: "start", behavior: reduceMotion() ? "auto" : "smooth" }); });
+    const settingsAt = (id, sub) => () => goto("settings", () => {
+      const b = document.getElementById("sub-" + sub); if (b) b.click();
+      const h = document.getElementById(id); if (h) h.scrollIntoView({ block: "start", behavior: reduceMotion() ? "auto" : "smooth" });
+    });
     return [
       ...tabs().map(t => go(t.dataset.view, "Alt+" + nth[t.dataset.view])),
+      ...["hardware", "logs", "wallet"].map(v => go(v, "")),
       { label: T("pal.chat.new"), group: T("pal.g.actions"), run: () => goto("chat", click("new-chat")) },
       { label: T("pal.chat.set"), group: T("pal.g.actions"), run: () => goto("chat", click("cs-open")) },
       ...["agent", "ask", "direct"].map(m => ({ label: T("pal.chat.mode", T("ch.mode." + m)), group: T("pal.g.actions"), run: () => goto("chat", () => {
@@ -72,10 +76,10 @@
       { label: T("pal.agent.run"), group: T("pal.g.actions"), run: () => goto("agent", () => { const g = document.getElementById("ag-goal"); if (g && !g.disabled) g.focus(); }) },
       { label: T("pal.agent.stop"), group: T("pal.g.actions"), run: () => goto("agent", () => { const b = document.getElementById("ag-stop"); if (b && !b.hidden) b.click(); }) },
       { label: T("pal.plan.new"), group: T("pal.g.actions"), run: () => goto("plans", () => { const d = document.getElementById("pl-new"); if (d) { d.open = true; const i = document.getElementById("pl-new-title"); if (i) i.focus(); } }) },
-      { label: T("pal.set.lang"), group: T("pal.g.settings"), run: settingsAt("st-lang-h") },
-      { label: T("pal.set.ui"), group: T("pal.g.settings"), run: settingsAt("st-ui-h") },
-      { label: T("pal.set.folders"), group: T("pal.g.settings"), run: settingsAt("st-models") },
-      { label: T("pal.set.cloud"), group: T("pal.g.settings"), run: settingsAt("st-planner-h") },
+      { label: T("pal.set.lang"), group: T("pal.g.settings"), run: settingsAt("st-lang-h", "general") },
+      { label: T("pal.set.ui"), group: T("pal.g.settings"), run: settingsAt("st-ui-h", "general") },
+      { label: T("pal.set.folders"), group: T("pal.g.settings"), run: settingsAt("st-models", "models") },
+      { label: T("pal.set.cloud"), group: T("pal.g.settings"), run: settingsAt("st-planner-h", "privacy") },
       { label: T("pal.addr"), group: T("pal.g.actions"), run: async () => { try { await navigator.clipboard.writeText(location.origin + "/"); } catch (e) { /* the clipboard may be blocked */ } } },
     ];
   }
@@ -179,25 +183,6 @@
     }
   }
 
-  /* ---- an index for the Settings page, built from its own sections ---- */
-  function buildSettingsIndex() {
-    const view = document.getElementById("view-settings");
-    const nav = document.getElementById("st-index");
-    if (!view || !nav) return;
-    const links = [...view.querySelectorAll(":scope > section.sec")].map((sec, i) => {
-      const h = sec.querySelector(".sh b");
-      if (!h) return null;
-      if (!h.id) h.id = "st-h-" + i;
-      const a = document.createElement("button");
-      a.type = "button";
-      a.className = "st-link";
-      a.textContent = h.textContent;
-      a.addEventListener("click", () => { sec.scrollIntoView({ block: "start", behavior: reduceMotion() ? "auto" : "smooth" }); });
-      return a;
-    }).filter(Boolean);
-    nav.replaceChildren(...links);
-  }
-
   document.addEventListener("DOMContentLoaded", () => {
     ["nomodel", "palette", "pal-open", "view-settings"].forEach(id => { const n = document.getElementById(id); if (n) applyT(n); });
     notice = document.getElementById("nomodel");
@@ -205,10 +190,8 @@
     buildScaleControl();
     applyScale();
     buildPalette();
-    buildSettingsIndex();
     checkModel();
     noticeTimer = setInterval(() => { if (!document.hidden) checkModel(); }, 5000);
   });
-  document.addEventListener("basalt:view", e => { checkModel(); if (e.detail === "settings") buildSettingsIndex(); });
-  document.addEventListener("basalt:lang", () => { buildSettingsIndex(); });
+  document.addEventListener("basalt:view", () => { checkModel(); });
 })();

@@ -103,7 +103,7 @@ class Http(unittest.TestCase):
         for _ in range(REQUESTS_SHOWN + 3):
             self.ask("/v1/chat/completions")
         rows = self.call("/metrics")[1]["requests"]
-        self.assertEqual(len(rows), 12)
+        self.assertEqual(len(rows), REQUESTS_SHOWN)
         self.assertEqual(rows[0]["id"], f"r_{REQUESTS_SHOWN + 3:04d}")
 
     def test_the_removed_endpoints_are_gone(self):
