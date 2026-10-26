@@ -26,7 +26,7 @@ TOUCH_EVERY_S = 60                                       # the last use of a key
 TAILSCALE_NET = ipaddress.ip_network("100.64.0.0/10")
 TAILSCALE_NET6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
 # what a client from outside this PC may ask for: the model, the conversations and what they hold, the routines, the plans
-REMOTE_PREFIXES = ("/v1/", "/api/agent/", "/api/attachments", "/api/outputs", "/api/routines", "/api/plans", "/api/personal-skills", "/api/remote/hello")
+REMOTE_PREFIXES = ("/v1/", "/api/agent/", "/api/attachments", "/api/outputs", "/api/routines", "/api/plans", "/api/personal-skills", "/api/files/", "/api/remote/hello")
 
 
 def remote_path_ok(path: str) -> bool:

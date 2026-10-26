@@ -40,6 +40,7 @@ from harness.payments_broker import PaymentsBroker
 from harness.waiver.dossier import sntp_offset
 from harness.vault import Vault, VaultError
 from serve.agent_sessions import SessionManager
+from serve.files_api import FilesApi, FilesError
 from serve.projects import ProjectStore
 from serve.remote import ApiKeys, Installer, RemoteAccess, in_tailscale, remote_path_ok, tailscale_status, tailscale_up
 from serve.personal_skills_api import PersonalSkillsApi
@@ -400,6 +401,9 @@ def make_handler(svc: Service):
             elif path == "/api/changes":
                 if self._authorized():
                     self._json(200, _CHANGES.view())
+            elif path.startswith("/api/files/"):
+                if self._authorized():
+                    self._fs_get(path)
             elif path == "/api/remote/hello":
                 if self._authorized():
                     self._json(200, {"name": "Basalt", "ok": True, "device": (self._key_row or {}).get("label", ""), "loaded": bool(svc.loaded())})
@@ -1663,6 +1667,23 @@ def make_handler(svc: Service):
                 return self._json(e.status, {"error": {"message": str(e)}})
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"message": str(e)}})
+            self._json(404, {"error": {"message": "not found"}})
+
+        def _fs_get(self, path):
+            """The folders of this PC that are shared with a phone: which ones, what is in one, and a file in one."""
+            api = FilesApi(lambda: [(p["name"], Path(p["path"])) for p in self._projects().list() if p.get("exists")]
+                           + [("Chat", userdata.path("chat-workspace"))])
+            query = parse_qs(urlsplit(self.path).query)
+            try:
+                if path == "/api/files/roots":
+                    return self._json(200, {"roots": api.roots()})
+                if path == "/api/files/list":
+                    return self._json(200, api.list((query.get("path") or [""])[0]))
+                if path == "/api/files/read":
+                    file, name = api.file((query.get("path") or [""])[0])
+                    return self._send_file(file, "application/octet-stream", name, inline=False)
+            except FilesError as e:
+                return self._json(404 if e.code in ("outside", "hidden", "not_file", "not_folder") else 400, {"error": {"type": "files", "message": str(e), "code": e.code}})
             self._json(404, {"error": {"message": "not found"}})
 
         def _remote_view(self) -> dict:
