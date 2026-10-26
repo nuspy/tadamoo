@@ -126,7 +126,10 @@ class Remote(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/remote", outside=True)[0], 403)
 
     def test_a_phone_may_write_only_what_a_phone_needs_and_only_while_the_listener_is_on(self):
-        body = {"workspace": str(Path(self.tmp.name)), "mode": "read_only", "ask_only": True}
+        work = Path(self.tmp.name) / "work"
+        work.mkdir(exist_ok=True)
+        self.call("POST", "/api/agent/projects", {"path": str(work)})                                                   # added on this PC
+        body = {"workspace": str(work), "mode": "read_only", "ask_only": True}
         self.assertEqual(self.call("POST", "/api/agent/sessions", body, key=self.key, outside=True)[0], 403)          # phones are not turned on
         self.listen()
         code, made = self.call("POST", "/api/agent/sessions", body, key=self.key, outside=True)
@@ -135,6 +138,24 @@ class Remote(unittest.TestCase):
         for path in ("/api/wallet/payments", "/api/vault/x", "/api/settings", "/api/loader/load", "/api/control/stop", "/api/remote/keys/create"):
             self.assertEqual(self.call("POST", path, {}, key=self.key, outside=True)[0], 403, path)
         self.call("POST", f"/api/agent/sessions/{made['session']['id']}/delete", {}, key=self.key, outside=True)
+
+    def test_a_phone_cannot_add_a_folder_or_start_the_agent_in_one_that_was_not_added_on_the_pc(self):
+        self.listen()
+        folder = Path(self.tmp.name) / "added"
+        folder.mkdir()
+        elsewhere = Path(self.tmp.name) / "elsewhere"
+        elsewhere.mkdir()
+        self.assertEqual(self.call("POST", "/api/agent/projects", {"path": str(folder)}, key=self.key, outside=True)[0], 403)
+        self.assertEqual(self.call("POST", "/api/agent/projects", {"path": str(folder)})[0], 200)                      # this PC adds it
+        body = {"mode": "read_only", "ask_only": True}
+        self.assertEqual(self.call("POST", "/api/agent/sessions", {**body, "workspace": str(elsewhere)}, key=self.key, outside=True)[0], 403)
+        self.assertEqual(self.call("POST", "/api/agent/sessions", {**body, "workspace": str(folder / ".." / "elsewhere")}, key=self.key, outside=True)[0], 403)
+        code, made = self.call("POST", "/api/agent/sessions", {**body, "workspace": str(folder)}, key=self.key, outside=True)
+        self.assertEqual(code, 200)
+        routine = {"name": "n", "prompt": "p", "schedule": "daily 08:30"}
+        self.assertEqual(self.call("POST", "/api/routines", {**routine, "workspace": str(elsewhere)}, key=self.key, outside=True)[0], 403)
+        self.assertEqual(self.call("POST", "/api/routines", {**routine, "workspace": str(folder)}, key=self.key, outside=True)[0], 200)
+        self.call("POST", "/api/agent/projects/remove", {"path": str(folder)})
 
     def test_a_key_that_was_taken_away_stops_working_at_once(self):
         row, key = self.svc.keys.create("Lost phone")
