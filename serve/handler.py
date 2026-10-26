@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT, catalog, chatctx, downloads, loader, loader_api, model_list, models, profiles, settings
+from serve import ROOT, benchrun, catalog, chatctx, downloads, loader, loader_api, model_list, modelbench, models, profiles, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
@@ -403,6 +403,12 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/models/job":
                 if self._authorized():
                     self._json(200, models.JOBS.status())
+            elif path == "/api/bench/overview":
+                if self._authorized():
+                    self._json(200, self._bench_overview())
+            elif path == "/api/bench/job":
+                if self._authorized():
+                    self._json(200, benchrun.JOBS.status())
             elif path == "/api/models/catalog":
                 if self._authorized():
                     self._json(200, self._catalog())
@@ -700,6 +706,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/models/"):
                 self._models_post(path[len("/api/models/"):])
+                return
+            if path.startswith("/api/bench/"):
+                self._bench_post(path[len("/api/bench/"):])
                 return
             if path.startswith("/v1/") and self._foreign_page():
                 return
@@ -1103,6 +1112,91 @@ def make_handler(svc: Service, remote: bool = False):
             out["editable"] = settings.is_loopback(self.client_address[0])
             return out
 
+        def _bench_overview(self) -> dict:
+            """GET /api/bench/overview: the models with what was measured for each, the published references, the metrics, and what the Model
+            converter page needs to offer (the models to convert, the profiles and drafter layers that can be reused, the standard settings)."""
+            listing = self._models_listing(False)
+            ready = [m for m in listing.get("models") or [] if m.get("kind") == "basalt" and m.get("role") == "model" and m.get("status") == "ready"]
+            out = modelbench.overview(ready)
+            out["convertible"] = [{k: m.get(k) for k in ("id", "name", "quant", "path", "size_bytes", "experts_bytes", "mmproj", "vision", "mtp", "compat_bf16")}
+                                  for m in listing.get("models") or [] if m.get("role") == "model" and m.get("status") == "convert"]
+            out["profiles"] = [{"name": m.get("name"), "path": m.get("path")} for m in ready if not m.get("profile_plain")]
+            out["tuned_packs"] = [{k: p[k] for k in ("id", "name", "quant")} for p in models.tuned_sources()]
+            out["projectors"] = models.projector_files()
+            out["standard"] = benchrun.standard_settings()
+            out["power_w"] = benchrun.power_limit_w()
+            out["job"] = benchrun.JOBS.status()
+            out["editable"] = listing.get("editable")
+            return out
+
+        def _bench_precheck(self, path: str, settings_: dict) -> None:
+            """A test needs the GPU and the memory of its model: nothing else may hold them, and the Loader's own check must say it fits."""
+            if models.JOBS.running():
+                raise benchrun.Refused(409, {"error": {"type": "busy", "code": "busy", "message": "a conversion or a verification is running: wait for it to end"}})
+            held = loader.engine_holds(svc.engine)
+            if held["commit"] > (1 << 30):
+                raise benchrun.Refused(409, {"error": {"type": "model_loaded", "code": "model_loaded",
+                                                       "message": "a model is loaded and holds the GPU and the memory: unload it first (the test loads its own copy)"},
+                                             "holds": held})
+            facts = {**loader.model_facts(path), "projectors": models.projector_files()}
+            values = {(f"server.{k}" if k in ("parallel", "vision", "vision-hold", "vision-projector") else f"engine.{k}"): v for k, v in settings_.items()}
+            plan = loader.plan(values, facts, loader.system_now(getattr(svc, "gpu_index", 0)))
+            if not plan["fits"]:
+                raise benchrun.Refused(422, {"error": {"type": "insufficient_memory", "code": "does_not_fit",
+                                                       "message": " ".join(loader.problem_text(x, "en") for x in plan["problems"])},
+                                             "problems": [{**x, "text": loader.problem_text(x, "en"), "text_it": loader.problem_text(x, "it")} for x in plan["problems"]]})
+
+        def _bench_post(self, what: str):
+            """POST /api/bench/availability | run | cancel: only from this PC, as JSON from the server's own page. A test that was already
+            made under the same settings is not repeated without asking: `reuse` is "ask" (the default, answered 409), "reuse", "redo" or
+            a choice for each step."""
+            try:
+                raw = self._body(settings.BODY_MAX)
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                return
+            if what not in ("availability", "run", "cancel"):
+                self._json(404, {"error": {"message": "not found"}})
+                return
+            if not settings.is_loopback(self.client_address[0]):
+                self._json(403, {"error": {"type": "forbidden", "message": "models can be tested only from the PC the server runs on"}})
+                return
+            if not self._own_page("models can be tested"):
+                return
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+            except ValueError:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": "the body is not valid JSON"}})
+                return
+            try:
+                if what == "cancel":
+                    self._json(200, {"cancelled": benchrun.JOBS.cancel(), **benchrun.JOBS.status()})
+                    return
+                path = str(req.get("path") or "")
+                ready = [m for m in self._models_listing(False).get("models") or []
+                         if m.get("kind") == "basalt" and m.get("status") == "ready" and models._norm(m.get("path") or "") == models._norm(path)]
+                if not ready:
+                    raise benchrun.Refused(404, {"error": {"type": "not_found", "message": "no such model among the ready ones"}})
+                steps = [s for s in (req.get("steps") or modelbench.STEPS) if s in modelbench.STEPS]
+                relax = [float(x) for x in (req.get("relax") or modelbench.RELAX_DEFAULT)]
+                reps = max(1, min(5, int(req.get("reps") or 2)))
+                n = max(10, min(500, int(req.get("n") or 200)))
+                overrides = req.get("settings") if isinstance(req.get("settings"), dict) else None
+                if what == "availability":
+                    ident = modelbench.fingerprints(ready[0]["path"])
+                    std = benchrun.standard_settings(overrides)
+                    keyed = {**std, "relax": sorted({0.0, *relax}), "reps": reps, "power": benchrun.power_limit_w(), "n": n}
+                    self._json(200, {"available": modelbench.availability(ident, keyed, steps), "settings": std})
+                    return
+                self._json(202, benchrun.JOBS.start(ready[0], steps, overrides, relax, reps, n, req.get("baseline") is not False, req.get("reuse") or "ask",
+                                                    precheck=self._bench_precheck))
+            except benchrun.Refused as e:
+                self._json(e.status, e.body)
+            except (ValueError, TypeError) as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+
         def _catalog(self) -> dict:
             """GET /api/models/catalog: the models the Download panel offers (serve/catalog.py); nothing secret, no network."""
             return {"entries": [catalog.public(e) for e in catalog.CATALOG], "families": catalog.FAMILIES,
@@ -1151,10 +1245,10 @@ def make_handler(svc: Service, remote: bool = False):
                         svc.model_catalog.invalidate()       # GET /v1/models scans the new folders
                     self._json(200, self._models_listing(True))
                 elif what == "plan":
-                    self._json(200, models.convert_plan(str(req.get("id") or ""), req.get("out_dir")))
+                    self._json(200, models.convert_plan(str(req.get("id") or ""), req.get("out_dir"), options=req.get("options")))
                 elif what == "convert":
                     self._json(202, models.JOBS.start_convert(str(req.get("id") or ""), req.get("out_dir"),
-                                                              req.get("token"), req.get("confirm")))
+                                                              req.get("token"), req.get("confirm"), options=req.get("options")))
                 elif what == "verify":
                     self._json(202, models.JOBS.start_verify(req.get("path")))
                 elif what == "download-plan":
