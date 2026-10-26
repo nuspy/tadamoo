@@ -1906,6 +1906,9 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(403, {"error": {"type": "forbidden", "message": "folders are added only from the PC the server runs on"}})
                 if parts == ["sessions"] and not self._folder_ok(req.get("workspace")):
                     return self._json(403, {"error": {"type": "forbidden", "message": "a phone works only in the folders added on the PC"}})
+                if parts == ["place", "forget"]:
+                    self._agent_sessions().forget_place()
+                    return self._json(200, {"forgotten": True})
                 if parts == ["projects"]:
                     return self._json(200, {"project": self._projects().add(req.get("path"))})
                 if parts == ["projects", "remove"]:
@@ -1931,7 +1934,7 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) == 3 and parts[2] == "branch":
                         return self._json(200, {"session": mgr.branch(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "send":
-                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments")))
+                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place")))
                     if len(parts) == 3 and parts[2] in ("promote", "drop"):
                         return self._json(200, {"session": getattr(mgr, parts[2])(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "answer":

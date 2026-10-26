@@ -48,6 +48,7 @@ TEXT_CHARS = 20_000
 EVENTS_KEPT = 3000
 SESSIONS_FILE = "agent_sessions.json"
 TITLE_CHARS = 80
+PLACE_KEEP_S = 86_400           # a position older than this is no longer handed to a conversation
 OPTIONS = ("resume", "close")
 ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free", "free_prefix")
 COMPARES_FILE = "compares.json"
@@ -97,6 +98,8 @@ class SessionManager:
         self.learn = learn                                      # told what the person wrote and what was searched for it, when a turn ends, to learn from
         self._said: Dict[str, Dict[str, Any]] = {}              # per conversation, until its turn ends: what the person wrote and what was searched
         self._no_learning: set = set()                          # conversations that are not the person's talking (a routine's)
+        self._place: Optional[Dict[str, Any]] = None            # where the person's phone last said they were: held in memory only
+        self._place_sent: Dict[str, float] = {}                 # per conversation process: the receipt time of the position it was given
         self.browser_profile = browser_profile                  # where the browser keeps its sign-ins when the person chose that
         self.browser_prefs = browser_prefs                      # whether the conversations have a browser, and whether it shows a window
         self.payments_dir = payments_dir                        # the person's payment systems and limits, for the agent's request_payment
@@ -789,6 +792,7 @@ class SessionManager:
         contain(proc)
         live = Live(proc)
         self._live[sid] = live
+        self._place_sent.pop(sid, None)                     # a new process holds no position yet
         threading.Thread(target=self._read, args=(sid, live), name=f"session-{sid}", daemon=True).start()
         return live
 
@@ -948,7 +952,28 @@ class SessionManager:
         except KeyError:
             raise RunError("One of the attached files is not there any more: attach it again.", "bad_attachments") from None
 
-    def send(self, sid: str, text: Any, attachments: Any = None) -> Dict[str, Any]:
+    def forget_place(self) -> None:
+        with self._lock:
+            self._place = None
+            self._place_sent.clear()
+
+    def _place_for(self, sid: str, raw: Any) -> Optional[Dict[str, Any]]:
+        """The position to hand to the conversation's process with this message: the one the phone just sent, or the last one it sent when the
+        process does not hold it yet; None when there is nothing new to hand over. A position older than a day is not handed over."""
+        from harness.place import clean
+        held = clean(raw)
+        with self._lock:
+            if held is not None:
+                self._place = held
+            held = self._place
+            if held is None or time.time() - held["got"] + held["fix_age_s"] > PLACE_KEEP_S:
+                return None
+            if self._place_sent.get(sid) == held["got"]:
+                return None
+            self._place_sent[sid] = held["got"]
+            return held
+
+    def send(self, sid: str, text: Any, attachments: Any = None, place: Any = None) -> Dict[str, Any]:
         if not isinstance(text, str) or not text.strip():
             raise RunError("Write a message.", "text_missing")
         cards = self._check_attachments(sid, attachments)
@@ -966,7 +991,8 @@ class SessionManager:
                                    "it then works in its own copy.", "folder_busy")
             turn = secrets.token_hex(3)              # a message that comes while the agent works is looked at by the agent itself
             live = self._ensure(sid)
-            cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {})}
+            held = self._place_for(sid, place)
+            cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {}), **({"place": held} if held else {})}
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
                 rec["title"] = " ".join(text.split())[:TITLE_CHARS]

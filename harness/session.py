@@ -1016,6 +1016,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
             name = cmd.get("cmd") if isinstance(cmd, dict) else None
             if name == "send" and isinstance(cmd.get("text"), str) and cmd["text"].strip():
                 ids = [i for i in cmd.get("attachments", []) if isinstance(i, str)][:20] if isinstance(cmd.get("attachments"), list) else []
+                if cmd.get("place") is not None and built.take_place:
+                    built.take_place(cmd["place"])                  # before the message, so the tool is there from this turn on
                 session.send(str(cmd.get("id") or uuid.uuid4().hex[:8]), cmd["text"], attachments=ids or None)
             elif name == "answer":
                 session.answer(cmd.get("id"), cmd.get("value"))

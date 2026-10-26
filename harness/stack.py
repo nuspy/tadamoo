@@ -245,6 +245,7 @@ class BuiltAgent:
     mode_switch: Optional[Callable[[str], None]] = None
     mcp: Optional[Any] = None                 # the MCPHub of cfg.mcp_servers
     personal: Optional[Any] = None            # the notes about the person this conversation takes in (harness/personal_memory.py Recall)
+    take_place: Optional[Callable[[Any], bool]] = None     # keeps the position the person's phone sent and offers where_is_user (harness/place.py)
     mcp_errors: Dict[str, str] = field(default_factory=dict)       # the servers that could not be started, and why
 
     def set_mode(self, mode: str) -> None:
@@ -540,6 +541,16 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         sampling={"end_turn_bias": cfg.end_turn_bias} if cfg.end_turn_bias else None,
         clock=local_now,
     )
+    from harness.place import Place, register_place_tool
+    here = Place()
+    away = lambda: getattr(client, "stays_local", lambda: True)()                # the position leaves this PC only inside a request to another provider
+
+    def take_place(raw: Any) -> bool:
+        if not here.set(raw):
+            return False
+        register_place_tool(registry, here, local=away)                           # a conversation with no position carries no such tool
+        return True
+
     return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser,
-                      plan_gate=plan_gate, mode_switch=switch_mode, personal=personal,
+                      plan_gate=plan_gate, mode_switch=switch_mode, personal=personal, take_place=take_place,
                       mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {})
