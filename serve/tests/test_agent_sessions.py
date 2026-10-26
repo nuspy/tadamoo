@@ -858,3 +858,58 @@ def test_a_conversation_is_renamed_and_a_command_is_answered_by_its_process(make
         mgr.slash(sid, "rm", "")
     assert e.value.code == "bad_command"
 
+
+
+HOME = {"lat": 45.46427, "lon": 9.18951, "accuracy_m": 18, "address": {"street": "Via Roma", "number": "12", "city": "Milano"}}
+
+
+def test_the_position_the_phone_sends_reaches_the_process_once_and_is_not_repeated(make, ws, tmp_path):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "uno", place=HOME)
+    until(lambda: kinds(mgr, sid).count("done") == 1)
+    shown = mgr.history_dir(sid) / "place.json"
+    given = json.loads(shown.read_text(encoding="utf-8"))
+    assert given["lat"] == 45.46427 and given["address"]["city"] == "Milano" and given["got"] > 0
+    shown.unlink()
+    mgr.send(sid, "due", place=HOME)                                      # a newer fix is handed over again
+    until(lambda: kinds(mgr, sid).count("done") == 2)
+    assert shown.exists()
+    shown.unlink()
+    mgr.send(sid, "tre")                                                  # nothing new: the process already holds it
+    until(lambda: kinds(mgr, sid).count("done") == 3)
+    assert not shown.exists()
+
+
+def test_a_conversation_that_starts_later_is_given_the_last_position_with_its_age(make, ws):
+    mgr = make()
+    first = mgr.create(ws)["id"]
+    mgr.send(first, "uno", place=HOME)
+    until(lambda: kinds(mgr, first).count("done") == 1)
+    second = mgr.create(ws)["id"]
+    mgr.send(second, "ciao")                                              # sent from the PC: no position of its own
+    until(lambda: kinds(mgr, second).count("done") == 1)
+    given = json.loads((mgr.history_dir(second) / "place.json").read_text(encoding="utf-8"))
+    assert given["address"]["city"] == "Milano" and 0 <= time.time() - given["got"] < 60
+
+
+def test_a_bad_position_is_ignored_and_a_forgotten_one_is_not_handed_over(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "uno", place={"lat": 999, "lon": 1})
+    until(lambda: kinds(mgr, sid).count("done") == 1)
+    assert not (mgr.history_dir(sid) / "place.json").exists()
+    mgr.send(sid, "due", place=HOME)
+    until(lambda: kinds(mgr, sid).count("done") == 2)
+    mgr.forget_place()
+    other = mgr.create(ws)["id"]
+    mgr.send(other, "ciao")
+    until(lambda: kinds(mgr, other).count("done") == 1)
+    assert not (mgr.history_dir(other) / "place.json").exists()
+
+
+def test_a_position_older_than_a_day_is_not_handed_over(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    assert mgr._place_for(sid, {**HOME, "fix_age_s": 90_000}) is None
+    assert mgr._place_for(sid, HOME) is not None

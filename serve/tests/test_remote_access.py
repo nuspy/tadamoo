@@ -49,7 +49,7 @@ class KeysTest(unittest.TestCase):
             self.assertTrue(in_tailscale(ok), ok)
         for bad in ("100.63.255.255", "100.128.0.1", "192.168.1.5", "127.0.0.1", "8.8.8.8", "nonsense", "::1"):
             self.assertFalse(in_tailscale(bad), bad)
-        for ok in ("/v1/chat/completions", "/v1/models", "/api/agent/sessions", "/api/agent/sessions/ab12/events", "/api/attachments", "/api/outputs/s/i/file", "/api/routines",
+        for ok in ("/v1/chat/completions", "/v1/models", "/api/agent/sessions", "/api/agent/sessions/ab12/events", "/api/agent/place/forget", "/api/attachments", "/api/outputs/s/i/file", "/api/routines",
                    "/api/routines/ab/run", "/api/plans", "/api/personal-skills", "/api/remote/hello"):
             self.assertTrue(remote_path_ok(ok), ok)
         self.assertTrue(remote_path_ok("/api/remote/peers"))

@@ -69,6 +69,8 @@ for line in sys.stdin:
     name = cmd.get("cmd")
     if name == "send":
         text = cmd["text"]
+        if "place" in cmd:                                                  # the position the manager handed over with this message
+            (H / "place.json").write_text(json.dumps(cmd["place"]), encoding="utf-8")
         data["messages"].append({"role": "user", "content": text})
         save(data)
         emit({"event": "accepted", "turn": cmd.get("id")})
