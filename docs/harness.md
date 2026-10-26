@@ -902,23 +902,23 @@ wide, not for phones.
   cloud-filter consent) and *Wallet*. **Ctrl+K** opens a palette that reaches every page and the common actions and settings.
 - A notice under the top bar says when no model is loaded and opens Models. The Monitor lists the last 100 requests; the agent's tasks
   and edits are not there (the edits are reviewed in the Agent tab).
-- **Reviewing the agent's edits**: the agent applies an edit when it makes it. In the Agent tab each edit lists its blocks
+- **Reviewing the agent's edits**: the agent applies an edit when it makes it. In the Agent tab, under *Changes*, each edit lists its blocks
   with *Keep* and *Undo* (and *Keep all*, *Undo all*); undoing asks to be pressed twice. A block is undone only while the
   file on disk is exactly what the agent wrote, so nothing you did since is overwritten; if you changed the file, or
   a later edit touched it, the panel says so and does nothing. Only the latest 30 edits can be undone, only for text
   files up to 200 000 characters, and only from the PC the server runs on.
-- **Agent**: the way to run the agent from the app. Choose the folder and write the task; the mode sets how much it may do
-  on its own: *Plan only*, *Read only*, *Ask first* (it edits files in the folder and asks before it runs a command) or
-  *Automatic* (it runs commands without asking; needs a tick that says so, and belongs in a folder you can lose). A question
-  from the agent (a command to run, an MCP tool) appears at the top of the right column and on the tab as a count, with
-  *Approve* and *Deny*; one nobody answers within 15 minutes, or whose run ended, counts as a refusal. Under *More options*:
-  the most steps, and rules for commands it may run without asking. The page shows the run's status and a readable log (one
-  line for each tool, then its answer) and the Changes panel, where its edits can be reviewed; *Stop* ends the
-  agent and everything it started. *Go back* lists the checkpoints of the folder, with what the agent did after each, and puts the
-  files back to one of them (press twice); actions that stay done, such as a command it ran, are listed and the button warns. The
-  state before the rewind is itself a checkpoint, so going back can be undone. One run at a time. It works only from the PC the server runs on, with the API key if the
-  server has one. The agent is the same `python -m harness` as on the command line, started by the server with
-  `--progress --result-file --ask-server`; the log and the result file are in the data folder (`journal/runs`).
+- **Agent**: the conversation page of the Chat, working in a **folder** you add. The column at the left lists the folders, each with the
+  conversations held in it (*New conversation in this folder*, a cross takes the folder off the list and keeps its files and conversations).
+  *Add folder* asks for the full path (the Windows dialog inside the app, a typed path in a browser) and checks that the agent can work there:
+  the folder is not a whole drive and Basalt can write in it. Adding it makes `<folder>/.basalt/project.json`, the folder's own registry
+  (its name and the conversations held in it, kept up to date as they are made, renamed and deleted), and `<folder>/.basalt/.gitignore`
+  (the agent's `artifacts/`). The list of folders is in `journal/projects.json` of the user data folder; `GET/POST /api/agent/projects` and
+  `/api/agent/projects/remove` serve it. A conversation of a folder is created with that folder as its `workspace`: its file tools stay inside it
+  and the commands it runs are not limited to it. There is no model-only or question-only kind here, only conversations with tools, and the four
+  modes (*Plan only*, *Read only*, *Ask first*, *Automatic*) change at any time with Shift+Tab as in the Chat. Questions, steps, branches, skills
+  and the copy of a git folder are the Chat's. The Chat tab lists only the conversations with no folder (the server's `chat-workspace`), the
+  Agent tab only those of the folders. Each tab goes back to its own last conversation. A conversation sends each file edit to the Changes
+  panel (`--report-changes`), which opens beside the conversation with the *Changes* button.
 - **Plans**: the graph (drawn with status as icon and word as well as colour), an ordered list that works by keyboard,
   proposed changes shown on the graph before they are applied, approve and reject, tasks handed to you, a box to judge events.
 

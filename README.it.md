@@ -225,7 +225,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 | Modo | Cos'è |
 |---|---|
 | Scheda **Chat** | Conversazioni con l'agente. Ognuna è un processo che resta vivo, con la sua cronologia salvata, quindi un messaggio non paga l'avvio. È il modo principale. |
-| Scheda **Agente** | Un'esecuzione alla volta: una cartella, un compito, una modalità, un registro leggibile e *Torna indietro* a un checkpoint. |
+| Scheda **Agente** | La pagina delle conversazioni, che lavora nelle cartelle che aggiungi: ogni cartella ha le sue conversazioni e un registro `.basalt`, e le modifiche dell'agente si tengono o si annullano blocco per blocco. |
 | `python -m harness -p "compito"` o `basalt-agent` | La riga di comando, per gli script: codici di uscita, `--json`, limiti. `basalt-agent.cmd` funziona da qualunque cartella. |
 | `python -m harness acp` | L'agente di un editor che parla l'Agent Client Protocol, su stdio. |
 
@@ -300,7 +300,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 - **Hook scritti da te** (`hooks.json`): comandi o blocchi fissi su chiamate di strumenti, turni e sessione; un hook che non riesce a
   decidere blocca.
 - **Checkpoint e ritorno**: l'area di lavoro viene salvata prima della prima modifica di un turno, fuori dal progetto e con limiti di
-  dimensione; `python -m harness.rewind` e il pulsante *Torna indietro* la ripristinano. Tornare indietro non disfa un comando che ha
+  dimensione; `python -m harness.rewind`, `/rewind` e *Torna qui* su un messaggio la ripristinano. Tornare indietro non disfa un comando che ha
   eseguito, e lo dice.
 - **Un registro di audit**: una riga per ogni chiamata di strumento (argomenti con hash e mascherati, la decisione, l'esito), in una
   catena di hash verificabile.

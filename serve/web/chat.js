@@ -530,7 +530,7 @@
     prompt.placeholder = images ? "Message the model, or attach an image" : "Message the model";
   }
   document.addEventListener("basalt:key", () => { capabilities(); meter(); });
-  document.addEventListener("basalt:view", e => { if (e.detail === "chat") { scrollDown(true); meter(); } });
+  document.addEventListener("basalt:view", e => { if (e.detail === "chat" || e.detail === "agent") { scrollDown(true); meter(); } });
 
   // what the conversations mode shares: the safe Markdown and the reasoning box, so both chats look and behave alike
   window.chatUi = {

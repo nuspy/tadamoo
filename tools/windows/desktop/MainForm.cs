@@ -741,7 +741,7 @@ sealed class MainForm : Form
         return p.TryGetProperty("load", out var load) && load.EnumerateArray().Any(x => x.GetProperty("name").GetString() == "Machine Default");
     }
 
-    /// <summary>The page asks for the folder dialog: {"type": "pickFolder", "id": ..., "path": ...}; the answer is
+    /// <summary>The page asks for the folder dialog: {"type": "pickFolder", "id": ..., "path": ..., "title"?: ...}; the answer is
     /// {"type": "folder", "id": ..., "path": ...} (no path when cancelled).</summary>
     void OnWebMessage(object sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
@@ -751,7 +751,8 @@ sealed class MainForm : Form
             if (m.GetProperty("type").GetString() != "pickFolder") return;
             string id = m.TryGetProperty("id", out var i) ? i.GetString() : "";
             string start = m.TryGetProperty("path", out var sp) && sp.ValueKind == JsonValueKind.String ? sp.GetString() : null;
-            using var dlg = new FolderBrowserDialog { Description = Tr.T("Cartella dei modelli", "Models folder"), UseDescriptionForTitle = true, ShowNewFolderButton = false };
+            string title = m.TryGetProperty("title", out var tp) && tp.ValueKind == JsonValueKind.String && tp.GetString().Length > 0 ? tp.GetString() : Tr.T("Cartella dei modelli", "Models folder");
+            using var dlg = new FolderBrowserDialog { Description = title, UseDescriptionForTitle = true, ShowNewFolderButton = title != Tr.T("Cartella dei modelli", "Models folder") };
             if (!string.IsNullOrEmpty(start) && Directory.Exists(start)) dlg.InitialDirectory = start;
             string path = dlg.ShowDialog(this) == DialogResult.OK ? dlg.SelectedPath : null;
             web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "folder", id, path }));

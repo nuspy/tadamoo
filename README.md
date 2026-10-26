@@ -205,7 +205,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
 | Way in | What it is |
 |---|---|
 | **Chat** tab | Conversations with the agent. Each is a long-lived process with its own saved history, so a message does not pay for the start. This is the main way. |
-| **Agent** tab | One run at a time: a folder, a task, a mode, a readable log, and *Go back* to a checkpoint. |
+| **Agent** tab | The conversation page, working in folders you add: each folder has its own conversations and a `.basalt` registry, and the agent's edits can be kept or undone block by block. |
 | `python -m harness -p "task"` or `basalt-agent` | The command line, for scripts: exit codes, `--json`, budgets. `basalt-agent.cmd` works from any folder. |
 | `python -m harness acp` | The agent of an editor that speaks the Agent Client Protocol, over stdio. |
 
@@ -273,7 +273,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   once the conversation has read outside content and can reach a secret or a vault entry (the Rule of Two).
 - **Hooks you write** (`hooks.json`): commands or fixed blocks on tool calls, turns and the session; a hook that cannot decide blocks.
 - **Checkpoints and rewind**: the workspace is saved before the first change of a turn, outside the project and within size limits;
-  `python -m harness.rewind` and the *Go back* button restore it. Rewinding does not undo a command it ran, and says so.
+  `python -m harness.rewind`, `/rewind` and *Back to here* on a message restore it. Rewinding does not undo a command it ran, and says so.
 - **An audit log**: one record per tool call (arguments hashed and masked, the decision, the outcome), in a hash chain you can verify.
 - **Time limits and Stop**: every tool has a time limit (15 minutes unless set); Stop ends a running command and everything it started.
 - **What it is not**: an operating-system sandbox. A command runs with your rights, with a scrubbed environment, no stdin, a time limit,

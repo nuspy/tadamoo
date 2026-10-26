@@ -108,8 +108,7 @@ modalità con cui partirà la prossima. Passare ad **Automatico** la prima volta
 capito il rischio*, poi *Ho letto con attenzione il messaggio precedente e ho capito il rischio*); una volta detto sì non lo chiede più
 finché non chiudi l'app, in nessuna conversazione. Se rifiuti, il giro lo salta.
 
-**Regole per i comandi.** In *Chat → Impostazioni → Cosa può fare l'agente senza chiedere* (per le nuove conversazioni) o sotto *Altre
-opzioni* nella scheda Agente, scrivi una regola per riga, come `shell_command:python -m pytest*`. Un comando che corrisponde si
+**Regole per i comandi.** In *Chat → Impostazioni → Cosa può fare l'agente senza chiedere* (per le nuove conversazioni) scrivi una regola per riga, come `shell_command:python -m pytest*`. Un comando che corrisponde si
 esegue senza chiedere. Una regola di **divieto** vince sempre. Una regola non copre mai un comando che ne concatena o reindirizza un
 altro (`pytest && rm -rf ~` non è `pytest`). In una domanda, il pulsante **Permetti sempre …** ne aggiunge una per te.
 
@@ -189,7 +188,7 @@ conversazione ti dice che potrebbe essere già partito. Dopo di che, o quando il
   avvenute (un comando, una telefonata, un pagamento, un'azione del browser) sono elencate prima, e devi premere ancora per tornare
   indietro lo stesso.
 - **Checkpoint.** Prima della prima modifica di ogni turno la cartella viene salvata fuori dal progetto. `python -m harness.rewind
-  --workspace D:\proj` li elenca e `--to ID` ne ripristina uno; la scheda Agente ha *Torna indietro*. Il ritorno fa prima uno
+  --workspace D:\proj` li elenca e `--to ID` ne ripristina uno; le conversazioni hanno `/rewind` e *Torna qui*. Il ritorno fa prima uno
   snapshot di sicurezza, quindi si può a sua volta annullare. Non disfa un comando che l'agente ha eseguito, e lo dice.
 - **Rami.** `/branch` copia una conversazione a una richiesta; *Rami* mostra l'albero. *Esegui entrambi e confronta* manda una richiesta lungo due
   continuazioni, una dopo l'altra, e mostra le due risposte e i file cambiati da ciascuna, affiancati.
@@ -312,11 +311,16 @@ aspetta.
 
 ## 13. La scheda Agente
 
-Per un lavoro in una cartella che indichi. Scrivi la **cartella** (il percorso completo) e **cosa deve fare**, scegli la modalità
-(come nella sezione 4) e premi *Avvia*. Sotto *Altre opzioni* ci sono il numero massimo di passi e le regole per i comandi. La pagina
-mostra lo stato dell'esecuzione e un registro leggibile, le domande compaiono in cima alla colonna di destra (*Approva* o *Nega*;
-una a cui nessuno risponde in 15 minuti vale come rifiuto), e il Monitor mostra le modifiche. *Ferma* termina l'agente e tutto ciò che
-ha avviato. *Torna indietro* elenca i checkpoint della cartella. Una sola esecuzione alla volta.
+La scheda Agente è la pagina delle conversazioni che lavora in una **cartella tua**. A sinistra la colonna elenca le cartelle che hai
+aggiunto, ciascuna con le sue conversazioni. Premi **Aggiungi cartella**, scrivi il percorso completo (o *Sfoglia...* dentro l'app) e la
+cartella è aggiunta: l'agente lavora lì, i suoi strumenti per i file restano dentro, e la cartella riceve una cartella `.basalt` con il
+registro delle sue conversazioni. Una croce accanto a una cartella la toglie dall'elenco senza toccarne i file né le conversazioni; un **+**
+avvia una nuova conversazione al suo interno.
+
+Poi parlaci come nella Chat: un passo alla volta, in quanti messaggi e giorni vuoi, senza limite di passi. **Maiusc + Tab** cambia in
+qualsiasi momento quanto può fare da solo (*Solo piano*, *Sola lettura*, *Chiedi prima*, *Automatica*, come nella sezione 4): prima il
+piano, poi digli di procedere. Il pulsante *Modifiche* apre l'elenco dei file che ha modificato, con *Tieni* e *Annulla* per ogni blocco. I
+comandi che esegue non sono limitati alla cartella; un sandbox per loro non c'è ancora.
 
 ## 14. La riga di comando e l'editor
 

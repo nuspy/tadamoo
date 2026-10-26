@@ -36,7 +36,7 @@ Four ways to use it, all with the same abilities:
 | Way in | Use it when |
 |---|---|
 | **Chat** tab, *With tools* | you want a conversation: ask, correct, go on tomorrow. The main way. |
-| **Agent** tab | you want one job done in a folder you name, with a log and a way back. |
+| **Agent** tab | you work on a folder of yours over several conversations, with its edits to keep or undo. |
 | `python -m harness` / `basalt-agent` | you want it in a script, with exit codes and JSON. |
 | `python -m harness acp` | you want it as the agent of an editor that speaks the Agent Client Protocol. |
 
@@ -105,8 +105,7 @@ with. Going to **Automatic** the first time shows a highlighted risk label and a
 message carefully and understand the risk*); once you have said yes it is not asked again until you close the app, in any conversation. If
 you refuse, the cycle passes over it.
 
-**Rules for commands.** In *Chat → Settings → What the agent may do without asking* (for new conversations) or under *More options* in
-the Agent tab, write one rule per line, such as `shell_command:python -m pytest*`. A matching command runs without asking. A **deny**
+**Rules for commands.** In *Chat → Settings → What the agent may do without asking* (for new conversations) write one rule per line, such as `shell_command:python -m pytest*`. A matching command runs without asking. A **deny**
 rule always wins. A rule never covers a command that chains or redirects another (`pytest && rm -rf ~` is not `pytest`). In a question,
 the **Always allow …** button adds a rule for you.
 
@@ -179,7 +178,7 @@ you it may already have run. After that, or when the server refuses for good, th
   copy of what came later is kept. The files are not touched: undo them from the Changes panel. Actions that stay done (a command, a
   call, a payment, a browser action) are listed first, and you must press again to go back anyway.
 - **Checkpoints.** Before the first change of each turn the folder is saved outside the project. `python -m harness.rewind
-  --workspace D:\proj` lists them and `--to ID` restores one; the Agent tab has *Go back*. A rewind takes a safety snapshot first, so it
+  --workspace D:\proj` lists them and `--to ID` restores one; the conversations have `/rewind` and *Back to here*. A rewind takes a safety snapshot first, so it
   can be undone. It does not undo a command the agent ran, and says so.
 - **Branches.** `/branch` copies a conversation at a request; *Branches* shows the tree. *Run both and compare* sends one request down two
   continuations, one after the other, and shows the two answers and the files each changed, side by side.
@@ -291,10 +290,15 @@ has *Waits for* boxes to set from the keyboard what it waits for.
 
 ## 13. The Agent tab
 
-For one job in a folder you name. Write the **folder** (the full path) and **what it should do**, choose the mode (as in section 4),
-and press *Start*. Under *More options* are the most steps and the rules for commands. The page shows the run's state and a readable log,
-questions appear at the top of the right column (*Approve* or *Deny*; one nobody answers in 15 minutes counts as a refusal), and the
-Monitor shows the edits. *Stop* ends the agent and everything it started. *Go back* lists the folder's checkpoints. One run at a time.
+The Agent tab is the conversation page working in a **folder of yours**. At the left, the column lists the folders you added, each with its
+conversations. Press **Add folder**, write the full path (or *Browse...* inside the app) and the folder is added: the agent works there, its
+file tools stay inside it, and the folder gets a `.basalt` folder with a registry of its conversations. A cross next to a folder takes it off
+the list without touching its files or its conversations; a **+** starts a new conversation in it.
+
+Then talk to it as in the Chat: step by step, over as many messages and days as you like, with no limit on steps. **Shift + Tab** changes
+how much it may do on its own at any time (*Plan only*, *Read only*, *Ask first*, *Automatic*, as in section 4): plan first, then tell it to
+go ahead. The *Changes* button opens the list of the files it edited, with *Keep* and *Undo* for each block. The commands it runs are not
+limited to the folder; a sandbox for them is not there yet.
 
 ## 14. The command line and the editor
 
