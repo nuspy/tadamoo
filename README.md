@@ -62,8 +62,8 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
 - `--listen-first` (the page answers while the model loads), `--standby` (nothing loaded until the Loader's Load),
   `--relaunch-on-model-change` (a Load of another model restarts the server with it); a reload re-reads the sampling
   defaults and refuses a bad value before stopping the running engine.
-- A first start that fails says the engine's reason; a vision projector the engine would refuse turns image input off,
-  with the reason.
+- A first start that fails says the engine's reason; a vision projector with F16 or BF16 tensors where the encoder reads F32 or BF16 is rewritten at the
+  load (once, kept in the cache, same weights); one the engine cannot read at all turns image input off, with the reason.
 
 **4. Models**
 - A **models library** of one or more folders: a header-only scan marks every model Ready, To convert or Not compatible

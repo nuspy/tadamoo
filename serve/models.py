@@ -323,6 +323,7 @@ def read_gguf(path: str, offset: int = 0) -> dict:
         for _ in range(n_kv):
             key = h.string()
             meta[key] = h.value(h.u32(), keep=not key.startswith("tokenizer.ggml."))
+        kv_end = h.f.tell() - offset
         tensors = []
         for _ in range(n_tensors):
             name = h.string()
@@ -337,16 +338,18 @@ def read_gguf(path: str, offset: int = 0) -> dict:
         data_start = (pos + align - 1) // align * align
     finally:
         h.close()
-    return {"version": version, "meta": meta, "tensors": tensors, "data_start": data_start}
+    return {"version": version, "meta": meta, "tensors": tensors, "data_start": data_start, "kv_end": kv_end, "alignment": align}
 
 
 # the image encoder's own checks (src/vision/mmproj.cpp open() and need(), encoder_cpu.cpp / encoder_cuda.cu init()):
 # a qwen3vl_merger projector of these sizes, its vectors in F32 and its matrices in BF16; anything else and the engine
-# stops at start ("tensor mm.2.weight has an unexpected type or size", the last of the failed checks)
+# stops at start ("tensor mm.2.weight has an unexpected type or size", the last of the failed checks). A projector whose
+# tensors are F32, F16 or BF16 in other places is not refused here: the load rewrites it (serve/projector.py)
 VISION_EMBD, VISION_FFN = 1152, 4304
 VISION_HPARAMS = (("clip.vision.embedding_length", VISION_EMBD), ("clip.vision.attention.head_count", 16),
                   ("clip.vision.patch_size", 16), ("clip.vision.feed_forward_length", VISION_FFN))
-_F32, _BF16 = 0, 30
+_F32, _F16, _BF16 = 0, 1, 30
+FLOAT_TYPES = (_F32, _F16, _BF16)                 # the types a projector can be rewritten between
 
 
 def _projector_wants(layers: int, proj: int) -> dict:
@@ -395,16 +398,33 @@ def projector_problem(g: dict) -> dict | None:
         n = sized[0]
         return {"it": f"il tensore {n} ha {have[n][1]} elementi, il motore ne legge {want[n][1]}",
                 "en": f"the tensor {n} has {have[n][1]} elements, the engine reads {want[n][1]}"}
-    typed = [n for n in want if have[n][0] != want[n][0]]
+    typed = [n for n in want if have[n][0] != want[n][0] and have[n][0] not in FLOAT_TYPES]
     if typed:
         kinds = sorted({type_name(have[n][0]) for n in typed})
         example = next((n for n in ("mm.2.weight", "mm.0.weight") if n in typed), typed[0])
         return {"it": f"{len(typed)} tensori sono {'/'.join(kinds)} (per esempio {example}): il motore legge le "
-                      "matrici in BF16 e i vettori in F32. Serve un proiettore esportato in BF16 (mmproj-…-BF16.gguf)",
+                      "matrici in BF16 e i vettori in F32 e non sa riscrivere questi tipi. Serve un proiettore "
+                      "esportato in BF16 (mmproj-…-BF16.gguf)",
                 "en": f"{len(typed)} tensors are {'/'.join(kinds)} (for example {example}): the engine reads the "
-                      "matrices in BF16 and the vectors in F32. A projector exported in BF16 (mmproj-…-BF16.gguf) "
-                      "is needed"}
+                      "matrices in BF16 and the vectors in F32 and cannot rewrite these types. A projector exported "
+                      "in BF16 (mmproj-…-BF16.gguf) is needed"}
     return None
+
+
+def projector_fix(g: dict) -> dict:
+    """What the load rewrites in a projector the engine would otherwise refuse: {"tensors": how many, "bytes": the
+    size the rewritten file has (the data and the header), "from": the types found}; tensors 0 when it reads as it is.
+    Only for a projector without a projector_problem()."""
+    m = g.get("meta") or {}
+    layers, proj = int(m.get("clip.vision.block_count") or 0), int(m.get("clip.vision.projection_dim") or 0)
+    want = _projector_wants(layers, proj)
+    have = {name: (int(t), _elements(shape)) for name, shape, t, _ in g.get("tensors") or []}
+    typed = [n for n in want if n in have and have[n][0] != want[n][0]]
+    size = g["data_start"]
+    for name, shape, t, _ in g.get("tensors") or []:
+        nb = (_elements(shape) * (4 if want[name][0] == _F32 else 2)) if name in want else (_tensor_bytes(shape, t) or 0)
+        size += (nb + g.get("alignment", 32) - 1) // g.get("alignment", 32) * g.get("alignment", 32)
+    return {"tensors": len(typed), "bytes": size, "from": sorted({type_name(have[n][0]) for n in typed})}
 
 
 def profile_plain(path: str) -> bool | None:
@@ -432,6 +452,20 @@ def profile_plain(path: str) -> bool | None:
                 k += 1
         return True
     except (OSError, ValueError, struct.error):
+        return None
+
+
+def embedded_projector_fix(path: str) -> dict | None:
+    """projector_fix() of the vision/mmproj section of a .basalt; None without one or when it cannot be read."""
+    from model_file import ModelFile
+    try:
+        mf = ModelFile(path)
+        if "vision/mmproj" not in mf.sections:
+            return None
+        off, _ = mf.section("vision/mmproj")
+        g = read_gguf(path, off)
+        return None if projector_problem(g) else projector_fix(g)
+    except (OSError, ValueError, struct.error, UnicodeDecodeError):
         return None
 
 
