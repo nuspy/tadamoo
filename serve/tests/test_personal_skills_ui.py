@@ -27,7 +27,7 @@ class PersonalSkillsPageTest(unittest.TestCase):
             self.assertIn(route, PSK)
 
     def test_every_request_has_a_button_and_a_box_when_choosing_and_the_button_on_an_earlier_one_ends_the_skill_there(self):
-        self.assertIn("acts.append(backButton(it), skillButton(it))", CHAT)
+        self.assertIn('acts.append(copyButton(() => it.text || ""), backButton(it), skillButton(it))', CHAT)
         self.assertIn("startPick(requestsOf().indexOf(it) + 1)", CHAT)                                # the request pressed is where the skill ends
         self.assertIn("n <= pick.end", CHAT)                                                         # a box beside each request up to it
         self.assertIn("pick.picked.has(n)", CHAT)
