@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
 import 'i18n.dart';
+import 'place.dart';
 import 'settings.dart';
 import 'voice.dart';
 
@@ -97,6 +98,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await widget.settings.setMode(value);
   }
 
+  /// Switching it on asks Android for the permission; switching it off makes the PC forget the last position it was given.
+  Future<void> _switchPlace(bool on) async {
+    if (on && !await PlaceFinder.allow()) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(Texts.t('set.place.denied'))));
+      return;
+    }
+    await widget.settings.setSendPlace(on);
+    if (!on) {
+      try {
+        await Api(widget.settings).post('/api/agent/place/forget');
+      } on ApiError catch (_) {}
+    }
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -155,6 +171,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Text(Texts.t('set.voice'), style: theme.textTheme.titleMedium),
         SwitchListTile(contentPadding: EdgeInsets.zero, title: Text(Texts.t('set.autospeak')), value: widget.settings.autoSpeak, onChanged: (v) => widget.settings.setAutoSpeak(v).then((_) => setState(() {}))),
         TextField(controller: locale, autocorrect: false, onSubmitted: (_) => _save(), decoration: InputDecoration(labelText: Texts.t('set.speechlocale'), hintText: 'it-IT', border: const OutlineInputBorder())),
+        const Divider(height: 32),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          isThreeLine: true,
+          title: Text(Texts.t('set.place')),
+          subtitle: Text(Texts.t('set.place.help')),
+          value: widget.settings.sendPlace,
+          onChanged: _switchPlace,
+        ),
         const Divider(height: 32),
         DropdownButtonFormField<String>(
           initialValue: widget.settings.language,

@@ -46,6 +46,8 @@ dependencies:
   path_provider: ^2.1.6
   share_plus: ^13.3.1
   smb_connect: ^0.0.9
+  geolocator: ^14.0.1
+  geocoding: ^5.0.0
 
 dev_dependencies:
   flutter_test:

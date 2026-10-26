@@ -369,9 +369,9 @@ class ChatController extends ChangeNotifier {
   }
 
   // ---- talking ----
-  Future<void> send(String text, {List<String> attachments = const []}) async {
+  Future<void> send(String text, {List<String> attachments = const [], Map<String, dynamic>? place}) async {
     if (sid.isEmpty || text.trim().isEmpty && attachments.isEmpty) return;
-    await api.post('/api/agent/sessions/$sid/send', {'text': text, if (attachments.isNotEmpty) 'attachments': attachments});
+    await api.post('/api/agent/sessions/$sid/send', {'text': text, if (attachments.isNotEmpty) 'attachments': attachments, 'place': ?place});
     state = 'busy';
     notifyListeners();
     _schedule(true);
