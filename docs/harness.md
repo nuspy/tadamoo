@@ -1060,7 +1060,7 @@ this PC always needs one.
 A client away from this PC can come only through a second listener, which is bound to **this PC's Tailscale address and nothing else** (`remote.json` keeps whether it is on; it starts
 with the server and follows Tailscale's address). It is off until the person turns it on. What such a client may reach is a short list (`remote_path_ok`): the model (`/v1/`), the
 conversations (`/api/agent/`), attached files and the files the agent made (`/api/attachments`, `/api/outputs`), the routines, the plans, the personal skills (read only) and
-`GET /api/remote/hello`, which tells the app that its address and key are good (and the name of the key). Everything else, the page itself included, is refused with 403 before any key is
+`GET /api/files/roots|list|read`, which let the app browse and read the folders added in the Agent tab and the Chat's own folder (nothing outside them, never `.basalt` or `.git`; `serve/files_api.py`), and `GET /api/remote/hello`, which tells the app that its address and key are good (and the name of the key). Everything else, the page itself included, is refused with 403 before any key is
 looked at: the vault, the wallet, the settings, the loading of models, the control routes and phone setup stay on this PC. The writes a phone may make (starting and talking to a
 conversation, attaching files, the routines) need a device key and the Tailscale range (`100.64.0.0/10`); the server's control secret, which protects the page from other sites, is not asked
 of a phone, whose own key is the proof.
