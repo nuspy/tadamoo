@@ -529,6 +529,12 @@ and the bridge the page talks to.
   and a history of its own; `POST /api/plans/<id>/delete` erases a plan for good (the Plans page asks twice; archiving keeps it).
 - **Canvas**: a step can be moved with the pointer, with the arrow keys when it is selected, or with the *Move* buttons of its panel; the place is saved in
   the step (`position`) through `plan:update_node`, also for a finished step, and a step without one keeps the automatic layout.
+- **The Plans page**: a column of plans at the left (*Open*, *Duplicate*, *Delete* on each; delete asks twice; the arrow shuts the column and the choice
+  is kept) and the open plan at the right in four tabs: aims, dates and amounts / plan details and archive / judge incoming events / plan definition.
+  On the graph a link is drawn by dragging from the round end of a step to another step (`add_edges` in a diff the person approves by drawing it),
+  picked with a click and removed with the cross or the Delete key (`remove_edges`); the *Waits for* boxes of a step's panel do the same from the keyboard
+  and the list. The arrows and *Automatic place* move a box and exist only on the graph; the list has *up* and *down* on each row (`plan:move`).
+  Every button has a tooltip.
 - **Going back over a step** that recorded actions which cannot be undone (a call, a payment, a command) first asks `plan:rewind_impact`; the page lists
   what would stay done and goes back only with *Rewind anyway* (`plan:rewind` with `accept_irreversible`).
 - API: `GET/POST /api/plans` (`GET /api/plans?archived=1` lists the archived ones), `GET /api/plans/telemetry`, `POST /api/plans/events`, `GET /api/plans/<id>`,
