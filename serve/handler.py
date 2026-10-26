@@ -41,6 +41,7 @@ from harness.waiver.dossier import sntp_offset
 from harness.vault import Vault, VaultError
 from serve.agent_sessions import SessionManager
 from serve.projects import ProjectStore
+from serve.remote import ApiKeys, Installer, RemoteAccess, in_tailscale, remote_path_ok, tailscale_status, tailscale_up
 from serve.personal_skills_api import PersonalSkillsApi
 from harness.personal_skills.store import SkillError
 from serve.routines_api import RoutinesApi
@@ -58,6 +59,7 @@ _APPROVALS = ApprovalBoard()
 _RUNNER = None                                        # made on first use: it needs this server's address
 _SESSIONS = None                                      # the Chat's conversations with the agent, made on first use
 _PROJECTS = None                                      # the folders of the Agent tab, made on first use
+_INSTALLER = Installer()                              # installs Tailscale when the person asks
 _ROUTINES = None                                      # the agent's recurring routines, made with the conversations or on first use
 _PSKILLS = None                                       # the person's personal skills, made on first use
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
@@ -110,6 +112,9 @@ def make_handler(svc: Service):
         def parse_request(self):
             """Without an API key, check the Host header (DNS-rebinding protection); a key makes the check moot."""
             if not super().parse_request():
+                return False
+            if self._outside() and not remote_path_ok(self.path.split("?")[0].rstrip("/") or "/"):
+                self._json(403, {"error": {"type": "forbidden", "message": "this address does not serve that to a client away from the PC"}})
                 return False
             host = self.headers.get("Host")
             if svc.api_key or host_allowed(host, svc.host_names, "*" in svc.allowed_hosts):
@@ -258,12 +263,30 @@ def make_handler(svc: Service):
             if self.trace is not None and code >= 400:
                 self.trace.error_body(code, obj)
 
-        def _authorized(self) -> bool:
-            if not svc.api_key:
+        _key_row = None                                      # the key a client from outside this PC came with
+
+        def _outside(self) -> bool:
+            """A client that is not on this PC: it can only have come through the Tailscale listener."""
+            return not settings.is_loopback(self.client_address[0])
+
+        def _local_or_device(self) -> bool:
+            """This PC, or a phone that came through Tailscale with one of the keys: for the few writes a phone may make."""
+            if not self._outside():
                 return True
+            remote = getattr(svc, "remote", None)
+            return self._key_row is not None and in_tailscale(self.client_address[0]) and remote is not None and remote.listening
+
+        def _authorized(self) -> bool:
             auth = self.headers.get("Authorization", "")
             given = auth[7:].strip() if auth.lower().startswith("bearer ") else self.headers.get("x-api-key", "")
-            if key_matches(given, svc.api_key):
+            if svc.api_key and key_matches(given, svc.api_key):
+                return True
+            keys = getattr(svc, "keys", None)
+            row = keys.verify(given) if keys is not None and given else None
+            if row is not None:
+                self._key_row = row
+                return True
+            if not svc.api_key and not self._outside():          # no key set: this PC's own page works as before
                 return True
             self._json(401, {"error": {"type": "authentication_error", "message": "missing or wrong API key"}})
             return False
@@ -377,6 +400,12 @@ def make_handler(svc: Service):
             elif path == "/api/changes":
                 if self._authorized():
                     self._json(200, _CHANGES.view())
+            elif path == "/api/remote/hello":
+                if self._authorized():
+                    self._json(200, {"name": "Basalt", "ok": True, "device": (self._key_row or {}).get("label", ""), "loaded": bool(svc.loaded())})
+            elif path == "/api/remote":
+                if self._authorized():
+                    self._remote_get()
             elif path.startswith("/api/agent/"):
                 if self._authorized():
                     self._agent_get(path)
@@ -526,6 +555,9 @@ def make_handler(svc: Service):
                     self._json(e.status, {"error": {"message": str(e)}})
                 except (ValueError, TypeError) as e:
                     self._json(400, {"error": {"message": str(e)}})
+                return
+            if path.startswith("/api/remote/"):
+                self._remote_post(path)
                 return
             if path.startswith("/api/agent/"):
                 self._agent_post(path)
@@ -784,7 +816,7 @@ def make_handler(svc: Service):
             loaded: a program that merely reaches the port, or a page of another site, changes nothing. With no secret set (an
             embedded service) only the checks of each route apply."""
             token = svc.control_token
-            if not token:
+            if not token or (self._key_row is not None and self._outside()):          # a phone's own key is the stronger proof
                 return True
             given = self.headers.get(CONTROL_HEADER, "")
             if not given:
@@ -1225,7 +1257,7 @@ def make_handler(svc: Service):
 
         def _attachments_post(self, path):
             """Upload (the file as the request body) or remove an attached file. Only from this PC and the server's own page."""
-            if not settings.is_loopback(self.client_address[0]):
+            if not self._local_or_device():
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "files can be attached only from the PC the server runs on"}})
             if not self._own_origin():
@@ -1609,7 +1641,7 @@ def make_handler(svc: Service):
                 return self._json(400, {"error": {"type": "routine", "message": str(e), "code": e.code}})
 
         def _routines_post(self, path):
-            if not settings.is_loopback(self.client_address[0]):
+            if not self._local_or_device():
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "routines can be changed only from the PC the server runs on"}})
             if not self._own_page("routines can be changed"):
@@ -1627,6 +1659,49 @@ def make_handler(svc: Service):
                     return self._json(200, api.act(parts[0], parts[1], req))
             except RoutineError as e:
                 return self._json(404 if e.code == "gone" else 400, {"error": {"type": "routine", "message": str(e), "code": e.code}})
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"message": str(e)}})
+            self._json(404, {"error": {"message": "not found"}})
+
+        def _remote_view(self) -> dict:
+            remote = svc.remote
+            return {"tailscale": tailscale_status(), "enabled": remote.enabled, "listening": remote.listening, "address": remote.address(), "error": remote.error,
+                    "keys": svc.keys.list(), "install": _INSTALLER.view(), "port": remote.port}
+
+        def _remote_get(self):
+            if not settings.is_loopback(self.client_address[0]):
+                return self._json(403, {"error": {"type": "forbidden", "message": "phones are set up only from the PC the server runs on"}})
+            self._json(200, self._remote_view())
+
+        def _remote_post(self, path):
+            """Set phones up: turn them on or off, make and take away keys, install and connect Tailscale. Only from this PC and its own page."""
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "phones are set up only from the PC the server runs on"}})
+            if not self._own_page("phones can be set up"):
+                return
+            try:
+                req = json.loads(self._body(1 << 14) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                action = path[len("/api/remote/"):]
+                if action in ("enable", "disable"):
+                    svc.remote.set_enabled(action == "enable")
+                    return self._json(200, self._remote_view())
+                if action == "keys/create":
+                    row, key = svc.keys.create(req.get("label"))
+                    return self._json(200, {"key": key, "row": row, **self._remote_view()})
+                if action == "keys/revoke":
+                    if not svc.keys.revoke(req.get("id")):
+                        return self._json(404, {"error": {"message": "That key is not there any more."}})
+                    return self._json(200, self._remote_view())
+                if action == "tailscale/install":
+                    return self._json(200, {**self._remote_view(), "install": _INSTALLER.start()})
+                if action == "tailscale/up":
+                    result = tailscale_up()
+                    return self._json(200, {**self._remote_view(), "up": result})
             except BadBody as e:
                 return self._json(e.status, {"error": {"message": str(e)}})
             except (ValueError, TypeError) as e:
@@ -1717,7 +1792,7 @@ def make_handler(svc: Service):
             self._json(404, {"error": {"message": "not found"}})
 
         def _agent_post(self, path):
-            if not settings.is_loopback(self.client_address[0]):
+            if not self._local_or_device():
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "the agent can be used only from the PC the server runs on"}})
             if not self._own_page("the agent can be used"):
@@ -2171,9 +2246,19 @@ class Server(ThreadingHTTPServer):
             super().handle_error(request, client_address)
 
 
+def _listen(svc: Service, host: str, port: int) -> ThreadingHTTPServer:
+    httpd = Server((host, port), make_handler(svc))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd
+
+
 def serve(svc: Service, host="127.0.0.1", port=7232) -> ThreadingHTTPServer:
     svc.host_names = host_names_for(host, svc.allowed_hosts, svc.trusted_origins)
     svc.start_telemetry()
-    httpd = Server((host, port), make_handler(svc))
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    httpd = _listen(svc, host, port)
+    if getattr(svc, "keys", None) is None:
+        svc.keys = ApiKeys(userdata.path("api-keys.json"))
+    if getattr(svc, "remote", None) is None:
+        svc.remote = RemoteAccess(userdata.path("remote.json"), httpd.server_address[1], lambda ip, p: _listen(svc, ip, p))
+        threading.Thread(target=svc.remote.apply, daemon=True, name="remote-listener").start()      # asking Tailscale for its address can take a moment
     return httpd

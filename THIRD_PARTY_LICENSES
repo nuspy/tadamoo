@@ -156,3 +156,9 @@ Mermaid (https://mermaid.js.org/; serve/web/vendor/mermaid.min.js, loaded only w
 MIT License. Copyright (c) 2014 - 2022 Knut Sveidqvist. The licence text is kept in serve/web/vendor/LICENSE-mermaid.txt. The bundle also
 carries libraries with permissive licences of their own (d3, DOMPurify, dayjs, khroma, lodash-es and others); their notices are in the
 header comments and in the package at https://www.npmjs.com/package/mermaid/v/11.4.1.
+
+================================================================================
+qrcode-generator (https://github.com/kazuhikoarase/qrcode-generator; serve/web/vendor/qrcode.js, loaded only when a phone key is shown as a QR code)
+================================================================================
+
+MIT License. Copyright (c) 2009 Kazuhiko Arase. The licence text is kept in serve/web/vendor/LICENSE-qrcode-generator.txt.

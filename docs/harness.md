@@ -1050,6 +1050,26 @@ ledger between `subagent_start` and `subagent_end` records. A summary that follo
 data. Subagents run one after another, never at once. The older `SwarmOrchestrator` and its `swarm.json` only divide a token
 budget among roles and run a mock; nothing uses it and `spawn_subagent` does not.
 
+## Phones and several API keys
+
+`serve/remote.py`. The server has the one key of `--api-key` (kept as it was) and, besides it, any number of **device keys**: each has a name (the phone it is for), is made on this PC in
+*Settings > Phones*, is shown once, and is kept only as a SHA-256 hash in `api-keys.json` of the user data folder. A key is taken away on its own and stops working at once. A request is
+accepted with the master key or any device key, as `Authorization: Bearer ...` or `x-api-key`. With no master key this PC's own page works as before, with no key; a client that is not on
+this PC always needs one.
+
+A client away from this PC can come only through a second listener, which is bound to **this PC's Tailscale address and nothing else** (`remote.json` keeps whether it is on; it starts
+with the server and follows Tailscale's address). It is off until the person turns it on. What such a client may reach is a short list (`remote_path_ok`): the model (`/v1/`), the
+conversations (`/api/agent/`), attached files and the files the agent made (`/api/attachments`, `/api/outputs`), the routines, the plans, the personal skills (read only) and
+`GET /api/remote/hello`, which tells the app that its address and key are good (and the name of the key). Everything else, the page itself included, is refused with 403 before any key is
+looked at: the vault, the wallet, the settings, the loading of models, the control routes and phone setup stay on this PC. The writes a phone may make (starting and talking to a
+conversation, attaching files, the routines) need a device key and the Tailscale range (`100.64.0.0/10`); the server's control secret, which protects the page from other sites, is not asked
+of a phone, whose own key is the proof.
+
+*Settings > Phones* does the setup: it shows whether Tailscale is installed (`tailscale status --json`), installs it with `winget` when asked (`POST /api/remote/tailscale/install`; with no
+winget it points to tailscale.com/download), connects it (`tailscale/up`; when a sign-in is needed the page shows the address to open), turns phones on or off (`enable`, `disable`), and makes
+(`keys/create`) and takes away (`keys/revoke`, asked twice) the keys. A new key is shown with a **QR code** that holds `{"v":1,"url":"http://<tailscale address>:<port>","key":"bsk_...","name":"..."}`
+for the app. All these routes work only from this PC and the server's own page. The phone needs Tailscale too (Play Store), signed in to the same account.
+
 ## Routines
 
 `harness/scheduler.py` keeps recurring tasks for the agent in the user data folder (`routines.json`, results in
