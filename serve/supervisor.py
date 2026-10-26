@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from serve import loader, settings
-from serve.config import build_parser, parse_settings, sampling_defaults_from_config, sampling_line
+from serve.config import build_parser, engine_flags_of, parse_settings, sampling_defaults_from_config, sampling_line
 from serve.engine.errors import EngineStartError
 from serve.engine.flags import flag_index, flag_value
 from serve.engine.vision import EngineVision, Vision, child_env, engine_args, gpu_list, gpus_in_play, vision_env
@@ -47,6 +47,8 @@ def settings_info(a, words: list[str], argv: list[str]) -> dict:
     command line set (they win over the file)."""
     given = lambda name: any(w == f"--{name}" or w.startswith(f"--{name}=") for w in argv)   # noqa: E731
     running = {"server.port": a.port, "server.parallel": a.parallel or 1, "server.vision": a.vision,
+               "server.vision-projector": getattr(a, "vision_projector", "auto"),
+               "server.vision-hold": getattr(a, "vision_hold", "keep"),
                "server.slot-full-context": bool(a.slot_full_context)}
     for name in ("max-context", "kv", "spec", "spec-min-p", "expert-cache", "prefill", "resident-experts",
                  "vram-reserve-mib", "ple-io", "pool-workers"):
@@ -67,10 +69,16 @@ def engine_config(a, words: list[str], mock: bool = False) -> dict:
         cfg["gpu"] = a.gpu
     listed = gpu_list(cfg)
     vision_arg = False if mock or a.vision == "off" else a.vision
+    hold = getattr(a, "vision_hold", "keep")
+    if vision_arg == "dynamic" and hold == "release":
+        known = engine_flags_of(a.engine_bin)
+        if known is not None and "--vision-release" not in known:
+            raise ValueError("vision-hold release: this engine binary does not know --vision-release; build the engine again")
     try:
+        projector = loader.projector_path(getattr(a, "vision_projector", "auto"), a.model) if vision_arg else None
         cfg.update({k: v for k, v in modelfile.model_config(
             a.model, a.engine_bin, gpus=len(listed) if listed else None, vision=vision_arg,
-            engine_words=words).items() if k not in cfg})
+            engine_words=words, projector=projector, hold=hold).items() if k not in cfg})
     except (OSError, KeyError) as e:
         raise ValueError(f"{a.model}: {e}") from None
     return cfg

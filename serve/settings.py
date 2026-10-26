@@ -27,12 +27,14 @@ FIELDS = (("server", "port"), ("server", "parallel"), ("server", "vision"),
 READ_ONLY = (("server", "model"),)
 # the Loader's fields: the settings page's engine fields and the memory and slot switches
 LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-full-context"), ("server", "vision"),
+                 ("server", "vision-projector"), ("server", "vision-hold"),
                  ("engine", "max-context"), ("engine", "kv"), ("engine", "prefill"), ("engine", "spec"),
                  ("engine", "spec-min-p"), ("engine", "expert-cache"), ("engine", "resident-experts"),
                  ("engine", "vram-reserve-mib"), ("engine", "ple-io"), ("engine", "pool-workers"))
 # the model a load profile or the Loader writes (with the API name, when the file sets one)
 MODEL_FIELDS = (("server", "model"), ("server", "alias"))
 PLE_IO_MODES = ("direct", "mmap", "ram")             # the engine's --ple-io
+VISION_HOLDS = ("keep", "release")                   # the image encoder's weights stay in RAM, or are read again for each batch of images
 POOL_WORKERS_MAX = 256
 RESTART_NOTE = "Saved to the config file. The running server keeps its settings until it is started again."
 
@@ -68,6 +70,16 @@ def check_value(section: str, key: str, value):
             return vision_mode(value)
         except ValueError:
             raise ValueError(f"{what}: one of {', '.join(VISION_MODES)}, not {value!r}") from None
+    if key == "vision-hold":
+        text = value.strip().lower() if isinstance(value, str) else ""
+        if text not in VISION_HOLDS:
+            raise ValueError(f"{what}: one of {', '.join(VISION_HOLDS)}, not {value!r}")
+        return text
+    if key == "vision-projector":
+        text = value.strip() if isinstance(value, str) else ""
+        if not text or len(text) > 1024 or any(c in text for c in "\n\r\0"):
+            raise ValueError(f"{what}: auto, embedded or the path of a projector file, not {value!r}")
+        return text.lower() if text.lower() in ("auto", "embedded") else text
     if key == "max-context":
         return _whole(value, what, 1, CONTEXT_MAX)
     if key == "kv":

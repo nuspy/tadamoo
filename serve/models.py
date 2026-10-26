@@ -455,6 +455,42 @@ def profile_plain(path: str) -> bool | None:
         return None
 
 
+_PROJECTORS: dict = {"at": 0.0, "key": None, "value": []}
+
+
+def projector_info(path: str) -> dict | None:
+    """One projector file as the Loader offers it: {"path", "name", "bytes" (what stays in RAM), "fix" (tensors the load rewrites),
+    "from" (their types)}; None when the file is not a projector the engine can use with this model."""
+    try:
+        g = read_gguf(path)
+    except (OSError, ValueError, struct.error, UnicodeDecodeError):
+        return None
+    m = g.get("meta") or {}
+    if m.get("general.architecture") != "clip" or projector_problem(g) or m.get("clip.vision.projection_dim") not in (None, GEOMETRY["n_embd"]):
+        return None
+    fix = projector_fix(g)
+    return {"path": _posix(path), "name": Path(path).name, "bytes": fix["bytes"] if fix["tensors"] else _size(path),
+            "fix": fix["tensors"], "from": fix["from"]}
+
+
+def projector_files(folders: list[str] | None = None, ttl: float = 5.0) -> list[dict]:
+    """The projectors in the models folders (projector_info of each), for a model that has none of its own or to use another; the
+    listing is reused for `ttl` seconds."""
+    key = tuple(dirs() if folders is None else folders)
+    if _PROJECTORS["key"] == key and time.monotonic() - _PROJECTORS["at"] < ttl:
+        return _PROJECTORS["value"]
+    found = []
+    try:
+        for x in scan(list(key))["models"]:
+            if x.get("role") == "mmproj" and (info := projector_info(x["path"])):
+                found.append(info)
+    except (OSError, ValueError):
+        pass
+    found.sort(key=lambda p: (p["fix"] > 0, p["name"].lower()))
+    _PROJECTORS.update(at=time.monotonic(), key=key, value=found)
+    return found
+
+
 def embedded_projector_fix(path: str) -> dict | None:
     """projector_fix() of the vision/mmproj section of a .basalt; None without one or when it cannot be read."""
     from model_file import ModelFile

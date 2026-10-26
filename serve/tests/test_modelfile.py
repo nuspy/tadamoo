@@ -11,6 +11,7 @@ from unittest import mock
 
 from serve.engine import modelfile
 from serve.server import engine_args, gpus_in_play
+from serve.tests.test_models import projector_gguf
 from model_file import ModelFile, ModelWriter  # noqa: E402
 
 META = {"name": "tiny-basalt",
@@ -38,7 +39,8 @@ class Tmp(unittest.TestCase):
         for n, b in TOKENIZER.items():
             w.add_bytes("tokenizer/" + n, b)
         if vision:
-            w.add_bytes("vision/mmproj", b"MMPROJ" * 100)
+            self.projector = projector_gguf(self.dir / "projector.gguf").read_bytes()      # a projector the encoder reads as it is
+            w.add_bytes("vision/mmproj", self.projector)
             w.add_bytes("vision/text_vocab", b"VOCAB")
         w.close()
         return str(path)
@@ -146,7 +148,7 @@ class Vision(Tmp):
         side.write_text("")
         v = modelfile.model_config(path, str(self.engine_bin), gpus=1, vision=True)["vision"]
         self.assertEqual(v["vision_bin"], str(side.resolve()))
-        self.assertEqual(Path(v["mmproj"]).read_bytes(), b"MMPROJ" * 100)
+        self.assertEqual(Path(v["mmproj"]).read_bytes(), self.projector)
         self.assertEqual(Path(v["model"]).read_bytes(), b"VOCAB")
         self.assertEqual([p.name for p in Path(v["mmproj"]).parent.iterdir() if ".gguf." in p.name], [])
 
@@ -178,6 +180,15 @@ class Vision(Tmp):
         self.assertNotIn("--vision-mmproj", modelfile.model_config(path, str(self.engine_bin), gpus=1)["args"])
         with self.assertRaisesRegex(ValueError, "basalt-vision"):
             modelfile.model_config(path, str(self.engine_bin), gpus=1, vision="peer")
+
+    def test_release_asks_the_engine_to_free_the_projector_between_images_and_only_in_the_engine(self):
+        path = self.build(vision=True)
+        (self.engine_bin.parent / "basalt-vision").write_text("")
+        args = lambda **kw: modelfile.model_config(path, str(self.engine_bin), gpus=1, **kw)["args"]      # noqa: E731
+        self.assertIn("--vision-release", args(vision="dynamic", hold="release"))
+        self.assertNotIn("--vision-release", args(vision="dynamic", hold="keep"))
+        self.assertNotIn("--vision-release", args(vision="dynamic"))
+        self.assertNotIn("--vision-release", args(vision="cpu", hold="release"))
 
     def test_error_when_the_sidecar_is_missing(self):
         path = self.build(vision=True)

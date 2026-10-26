@@ -22,12 +22,14 @@
     { group: "memory", name: "engine.pool-workers", kind: "int", min: 1, max: 256, step: 1 },
     { group: "server", name: "server.port", kind: "int", min: 1, max: 65535, step: 1 },
     { group: "server", name: "server.vision", kind: "choice", options: ["off", "dynamic", "on", "peer", "cpu"] },
+    { group: "server", name: "server.vision-projector", kind: "choice", options: ["embedded"] },   // the options come with each plan
+    { group: "server", name: "server.vision-hold", kind: "choice", options: ["keep", "release"] },
   ];
   const fid = name => "lf-" + name.replace(/[^a-z0-9]+/gi, "-");
   const GiBn = 2 ** 30;
   const gib = n => nfmt(n / GiBn, 1);
   let INFO = null, PROF = null, seq = 0, timer = 0, poll = 0;
-  const fallback = { "server.vision": "off", "engine.kv": "fp16", "engine.ple-io": "direct" };
+  const fallback = { "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep", "engine.kv": "fp16", "engine.ple-io": "direct" };
 
   /* ---- the form ---- */
   function build() {
@@ -54,7 +56,7 @@
           input = `<input id="${id}" type="checkbox" aria-describedby="${help}">`;
           d.innerHTML = `<label for="${id}">${input}<span>${esc(T("f." + key))}</span></label>`;
         } else if (f.kind === "choice") {
-          const opts = f.options.map(o => `<option value="${o}">${o}</option>`).join("");
+          const opts = f.options.map(o => `<option value="${o}">${esc(optionText(f.name, o))}</option>`).join("");
           d.innerHTML = `<label for="${id}">${esc(T("f." + key))}</label><select id="${id}" aria-describedby="${help}">` +
             `<option value="" data-default></option>${opts}</select>`;
         } else {
@@ -72,6 +74,8 @@
   }
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const el = name => $("#" + fid(name));
+  // what a choice means, next to its name: o.<field>.<value> when the page has a sentence for it
+  const optionText = (name, value) => { const k = `o.${name}.${value}`, t = T(k); return t !== k ? t : value; };
 
   /* ---- the VRAM left free: a slider and a number in GB (GiB, as Windows shows them), engine.vram-reserve-mib ---- */
   function reserveHtml(prefix, id, help) {
@@ -163,6 +167,10 @@
     el("engine.spec-min-p").disabled = !on;
     const par = Number(el("server.parallel").value || 1);
     el("server.slot-full-context").disabled = par < 2;
+    // the projector and its hold matter only when images are read: any mode for the projector, in-engine ("dynamic") for the hold
+    const mode = el("server.vision").value || ((INFO && INFO.defaults) || {})["server.vision"] || "off";
+    el("server.vision-projector").disabled = mode === "off";
+    el("server.vision-hold").disabled = mode !== "dynamic";
   }
 
   /* ---- the prediction: resources, speed, the Load button ---- */
@@ -187,7 +195,8 @@
   }
   function sideHtml(p) {
     const v = p.vram, r = p.ram, c = p.commit, s = p.speed || {}, h = p.engine_holds || {};
-    const holds = (h.ram || h.commit) ? [T("pr.holds", gib((h.commit || 0) + (h.vram || 0)))] : [];
+    const holds = ((h.ram || h.commit) ? [T("pr.holds", gib((h.commit || 0) + (h.vram || 0)))] : [])
+      .concat(p.vision_hold && p.vision_hold.release ? [T("pr.vision.released", gib(p.vision_hold.bytes))] : []);
     const vnotes = [T("pr.reserve", gib(v.reserve)), T("pr.slots", nfmt(v.expert_slots), nfmt(v.expert_slots_total),
       nfmt(v.expert_slots / Math.max(1, v.expert_slots_total) * 100, 0))];
     const src = s.source || {};
@@ -221,8 +230,25 @@
         <div class="setactions"><button type="button" class="btn primary" data-act="load" ${why ? "disabled" : ""}>${esc(label)}</button></div>
       </div>`;
   }
+  /* the projectors this model can read images with, each with the RAM it keeps: the model file's own and the files of the models folders */
+  function projectorChoices(p) {
+    const e = el("server.vision-projector");
+    if (!e || !Array.isArray(p.projectors)) return;
+    const keep = e.value, opt = (v, text, extra) => `<option value="${esc(v)}"${extra || ""}>${esc(text)}</option>`;
+    const label = o => `${o.value === "embedded" ? T("pj.embedded") : o.name} (${gib(o.bytes)} GiB ${T("pj.inram")}` +
+      `${o.fix ? " · " + T("pj.rewrite") : ""}${o.problem ? " · " + T("pj.refused") : ""})`;
+    const first = (p.projector && p.projectors.find(o => o.value === p.projector.value)) || null;
+    const html = opt("", T("opt.default", first ? T("pj.auto.is", label(first)) : T("pj.auto")), " data-default") +
+      p.projectors.map(o => opt(o.value, label(o))).join("") +
+      (keep && !p.projectors.some(o => o.value === keep) ? opt(keep, keep) : "");
+    if (e.dataset.sig === html) return;                           // unchanged: leave an open list alone
+    e.dataset.sig = html;
+    e.innerHTML = html;
+    e.value = keep;
+  }
   function renderSide(target, p) {
     const box = $(target);
+    projectorChoices(p);
     box.innerHTML = sideHtml(p);
     sticky(p);
     reserveLive(p, "#lf-rsv-live");

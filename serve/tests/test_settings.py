@@ -275,6 +275,23 @@ class Tabs(unittest.TestCase):
         self.assertIn('id="st-defmodel"', models_js)
         self.assertNotIn('dirsEditor("ldx"', models_js)          # the folders are edited in Settings
 
+    def test_every_loader_field_and_choice_is_explained_in_english_and_italian(self):
+        import re
+        loader_js, i18n = self.text("loader.js"), self.text("i18n.js")
+        en, it = i18n.index("  en: {"), i18n.index("  it: {")
+        names = re.findall(r'name: "([a-z.-]+)", kind: "(\w+)"(?:, options: \[([^\]]*)\])?', loader_js)
+        self.assertGreaterEqual(len(names), 15)
+        for name, kind, options in names:
+            if name == "mtp":
+                name = "mtp"
+            for block in (i18n[en:it], i18n[it:]):
+                if kind != "reserve":
+                    self.assertIn(f'"f.{name}":', block, name)
+                    self.assertIn(f'"h.{name}":', block, name)
+                if kind == "choice" and name != "server.vision-projector":      # the projector's options come with each plan
+                    for value in re.findall(r'"([^"]+)"', options):
+                        self.assertIn(f'"o.{name}.{value}":', block, f"{name} {value}")
+
     def test_every_new_string_in_english_and_italian(self):
         i18n = self.text("i18n.js")
         en, it = i18n.index("  en: {"), i18n.index("  it: {")
