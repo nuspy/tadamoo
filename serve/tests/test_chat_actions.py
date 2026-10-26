@@ -28,5 +28,29 @@ class ChatActionsTest(unittest.TestCase):
         self.assertRegex(CHAT, r'createElementNS\(SVGNS, "svg"\)')
 
 
+class FileLinksTest(unittest.TestCase):
+    chat = (WEB / "chat.js").read_text(encoding="utf-8")
+
+    def test_a_link_to_a_file_the_agent_made_or_to_a_file_in_the_folder_becomes_a_button_that_saves_it(self):
+        self.assertIn("basalt-file:([a-f0-9]{12})", self.chat)
+        self.assertIn("basalt-path:", self.chat)
+        self.assertEqual(self.chat.count('class="afile"'), 2)
+        self.assertIn('e.target.closest("button.afile")', CHAT)
+        self.assertIn("saveOutput(b.dataset.id, b.dataset.name, b)", CHAT)
+        self.assertIn("saveWorkspace(b.dataset.path, b.dataset.name, b)", CHAT)
+        self.assertIn("api/agent/sessions/${encodeURIComponent(sid)}/file?path=", CHAT)
+
+    def test_a_file_the_agent_wrote_or_edited_has_its_own_save_button_in_its_step(self):
+        self.assertIn('["write_file", "edit_file"].includes(b.name) && b.status === "ok"', CHAT)
+
+    def test_saving_goes_through_the_one_function_the_desktop_app_and_the_browser_share(self):
+        saves = CHAT[CHAT.index("async function saveWorkspace"):CHAT.index("async function saveBlob")]
+        self.assertIn("await saveBlob(", saves)
+        self.assertIn("headers: authHeaders()", saves)
+        body = CHAT[CHAT.index("async function saveBlob"):CHAT.index("async function saveBlob") + 2500]
+        for way in ("window.chrome.webview", "showSaveFilePicker", "a.download = name"):
+            self.assertIn(way, body)
+
+
 if __name__ == "__main__":
     unittest.main()

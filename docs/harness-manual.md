@@ -288,6 +288,12 @@ has *Waits for* boxes to set from the keyboard what it waits for.
   a key, replaces names, and does not send health data unless you tick it.
 - Nothing in a plan changes behind your back: the planner only prepares proposals, which you approve.
 
+## 12a. Files in answers
+
+When the agent makes a file for you, or points to one in your folder, the answer holds a **button with the file's name**; press it and the file is saved where you choose
+(the *Save as* window in the desktop app and in most browsers). A file it wrote or edited also has a *Save* button in its step. Only files inside the conversation's folder
+can be saved this way, never the agent's own `.basalt` or `.git`.
+
 ## 12b. Pictures and charts in answers
 
 *Chat → Settings → Pictures and charts* has two switches, each with its own level of presence (very low, low, normal, high, very high, highest). They apply to

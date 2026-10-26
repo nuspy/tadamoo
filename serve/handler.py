@@ -1680,6 +1680,9 @@ def make_handler(svc: Service):
                         return self._json(200, mgr.events(parts[1], after))
                     if len(parts) == 3 and parts[2] == "history":
                         return self._json(200, mgr.history(parts[1]))
+                    if len(parts) == 3 and parts[2] == "file":
+                        file, name = mgr.workspace_file(parts[1], (parse_qs(urlsplit(self.path).query).get("path") or [""])[0])
+                        return self._send_file(file, "application/octet-stream", name, inline=False)
                     if len(parts) == 3 and parts[2] == "snapshots":
                         return self._json(200, mgr.snapshots(parts[1]))
                     if len(parts) == 3 and parts[2] == "copy":

@@ -309,6 +309,12 @@ aspetta.
   non li spunti.
 - Nulla in un piano cambia alle tue spalle: il planner prepara solo proposte, che approvi tu.
 
+## 12a. File nelle risposte
+
+Quando l'agente crea un file per te, o ne indica uno nella tua cartella, la risposta contiene un **pulsante con il nome del file**; premilo e il file viene salvato dove scegli
+(la finestra *Salva con nome* nell'app desktop e nella maggior parte dei browser). Anche un file che ha scritto o modificato ha un pulsante *Salva* nel suo passo. Si possono
+salvare così solo file dentro la cartella della conversazione, mai `.basalt` o `.git` dell'agente.
+
 ## 12b. Immagini e grafici nelle risposte
 
 *Chat → Impostazioni → Immagini e grafici* ha due interruttori, ciascuno con il suo livello di presenza (molto bassa, bassa, normale, alta, molto alta, altissima).
