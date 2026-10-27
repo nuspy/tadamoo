@@ -1224,7 +1224,7 @@
       el("fieldset", { class: "pl-parents" }, el("legend", { text: T("pl.set.fields") }), el("p", { class: "help", text: T("pl.set.fields.help") }),
         FIELDS.map(f => [el("label", { class: "pl-check" }, el("input", { type: "checkbox", name: "field", value: f, checked: picked.includes(f) }), el("span", { text: T("pl.card." + f) })),
           personal.includes(f) ? el("p", { class: "help", text: T("pl.set.personal.help") }) : []]).flat()),
-      ...(s.card_fields && personal.some(f => s.card_fields.includes(f)) ? [riskLabel(T("pl.risk.personal"))] : []),
+      ...(s.cloud_triage && personal.some(f => picked.includes(f)) ? [riskLabel(T("pl.risk.personal"))] : []),
       el("label", { class: "pl-check" }, el("input", { type: "checkbox", id: "pl-s-pump", checked: !!s.event_pump }), el("span", { text: T("pl.set.pump") })),
       el("p", { class: "help", text: T("pl.set.pump.help") }),
       ...(s.event_pump && s.cloud_triage ? [riskLabel(T("pl.risk.pump"))] : []),
@@ -1250,10 +1250,12 @@
       event_pump: ui.setBody.querySelector("#pl-s-pump").checked };
     const text = ui.setBody.querySelector("#pl-s-sources").value.trim();
     try { body.sources = text ? JSON.parse(text) : []; } catch (err) { say(T("pl.badjson"), true); return; }
-    if (body.cloud_triage && !(S.settings && S.settings.cloud_triage) && !(await riskConfirm([T("pl.risk.cloud")]))) { drawSettings(); return; }
+    const sends = fields.some(f => personal.includes(f));
+    if (body.cloud_triage && !(S.settings && S.settings.cloud_triage) && !(await riskConfirm([T("pl.risk.cloud"), ...(sends ? [T("pl.risk.personal")] : [])]))) { drawSettings(); return; }
     if (body.event_pump && body.cloud_triage && !(S.settings && S.settings.event_pump && S.settings.cloud_triage) && !(await riskConfirm([T("pl.risk.pump")]))) { drawSettings(); return; }
-    const hadPersonal = S.settings && S.settings.card_fields && personal.some(f => S.settings.card_fields.includes(f));
-    if (fields.some(f => personal.includes(f)) && !hadPersonal && !(await riskConfirm([T("pl.risk.personal")]))) { drawSettings(); return; }
+    const before = (S.settings && (S.settings.card_fields || S.settings.card_fields_default)) || [];
+    const hadPersonal = before.some(f => personal.includes(f));
+    if (body.cloud_triage && S.settings && S.settings.cloud_triage && sends && !hadPersonal && !(await riskConfirm([T("pl.risk.personal")]))) { drawSettings(); return; }
     const r = await api("api/planner/settings", body);
     if (!r.ok) { say(errText(r.data) || T("pl.failed"), true); return; }
     S.settings = r.data;

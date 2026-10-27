@@ -503,9 +503,11 @@ and the bridge the page talks to.
   (TypeSafe Jev) is off.** It needs your consent in Settings *and* a key in the server's `TYPESAFE_API_KEY`; only the plan
   fields you tick are sent. People's names are replaced by labels (a full name also by its first name and its surname on their
   own, case-insensitively; common words such as "amico" or "nonna" are not taken for names), and e-mail addresses and phone
-  numbers are taken out of the events and the card; one switch ("replace names") controls both. **By default the participants'
-  health, allergies and personal constraints (`profilo_e_vincoli_partecipanti`) are not sent**; they go only when you tick that
-  field in Settings (a highlighted label and two questions), and the filter judges events that depend on them less well without it. The
+  numbers are taken out of the events and the card; one switch ("replace names") controls both. **By default the whole card goes**, the participants'
+  health, allergies and personal constraints (`profilo_e_vincoli_partecipanti`) included, as in the specification's experiment: they are what lets the
+  filter see an event that matters only through them. Turning the cloud filter on says so in the consent question, and any field can be unticked in
+  Settings (the filter then judges events that depend on it less well; `tests/test_jev_replay.py` replays the recorded answers of the real service
+  through the gate and the payload, offline, but the quality of the cloud verdict with pseudonymized names has not been measured). The
   answer says whether it came from the cloud, from the local keyword filter or from a failure. When the filter says wake, the local model proposes two or three alternatives
   as diffs; only the ones that apply cleanly are shown, and nothing changes until you approve.
 - Every change to a plan raises its **revision** and adds a line to its **history** that says who made it (`user`, `chat`,

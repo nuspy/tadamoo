@@ -219,7 +219,7 @@ class PlansApiTest(PlansApiBase):
         self.assertEqual(self.call("POST", "/api/planner/settings", {"cloud_triage": "yes"})[0], 400)
         self.assertEqual(self.call("POST", "/api/planner/settings", {"api_key": "sk-x"})[0], 400)
         self.assertEqual(self.call("POST", "/api/planner/settings", {"card_fields": ["segreto"]})[0], 400)
-        self.assertNotIn("profilo_e_vincoli_partecipanti", s["card_fields_default"])               # health and allergies stay home unless chosen
+        self.assertIn("profilo_e_vincoli_partecipanti", s["card_fields_default"])                  # the card of the specification goes unless the person takes a field out
         self.assertEqual(s["card_fields_personal"], ["profilo_e_vincoli_partecipanti"])
         self.assertIsNone(s["card_fields"])
         self.assertEqual(self.call("POST", "/api/planner/settings", {"cloud_triage": True},
