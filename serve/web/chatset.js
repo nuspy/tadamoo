@@ -29,6 +29,7 @@ const chatSettings = (() => {
     { key: "reasoning_budget_tokens", id: "cs-budget", min: 0, kind: "int", label: "cs.budget" },
     { key: "max_tokens", id: "cs-max_tokens", min: 1, kind: "int", label: "cs.max_tokens" },
     { key: "retries", id: "cs-retries", min: 0, max: 5, kind: "int", label: "cs.retries" },
+    { key: "max_turns", id: "cs-max_turns", min: -1, kind: "int", label: "cs.max_turns" },     // for the Agent, not for the model: -1 or empty is no limit
   ];
   // what the engine does with a key that neither the request nor the model file sets (the GEN line's defaults)
   const ENGINE_SAMPLING = { temperature: 0, top_p: 1, top_k: 20, min_p: 0, repetition_penalty: 1,
@@ -112,6 +113,7 @@ const chatSettings = (() => {
     if (raw === "") return "";
     const n = Number(raw);
     if (!Number.isFinite(n) || (f.kind === "int" && !Number.isInteger(n))) return f.kind === "int" ? "a whole number" : "a number";
+    if (f.key === "max_turns" && n === 0) return T("cs.max_turns.bad");
     if (f.min != null && n < f.min) return `≥ ${f.min}`;
     if (f.max != null && n > f.max) return `≤ ${f.max}`;
     return "";
@@ -129,7 +131,7 @@ const chatSettings = (() => {
       if (s[f.key] === "" || problem(f, s[f.key])) continue;
       const n = Number(s[f.key]);
       if (f.key === "reasoning_budget_tokens" && n === 0) continue;
-      if (f.key === "retries") continue;
+      if (f.key === "retries" || f.key === "max_turns") continue;
       out[f.key] = n;
     }
     const stops = s.stop.split("\n").map(x => x.replace(/\r$/, "")).filter(Boolean).slice(0, 4);
@@ -144,6 +146,17 @@ const chatSettings = (() => {
   const policy = () => read().policy;
   const threshold = () => { const v = Number(read().threshold); return Number.isFinite(v) && v >= 30 && v <= 100 ? v / 100 : 0.8; };
   const structured = () => { const f = read().format; return f === "json_object" || f === "json_schema"; };
+  /* what the Agent takes from the panel: the steps one answer may take (-1 or empty: no limit) and the end-of-turn bias (empty: off);
+     a field that is not valid is left out, so the server's own value stays */
+  function live() {
+    const s = read(), out = {};
+    const steps = OTHER.find(f => f.key === "max_turns"), bias = SAMPLING.find(f => f.key === "end_turn_bias");
+    if (s.max_turns === "") out.max_turns = -1;
+    else if (!problem(steps, s.max_turns)) out.max_turns = Number(s.max_turns);
+    if (s.end_turn_bias === "") out.end_turn_bias = 0;
+    else if (!problem(bias, s.end_turn_bias)) out.end_turn_bias = Number(s.end_turn_bias);
+    return out;
+  }
 
   /* presets: the server's, else this browser's */
   function localPresets() { const p = load(PRESETS, {}); return p && typeof p === "object" && !Array.isArray(p) ? p : {}; }
@@ -183,8 +196,8 @@ const chatSettings = (() => {
   function startWith() {
     if (last.edited) return;
     const all = presets();
-    if (last.name && last.name !== MODEL && all[last.name]) { write(all[last.name].settings); save(); drawPresets(last.name); return; }
-    if (last.name === MODEL) { write(modelOnly()); save(); return; }
+    if (last.name && last.name !== MODEL && all[last.name]) { write(all[last.name].settings); save(); drawPresets(last.name); settled(); return; }
+    if (last.name === MODEL) { write(modelOnly()); save(); settled(); return; }
     if (last.name) { last = { name: "", edited: false }; keep(LAST, last); }   // the preset was deleted: the default
     followDefault();
   }
@@ -192,7 +205,9 @@ const chatSettings = (() => {
     const p = inferenceDefault && presets()[inferenceDefault];
     write(p ? p.settings : modelOnly()); save();
     drawPresets(p ? inferenceDefault : "");
+    settled();
   }
+  const settled = () => document.dispatchEvent(new CustomEvent("basalt:chatset-settled"));      // the panel took its starting values: not a change by the person
   function remember(name, edited) { last = { name, edited }; keep(LAST, last); showActive(); }
   function showActive() {
     const box = $("#cs-active");
@@ -352,5 +367,5 @@ const chatSettings = (() => {
   fetchPresets();
   if (load("basalt.chatset.open", false) && innerWidth > 980) openPanel(true);
   const patterns = () => read().context_patterns || {};
-  return { body, system, policy, threshold, structured, showReasoning, patterns };
+  return { body, system, policy, threshold, structured, showReasoning, patterns, live };
 })();

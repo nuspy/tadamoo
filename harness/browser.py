@@ -7,6 +7,9 @@ profile is thrown away with it, unless the person chose to keep sign-ins: then o
 
 Reaches: the page, the frames of its own site, the frames of other sites it holds (a card field in a payment provider's frame is a session of its
 own, and a value typed there goes only to a site the vault entry names), and the windows the page opens (a payment sheet).
+
+Cookie and consent banners, permission prompts and JavaScript dialogs are dealt with here by fixed rules (harness/browser_consent.py), by the
+person's policy, and reported to the model with the page; nothing a page says about itself is read as an instruction.
 """
 from __future__ import annotations
 
@@ -27,6 +30,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
+
+from harness import browser_consent as bc
 
 PAGE_TEXT_CHARS = 5000
 MAX_ELEMENTS = 120
@@ -147,6 +152,9 @@ class Cdp:
         self.closed = False                                    # the page went away (a window that closed itself)
         self.frames: Dict[str, Dict[str, Any]] = {}          # session id -> the frame of another site: {"target", "url"}
         self.request_guard: Optional[Callable[[str], bool]] = None   # says whether a request may go out; none means all may
+        self.leaving = False                                   # the agent asked to leave this page (a warning about leaving is then accepted)
+        self.dialogs: List[str] = []                           # what the page's JavaScript dialogs were answered with, until the model is told
+        self.permission_asks: List[str] = []                   # what the page asked a permission for, until it is dealt with
 
     def call(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 30.0, session: Optional[str] = None) -> Dict[str, Any]:
         with self._lock:
@@ -180,7 +188,14 @@ class Cdp:
         del self.events[:-200]
         method, params = message.get("method"), message.get("params") or {}
         if method == "Page.javascriptDialogOpening":            # an alert or a question would stop the page: answer it
-            self.ws.send_text(json.dumps({"id": self._next(), "method": "Page.handleJavaScriptDialog", "params": {"accept": params.get("type") == "alert"}}))
+            kind = str(params.get("type", ""))
+            accept = bc.dialog_accepts(kind, self.leaving)
+            self.ws.send_text(json.dumps({"id": self._next(), "method": "Page.handleJavaScriptDialog", "params": {"accept": accept}}))
+            self.dialogs.append(bc.dialog_note(kind, str(params.get("message", "")), accept))
+            del self.dialogs[:-20]
+        elif method == "Runtime.bindingCalled" and params.get("name") == bc.WATCH_BINDING:
+            self.permission_asks.append(str(params.get("payload", ""))[:40])
+            del self.permission_asks[:-50]
         elif method == "Fetch.requestPaused" and self.request_guard is not None:
             ok = self.request_guard(str((params.get("request") or {}).get("url", "")))
             self._raw("Fetch.continueRequest" if ok else "Fetch.failRequest",
@@ -326,22 +341,29 @@ def check_url(url: str, allow_private: bool = False) -> str:
 
 class BrowserPrefs:
     """What the person chose about the agent's browser: whether it has one, whether it shows a window, whether it may open pages on this PC and
-    its network, and whether it keeps its sign-ins between conversations."""
+    its network, whether it keeps its sign-ins between conversations, and what it does about cookie banners (`consent`) and permission requests
+    (`permissions`)."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
 
-    def read(self) -> Dict[str, bool]:
+    def read(self) -> Dict[str, Any]:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             data = {}
         return {"enabled": data.get("enabled") is not False, "headless": data.get("headless") is True, "private": data.get("private") is True,
-                "persistent": data.get("persistent") is True}
+                "persistent": data.get("persistent") is True, "consent": bc.clean_consent(data.get("consent")),
+                "permissions": bc.clean_permissions(data.get("permissions"))}
 
-    def write(self, enabled: bool, headless: bool, private: bool = False, persistent: bool = False) -> Dict[str, bool]:
+    def write(self, enabled: bool, headless: bool, private: bool = False, persistent: bool = False, consent: Optional[str] = None,
+              permissions: Optional[str] = None) -> Dict[str, Any]:
+        """A policy left out keeps what was chosen before."""
+        now = self.read()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({"enabled": bool(enabled), "headless": bool(headless), "private": bool(private), "persistent": bool(persistent)}), encoding="utf-8")
+        self.path.write_text(json.dumps({"enabled": bool(enabled), "headless": bool(headless), "private": bool(private), "persistent": bool(persistent),
+                                         "consent": bc.clean_consent(consent if consent is not None else now["consent"]),
+                                         "permissions": bc.clean_permissions(permissions if permissions is not None else now["permissions"])}), encoding="utf-8")
         return self.read()
 
 
@@ -420,7 +442,9 @@ def forget_signins(profile_dir: str | Path) -> None:
 
 class Browser:
     def __init__(self, profile_dir: str | Path = "", headless: bool = False, executable: str = "", allow_private: bool = False,
-                 mask: Optional[Callable[[str], str]] = None, persistent: bool = False) -> None:
+                 mask: Optional[Callable[[str], str]] = None, persistent: bool = False, consent: str = bc.DEFAULT_CONSENT,
+                 permissions: str = bc.DEFAULT_PERMISSIONS, confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None,
+                 audit: Optional[Callable[[str, Dict[str, Any]], None]] = None) -> None:
         self.persistent = bool(persistent and profile_dir)             # the profile is kept, and its sign-ins with it
         self.profile_dir = Path(profile_dir) if profile_dir else Path(tempfile.mkdtemp(prefix="basalt-browser-"))
         self.keep_profile = self.persistent
@@ -437,6 +461,12 @@ class Browser:
         self.hidden: set = set()                      # what was typed from the vault: a field that holds it is listed as set, not as its value
         self.page_url = ""                                              # the page the agent works on, as last read
         self.blocked: List[str] = []                                    # the hosts a request was refused for, until the model is told
+        self.consent, self.permissions = bc.clean_consent(consent), bc.clean_permissions(permissions)   # the person's policies (browser_consent.py)
+        self.confirm, self.audit = confirm, audit                       # how the person is asked about a permission; where an action is recorded
+        self._control_cdp: Optional[Cdp] = None                         # the browser's own connection, for the permission calls
+        self._consent_sites: set = set()                                # sites where a banner was dealt with
+        self._consenting = False
+        self._asked: set = set()                                        # (site, permission) already dealt with
 
     @property
     def cdp(self) -> Optional[Cdp]:
@@ -461,11 +491,8 @@ class Browser:
             s.bind(("127.0.0.1", 0))
             self.port = s.getsockname()[1]
         self.profile_dir.mkdir(parents=True, exist_ok=True)
-        args = [exe, f"--remote-debugging-port={self.port}", f"--user-data-dir={self.profile_dir}", "--no-first-run", "--no-default-browser-check",
-                "--disable-extensions", "--window-size=1280,900", "--disable-background-networking"]
-        if self.headless:
-            args.append("--headless=new")
-        args.append("about:blank")
+        bc.write_permission_prefs(self.profile_dir)
+        args = self.launch_args(exe, self.port)
         from harness.sandbox.jobs import CREATE_SUSPENDED, CommandJob
         self.job = CommandJob()                                   # the browser ends with the conversation, however that ends
         self.proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
@@ -493,6 +520,60 @@ class Browser:
             self.cdp.call("Browser.setDownloadBehavior", {"behavior": "deny"})
         except BrowserError:
             pass
+        self._apply_permissions()
+
+    def launch_args(self, exe: str, port: int) -> List[str]:
+        """The browser's command line. No flag that answers a prompt for the person (camera, microphone, location, screen) is ever among them."""
+        args = [exe, f"--remote-debugging-port={port}", f"--user-data-dir={self.profile_dir}", "--no-first-run", "--no-default-browser-check",
+                "--disable-extensions", "--window-size=1280,900", "--disable-background-networking", *bc.LAUNCH_FLAGS]
+        if self.headless:
+            args.append("--headless=new")
+        args.append("about:blank")
+        return args
+
+    def _control(self) -> Optional[Cdp]:
+        """The browser's own protocol connection (not a page's), for the calls that are about the whole browser."""
+        if self._control_cdp is None and self.pages:
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json/version", timeout=2) as r:
+                    path = urlparse(json.loads(r.read())["webSocketDebuggerUrl"]).path
+                self._control_cdp = Cdp(WebSocket("127.0.0.1", self.port, path))
+            except Exception:
+                self._control_cdp = None
+        return self._control_cdp
+
+    def set_permission(self, name: str, setting: str, origin: str = "") -> bool:
+        """Sets what the browser answers when a page asks for a permission: granted, denied or prompt; for every site, or for one origin."""
+        params: Dict[str, Any] = {"permission": {"name": "midi", "sysex": True} if name == "midiSysex" else {"name": name}, "setting": setting}
+        if origin:
+            params["origin"] = origin
+        for target in (self._control(), self.cdp):
+            if target is None:
+                continue
+            try:
+                target.call("Browser.setPermission", params, timeout=5)
+                return True
+            except BrowserError:
+                continue
+        return False
+
+    def _apply_permissions(self) -> None:
+        """Before any page can ask: every permission that reveals the person or reaches a device is refused. `grant-safe` allows only what is in
+        browser_consent.SAFE_GRANTS; `ask` leaves the answer to the person, site by site, when a page asks (see `_permission_requests`)."""
+        for name in bc.DENIED_PERMISSIONS:
+            granted = self.permissions == "grant-safe" and name in bc.SAFE_GRANTS
+            self.set_permission(name, "granted" if granted else "denied")
+
+    def _say(self, text: str) -> None:
+        """Something to tell the model with the next page it reads."""
+        self.notice = (self.notice + "\n" + text) if self.notice else text
+
+    def _record(self, kind: str, details: Dict[str, Any]) -> None:
+        if self.audit is not None:
+            try:
+                self.audit(kind, details)
+            except Exception:
+                pass
 
     def _targets(self) -> List[Dict[str, Any]]:
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json/list", timeout=2) as r:
@@ -505,6 +586,8 @@ class Browser:
             cdp.request_guard = self._request_ok                        # every request, of the page and of its frames, is looked at before it goes out
         for method, params in (("Page.enable", None), ("Runtime.enable", None), ("DOM.enable", None),
                                ("Target.setAutoAttach", {"autoAttach": True, "waitForDebuggerOnStart": cdp.request_guard is not None, "flatten": True}),
+                               ("Runtime.addBinding", {"name": bc.WATCH_BINDING}),
+                               ("Page.addScriptToEvaluateOnNewDocument", {"source": bc.PERMISSION_WATCH_JS}),
                                ("Page.addScriptToEvaluateOnNewDocument", {"source": INIT_JS})):
             cdp.call(method, params)
         if cdp.request_guard is not None:
@@ -559,6 +642,9 @@ class Browser:
                     p.ws.close()
         finally:
             self.pages = []
+            if self._control_cdp is not None:
+                self._control_cdp.ws.close()
+                self._control_cdp = None
             if self.proc is not None:
                 try:
                     self.proc.wait(timeout=5)
@@ -592,24 +678,34 @@ class Browser:
         if self.cdp.saw("Page.navigatedWithinDocument", since) and not self.cdp.saw("Page.frameStartedLoading", since):
             self._sync_pages()
             return
+        loaded = False
         if self.cdp.saw("Page.frameStartedLoading", since) or self.cdp.saw("Page.frameNavigated", since):
             end = time.monotonic() + 12.0
             while time.monotonic() < end and not self.cdp.saw("Page.loadEventFired", since):
                 self.cdp.pump(0.25)
             self.cdp.pump(0.3)
+            loaded = True
         self._sync_pages()
+        if loaded:
+            self._consent_pass()
 
     def open(self, url: str) -> Dict[str, Any]:
         url = check_url(url, self.allow_private)
         self.start()
         since = len(self.cdp.events)
-        result = self.cdp.call("Page.navigate", {"url": url})
-        if result.get("errorText"):
-            raise BrowserError(f"the page could not be opened: {result['errorText']}")
-        deadline = time.monotonic() + NAVIGATION_SECONDS
-        while time.monotonic() < deadline and not self.cdp.saw("Page.loadEventFired", since):
-            self.cdp.pump(0.25)
-        self.cdp.pump(0.3)
+        page = self.cdp
+        page.leaving = True                                             # a warning about leaving the page is accepted: the agent asked to go
+        try:
+            result = page.call("Page.navigate", {"url": url})
+            if result.get("errorText"):
+                raise BrowserError(f"the page could not be opened: {result['errorText']}")
+            deadline = time.monotonic() + NAVIGATION_SECONDS
+            while time.monotonic() < deadline and not page.saw("Page.loadEventFired", since):
+                page.pump(0.25)
+            page.pump(0.3)
+        finally:
+            page.leaving = False
+        self._consent_pass()
         return self.snapshot()
 
     def snapshot(self) -> Dict[str, Any]:
@@ -619,6 +715,7 @@ class Browser:
         self.cdp.pump(0.05)
         page = json.loads(self._js(SNAPSHOT_JS))
         self.page_url = page["url"]
+        self._flush_events()
         if not self.allow_private:
             if self.page_url.startswith("chrome-error:") and self.blocked:
                 host = self.blocked.pop()
@@ -680,6 +777,12 @@ class Browser:
             dx, dy = self._frame_origin(session)
             x, y = x + dx, y + dy
         since = len(self.cdp.events)
+        self._press_at(x, y)
+        self.settle(since)
+        return self.snapshot()
+
+    def _press_at(self, x: float, y: float) -> None:
+        """A real mouse click at a point of the page."""
         page = self.cdp
         try:
             for kind in ("mouseMoved", "mousePressed", "mouseReleased"):
@@ -687,8 +790,101 @@ class Browser:
         except BrowserError:
             if not page.closed:
                 raise                                                   # the click closed the window it was made in: that is a result, not a failure
+
+    # -- banners, permission requests, dialogs ----------------------------------------------------
+
+    def _detect_consent(self) -> Dict[str, Any]:
+        """The consent banners on the page now, and in the frames of other sites it holds (a consent manager is often one)."""
+        banners: List[Dict[str, Any]] = []
+        hint = False
+        for session in [None, *list(self.cdp.frames)]:
+            try:
+                state = json.loads(self._js(bc.detect_script(frame=session is not None), session=session))
+            except (BrowserError, ValueError, TypeError):
+                continue
+            for banner in state.get("banners", []):
+                banners.append({**banner, "session": session})
+            hint = hint or bool(state.get("hint"))
+        return {"banners": banners, "hint": hint}
+
+    def _click_consent(self, pick: "bc.Pick") -> bool:
+        """The click on a control the detection found: a real click, at the middle of it, only if nothing else lies over it."""
+        session = pick.banner.get("session")
+        point = self._js(bc.CLICK_POINT_JS.replace("%I%", str(int(pick.button["i"]))), session=session)
+        if not point:
+            return False
+        x, y = point
+        if session is not None:
+            dx, dy = self._frame_origin(session)
+            x, y = x + dx, y + dy
+        since = len(self.cdp.events)
+        self._press_at(x, y)
         self.settle(since)
-        return self.snapshot()
+        return True
+
+    def _consent_pass(self) -> None:
+        """After a page has loaded: deals with a consent banner by the policy, and tells the model what was done."""
+        if self.consent == "off" or self._consenting or not self.pages or self.cdp.closed:
+            return
+        self._consenting = True
+        try:
+            site = str(self._js("location.protocol + '//' + location.host") or "")
+            if not site.startswith(("http://", "https://")):
+                return
+            result = bc.run_consent(self.consent, self._detect_consent, self._click_consent,
+                                    bc.KNOWN_SITE_SECONDS if site in self._consent_sites else bc.LATE_SECONDS)
+        except BrowserError:
+            return
+        finally:
+            self._consenting = False
+        if result.clicks:
+            self._consent_sites.add(site)
+        for note in bc.consent_notes(result, self.consent):
+            self._say(note)
+        for click in result.clicks:
+            self._record("browser_consent_click", {"site": site, "label": click["label"], "role": click["role"], "banner": click["banner"], "policy": self.consent})
+
+    def _flush_events(self) -> None:
+        """Tells the model what the page's dialogs were answered with, and what it asked permissions for."""
+        for page in list(self.pages):
+            dialogs, page.dialogs = page.dialogs, []
+            asks, page.permission_asks = page.permission_asks, []
+            for note in dialogs:
+                self._say(note)
+                self._record("browser_dialog", {"site": self.page_url[:100], "note": note})
+            self._permission_requests(asks)
+
+    def _permission_requests(self, kinds: List[str]) -> None:
+        """The page asked for permissions (and was refused: they are all refused before it can ask). By the `ask` policy the person is asked, for this
+        site and this permission, through the conversation's own confirmation; if they allow it, it is granted for that site, and the page has to
+        be made to ask again. A device chooser (USB, serial, HID) cannot be answered from here and is never granted."""
+        parsed = urlparse(self.page_url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        for kind in dict.fromkeys(kinds):
+            if kind not in bc.KIND_TO_PERMISSIONS or (origin, kind) in self._asked:
+                continue
+            self._asked.add((origin, kind))
+            names = bc.KIND_TO_PERMISSIONS[kind]
+            if self.permissions == "ask" and names and self.confirm is not None and len(self._asked) <= bc.MAX_ASKS:
+                try:
+                    allowed = bool(self.confirm("browser_permission", {"site": origin, "permission": kind}))
+                except Exception:
+                    allowed = False
+                if allowed:
+                    for name in names:
+                        self.set_permission(name, "granted", origin)
+                    self._say(bc.permission_note(kind, origin, "the person allowed it for this site; the page must ask again, so do the action again"))
+                    self._record("browser_permission", {"site": origin, "permission": kind, "outcome": "granted by the person"})
+                    continue
+                outcome = "the person did not allow it"
+            elif self.permissions == "ask":
+                outcome = "refused (nobody can be asked here)" if names else "refused (a device chooser cannot be answered)"
+            else:
+                outcome = f"refused (policy {self.permissions})"
+            self._say(bc.permission_note(kind, origin, outcome))
+            self._record("browser_permission", {"site": origin, "permission": kind, "outcome": outcome})
 
     def type(self, ref: int, text: str, submit: bool = False, clear: bool = True, secret: bool = False) -> Dict[str, Any]:
         session, local, _ = self._where(ref)
@@ -742,7 +938,12 @@ class Browser:
         index = history.get("currentIndex", 0)
         if index <= 0:
             raise BrowserError("there is no earlier page")
-        self.cdp.call("Page.navigateToHistoryEntry", {"entryId": history["entries"][index - 1]["id"]})
+        page = self.cdp
+        page.leaving = True
+        try:
+            page.call("Page.navigateToHistoryEntry", {"entryId": history["entries"][index - 1]["id"]})
+        finally:
+            page.leaving = False
         self.settle(since)
         return self.snapshot()
 
@@ -777,12 +978,14 @@ def describe(page: Dict[str, Any], hidden: Optional[set] = None) -> str:
 
 
 def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path = "", headless: bool = False, executable: str = "",
-                           allow_private: bool = False, browser: Optional[Browser] = None, persistent: bool = False) -> Browser:
+                           allow_private: bool = False, browser: Optional[Browser] = None, persistent: bool = False, consent: str = bc.DEFAULT_CONSENT,
+                           permissions: str = bc.DEFAULT_PERMISSIONS, confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None,
+                           audit: Optional[Callable[[str, Dict[str, Any]], None]] = None) -> Browser:
     """Adds the browser tools. The browser starts at the first use and is closed with the conversation."""
     from harness.tools.registry import EffectClass
 
     mask = secrets.mask_secrets if secrets is not None else (lambda t: t)
-    b = browser or Browser(profile_dir, headless, executable, allow_private, mask, persistent)
+    b = browser or Browser(profile_dir, headless, executable, allow_private, mask, persistent, consent, permissions, confirm, audit)
     b.mask = mask
 
     def shown(page: Dict[str, Any]) -> str:

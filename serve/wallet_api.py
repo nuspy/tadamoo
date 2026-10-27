@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List
 
 from harness.browser import BrowserError, BrowserPrefs, find_browser, forget_signins, open_signin_window
+from harness.browser_consent import CONSENT_POLICIES, PERMISSION_POLICIES
 from harness.payments_broker import PaymentsBroker
 from harness.vault import CARD_KINDS, KINDS, SECOND_FACTORS, Vault, VaultError
 from harness.vault_import import parse_logins
@@ -48,7 +49,11 @@ class WalletApi:
         if (not isinstance(req.get("enabled"), bool) or not isinstance(req.get("headless"), bool) or not isinstance(req.get("private", False), bool)
                 or not isinstance(req.get("persistent", False), bool)):
             raise WalletError("send enabled and headless as true or false")
-        return {"browser": {"found": bool(find_browser()), **self._browser.write(req["enabled"], req["headless"], req.get("private", False), req.get("persistent", False))}}
+        for key, allowed in (("consent", CONSENT_POLICIES), ("permissions", PERMISSION_POLICIES)):
+            if req.get(key) is not None and req[key] not in allowed:
+                raise WalletError(f"{key} is one of: {', '.join(allowed)}")
+        return {"browser": {"found": bool(find_browser()), **self._browser.write(req["enabled"], req["headless"], req.get("private", False), req.get("persistent", False),
+                                                                                 req.get("consent"), req.get("permissions"))}}
 
     def signin_window(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """The browser that keeps sign-ins, in a window, for the person to sign in to an account (Google, a bank, a shop) themselves."""

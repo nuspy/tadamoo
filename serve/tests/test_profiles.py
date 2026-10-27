@@ -98,6 +98,16 @@ class Store(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad):
                 profiles.change({"action": "save", "kind": "inference", "name": "x", "settings": {"end_turn_bias": bad}})
 
+    def test_the_steps_of_an_answer_are_kept_in_a_preset_when_they_are_valid(self):
+        for good in (-1, 25, "-1", "40", ""):
+            profiles.change({"action": "save", "kind": "inference", "name": "Passi", "settings": {"max_turns": good, "end_turn_bias": "-2.5"}})
+            kept = profiles.listing()["inference"][0]["settings"]
+            self.assertEqual(kept["max_turns"], good)
+            self.assertEqual(kept["end_turn_bias"], -2.5)                      # as typed in the page, kept as a number
+        for bad in (0, -2, 1.5, True, "0", "x", "1.5"):
+            with self.assertRaises(ValueError, msg=bad):
+                profiles.change({"action": "save", "kind": "inference", "name": "x", "settings": {"max_turns": bad}})
+
     def test_export_import(self):
         profiles.change({"action": "save", "name": "Veloce", "values": FAST})
         profiles.change({"action": "save", "kind": "inference", "name": "P", "settings": {"temperature": "1"}})

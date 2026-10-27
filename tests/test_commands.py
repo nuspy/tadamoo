@@ -135,3 +135,41 @@ def test_the_process_takes_a_mode_a_level_and_a_command_while_it_lives(tmp_path,
     assert status["ok"] and status["data"]["mode"] == "plan" and status["data"]["effort"] == "high"
     assert seen(lambda e: e["event"] == "command" and e["id"] == "k2")[0]["ok"] is False
     assert len(seen(lambda e: e.get("code") == "bad_command")) == 2
+
+
+def test_the_process_takes_the_steps_and_the_end_of_turn_bias_while_it_lives(tmp_path, monkeypatch):
+    import harness.session as hs
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    real_build = hs.build_agent
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=Scripted(): real_build(cfg, client=_c))
+    feed, out = Feed(), io.StringIO()
+    t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "p2", "--no-memory", "--no-checkpoints",
+                                              "--max-turns", "15", "--end-turn-bias", "-5", "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)
+    t.start()
+
+    def seen(pred):
+        return [e for e in (json.loads(l) for l in out.getvalue().splitlines()) if pred(e)]
+
+    def status(cid):
+        feed.put({"cmd": "command", "id": cid, "name": "status", "args": ""})
+        deadline = time.monotonic() + 10
+        while not seen(lambda e: e["event"] == "command" and e["id"] == cid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        return seen(lambda e: e["event"] == "command" and e["id"] == cid)[0]["data"]
+    first = status("k1")
+    assert first["max_turns"] == 15 and first["end_turn_bias"] == -5
+    feed.put({"cmd": "settings", "max_turns": -1, "end_turn_bias": -20})
+    feed.put({"cmd": "settings", "max_turns": 0})                                  # refused
+    feed.put({"cmd": "settings", "end_turn_bias": 3})                              # refused
+    feed.put({"cmd": "settings", "max_turns": True})                               # refused
+    feed.put({"cmd": "settings"})                                                  # refused: nothing to change
+    second = status("k2")
+    assert second["max_turns"] == -1 and second["end_turn_bias"] == -20
+    feed.put({"cmd": "settings", "end_turn_bias": 0})
+    assert status("k3")["end_turn_bias"] == 0
+    feed.put({"cmd": "close"})
+    t.join(10)
+    assert seen(lambda e: e["event"] == "settings") == [{"event": "settings", "max_turns": -1, "end_turn_bias": -20.0},
+                                                        {"event": "settings", "end_turn_bias": 0.0}]
+    assert len(seen(lambda e: e.get("code") == "bad_command")) == 4

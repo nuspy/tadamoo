@@ -72,7 +72,7 @@ class SlashCommandsTest(unittest.TestCase):
 
     def test_what_the_process_answers_is_drawn_as_text_in_the_language_of_the_page(self):
         r = self.r
-        self.assertEqual(r["status"], ["StatusMode: Plan onlyThinking: LowTurns: 3Context: 1200 of 32768 tokens (4%)Messages: 7Tools: 30Memories: 2MCP servers: 1Tokens used by the model: 9000"])
+        self.assertEqual(r["status"], ["StatusMode: Plan onlyThinking: LowTurns: 3Steps per answer: No limitEnd-of-turn bias: 0Context: 1200 of 32768 tokens (4%)Messages: 7Tools: 30Memories: 2MCP servers: 1Tokens used by the model: 9000"])
         self.assertEqual(r["compact"], [["The conversation was shortened: 9000 → 3000 tokens."], ["Wait until the work in hand is done."], ["There is nothing to shorten yet (55 tokens)."]])
         self.assertEqual(r["mcp"][1], ["MCP serversa · 3 toolsb · did not start: no start"])
         self.assertEqual(r["memory"][1], ["Memory (1)project · uses python"])
@@ -88,7 +88,7 @@ class ModeLabelWiringTest(unittest.TestCase):
     slash = (WEB / "slash.js").read_text(encoding="utf-8")
 
     def test_the_label_sits_by_the_new_conversation_button_and_says_what_it_does(self):
-        self.assertRegex(self.html, r'id="new-chat"[^\n]*\n\s*<button[^>]*id="branches-open"[^\n]*\n\s*<button[^>]*id="pskills-open"[^\n]*\n\s*<button[^>]*id="chg-open"[^\n]*\n\s*<span[^>]*id="folder-chip"[^\n]*\n\s*<button[^>]*id="branch-chat"[^\n]*\n\s*<button[^>]*id="mode-chip"[^>]*aria-keyshortcuts="Shift\+Tab"')
+        self.assertRegex(self.html, r'id="new-chat"[^\n]*\n\s*<button[^>]*id="branches-open"[^\n]*\n\s*<button[^>]*id="export-open"[^\n]*\n\s*<button[^>]*id="pskills-open"[^\n]*\n\s*<button[^>]*id="chg-open"[^\n]*\n\s*<span[^>]*id="folder-chip"[^\n]*\n\s*<button[^>]*id="branch-chat"[^\n]*\n\s*<button[^>]*id="mode-chip"[^>]*aria-keyshortcuts="Shift\+Tab"')
         self.assertIn('"ch.chip"', (WEB / "i18n.js").read_text(encoding="utf-8"))
         i18n = (WEB / "i18n.js").read_text(encoding="utf-8")
         self.assertIn('"ch.chip": "Shift + TAB to change mode: {0}", "ch.chip.hint": "Shift + TAB to change mode:"', i18n)

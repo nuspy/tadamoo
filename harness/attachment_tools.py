@@ -111,17 +111,29 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
         return (f"Transcript ({len(segments)} segments). The service's own summary is not used.\n" + transcript[:TRANSCRIPT_SHOWN] +
                 ("\n[...] read the rest with read_attachment." if len(transcript) > TRANSCRIPT_SHOWN else ""))
 
-    def finish(meta: Dict[str, Any]) -> str:
+    def counts(data: bytes) -> str:
+        """For a text file, its words and lines; empty for a file that is not text."""
+        if b"\x00" in data[:8000]:
+            return ""
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            return ""
+        return f", {len(text.split())} words, {len(text.splitlines())} lines"
+
+    def finish(meta: Dict[str, Any], data: bytes = b"") -> str:
         mark = f"[file:{meta['id']}:{meta['name']}]"
         if meta["verified"]:
-            return f"{mark} Saved for the person: {meta['name']} ({meta['check']}). They get a button to save it where they want. Do not describe it as saved elsewhere."
+            return (f"{mark} Saved for the person: {meta['name']} ({meta['check']}{counts(data)}). "
+                    "This copy is outside your working folder, so file and shell tools cannot open it. "
+                    "They get a button to save it where they want. Do not describe it as saved elsewhere.")
         return f"{mark} The file was written but it did not pass the check: {meta['check']}. Fix it and write it again before telling the person it is done."
 
     def write_output_file(name: str, content: str) -> str:
         data = str(content).encode("utf-8")
         if len(data) > MAX_OUTPUT_BYTES:
             return "That file is too large to hand over this way."
-        return finish(outputs.save(session, name, data))
+        return finish(outputs.save(session, name, data), data)
 
     def publish_output_file(path: str) -> str:
         try:
@@ -130,7 +142,8 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
                 return f"{path} is not a file."
             if src.stat().st_size > MAX_OUTPUT_BYTES:
                 return "That file is too large to hand over this way."
-            return finish(outputs.save(session, src.name, src.read_bytes()))
+            data = src.read_bytes()
+            return finish(outputs.save(session, src.name, data), data)
         except (OSError, PermissionError) as exc:
             return f"Could not read {path}: {exc}"
 

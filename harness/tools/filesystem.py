@@ -9,6 +9,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
+from harness.environment import similar_names
+
 MAX_RECORDED_TEXT = 200_000        # larger files keep their diff but not the full before/after text
 MAX_LISTED = 500
 # what a shell command may have changed is found by comparing the workspace's text files before and after it
@@ -44,8 +46,38 @@ class WorkspaceSandbox:
         try:
             path.relative_to(self.root)
         except ValueError:
-            raise PermissionError(f"Access denied: Path '{rel_path}' escapes workspace boundary")
+            raise PermissionError(f"Access denied: Path '{rel_path}' escapes workspace boundary. The working folder is {self.root}; "
+                                  "file tools reach only paths inside it, relative to it.")
         return path
+
+    def _where(self, path: str, resolved: Path, want_dir: bool = False) -> str:
+        """What is known about a path that is not there: the working folder and the names that exist and look like it."""
+        text = f" The working folder is {self.root}; relative paths are relative to it."
+        if resolved.exists():
+            return text + f" '{path}' exists but is {'a folder' if resolved.is_dir() else 'a file'}, not {'a folder' if want_dir else 'a file'}."
+        folder = next((p for p in resolved.parents if p.is_dir()), self.root)
+        missing = resolved.relative_to(folder).parts[0]
+        if folder != resolved.parent:
+            text += f" The folder '{folder.joinpath(missing).relative_to(self.root).as_posix()}' does not exist."
+        found = similar_names(folder, missing)
+        if not want_dir and not found:
+            found = self._same_name_below(resolved.name)
+        where = "" if folder == self.root else f" in {folder.relative_to(self.root).as_posix()}"
+        return text + (f" Similar names{where}: {', '.join(found)}." if found else f" No similar name{where}.")
+
+    def _same_name_below(self, name: str, limit: int = 3) -> List[str]:
+        """Paths below the working folder whose file name equals `name`, ignoring case; the search is bounded."""
+        out: List[str] = []
+        seen = 0
+        for folder, dirs, names in os.walk(self.root):
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+            for n in names:
+                seen += 1
+                if n.lower() == name.lower():
+                    out.append((Path(folder) / n).relative_to(self.root).as_posix())
+            if len(out) >= limit or seen > MAX_WATCHED_FILES:
+                break
+        return out[:limit]
 
     def _guard_git(self, tool: str, path: str, resolved: Path) -> None:
         if self.confirm_git_write is None or not touches_git(resolved.relative_to(self.root).parts):
@@ -80,7 +112,7 @@ class WorkspaceSandbox:
     def read_file(self, path: str, max_bytes: int = 100_000) -> str:
         safe_path = self.resolve_safe(path)
         if not safe_path.is_file():
-            raise FileNotFoundError(f"File not found: {path}")
+            raise FileNotFoundError(f"File not found: {path}.{self._where(path, safe_path)}")
         with open(safe_path, "rb") as f:
             data = f.read(max_bytes + 1)
         if b"\x00" in data[:8000]:
@@ -104,7 +136,7 @@ class WorkspaceSandbox:
     def write_file(self, path: str, content: str) -> Dict[str, Any]:
         safe_path = self.resolve_safe(path)
         if safe_path.is_dir():
-            raise IsADirectoryError(f"'{path}' is a directory")
+            raise IsADirectoryError(f"'{path}' is a folder, not a file.{self._where(path, safe_path)}")
         self._guard_git("write_file", path, safe_path)
         old_content, kind = "", "added"
         if safe_path.exists():
@@ -115,7 +147,7 @@ class WorkspaceSandbox:
     def edit_file(self, path: str, target: str, replacement: str) -> Dict[str, Any]:
         safe_path = self.resolve_safe(path)
         if not safe_path.is_file():
-            raise FileNotFoundError(f"File not found: {path}")
+            raise FileNotFoundError(f"File not found: {path}.{self._where(path, safe_path)}")
         if not target:
             raise ValueError("The text to replace must not be empty")
         self._guard_git("edit_file", path, safe_path)
@@ -215,7 +247,7 @@ class WorkspaceSandbox:
     def list_directory(self, path: str = ".") -> List[Dict[str, Any]]:
         safe_path = self.resolve_safe(path)
         if not safe_path.is_dir():
-            raise NotADirectoryError(f"Directory not found: {path}")
+            raise NotADirectoryError(f"Directory not found: {path}.{self._where(path, safe_path, want_dir=True)}")
 
         entries: List[Dict[str, Any]] = []
         for p in sorted(safe_path.iterdir()):

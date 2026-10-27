@@ -126,9 +126,22 @@ class BasaltClient:
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
 
+    def context_window(self, timeout: float = 3.0) -> Optional[int]:
+        """The tokens one request can hold, as /v1/status reports them (each parallel slot holds this many); None when the
+        model is not loaded or the server gives no number. Raises BasaltError when the server cannot be reached."""
+        status = self._get("/v1/status", timeout)
+        if status.get("loaded") is False:
+            return None                                    # an engine that is not loaded reports a default, not its context
+        context = status.get("context")
+        value = (context.get("native") if isinstance(context, dict) else None) or status.get("cache_max_tokens")
+        return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else None
+
     def metrics(self, timeout: float = 5.0) -> Dict[str, Any]:
         """Fetches telemetry and engine status from /metrics."""
-        req = urllib.request.Request(f"{self.base_url}/metrics", headers=self._headers(), method="GET")
+        return self._get("/metrics", timeout)
+
+    def _get(self, path: str, timeout: float) -> Dict[str, Any]:
+        req = urllib.request.Request(f"{self.base_url}{path}", headers=self._headers(), method="GET")
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))

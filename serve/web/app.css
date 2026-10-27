@@ -925,7 +925,12 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .atool { border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg); font-size: 14.5px; }
 .atool summary { min-height: 40px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; padding: 4px 12px; cursor: pointer; list-style: none; color: var(--fg-2); }
 .atool summary::-webkit-details-marker { display: none; }
-.atool-n { font-family: var(--font-mono); color: var(--fg); }
+.atool-d { flex: 1 1 100%; min-width: 0; color: var(--fg); overflow-wrap: anywhere; }
+.atool-n { font-family: var(--font-mono); font-size: 13px; color: var(--fg-2); }
+.astop { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 8px; background: var(--surface); padding: 8px 12px; font-size: 14.5px; }
+.astop span { flex: 1 1 14em; min-width: 0; overflow-wrap: anywhere; }
+.astop .btn { min-height: 44px; min-width: 44px; }
+.astop .aask-h { flex: 1 1 100%; }
 .atool[data-s="running"] .atool-s { color: var(--accent); }
 .atool[data-s="failed"] { border-color: var(--bad, #FF8FA3); }
 .atool[data-s="failed"] .atool-s { color: var(--bad, #FF8FA3); }
