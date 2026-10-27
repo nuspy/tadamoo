@@ -404,6 +404,26 @@ class Vault:
             return code
         raise VaultError(f"'{entry_id}' has no second factor: choose one in the vault")
 
+    def find_secret(self, texts: List[str], present: Callable[[str, List[str]], bool]) -> str:
+        """The entry and field of a secret value (a password, a card number, a code: not a name or an address) found in one of `texts`, or ''."""
+        try:
+            entries = self._read()
+        except VaultError:
+            return ""
+        for i, e in entries.items():
+            for n, v in e["fields"].items():
+                if not (n in SECRET_FIELDS or e["kind"] == "secret"):
+                    continue
+                forms = set(shapes(v))
+                if n == "number":
+                    forms |= shapes(re.sub(r"[\s\-.]", "", v))
+                if any(present(f, texts) for f in forms if len(f) >= MIN_SECRET_LENGTH):
+                    return f"{i}.{n}"
+        for code, name in self._issued:
+            if len(code) >= MIN_SECRET_LENGTH and present(code, texts):
+                return name
+        return ""
+
     def mask(self, text: str) -> str:
         """Replaces the values in `text` by their names, longest first."""
         entries = self._read()

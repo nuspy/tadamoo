@@ -555,4 +555,4 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
     registry.register("load_capability", "Reads the instructions of an approved skill found with find_capability.",
                       obj({"id": {"type": "string"}}, ["id"]), EffectClass.PURE, load_capability)    # the text the person approved by its hash is theirs, not outside content
     registry.register("call_capability", "Calls a tool of an approved MCP server found with find_capability. Leave `tool` empty to list the server's tools.",
-                      obj({"id": {"type": "string"}, "tool": {"type": "string"}, "arguments": {"type": "object"}}, ["id"]), EffectClass.IRREVERSIBLE, call_capability, untrusted=True)
+                      obj({"id": {"type": "string"}, "tool": {"type": "string"}, "arguments": {"type": "object"}}, ["id"]), EffectClass.IRREVERSIBLE, call_capability, untrusted=True, outward=True)

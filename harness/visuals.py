@@ -204,10 +204,10 @@ def register_visual_tools(registry: Any, outputs: Any, session: str, allow_priva
         return {"type": "object", "properties": props, "required": required}
 
     registry.register("page_images", "Lists the pictures a web page shows, its own headline picture first, with their alt text and captions. Use it on the article you cite.",
-                      obj({"url": {"type": "string", "description": "http or https address of the page"}}, ["url"]), EffectClass.PURE, list_images, untrusted=True)
+                      obj({"url": {"type": "string", "description": "http or https address of the page"}}, ["url"]), EffectClass.PURE, list_images, untrusted=True, outward=True)
     registry.register("show_image", "Fetches a picture (PNG, JPEG, GIF or WebP, up to 8 MB) from a web address into this conversation, so an answer can show it. Returns how to show it.",
                       obj({"url": {"type": "string", "description": "address of the picture itself"}, "caption": {"type": "string", "description": "a few words naming it"}}, ["url"]),
-                      EffectClass.REVERSIBLE, show_image, untrusted=True)
+                      EffectClass.REVERSIBLE, show_image, untrusted=True, outward=True)
 
 
 IMAGE_RULES = {

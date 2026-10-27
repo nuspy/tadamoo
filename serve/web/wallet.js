@@ -348,6 +348,25 @@
       }))] : []), h("p", "help", T("wl.br.next"))));
   }
 
+  /* ---- how strict the Rule of Two is ---- */
+  function twoSection() {
+    const cur = data.rule_of_two;
+    if (!cur) return null;
+    const order = ["strict", "ask", "off"];
+    const s = select(order.map(v => [v, T("wl.two." + v)]), cur.level, false);
+    s.id = "wl-two";
+    s.onchange = async () => {
+      const lower = order.indexOf(s.value) > order.indexOf(cur.level);
+      if (lower && !(await riskConfirm([T("wl.two.risk." + s.value)]))) { s.value = cur.level; return; }
+      const r = await call("POST", "api/wallet/rule-of-two", { level: s.value });
+      if (r.ok) { data.rule_of_two = r.data.rule_of_two; say(T("wl.saved")); draw(); } else { say(why(r), true); s.value = cur.level; }
+    };
+    const l = h("label", "", T("wl.two.label")); l.htmlFor = "wl-two";
+    return h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.two"))), h("div", "wl-body", h("p", "help", T("wl.two.help")),
+      h("div", "wl-pick", l, s, h("p", "help", T("wl.two." + cur.level + ".help"))), ...(cur.level === "off" ? [riskLabel(T("wl.two.risk.off"))] : []),
+      h("p", "help", T("wl.two.next"))));
+  }
+
   /* ---- the history ---- */
   function histSection() {
     const rows = (data.ledger || []).map(r => {
@@ -484,7 +503,7 @@
     const n = h("p", "wl-note", note); n.hidden = !note; n.dataset.bad = noteBad ? "1" : "";
     const problems = (data.problems || []).map(p => h("p", "wl-note", p));
     problems.forEach(p => { p.dataset.bad = "1"; });
-    root.replaceChildren(...[banner(), h("div", "wl-top", h("p", "wl-lead", T("wl.lead")), n, ...problems), vaultSection(), paySection(), browserSection(), histSection()].filter(Boolean));
+    root.replaceChildren(...[banner(), h("div", "wl-top", h("p", "wl-lead", T("wl.lead")), n, ...problems), vaultSection(), paySection(), browserSection(), twoSection(), histSection()].filter(Boolean));
   }
   const inField = () => { const a = document.activeElement; return !!a && root.contains(a) && a.matches("input, select, textarea"); };
   /* quiet: a periodic or view refresh. It redraws only when the data changed, and never while a field of the page has the focus (the next one does),

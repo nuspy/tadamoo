@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set, Tuple
 
+from harness.rule_of_two import RuleOfTwo
 from harness.sandbox import command_words
 from harness.tools.registry import EffectClass
 
@@ -90,7 +91,7 @@ class PermissionManager:
         self.confirm_callback = confirm_callback
         self.always_ask = frozenset(always_ask)
         self._sensitive = sensitive_data           # the session can reach secrets or private data; a function is asked each time
-        self.untrusted_input = False               # the model has read content from outside the user's control
+        self.two = RuleOfTwo()                     # the three facts of the Rule of Two for this conversation (harness/rule_of_two.py)
         self._remembered: Set[str] = set()
         self.denied = 0                            # calls refused in this session, whatever the reason
         self.denied_by_tool: Dict[str, int] = {}
@@ -111,14 +112,22 @@ class PermissionManager:
     def remove_rule(self, pattern: str, action: str) -> None:
         self.rules = [r for r in self.rules if not (r.pattern == pattern and r.action == action)]
 
-    def note_untrusted_input(self) -> None:
-        self.untrusted_input = True
+    @property
+    def untrusted_input(self) -> bool:
+        """The model has read content from outside the user's control."""
+        return bool(self.two.untrusted)
+
+    def note_untrusted_input(self, source: str = "") -> None:
+        self.two.note_untrusted(source)
+
+    def note_private_data(self, source: str = "") -> None:
+        self.two.note_private(source)
 
     @property
     def rule_of_two_broken(self) -> bool:
         """Untrusted input, sensitive data and outward effects must never all be present unattended. Whether the session can
         reach sensitive data is looked at now, not when the agent was built: the person may add to the vault meanwhile."""
-        return self.untrusted_input and self.sensitive_data
+        return self.two.level != "off" and self.untrusted_input and (self.sensitive_data or bool(self.two.private))
 
     def _ask(self, tool_name: str, arguments: Dict[str, Any], key: Optional[str]) -> bool:
         if key is not None and key in self._remembered:
@@ -140,15 +149,15 @@ class PermissionManager:
                      "> or <). Use one of them or say what you could not do")
         return text
 
-    def evaluate(self, tool_name: str, effect: EffectClass, arguments: Dict[str, Any]) -> Tuple[bool, str]:
-        """Returns (allowed, reason). Every refusal is counted."""
-        allowed, reason = self._decide(tool_name, effect, arguments)
+    def evaluate(self, tool_name: str, effect: EffectClass, arguments: Dict[str, Any], outward: bool = False) -> Tuple[bool, str]:
+        """Returns (allowed, reason). Every refusal is counted. `outward`: the tool sends what the model wrote out of this PC."""
+        allowed, reason = self._decide(tool_name, effect, arguments, outward)
         if not allowed:
             self.denied += 1
             self.denied_by_tool[tool_name] = self.denied_by_tool.get(tool_name, 0) + 1
         return allowed, reason
 
-    def _decide(self, tool_name: str, effect: EffectClass, arguments: Dict[str, Any]) -> Tuple[bool, str]:
+    def _decide(self, tool_name: str, effect: EffectClass, arguments: Dict[str, Any], outward: bool = False) -> Tuple[bool, str]:
         if self.plan_mode and effect != EffectClass.PURE:
             return False, f"Plan mode active: execution of {tool_name} deferred until user approves plan"
 
@@ -162,6 +171,12 @@ class PermissionManager:
             if self._ask(tool_name, arguments, None):
                 return True, f"User confirmed {tool_name}"
             return False, self._refusal(f"{tool_name} needs the user's explicit confirmation every time")
+
+        why = self.two.question(tool_name) if outward else ""      # the Rule of Two: an outward action after untrusted content and private data
+        if why:
+            if self._ask(tool_name, {**arguments, "rule_of_two": why}, None):
+                return True, "User confirmed after the Rule of Two check"      # the same call, put plainly: the level's own question would add nothing
+            return False, self._refusal(why)
 
         for rule in self.rules:
             if rule.action == "allow" and plain and _matches(rule, targets, arguments):
@@ -186,7 +201,7 @@ class PermissionManager:
         if self.level == PermissionLevel.AUTO:
             if effect == EffectClass.IRREVERSIBLE and self.rule_of_two_broken:
                 if self._ask(tool_name, arguments, key):
-                    return True, "User confirmed after the Rule of Two check"
+                    return True, "User confirmed after the Rule of Two check"      # the same call, put plainly: the level's own question would add nothing
                 return False, (f"{tool_name} needs confirmation: this session read untrusted content and can reach "
                                "sensitive data")
             return True, "Auto level permitted"

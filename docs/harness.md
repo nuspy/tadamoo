@@ -39,6 +39,7 @@ the Chat can reach, the others can reach:
 | `--after-plan default\|auto` | the mode the run goes on in when you approve a plan |
 | `--allow PATTERN`, `--deny PATTERN` | rules such as `shell_command:pytest*`; a deny always wins |
 | `--secret-env NAME[=host,host]` | lets the agent write `{{secret:NAME}}`; with hosts, the value can only be sent to them |
+| `--rule-of-two {off,ask,strict}` | when an action that reaches the outside asks (default `ask`; see the Rule of Two below) |
 | `--vault-dir`, `--payments-dir` | the Wallet's vault and payment systems (`{{vault:ENTRY.FIELD}}`, `request_payment`) |
 | `--browser`, `--browser-headless`, `--browser-private`, `--browser-profile DIR` | the browser tools and how they run |
 | `--browser-consent {necessary,accept,reject,off}`, `--browser-permissions {deny,ask,grant-safe}` | what the browser does about cookie banners (default `necessary`) and permission requests (default `deny`) |
@@ -222,6 +223,19 @@ not when the conversation began, so an entry the person adds to the Wallet later
 person's limit, the waiver, and a question to the person above them), whatever the conversation has read. `write_file` and `edit_file` are reversible, except inside a `.git` folder
 (a hook or the config can make git run code later): there the person is asked, once per file, as for an irreversible action (the
 level and the Rule of Two decide it, and with nobody to ask it is refused), and the checkpoint before it holds the hooks and the config.
+
+The Rule of Two is kept as three facts about the conversation (`harness/rule_of_two.py`). **Untrusted**: it read content from outside the
+person's control: a page, a search result, an MCP or A2A answer, a file, a command's output, an attachment, a recalled note, a note the
+planner made from an event. **Private**: it touched a stored credential (`{{secret:}}`, `{{vault:}}`), a file that holds keys (`.env`,
+`id_rsa`, `*.pem`, `.aws/credentials`...) or a command or answer that showed a key, an attachment, or the person's own memories.
+**Outward**: the tool sends what the model wrote out of this PC (`outward=True` on `browse_url`, `search_web`, `browser_open`, the
+browser's click, type, select and key, `page_images`, `show_image`, `find_online_capability`, `call_capability`, MCP and A2A/ACP calls).
+When all three are true the call asks, before an allow rule can pass it, and the question lists the first sources of the first two facts.
+With `--rule-of-two strict` it asks after the first fact alone, with `off` never; at `auto` the same level also decides whether an
+irreversible action asks once the first fact and a stored secret (or the second fact) are there. The Wallet page sets the level for
+the conversations started afterwards. Whatever the level, the arguments of an outward call are searched for the value of a stored
+secret, a vault secret field, or a secret read from a file during the conversation (as written, URL-decoded, reversed, in another case,
+hex or base64; a value under eight characters only as a whole word); a match refuses the call before anything is sent.
 
 What this is **not**: an OS sandbox. A command runs with your files and network rights, with a scrubbed environment, no
 stdin, a time limit and capped output. On Windows each command also runs in its own job object, created before the command
@@ -424,7 +438,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   `chat-workspace` of the user data folder and shares one memory between its conversations; notes are stored as written (not masked,
   not encrypted); the model alone decides what to keep (the system prompt does not mention the tools); `remember` and `forget` are
   reversible, so they ask nobody at the `default` and `auto` levels; the notes the retrieval adds at the tail stop a quotation from
-  confirming a plan change (`untrusted_since_user`) but, unlike a `recall` result, do not set the Rule of Two flag; the search is by
+  confirming a plan change (`untrusted_since_user`) but, like a `recall` result, set the Rule of Two flag; the search is by
   words (FTS5, no stemming, no embeddings).
 - `browse_url` reads a web page with the standard library only: http and https, no user name in the address, no address that is
   not a site on the internet (private, loopback, link-local, carrier-grade NAT and multicast ranges are refused) unless you allowed

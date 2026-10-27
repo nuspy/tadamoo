@@ -163,6 +163,13 @@ class SecretsBroker:
             masked = masked.replace(value, label)
         return self.vault.mask(masked) if self.vault is not None else masked
 
+    def find_secret(self, texts: List[str], present: Callable[[str, List[str]], bool]) -> str:
+        """The name of a secret whose value, in any of the shapes a command can give it, is in one of `texts`; '' if none is."""
+        for name, value in self._secrets.items():
+            if value and any(present(form, texts) for form in shapes(value)):
+                return name
+        return self.vault.find_secret(texts, present) if self.vault is not None else ""
+
     def references(self, text: str) -> List[str]:
         """Names of the secrets a text asks for, known or not."""
         return PLACEHOLDER.findall(text)
