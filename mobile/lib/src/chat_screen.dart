@@ -427,7 +427,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final v = '${o['value']}';
       if (b.mode == 'confirm') {
         if (v == 'always') return Texts.t('chat.always', ['${o['rule'] ?? ''}']);
-        return Texts.t(v == 'confirm' ? 'chat.yes' : 'chat.no');
+        if (v == 'chat') return Texts.t('chat.chat', ['${o['rule'] ?? ''}']);
+        return Texts.t(v == 'confirm' ? (b.kind == 'permission' ? 'chat.once' : 'chat.yes') : 'chat.no');
       }
       return '${o['label'] ?? v}';
     }

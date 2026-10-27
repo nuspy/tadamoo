@@ -19,3 +19,5 @@
 .mb-limits label { display: block; margin: 10px 0 4px; font-weight: 600; }
 .mb-limits textarea { width: 100%; max-width: 560px; box-sizing: border-box; padding: 8px 10px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font: 13px/1.5 var(--font-mono); resize: vertical; }
 .mb-key .btn, .mb-limits .btn, .mb-new .btn { min-height: 44px; }
+.mb-check { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.mb-check input { width: 22px; height: 22px; flex: none; }

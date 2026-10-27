@@ -1,4 +1,4 @@
-"""Hiding what must not be in a file that leaves the log: secrets always, personal data the person chooses.
+"""Hiding what the person wants hidden in a file that leaves the log: secrets by default, personal data or nothing when they choose.
 
 Secrets are recognised by what they look like (private keys, the token forms of the common services, passwords and keys assigned to a name,
 card numbers that pass the check digit, a password inside an address) and by value (the server's key, whatever the vault holds).
@@ -26,7 +26,7 @@ _PHONE = re.compile(r"(?<![\w.])(?:\+|00)\d[\d \-().]{7,16}\d|(?<![\w.:])\d{3}[ 
 _IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){3,7}(?: ?[A-Z0-9]{1,4})?\b")
 _TAX_CODE = re.compile(r"\b[A-Z]{6}\d{2}[A-EHLMPR-T]\d{2}[A-Z]\d{3}[A-Z]\b", re.I)
 PERSONAL = {"emails": _EMAIL, "phones": _PHONE, "iban": _IBAN, "taxcode": _TAX_CODE}
-LEVELS = ("secrets", "personal")                  # personal: also e-mail addresses, phone numbers, IBANs and tax codes
+LEVELS = ("none", "secrets", "personal")          # none: only the words listed; personal: also e-mail addresses, phone numbers, IBANs and tax codes
 
 
 def luhn(digits: str) -> bool:
@@ -62,6 +62,10 @@ class ExportMask:
         self.vault_mask = vault_mask
 
     def text(self, text: str) -> str:
+        if self.level == "none":
+            for pattern in self.words:
+                text = pattern.sub(HIDDEN, text)
+            return text
         if self.vault_mask is not None:
             try:
                 text = self.vault_mask(text)
@@ -87,6 +91,8 @@ class ExportMask:
         if isinstance(value, str):
             return self.text(value)
         if isinstance(value, dict):
+            if self.level == "none":
+                return {k: self.value(v) for k, v in value.items()}
             return {k: HIDDEN if isinstance(v, str) and v and isinstance(k, str) and _SECRET_KEY.search(k) else self.value(v) for k, v in value.items()}
         if isinstance(value, (list, tuple)):
             return [self.value(v) for v in value]

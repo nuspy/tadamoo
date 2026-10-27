@@ -721,13 +721,28 @@ def test_always_allow_answers_the_question_and_the_same_kind_of_command_then_run
                                lambda **kw: ran.append(kw) or "ok")
     session.send("m1", "prova")
     ask = ev.wait("ask")
+    assert [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "cancel"]       # this call, this conversation, for good
     always = next(o for o in ask["options"] if o["value"] == "always")
     assert always["rule"] == "shell_command:pytest *"
     session.answer(ask["id"], "always")
-    assert ev.wait("rule_added")["rule"] == "shell_command:pytest *"
+    added = ev.wait("rule_added")
+    assert added["rule"] == "shell_command:pytest *" and added["scope"] == "global"
     ev.wait("done")
     assert [r["command"] for r in ran] == ["pytest -q", "pytest tests/a.py"]
     assert len([e for e in ev.items if e["event"] == "ask"]) == 1                      # the second command did not ask
+
+
+def test_allowing_for_this_conversation_is_not_for_good_and_a_program_that_runs_code_gets_the_same_choices(tmp_path):
+    client = Scripted(call("shell_command", command="python -c 1"), say("Fatto."))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="default")
+    built.agent.tools.register("shell_command", "runs", {"type": "object", "properties": {"command": {"type": "string"}}}, EffectClass.IRREVERSIBLE,
+                               lambda **kw: "ok")
+    session.send("m1", "prova")
+    ask = ev.wait("ask")
+    chat = next(o for o in ask["options"] if o["value"] == "chat")
+    assert chat["rule"] == "shell_command:python *"
+    session.answer(ask["id"], "chat")
+    assert ev.wait("rule_added")["scope"] == "chat"
 
 
 def test_no_always_button_for_a_command_that_chains_others_or_a_payment(tmp_path):

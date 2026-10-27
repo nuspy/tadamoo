@@ -40,6 +40,7 @@ from serve import review as review_mod
 from serve.agent_runs import AgentRunner, RunBusy, RunError
 from harness.browser import BrowserPrefs
 from harness.rule_of_two import RuleOfTwoPrefs
+from serve.allow_rules import AllowRules
 from harness.payments_broker import PaymentsBroker
 from harness.waiver.dossier import sntp_offset
 from harness.vault import Vault, VaultError
@@ -352,12 +353,20 @@ def make_handler(svc: Service, remote: bool = False):
             self._json(401, {"error": {"type": "authentication_error", "message": "missing or wrong API key"}})
             return False
 
+        def _phone_mode_ok(self, mode) -> bool:
+            if mode in MODE_ORDER:
+                return True
+            self._json(400, {"error": {"type": "invalid_request_error", "message": "the mode is one of: " + ", ".join(MODE_ORDER)}})
+            return False
+
         def _phone_limits(self, mode=None, rules=None, req=None) -> bool:
             """A conversation started or switched from a phone gets the modes and the rules the person fixed on the PC: a mode above the limit
             or rules of the phone's own are refused (the reply says where to change the limit), and the PC's rules take the place of the phone's."""
             if not self.remote_listener:
                 return True
             remote = svc.remote
+            if remote.phone_chooses:                                          # the person let phones choose: what the phone asks for stands
+                return mode is None or self._phone_mode_ok(mode)
             if mode is not None and not remote.mode_allowed(mode):
                 self._json(403, {"error": {"type": "forbidden", "code": "phone_mode_limit",
                                            "message": f"a phone can use the modes up to '{remote.max_mode}'; the limit is set in Settings > Phones on the PC"}})
@@ -1727,7 +1736,7 @@ def make_handler(svc: Service, remote: bool = False):
             global _WALLET
             if _WALLET is None:
                 _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments"), app_root=Path(__file__).resolve().parents[1], network_time=sntp_offset), BrowserPrefs(userdata.path("browser.json")), userdata.path("browser-profile"),
-                                     RuleOfTwoPrefs(userdata.path("rule_of_two.json")))
+                                     RuleOfTwoPrefs(userdata.path("rule_of_two.json")), AllowRules(userdata.path("allow_rules.json")))
             return _WALLET
 
         def _personal(self) -> PersonalMemory:
@@ -1858,6 +1867,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.set_browser(req))
                 if action == "rule-of-two":
                     return self._json(200, api.set_rule_of_two(req))
+                if action == "allow-rules":
+                    return self._json(200, api.set_allow_rules(req))
                 if action == "browser/signin":
                     return self._json(200, api.signin_window(req))
                 if action == "browser/forget":
@@ -2075,7 +2086,7 @@ def make_handler(svc: Service, remote: bool = False):
             remote = svc.remote
             return {"tailscale": tailscale_status(), "enabled": remote.enabled, "listening": remote.listening, "address": remote.address(), "error": remote.error,
                     "keys": svc.keys.list(), "install": _INSTALLER.view(), "port": remote.port,
-                    "limits": {"max_mode": remote.max_mode, "rules": remote.rules, "modes": list(MODE_ORDER), "key_days": KEY_TTL_DAYS}}
+                    "limits": {"phone_chooses": remote.phone_chooses, "max_mode": remote.max_mode, "rules": remote.rules, "modes": list(MODE_ORDER), "key_days": KEY_TTL_DAYS}}
 
         def _remote_get(self):
             if not settings.is_loopback(self.client_address[0]):
@@ -2106,7 +2117,7 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(404, {"error": {"message": "That key is not there any more."}})
                     return self._json(200, {"row": row, **self._remote_view()})
                 if action == "limits":
-                    svc.remote.set_limits(req.get("max_mode"), req.get("rules"))
+                    svc.remote.set_limits(req.get("max_mode"), req.get("rules"), req.get("phone_chooses"))
                     return self._json(200, self._remote_view())
                 if action == "keys/show":
                     found = svc.keys.reveal(req.get("id"))
@@ -2142,7 +2153,8 @@ def make_handler(svc: Service, remote: bool = False):
                                            attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
                                            browser_prefs=BrowserPrefs(userdata.path("browser.json")).read, knowledge_flags=KnowledgePrefs(userdata.path("knowledge.json")).flags,
-                                           rule_of_two=RuleOfTwoPrefs(userdata.path("rule_of_two.json")).read,
+                                           rule_of_two=RuleOfTwoPrefs(userdata.path("rule_of_two.json")).read, allow_rules=AllowRules(userdata.path("allow_rules.json")),
+                                           rule_of_two_prefs=RuleOfTwoPrefs(userdata.path("rule_of_two.json")),
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
                                            skills_dir=userdata.path("personal-skills"), projects=self._projects(),
                                            personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer)

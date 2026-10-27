@@ -462,7 +462,7 @@
     (f.notes || []).forEach(n => ul.append(mk("li", "aask-h", n)));
     return ul;
   }
-  const optLabel = (b, o) => (b.kind === "capability_choice" ? capLabel(o) : b.mode === "confirm" ? (o.value === "always" ? T("ch.always", o.rule || "") : T(o.value === "confirm" ? "ch.yes" : "ch.no")) : o.label);
+  const optLabel = (b, o) => (b.kind === "capability_choice" ? capLabel(o) : b.mode === "confirm" ? (o.value === "always" ? T("ch.always", o.rule || "") : o.value === "chat" ? T("ch.chat", o.rule || "") : T(o.value === "confirm" ? (b.kind === "permission" ? "ch.once" : "ch.yes") : "ch.no")) : o.label);
 
   function makeBlock(b) {
     if (b.t === "reasoning") {

@@ -106,7 +106,7 @@ class PhoneLimitsTest(unittest.TestCase):
     def setUp(self):
         self.svc.remote._httpd = types.SimpleNamespace(server_address=("100.64.0.1", 1))      # the listener for phones is up
         self.svc.api_key = ""
-        self.svc.remote.set_limits("default", [])
+        self.svc.remote.set_limits("default", [], phone_chooses=False)
 
     @classmethod
     def call(cls, method, path, payload=None, key=None, outside=False):
@@ -158,6 +158,14 @@ class PhoneLimitsTest(unittest.TestCase):
         self.assertEqual(made["session"]["allow"], ["shell_command:pytest *"])
         code, local = self.call("POST", "/api/agent/sessions", self.session(allow=["shell_command:git *"]))                       # the PC's own page: its own rules
         self.assertEqual(local["session"]["allow"], ["shell_command:git *"])
+
+    def test_when_the_person_lets_phones_choose_the_phone_picks_its_mode_and_rules(self):
+        code, view = self.call("POST", "/api/remote/limits", {"phone_chooses": True, "max_mode": "plan", "rules": []})
+        self.assertEqual((code, view["limits"]["phone_chooses"]), (200, True))
+        code, made = self.phone_post("/api/agent/sessions", self.session(mode="auto", ask_only=False, confirm_auto=True, allow=["shell_command:git *"]))
+        self.assertEqual((code, made["session"]["mode"], made["session"]["allow"]), (200, "auto", ["shell_command:git *"]))
+        self.assertEqual(self.phone_post("/api/agent/sessions", self.session(mode="root", ask_only=False))[0], 400)
+        self.assertTrue(RemoteAccess(Path(self.tmp.name) / "remote.json", 0, lambda ip, port: None).phone_chooses)
 
     def test_runs_and_routines_started_from_a_phone_follow_the_same_limits(self):
         run = {"workspace": str(self.work), "goal": "x", "mode": "auto", "confirm_auto": True}

@@ -367,6 +367,23 @@
       h("p", "help", T("wl.two.next"))));
   }
 
+  /* ---- what is allowed for every conversation ---- */
+  function allowSection() {
+    const rules = data.allow_rules;
+    if (!rules) return null;
+    const input = h("input"); input.type = "text"; input.id = "wl-allow-new"; input.spellcheck = false; input.placeholder = "shell_command:pytest *";
+    const l = h("label", "", T("wl.allow.add")); l.htmlFor = input.id;
+    const send = async (action, rule) => {
+      const r = await call("POST", "api/wallet/allow-rules", { action, rule });
+      if (r.ok) { data.allow_rules = r.data.allow_rules; say(T("wl.saved")); draw(); } else say(why(r), true);
+    };
+    const rows = rules.map(rule => h("li", "wl-rule", h("code", "", rule), btn(T("wl.allow.remove"), "ghost", () => send("remove", rule))));
+    return h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.allow"))), h("div", "wl-body", h("p", "help", T("wl.allow.help")),
+      rows.length ? h("ul", "wl-rules", rows) : h("p", "help", T("wl.allow.none")),
+      h("div", "wl-pick", l, input, btn(T("wl.allow.addbtn"), "primary", () => { if (input.value.trim()) send("add", input.value); })),
+      h("p", "help", T("wl.allow.next"))));
+  }
+
   /* ---- the history ---- */
   function histSection() {
     const rows = (data.ledger || []).map(r => {
@@ -503,7 +520,7 @@
     const n = h("p", "wl-note", note); n.hidden = !note; n.dataset.bad = noteBad ? "1" : "";
     const problems = (data.problems || []).map(p => h("p", "wl-note", p));
     problems.forEach(p => { p.dataset.bad = "1"; });
-    root.replaceChildren(...[banner(), h("div", "wl-top", h("p", "wl-lead", T("wl.lead")), n, ...problems), vaultSection(), paySection(), browserSection(), twoSection(), histSection()].filter(Boolean));
+    root.replaceChildren(...[banner(), h("div", "wl-top", h("p", "wl-lead", T("wl.lead")), n, ...problems), vaultSection(), paySection(), browserSection(), twoSection(), allowSection(), histSection()].filter(Boolean));
   }
   const inField = () => { const a = document.activeElement; return !!a && root.contains(a) && a.matches("input, select, textarea"); };
   /* quiet: a periodic or view refresh. It redraws only when the data changed, and never while a field of the page has the focus (the next one does),

@@ -84,6 +84,8 @@ class Texts {
     'chat.yes': ['Sì', 'Yes'],
     'chat.no': ['No', 'No'],
     'chat.always': ['Permetti sempre: {0}', 'Always allow: {0}'],
+    'chat.chat': ['Permetti in questa chat: {0}', 'Allow in this chat: {0}'],
+    'chat.once': ['Solo questa chiamata', 'This call only'],
     'chat.mode': ['Modalità', 'Mode'],
     'chat.working': ['L\'agente lavora...', 'The agent is working...'],
     'chat.cancelled': ['Fermato', 'Stopped'],

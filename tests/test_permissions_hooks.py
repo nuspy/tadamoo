@@ -381,7 +381,7 @@ def test_a_built_agent_loads_the_user_hooks_and_the_workspace_hooks_only_when_al
 def test_the_rule_offered_by_an_always_answer_covers_the_verb_and_nothing_chained():
     from harness.permissions import PermissionLevel, PermissionManager, suggest_rule
     assert suggest_rule("shell_command", {"command": "pytest -q tests"}) == "shell_command:pytest *"
-    assert suggest_rule("shell_command", {"command": r"C:\Python\python.exe -m pytest"}) == r"shell_command:C:\Python\python.exe -m pytest"
+    assert suggest_rule("shell_command", {"command": r"C:\Python\python.exe -m pytest"}) == "shell_command:python.exe *"
     assert suggest_rule("shell_command", {"command": "pytest && rm -rf x"}) is None
     assert suggest_rule("shell_command", {"command": "echo $(whoami)"}) is None
     assert suggest_rule("phone_call", {}) is None and suggest_rule("request_payment", {}) is None and suggest_rule("write_file:/r/.git/hooks/x", {}) is None

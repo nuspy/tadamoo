@@ -24,8 +24,9 @@ class WalletError(ValueError):
 
 class WalletApi:
     def __init__(self, vault: Callable[[], Vault], payments: Callable[[], PaymentsBroker], browser: BrowserPrefs, profile: Any = None,
-                 rule_of_two: Optional[RuleOfTwoPrefs] = None) -> None:
+                 rule_of_two: Optional[RuleOfTwoPrefs] = None, allow_rules: Any = None) -> None:
         self._vault, self._payments, self._browser, self._profile = vault, payments, browser, profile
+        self._allow = allow_rules                       # the rules allowed for every conversation (serve/allow_rules.py)
         self._two = rule_of_two                         # how strict the Rule of Two is for the conversations started from now on
 
     # -- what the page shows ---------------------------------------------------------------------
@@ -36,6 +37,8 @@ class WalletApi:
                                "problems": [], "browser": {"found": bool(find_browser()), **self._browser.read()}}
         if self._two is not None:
             out["rule_of_two"] = {"level": self._two.read(), "levels": list(RULE_OF_TWO_LEVELS)}
+        if self._allow is not None:
+            out["allow_rules"] = self._allow.read()
         try:
             out["entries"] = self._vault().entries()
         except VaultError as e:
@@ -67,6 +70,15 @@ class WalletApi:
         if req.get("level") not in RULE_OF_TWO_LEVELS:
             raise WalletError(f"level is one of: {', '.join(RULE_OF_TWO_LEVELS)}")
         return {"rule_of_two": {"level": self._two.write(req["level"]), "levels": list(RULE_OF_TWO_LEVELS)}}
+
+    def set_allow_rules(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """Add or take away a rule that lets a kind of call run without asking, in every conversation started from now on."""
+        if self._allow is None:
+            raise WalletError("the allowed rules are not available here")
+        if req.get("action") not in ("add", "remove"):
+            raise WalletError("action is add or remove")
+        rules = self._allow.add(req.get("rule")) if req["action"] == "add" else self._allow.remove(req.get("rule"))
+        return {"allow_rules": rules}
 
     def signin_window(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """The browser that keeps sign-ins, in a window, for the person to sign in to an account (Google, a bank, a shop) themselves."""

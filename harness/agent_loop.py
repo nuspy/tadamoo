@@ -21,7 +21,7 @@ from harness.checkpoints import CheckpointManager
 from harness.client import BasaltClient, BasaltError, StreamCancelled, extract_reasoning_and_content
 from harness.context import ContextManager, fence_untrusted, wire_messages
 from harness.repeat_guard import RepeatGuard
-from harness.rule_of_two import RuleOfTwo, blocked_message
+from harness.rule_of_two import leak_question
 from harness.hooks import HookManager
 from harness.permissions import PermissionManager
 from harness.pipeline import Card, Pipeline, feedback
@@ -407,10 +407,14 @@ class AgentLoop:
             return refused("loop", f"Loop detected: '{name}' was called repeatedly with identical arguments. "
                                    "Stop repeating it and change your approach.", "tool_loop")
 
-        if tool.outward and (self.secrets or self.permissions):
-            held = (self.permissions.two if self.permissions else RuleOfTwo()).leak(args, self.secrets)
+        if tool.outward and self.permissions:
+            two = self.permissions.two
+            held = two.leak(args, self.secrets) if two.level != "off" else ""
             if held:
-                return refused("blocked", blocked_message(held), "tool_blocked")
+                allowed, reason = self.permissions.ask_leak(name, args, two.hide(args, self.secrets), leak_question(name, held, args))
+                if not allowed:
+                    permission = "denied"
+                    return refused("denied", f"Permission denied: {reason}", "permission_denied")
         if self.hooks:
             blocked = self.hooks.trigger_pre_tool(name, args)
             if blocked:

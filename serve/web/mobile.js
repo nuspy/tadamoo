@@ -135,17 +135,23 @@
   function limitsBlock() {
     const box = el("div", "mb-block mb-limits"), L = S.limits;
     box.append(el("h3", "", T("mb.lim.title")), el("p", "help", T("mb.lim.help")));
+    const chooses = el("input"), choosesLab = el("label", "mb-check", T("mb.lim.chooses"));
+    chooses.type = "checkbox"; chooses.id = "mb-chooses"; chooses.checked = !!L.phone_chooses; choosesLab.htmlFor = chooses.id; choosesLab.prepend(chooses);
     const mode = el("select"), modeLab = el("label", "", T("mb.lim.mode")), rules = el("textarea"), rulesLab = el("label", "", T("mb.lim.rules"));
     mode.id = "mb-maxmode"; modeLab.htmlFor = mode.id; rules.id = "mb-rules"; rulesLab.htmlFor = rules.id;
     L.modes.forEach(m => { const o = el("option", "", T("mb.mode." + m)); o.value = m; mode.append(o); });
     mode.value = L.max_mode; rules.value = L.rules.join("\n"); rules.rows = 3; rules.spellcheck = false; rules.placeholder = "shell_command:pytest *";
     const help = el("p", "help", T("mb.lim.mode.help." + L.max_mode));
     mode.onchange = () => { help.textContent = T("mb.lim.mode.help." + mode.value); };
+    const fixed = el("div", "mb-fixed");                       // what applies only while phones may not choose
+    const lock = () => { fixed.hidden = chooses.checked; };
+    chooses.onchange = lock; lock();
     const save = btn(T("mb.lim.save"), "primary", async () => {
-      const r = await api("POST", "api/remote/limits", { max_mode: mode.value, rules: rules.value.split("\n").map(x => x.trim()).filter(Boolean) });
+      const r = await api("POST", "api/remote/limits", { phone_chooses: chooses.checked, max_mode: mode.value, rules: rules.value.split("\n").map(x => x.trim()).filter(Boolean) });
       limitsNote = r.ok ? T("mb.lim.saved") : errText(r); if (r.ok) S = r.data; paint();
     }, T("mb.lim.save.tip"));
-    box.append(modeLab, mode, help, rulesLab, rules, el("p", "help", T("mb.lim.rules.help")), save);
+    fixed.append(modeLab, mode, help, rulesLab, rules, el("p", "help", T("mb.lim.rules.help")));
+    box.append(choosesLab, el("p", "help", T("mb.lim.chooses.help")), fixed, save);
     if (limitsNote) box.append(el("p", "mb-ok", limitsNote));
     return box;
   }
