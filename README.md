@@ -768,7 +768,7 @@ Set in the Loader (each with its reason and the live prediction), saved in load 
 | **Port** (`server.port`) | the HTTP port, default 7232 | change it only to run two servers or when 7232 is taken |
 | **Parallel requests** (`server.parallel`, 1-8) | requests served at once in the engine's batch slots | 1 for one user or one agent (fastest per request); more only for several agents at once. The context is shared: each slot gets `max-context / N` |
 | **Full context per slot** (`server.slot-full-context`) | every slot gets the whole context instead of a share | costs N times the KV cache, taken from the expert cache: leave off unless each agent really needs the full length |
-| **Image input** (`server.vision`) | `off`, `dynamic` (borrows expert-cache slots only while it reads an image: no standing VRAM), `on` (encoder always on the GPU, about 2.2 GiB), `peer` (on a second GPU), `cpu` (no VRAM, slow) | `dynamic` when the file has a projector, else `off` |
+| **Image input** (`server.vision`) | `off`, `dynamic` (borrows expert-cache slots only while it reads an image: no standing VRAM), a GPU number such as `0` (encoder always on that card, about 2.2 GiB of its VRAM; the old names `on` and `peer` still read as GPU 0 and GPU 1), `cpu` (no VRAM, slow) | `dynamic` when the file has a projector, else `off` |
 | **Context** (`engine.max-context`) | the longest conversation, in tokens (up to 262,144) | the longest that fits ("Valori sicuri" and the wizard pick it); a shorter one leaves more VRAM for experts (a little faster) and needs less commit |
 | **KV cache** (`engine.kv`) | the precision of the attention cache: `fp16`, `int8`, `q4_0`, `k8v4` (INT8 keys, Q4_0 values) | `q4_0`: a quarter of fp16's memory, so long contexts fit; `int8` or `k8v4` for slightly more precise attention at more memory |
 | **Prompt chunks** (`engine.prefill`) | how long prompts are read: `auto` (the largest chunk the expert cache can lend), `auto:8192/16384/32768` (a ceiling), or a fixed size | `auto` |
@@ -778,6 +778,26 @@ Set in the Loader (each with its reason and the live prediction), saved in load 
 | **VRAM to leave free** (`engine.vram-reserve-mib`) | VRAM the engine never touches (desktop, driver, other programs) | see [VRAM to leave free](#vram-to-leave-free); the wizard's rule: 0.5 GB + 1.5 GB if the GPU drives the main monitor (about 0.4 GB for a secondary one) |
 | **PLE table** (`engine.ple-io`) | the per-layer n-gram table: `direct` (read from the SSD as needed, never in RAM), `ram` (locked in RAM at the start: RAM but no commit), `mmap` (a test arm) | `ram` when it fits with the free share kept, else `direct`; on a slow or rotational disk prefer `ram` |
 | **CPU workers** (`engine.pool-workers`) | the threads that compute the experts not in VRAM | the performance cores plus half the efficiency cores, less one (one core stays for the server and the desktop) |
+| **KV kept in VRAM** (`engine.kv-resident`, 0 or from 20,480 cells) | only this many cells of each layer's KV stay in VRAM, the whole K/V is pinned in RAM and the VRAM it frees goes to experts; a context that fits in these cells is not streamed | very long contexts on a small card; slower the more is streamed; not with `k8v4`. The plan moves the KV pool from the VRAM figure to the RAM figure |
+| **Context extension** (`engine.rope-scaling`: `none`, `linear`, `yarn`) | extends the context past the trained length | fixed for the run and it changes the output; empty = the model file's |
+| **Extension factor** (`engine.rope-scale`, 1 or more) | the factor for `linear` and `yarn` | empty = the model file's, else 1 |
+| **RoPE frequency base** (`engine.rope-freq-base`, 0 or above 1) | the raw frequency base, 0 = the model's own | leave empty unless you know the value you want; fixed for the run |
+| **CPU share of the prompt experts** (`engine.prefill-cpu-share`, 0-1) | the share of the streamed prompt experts the CPU computes; 0 has the GPU stream them all | 0.6 by default; lower on a weaker CPU |
+| **Adaptive swaps** (`engine.adapt-swaps`) | the most experts one adaptive round swaps into the main GPU's expert cache; 0 = off | 96 by default; with swaps on, the output is not bit-identical from run to run |
+| **RAM budget for experts** (`engine.resident-budget-gib`, GiB) | at most this many GiB of experts copied to RAM, the most used first | empty = automatic; the plan's RAM figure is limited to it; the engine refuses a budget that leaves less than its RAM floor free |
+| **Experts in the file mapping** (`engine.mmap-experts`) | no resident RAM copy: the experts are read through a file mapping; it wins over resident experts and the RAM budget | usually slower (it depends on the OS page cache); off by default |
+| **Elastic expert cache** (`engine.vram-elastic`) | the expert cache in segments, so `POST /v1/vram` can lend VRAM to other programs between requests | off unless another program needs VRAM at times |
+| **Give back the GPU memory's commit** (`engine.release-vram-commit`, Windows) | gives back the system commit WDDM charges for the GPU memory | off; the engine can hang if another program then pushes its VRAM out |
+| **Expert profile file** (`engine.expert-profile-save`, advanced) | the file the engine saves what the adaptive cache learned to, on exit and periodically | empty = not saved; `tools/convert/convert.py --profile` reads it |
+| **Profile save interval** (`engine.expert-profile-save-every`, minutes, advanced) | how often the profile is saved; 0 = on exit only | 10 by default |
+| **Prompt checkpoints** (`engine.prompt-cache`) | conversation checkpoints kept between requests, about 118 MB of RAM each per slot; 0 reads every prompt from the start | 6 by default; the plan counts them |
+| **Checkpoint every** (`engine.prompt-cache-every`, tokens) | also checkpoint every N freshly read prompt tokens; 0 = off | 16,384 by default |
+| **First-turn checkpoint** (`engine.prompt-cache-root`, tokens) | checkpoint the end of the system prompt when it is at least this long; 0 = never | 2,048 by default |
+| **Parked conversations** (`engine.conversation-cache-mib`, MiB) | RAM budget for parked conversations, so separate chats come back without re-reading; 0 = off | 0 by default; the plan counts the whole budget |
+| **Parked conversations, at most** (`engine.conversation-cache-slots`) | how many conversations are parked at a time | 4 by default; 0 turns the cache off |
+| **RAM kept free when parking** (`engine.conversation-cache-min-free-mib`, MiB) | the physical RAM floor kept free when a conversation is parked | 2,560 by default |
+| **Grammar** (`server.grammar`) | holds every tool call and JSON response format to its schema inside the engine | on by default; applies at the next Load |
+| **Default thinking budget** (`server.reasoning-budget-tokens`) | the thinking budget for requests that name none; 0 = none | keep it below the requests' `max_tokens`; applies at the next Load |
 
 One more rule is per PC, not per profile: the **share of RAM and commit kept free** for other programs (15% unless the
 wizard was told otherwise, 5-50%, at least 2 GB). Every plan, "Valori sicuri" and the wizard keep it free, and a load
@@ -1054,29 +1074,28 @@ Basalt refuses settings that would leave the machine without memory, and never s
 
 ### Vision: `--vision`
 
-Image input is one server option, `--vision off | on | peer | dynamic | cpu` (config: `"vision": "peer"` in the
-`server` section). It is `off` by default. The encoder is Basalt's own and shares its kernels in every mode, so all
-five give bitwise identical embeddings.
+Image input is one server option, `--vision off | dynamic | cpu | N` (config: `"vision": "0"` in the `server` section), where
+N is a GPU number as `nvidia-smi` numbers them. It is `off` by default. The encoder is Basalt's own and shares its kernels
+in every mode, so all of them give bitwise identical embeddings. The old names `on` and `peer` are still read from saved
+Loader settings, as GPU 0 and GPU 1. The Loader shows each card with its name.
 
-| mode | where the encoder runs | VRAM cost | fresh-image latency (IQ3_S, 400 W) |
+| mode | where the encoder runs | VRAM cost | fresh-image latency (IQ3_S, 400 W, measured by the original project) |
 | --- | --- | --- | --- |
 | `off` | no image input | none | |
-| `on` | sidecar `bin/basalt-vision` on the main GPU, always loaded | about 2.2 GiB of the main card's expert cache | TTFT 0.77 s at 1k image tokens, 1.4 s at 3k, 1.8 s at 4k |
-| `peer` | the same sidecar on the second `--gpu` card | about 1.8 GiB of the peer card's cache, none on the main card | 0.86 s, 2.1 s, 2.9 s |
+| `N` | sidecar `bin/basalt-vision` on card N, always loaded | about 2.2 GiB of the main card's expert cache, or about 1.8 GiB of a second card's | main card: TTFT 0.77 s at 1k image tokens, 1.4 s at 3k, 1.8 s at 4k; second card: 0.86 s, 2.1 s, 2.9 s |
 | `dynamic` | inside the engine, on the main GPU | none at rest (0.87 GiB of pinned RAM) | 0.77 s, 1.45 s, 1.8 s |
 | `cpu` | sidecar on the CPU | none | about 6 s at 1k, 40 s at 3k, 70 s at 4k |
 
 `dynamic` borrows up to 1.55 GiB of expert-cache slots per image (the prompt path's lend), uploads the weights from the
 pinned copy (about 30 ms), encodes on a side stream, and refills the same slots from RAM (about 60 ms), so the cache is
 identical afterwards. Other `--parallel` slots pause for the encode. An image already seen is served from the
-encoder cache in tens of milliseconds in every mode. `peer` on a single GPU warns and loads the encoder on that GPU;
-with two cards, `on` says so at startup and names `peer` as the way to put it on the second card.
+encoder cache in tens of milliseconds in every mode.
 
 ```json
-{ "server": { "gpu": "0,1", "vision": "peer" } }
+{ "server": { "gpu": "0,1", "vision": "1" } }
 ```
 
-`on` and `peer` use the sidecar, which the main build also produces (`tools/vision` also builds on its own); the
+A card number uses the sidecar, which the main build also produces (`tools/vision` also builds on its own); the
 server looks for it next to `bin/basalt`. `dynamic` needs no sidecar.
 
 The image encoder is Basalt's own, written for this model's vision tower (no llama.cpp or ggml): bf16 tensor-core

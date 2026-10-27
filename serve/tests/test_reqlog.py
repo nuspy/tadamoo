@@ -23,6 +23,13 @@ from serve.util.reqlog import GATHER_CHARS, RequestLog, export_jsonl, export_tex
 from serve.util.reqtrace import request_params
 from serve.util.text import ByteTokenizer
 
+try:
+    import jsonschema  # noqa: F401
+    HAVE_JSONSCHEMA = True
+except ImportError:
+    HAVE_JSONSCHEMA = False
+
+
 class Clock:
     def __init__(self, t=1_700_000_000.0):
         self.t = t
@@ -281,6 +288,58 @@ class ChatRequests(Http):
         self.assertTrue(all(e["id"] > first["last"] for e in later["events"]))
         self.assertEqual([e["kind"] for e in later["events"]][0], "request")
         self.assertNotEqual(later["events"][0]["req"], first["events"][0]["req"])
+
+    @unittest.skipUnless(HAVE_JSONSCHEMA, "jsonschema is not installed")
+    def test_a_structured_retry_logs_every_try_and_the_repair_message(self):
+        entries = ",".join(json.dumps(x) for x in ["one"] + ["same entry here"] * 5)
+        bad = '{"items": [' + entries + ', "cut'
+        good = '{"items": ["a", "b"]}'
+        self.start(["Try one thoughts.</think>\n" + bad, "Try two thoughts.</think>\n" + good], telemetry=False)
+        schema = {"type": "object", "properties": {"items": {"type": "array", "items": {"type": "string"}}},
+                  "required": ["items"]}
+        body = {**self.CHAT, "response_format": {"type": "json_schema", "json_schema": {"name": "s", "schema": schema}},
+                "structured_retries": 1}
+        code, reply, _ = self.call("/v1/chat/completions", body)
+        self.assertEqual(code, 200, reply)
+        events = self.log()["events"]
+        self.assertEqual([e["kind"] for e in events],
+                         ["request", "timing", "reasoning", "content", "timing", "attempt", "repair",
+                          "timing", "reasoning", "content", "timing", "attempt", "finish"])
+        by = {}
+        for e in events:
+            by.setdefault(e["kind"], []).append(e)
+        self.assertEqual([e["data"]["attempt"] for e in by["reasoning"]], [1, 2])
+        self.assertEqual(by["content"][0]["text"], bad)                       # the discarded try's text is in the log
+        self.assertEqual(by["content"][1]["text"], good)
+        first, second = by["attempt"]
+        self.assertEqual((first["data"]["ok"], first["data"]["discarded"], first["data"]["retrying"]), (False, True, True))
+        self.assertIn("Unterminated string", first["data"]["error"])
+        self.assertEqual(first["data"]["finish_reason"], "stop")
+        self.assertEqual((second["data"]["ok"], second["data"]["discarded"]), (True, False))
+        repair = by["repair"][0]
+        self.assertEqual(repair["data"]["attempt"], 1)
+        self.assertEqual(repair["data"]["path"], "/items/6")
+        self.assertEqual(repair["data"]["repeated"]["count"], 5)
+        self.assertEqual((repair["data"]["repeated"]["first"], repair["data"]["repeated"]["last"]), (2, 6))
+        self.assertTrue(repair["text"].startswith("Your previous answer was rejected: model did not return valid JSON"))
+        self.assertIn(repair["text"], self.tok.decode(self.engine.requests[1][0]))     # exactly what was sent
+        self.assertNotIn(bad, repair["text"])
+        self.assertEqual(events[-1]["data"]["attempts"], 2)
+        self.assertEqual(events[0]["data"]["params"]["response_format"], {"type": "json_schema", "name": "s"})
+
+    @unittest.skipUnless(HAVE_JSONSCHEMA, "jsonschema is not installed")
+    def test_a_structured_failure_ends_with_the_error(self):
+        self.start('{"not": "a list"}', telemetry=False)
+        fmt = {"type": "json_schema", "json_schema": {"name": "s", "schema": {
+            "type": "object", "properties": {"items": {"type": "array"}}, "required": ["items"]}}}
+        code, reply, _ = self.call("/v1/chat/completions", {**self.CHAT, "response_format": fmt, "structured_retries": 1})
+        self.assertEqual(code, 502)
+        kinds = self.kinds()
+        self.assertEqual(kinds[-3:], ["attempt", "error", "finish"])
+        error = self.events("error")[0]["data"]
+        self.assertEqual(error["type"], "structured_output_failed")
+        self.assertTrue(error["message"].startswith("502: "))
+        self.assertFalse(self.events("attempt")[-1]["data"]["retrying"])
 
     def test_a_refused_request_is_logged_with_its_error(self):
         self.start(telemetry=False)

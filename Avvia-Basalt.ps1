@@ -398,7 +398,7 @@ if ($accesi.Count) {
         $confronto = $null
         try { $confronto = $cmp.Righe | Select-Object -Last 1 | ConvertFrom-Json } catch { }
         if ($cmp.Codice -eq 3 -and $confronto) {
-            $elenco = ($confronto.differences | ForEach-Object { "  $($_.field):  $($_.running)  ->  $($_.requested)" }) -join "`n"
+            $elenco = ($confronto.differences | ForEach-Object { $nome = { param($x, $lato) $n = $x.PSObject.Properties["${lato}_name"]; if ($n) { "$($x.$lato) ($($n.Value))" } else { "$($x.$lato)" } }; "  $($_.field):  $(& $nome $_ 'running')  ->  $(& $nome $_ 'requested')" }) -join "`n"
             $elenco = "$(T 'profilo chiesto' 'profile asked for'): $($confronto.profile)`n$(T 'in uso -> chiesto' 'running -> asked for'):`n$elenco"
             if ($Riusa) { $decisione = 'riusa'; $perche = '-riusa' }
             elseif ($Riavvia) { $decisione = 'riavvia'; $perche = '-riavvia' }

@@ -306,6 +306,10 @@ class Tabs(unittest.TestCase):
                     self.assertIn(f'"h.{name}":', block, name)
                 if kind == "choice" and name != "server.vision-projector":      # the projector's options come with each plan
                     for value in re.findall(r'"([^"]+)"', options):
+                        if name == "server.vision" and value.isdigit():       # one option per GPU found, from one key
+                            self.assertIn('"o.server.vision.gpu":', block)
+                            self.assertNotIn(f'"o.{name}.{value}":', block)
+                            continue
                         self.assertIn(f'"o.{name}.{value}":', block, f"{name} {value}")
 
     def test_the_controls_that_had_no_explanation_now_have_one_in_both_languages(self):

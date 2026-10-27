@@ -26,12 +26,13 @@ from serve.engine.errors import EngineDied, EngineStarting, EngineStuck, GpuBusy
 from serve.api.grammar import REQUEST_KEY as GRAMMAR_KEY
 from serve.api.logit_bias import REQUEST_KEY as BIAS_KEY, add_end_turn, checked as checked_bias
 from serve.frontend import anthropic_to_messages, forced_call, openai_to_messages
-from serve.api.openai import openai_chunks, openai_collect
+from serve.api.openai import (openai_chunks, openai_collect, retry_messages, structured_retries,
+                              structured_retry_chunks)
 from serve.api.responses import ResponsesError
 from serve.prompt import primed
 from serve.security import host_allowed, host_names_for, key_matches, origin_allowed
 from serve.service import LOG_FIRST_LINES, LOG_MAX_LINES, Service, _debug_req
-from serve.api.structured import anthropic_format, check_format
+from serve.api.structured import StructuredOutputError, anthropic_format, check_format, json_validator
 from serve.util.reqlog import export_jsonl, export_text
 from serve import plans as plans_mod, userdata
 from serve import review as review_mod
@@ -798,6 +799,9 @@ def make_handler(svc: Service, remote: bool = False):
                     self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
             except ModelBusy as e:
                 self._json(409, {"error": {"type": "model_busy", "message": str(e)}})
+            except StructuredOutputError as e:
+                self._json(502, {"error": {"type": "structured_output_failed", "code": "structured_output_failed",
+                                          "message": str(e)}})
             except (GpuBusy, EngineStarting) as e:
                 self._json(503, {"error": {"type": "server_error", "message": str(e)}})
             except EngineDied as e:                          # before the answer started
@@ -2217,6 +2221,9 @@ def make_handler(svc: Service, remote: bool = False):
             tools, force = forced_call(req.get("tool_choice"), tools)   # a bad choice is a 400 before streaming
             if check_format(req.get("response_format")) and tools:
                 raise ValueError("structured response_format with tools is not supported")
+            retries = structured_retries(req)                 # 0: the engine's grammar alone; tries only when a request asks
+            validator = json_validator(req.get("response_format")) if retries else None
+            trace = self.trace
             svc.require_grammar(req.get("response_format"))
             if check_format(req.get("response_format")):
                 req["relaxed_drafting"] = False                # JSON output is sampled exactly
@@ -2232,7 +2239,19 @@ def make_handler(svc: Service, remote: bool = False):
             _debug_req("openai", req, messages, tools, max_new, thinking, len(ids))
             cancel = threading.Event()
             self._watch_client(cancel)
-            chunks = primed(openai_chunks(svc, req, ids, thinking, tools, max_new, cancel, force=force), ids)
+            if validator is None:
+                chunks = primed(openai_chunks(svc, req, ids, thinking, tools, max_new, cancel, force=force), ids)
+            else:                                             # validated, and tried again with the error fed back
+                def start(feedback):
+                    if trace is not None:
+                        trace.attempt = (trace.attempt or 0) + 1
+                    if feedback is None:
+                        return primed(openai_chunks(svc, req, ids, thinking, tools, max_new, cancel, force=force), ids)
+                    again = retry_messages(messages, *feedback)
+                    ids2, thinking2, max_new2 = svc.prepare(again, tools, kw, asked, force=force)
+                    return primed(openai_chunks(svc, req, ids2, thinking2, tools, max_new2, cancel, force=force), ids2)
+                chunks = structured_retry_chunks(start, validator, retries, trace.note if trace is not None else None,
+                                                 constrained=bool(req.get(GRAMMAR_KEY)))
             if not req.get("stream"):
                 return self._json(200, openai_collect(chunks))
             self._sse()
@@ -2250,6 +2269,9 @@ def make_handler(svc: Service, remote: bool = False):
                 self._left()
             except EngineDied as e:                          # mid-stream
                 err = {"error": {"type": "server_error", "message": f"{e}; the next request restarts it"}}
+                self._stream_failed(err, b"data: " + json.dumps(err).encode() + b"\n\ndata: [DONE]\n\n")
+            except StructuredOutputError as e:
+                err = {"error": {"type": "structured_output_failed", "code": "structured_output_failed", "message": str(e)}}
                 self._stream_failed(err, b"data: " + json.dumps(err).encode() + b"\n\ndata: [DONE]\n\n")
             except ValueError as e:                          # engine ERR after the stream started: no 400 now
                 err = {"error": {"type": "server_error", "message": str(e)}}

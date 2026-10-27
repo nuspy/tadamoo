@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from serve import loader, settings
-from serve.config import build_parser, engine_flags_of, parse_settings, sampling_defaults_from_config, sampling_line
+from serve.config import build_parser, check_engine_flags, engine_flags_of, parse_settings, sampling_defaults_from_config, sampling_line
 from serve.engine.errors import EngineStartError
 from serve.engine.flags import flag_index, flag_value
 from serve.engine.vision import EngineVision, Vision, child_env, engine_args, gpus_in_play, vision_env
@@ -48,9 +48,15 @@ def settings_info(a, words: list[str], argv: list[str]) -> dict:
     running = {"server.port": a.port, "server.parallel": a.parallel or 1, "server.vision": a.vision,
                "server.vision-projector": getattr(a, "vision_projector", "auto"),
                "server.vision-hold": getattr(a, "vision_hold", "keep"),
-               "server.slot-full-context": bool(a.slot_full_context)}
+               "server.slot-full-context": bool(a.slot_full_context),
+               "server.grammar": bool(getattr(a, "grammar", True)),
+               "server.reasoning-budget-tokens": getattr(a, "reasoning_budget_tokens", None)}
     for name in ("max-context", "kv", "spec", "relaxed-drafting", "expert-cache", "prefill", "resident-experts",
-                 "vram-reserve-mib", "ple-io", "pool-workers"):
+                 "vram-reserve-mib", "ple-io", "pool-workers", "kv-resident", "resident-budget-gib", "mmap-experts",
+                 "adapt-swaps", "prefill-cpu-share", "vram-elastic", "release-vram-commit", "expert-profile-save",
+                 "expert-profile-save-every", "prompt-cache", "prompt-cache-every", "prompt-cache-root",
+                 "conversation-cache-mib", "conversation-cache-slots", "conversation-cache-min-free-mib",
+                 "rope-scaling", "rope-scale", "rope-freq-base"):
         running[f"engine.{name}"] = flag_setting(words, f"--{name}")
     if getattr(a, "shared_context", None):              # the total, before it was divided among the slots
         running["engine.max-context"] = a.shared_context
@@ -171,6 +177,8 @@ class Supervisor:
         """Restart the engine with the config file's settings on this thread; raises when it does not start."""
         svc = self.svc
         a, words = self._parse()
+        if not self.mock and isinstance(getattr(a, "engine_bin", None), str):
+            check_engine_flags(words, engine_flags_of(a.engine_bin), "--config")     # a flag this binary lacks is named, not a failed start
         if not svc.fifo.acquire(timeout=RELOAD_WAIT_S):
             raise RuntimeError("a request kept the model busy; try again when it has finished")
         try:
@@ -182,6 +190,11 @@ class Supervisor:
             else:
                 self._reload_engine(a, words)
             svc.settings_info = settings_info(a, words, self.argv)
+            if isinstance(getattr(a, "grammar", None), bool):                 # server options the engine reload applies
+                svc.grammar = a.grammar
+            budget = getattr(a, "reasoning_budget_tokens", None)
+            if budget is None or isinstance(budget, int):
+                svc.reasoning_budget_tokens = budget or 0
             svc.standby = False                          # the Loader loaded the model: requests may run now
         finally:
             svc.loading = False

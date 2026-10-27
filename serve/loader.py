@@ -51,7 +51,9 @@ CUDA_CONTEXT = 600 * MiB                # estimate: CUDA context, cuBLAS and ker
 VISION_SIDECAR = int(2.2 * GiB)         # --vision on: the encoder process on the main GPU
 MIN_CACHE_SLOTS = 256                   # below this the prompt reads cannot borrow slots (k + 128 <= slots)
 RESIDENT_SPARE_BLOBS = 96               # spare places of the resident copy
-PROMPT_CHECKPOINTS = 6 * 118 * MiB      # --prompt-cache 6 checkpoints of the recurrent state
+PROMPT_CHECKPOINT = 118 * MiB           # one --prompt-cache checkpoint of the recurrent state
+ATTENTION_LAYERS = 12                   # layers with a KV cache; KV_CELL_BYTES is one of them
+KV_RESIDENT_MIN = 20480                 # --kv-resident keeps at least this many cells in VRAM
 PLE_ROW_CACHE = 1048576 * 90            # --ple-io direct: the row cache
 HOST_OTHER = 2 * GiB                    # estimate: the server, the engine heap and CUDA's host runtime
 # the prompt path's lend region (generate.cpp plan_lend: at most kAutoLendPct of the cache's slots, 128 left): with
@@ -69,7 +71,16 @@ ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.pref
                    "engine.expert-cache": 0, "engine.resident-experts": False,
                    "engine.vram-reserve-mib": 700, "engine.ple-io": "direct", "engine.pool-workers": None,
                    "server.parallel": 1, "server.slot-full-context": False, "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep", "engine.relaxed-drafting": None,
-                   "server.port": 7232}
+                   "server.port": 7232,
+                   "engine.kv-resident": 0, "engine.resident-budget-gib": None, "engine.mmap-experts": False,
+                   "engine.adapt-swaps": 96, "engine.prefill-cpu-share": 0.6, "engine.vram-elastic": False,
+                   "engine.release-vram-commit": False, "engine.expert-profile-save": None,
+                   "engine.expert-profile-save-every": 10,
+                   "engine.prompt-cache": 6, "engine.prompt-cache-every": 16384, "engine.prompt-cache-root": 2048,
+                   "engine.conversation-cache-mib": 0, "engine.conversation-cache-slots": 4,
+                   "engine.conversation-cache-min-free-mib": 2560,
+                   "engine.rope-scaling": None, "engine.rope-scale": None, "engine.rope-freq-base": 0,
+                   "server.grammar": True, "server.reasoning-budget-tokens": 0}
 
 # "Valori sicuri" are computed from this PC and the model (safe()); SAFE is what that gives on one example PC (an RTX
 # 5090 with 32 GiB, 128 GiB of RAM, a processor with 8 performance and 16 efficiency cores, the IQ3_XXS file with its
@@ -393,7 +404,22 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     mode = v["server.vision"]
     # ---- VRAM
     dense = facts["dense_bytes"] + facts["head_bytes"]
-    kv = par * (KV_TOKEN_BYTES[kvf] * ctx + SESSION_FIXED)
+    # --kv-resident N: only max(N, KV_RESIDENT_MIN) cells of each layer's K/V stay in VRAM and the whole K/V is pinned
+    # in RAM; the per-token state (indexer keys, page table, RoPE table) stays whole. A context that fits in those
+    # cells is not streamed; k8v4 cannot stream (the engine refuses it).
+    notes = []
+    kv_res = int(v["engine.kv-resident"] or 0)
+    pool_cell = ATTENTION_LAYERS * KV_CELL_BYTES[kvf]            # the K/V of one token, all layers
+    vram_cells = max(kv_res, KV_RESIDENT_MIN)
+    streamed = kv_res > 0 and kvf != "k8v4" and vram_cells < ctx
+    if kv_res > 0 and kvf == "k8v4":
+        notes.append({"code": "kv_k8v4"})
+    elif kv_res > 0 and not streamed:
+        notes.append({"code": "kv_fits", "cells": vram_cells})
+    kv = par * (KV_TOKEN_BYTES[kvf] * ctx - (pool_cell * (ctx - vram_cells) if streamed else 0) + SESSION_FIXED)
+    kv_host = par * pool_cell * ctx if streamed else 0
+    if streamed:
+        notes.append({"code": "kv_stream", "cells": vram_cells, "vram": kv, "host": kv_host})
     drafter = 0
     if facts.get("has_mtp") and spec >= 2:
         cell = KV_CELL_BYTES["int8" if kvf == "k8v4" else kvf] + 128
@@ -418,12 +444,31 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     cache = slots * blob
     vram_need = fixed + cache
     # ---- host RAM (committed unless file-backed)
-    if v["engine.resident-experts"]:
-        arena = max(0, facts["experts_bytes"] - cache) + RESIDENT_SPARE_BLOBS * blob
+    # --mmap-experts keeps the experts in the file mapping and so wins over resident-experts; --resident-budget-gib
+    # makes them resident but at most that many GiB (the hottest first), the rest stays in the file
+    budget = v["engine.resident-budget-gib"]
+    mmap = bool(v["engine.mmap-experts"])
+    resident = (bool(v["engine.resident-experts"]) or budget is not None) and not mmap
+    if mmap and (v["engine.resident-experts"] or budget is not None):
+        notes.append({"code": "mmap_wins"})
+    if resident:
+        copy = max(0, facts["experts_bytes"] - cache)
+        if budget is not None:
+            copy = min(copy, int(float(budget) * GiB))
+            notes.append({"code": "budget", "bytes": copy})
+        arena = copy + RESIDENT_SPARE_BLOBS * blob
     else:
         arena = facts["experts_bytes"] + blob
-    host = [_item("experts", arena), _item("token_embd", facts["token_embd_bytes"]),
-            _item("checkpoints", PROMPT_CHECKPOINTS * par)]
+    # the conversation caches: --prompt-cache checkpoints per slot, and the parked conversations up to their budget
+    checkpoints = max(0, int(v["engine.prompt-cache"])) * PROMPT_CHECKPOINT * par
+    parked = int(v["engine.conversation-cache-mib"]) * MiB if int(v["engine.conversation-cache-slots"]) > 0 else 0
+    if checkpoints != 6 * PROMPT_CHECKPOINT * par or parked:
+        notes.append({"code": "caches", "checkpoints": int(v["engine.prompt-cache"]), "slots": par, "parked": parked})
+    host = [_item("experts", arena), _item("token_embd", facts["token_embd_bytes"]), _item("checkpoints", checkpoints)]
+    if kv_host:
+        host.append(_item("kv_host", kv_host, True))
+    if parked:
+        host.append(_item("conversation", parked, True))
     held = projector["bytes"] if projector else 0
     released = mode == "dynamic" and v["server.vision-hold"] == "release"      # the encoder's weights are read again for each batch of images
     if mode == "dynamic":
@@ -444,7 +489,7 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     # the lent slots' RAM copies: elastic (the engine keeps what fits above its own margin), so they are shown in the
     # need but not held against the share kept free
     lend = 0
-    if v["engine.resident-experts"] and facts.get("has_profile") and slots > 128 and prefill_chunk(v) > 0:
+    if resident and facts.get("has_profile") and slots > 128 and prefill_chunk(v) > 0:
         cap = min(max(0, min(slots * LEND_PCT // 100, slots - 128)) * blob, lend_tokens(v) * LEND_BYTES_PER_TOKEN)
         before = sum(h["bytes"] for h in host)          # taken before the copies are sized (the PLE table in RAM too)
         rooms = [x for x in (None if ram_avail is None else ram_avail - before,     # the PLE map takes no commit
@@ -483,7 +528,7 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     p_relaxed = 0.5 if rd is True else float(rd or 0)
     why_not = [] if not p_relaxed else [code for code, bad in (("spec", spec < 2), ("mtp", not facts.get("has_mtp")), ("parallel", par > 1)) if bad]
     return {
-        "relaxed": {"p": p_relaxed, "effective": not why_not, "why": why_not},
+        "relaxed": {"p": p_relaxed, "effective": not why_not, "why": why_not}, "notes": notes,
         "values": v, "slot_context": ctx, "parallel": par,
         "vram": {"items": [_item("dense", dense), _item("drafter", drafter), _item("kv", kv),
                            _item("vision", vision_vram), _item("buffers", buffers),
@@ -723,9 +768,17 @@ SPEED_KEYS = ("engine.kv", "engine.max-context", "engine.prefill", "engine.spec"
               "engine.pool-workers", "server.parallel", "server.slot-full-context", "server.vision")
 
 
+# settings that change speed but are left out of the fingerprint at their default, so a calibration made before they
+# existed still matches
+SPEED_KEYS_NON_DEFAULT = ("engine.kv-resident", "engine.resident-budget-gib", "engine.mmap-experts", "engine.adapt-swaps",
+                          "engine.prefill-cpu-share", "engine.vram-elastic")
+
+
 def fingerprint(values: dict) -> str:
     v = effective(values)
-    return hashlib.sha256(json.dumps({k: v.get(k) for k in SPEED_KEYS}, sort_keys=True).encode()).hexdigest()[:16]
+    key = {k: v.get(k) for k in SPEED_KEYS}
+    key.update({k: v.get(k) for k in SPEED_KEYS_NON_DEFAULT if v.get(k) != ENGINE_DEFAULTS[k]})
+    return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
 
 def _drafts(spec: int) -> int:

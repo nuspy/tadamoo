@@ -533,7 +533,11 @@ class Service:
             "service": "basalt", "model": self.model,
             "loaded": self.loaded(), "loading": self.loading, "auto_load": hasattr(self.engine, "restart"),
             "structured_output": {"formats": ["json_object", "json_schema"], "method": "grammar",
-                                  "constrained_decoding": bool(self.grammar_engine), "stream_buffered": False},
+                                  "constrained_decoding": bool(self.grammar_engine), "stream_buffered": False,
+                                  # the fallback a request can ask for (structured_retries): the answer is held until its check, the
+                                  # reasoning streams while it is written
+                                  "retry_fallback": {"request_key": "structured_retries", "default": 0, "max": 5,
+                                                     "content_buffered": True, "reasoning_streamed": True}},
             "request_log": {"enabled": self.reqlog.enabled, "capacity_chars": self.reqlog.max_chars},
             "engine": (getattr(self.engine, "info", {}) or {}).get("version"),
             "started": int(self.started_at), "uptime_s": int(time.time() - self.started_at),

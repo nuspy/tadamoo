@@ -10,6 +10,8 @@ REQUIREMENT_FILES = (ROOT / "requirements.txt", ROOT / "harness" / "requirements
 DISTRIBUTION = {"PIL": "pillow", "yaml": "pyyaml", "fitz": "pymupdf"}
 # imported only inside a try block or a function, with a plain message when absent (not installed by default)
 OPTIONAL = {
+    "jsonschema": "json_schema answers checked after the fact (structured_retries) without it check for one JSON object",
+    "referencing": "comes with jsonschema",
     "pypdf": "a PDF is read with pypdf or PyMuPDF, whichever is installed",
     "fitz": "PyMuPDF, the other PDF reader",
 }
