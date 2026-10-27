@@ -203,6 +203,7 @@ class AgentLoop:
             self.append({"role": "user", "content": text})
             self.last_user_text, self.untrusted_since_user = "", True
             return
+        self.loop_detector = LoopDetector()                              # a request of the person starts the count again: asking for the same thing twice is not a loop
         rewrite = getattr(self.context, "rewrite", None)
         words = shown if shown is not None else text                     # `shown`: the person's own words, when `text` also holds their files
         self.append({"role": "user", "content": rewrite(text) if rewrite and not steer and shown is None else text})

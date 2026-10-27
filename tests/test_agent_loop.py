@@ -172,6 +172,29 @@ def test_a_repeated_identical_call_is_refused_then_the_run_stops(ws):
     assert any("Loop detected" in m["content"] for m in client.sent[-1] if m["role"] == "tool")
 
 
+def test_the_same_request_in_another_message_is_not_a_loop(ws):
+    same = {"path": "."}
+    steps = [call("list_directory", same, "a1"), say("ecco"), call("list_directory", same, "b1"), say("ecco"),
+             call("list_directory", same, "c1"), say("ecco"), call("list_directory", same, "d1"), say("ecco")]
+    client = ScriptedClient(*steps)
+    agent, _ = make(ws, client, max_turns=6)
+    for goal in ("elenca", "elenca ancora", "elenca di nuovo", "ancora una volta"):
+        agent.run(goal)
+        assert agent.stop_reason == FINAL, goal
+    assert not any("Loop detected" in m["content"] for sent in client.sent for m in sent if m["role"] == "tool")
+
+
+def test_a_note_from_the_planner_does_not_clear_the_count(ws):
+    same = {"path": "."}
+    client = ScriptedClient(*[call("list_directory", same, f"c{i}") for i in range(8)])
+    agent, _ = make(ws, client, max_turns=12)
+    agent.run("go")
+    assert agent.stop_reason == LOOP
+    before = agent.loop_detector
+    agent.add_user_message("an event came in", origin="planner")
+    assert agent.loop_detector is before                               # only the person's words start a new count
+
+
 def test_max_turns_is_reported(ws):
     steps = [call("write_file", {"path": f"f{i}.txt", "content": str(i)}, f"c{i}") for i in range(5)]
     agent, _ = make(ws, ScriptedClient(*steps), max_turns=3)
