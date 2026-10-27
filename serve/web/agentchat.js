@@ -441,6 +441,7 @@
     if (b.kind === "plan_approval") return T(key, f.mode, f.plan) + (f.outside_content ? "\n\n" + T("ch.q.plan_outside") : "");
     if (b.kind === "payment") return T(key, f.amount, f.recipient, f.reason, f.system);
     if (b.kind === "capability_choice") return T(key, f.need);
+    if (b.kind === "mcp_elicitation") return T(key, f.server);
     return b.question;
   }
   const capLabel = o => o.value.startsWith("install:") ? T("ch.cap.install", o.value.slice(8)) : o.value === "cancel" ? T("ch.cap.no") : o.value.startsWith("other:") ? T("ch.cap.said", o.value.slice(6)) : T("ch.cap.other");
@@ -532,6 +533,67 @@
       const row = mk("div", "aask-b"); row.append(input, go);
       el.replaceChildren(mk("p", "aask-q", askQuestion(b)), row);
       if (done) el.append(mk("p", "aask-h", T("ch.code.sent")));
+      return;
+    }
+    if (b.t === "ask" && b.kind === "mcp_elicitation") {                      // a tool server stops to ask for a few values: typed here, sent to that server only
+      el.dataset.mode = b.mode;
+      const done = b.answered !== null;
+      if (el.dataset.built && !done) return;                                  // the person is typing: the form is not drawn again
+      el.dataset.built = "1";
+      const f = b.facts || {}, form = mk("div", "aask-f"), fields = [], row = mk("div", "aask-b"), note = mk("p", "aask-h"), prefix = "elicit:";
+      (f.fields || []).forEach((fd, i) => {
+        const id = `mcpf-${b.id}-${i}`, wrap = mk("div", "aask-field"), label = mk("label", "", fd.title + (fd.required ? " *" : ""));
+        let input;
+        label.htmlFor = id;
+        if (fd.type === "choice") {
+          input = mk("select");
+          if (!fd.required) input.append(mk("option", "", ""));
+          (fd.options || []).forEach(o => { const op = mk("option", "", String(o)); op.value = String(o); input.append(op); });
+        } else {
+          input = mk("input");
+          input.type = fd.type === "boolean" ? "checkbox" : fd.type === "string" ? "text" : "number";
+          if (fd.type === "number") input.step = "any";
+          if (fd.type === "boolean") input.checked = fd.default === true;
+          else if (fd.default !== undefined) input.value = String(fd.default);
+        }
+        input.id = id; input.disabled = done; input.required = !!fd.required;
+        wrap.append(label, input);
+        if (fd.description) wrap.append(mk("div", "aask-h", fd.description));
+        form.append(wrap);
+        fields.push([fd, input]);
+      });
+      const valueOf = ([fd, input]) => {
+        if (fd.type === "boolean") return input.checked;
+        if (input.value === "") return undefined;
+        if (fd.type === "integer" || fd.type === "number") return Number(input.value);
+        if (fd.type === "choice") return (fd.options || []).find(o => String(o) === input.value);
+        return input.value;
+      };
+      const send = btn(T("ch.mcp.send"), "primary", () => {
+        const content = {};
+        for (const pair of fields) {
+          const v = valueOf(pair);
+          if (v !== undefined) content[pair[0].name] = v;
+          else if (pair[0].required) { note.textContent = T("ch.mcp.need", pair[0].title); pair[1].focus(); return; }
+        }
+        const text = prefix + JSON.stringify(content);
+        if (text.length > prefix.length + 500) { note.textContent = T("ch.mcp.toolong"); return; }
+        answer(b, text);
+      });
+      send.disabled = done;
+      row.setAttribute("role", "group"); row.setAttribute("aria-label", T("ch.answers"));
+      row.append(send);
+      (b.options || []).forEach(o => {
+        const x = btn(T(o.value === "decline" ? "ch.mcp.decline" : "ch.mcp.cancel"), "", () => answer(b, o.value));
+        x.disabled = done;
+        if (done && b.answered === o.value) x.classList.add("picked");
+        row.append(x);
+      });
+      el.replaceChildren(mk("p", "aask-q", askQuestion(b)), mk("blockquote", "aask-quote", f.message || ""), mk("p", "aask-h", T("ch.mcp.warn")), form, row, note);
+      if (done) {
+        const sent = String(b.answered).startsWith(prefix);
+        el.append(mk("p", "aask-h", sent ? T("ch.mcp.sent") : T("ch.answered", T(b.answered === "decline" ? "ch.mcp.decline" : "ch.mcp.cancel"))));
+      }
       return;
     }
     if (b.t === "ask" && b.kind === "capability_choice") {                    // the candidates found online: one button each, or a sentence after Other

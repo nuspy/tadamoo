@@ -281,7 +281,9 @@ you the address and the number to call.
   of `SKILL.md` skills. Their skills are listed there as *to approve*; `load_skill` loads an approved one, and refuses a new or changed
   one with a message that says so. It never waits for an answer.
 - **Using them.** The agent searches (`find_capability`), loads an approved skill (`load_capability`) or calls an approved server's tool
-  (`call_capability`, which asks like any action that cannot be undone). From the Chat you can call a skill with `/name text`.
+  (`call_capability`, which asks like any action that cannot be undone; the agent can read a tool's arguments before it calls it). If a
+  server stops to ask you for some values, the question appears in the conversation with the server's name: it comes from the server, so
+  do not type passwords or keys. From the Chat you can call a skill with `/name text`.
 - **Missing something?** The agent can look online for an MCP server or a skill (`find_online_capability`), show you the best five
   with a score, their warnings and the command that would run, and install the one you choose. Nothing runs at install; the score
   measures popularity and upkeep, **not safety**. The settings are in *Settings → Capabilities → Search online*. Turning on "install the
@@ -425,9 +427,11 @@ run) blocks too. A file with a mistake stops the agent from starting, with the r
   through the **Cron Jobs** tab: a list with *Turn on/off*, *Run now* and *Delete*, an editor, the latest results of each job, and a small chat at the right to
   talk a job over. The chat only proposes: *Use in the editor* fills the form, and nothing is saved or turned on until you press *Save* and *Turn on*.
 - **Evaluation**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` runs each task k times on a fresh
-  folder and reports pass@k, pass^k, cost and cache use. These are development comparisons, not headline numbers.
+  folder and reports pass@k, pass^k, cost and cache use (a `--k` below 5 is warned about). These are development comparisons, not headline numbers. Public benchmarks
+  (BFCL, subsets of Terminal-Bench and SWE-bench Pro) are read from a folder you downloaded: `--bfcl DIR`, `--terminal-bench DIR`, `--swebench DIR`.
 - **Replay**: `python -m harness.replay trace.jsonl --mode auto` runs a recorded session again with the recorded model answers and
-  reports the first place where the tool calls differ. It tests the harness, not the model.
+  reports the first place where the tool calls differ. It tests the harness, not the model. The same replay, a masked JSONL export of
+  a conversation and the check of the audit ledger are in the LOGS page, section *Session traces*.
 
 ## 17. Personal skills
 
@@ -488,7 +492,7 @@ on a restricted script is a fence against mistakes, not a wall against someone w
 ## 19. What it does not do
 
 - It does not isolate files and network for commands: *Automatic* belongs in a folder you can lose.
-- Basalt is an A2A **client** only; it does not receive tasks from other agents. ACP has no `fs/*` and no `session/load`.
+- Basalt is an A2A **client** only; it does not receive tasks from other agents. The ACP agent has no `terminal/*` and was not tried in a real editor; it does have `session/load`, `authenticate` and `fs/*`.
 - It does not read bank accounts through an aggregator, and Stripe and Google Pay checkouts were not tried on live services.
 - Audio and video need the callAPIcall service; without it the file is kept and the agent says so.
 - Nothing here measures which context strategy is best; that needs the real model.

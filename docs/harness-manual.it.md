@@ -297,7 +297,9 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
   cartelle di skill `SKILL.md`. Le loro skill compaiono lì come *da approvare*; `load_skill` carica una skill approvata e rifiuta una
   nuova o modificata con un messaggio che lo dice. Non resta mai in attesa di una risposta.
 - **Usarle.** L'agente cerca (`find_capability`), carica una skill approvata (`load_capability`) o chiama uno strumento di un server
-  approvato (`call_capability`, che chiede come ogni azione irreversibile). Dalla Chat puoi chiamare una skill con `/nome testo`.
+  approvato (`call_capability`, che chiede come ogni azione irreversibile; l'agente può leggere gli argomenti di uno strumento prima di
+  chiamarlo). Se un server si ferma per chiederti dei valori, la domanda compare nella conversazione con il nome del server: viene dal
+  server, quindi non scrivere password o chiavi. Dalla Chat puoi chiamare una skill con `/nome testo`.
 - **Manca qualcosa?** L'agente può cercare online un server MCP o una skill (`find_online_capability`), mostrarti i cinque migliori con
   un punteggio, le avvertenze e il comando che verrebbe eseguito, e installare quello che scegli. All'installazione non si esegue
   nulla; il punteggio misura popolarità e manutenzione, **non la sicurezza**. Le impostazioni sono in *Impostazioni → Capacità →
@@ -452,9 +454,11 @@ scaduto, non autorizzato a girare) blocca anch'esso. Un file con un errore imped
   occupata. Si gestiscono dalla scheda **Cron Jobs**: un elenco con *Accendi/Spegni*, *Esegui ora* ed *Elimina*, un editor, gli ultimi risultati di ogni job e una
   piccola chat a destra per discuterne uno. La chat propone soltanto: *Usa nell'editor* riempie il modulo, e nulla è salvato o acceso finché non premi *Salva* e *Accendi*.
 - **Valutazione**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` esegue ogni compito k volte su una
-  cartella nuova e riporta pass@k, pass^k, costo e uso della cache. Sono confronti di sviluppo, non numeri da titolo.
+  cartella nuova e riporta pass@k, pass^k, costo e uso della cache (un `--k` sotto 5 viene segnalato). Sono confronti di sviluppo, non numeri da titolo. I benchmark pubblici
+  (BFCL, sottoinsiemi di Terminal-Bench e SWE-bench Pro) si leggono da una cartella che hai scaricato tu: `--bfcl DIR`, `--terminal-bench DIR`, `--swebench DIR`.
 - **Riesecuzione**: `python -m harness.replay trace.jsonl --mode auto` rifà una sessione registrata con le risposte registrate del modello
-  e riporta il primo punto in cui le chiamate agli strumenti divergono. Prova l'harness, non il modello.
+  e riporta il primo punto in cui le chiamate agli strumenti divergono. Prova l'harness, non il modello. La stessa riesecuzione,
+  l'esportazione JSONL mascherata di una conversazione e il controllo del registro di audit sono nella pagina LOGS, sezione *Tracce delle sessioni*.
 
 ## 17. Skill personali
 
@@ -519,7 +523,7 @@ o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job
 ## 19. Cosa non fa
 
 - Non isola file e rete per i comandi: *Automatico* va in una cartella che puoi perdere.
-- Basalt è solo un **client** A2A; non riceve compiti da altri agenti. ACP non ha `fs/*` né `session/load`.
+- Basalt è solo un **client** A2A; non riceve compiti da altri agenti. L'agente ACP non ha `terminal/*` e non è stato provato in un editor vero; ha invece `session/load`, `authenticate` e `fs/*`.
 - Non legge i conti bancari tramite un aggregatore, e i pagamenti con Stripe e Google Pay non sono stati provati su servizi reali.
 - Audio e video richiedono il servizio callAPIcall; senza, il file viene conservato e l'agente lo dice.
 - Nulla qui misura quale strategia di contesto sia la migliore; serve il modello vero.

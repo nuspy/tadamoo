@@ -21,7 +21,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from harness.mcp_client import MCPToolError, clean_description
 from harness.skills import ApprovalStore, parse_frontmatter
+from harness.tools.registry import ToolArgumentError
 
 ROOTS: Dict[str, Dict[str, str]] = {
     "vision": {"en": "Vision", "it": "Visione"},
@@ -545,6 +547,44 @@ class CapabilityIndex:
         return [{"id": e["id"], "name": e["name"], "url": urls[e["id"]], "state": e["state"]} for e in self.entries if e["id"] in urls]
 
 
+LIST_TOOLS_MAX = 40            # tools of a server listed in one answer; the rest are reached with `query`
+SEARCH_TOOLS_MAX = 5           # tools a `query` answers with, each with its whole definition
+
+
+def _schema(tool: Dict[str, Any]) -> Dict[str, Any]:
+    schema = tool.get("inputSchema")
+    return schema if isinstance(schema, dict) else {"type": "object", "properties": {}}
+
+
+def _signature(tool: Dict[str, Any]) -> str:
+    """`name(city*: string, days: integer)`: the arguments of a tool in one line, a star on the required ones."""
+    schema = _schema(tool)
+    required = set(schema.get("required") or [])
+    parts = [f"{k}{'*' if k in required else ''}: {(v.get('type') if isinstance(v, dict) else None) or 'any'}" for k, v in (schema.get("properties") or {}).items()]
+    return f"{tool['name']}({', '.join(parts)})"
+
+
+def _definition(tool: Dict[str, Any]) -> str:
+    """A tool's whole definition for the model: its description, the schema of its arguments and, if the server gave one, of its result."""
+    lines = [_signature(tool), clean_description(tool.get("description")) or "(no description)",
+             "input schema: " + json.dumps(_schema(tool), ensure_ascii=False)]
+    if isinstance(tool.get("outputSchema"), dict):
+        lines.append("result schema: " + json.dumps(tool["outputSchema"], ensure_ascii=False))
+    return "\n".join(lines)
+
+
+def _matching(tools: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
+    words = [w for w in re.findall(r"[a-z0-9]+", query.lower()) if len(w) > 1]
+    scored = []
+    for t in tools:
+        name = t["name"].lower()
+        hay = name + " " + clean_description(t.get("description")).lower()
+        score = sum(3 if w in name else 1 for w in words if w in hay)
+        if score:
+            scored.append((-score, t["name"], t))
+    return [t for _, _, t in sorted(scored, key=lambda x: x[:2])[:SEARCH_TOOLS_MAX]]
+
+
 def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory: Optional[Callable[[str, List[str]], Any]] = None) -> None:
     """`hub_factory(id, command)` starts a server and returns an object with `tools` (the server's tool definitions) and `call(tool, arguments)`.
 
@@ -566,7 +606,7 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
         except (KeyError, ValueError, PermissionError) as exc:
             return str(exc.args[0] if exc.args else exc)
 
-    def call_capability(id: str, tool: str = "", arguments: Optional[Dict[str, Any]] = None) -> str:
+    def call_capability(id: str, tool: str = "", arguments: Optional[Dict[str, Any]] = None, describe: bool = False, query: str = "") -> str:
         try:
             cmd = index.target(id)
         except (KeyError, ValueError, PermissionError) as exc:
@@ -575,9 +615,28 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
             return "Calling servers is not available in this conversation."
         try:
             hub = hubs.get(id) or hubs.setdefault(id, hub_factory(id, cmd))
+            tools = [t for t in hub.tools if isinstance(t, dict) and t.get("name")]
+            if not tool and query:
+                found = _matching(tools, query)
+                return "\n\n".join(_definition(t) for t in found) or "No tool of this server matches those words. Leave `query` empty to list its tools."
             if not tool:
-                return "\n".join(f"{t['name']}: {str(t.get('description') or '')[:200]}" for t in hub.tools) or "The server offers no tools."
-            return hub.call(tool, arguments or {})
+                if not tools:
+                    return "The server offers no tools."
+                lines = [f"{_signature(t)}: {clean_description(t.get('description'))[:200]}" for t in tools[:LIST_TOOLS_MAX]]
+                if len(tools) > LIST_TOOLS_MAX:
+                    lines.append(f"... and {len(tools) - LIST_TOOLS_MAX} more tools: pass `query` with words to find them.")
+                return "\n".join(lines + ["A star marks a required argument. Pass the tool's name and describe=true for its whole definition."])
+            definition = next((t for t in tools if t["name"] == tool), None)
+            if definition is None:
+                return f"The server has no tool '{tool}'. Its tools: {', '.join(t['name'] for t in tools[:LIST_TOOLS_MAX]) or 'none'}."
+            if describe:
+                return _definition(definition)
+            try:
+                return hub.call(tool, arguments or {})
+            except ToolArgumentError as exc:
+                return f"{exc} The tool's definition:\n{_definition(definition)}"
+        except MCPToolError as exc:
+            return f"The tool '{tool}' ran and reported an error: {exc}"
         except Exception as exc:
             return f"The server could not be used: {type(exc).__name__}: {exc}"
 
@@ -587,5 +646,10 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
                            "kind": {"type": "string", "enum": ["skill", "mcp", "builtin"]}}, ["query"]), EffectClass.PURE, find_capability, untrusted=True)
     registry.register("load_capability", "Reads the instructions of an approved skill found with find_capability.",
                       obj({"id": {"type": "string"}}, ["id"]), EffectClass.PURE, load_capability)    # the text the person approved by its hash is theirs, not outside content
-    registry.register("call_capability", "Calls a tool of an approved MCP server found with find_capability. Leave `tool` empty to list the server's tools.",
-                      obj({"id": {"type": "string"}, "tool": {"type": "string"}, "arguments": {"type": "object"}}, ["id"]), EffectClass.IRREVERSIBLE, call_capability, untrusted=True)
+    registry.register("call_capability", "Calls a tool of an approved MCP server found with find_capability. Leave `tool` empty to list the server's tools "
+                      "with their arguments, or give `query` words to find some and read their whole definitions. With `tool` and describe=true you get that tool's "
+                      "definition (arguments and result schema) without calling it.",
+                      obj({"id": {"type": "string"}, "tool": {"type": "string"}, "arguments": {"type": "object"},
+                           "describe": {"type": "boolean", "description": "Return the tool's definition instead of calling it"},
+                           "query": {"type": "string", "description": "With no `tool`: words to find tools of this server"}}, ["id"]),
+                      EffectClass.IRREVERSIBLE, call_capability, untrusted=True)

@@ -48,7 +48,7 @@ from serve.remote import ApiKeys, Installer, RemoteAccess, in_tailscale, remote_
 from serve.personal_skills_api import PersonalSkillsApi
 from harness.personal_memory import PersonalMemory, PersonalMemoryError
 from serve.memories_api import MemoriesApi
-from serve import export_api
+from serve import export_api, traces_api
 from serve.exportdoc import ExportError
 from serve.memory_worker import MemoryWorker, gpu_free
 from harness.personal_skills.store import SkillError
@@ -2041,6 +2041,8 @@ def make_handler(svc: Service, remote: bool = False):
         def _agent_get(self, path):
             parts = path[len("/api/agent/"):].split("/")
             try:
+                if parts[0] == "traces":
+                    return self._traces_get(parts)
                 if parts[0] == "sessions":
                     mgr = self._agent_sessions()
                     if parts == ["sessions"]:
@@ -2111,6 +2113,8 @@ def make_handler(svc: Service, remote: bool = False):
                 req = json.loads(self._body(1 << 16) or b"{}")
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
+                if parts[0] == "traces":
+                    return self._traces_post(parts, req)
                 if parts[0] == "projects" and self.remote_listener:
                     return self._json(403, {"error": {"type": "forbidden", "message": "folders are added only from the PC the server runs on"}})
                 if parts == ["sessions"] and not self._folder_ok(req.get("workspace")):
@@ -2204,6 +2208,34 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(e.status, {"error": {"message": str(e)}})
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"message": str(e)}})
+            self._json(404, {"error": {"message": "not found"}})
+
+        # -- traces of the conversations (serve/traces_api.py): list, masked export, audit ledger, replay -----------
+
+        def _traces_get(self, parts):
+            """GET /api/agent/traces, /traces/<id>/audit?limit=<n>, /traces/<id>/export (a JSONL file with secrets masked)."""
+            mgr = self._agent_sessions()
+            if parts == ["traces"]:
+                return self._json(200, traces_api.listing(mgr))
+            if len(parts) == 3 and parts[2] == "audit":
+                return self._json(200, traces_api.audit(mgr, parts[1], parse_qs(urlsplit(self.path).query).get("limit", [""])[0]))
+            if len(parts) == 3 and parts[2] == "export":
+                body, name = traces_api.export(mgr, parts[1])
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+                self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self._json(404, {"error": {"message": "not found"}})
+
+        def _traces_post(self, parts, req):
+            """POST /api/agent/traces/<id>/replay {mode, results}: the conversation again with the recorded answers; nothing runs."""
+            if len(parts) == 3 and parts[2] == "replay":
+                return self._json(200, traces_api.replay(self._agent_sessions(), parts[1], req.get("mode", "default"), req.get("results") is True))
             self._json(404, {"error": {"message": "not found"}})
 
         def _plans_get(self, path):

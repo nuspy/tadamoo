@@ -368,30 +368,44 @@ def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builde
     """The three capability tools and `analyze_image`; only the top of the tree goes into the prompt."""
     from harness.capabilities import CapabilityIndex, register_capability_tools
     from harness.mcp_client import MCPClient, MCPHttpClient, MCPHub
+    from harness.mcp_elicit import ElicitAsker
     from harness.vision_tool import register_vision_tool
     directory = _capabilities_directory(cfg)
     index = CapabilityIndex(directory, workspace, home=Path(cfg.capabilities_home) if cfg.capabilities_home else None,
                             appdata=Path(cfg.capabilities_home) / "appdata" if cfg.capabilities_home else None)
 
+    asker = ElicitAsker()
+
     class Server:
         """One approved server, started when first used, with the arguments of a call checked against the tool's schema."""
 
-        def __init__(self, target: Any, env: Optional[Dict[str, str]] = None) -> None:
+        def __init__(self, name: str, target: Any, env: Optional[Dict[str, str]] = None) -> None:
             self.hub = MCPHub()
-            self.hub.add("s", MCPHttpClient(target, auth=_oauth_for(target)) if isinstance(target, str) else MCPClient(target, cwd=str(workspace), env=env))
+            client = MCPHttpClient(target, auth=_oauth_for(target)) if isinstance(target, str) else MCPClient(target, cwd=str(workspace), env=env)
+            client.elicit = asker.handler(name)                 # a server that stops to ask for something asks the person, in the conversation
+            self.hub.add("s", client)
             self.hub.connect_all()
             if self.hub.errors:
                 raise RuntimeError("; ".join(self.hub.errors.values()))
-            self.tools = self.hub.catalog.get("s", [])
+            self.client = client
+            self._tools = self.hub.catalog.get("s", [])
+
+        @property
+        def tools(self) -> List[Dict[str, Any]]:
+            if self.client.tools_changed:                       # the server said its tools changed
+                self._tools = self.client.list_tools()
+                self.hub.catalog["s"] = self._tools
+            return self._tools
 
         def call(self, tool: str, arguments: Dict[str, Any]) -> str:
             return self.hub.call("s", tool, arguments)
 
     def hub_for(name: str, command: List[str]) -> Any:
-        return Server(command, env=getattr(command, "env", None))      # the keys of a server Basalt installed come from the vault at this moment
+        return Server(name, command, env=getattr(command, "env", None))      # the keys of a server Basalt installed come from the vault at this moment
 
     index.vault_dir = Path(cfg.vault_dir) if cfg.vault_dir else None
     register_capability_tools(registry, index, hub_factory=hub_for)
+    registry.mcp_asker = asker                                # the session points it at the conversation's confirmations
     def reader(path: str) -> Path:
         if path.startswith("attachment:") and cfg.attachments_dir and cfg.run_id:
             from harness.attachments import AttachmentStore
