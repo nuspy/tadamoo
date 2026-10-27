@@ -495,7 +495,7 @@ and the bridge the page talks to.
   is asked about once, as a note from the planner. Without the cloud filter's consent nothing of a card leaves the machine.
 - A plan is a graph of action, sensor, decision and merge nodes with shared values. Decisions route by simple conditions
   (`len(guests) >= 2`; never code) and need at least two exits, each with a condition: a plan or a change that breaks this is refused, and a
-  stored decision that breaks it cannot be completed. When a decision is completed and no exit holds (or a condition cannot be read yet) it is
+  stored decision that breaks it cannot be completed (the Plans view adds a decision together with its exits and their conditions). When a decision is completed and no exit holds (or a condition cannot be read yet) it is
   not taken: the step becomes the user's, nothing below it is skipped, and the step shows which conditions were read and with which values
   (`state_variables.no_route`; the Chat is told and `plan_mark` says so). A step writes the plan's values when it is completed (`outputs` of
   `plan:mark` and of `plan_mark`: names a condition can read, plain data up to 4,000 characters each and 50,000 in all); merges wait for their inputs; a task the software cannot do is offered to you with an
