@@ -58,6 +58,18 @@ INTERRUPTED_NOTE = ("[harness] The previous turn was interrupted while it was ru
                     "run already. Do not run it again without first checking what really happened, and tell the user.")
 
 
+PLAN_NEWS_SECONDS = 600            # a plan made by someone else is asked about only while it is new
+
+
+def _recent(stamp: Any) -> bool:
+    """Whether a plan's `updated_at` (UTC, ISO) is within the last PLAN_NEWS_SECONDS."""
+    try:
+        import calendar
+        return time.time() - calendar.timegm(time.strptime(str(stamp), "%Y-%m-%dT%H:%M:%SZ")) <= PLAN_NEWS_SECONDS
+    except ValueError:
+        return False
+
+
 class SessionStore:
     """The history of one conversation and the record of an action in flight, as files in one folder."""
 
@@ -608,6 +620,10 @@ class Session:
                 stuck = (node.get("state_variables") or {}).get("no_route") if isinstance(node, dict) else None
                 if stuck:
                     news.append((f"n:{pid}:{node.get('id')}:{stuck.get('at')}", f'the decision "{node.get("title")}" has no exit that holds and waits for the person (values: {json.dumps(stuck.get("values", {}), ensure_ascii=False)[:200]}).'))
+            gaps = snap.get("card_missing") or []
+            if gaps and not any(h.get("actor") == "chat" for h in snap.get("history") or []) and _recent(plan.get("updated_at")):
+                news.append((f"c:{pid}:{','.join(gaps)}", "to judge incoming events the planner still lacks " + ", ".join(gaps) + ": ask the person only these, in one short question, "
+                                                         "and write what they say with plan_set_card."))
             fresh = [(k, t) for k, t in news if k not in self._announced]
             if fresh:
                 key, text = fresh[0]

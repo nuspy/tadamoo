@@ -106,6 +106,18 @@ def no_route_text(facts: Dict[str, Any]) -> str:
     return "; ".join(parts) + f"; values: {json.dumps(facts.get('values', {}), ensure_ascii=False)}"
 
 
+CARD_LABELS = {"date": "the dates", "destinazione": "the place", "partecipanti": "who takes part"}
+
+
+def interview_text(snap: Dict[str, Any]) -> str:
+    """What the plan's card lacks to judge events against the plan, as a note for the model: ask only that, in the conversation."""
+    missing = [CARD_LABELS.get(f, f) for f in snap.get("card_missing") or []]
+    if not missing:
+        return ""
+    return ("To judge incoming events against this plan the planner still lacks: " + ", ".join(missing) + ". Ask the user only these, in one short question "
+            "(ask_user), and save what they say with plan_set_card; do not ask anything else, and do not invent an answer.")
+
+
 def render_plan(snap: Dict[str, Any]) -> str:
     plan, nodes = snap["plan"], snap["plan"].get("nodes", {})
     done = sum(1 for n in nodes.values() if n.get("status") == "completed")
@@ -124,6 +136,8 @@ def render_plan(snap: Dict[str, Any]) -> str:
             lines.append(f'      failed {n["state_variables"].get("attempts", 1)} time(s), waits to try again')
         if (n.get("state_variables") or {}).get("no_route"):
             lines.append("      NO EXIT HOLDS, it waits for the user: " + no_route_text(n["state_variables"]["no_route"]))
+    if interview_text(snap):
+        lines.append(interview_text(snap))
     state = plan.get("shared_state") or {}
     if state:
         lines.append("Plan values: " + "; ".join(f"{k} = {json.dumps(v, ensure_ascii=False)[:120]}" for k, v in list(state.items())[:20]))
@@ -234,6 +248,45 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         except Exception:
             pass
         return f"Plan created ({how}).\n" + render_plan(snap) + (f"\n{found}" if found and not found.startswith("No conflict") else "")
+
+    def plan_set_card(plan_id: str, date: str = "", destination: str = "", participants: Optional[List[str]] = None,
+                      constraints: Optional[Dict[str, str]] = None, quote: str = "") -> str:
+        """Writes into the plan's card what the user said about it: the dates, the place, who takes part and what limits each of them. The card is
+        what incoming events are judged against; the person says yes."""
+        if (msg := need_read(plan_id)):
+            return msg
+        if participants is not None and (not isinstance(participants, list) or any(not isinstance(x, str) or not x.strip() for x in participants)):
+            return "participants is a list of names."
+        if constraints is not None and (not isinstance(constraints, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in constraints.items())):
+            return "constraints maps a person's name to a sentence about what limits them (work, health, allergies)."
+        if not (date or destination or participants or constraints):
+            return "Give at least one of: date, destination, participants, constraints."
+        try:
+            snap = client.snapshot(plan_id)
+        except Exception as exc:
+            return failure(exc)
+        card = dict(snap.get("card") or {})
+        if date:
+            card["date"] = str(date).strip()[:200]
+        if destination:
+            card["destinazione"] = str(destination).strip()[:200]
+        if participants:
+            card["partecipanti"] = list(dict.fromkeys([*card.get("partecipanti", []), *[x.strip()[:100] for x in participants]]))
+        if constraints:
+            card["profilo_e_vincoli_partecipanti"] = {**card.get("profilo_e_vincoli_partecipanti", {}), **{k.strip()[:100]: v.strip()[:500] for k, v in constraints.items()}}
+        written = "; ".join(label for label, v in (("dates", date), ("place", destination), ("participants", participants), ("constraints", constraints)) if v)
+        ok, how = confirmer.check({"kind": "plan_change", "plan": snap["plan"]["title"], "title": f"what events are judged against: {written}"},
+                                  f'In the plan "{snap["plan"]["title"]}", write into its card: {written}. The card is what incoming events are judged against; '
+                                  "it leaves this computer only if the cloud filter is on and these fields are allowed.", quote)
+        if not ok:
+            return how
+        try:
+            client.event(plan_id, {"type": "plan:update_meta", "changes": {"card": card}, "base_rev": seen[plan_id]})
+            fresh = client.snapshot(plan_id)
+        except Exception as exc:
+            return failure(exc)
+        seen[plan_id] = int(fresh.get("rev") or seen[plan_id])
+        return f"Saved ({how}): {written}. " + (interview_text(fresh) or "The card now has what events need to be judged.")
 
     def plan_set_profile(plan_id: str, profile: Dict[str, Any], quote: str = "") -> str:
         """Sets what the plan says about time and money: aims, budget, periods already taken, how often to look again (a long-term plan); dates and cost
@@ -467,6 +520,12 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                            "profile": {"type": "object", "description": "what the plan says about time and money. A short plan: starts_on and ends_on (2026-11-24), "
                                                                        "cost {amount, currency}. A long-term plan: goals [text], review_every_days (1-30), budget {amount, currency, "
                                                                        "period month|total}, commitments [{text, from, to}]"}}, ["title", "kind", "steps"]), EffectClass.REVERSIBLE, plan_create)
+    registry.register("plan_set_card", "Writes into a plan's card what the user said about it: dates, place, who takes part, what limits each person. "
+                                       "Incoming events are judged against the card. Needs the user's yes.",
+                      obj({"plan_id": {"type": "string"}, "date": {"type": "string", "description": "for example Friday 24 to Sunday 26 October"},
+                           "destination": {"type": "string"}, "participants": {"type": "array", "items": {"type": "string"}},
+                           "constraints": {"type": "object", "description": "name -> a sentence about what could stop that person (work, health, allergy)"},
+                           "quote": quote_param}, ["plan_id"]), EffectClass.REVERSIBLE, plan_set_card)
     registry.register("plan_set_profile", "Sets what a plan says about time and money (aims, budget, periods already taken, dates, cost), so that it can be compared with the others. Needs the user's yes.",
                       obj({"plan_id": {"type": "string"}, "profile": {"type": "object"}, "quote": quote_param}, ["plan_id", "profile"]), EffectClass.REVERSIBLE, plan_set_profile)
     registry.register("plan_check", "Compares a plan with the user's long-term plans. Conflicts are arithmetic on dates and amounts; with with_model the local model also reads what the plans mean together (a check, not a fact). Use it before a new plan is proposed and when something in the plan changes.",
