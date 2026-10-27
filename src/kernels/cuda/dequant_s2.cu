@@ -7,13 +7,14 @@
 // subtraction inside the INTEGER domain, which is what makes it bit-exact.
 //
 // Naive on purpose: one thread per block, no vectors, no shared memory, no unrolling.  Phase 3 changes this
-// file and the parity test in src/kernels/dequant_s2_parity.cpp is what says whether a change is still right.
+// file and the parity test in tests/kernels/dequant_s2_parity.cpp is what says whether a change is still right.
 #include "basalt/kernels/dequant_s2.hpp"
 
 #include <cuda_runtime.h>
 
 #include <cstdio>
 #include <cstdlib>
+#include "basalt/log.hpp"
 
 namespace basalt::kernels {
 namespace {
@@ -43,7 +44,7 @@ void dequant_s2(const uint8_t* codes, const float* scales, float* out, int64_t n
     dequant_s2_kernel<<<(unsigned) blocks, threads>>>(codes, scales, out, n_blocks);
     const cudaError_t e = cudaDeviceSynchronize();
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "dequant_s2: %s\n", cudaGetErrorString(e));
+        basalt::log::error("basalt", "dequant_s2: %s", cudaGetErrorString(e));
         std::exit(1);
     }
 }

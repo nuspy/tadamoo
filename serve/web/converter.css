@@ -1,0 +1,78 @@
+/* Models > Model converter: the form, the list of models with what was measured, and the charts. Chart colours are the validated categorical
+   steps for this dark surface; a mark never gets a border (a 2px ring in the surface colour separates it), grids are solid hairlines. */
+#ld-converter { --viz-surface: var(--surface); --viz-grid: #2c3640; --viz-base: #3a4650; padding-bottom: 24px; }
+.cv-intro { margin: 0 0 12px; }
+.cv-sec { padding-bottom: 14px; }
+.cv-sec .pad, .cv-body { padding: 12px 16px; display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+.cv-form { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+.cv-field { display: grid; gap: 4px; min-width: 0; grid-template-columns: minmax(0, 1fr); border: 0; padding: 0; margin: 0; }
+.cv-field select, .cv-field input { max-width: 100%; }
+.cv-field label, .cv-field legend { font-weight: 600; }
+.cv-field select, .cv-field input[type="text"] { width: 100%; min-height: 44px; }
+.cv-field .help { margin: 0; font-size: 14px; line-height: 1.5; color: var(--fg-2); }
+.cv-sub { display: grid; gap: 6px; padding-left: 12px; border-left: 2px solid var(--line); }
+.cv-sub[hidden] { display: none; }
+.cv-plan { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); overflow-wrap: anywhere; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.cv-plan ul { margin: 0; padding-left: 18px; }
+.cv-bad { color: var(--err); }
+.cv-warn { color: var(--warn); }
+.cv-cmd { margin: 0; font: 12px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg-2); }
+.cv-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cv-actions .btn { min-height: 44px; min-width: 44px; }
+.cv-bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.cv-bar > i { display: block; height: 100%; background: var(--accent); border-radius: 4px; transition: width .3s; }
+@media (prefers-reduced-motion: reduce) { .cv-bar > i { transition: none; } }
+
+.cv-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.cv-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.cv-row label { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; min-width: 0; }
+.cv-row input[type="checkbox"] { width: 22px; height: 22px; }
+.cv-name { font-weight: 600; overflow-wrap: anywhere; }
+.cv-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cv-chip { font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg-2); }
+.cv-chip[data-on="1"] { color: var(--fg); border-color: var(--basalt-500); }
+.cv-sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.cv-row .btn { min-height: 44px; }
+
+
+.cv-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.cv-tabs .btn { min-height: 44px; }
+.cv-tabs .btn[aria-pressed="true"] { border-color: var(--accent); color: var(--fg); }
+.cv-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.cv-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.cv-ctl { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: end; }
+.cv-ctl label { display: grid; gap: 2px; font-size: 13px; color: var(--fg-2); min-width: 0; flex: 1 1 200px; max-width: 360px; }
+.cv-ctl select { min-height: 44px; width: 100%; max-width: 100%; }
+.cv-chk, .cv-field .cv-chk, .cv-ctl .cv-chk { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; margin-right: 12px; font: 400 14px/1.4 var(--font-sans); color: var(--fg); }
+.cv-chk input { width: 20px; height: 20px; flex: none; }
+.cv-panels { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 760px) { .cv-panels { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1280px) { .cv-panels { grid-template-columns: repeat(3, 1fr); } }
+.cv-panel { min-width: 0; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--surface); }
+.cv-panel h4 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+.cv-panel h4 small { font-weight: 400; color: var(--fg-3); }
+.cv-chart { max-width: 520px; width: 100%; margin: 0 auto; }
+.cv-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.cv-svg .cv-grid { stroke: var(--viz-grid); stroke-width: 1; fill: none; }
+.cv-svg .cv-base { stroke: var(--viz-base); stroke-width: 1; }
+.cv-svg .cv-axis, .cv-svg .cv-val { font: 11px/1.2 var(--font-sans); fill: var(--fg); }
+.cv-svg .cv-axis2, .cv-svg .cv-note { font: 10px/1.2 var(--font-sans); fill: var(--fg-3); }
+.cv-svg .cv-val { font-family: var(--font-mono); }
+.cv-pt { outline: none; }
+.cv-pt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cv-tip { position: fixed; z-index: 50; pointer-events: none; max-width: 260px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--fg); font-size: 13px; line-height: 1.4; white-space: pre-line; box-shadow: 0 4px 16px rgba(0, 0, 0, .4); }
+.cv-tip[hidden] { display: none; }
+.cv-table-wrap { overflow-x: auto; }
+.cv-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.cv-table th, .cv-table td { padding: 6px 10px; border-bottom: 1px solid var(--line-soft); text-align: right; white-space: nowrap; }
+.cv-table th:first-child, .cv-table td:first-child { text-align: left; position: sticky; left: 0; background: var(--surface); white-space: normal; min-width: 150px; max-width: 190px; }
+.cv-table thead th { vertical-align: bottom; white-space: normal; min-width: 90px; }
+.cv-table .cv-grp th { text-align: left; color: var(--fg-3); font-weight: 600; background: var(--panel); }
+.cv-table td[data-best="1"] { font-weight: 700; color: var(--fg); }
+.cv-table td[data-ref="1"] { color: var(--fg-2); }
+.cv-dlg { max-width: min(560px, calc(100vw - 24px)); width: 100%; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--fg); }
+.cv-dlg::backdrop { background: rgba(0, 0, 0, .6); }
+.cv-dlg form, .cv-dlg > div { display: grid; gap: 12px; padding: 16px; grid-template-columns: minmax(0, 1fr); }
+.cv-dlg h3 { margin: 0; font-size: 16px; }
+.cv-reuse { display: grid; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line-soft); }
+.cv-reuse label { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin-right: 12px; }

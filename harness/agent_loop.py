@@ -316,7 +316,27 @@ class AgentLoop:
             text = self.output_filter(name, text)
         return text
 
-    def _execute(self, call: ParsedCall, checkpointed: List[bool]) -> ToolExecutionResult:
+    def call_tool(self, name: str, arguments: Dict[str, Any], checkpointed: Optional[List[bool]] = None) -> "tuple[bool, str]":
+        """A tool call made for the person by something other than the model, such as a personal skill's script. It goes through the same
+        gate as the model's own (arguments checked, hooks, permissions, a checkpoint, the audit record), is shown and kept in the
+        conversation the same way, and is not taken for a loop when it repeats. Returns whether it worked and its answer as text."""
+        call = ParsedCall("call_" + uuid.uuid4().hex[:10], name, arguments)
+        tool = self.tools.get(name)
+        self.append({"role": "assistant", "content": "", "tool_calls": [{"id": call.call_id, "type": "function",
+                                                                       "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False)}}]})
+        self._emit({"type": "tool_start", "call_id": call.call_id, "name": name, "arguments": arguments, "effect": tool.effect.value if tool else None})
+        result = self._execute(call, checkpointed if checkpointed is not None else [False], loop_check=False)
+        text = self._stringify(name, result.output)
+        worked = result.decision == "executed" and not result.is_error
+        if tool is not None and tool.untrusted and worked:
+            text = _fence_untrusted(name, text)
+            self.untrusted_since_user = True
+        self._emit({"type": "tool_end", "call_id": call.call_id, "name": name, "status": "completed" if worked else "failed",
+                    "decision": result.decision, "output": text})
+        self.append({"role": "tool", "tool_call_id": call.call_id, "name": name, "content": text})
+        return worked, text
+
+    def _execute(self, call: ParsedCall, checkpointed: List[bool], loop_check: bool = True) -> ToolExecutionResult:
         name, args = call.name, call.arguments
         started = time.monotonic()
         permission = "not_required" if self.permissions is None else "not_reached"
@@ -336,7 +356,7 @@ class AgentLoop:
         except ToolArgumentError as exc:
             return refused("invalid", f"{exc} Call the tool again with corrected arguments.", "tool_invalid")
 
-        if self.loop_detector.check_and_record(name, args):
+        if loop_check and self.loop_detector.check_and_record(name, args):
             self._loop_strikes += 1
             return refused("loop", f"Loop detected: '{name}' was called repeatedly with identical arguments. "
                                    "Stop repeating it and change your approach.", "tool_loop")

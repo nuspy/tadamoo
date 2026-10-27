@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from serve import settings  # noqa: E402
+from serve import config, settings  # noqa: E402
 from serve.engine.mock import MockEngine  # noqa: E402
 from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import serve  # noqa: E402
@@ -23,7 +23,7 @@ from serve.util.text import ByteTokenizer  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = {
     "server": {"model": "model.basalt", "alias": "Qwen 3.8 FN", "gpu": "0,1", "host": "127.0.0.1", "port": 7232},
-    "engine": {"expert-cache": "auto", "prefill": "auto", "spec": 7, "spec-min-p": 0.5, "max-context": 262144,
+    "engine": {"expert-cache": "auto", "prefill": "auto", "spec": 7, "max-context": 262144,
                "kv": "int8", "resident-experts": True, "vram-reserve-mib": 700},
 }
 
@@ -35,7 +35,7 @@ class Rules(unittest.TestCase):
         ok = [("server", "port", 1, 1), ("server", "port", 65535, 65535), ("server", "parallel", 8, 8),
               ("server", "vision", "Dynamic", "dynamic"), ("engine", "max-context", 4096, 4096),
               ("engine", "kv", "q4", "q4_0"), ("engine", "kv", "k8v4", "k8v4"), ("engine", "spec", 0, 0),
-              ("engine", "spec", 8, 8), ("engine", "spec-min-p", 0, 0), ("engine", "spec-min-p", 0.75, 0.75),
+              ("engine", "spec", 8, 8),
               ("engine", "expert-cache", "auto", "auto"), ("engine", "expert-cache", 700, 700),
               ("engine", "expert-cache", "700", 700), ("engine", "prefill", "auto:16384", "auto:16384"),
               ("engine", "prefill", 4096, 4096), ("engine", "max-context", 7.0, 7)]
@@ -47,7 +47,7 @@ class Rules(unittest.TestCase):
                ("server", "parallel", 0), ("server", "parallel", 9), ("server", "vision", True),
                ("server", "vision", "maybe"), ("engine", "max-context", 0), ("engine", "max-context", 2**31),
                ("engine", "max-context", 1.5), ("engine", "kv", "fp8"), ("engine", "kv", 8), ("engine", "spec", -1),
-               ("engine", "spec", 9), ("engine", "spec-min-p", 1.5), ("engine", "spec-min-p", "0.5"),
+               ("engine", "spec", 9), ("engine", "spec-min-p", 0.5),
                ("engine", "expert-cache", -1), ("engine", "expert-cache", "lots"), ("engine", "prefill", "auto:999"),
                ("engine", "prefill", -5), ("engine", "prefill", None), ("server", "alias", "x")]
         for section, key, value in bad:
@@ -82,6 +82,22 @@ class FileWrites(unittest.TestCase):
         self.assertEqual(new["server"]["alias"], "Qwen 3.8 FN")
         self.assertEqual(new["server"]["port"], 9000)
         self.assertEqual(json.loads(Path(self.path + ".bak").read_text(encoding="utf-8")), CONFIG)
+
+    def test_a_file_saved_with_the_removed_drafting_floor_still_loads_and_loses_it(self):
+        old = {**CONFIG, "engine": {**CONFIG["engine"], "spec-min-p": 0.5}}
+        Path(self.path).write_text(json.dumps(old), encoding="utf-8")
+        self.assertNotIn("engine.spec-min-p", settings.values_of(settings.read_file(self.path), settings.LOADER_FIELDS))
+        settings.check_whole(old, self.path)                                    # the server starts with it
+        _, engine = config.load_config_file(self.path, config.build_parser())
+        self.assertNotIn("--spec-min-p", engine)
+        self.assertIn("--spec", engine)
+        r = settings.save(self.path, {"engine.spec": 5, "engine.spec-min-p": 0.7})   # an old form may still send it
+        self.assertEqual(r["changed"], ["engine.spec"])
+        new = json.loads(Path(self.path).read_text(encoding="utf-8"))
+        self.assertNotIn("spec-min-p", new["engine"])
+        self.assertEqual(new["engine"]["spec"], 5)
+        with self.assertRaises(ValueError):
+            settings.check_value("engine", "spec-min-p", 0.5)
 
     def test_null_removes_and_new_keys_are_added(self):
         settings.save(self.path, {"engine.prefill": None, "server.parallel": 2, "server.vision": "off"})
@@ -274,6 +290,39 @@ class Tabs(unittest.TestCase):
         self.assertNotIn('data-m="default"', models_js)         # the default server model is chosen in Settings
         self.assertIn('id="st-defmodel"', models_js)
         self.assertNotIn('dirsEditor("ldx"', models_js)          # the folders are edited in Settings
+
+    def test_every_loader_field_and_choice_is_explained_in_english_and_italian(self):
+        import re
+        loader_js, i18n = self.text("loader.js"), self.text("i18n.js")
+        en, it = i18n.index("  en: {"), i18n.index("  it: {")
+        names = re.findall(r'name: "([a-z.-]+)", kind: "(\w+)"(?:, options: \[([^\]]*)\])?', loader_js)
+        self.assertGreaterEqual(len(names), 15)
+        for name, kind, options in names:
+            if name == "mtp":
+                name = "mtp"
+            for block in (i18n[en:it], i18n[it:]):
+                if kind != "reserve":
+                    self.assertIn(f'"f.{name}":', block, name)
+                    self.assertIn(f'"h.{name}":', block, name)
+                if kind == "choice" and name != "server.vision-projector":      # the projector's options come with each plan
+                    for value in re.findall(r'"([^"]+)"', options):
+                        if name == "server.vision" and value.isdigit():       # one option per GPU found, from one key
+                            self.assertIn('"o.server.vision.gpu":', block)
+                            self.assertNotIn(f'"o.{name}.{value}":', block)
+                            continue
+                        self.assertIn(f'"o.{name}.{value}":', block, f"{name} {value}")
+
+    def test_the_controls_that_had_no_explanation_now_have_one_in_both_languages(self):
+        i18n = self.text("i18n.js")
+        en, it = i18n.index("  en: {"), i18n.index("  it: {")
+        keys = ("st.lang.help", "cp.rescan.tip", "cp.actions.help", "cp.turnoff.tip", "cp.turnon.tip", "cp.revoke.tip", "cp.signin.tip",
+                "cp.signout.tip", "cp.move.tip", "cp.on.min.tip", "cp.w.tip", "pl.set.cloud.help", "pl.set.pseudo.help",
+                "pl.set.fields.help", "mb.allow.needts", "mb.fresh.copy.tip", "me.sec.field", "me.sec.tip", "me.kind.field", "me.kind.tip")
+        for key in keys:
+            self.assertIn(f'"{key}":', i18n[en:it], key)
+            self.assertIn(f'"{key}":', i18n[it:], key)
+            self.assertTrue(any(key in self.text(f) for f in ("index.html", "capabilities.js", "plans.js", "mobile.js", "memories.js")), key)
+        self.assertIn('aria-describedby="st-lang-h"', self.text("index.html"))
 
     def test_every_new_string_in_english_and_italian(self):
         i18n = self.text("i18n.js")

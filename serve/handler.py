@@ -17,20 +17,22 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT, catalog, chatctx, downloads, loader, loader_api, model_list, models, profiles, settings
+from serve import ROOT, benchrun, catalog, chatctx, downloads, loader, loader_api, model_list, modelbench, models, profiles, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
 from serve.api.anthropic import anthropic_collect, anthropic_events
 from serve.engine.errors import EngineDied, EngineStarting, EngineStuck, GpuBusy, ModelBusy
+from serve.api.grammar import REQUEST_KEY as GRAMMAR_KEY
 from serve.api.logit_bias import REQUEST_KEY as BIAS_KEY, add_end_turn, checked as checked_bias
 from serve.frontend import anthropic_to_messages, forced_call, openai_to_messages
 from serve.api.openai import (openai_chunks, openai_collect, retry_messages, structured_retries,
                               structured_retry_chunks)
 from serve.api.responses import ResponsesError
+from serve.prompt import primed
 from serve.security import host_allowed, host_names_for, key_matches, origin_allowed
 from serve.service import LOG_FIRST_LINES, LOG_MAX_LINES, Service, _debug_req
-from serve.api.structured import StructuredOutputError, prepare_format, validated_json
+from serve.api.structured import StructuredOutputError, anthropic_format, check_format, json_validator
 from serve.util.reqlog import export_jsonl, export_text
 from serve import plans as plans_mod, userdata
 from serve import review as review_mod
@@ -40,6 +42,14 @@ from harness.payments_broker import PaymentsBroker
 from harness.waiver.dossier import sntp_offset
 from harness.vault import Vault, VaultError
 from serve.agent_sessions import SessionManager
+from serve.files_api import FilesApi, FilesError
+from serve.projects import ProjectStore
+from serve.remote import ApiKeys, Installer, RemoteAccess, in_tailscale, remote_path_ok, tailscale_peers, tailscale_status, tailscale_up
+from serve.personal_skills_api import PersonalSkillsApi
+from harness.personal_memory import PersonalMemory, PersonalMemoryError
+from serve.memories_api import MemoriesApi
+from serve.memory_worker import MemoryWorker, gpu_free
+from harness.personal_skills.store import SkillError
 from serve.routines_api import RoutinesApi
 from harness.scheduler import RoutineError
 from serve.wallet_api import WalletApi, WalletError
@@ -54,7 +64,13 @@ _CHANGES = ChangeJournal(userdata.path("journal"))
 _APPROVALS = ApprovalBoard()
 _RUNNER = None                                        # made on first use: it needs this server's address
 _SESSIONS = None                                      # the Chat's conversations with the agent, made on first use
+_PROJECTS = None                                      # the folders of the Agent tab, made on first use
+_INSTALLER = Installer()                              # installs Tailscale when the person asks
 _ROUTINES = None                                      # the agent's recurring routines, made with the conversations or on first use
+_PSKILLS = None                                       # the person's personal skills, made on first use
+_PERSONAL = None                                      # the person's own memories (long-term and short-term), made on first use
+_MEMORIES = None                                      # the Memories page's side of them
+_MEM_WORKER = None                                    # learns from what the person wrote when the GPU is free
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
 _LLM = None                                           # the Providers page's side of llmswitch, made on first use
 
@@ -63,6 +79,8 @@ def stop_sessions() -> None:
     """The server ends: the conversations' processes end with it (the next start finds the conversations again)."""
     if _ROUTINES is not None:
         _ROUTINES.shutdown()
+    if _MEM_WORKER is not None:
+        _MEM_WORKER.stop()
     if _SESSIONS is not None:
         _SESSIONS.shutdown()
 _WALLET = None                                         # the vault and the payment systems, made on first use
@@ -92,9 +110,11 @@ def _size_text(n: int) -> str:
     return f"{n >> 20} MiB" if n >= 1 << 20 else f"{n >> 10} KiB"
 
 
-def make_handler(svc: Service):
+def make_handler(svc: Service, remote: bool = False):
+    """`remote`: the handler of the listener on the Tailscale address, which serves phones: device keys count only there, and only what a phone needs is served."""
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.0"                       # SSE ends by closing the connection
+        remote_listener = remote
 
         watch_done = None                                   # stops this request's disconnect watcher
         trace = None                                        # this request's entries in the request log
@@ -106,10 +126,13 @@ def make_handler(svc: Service):
             """Without an API key, check the Host header (DNS-rebinding protection); a key makes the check moot."""
             if not super().parse_request():
                 return False
+            if self.remote_listener and not remote_path_ok(self.path.split("?")[0].rstrip("/") or "/"):
+                self._json(403, {"error": {"type": "forbidden", "message": "this address does not serve that to a client away from the PC"}})
+                return False
             host = self.headers.get("Host")
             if svc.api_key or host_allowed(host, svc.host_names, "*" in svc.allowed_hosts):
                 return True
-            print(f"[server] refused Host {host!r} from {self.client_address[0]} "
+            print(f"[server] error: refused Host {host!r} from {self.client_address[0]} "
                   f"(--api-key KEY, or --allowed-host)",
                   flush=True)
             self._json(403, {"error": {"type": "forbidden", "message":
@@ -181,7 +204,7 @@ def make_handler(svc: Service):
                 return False
             if not origin_allowed(origin, self.headers.get("Host"), svc.host_names,
                                   [*svc.trusted_origins, *svc.cors_origins]):
-                print(f"[server] refused a request from web page {origin!r} "
+                print(f"[server] error: refused a request from web page {origin!r} "
                       f"(--api-key KEY, --allowed-host, --cors-origin)", flush=True)
                 self._discard_body()                         # an unread body would reset the connection on Windows
                 self._json(403, {"error": {"type": "forbidden", "message":
@@ -253,12 +276,42 @@ def make_handler(svc: Service):
             if self.trace is not None and code >= 400:
                 self.trace.error_body(code, obj)
 
-        def _authorized(self) -> bool:
-            if not svc.api_key:
+        _key_row = None                                      # the device key a phone came with
+        _via_key = False                                     # a phone proved itself with a key
+
+        def _outside(self) -> bool:
+            """A request that came through the listener for phones."""
+            return self.remote_listener
+
+        def _folder_ok(self, workspace) -> bool:
+            """A phone works only in the folders added on this PC (or the Chat's own, when it names none): it cannot point the agent at any folder of the disk."""
+            if not self.remote_listener or workspace in (None, ""):
                 return True
+            try:
+                want = os.path.normcase(str(Path(str(workspace)).resolve()))
+            except (OSError, ValueError):
+                return False
+            return any(os.path.normcase(str(Path(p["path"]).resolve())) == want for p in self._projects().list())
+
+        def _local_or_device(self) -> bool:
+            """This PC, or a phone that came through Tailscale with one of the keys: for the few writes a phone may make."""
+            if not self.remote_listener:
+                return settings.is_loopback(self.client_address[0])
+            remote = getattr(svc, "remote", None)
+            return self._via_key and in_tailscale(self.client_address[0]) and remote is not None and remote.listening
+
+        def _authorized(self) -> bool:
             auth = self.headers.get("Authorization", "")
             given = auth[7:].strip() if auth.lower().startswith("bearer ") else self.headers.get("x-api-key", "")
-            if key_matches(given, svc.api_key):
+            if svc.api_key and key_matches(given, svc.api_key):
+                self._via_key = self.remote_listener
+                return True
+            keys = getattr(svc, "keys", None)
+            row = keys.verify(given) if self.remote_listener and keys is not None and given else None
+            if row is not None:
+                self._key_row, self._via_key = row, True
+                return True
+            if not svc.api_key and not self.remote_listener:      # no key set: the server's own page works as before
                 return True
             self._json(401, {"error": {"type": "authentication_error", "message": "missing or wrong API key"}})
             return False
@@ -285,7 +338,8 @@ def make_handler(svc: Service):
                          ".svg": "image/svg+xml", ".png": "image/png"}
                 f = ROOT / "serve" / "web" / name
                 ext = os.path.splitext(name)[1]
-                if "/" in name or "\\" in name or ext not in types or not f.is_file():
+                vendored = name.startswith("vendor/") and name.count("/") == 1 and "\\" not in name and not name.endswith(".txt")      # one folder of third-party scripts
+                if (("/" in name or "\\" in name) and not vendored) or ext not in types or not f.is_file():
                     self._json(404, {"error": {"message": "not found"}})
                     return
                 body = f.read_bytes()
@@ -351,6 +405,12 @@ def make_handler(svc: Service):
             elif path == "/api/models/job":
                 if self._authorized():
                     self._json(200, models.JOBS.status())
+            elif path == "/api/bench/overview":
+                if self._authorized():
+                    self._json(200, self._bench_overview())
+            elif path == "/api/bench/job":
+                if self._authorized():
+                    self._json(200, benchrun.JOBS.status())
             elif path == "/api/models/catalog":
                 if self._authorized():
                     self._json(200, self._catalog())
@@ -371,15 +431,36 @@ def make_handler(svc: Service):
             elif path == "/api/changes":
                 if self._authorized():
                     self._json(200, _CHANGES.view())
+            elif path.startswith("/api/files/"):
+                if self._authorized():
+                    self._fs_get(path)
+            elif path == "/api/remote/hello":
+                if self._authorized():
+                    self._json(200, {"name": "Basalt", "ok": True, "device": (self._key_row or {}).get("label", ""), "loaded": bool(svc.loaded())})
+            elif path == "/api/remote/peers":
+                if self._authorized():
+                    self._json(200, {"peers": tailscale_peers()})
+            elif path == "/api/remote":
+                if self._authorized():
+                    self._remote_get()
             elif path.startswith("/api/agent/"):
                 if self._authorized():
                     self._agent_get(path)
             elif path in ("/api/routines", "/api/routines/runs"):
                 if self._authorized():
                     self._routines_get(path)
+            elif path == "/api/personal-skills" or path.startswith("/api/personal-skills/"):
+                if self._authorized():
+                    self._pskills_get(path)
             elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online"):
                 if self._authorized():
                     self._capabilities_get(path)
+            elif path == "/api/memories":
+                if self._authorized():
+                    if not settings.is_loopback(self.client_address[0]):
+                        return self._json(403, {"error": {"type": "forbidden", "message": "the memories are shown only on the PC the server runs on"}})
+                    q = parse_qs(urlsplit(self.path).query)
+                    self._json(200, self._memories().overview((q.get("q") or [""])[0][:200], (q.get("kind") or [""])[0], (q.get("section") or [""])[0]))
             elif path == "/api/wallet":
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
@@ -518,11 +599,17 @@ def make_handler(svc: Service):
                 except (ValueError, TypeError) as e:
                     self._json(400, {"error": {"message": str(e)}})
                 return
+            if path.startswith("/api/remote/"):
+                self._remote_post(path)
+                return
             if path.startswith("/api/agent/"):
                 self._agent_post(path)
                 return
             if path == "/api/routines" or path.startswith("/api/routines/"):
                 self._routines_post(path)
+                return
+            if path == "/api/personal-skills" or path.startswith("/api/personal-skills/"):
+                self._pskills_post(path)
                 return
             if path.startswith("/api/llm/"):
                 self._llm_post(path)
@@ -538,6 +625,9 @@ def make_handler(svc: Service):
                 return
             if path.startswith("/api/wallet/"):
                 self._wallet_post(path)
+                return
+            if path.startswith("/api/memories/"):
+                self._memories_post(path)
                 return
             if path == "/api/changes/review":
                 if not settings.is_loopback(self.client_address[0]):
@@ -618,6 +708,9 @@ def make_handler(svc: Service):
                 return
             if path.startswith("/api/models/"):
                 self._models_post(path[len("/api/models/"):])
+                return
+            if path.startswith("/api/bench/"):
+                self._bench_post(path[len("/api/bench/"):])
                 return
             if path.startswith("/v1/") and self._foreign_page():
                 return
@@ -772,7 +865,7 @@ def make_handler(svc: Service):
             loaded: a program that merely reaches the port, or a page of another site, changes nothing. With no secret set (an
             embedded service) only the checks of each route apply."""
             token = svc.control_token
-            if not token:
+            if not token or self._via_key:                                               # a phone's own key is the stronger proof
                 return True
             given = self.headers.get(CONTROL_HEADER, "")
             if not given:
@@ -1021,6 +1114,103 @@ def make_handler(svc: Service):
             out["editable"] = settings.is_loopback(self.client_address[0])
             return out
 
+        def _bench_overview(self) -> dict:
+            """GET /api/bench/overview: the models with what was measured for each, the published references, the metrics, and what the Model
+            converter page needs to offer (the models to convert, the profiles and drafter layers that can be reused, the standard settings)."""
+            listing = self._models_listing(False)
+            ready = [m for m in listing.get("models") or [] if m.get("kind") == "basalt" and m.get("role") == "model" and m.get("status") == "ready"]
+            out = modelbench.overview(ready)
+            out["convertible"] = [{k: m.get(k) for k in ("id", "name", "quant", "path", "size_bytes", "experts_bytes", "mmproj", "vision", "mtp", "compat_bf16")}
+                                  for m in listing.get("models") or [] if m.get("role") == "model" and m.get("status") == "convert"]
+            out["profiles"] = [{"name": m.get("name"), "path": m.get("path")} for m in ready if not m.get("profile_plain")]
+            out["tuned_packs"] = [{k: p[k] for k in ("id", "name", "quant")} for p in models.tuned_sources()]
+            out["projectors"] = models.projector_files()
+            out["standard"] = benchrun.standard_settings()
+            out["power_w"] = benchrun.power_limit_w()
+            out["job"] = benchrun.JOBS.status()
+            out["editable"] = listing.get("editable")
+            out["out_dir"] = listing.get("output_dir") or models.default_output_dir()
+            return out
+
+        def _bench_precheck(self, path: str, settings_: dict) -> None:
+            """A test needs the GPU and the memory of its model: nothing else may hold them, and the Loader's own check must say it fits."""
+            if models.JOBS.running():
+                raise benchrun.Refused(409, {"error": {"type": "busy", "code": "busy", "message": "a conversion or a verification is running: wait for it to end"}})
+            held = loader.engine_holds(svc.engine)
+            if held["commit"] > (1 << 30):
+                raise benchrun.Refused(409, {"error": {"type": "model_loaded", "code": "model_loaded",
+                                                       "message": "a model is loaded and holds the GPU and the memory: unload it first (the test loads its own copy)"},
+                                             "holds": held})
+            facts = {**loader.model_facts(path), "projectors": models.projector_files()}
+            values = {(f"server.{k}" if k in ("parallel", "vision", "vision-hold", "vision-projector") else f"engine.{k}"): v for k, v in settings_.items()}
+            plan = loader.plan(values, facts, loader.system_now(getattr(svc, "gpu_index", 0)))
+            if not plan["fits"]:
+                raise benchrun.Refused(422, {"error": {"type": "insufficient_memory", "code": "does_not_fit",
+                                                       "message": " ".join(loader.problem_text(x, "en") for x in plan["problems"])},
+                                             "problems": [{**x, "text": loader.problem_text(x, "en"), "text_it": loader.problem_text(x, "it")} for x in plan["problems"]]})
+
+        def _bench_post(self, what: str):
+            """POST /api/bench/availability | run | cancel: only from this PC, as JSON from the server's own page. A test that was already
+            made under the same settings is not repeated without asking: `reuse` is "ask" (the default, answered 409), "reuse", "redo" or
+            a choice for each step."""
+            try:
+                raw = self._body(settings.BODY_MAX)
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                return
+            if what not in ("availability", "run", "cancel", "unload", "reload"):
+                self._json(404, {"error": {"message": "not found"}})
+                return
+            if not settings.is_loopback(self.client_address[0]):
+                self._json(403, {"error": {"type": "forbidden", "message": "models can be tested only from the PC the server runs on"}})
+                return
+            if not self._own_page("models can be tested"):
+                return
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+            except ValueError:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": "the body is not valid JSON"}})
+                return
+            try:
+                if what == "cancel":
+                    self._json(200, {"cancelled": benchrun.JOBS.cancel(), **benchrun.JOBS.status()})
+                    return
+                if what == "unload":                         # a test loads its own copy of the model: this one has to give the GPU and the memory back
+                    r = svc.unload()
+                    self._json(409 if r == "busy" else 200, {"status": r})
+                    return
+                if what == "reload":
+                    try:
+                        svc.load()
+                        self._json(200, {"status": "loaded"})
+                    except (GpuBusy, EngineDied, EngineStarting) as e:
+                        self._json(503, {"error": {"type": "server_error", "message": str(e)}})
+                    return
+                path = str(req.get("path") or "")
+                ready = [m for m in self._models_listing(False).get("models") or []
+                         if m.get("kind") == "basalt" and m.get("status") == "ready" and models._norm(m.get("path") or "") == models._norm(path)]
+                if not ready:
+                    raise benchrun.Refused(404, {"error": {"type": "not_found", "message": "no such model among the ready ones"}})
+                steps = [s for s in (req.get("steps") or modelbench.STEPS) if s in modelbench.STEPS]
+                relax = [float(x) for x in (req.get("relax") or modelbench.RELAX_DEFAULT)]
+                reps = max(1, min(5, int(req.get("reps") or 2)))
+                n = max(10, min(500, int(req.get("n") or 200)))
+                overrides = req.get("settings") if isinstance(req.get("settings"), dict) else None
+                if what == "availability":
+                    ident = modelbench.fingerprints(ready[0]["path"])
+                    std = benchrun.standard_settings(overrides)
+                    keyed = {**std, "relax": sorted({0.0, *relax}), "reps": reps, "power": benchrun.power_limit_w(), "n": n}
+                    self._json(200, {"available": modelbench.availability(ident, keyed, steps), "settings": std})
+                    return
+                self._json(202, benchrun.JOBS.start(ready[0], steps, overrides, relax, reps, n, req.get("baseline") is not False, req.get("reuse") or "ask",
+                                                    precheck=self._bench_precheck))
+            except benchrun.Refused as e:
+                self._json(e.status, e.body)
+            except (ValueError, TypeError) as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+
         def _catalog(self) -> dict:
             """GET /api/models/catalog: the models the Download panel offers (serve/catalog.py); nothing secret, no network."""
             return {"entries": [catalog.public(e) for e in catalog.CATALOG], "families": catalog.FAMILIES,
@@ -1069,10 +1259,10 @@ def make_handler(svc: Service):
                         svc.model_catalog.invalidate()       # GET /v1/models scans the new folders
                     self._json(200, self._models_listing(True))
                 elif what == "plan":
-                    self._json(200, models.convert_plan(str(req.get("id") or ""), req.get("out_dir")))
+                    self._json(200, models.convert_plan(str(req.get("id") or ""), req.get("out_dir"), options=req.get("options")))
                 elif what == "convert":
                     self._json(202, models.JOBS.start_convert(str(req.get("id") or ""), req.get("out_dir"),
-                                                              req.get("token"), req.get("confirm")))
+                                                              req.get("token"), req.get("confirm"), options=req.get("options")))
                 elif what == "verify":
                     self._json(202, models.JOBS.start_verify(req.get("path")))
                 elif what == "download-plan":
@@ -1213,7 +1403,7 @@ def make_handler(svc: Service):
 
         def _attachments_post(self, path):
             """Upload (the file as the request body) or remove an attached file. Only from this PC and the server's own page."""
-            if not settings.is_loopback(self.client_address[0]):
+            if not self._local_or_device():
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "files can be attached only from the PC the server runs on"}})
             if not self._own_origin():
@@ -1280,6 +1470,12 @@ def make_handler(svc: Service):
                     meta, file = store.get(parts[2], parts[3]), store.path(parts[2], parts[3])
                     types = {"png": "image/png", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp"}
                     return self._send_file(file, types.get(meta["kind"], "application/octet-stream"), meta["name"], inline=meta["family"] == "image")
+                if kind == "outputs" and len(parts) == 5 and parts[4] == "file":              # a picture the agent fetched, shown in the answer
+                    meta, file = outputs.get(parts[2], parts[3])
+                    shown = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}.get(file.suffix.lower().lstrip("."))
+                    if shown is None:
+                        raise KeyError(parts[3])
+                    return self._send_file(file, shown, meta["name"], inline=True)
                 if kind == "outputs" and len(parts) == 4:
                     meta, file = outputs.get(parts[2], parts[3])
                     return self._send_file(file, "application/octet-stream", meta["name"], inline=False)
@@ -1389,6 +1585,48 @@ def make_handler(svc: Service):
             if _WALLET is None:
                 _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments"), app_root=Path(__file__).resolve().parents[1], network_time=sntp_offset), BrowserPrefs(userdata.path("browser.json")), userdata.path("browser-profile"))
             return _WALLET
+
+        def _personal(self) -> PersonalMemory:
+            global _PERSONAL
+            if _PERSONAL is None:
+                _PERSONAL = PersonalMemory(userdata.path("personal-memory"), key_dir=userdata.path("vault"))
+            return _PERSONAL
+
+        def _memory_worker(self) -> MemoryWorker:
+            """Learns from what the person wrote, in the background; it also keeps its queue across restarts, so it starts with the conversations."""
+            global _MEM_WORKER
+            if _MEM_WORKER is None:
+                from harness.client import BasaltClient
+                endpoint = f"http://127.0.0.1:{self.server.server_address[1]}"
+                worker = MemoryWorker(self._personal(), lambda: BasaltClient(base_url=endpoint, api_key=svc.api_key or None),
+                                      lambda: gpu_free(svc, mine=worker.extractor.last))
+                _MEM_WORKER = worker
+                worker.start()
+            return _MEM_WORKER
+
+        def _memories(self) -> MemoriesApi:
+            global _MEMORIES
+            if _MEMORIES is None:
+                _MEMORIES = MemoriesApi(self._personal(), self._memory_worker())
+            return _MEMORIES
+
+        def _memories_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the memories are changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 16)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            if not self._own_page("the memories can be changed"):
+                return
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                return self._json(200, self._memories().post(path[len("/api/memories/"):], req))
+            except (PersonalMemoryError, ValueError, TypeError) as e:
+                return self._json(400, {"error": {"type": "memories", "message": str(e)}})
 
         def _wallet_post(self, path):
             if not settings.is_loopback(self.client_address[0]):
@@ -1517,6 +1755,70 @@ def make_handler(svc: Service):
                                         power_source=(lambda: tel.snapshot()["now"].get("gpus") or []) if tel else None)
             return _ROUTINES
 
+        def _pskills(self) -> PersonalSkillsApi:
+            global _PSKILLS
+            if _PSKILLS is None:
+                _PSKILLS = PersonalSkillsApi(userdata.path("personal-skills"))
+            return _PSKILLS
+
+        def _pskills_get(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                return self._json(403, {"error": {"type": "forbidden", "message": "personal skills can be used only from the PC the server runs on"}})
+            parts = path[len("/api/personal-skills"):].strip("/").split("/")
+            try:
+                api = self._pskills()
+                if parts == [""]:
+                    return self._json(200, api.overview())
+                if len(parts) == 1:
+                    return self._json(200, api.get(parts[0]))
+                if len(parts) == 2 and parts[1] == "export":
+                    data = api.export(parts[0])
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/octet-stream")
+                    self.send_header("Content-Disposition", f'attachment; filename="{parts[0]}.pskill"')
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+            except SkillError as e:
+                return self._json(400, {"error": {"type": "skill", "message": str(e)}})
+            self._json(404, {"error": {"message": "not found"}})
+
+        def _pskills_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "personal skills can be changed only from the PC the server runs on"}})
+            if not self._own_page("personal skills can be changed"):
+                return
+            parts = path[len("/api/personal-skills"):].strip("/").split("/")
+            try:
+                api = self._pskills()
+                req = json.loads(self._body(1 << 20) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                if parts == ["import"]:                                     # the .pskill file, a small zip, in base64
+                    return self._json(200, api.import_file(req.get("data")))
+                if parts == [""]:
+                    return self._json(200, api.save(req))
+                if parts == ["check"]:
+                    return self._json(200, api.check(req.get("script"), req.get("mode", "restricted")))
+                if parts == ["preview"]:
+                    return self._json(200, api.preview(req.get("params"), req.get("values")))
+                if len(parts) == 2 and parts[1] == "delete":
+                    return self._json(200, api.delete(parts[0]))
+                if len(parts) == 2 and parts[1] == "approve":
+                    return self._json(200, api.approve(parts[0]))
+                if len(parts) == 2 and parts[1] == "restore":
+                    return self._json(200, api.restore(parts[0], req.get("version")))
+            except SkillError as e:
+                return self._json(400, {"error": {"type": "skill", "message": str(e)}})
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"message": str(e)}})
+            self._json(404, {"error": {"message": "not found"}})
+
         def _routines_get(self, path):
             try:
                 if path == "/api/routines":
@@ -1527,7 +1829,7 @@ def make_handler(svc: Service):
                 return self._json(400, {"error": {"type": "routine", "message": str(e), "code": e.code}})
 
         def _routines_post(self, path):
-            if not settings.is_loopback(self.client_address[0]):
+            if not self._local_or_device():
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "routines can be changed only from the PC the server runs on"}})
             if not self._own_page("routines can be changed"):
@@ -1537,6 +1839,8 @@ def make_handler(svc: Service):
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
                 api, parts = self._routines(), path[len("/api/routines"):].strip("/").split("/")
+                if "workspace" in req and not self._folder_ok(req.get("workspace")):
+                    return self._json(403, {"error": {"type": "forbidden", "message": "a phone works only in the folders added on the PC"}})
                 if parts == [""]:
                     return self._json(200, api.create(req))
                 if parts == ["cancel"]:
@@ -1551,6 +1855,77 @@ def make_handler(svc: Service):
                 return self._json(400, {"error": {"message": str(e)}})
             self._json(404, {"error": {"message": "not found"}})
 
+        def _fs_get(self, path):
+            """The folders of this PC that are shared with a phone: which ones, what is in one, and a file in one."""
+            api = FilesApi(lambda: [(p["name"], Path(p["path"])) for p in self._projects().list() if p.get("exists")]
+                           + [("Chat", userdata.path("chat-workspace"))])
+            query = parse_qs(urlsplit(self.path).query)
+            try:
+                if path == "/api/files/roots":
+                    return self._json(200, {"roots": api.roots()})
+                if path == "/api/files/list":
+                    return self._json(200, api.list((query.get("path") or [""])[0]))
+                if path == "/api/files/read":
+                    file, name = api.file((query.get("path") or [""])[0])
+                    return self._send_file(file, "application/octet-stream", name, inline=False)
+            except FilesError as e:
+                return self._json(404 if e.code in ("outside", "hidden", "not_file", "not_folder") else 400, {"error": {"type": "files", "message": str(e), "code": e.code}})
+            self._json(404, {"error": {"message": "not found"}})
+
+        def _remote_view(self) -> dict:
+            remote = svc.remote
+            return {"tailscale": tailscale_status(), "enabled": remote.enabled, "listening": remote.listening, "address": remote.address(), "error": remote.error,
+                    "keys": svc.keys.list(), "install": _INSTALLER.view(), "port": remote.port}
+
+        def _remote_get(self):
+            if not settings.is_loopback(self.client_address[0]):
+                return self._json(403, {"error": {"type": "forbidden", "message": "phones are set up only from the PC the server runs on"}})
+            self._json(200, self._remote_view())
+
+        def _remote_post(self, path):
+            """Set phones up: turn them on or off, make and take away keys, install and connect Tailscale. Only from this PC and its own page."""
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "phones are set up only from the PC the server runs on"}})
+            if not self._own_page("phones can be set up"):
+                return
+            try:
+                req = json.loads(self._body(1 << 14) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                action = path[len("/api/remote/"):]
+                if action in ("enable", "disable"):
+                    svc.remote.set_enabled(action == "enable")
+                    return self._json(200, self._remote_view())
+                if action == "keys/create":
+                    row, key = svc.keys.create(req.get("label"))
+                    return self._json(200, {"key": key, "row": row, **self._remote_view()})
+                if action == "keys/show":
+                    found = svc.keys.reveal(req.get("id"))
+                    if found is None:
+                        return self._json(404, {"error": {"message": "That key cannot be shown again: take it away and make a new one."}})
+                    return self._json(200, {"key": found[1], "row": {"label": found[0]}, **self._remote_view()})
+                if action == "keys/revoke":
+                    if not svc.keys.revoke(req.get("id")):
+                        return self._json(404, {"error": {"message": "That key is not there any more."}})
+                    return self._json(200, self._remote_view())
+                if action == "tailscale/install":
+                    return self._json(200, {**self._remote_view(), "install": _INSTALLER.start()})
+                if action == "tailscale/up":
+                    result = tailscale_up()
+                    return self._json(200, {**self._remote_view(), "up": result})
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"message": str(e)}})
+            self._json(404, {"error": {"message": "not found"}})
+
+        def _projects(self) -> ProjectStore:
+            global _PROJECTS
+            if _PROJECTS is None:
+                _PROJECTS = ProjectStore(userdata.path("journal"))
+            return _PROJECTS
+
         def _agent_sessions(self) -> SessionManager:
             global _SESSIONS
             if _SESSIONS is None:
@@ -1559,7 +1934,9 @@ def make_handler(svc: Service):
                                            attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
                                            browser_prefs=BrowserPrefs(userdata.path("browser.json")).read,
-                                           browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink())
+                                           browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
+                                           skills_dir=userdata.path("personal-skills"), projects=self._projects(),
+                                           personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer)
                 self._routines()                          # the clock of the routines starts with the conversations
             return _SESSIONS
 
@@ -1591,6 +1968,9 @@ def make_handler(svc: Service):
                         return self._json(200, mgr.events(parts[1], after))
                     if len(parts) == 3 and parts[2] == "history":
                         return self._json(200, mgr.history(parts[1]))
+                    if len(parts) == 3 and parts[2] == "file":
+                        file, name = mgr.workspace_file(parts[1], (parse_qs(urlsplit(self.path).query).get("path") or [""])[0])
+                        return self._send_file(file, "application/octet-stream", name, inline=False)
                     if len(parts) == 3 and parts[2] == "snapshots":
                         return self._json(200, mgr.snapshots(parts[1]))
                     if len(parts) == 3 and parts[2] == "copy":
@@ -1602,6 +1982,8 @@ def make_handler(svc: Service):
                         return self._json(200, mgr.snapshot_diff(parts[1], (q.get("a") or [""])[0], (q.get("b") or [""])[0]))
                     if len(parts) == 2:
                         return self._json(200, {"session": mgr.get(parts[1])})
+                if parts == ["projects"]:
+                    return self._json(200, {"projects": self._projects().list()})
                 if parts == ["runs"]:
                     return self._json(200, self._agent_runner().view())
                 if len(parts) == 3 and parts[0] == "runs" and parts[2] == "log":
@@ -1623,7 +2005,7 @@ def make_handler(svc: Service):
             self._json(404, {"error": {"message": "not found"}})
 
         def _agent_post(self, path):
-            if not settings.is_loopback(self.client_address[0]):
+            if not self._local_or_device():
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "the agent can be used only from the PC the server runs on"}})
             if not self._own_page("the agent can be used"):
@@ -1633,6 +2015,17 @@ def make_handler(svc: Service):
                 req = json.loads(self._body(1 << 16) or b"{}")
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
+                if parts[0] == "projects" and self.remote_listener:
+                    return self._json(403, {"error": {"type": "forbidden", "message": "folders are added only from the PC the server runs on"}})
+                if parts == ["sessions"] and not self._folder_ok(req.get("workspace")):
+                    return self._json(403, {"error": {"type": "forbidden", "message": "a phone works only in the folders added on the PC"}})
+                if parts == ["place", "forget"]:
+                    self._agent_sessions().forget_place()
+                    return self._json(200, {"forgotten": True})
+                if parts == ["projects"]:
+                    return self._json(200, {"project": self._projects().add(req.get("path"))})
+                if parts == ["projects", "remove"]:
+                    return self._json(200, {"removed": self._projects().remove(req.get("path"))})
                 if parts[0] == "sessions":
                     mgr = self._agent_sessions()
                     if parts == ["sessions"]:
@@ -1641,7 +2034,8 @@ def make_handler(svc: Service):
                                                                       req.get("confirm_auto") is True, req.get("max_turns", 15),
                                                                       req.get("context_patterns"), req.get("context_policy", "stop"),
                                                                       req.get("context_threshold", 0.8), req.get("end_turn_bias"),
-                                                                      req.get("worktree", "auto"), req.get("effort", ""))})
+                                                                      req.get("worktree", "auto"), req.get("effort", ""),
+                                                                      req.get("images", ""), req.get("charts", ""))})
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
                         return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
@@ -1653,7 +2047,7 @@ def make_handler(svc: Service):
                     if len(parts) == 3 and parts[2] == "branch":
                         return self._json(200, {"session": mgr.branch(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "send":
-                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments")))
+                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place")))
                     if len(parts) == 3 and parts[2] in ("promote", "drop"):
                         return self._json(200, {"session": getattr(mgr, parts[2])(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "answer":
@@ -1664,6 +2058,12 @@ def make_handler(svc: Service):
                         return self._json(200, {"session": mgr.set_effort(parts[1], req.get("level", ""))})
                     if len(parts) == 3 and parts[2] == "rename":
                         return self._json(200, {"session": mgr.rename(parts[1], req.get("title"))})
+                    if len(parts) == 3 and parts[2] == "skill-propose":
+                        return self._json(200, mgr.skill_propose(parts[1], req.get("turns")))
+                    if len(parts) == 3 and parts[2] == "skill-script":
+                        return self._json(200, mgr.skill_script(parts[1], req.get("turns"), req.get("name"), req.get("description"), req.get("params")))
+                    if len(parts) == 3 and parts[2] == "skill":
+                        return self._json(200, mgr.run_skill(parts[1], req.get("slug"), req.get("values")))
                     if len(parts) == 3 and parts[2] == "favorite":
                         return self._json(200, {"session": mgr.favorite(parts[1], req.get("favorite"))})
                     if len(parts) == 3 and parts[2] == "delete":
@@ -1796,6 +2196,12 @@ def make_handler(svc: Service):
                     return self._json(200, service.archive(plan_id, service._actor(req)))
                 if action == "restore":
                     return self._json(200, service.restore(plan_id, service._actor(req)))
+                if action == "duplicate":
+                    return self._json(201, service.duplicate(plan_id, service._actor(req), req.get("title")))
+                if action == "delete":
+                    if not service.delete(plan_id):
+                        raise KeyError(plan_id)
+                    return self._json(200, {"deleted": plan_id})
                 self._json(404, {"error": {"message": "not found"}})
             except json.JSONDecodeError as exc:
                 self._json(400, {"error": {"message": f"invalid JSON: {exc.msg}"}})
@@ -1813,16 +2219,19 @@ def make_handler(svc: Service):
         def _openai(self, req):
             messages, tools, kw = openai_to_messages(req)
             tools, force = forced_call(req.get("tool_choice"), tools)   # a bad choice is a 400 before streaming
-            messages, validator = prepare_format(req.get("response_format"), messages)
-            if validator is not None and tools:
+            if check_format(req.get("response_format")) and tools:
                 raise ValueError("structured response_format with tools is not supported")
-            retries = structured_retries(req) if validator is not None else 0
+            retries = structured_retries(req)                 # 0: the engine's grammar alone; tries only when a request asks
+            validator = json_validator(req.get("response_format")) if retries else None
             trace = self.trace
-            if validator is not None:
+            svc.require_grammar(req.get("response_format"))
+            if check_format(req.get("response_format")):
                 req["relaxed_drafting"] = False                # JSON output is sampled exactly
             svc.load()
             add_end_turn(req, svc.tok.encode(IM_END, parse_special=True))
             req[BIAS_KEY] = checked_bias(req, svc.engine)     # a bad logit_bias is a 400 before streaming
+            req[GRAMMAR_KEY] = svc.grammar_for(tools, req.get("tool_choice"), req.get("tools"),
+                                               req.get("response_format"))
             asked = int(req.get("max_completion_tokens") or req.get("max_tokens") or 0)   # 0/-1: the rest of the context
             svc.reasoning_budget(req)                         # a bad value is a 400 before streaming
             stop_strings(req)                                 # likewise a bad stop
@@ -1831,17 +2240,18 @@ def make_handler(svc: Service):
             cancel = threading.Event()
             self._watch_client(cancel)
             if validator is None:
-                chunks = openai_chunks(svc, req, ids, thinking, tools, max_new, cancel, force=force)
+                chunks = primed(openai_chunks(svc, req, ids, thinking, tools, max_new, cancel, force=force), ids)
             else:                                             # validated, and tried again with the error fed back
                 def start(feedback):
                     if trace is not None:
                         trace.attempt = (trace.attempt or 0) + 1
                     if feedback is None:
-                        return openai_chunks(svc, req, ids, thinking, tools, max_new, cancel, force=force)
+                        return primed(openai_chunks(svc, req, ids, thinking, tools, max_new, cancel, force=force), ids)
                     again = retry_messages(messages, *feedback)
                     ids2, thinking2, max_new2 = svc.prepare(again, tools, kw, asked, force=force)
-                    return openai_chunks(svc, req, ids2, thinking2, tools, max_new2, cancel, force=force)
-                chunks = structured_retry_chunks(start, validator, retries, trace.note if trace is not None else None)
+                    return primed(openai_chunks(svc, req, ids2, thinking2, tools, max_new2, cancel, force=force), ids2)
+                chunks = structured_retry_chunks(start, validator, retries, trace.note if trace is not None else None,
+                                                 constrained=bool(req.get(GRAMMAR_KEY)))
             if not req.get("stream"):
                 return self._json(200, openai_collect(chunks))
             self._sse()
@@ -1881,7 +2291,7 @@ def make_handler(svc: Service):
         def _responses(self, req):
             """POST /v1/responses (serve/api/responses.py); after the stream starts, errors are response.failed."""
             try:
-                ids, thinking, tools, max_new, asm, validator, req, force = self._responses_prepare(req)
+                ids, thinking, tools, max_new, asm, req, force = self._responses_prepare(req)
             except ResponsesError as e:
                 return self._json(e.status, e.body())
             except ModelBusy as e:
@@ -1890,9 +2300,6 @@ def make_handler(svc: Service):
                 return self._json(503, responses_error_body(str(e), "server_error", code="server_error"))
             cancel = threading.Event()
             self._watch_client(cancel)
-
-            def check(text, finish):
-                return validated_json(text, validator, finish)
 
             def events():
                 yield from asm.start()
@@ -1905,14 +2312,15 @@ def make_handler(svc: Service):
                     elif kind == "done":
                         done = x
                 if done is not None and done["finish"] != "cancel" and not cancel.is_set():
-                    yield from asm.finish(done, check)
-            items = events()
+                    yield from asm.finish(done)
+            try:
+                items = primed(events(), ids)
+            except ValueError as e:                          # too long for the context: found when the engine counted
+                err = ResponsesError(str(e), "input", "context_length_exceeded" if "context" in str(e) else None)
+                return self._json(err.status, err.body())
             if not req.get("stream"):
                 try:
                     result = responses_api.collect(items)
-                except StructuredOutputError as e:
-                    return self._json(502, responses_error_body(str(e), "server_error",
-                                                                code="structured_output_failed"))
                 except EngineDied as e:
                     return self._json(503, responses_error_body(f"{e}; the next request restarts it", "server_error",
                                                                 code="server_error"))
@@ -1945,8 +2353,6 @@ def make_handler(svc: Service):
                 self._left()
             except EngineDied as e:                          # mid-stream: response.failed
                 self._responses_failed(asm, f"{e}; the next request restarts it", "server_error", send)
-            except StructuredOutputError as e:
-                self._responses_failed(asm, str(e), "structured_output_failed", send)
             except ValueError as e:                          # engine ERR after the stream started
                 self._responses_failed(asm, str(e), "server_error", send)
 
@@ -1970,14 +2376,18 @@ def make_handler(svc: Service):
                 raise ResponsesError(str(e), "tool_choice") from None
             kw = responses_api.template_kwargs(req)
             try:
-                messages, validator = prepare_format(responses_api.text_format(req), messages)
+                structured = check_format(responses_api.text_format(req))
             except ValueError as e:
                 raise ResponsesError(str(e).replace("response_format", "text.format"), "text.format") from None
-            if validator is not None and tools:
+            if structured and tools:
                 raise ResponsesError("a JSON text.format with tools is not supported", "text.format",
                                      "unsupported_parameter")
-            if validator is not None:
-                req["relaxed_drafting"] = False                # JSON output is sampled exactly
+            try:
+                svc.require_grammar(responses_api.text_format(req))
+            except ValueError as e:
+                raise ResponsesError(str(e).replace("response_format", "text.format"), "text.format") from None
+            req[GRAMMAR_KEY] = svc.grammar_for(tools, req.get("tool_choice"), req.get("tools"),
+                                               responses_api.text_format(req))
             noted = svc.__dict__.setdefault("hosted_tools_noted", set())   # once per tool
             if set(skipped) - noted:
                 print(f"[server] warning: /v1/responses ignores hosted tools {', '.join(sorted(set(skipped) - noted))}", flush=True)
@@ -2001,8 +2411,8 @@ def make_handler(svc: Service):
             _debug_req("responses", req, messages, tools, max_new, thinking, len(ids))
             include = req.get("include") if isinstance(req.get("include"), list) else []
             asm = responses_api.Assembler(req, svc.model, len(ids), names,
-                                          "reasoning.encrypted_content" in include, validator is not None)
-            return ids, thinking, tools, max_new, asm, validator, req, force
+                                          "reasoning.encrypted_content" in include)
+            return ids, thinking, tools, max_new, asm, req, force
 
         def _count_tokens(self, req):
             """Anthropic's token count: the rendered, tokenized prompt, without running the model."""
@@ -2016,13 +2426,21 @@ def make_handler(svc: Service):
             messages, tools, kw = anthropic_to_messages(req, svc.anthropic_think_unasked)
             tools, force = forced_call(req.get("tool_choice"), tools)   # "any" / {"type": "tool", "name": N}
             max_new = int(req.get("max_tokens") or 0)                  # 0/-1: the rest of the context
+            response_format = anthropic_format(req)            # structured outputs
+            if response_format and tools:
+                raise ValueError("a JSON output format with tools is not supported")
+            try:
+                svc.require_grammar(response_format)
+            except ValueError as e:
+                raise ValueError(str(e).replace("response_format json_schema and json_object", "output_config.format json_schema")) from None
+            req[GRAMMAR_KEY] = svc.grammar_for(tools, req.get("tool_choice"), req.get("tools"), response_format)
             svc.reasoning_budget(req)                         # a bad value is a 400 before streaming
             stop_strings(req)                                 # likewise a bad stop
             ids, thinking, max_new = svc.prepare(messages, tools, kw, max_new, force=force)
             _debug_req("anthropic", req, messages, tools, max_new, thinking, len(ids))
             cancel = threading.Event()
             self._watch_client(cancel)
-            events = anthropic_events(svc, req, ids, thinking, tools, max_new, cancel, force=force)
+            events = primed(anthropic_events(svc, req, ids, thinking, tools, max_new, cancel, force=force), ids)
             if not req.get("stream"):
                 return self._json(200, anthropic_collect(events))
             self._sse()
@@ -2060,9 +2478,19 @@ class Server(ThreadingHTTPServer):
             super().handle_error(request, client_address)
 
 
+def _listen(svc: Service, host: str, port: int, remote: bool = False) -> ThreadingHTTPServer:
+    httpd = Server((host, port), make_handler(svc, remote))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd
+
+
 def serve(svc: Service, host="127.0.0.1", port=7232) -> ThreadingHTTPServer:
     svc.host_names = host_names_for(host, svc.allowed_hosts, svc.trusted_origins)
     svc.start_telemetry()
-    httpd = Server((host, port), make_handler(svc))
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    httpd = _listen(svc, host, port)
+    if getattr(svc, "keys", None) is None:
+        svc.keys = ApiKeys(userdata.path("api-keys.json"), key_dir=userdata.path("vault"))
+    if getattr(svc, "remote", None) is None:
+        svc.remote = RemoteAccess(userdata.path("remote.json"), httpd.server_address[1], lambda ip, p: _listen(svc, ip, p, remote=True))
+        threading.Thread(target=svc.remote.apply, daemon=True, name="remote-listener").start()      # asking Tailscale for its address can take a moment
     return httpd

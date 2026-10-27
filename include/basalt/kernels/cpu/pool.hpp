@@ -28,6 +28,7 @@
 
 #include "basalt/kernels/cpu/expert.hpp"
 #include "basalt/kernels/cpu/native_expert.hpp"
+#include "basalt/platform/cpu.hpp"
 
 #include <atomic>
 #include <cstdio>
@@ -64,22 +65,10 @@ struct ExpertJobMulti {
 
 /// How worker threads are allocated across physical/logical CPU cores.  `All` uses every core and is the default; the
 /// hybrid-aware ones are opt-in (--pool-affinity auto|p-cores).
-enum class PoolAffinity {
-    Auto,      ///< Hybrid: prioritize physical P-cores, then SMT, then E-cores (defaults to P-core count)
-    PCores,    ///< Restrict workers strictly to Performance cores and their SMT siblings
-    All,       ///< The default: one worker per physical core in the OS's order, without hybrid distinction
-};
+using PoolAffinity = platform::CpuAffinity;
+using CpuTopology = platform::CpuTopology;
 
-struct CpuTopology {
-    bool is_hybrid = false;
-    int p_cores = 0;                ///< Physical performance cores
-    int p_threads = 0;              ///< Total logical threads on performance cores
-    int e_cores = 0;                ///< Efficient cores
-    std::vector<int> worker_cores;   // Ordered CPU IDs
-    int host_core = -1;             ///< Logical core reserved for host thread
-};
-
-CpuTopology detect_cpu_topology(bool skip_first, PoolAffinity affinity = PoolAffinity::All);
+using platform::detect_cpu_topology;
 
 /// One logical processor per PHYSICAL core, so a worker is never scheduled onto an SMT sibling of another worker:
 /// `hardware_concurrency()/2` workers on logical processors 0..N/2 could put every worker on a sibling pair and halve
@@ -88,39 +77,13 @@ CpuTopology detect_cpu_topology(bool skip_first, PoolAffinity affinity = PoolAff
 /// `skip_first` drops the first core, which is reserved for the host loop.
 std::vector<int> physical_cores(bool skip_first, PoolAffinity affinity = PoolAffinity::All);
 
-/// **THE RESERVATION IS A FICTION UNLESS THE HOST IS ACTUALLY PUT THERE.**
-///
-/// `physical_cores(true)` keeps the workers off the first physical core so that the host loop can spin on
-/// `cudaEventQuery` without stealing a worker's cycles.  Nothing in the pool can enforce the other half of that, so
-/// this is it: the host loop calls this on entry and restores on exit.  An unpinned spinning host is free to land on a
-/// worker's core or its SMT sibling, which costs the pool bandwidth.
-///
-/// The previous host placement. `valid` is false when querying or setting placement failed.  The complete,
-/// dynamically sized native CPU mask is stored, including CPU IDs above 63.  On Windows `mask` holds the thread's
-/// selected CPU Set IDs instead (empty: the process default), and a processor is encoded group * 64 + index.
-struct ThreadAffinity {
-    std::vector<unsigned long> mask;
-    bool valid = false;
-};
-
-/// Selects one encoded processor for the caller.
-/// Restore on the same calling thread. Pool-owned workers use hard group affinity instead.
-ThreadAffinity pin_current_thread(int core);
-void restore_thread_affinity(const ThreadAffinity& previous);
-
 class ExpertPool {
 public:
-    /// `n_workers <= 0` means "every physical core except the first".  Workers are pinned to physical cores (minus core
-    /// 0 by default) and each owns one `ExpertScratch`, so nothing in the token path allocates.
+    /// `n_workers` is the worker count (at least 1); the caller sizes it (see program/auto_plan).  Workers are not pinned (the OS places them) and each owns one `ExpertScratch`, so nothing in the token path allocates.
     ///
-    /// **`host_works` PUTS THE HOST THREAD INTO THE DRAIN.**
-    ///
-    /// The pool reserves core 0 for the host loop so the doorbell spin cannot steal a worker's cycles - but during
-    /// `run()` the host does not spin, it waits, so core 0 is idle for the whole drain.  With `host_works`, `run()`
-    /// claims jobs itself instead of spinning on `done_`, and the pool uses every core.  `false` is the A/B arm - the
-    /// counter it moves is `pool phases ... drain`, which is host-side and needs no profiler.
-    explicit ExpertPool(int n_workers = 0, bool pin = true, bool host_works = true,
-                        PoolAffinity affinity = PoolAffinity::All);
+    /// The host thread joins the drain: `run()` claims jobs itself instead of spinning on `done_`, so the pool uses
+    /// every core.
+    explicit ExpertPool(int n_workers, PoolAffinity affinity = PoolAffinity::All);
     /// The watchdog's view of the pool: the batch, the counters, every thread's state.
     void diag(std::FILE* f) const;
     ~ExpertPool();
@@ -128,12 +91,12 @@ public:
     ExpertPool& operator=(const ExpertPool&) = delete;
 
     int workers() const { return n_; }
-    /// The cgroup CPU quota, in CPUs, that capped the default worker count; 0 when it did not.
-    double quota_limit() const { return quota_limit_; }
-    /// Whether the host thread also drains.  Reported at startup, because "the engine adapts to the machine it
-    /// is on" is only true if the engine says which adaptation it took.
-    bool host_works() const { return host_works_; }
-
+    /// How many of the workers take work.  The rest stay parked and never claim.
+    int active_workers() const { return active_.load(std::memory_order_relaxed); }
+    /// Change the active worker count live, clamped to 1..workers(); returns the count in effect.  The threads stay as
+    /// created.  Host thread only, between batches: it waits for every worker to park first.  Work is split by the
+    /// active count, so a given count always cuts the same tasks, and outputs do not depend on the count.
+    int set_active_workers(int k);
     bool is_hybrid() const { return topo_.is_hybrid; }
     int p_cores() const { return topo_.p_cores; }
     int p_threads() const { return topo_.p_threads; }
@@ -156,6 +119,17 @@ public:
     /// the same for a native pack's layer (ggml-cpu arithmetic, `nact` activations).
     void run_split_multi_native(const NativeFmt& f, ExpertJobMulti* jobs, int n);
     static constexpr int kMaxSplitMulti = 96;
+    /// Row-range tasks per thread in each phase of the multi-token paths.  The cores differ in speed, so a thread
+    /// that finishes early claims another: the more and smaller the tasks, the shorter the wait for the slowest one
+    /// at the end of a phase, until the claim traffic and the short streams cost more than the tail they remove.
+    static constexpr int kTasksPerThread = 12;
+    /// Work for the parked workers between batches (not the host thread): `fn(ctx, worker, workers, stop)` runs once
+    /// per worker index and must return soon after `stop` reads true.  Returns at once.  The next batch, `idle_stop`
+    /// or the destructor raises `stop` and waits for the workers to park, so the work never overlaps a batch; it must
+    /// not write anything a batch reads.
+    using IdleFn = void (*)(void* ctx, int worker, int workers, const std::atomic<bool>& stop);
+    void idle_start(IdleFn fn, void* ctx);
+    void idle_stop();
     /// run_split_multi's phases, accumulated ms: gate/up rows, the intermediate quantization, down rows.
     double ms_multi_gu = 0, ms_multi_q = 0, ms_multi_down = 0;
     int64_t multi_bytes = 0;
@@ -191,6 +165,11 @@ private:
     void worker(int id);
     void drain(int id, ExpertScratch& scratch, uint32_t epoch);
     void run_phase(int mode, int n_tasks);
+    /// Rows [r0, r1) of expert `e` of the native batch: gate/up with SwiGLU into the split buffer, the intermediate's
+    /// quantization, and the down projection into the job's outputs.
+    void native_gu_range(int e, int r0, int r1);
+    void native_quantize(int e);
+    void native_down_range(int e, int r0, int r1);
     /// Claim the next job of batch `epoch`, or -1 (that batch is exhausted, or it is not the current one).
     int claim(uint32_t epoch);
     /// Publish the batch whose description the caller has just written: reset `done`, then `head`, then the epoch.
@@ -198,15 +177,19 @@ private:
     /// The host's waits, bounded by `kStall`.
     void wait_parked(const char* what);
     void wait_done(int n);
+    /// The wait of a fused batch's down part for its expert's quantized intermediate, bounded the same way.
+    void wait_ready(int e);
+    /// After a stall was logged: release the GPU's waits, then stop the process.
+    [[noreturn]] static void stalled();
     /// Bump `epoch_`, and wake the workers that went to sleep.  Every publish goes through here.
     void publish();
 
     int n_ = 0;
-    double quota_limit_ = 0.0;
-    bool host_works_ = true;
+    /// Workers with id < active_ take work; written only while every worker is parked, before the next publish.
+    std::atomic<int> active_{0};
     ExpertJob* jobs_ = nullptr;
     int njobs_ = 0;
-    /// The host's own scratch when `host_works_`.  A separate object rather than a share of `scratch_[i]`,
+    /// The host's own scratch .  A separate object rather than a share of `scratch_[i]`,
     /// because a worker may own any index and the two must not be able to collide.
     ExpertScratch host_scratch_;
     // `run()`'s three phases, accumulated.  Host-thread only; see `phase_ms`.
@@ -240,6 +223,11 @@ private:
     std::chrono::microseconds spin_before_sleep_{kSpinBeforeSleep};
     std::vector<std::thread> threads_;
     std::vector<ExpertScratch> scratch_;   // one per worker: no allocation, no false sharing of the hot data
+    // idle work (mode 7): one job per worker index
+    IdleFn idle_fn_ = nullptr;
+    void* idle_ctx_ = nullptr;
+    bool idle_live_ = false;
+    alignas(64) std::atomic<bool> idle_halt_{false};
     // run_split state: mode 0 = whole experts, 1 = gate/up row parts, 2 = down row parts
     int mode_ = 0;
     int parts_a_ = 1, parts_b_ = 1;
@@ -248,7 +236,7 @@ private:
         ActQ a2;
     };
     std::vector<SplitBuf> split_;
-    // run_split_multi state: mode 3 = gate/up row parts, 4 = down row parts
+    // run_split_multi state: mode 3 = gate/up row parts, 4 = down row parts (mode 8, the native path, is below)
     ExpertJobMulti* mjobs_ = nullptr;
     int64_t mrows_ = 0;   // rows of the current multi phase across all its experts (n * FF, then n * H)
     int mtasks_ = 1;   // equal row ranges the phase is cut into
@@ -258,6 +246,14 @@ private:
         alignas(64) uint8_t hq[MAXT][kNativeHBytes];   // native down activations
     };
     const NativeFmt* nfmt_ = nullptr;
+    // run_split_multi_native's one batch per layer (mode 8): per expert, the gate/up parts left to do and whether its
+    // intermediate is quantized
+    struct alignas(64) FusedExpert {
+        std::atomic<int> gu_left{0};
+        std::atomic<int> ready{0};
+    };
+    std::unique_ptr<FusedExpert[]> fused_;
+    int fused_n_ = 0, fused_gu_parts_ = 1, fused_d_parts_ = 1;
     std::vector<SplitBufMulti> split_multi_;
     PoolAffinity affinity_ = PoolAffinity::All;
     CpuTopology topo_;

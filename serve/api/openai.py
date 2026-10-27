@@ -1,4 +1,4 @@
-"""OpenAI chat completion chunks, their non-streaming collection and structured-output buffering."""
+"""OpenAI chat completion chunks, and their non-streaming collection."""
 from __future__ import annotations
 
 import json
@@ -107,12 +107,12 @@ def openai_collect(chunks) -> dict:
     return out
 
 
-STRUCTURED_RETRIES = 2              # extra tries after an answer that fails its JSON check
+STRUCTURED_RETRIES = 0              # extra tries after an answer that fails its JSON check: off unless a request asks
 STRUCTURED_RETRIES_MAX = 5
 
 
 def structured_retries(req: dict) -> int:
-    """The request's `structured_retries` (0..5, default 2); ValueError for anything else."""
+    """The request's `structured_retries` (0..5, default 0 = the engine's grammar is relied on); ValueError for anything else."""
     n = req.get("structured_retries", STRUCTURED_RETRIES)
     if isinstance(n, bool) or not isinstance(n, int) or not 0 <= n <= STRUCTURED_RETRIES_MAX:
         raise ValueError(f"structured_retries: a whole number 0..{STRUCTURED_RETRIES_MAX}, not {n!r}")
@@ -153,12 +153,12 @@ def _chunk_of(base: dict, delta: dict, **extra) -> dict:
             "choices": [{"index": 0, "delta": delta, "finish_reason": None}], **extra}
 
 
-def structured_retry_chunks(start, validator, retries: int, note=None):
+def structured_retry_chunks(start, validator, retries: int, note=None, constrained: bool = False):
     """Hold each try's answer, validate it, and on a rejected answer start again with the error fed back (at most
     `retries` more times). `start(feedback)` gives a try's chunks: feedback is None first, then (rejected text, error,
     repair). Only the answer is held; reasoning chunks go to the client as they arrive. A rejected try is announced by
     a chunk with an empty delta and `structured_output.discarded`; the final chunk carries only the validated answer
-    and says how many tries it took (`structured_output`). Generation itself is not constrained.
+    and says how many tries it took (`structured_output`).
     `note(kind, data, text)` is told each try's outcome ("attempt") and each repair message ("repair")."""
     from serve.api.structured import StructuredOutputError
     feedback, attempt, first, discarded = None, 0, None, []
@@ -221,7 +221,7 @@ def structured_retry_chunks(start, validator, retries: int, note=None):
             note("attempt", {"attempt": attempt, "ok": True, "error": None, "finish_reason": choice["finish_reason"],
                              "discarded": False, "retrying": False}, "")
         yield stamp(_chunk_of(held[-1], {"content": content}))
-        facts = {"validated": True, "constrained": False, "attempts": attempt}
+        facts = {"validated": True, "constrained": constrained, "attempts": attempt}
         if discarded:
             facts["discarded"] = discarded
         yield stamp({**held[-1], "structured_output": facts})

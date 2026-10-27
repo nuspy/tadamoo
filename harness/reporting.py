@@ -1,4 +1,4 @@
-"""Tells the server's Monitor what the agent is doing and what it edited.
+"""Tells the server's Agent tab what the agent is doing and what it edited.
 
 The agent posts to the server it already talks to, to /api/tasks (one task per run, with its progress) and
 /api/changes (each file edit with its diff). Reporting is a courtesy: it never changes a run, and after two
@@ -22,12 +22,13 @@ STATUS_BY_STOP = {"final": "done", "cancelled": "closed"}
 
 class PanelReporter:
     def __init__(self, base_url: str, api_key: Optional[str], sandbox: Any, goal: str, timeout: float = 3.0,
-                 session: Optional[str] = None) -> None:
+                 session: Optional[str] = None, tasks: bool = True) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.sandbox = sandbox
         self.goal = " ".join(goal.split())[:RESULT_CHARS]
         self.timeout = timeout
+        self.tasks = tasks                                       # a conversation reports only its edits: it is not one task with an end
         self.task_id = f"agent-{session or secrets.token_hex(3)}"
         self.error = ""
         self._failures = 0
@@ -57,6 +58,8 @@ class PanelReporter:
             return False
 
     def _task(self, status: str, result: str) -> None:
+        if not self.tasks:
+            return
         self._post("/api/tasks", {"id": self.task_id, "status": status, "result": result[:RESULT_CHARS],
                                   "metadata": {"kind": "agent", "goal": self.goal}})
 
@@ -80,7 +83,7 @@ class PanelReporter:
         for c in fresh:
             edit = {k: c[k] for k in ("file", "kind", "added", "removed", "diff") if k in c}
             if isinstance(c.get("old_text"), str) and isinstance(c.get("new_text"), str):
-                # the texts let the person keep or undo single blocks from the Monitor
+                # the texts let the person keep or undo single blocks from the Agent tab
                 edit["review"] = {"root": str(getattr(self.sandbox, "root", "")), "old_text": c["old_text"], "new_text": c["new_text"]}
             edits.append(edit)
         if self._post("/api/changes", {"edits": edits}):

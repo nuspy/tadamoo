@@ -29,22 +29,18 @@ add_library(vision_core STATIC
   ${VISION_ROOT}/src/vision/gemm_cpu.cpp
   ${VISION_ROOT}/src/vision/gemm_cpu_avx512.cpp)
 target_include_directories(vision_core PUBLIC ${VISION_ROOT}/include PRIVATE ${VISION_ROOT}/src/vision)
-# the root project sets BASALT_ISA_*; built on its own, the same spellings are made here
-if(NOT DEFINED BASALT_ISA_AVX2_NOF16C)
-  if(MSVC)
-    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
-    set(BASALT_ISA_AVX2_NOF16C "/arch:AVX2;/D__FMA__")
-    set(BASALT_ISA_AVX512_BF16 "/arch:AVX512;/D__FMA__;/D__AVX512BF16__")
-  else()
-    set(BASALT_ISA_AVX2_NOF16C "-mavx2;-mfma")
-    set(BASALT_ISA_AVX512_BF16 "-mavx512f;-mavx512bw;-mavx512vl;-mavx512bf16;-mfma")
-  endif()
+if(MSVC)
+  # /arch: selects the baseline; the intrinsics used below are available to a function that uses them either way.
+  set_source_files_properties(${VISION_ROOT}/src/vision/gemm_cpu.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+  # the AVX-512 BF16 file is only called after a run-time CPU check
+  set_source_files_properties(${VISION_ROOT}/src/vision/gemm_cpu_avx512.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX512")
+else()
+  set_source_files_properties(${VISION_ROOT}/src/vision/gemm_cpu.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma")
+  # the AVX-512 BF16 file is only called after a run-time CPU check
+  set_source_files_properties(${VISION_ROOT}/src/vision/gemm_cpu_avx512.cpp
+                              PROPERTIES COMPILE_OPTIONS "-mavx512f;-mavx512bw;-mavx512vl;-mavx512bf16;-mfma")
 endif()
-set_source_files_properties(${VISION_ROOT}/src/vision/gemm_cpu.cpp PROPERTIES COMPILE_OPTIONS "${BASALT_ISA_AVX2_NOF16C}")
-# the AVX-512 BF16 file is only called after a run-time CPU check
-set_source_files_properties(${VISION_ROOT}/src/vision/gemm_cpu_avx512.cpp
-                            PROPERTIES COMPILE_OPTIONS "${BASALT_ISA_AVX512_BF16}")
-target_link_libraries(vision_core PUBLIC Threads::Threads)
+target_link_libraries(vision_core PUBLIC platform Threads::Threads)
 
 # device side
 add_library(vision_cuda STATIC
@@ -54,16 +50,22 @@ target_include_directories(vision_cuda PUBLIC ${VISION_ROOT}/include ${VISION_RO
 target_link_libraries(vision_cuda PUBLIC vision_core CUDA::cudart CUDA::cublas)
 
 add_executable(basalt-vision vision.cpp)
-if(MSVC)   # UTF-8 argv and file APIs, long paths (tools/windows/basalt.manifest)
-  target_sources(basalt-vision PRIVATE ${VISION_ROOT}/tools/windows/basalt.manifest)
-endif()
 target_compile_definitions(basalt-vision PRIVATE BASALT_VISION_CUDA)
 target_link_libraries(basalt-vision PRIVATE vision_cuda)
 set_target_properties(basalt-vision PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${VISION_ROOT}/bin)
+# The image and projector paths arrive on the command line, so this program needs the same manifest as the engine:
+# UTF-8 as the process code page and long paths. Built here directly rather than through the root project's helper,
+# because this project also configures on its own.
+if(MSVC)
+  target_link_options(basalt-vision PRIVATE "/MANIFEST:EMBED"
+                      "/MANIFESTINPUT:${VISION_ROOT}/src/platform/basalt.exe.manifest")
+endif()
 
 if(BUILD_TESTING)
-  add_executable(vision_cpu_parity ${VISION_ROOT}/src/vision/cpu_parity.cpp)
+  add_executable(vision_cpu_parity ${VISION_ROOT}/tests/vision/cpu_parity.cpp)
   target_link_libraries(vision_cpu_parity PRIVATE vision_core)
-  add_executable(vision_cuda_parity ${VISION_ROOT}/src/vision/cuda_parity.cu)
+  add_executable(vision_cuda_parity ${VISION_ROOT}/tests/vision/cuda_parity.cu)
   target_link_libraries(vision_cuda_parity PRIVATE vision_cuda)
+  # the parity program is outside src/vision now and needs the private kernel header
+  target_include_directories(vision_cuda_parity PRIVATE ${VISION_ROOT}/src/vision)
 endif()

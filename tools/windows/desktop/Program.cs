@@ -45,13 +45,14 @@ static class Program
 /// FILE.basalt, --port N, --vram-libera GB, --file CONFIG.json, --repo DIR; hidden test options --test-mock,
 /// --test-screenshot FILE, --test-exit, --test-no-wizard, --test-fallback (the web server cannot start: the native
 /// panel), --test-folder-prompt (with --test-fallback: the models folders unset, the prompt, then --test-models-dir
-/// DIR is chosen as the user would), --test-no-webview.</summary>
+/// DIR is chosen as the user would), --test-no-webview, --test-window (with --test-mock: keep the window's place and size
+/// in the test state file as the app does).</summary>
 sealed class Options
 {
     public string Profile, Repo, Error, Screenshot, Model, TestModelsDir, ConfigFile, Lang;
     public int Port;
     public double VramLibera = -1;
-    public bool TestMock, TestExit, TestFolderPrompt, TestNoWebView, TestNoWizard, TestFallback;
+    public bool TestMock, TestExit, TestFolderPrompt, TestNoWebView, TestNoWizard, TestFallback, TestWindow;
 
     public static Options Parse(string[] args)
     {
@@ -86,6 +87,7 @@ sealed class Options
                 case "--test-no-wizard": o.TestNoWizard = true; break;
                 case "--test-fallback": o.TestFallback = o.TestMock = true; break;
                 case "--test-mock": o.TestMock = true; break;
+                case "--test-window": o.TestWindow = true; break;
                 case "--test-screenshot": o.Screenshot = Next(); break;
                 case "--test-exit": o.TestExit = true; break;
                 default: o.Error = $"? {args[i]}\nBasaltWinGUI.exe [--config \"<profile>\"] [--model \"<file .basalt>\"] [--port N] [--vram-libera GB] [--file <config>] [--lang it|en]"; break;

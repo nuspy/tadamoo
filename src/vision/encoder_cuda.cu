@@ -329,6 +329,10 @@ bool CudaEncoder::attach(void* arena, size_t bytes, int max_tokens, std::string&
     return false;
 }
 void CudaEncoder::detach() { impl_->detach(); }
+void CudaEncoder::unstage() {
+    if (!impl_->arena) impl_->release_image();
+}
+bool CudaEncoder::staged() const { return impl_->image != nullptr; }
 size_t CudaEncoder::device_bytes() const { return impl_->arena_size; }
 std::string CudaEncoder::last_error() const { return impl_->err; }
 

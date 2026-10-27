@@ -16,6 +16,7 @@
 
 #include "basalt/core/model_file.hpp"
 #include <cstddef>
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -109,6 +110,8 @@ public:
     /// slots wholly inside what stays.  Waits for the device first.  False with `err` when not segmented or a driver
     /// call failed.
     bool shrink(int64_t keep_bytes, std::string& err);
+    /// `slots()` after `shrink(keep_bytes)`, without shrinking.
+    int64_t slots_after_shrink(int64_t keep_bytes) const;
     /// Maps segments again up to `want_bytes` (rounded DOWN to a segment, at most the arena; the last, shorter
     /// segment only when `want_bytes` covers the arena).  Stops at the first segment the driver cannot back (false,
     /// `err`: what was mapped by then stays).  The new slots are empty until the caller fills them.
@@ -179,7 +182,7 @@ public:
     bool verify_slot(int32_t slot, const uint8_t* host_blob, std::string& err, int64_t bytes = 0);
 
     /// Slots filled so far, for the startup report.
-    int64_t fills() const { return fills_; }
+    int64_t fills() const { return fills_.load(); }
 
 private:
     int64_t slot_end(int64_t n) const { return off_.empty() ? n * blob_ : (int64_t) off_[(size_t) n]; }
@@ -202,7 +205,7 @@ private:
     int64_t n_expert_ = 0;
     int64_t blob_ = 0;
     int64_t next_free_ = 0;
-    int64_t fills_ = 0;
+    std::atomic<int64_t> fills_{0};
     /// `per_layer_` off (the default) leaves `next_free_` as the only admission counter.
     bool per_layer_ = false;
     std::vector<int32_t> layer_next_;   ///< [n_layers] -> that layer's next free slot

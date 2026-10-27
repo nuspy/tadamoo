@@ -3,16 +3,19 @@
 #include "basalt/kernels/bf16_bits.hpp"
 #include "basalt/kernels/pdl.hpp"
 #include "basalt/kernels/verify_kernels.hpp"
+#include "smem_opt_in.cuh"
 
 #include <cuda_runtime.h>
 
 #include <atomic>
+#include <mutex>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <random>
 #include <string>
 #include <vector>
+#include "basalt/log.hpp"
 
 namespace basalt::kernels {
 namespace {
@@ -568,53 +571,58 @@ void launch_staged(int depth, const GrMulti& c, dim3 grid, size_t smem, cudaStre
     else launch_pdl(gr_down_staged_kernel<MT>, grid, block, smem, st, c);
 }
 
+// A failed opt-in is fatal on a card that reports one; a card that reports none is sliced by capacity instead.
+template <typename K>
+void gr_opt_in(K kernel, int bytes, int optin) {
+    const cudaError_t e = cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, bytes);
+    if (optin > 0) opt_in_check(e, "fused_gr");
+}
+
 // The tokens a down kernel may carry in one launch on the current card, and the plain read's tile: the plain read
 // stages n_tok * TILEV floats (1280 with a small opt-in, 2560 otherwise), staged two tiles of n_tok * H_TILE.  The shared-memory
 // opt-in is set here once per device (a per-DEVICE setting: a layer split runs these kernels on two cards).
 int down_chunk(bool staged, int* tile_out) {
-    static bool attr[64] = {};
+    static std::atomic<bool> attr[64];
     static int chunk[64] = {};   // tokens the plain down kernel may carry in one launch on this card
     static int chunk_staged[64] = {};  // the same for staged
     static int tile[64] = {};    // the plain down kernel's TILEV on this card (1280 with a small opt-in, 2560 otherwise)
-    int dev = 0;
-    cudaGetDevice(&dev);
-    if (dev < 0 || dev >= 64) {
-        *tile_out = 2560;
-        return kFusedGrMaxT;
-    }
-    if (!attr[dev]) {
-        int optin = 0;
-        cudaDeviceGetAttribute(&optin, cudaDevAttrMaxSharedMemoryPerBlockOptin, dev);
-        // the down kernel stages n_tok*TILEV floats of dynamic shared memory, 80 KB at the full 8 tokens.  A card
-        // whose opt-in is below that (or that reports none) slices the tokens; the down kernel's outputs (lo,
-        // inject_out) are strictly per-token, so the chunk boundaries are safe, and the up kernel below still sees
-        // every token of the batch in one launch.
-        const int tv = 2560;
-        tile[dev] = tv;
-        int want = (int) (kFusedGrMaxT * tv * sizeof(float));
-        if (optin > 0 && want > optin) want = optin;
-        cudaFuncSetAttribute(gr_down_multi_kernel<2560>, cudaFuncAttributeMaxDynamicSharedMemorySize, want);
-        int want_staged = (int) (2 * kFusedGrMaxT * H_TILE * sizeof(float));
-        if (optin > 0 && want_staged > optin) want_staged = optin;
-        cudaFuncSetAttribute(gr_down_staged_kernel<>, cudaFuncAttributeMaxDynamicSharedMemorySize, want_staged);
-        cudaFuncSetAttribute(gr_down_staged_deep_kernel<kFusedGrMaxT, 2>, cudaFuncAttributeMaxDynamicSharedMemorySize, want_staged);
-        cudaFuncSetAttribute(gr_down_staged_deep_kernel<kFusedGrMaxT, 3>, cudaFuncAttributeMaxDynamicSharedMemorySize, want_staged);
-        cudaFuncSetAttribute(gr_down_staged_deep_kernel<kFusedGrMaxT, 4>, cudaFuncAttributeMaxDynamicSharedMemorySize, want_staged);
-        cudaFuncSetAttribute(gr_down_staged_deep_kernel<kFusedGrMaxT, 5>, cudaFuncAttributeMaxDynamicSharedMemorySize, want_staged);
-        cudaFuncSetAttribute(gr_down_staged_kernel<6>, cudaFuncAttributeMaxDynamicSharedMemorySize, want_staged);
-        cudaFuncSetAttribute(gr_down_staged_deep_kernel<6, 2>, cudaFuncAttributeMaxDynamicSharedMemorySize, want_staged);
-        cudaFuncSetAttribute(gr_down_staged_deep_kernel<6, 3>, cudaFuncAttributeMaxDynamicSharedMemorySize, want_staged);
-        cudaFuncSetAttribute(gr_down_staged_deep_kernel<6, 4>, cudaFuncAttributeMaxDynamicSharedMemorySize, want_staged);
-        cudaFuncSetAttribute(gr_down_staged_deep_kernel<6, 5>, cudaFuncAttributeMaxDynamicSharedMemorySize, want_staged);
-        cudaGetLastError();      // drop any error the attempt left behind
-        int per_block = 0;
-        cudaDeviceGetAttribute(&per_block, cudaDevAttrMaxSharedMemoryPerBlock, dev);
-        const int usable = optin > 0 ? optin : per_block;
-        const int capacity = usable / (int) (tv * sizeof(float));
-        chunk[dev] = capacity < 1 ? 1 : (capacity > kFusedGrMaxT ? kFusedGrMaxT : capacity);
-        const int capacity_staged = usable / (int) (2 * H_TILE * sizeof(float));
-        chunk_staged[dev] = capacity_staged < 1 ? 1 : (capacity_staged > kFusedGrMaxT ? kFusedGrMaxT : capacity_staged);
-        attr[dev] = true;
+    const int dev = opt_in_device("fused_gr");
+    if (!attr[dev].load(std::memory_order_acquire)) {
+        std::lock_guard<std::mutex> lk(opt_in_mutex());
+        if (!attr[dev].load(std::memory_order_relaxed)) {
+            int optin = 0;
+            cudaDeviceGetAttribute(&optin, cudaDevAttrMaxSharedMemoryPerBlockOptin, dev);
+            // the down kernel stages n_tok*TILEV floats of dynamic shared memory, 80 KB at the full 8 tokens.  A card
+            // whose opt-in is below that (or that reports none) slices the tokens; the down kernel's outputs (lo,
+            // inject_out) are strictly per-token, so the chunk boundaries are safe, and the up kernel below still sees
+            // every token of the batch in one launch.
+            const int tv = 2560;
+            tile[dev] = tv;
+            int want = (int) (kFusedGrMaxT * tv * sizeof(float));
+            if (optin > 0 && want > optin) want = optin;
+            gr_opt_in(gr_down_multi_kernel<2560>, want, optin);
+            int want_staged = (int) (2 * kFusedGrMaxT * H_TILE * sizeof(float));
+            if (optin > 0 && want_staged > optin) want_staged = optin;
+            gr_opt_in(gr_down_staged_kernel<>, want_staged, optin);
+            gr_opt_in(gr_down_staged_deep_kernel<kFusedGrMaxT, 2>, want_staged, optin);
+            gr_opt_in(gr_down_staged_deep_kernel<kFusedGrMaxT, 3>, want_staged, optin);
+            gr_opt_in(gr_down_staged_deep_kernel<kFusedGrMaxT, 4>, want_staged, optin);
+            gr_opt_in(gr_down_staged_deep_kernel<kFusedGrMaxT, 5>, want_staged, optin);
+            gr_opt_in(gr_down_staged_kernel<6>, want_staged, optin);
+            gr_opt_in(gr_down_staged_deep_kernel<6, 2>, want_staged, optin);
+            gr_opt_in(gr_down_staged_deep_kernel<6, 3>, want_staged, optin);
+            gr_opt_in(gr_down_staged_deep_kernel<6, 4>, want_staged, optin);
+            gr_opt_in(gr_down_staged_deep_kernel<6, 5>, want_staged, optin);
+            cudaGetLastError();      // drop any error of a card that reports no opt-in
+            int per_block = 0;
+            cudaDeviceGetAttribute(&per_block, cudaDevAttrMaxSharedMemoryPerBlock, dev);
+            const int usable = optin > 0 ? optin : per_block;
+            const int capacity = usable / (int) (tv * sizeof(float));
+            chunk[dev] = capacity < 1 ? 1 : (capacity > kFusedGrMaxT ? kFusedGrMaxT : capacity);
+            const int capacity_staged = usable / (int) (2 * H_TILE * sizeof(float));
+            chunk_staged[dev] = capacity_staged < 1 ? 1 : (capacity_staged > kFusedGrMaxT ? kFusedGrMaxT : capacity_staged);
+            attr[dev].store(true, std::memory_order_release);
+        }
     }
     *tile_out = tile[dev] ? tile[dev] : 2560;
     return staged ? chunk_staged[dev] : chunk[dev];
@@ -666,7 +674,7 @@ std::atomic<int> g_variant[64];
 void fused_gr_read_multi(const FusedGrArgs* a, int n_tok, float* xn_scratch, void* stream, unsigned long long* stamp_buf,
                          int stamp_i0) {
     if (n_tok < 1 || n_tok > kFusedGrMaxT || xn_scratch == nullptr) {
-        std::fprintf(stderr, "fused_gr_read_multi: invalid arguments\n");
+        basalt::log::error("basalt", "fused_gr_read_multi: invalid arguments");
         std::exit(1);
     }
     GrMulti m;
@@ -676,7 +684,7 @@ void fused_gr_read_multi(const FusedGrArgs* a, int n_tok, float* xn_scratch, voi
         if (!x.R || !x.w_norm || !x.w_down || !x.w_up || !x.lo || !x.rs || !x.mixed || (x.w_inject && !x.inject_out) ||
             (x.apply && (!x.bo_prev || !x.inj_prev || !x.R_out)) || x.w_down != a[0].w_down || x.w_up != a[0].w_up ||
             x.w_inject != a[0].w_inject || x.w_norm != a[0].w_norm) {
-            std::fprintf(stderr, "fused_gr_read_multi: invalid arguments for token %d\n", t);
+            basalt::log::error("basalt", "fused_gr_read_multi: invalid arguments for token %d", t);
             std::exit(1);
         }
     }
@@ -688,7 +696,7 @@ void fused_gr_read_multi(const FusedGrArgs* a, int n_tok, float* xn_scratch, voi
     launch_multi(m, fused_gr_variant(), st, stamp_buf, stamp_i0);
     const cudaError_t e = cudaGetLastError();
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "fused_gr_read_multi: %s\n", cudaGetErrorString(e));
+        basalt::log::error("basalt", "fused_gr_read_multi: %s", cudaGetErrorString(e));
         std::exit(1);
     }
 }
@@ -701,7 +709,7 @@ void fused_gr_read(const FusedGrArgs& a, void* stream) {
     if (!a.R || !a.w_norm || !a.w_down || !a.w_up || !a.lo || !a.rs || !a.mixed ||
         (a.w_inject && !a.inject_out) || (a.apply && (!a.bo_prev || !a.inj_prev || !a.R_out)) ||
         (a.apply && a.inj_prev == a.inject_out)) {
-        std::fprintf(stderr, "fused_gr_read: invalid arguments\n");
+        basalt::log::error("basalt", "fused_gr_read: invalid arguments");
         std::exit(1);
     }
     if (hc8_gr_read_multi(&a, 1, N, HC, stream)) return;
@@ -710,7 +718,7 @@ void fused_gr_read(const FusedGrArgs& a, void* stream) {
     gr_up_kernel<<<UP_BLOCKS, THREADS, 0, st>>>(a);
     const cudaError_t e = cudaGetLastError();
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "fused_gr_read: %s\n", cudaGetErrorString(e));
+        basalt::log::error("basalt", "fused_gr_read: %s", cudaGetErrorString(e));
         std::exit(1);
     }
 }
@@ -877,17 +885,17 @@ void fused_gr_check() {
     else if (okv[kHcSplit]) use = kHcSplit;
     g_variant[dev].store(use);
     if (!ran)
-        std::fprintf(stderr, "basalt hc: CUDA%d: the check of split/staged could not run (%s)\n", dev, why[0].c_str());
+        basalt::log::warn("basalt hc", "CUDA%d: the check of split/staged could not run (%s)", dev, why[0].c_str());
     static const char* const name[4] = {"", "plain", "split", "staged"};
     for (int v = kHcStaged; v >= kHcSplit; --v)
         if (v <= want && !okv[v] && ran)
-            std::fprintf(stderr, "basalt hc: CUDA%d: the %s read differs from the plain read on this card - not used: "
-                                 "%s\n", dev, name[v], why[v].c_str());
+            basalt::log::warn("basalt hc", "CUDA%d: the %s read differs from the plain read on this card - not used: "
+                                 "%s", dev, name[v], why[v].c_str());
     static const char* const what[4] = {
         "", "the plain read (the norm per token, the down projection on 41 blocks)",
         "split (the norm per token and stream, then the plain read's down projection)",
         "staged (the norm per token and stream, the down projection's activations staged ahead by cp.async)"};
-    std::fprintf(stderr, "basalt hc: CUDA%d: the hyper-connection read runs as %s%s\n", dev, what[use],
+    basalt::log::info("basalt hc", "CUDA%d: the hyper-connection read runs as %s%s", dev, what[use],
                  use >= kHcSplit ? "; checked bit for bit against the plain read on this card" : "");
 }
 

@@ -4,6 +4,10 @@ Protocol (one line each):
   * start: stdout `INFO k=v ...` lines, then `READY <ctx> [stop]` (stop: STOP is honoured mid-request).
   * solo: `GEN <max_new> [k=v ...] <ids>` (GENI with embeddings) -> `T <id>`, `PP <read> <total> ...`,
     `RESUME <n>`, then `DONE ...`; `STOP` ends it early. `ERR ...` is a failure.
+  * solo, text (INFO text_prompt=1): `GENT <max_new> [k=v ...] <nbytes> [plain=a:b,...]`, a newline, then nbytes of
+    raw UTF-8: the engine tokenizes (control literals on; `plain` byte spans are text) and answers like a GEN, with
+    `PT <n> <max_new>` before the first PP line. `clip=1` cuts max_new to the room the context leaves after the prompt.
+    The slot and batch forms are SGENT and BGENT; the server uses only GENT.
   * batch slots: `BGEN <slot> ...` -> `BADM <slot> <continues>`, `BT <slot> <id>`, `BDONE <slot> ...`;
     `BSTOP <slot>`; `BYIELD <slot>` makes a long prompt read give way (answered by `YIELDED <slot> <n>`).
   * solo in a slot (INFO solo_any_slot=1): `SGEN <slot> <max_new> [k=v ...] <ids>` (SGENI with embeddings) is a GEN on
@@ -14,6 +18,7 @@ Protocol (one line each):
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import queue
@@ -23,11 +28,15 @@ import threading
 import time
 from pathlib import Path
 
+from serve.api.grammar import REQUEST_KEY as GRAMMAR_KEY, engine_key as grammar_key
 from serve.api.logit_bias import REQUEST_KEY as BIAS_KEY, engine_key as bias_key
+from serve.engine import lifeline
 from serve.engine.flags import flag_value
 from serve.engine.errors import EngineDied, EngineSilent, EngineStartError, EngineStuck
 from serve.engine.slots import AdmissionQueue
-from serve.engine.progress import narrate_start, start_errors, start_failure_hint, start_last_line
+from serve.engine.progress import narrate_start, server_line, start_errors, start_failure_hint, start_last_line
+from serve.prompt import PromptText
+from serve.util.console import tagged
 from serve.util.winjob import contain
 
 
@@ -69,11 +78,61 @@ def echo_requests(log_path: str, offset: int) -> None:
                                                  m["tg"]), flush=True)
 
 
+def engine_line(line: str) -> str:
+    """Drop the `\r` a text-mode stream puts before a line's final `\n`; the line keeps its `\n`."""
+    return line[:-2] + "\n" if line.endswith("\r\n") else line
+
+
+AUTO_FLAGS = "auto flags: "
+AUTO_NAMES = {"peer-exclusive": "peer-excl", "pool-workers": "pool"}   # the console's short names
+
+
+def relay_auto_flags(line: str) -> bool:
+    """Print the engine's auto-picked flags as a server line; False when the line is not that line."""
+    if not line.startswith(AUTO_FLAGS):
+        return False
+    pairs = []
+    for item in line.rstrip("\n")[len(AUTO_FLAGS):].split(", "):
+        name, _, value = item.partition(" ")
+        pairs.append(f"{AUTO_NAMES.get(name, name)}={value.replace(' ', '')}" if value else name)
+    server_line(tagged("auto", " ".join(pairs)))
+    return True
+
+
+# First words of the stdout lines the server reads (or knowingly ignores); any other line is the engine talking to
+# its log, such as a device-side trap message.
+PROTOCOL_LINES = (AUTO_FLAGS, "INFO ", "READY", "T ", "PP ", "PL ", "PT ", "RESUME ", "REUSED ", "DONE", "ERR", "BADM ",
+                  "BT ", "BDONE ", "YIELDED ", "VRAM ", "ENC ")
+
+
+def log_unparsed(line: str, log) -> None:
+    """Write an engine stdout line the server does not parse to the engine log, as it came."""
+    if line.startswith(PROTOCOL_LINES) or not line.strip() or not hasattr(log, "write"):
+        return
+    try:
+        log.write(line if line.endswith("\n") else line + "\n")
+        log.flush()
+    except (OSError, ValueError):                       # the log is gone (the engine is being replaced)
+        pass
+
+
+def frame_pipes(proc, stderr_pipe: bool) -> None:
+    """Frame a child's pipes on `\n` alone, both directions: the text-mode default for a pipe writes `\r\n` on
+    Windows, and ends a line at a `\r` that belongs to the line rather than ending it.  Only Popen's own text
+    wrappers carry that default; a stream the caller made is left as it is."""
+    if isinstance(proc.stdin, io.TextIOWrapper):
+        proc.stdin.reconfigure(newline="\n", write_through=True, line_buffering=True)
+    if isinstance(proc.stdout, io.TextIOWrapper):
+        proc.stdout.reconfigure(newline="\n")
+    if stderr_pipe and isinstance(proc.stderr, io.TextIOWrapper):
+        proc.stderr.reconfigure(newline="\n")
+
+
 def pump_lines(stream, sink) -> None:
     """Pass each line of a child's pipe to `sink` until it closes."""
     try:
         for line in stream:
-            sink(line)
+            sink(engine_line(line))
     except (OSError, ValueError):
         pass
 
@@ -93,6 +152,7 @@ class ProcessEngine:
     last_err = None                      # an ERR that was the last stdout line
     slot_drafts = {}                     # batch slot -> (accepted, offered, time) of its last BDONE, counts None when absent
     batch = 0                            # --batch: the engine's batch slots (0: one request at a time)
+    takes_text = True                    # generate() accepts a PromptText (sent as GENT when the engine can tokenize)
     stderr_sink = None                   # callable(line): engine stderr when there is no log file
 
     # `last`: figures of the last DONE line; per thread with batch slots, since requests run concurrently.
@@ -112,12 +172,41 @@ class ProcessEngine:
             tl = self.__dict__.setdefault("_tl", threading.local())
             tl.last = value
 
+    # Windows of the request in progress on this thread: (windows, tokens in them), counted from the batch slot's
+    # `BT` lines.
+    def window_stats(self) -> tuple[int, int]:
+        tl = self.__dict__.setdefault("_wtl", threading.local())
+        return getattr(tl, "windows", 0), getattr(tl, "tokens", 0)
+
+    def _count_window(self, tokens: int) -> None:
+        tl = self.__dict__.setdefault("_wtl", threading.local())
+        tl.windows, tl.tokens = getattr(tl, "windows", 0) + 1, getattr(tl, "tokens", 0) + tokens
+
+    def _reset_windows(self) -> None:
+        tl = self.__dict__.setdefault("_wtl", threading.local())
+        tl.windows = tl.tokens = 0
+
+    # `read_ms`: prompt-read time of the request in progress, summed over its engine runs (per thread with batch slots).
+    @property
+    def read_ms(self) -> float:
+        if self.batch:
+            return getattr(self.__dict__.setdefault("_tl", threading.local()), "read_ms", 0.0)
+        return self.__dict__.get("_read_ms", 0.0)
+
+    @read_ms.setter
+    def read_ms(self, value: float):
+        self.__dict__["_read_ms"] = value
+        if self.batch:
+            self.__dict__.setdefault("_tl", threading.local()).read_ms = value
+
     def __init__(self, engine_bin: str, args: list[str], cwd: str | None = None, log: str | None = None,
                  env: dict | None = None, lazy: bool = False):
         self.spawn = (engine_bin, list(args), cwd, log, env)   # to start it again
-        self.model_path = flag_value(args, "--native") or flag_value(args, "--pack") or "pack/full"
+        self.model_path = flag_value(args, "--model") or ""
         self.log_path = log
         self.proc, self.pump, self.log = None, None, None
+        if "slot_cv" not in self.__dict__:               # restart() wakes waiters even when the start failed
+            self.slot_cv = threading.Condition()
         self.ended, self.unloaded = True, True
         self.max_context = int(flag_value(args, "--max-context") or 4096)
         self.can_stop = False            # READY <ctx> stop
@@ -151,15 +240,22 @@ class ProcessEngine:
                 threading.Thread(target=echo_requests, args=(log, os.path.getsize(log)), daemon=True).start()
         sink = None if log else ProcessEngine.stderr_sink
         self.max_context = 0                            # before the new process is visible: never its predecessor's
-        self.proc = subprocess.Popen([engine_bin, "--serve", *args], cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE if sink else self.log, text=True, encoding="utf-8",
-                                     bufsize=1, env=env)
+        try:
+            self.proc = lifeline.popen([engine_bin, "--serve", *args], cwd=cwd, stdin=subprocess.PIPE,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE if sink else self.log,
+                                       text=True, encoding="utf-8", bufsize=1, env=env)
+        except OSError as e:                            # missing or not executable: nothing started, so this is a start error
+            loading.set()                               # the narrator stops and the log handle goes back
+            if log:
+                self.log.close()
+            raise EngineStartError(f"the engine could not be started: {e}" + ("" if str(engine_bin) in str(e) else f" ({engine_bin})"), log) from e
         contain(self.proc)                              # ends with the server, however it ends (Windows)
+        frame_pipes(self.proc, sink is not None)
         if sink:
             threading.Thread(target=pump_lines, args=(self.proc.stderr, sink), daemon=True).start()
         # the lines come from a thread up to READY, so the read can time out and the rest of the stream stays for _pump
         ready_q: queue.Queue = queue.Queue()
-        threading.Thread(target=self._ready_pump, args=(self.proc, ready_q), daemon=True).start()
+        threading.Thread(target=self._ready_pump, args=(self.proc, ready_q, self.log), daemon=True).start()
         ready_deadline = time.monotonic() + ENGINE_READY_S
         timed_out = False
         while True:
@@ -173,6 +269,8 @@ class ProcessEngine:
                 continue
             if line is None:
                 break
+            if relay_auto_flags(line):
+                continue
             if line.startswith("INFO "):
                 for kv in line.split()[1:]:
                     k, _, v = kv.partition("=")
@@ -218,19 +316,14 @@ class ProcessEngine:
         self.batch = int(self.info.get("batch_slots") or 0)
         if asked and self.batch != asked:
             print(f"[server] warning: {asked} parallel requests asked, the engine runs {self.batch or 'one'}", flush=True)
-        groups = int(flag_value(args, "--batch-groups") or 1)
-        groups = groups if self.batch and groups > 0 and self.batch % groups == 0 else 1
-        gs = self.batch // groups if self.batch else 0
-        # slot order that spreads requests over the groups first: 0, gs, 2gs, .., 1, gs+1, ..
-        self.slot_order = [g * gs + t for t in range(gs) for g in range(groups)]
+        self.slot_order = list(range(self.batch))
         self.slot_q = [queue.Queue() for _ in range(self.batch)]
         self.slot_busy = [False] * self.batch
         # tokens each slot holds (for prefix reuse by a conversation's next turn) and when it was last used
         self.slot_held: list[list[int]] = [[] for _ in range(self.batch)]
         self.slot_used = [0.0] * self.batch
         # admission state outlives engine processes: restart() re-runs this while requests wait on it
-        if "slot_cv" not in self.__dict__:
-            self.slot_cv = threading.Condition()
+        if "ctl" not in self.__dict__:
             self.waiting = 0                            # requests waiting for ctl
             self.wait_lens: list[list[int]] = []        # their prompt lengths
             self.ctl_epoch = 0                          # times ctl was taken
@@ -244,11 +337,13 @@ class ProcessEngine:
         self.pump.start()
 
     @staticmethod
-    def _ready_pump(proc, out: queue.Queue) -> None:
+    def _ready_pump(proc, out: queue.Queue, log=None) -> None:
         """The engine's first lines up to READY, for a read that can time out; None when its output closed first."""
         done = False
         try:
             for line in proc.stdout:
+                line = engine_line(line)
+                log_unparsed(line, log)
                 out.put(line)
                 if line.startswith("READY"):
                     done = True
@@ -260,10 +355,14 @@ class ProcessEngine:
                 out.put(None)
 
     def _pump(self):
-        proc, lines = self.proc, self.lines             # a restart replaces both
+        proc, lines, log = self.proc, self.lines, self.log   # a restart replaces all three
         slot_q = self.slot_q
         line = None
         for line in proc.stdout:
+            line = engine_line(line)
+            log_unparsed(line, log)
+            if line.startswith(AUTO_FLAGS):             # printed once, before READY; never a reply line
+                continue
             if line.startswith(FATAL_PREFIXES):         # before batch routing
                 if self.proc is proc:
                     self.silent_note = "unrecoverable verification failure: " + line[4:].strip()
@@ -344,6 +443,8 @@ class ProcessEngine:
                     self.__init__(*self.spawn)
                     break
                 except EngineStartError:
+                    if self.proc is None:               # the program could not be started: a retry cannot help
+                        raise
                     try:
                         self.proc.wait(timeout=60)
                     except (subprocess.TimeoutExpired, OSError):
@@ -365,6 +466,7 @@ class ProcessEngine:
 
     def _parse_done(self, line):
         f = line.split()
+        self.read_ms = getattr(self, "read_ms", 0.0) + float(f[3])
         self.last = {"generated": int(f[1]), "prompt_tokens": int(f[2]), "prompt_ms": float(f[3]),
                      "decode_ms": float(f[4]), "finish": f[5]}
         if len(f) >= 9:                                   # conversation cache fields
@@ -483,16 +585,14 @@ class ProcessEngine:
         seed = sampling.get("seed")
         if isinstance(seed, int) and seed > 0:
             keys += f" seed={seed}"
-        smp = sampling.get("spec_min_p")                 # a tuning key: the drafting floor for this request only
-        if isinstance(smp, (int, float)) and not isinstance(smp, bool) and 0.0 <= float(smp) <= 1.0:
-            keys += f" spec_min_p={float(smp)!r}"
         # relaxed_drafting: this request's --relaxed-drafting threshold, 0 or false for exact sampling
         rd = sampling.get("relaxed_drafting")
         if rd is False:
             keys += " relax=0"
         elif isinstance(rd, (int, float)) and not isinstance(rd, bool) and 0.0 <= float(rd) <= 1.0:
             keys += f" relax={float(rd)!r}"
-        return keys + ProcessEngine.projection_key(sampling) + bias_key(sampling.get(BIAS_KEY))
+        return keys + ProcessEngine.projection_key(sampling) + bias_key(sampling.get(BIAS_KEY)) \
+            + grammar_key(sampling.get(GRAMMAR_KEY))
 
     @staticmethod
     def projection_key(sampling: dict) -> str:
@@ -544,6 +644,12 @@ class ProcessEngine:
                     self.prefill_tok_s_mean = float(f[4]) if len(f) >= 5 else None
                 if not stopped and cancel.is_set():
                     # stop during the prompt read, not after the first token
+                    self._send("STOP")
+                    stopped = True
+                yield None
+            elif line.startswith("PL "):
+                self._note_live(line)
+                if not stopped and cancel.is_set():
                     self._send("STOP")
                     stopped = True
                 yield None
@@ -668,6 +774,16 @@ class ProcessEngine:
             carry[0] += last["drafts_accepted"]
             carry[1] += last["drafts_offered"]
 
+    def _note_live(self, line: str):
+        """A `PL <position> <total> <ms> <tok/s>` line: the display's position and speed inside a chunk."""
+        f = line.split()
+        if len(f) >= 5 and f[1].isdigit() and f[2].isdigit():
+            self.progress = (int(f[1]), int(f[2]))
+            try:
+                self.prefill_tok_s_mean = float(f[4])
+            except ValueError:
+                pass
+
     def _note_first_reused(self, first: list, last0):
         """Keep the reused-prefix count of the request's first engine run: later runs of the same request (solo, then
         a slot; a read that gave way) find its own prompt and tokens in the slot, which is not an earlier cache."""
@@ -676,11 +792,14 @@ class ProcessEngine:
             first.append(last["reused"])
 
     def _carry_run(self, carry: list[int], first: list, last0, final: bool):
-        """After an engine run: carry the draft counts and, at the request's last run, report the first run's reuse."""
+        """After an engine run: carry the draft counts and, at the request's last run, report the first run's reuse
+        and the prompt-read time of all its runs (a later run only re-reads the token the slot lacks)."""
         self._note_first_reused(first, last0)
         last = self.last
         if final and first and isinstance(last, dict) and last is not last0:
             last["reused"] = first[0]
+            if self.read_ms > 0:
+                last["prompt_ms"] = self.read_ms
             first.clear()
         self._carry_drafts(carry, final)
 
@@ -752,10 +871,14 @@ class ProcessEngine:
         if not self.alive():
             raise EngineDied("the engine is unavailable; this request was not sent")
         self.progress = None
+        self._reset_windows()
         keys = self.sampling_keys(sampling or {})
         out: list[int] = []
         pending: list[int] = []
         prompt, left = list(ids), int(max_new)
+
+        def gen_keys() -> str:      # a run that continues after tokens were generated tells the grammar where the prompt ends
+            return keys + (f" gprompt={len(ids)}" if out and " grammar=" in keys else "")
         ok = yield from self._take_control(cancel, len(prompt))
         if not ok:
             return
@@ -767,6 +890,7 @@ class ProcessEngine:
         yields, solo_again = 0, 0
         carry = [0, 0]            # draft counts (accepted, offered) of the runs before the current one
         first, last0 = [], self.last   # reused prefix of the first run; `last` before this request's first DONE
+        self.read_ms = 0.0             # the prompt-read time of every run this request makes
         try:
             while True:   # loops when a request alone in a slot returns to solo
                 if not holding:
@@ -791,10 +915,10 @@ class ProcessEngine:
                             reserved = solo_slot
                 if alone and left > 1:
                     if solo_slot is not None:
-                        head = f"SGENI {solo_slot} {left}{keys} {embeddings}" if embeddings else \
-                            f"SGEN {solo_slot} {left}{keys}"
+                        head = f"SGENI {solo_slot} {left}{gen_keys()} {embeddings}" if embeddings else \
+                            f"SGEN {solo_slot} {left}{gen_keys()}"
                     else:
-                        head = f"GENI {left}{keys} {embeddings}" if embeddings else f"GEN {left}{keys}"
+                        head = f"GENI {left}{gen_keys()} {embeddings}" if embeddings else f"GEN {left}{gen_keys()}"
                     self._send(f"{head} {','.join(str(int(t)) for t in prompt)}")
                     run0, yield_sent = len(out), False
                     if solo_slot is not None:
@@ -888,7 +1012,7 @@ class ProcessEngine:
                     left = max(1, min(left, self.max_context - len(prompt) - SLOT_MARGIN))   # the slot's room
                     while not self.slot_q[slot].empty():
                         self.slot_q[slot].get_nowait()
-                    head = f"BGENI {slot} {left}{keys} {embeddings}" if embeddings else f"BGEN {slot} {left}{keys}"
+                    head = f"BGENI {slot} {left}{gen_keys()} {embeddings}" if embeddings else f"BGEN {slot} {left}{gen_keys()}"
                     self._send(f"{head} {','.join(str(int(t)) for t in prompt)}")
                     self.slot_held[slot] = []               # admission overwrites the slot
                     phase = "admit"
@@ -940,6 +1064,7 @@ class ProcessEngine:
                         phase = "none"
                         raise EngineDied(f"the engine stopped unexpectedly (exit code {self.exit_code()})")
                     if line.startswith("BT "):
+                        self._count_window(len(line.split()) - 2)
                         for t in (int(x) for x in line.split()[2:]):    # a window's tokens for this slot, in order
                             out.append(t)
                             if cancel.is_set():
@@ -1055,6 +1180,10 @@ class ProcessEngine:
         `cancel` makes the engine STOP."""
         if not self.alive():
             raise EngineDied("the engine is unavailable; this request was not sent")
+        text = ids if isinstance(ids, PromptText) else None
+        if text is not None and (getattr(self, "batch", 0) or embeddings or not self.info.get("text_prompt")):
+            ids, max_new = text.resolve(int(max_new), self.max_context)    # this engine takes ids
+            text = None
         if getattr(self, "batch", 0):
             yield from self.generate_batched(ids, max_new, sampling, cancel, embeddings)
             return
@@ -1063,7 +1192,15 @@ class ProcessEngine:
         head = f"GENI {int(max_new)}{self.sampling_keys(sampling or {})} {embeddings}" if embeddings else \
             f"GEN {int(max_new)}{self.sampling_keys(sampling or {})}"
         try:
-            self.proc.stdin.write(f"{head} {','.join(str(int(t)) for t in ids)}\n")
+            if text is not None:
+                body = text.text
+                spans = text.byte_spans()
+                plain = " plain=" + ",".join(f"{a}:{b}" for a, b in spans) if spans else ""
+                clip = " clip=1" if text.clip else ""
+                self.proc.stdin.write(f"GENT {int(max_new)}{self.sampling_keys(sampling or {})}{clip} "
+                                      f"{len(body.encode('utf-8'))}{plain}\n{body}")
+            else:
+                self.proc.stdin.write(f"{head} {','.join(str(int(t)) for t in ids)}\n")
             self.proc.stdin.flush()
         except OSError:                                  # the pipe is gone: the engine died
             raise EngineDied(f"the engine stopped unexpectedly (exit code {self.exit_code()})") from None
@@ -1103,6 +1240,12 @@ class ProcessEngine:
                     if cancel.is_set():
                         return
                     yield int(line[2:])
+                elif line.startswith("PT ") and text is not None:   # the engine tokenized the text
+                    f = line.split()
+                    if len(f) >= 3 and f[1].isdigit() and f[2].lstrip("-").isdigit():
+                        text.set_counted(int(f[1]), int(f[2]))
+                        allow = silence + min(int(f[1]), PP_CHUNK_MAX) / PP_FLOOR_TOK_S if silence > 0 else 0.0
+                    yield None
                 elif line.startswith("PP "):
                     f = line.split()
                     if len(f) >= 3 and f[1].isdigit() and f[2].isdigit():
@@ -1115,6 +1258,11 @@ class ProcessEngine:
                     if cancel.is_set():
                         return
                     yield None                            # PP lines reset the 10 s wait, so heartbeat here
+                elif line.startswith("PL "):              # live progress inside a chunk: only the display moves
+                    self._note_live(line)
+                    if cancel.is_set():
+                        return
+                    yield None
                 elif line.startswith("RESUME "):          # reused tokens: the first chunk starts after them
                     try:
                         read_to = int(line.split()[1])
@@ -1126,7 +1274,8 @@ class ProcessEngine:
                     return
                 elif line.startswith("ERR"):
                     done = True
-                    raise ValueError(line[4:].strip())
+                    err = line[4:].strip()
+                    raise ValueError(text.explain(err) if text is not None else err)
         finally:
             if not done:                                  # consumer left early: STOP and drain to DONE
                 if self.can_stop:

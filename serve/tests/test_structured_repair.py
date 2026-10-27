@@ -185,7 +185,7 @@ class Server(unittest.TestCase):
     def chat(self, **kwargs):
         req = {"messages": [{"role": "system", "content": "Write a syllabus."},
                             {"role": "user", "content": "Project management."}],
-               "response_format": FORMAT, "reasoning_effort": "none", **kwargs}
+               "response_format": FORMAT, "reasoning_effort": "none", "structured_retries": 2, **kwargs}
         return self.request("/v1/chat/completions", req)
 
     def prompt(self, n):
@@ -287,7 +287,7 @@ class ReasoningStreams(Server):
         self.assertEqual(final["choices"][0]["finish_reason"], "stop")
         self.assertEqual(final["structured_output"]["attempts"], 2)
         self.assertTrue(final["structured_output"]["validated"])
-        self.assertFalse(final["structured_output"]["constrained"])
+        self.assertTrue(final["structured_output"]["constrained"])        # the engine's grammar held it too
         self.assertEqual(len(final["structured_output"]["discarded"]), 1)
         self.assertEqual(final["structured_output"]["discarded"][0]["attempt"], 1)
         self.assertIn("usage", final)
@@ -325,7 +325,7 @@ class ReasoningStreams(Server):
         self.assertEqual(json.loads(message["content"]), json.loads(GOOD))
         self.assertEqual(reply["choices"][0]["finish_reason"], "stop")
         so = reply["structured_output"]
-        self.assertEqual((so["attempts"], so["validated"], so["constrained"]), (2, True, False))
+        self.assertEqual((so["attempts"], so["validated"], so["constrained"]), (2, True, True))
         self.assertEqual([d["attempt"] for d in so["discarded"]], [1])
         self.assertIn("Unterminated string", so["discarded"][0]["reason"])
 
@@ -334,27 +334,10 @@ class ReasoningStreams(Server):
         code, status = self.request("/v1/status")
         self.assertEqual(code, 200)
         so = status["structured_output"]
-        self.assertTrue(so["stream_buffered"])                  # older clients read this one
-        self.assertTrue(so["content_buffered"])
-        self.assertTrue(so["reasoning_streamed"])
+        self.assertFalse(so["stream_buffered"])                 # the grammar path streams as it is written
+        self.assertEqual(so["method"], "grammar")
+        self.assertEqual(so["retry_fallback"], {"request_key": "structured_retries", "default": 0, "max": 5,
+                                                "content_buffered": True, "reasoning_streamed": True})
         self.assertEqual(so["formats"], ["json_object", "json_schema"])
         self.assertEqual(status["request_log"]["enabled"], True)
         self.assertGreater(status["request_log"]["capacity_chars"], 0)
-
-
-class ResponsesStreamsReasoning(Server):
-    def test_a_json_text_format_streams_reasoning_and_holds_the_answer(self):
-        self.start(["Planning the object.</think>\n{\"ok\": true}"])
-        code, raw = self.request("/v1/responses", {"input": "Say it.", "stream": True, "reasoning": {"effort": "low"},
-                                                   "text": {"format": {"type": "json_object"}}})
-        self.assertEqual(code, 200)
-        names = [line[7:] for line in raw.splitlines() if line.startswith("event: ")]
-        self.assertIn("response.reasoning_text.delta", names)
-        self.assertLess(names.index("response.reasoning_text.delta"), names.index("response.completed"))
-        self.assertEqual(names.count("response.output_text.delta"), 1)
-        self.assertLess(names.index("response.reasoning_text.delta"), names.index("response.output_text.delta"))
-        self.assertIn("Planning the object.", raw)
-
-
-if __name__ == "__main__":
-    unittest.main()

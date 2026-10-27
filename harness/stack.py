@@ -96,6 +96,11 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = 15) ->
     parser.add_argument("--browser-profile", default="", help="a profile folder that keeps the browser's sign-ins between conversations")
     parser.add_argument("--vault-dir", default="", help="the person's vault: the model writes {{vault:ENTRY.FIELD}} and the value is filled in for it")
     parser.add_argument("--capabilities", action="store_true", help="offer the search for skills, plugins and MCP servers found on this PC, and the visual analysis")
+    parser.add_argument("--images", default="", choices=["", "very_low", "low", "normal", "high", "very_high", "highest"],
+                        help="show pictures from the web in answers, as often as this says (empty: never); needs --attachments-dir and --outputs-dir")
+    parser.add_argument("--charts", default="", choices=["", "very_low", "low", "normal", "high", "very_high", "highest"],
+                        help="draw diagrams in answers, as often as this says (empty: only when asked)")
+    parser.add_argument("--page-files", action="store_true", help="the answers are read in a page that turns links to files into buttons that save them")
     parser.add_argument("--lsp", action="store_true", help="offer diagnostics, go_to_definition and find_references when a language server is found")
     parser.add_argument("--council", action="store_true", help="offer ask_council when a council is set up on the Providers page")
     parser.add_argument("--wiki", action="store_true", help="offer the wikibridge tools (BASALT_WIKIBRIDGE_URL, BASALT_WIKIBRIDGE_KEY)")
@@ -115,6 +120,8 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = 15) ->
                         help="how long a tool may run before it is stopped (every tool, or NAME=SECONDS for one; 0: no limit)")
     parser.add_argument("--no-memory", action="store_true")
     parser.add_argument("--no-checkpoints", action="store_true")
+    parser.add_argument("--personal-memory", default="", help="the folder of the person's own memories (long-term and short-term): what the person switched on is put in the answers where it matters")
+    parser.add_argument("--personal-memory-keys", default="", help="the folder of the device key that opens them (the vault's)")
 
 
 def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
@@ -129,8 +136,9 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         wiki=args.wiki, wiki_project=args.wiki_project, phone=args.phone, phone_on_behalf_of=args.on_behalf_of,
         context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold,
         end_turn_bias=args.end_turn_bias, attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
-        hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan,
+        hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
+        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys,
     )
 
 
@@ -167,11 +175,13 @@ class AgentConfig:
     max_seconds: Optional[float] = None
     use_memory: bool = True
     use_checkpoints: bool = True
+    personal_memory_dir: str = ""       # the person's own memories (harness/personal_memory.py); empty: the conversation has none
+    personal_memory_keys: str = ""      # where the device key that opens them is (default: the same folder)
     reference_docs: Dict[str, str] = field(default_factory=dict)   # path -> text of reference documents
     reference_strategy: str = "auto"   # auto, cag (a fixed block at the start), rag (searched passages) or none
     wiki: bool = False                 # offer the wikibridge tools (address and key from the environment)
     wiki_project: str = ""
-    report: bool = False               # tell the server's Monitor about the run and its edits
+    report: bool = False               # tell the server's Agent tab about the run and its edits
     run_id: str = ""                    # names the run in the Monitor; the server gives one when it starts the agent
     progress: bool = False              # print a line for each tool call as the run goes
     phone: bool = False                 # offer the phone tools (callAPIcall from the environment)
@@ -188,6 +198,9 @@ class AgentConfig:
     capabilities_dir: Optional[str] = None   # where their index and the person's approvals are kept (default: the user data folder)
     attachments_dir: Optional[str] = None    # the conversation's attached files (harness/attachments.py); with outputs_dir, the tools for them are offered
     outputs_dir: Optional[str] = None        # the files the agent made for the person
+    page_files: bool = False                 # the answers are read in a page that offers files to save (harness/visuals.py FILES_GUIDANCE)
+    images: str = ""                         # how much to show pictures from the web in answers (harness/visuals.py levels; empty: never)
+    charts: str = ""                         # how much to draw diagrams (the same levels; empty: only when asked)
     capabilities_home: Optional[str] = None  # the home folder whose skills, plugins and MCP configs are looked at (default: this user's)
     mcp_servers: List[Dict[str, Any]] = field(default_factory=list)   # MCP servers to connect, as an ACP client sends them in `mcpServers`
     tool_timeout: Optional[float] = None      # seconds a tool may run; 0 for no limit (default: the registry's)
@@ -231,6 +244,8 @@ class BuiltAgent:
     plan_gate: Optional[PlanGate] = None
     mode_switch: Optional[Callable[[str], None]] = None
     mcp: Optional[Any] = None                 # the MCPHub of cfg.mcp_servers
+    personal: Optional[Any] = None            # the notes about the person this conversation takes in (harness/personal_memory.py Recall)
+    take_place: Optional[Callable[[Any], bool]] = None     # keeps the position the person's phone sent and offers where_is_user (harness/place.py)
     mcp_errors: Dict[str, str] = field(default_factory=dict)       # the servers that could not be started, and why
 
     def set_mode(self, mode: str) -> None:
@@ -242,10 +257,14 @@ class BuiltAgent:
     def retrieved_message(self, goal: str, limit: int = 4) -> Optional[Dict[str, Any]]:
         """Memories relevant to a goal, as an untrusted-data message for the tail of the conversation."""
         injection = self.patterns.get("injection") or {}
-        if not self.memory or not injection.get("on", True) or injection.get("strategy", "tail") != "tail":
-            return None                       # off, or the model asks for notes itself, or they are in the fixed start
-        self.builder.set_memories([m["content"] for m in self.memory.search(goal, limit=limit)])
-        return self.builder.memory_message()
+        message = None
+        if self.memory and injection.get("on", True) and injection.get("strategy", "tail") == "tail":     # else off, or the model asks for notes itself
+            self.builder.set_memories([m["content"] for m in self.memory.search(goal, limit=limit)])
+            message = self.builder.memory_message()
+        about = self.personal.message(goal) if self.personal is not None else None
+        if about:
+            message = {**message, "content": message["content"] + "\n" + about} if message else {"role": "user", "content": about}
+        return message
 
     def close(self) -> None:
         self.agent.close()
@@ -447,6 +466,15 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         from harness.integrations.call_api_client import CallAPICallClient
         register_attachment_tools(registry, AttachmentStore(Path(cfg.attachments_dir)), OutputStore(Path(cfg.outputs_dir)), cfg.run_id, sandbox.resolve_safe,
                                   call_client=CallAPICallClient.from_environment(), read_chars=max(2000, int(budget * 3.5 * 0.15)))
+        if cfg.images:
+            from harness.visuals import register_visual_tools
+            register_visual_tools(registry, OutputStore(Path(cfg.outputs_dir)), cfg.run_id, cfg.browser_private)
+    if cfg.page_files:
+        from harness.visuals import FILES_GUIDANCE
+        builder.pin("files", FILES_GUIDANCE)
+    if cfg.images or cfg.charts:
+        from harness.visuals import guidance
+        builder.pin("visuals", guidance(cfg.images if cfg.attachments_dir and cfg.outputs_dir and cfg.run_id else "", cfg.charts))
     lsp_hub = None
     if cfg.lsp:
         from harness.lsp import LspHub, register_lsp_tools
@@ -477,6 +505,13 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     memory = MemoryStore(default_db_path(workspace) if not cfg.data_dir else data / "memory.db") if cfg.use_memory else None
     if memory is not None:
         register_memory_tools(registry, memory)
+    personal = None
+    if cfg.personal_memory_dir:
+        from harness.personal_memory import PersonalMemory, Recall, register_personal_tools
+        notes = PersonalMemory(cfg.personal_memory_dir, key_dir=cfg.personal_memory_keys or None)
+        stays = lambda: getattr(client, "stays_local", lambda: True)()           # the notes leave this PC only when the person allowed it
+        personal = Recall(notes, local=stays)
+        register_personal_tools(registry, notes, local=stays)
     cancel = threading.Event()
     from harness.tools.extra import register_extra_tools        # run_code, subagents and, when listed in the user data folder, ACP and A2A agents
     register_extra_tools(registry, cfg, workspace=workspace, sandbox=sandbox, client=client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key),
@@ -506,6 +541,16 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         sampling={"end_turn_bias": cfg.end_turn_bias} if cfg.end_turn_bias else None,
         clock=local_now,
     )
+    from harness.place import Place, register_place_tool
+    here = Place()
+    away = lambda: getattr(client, "stays_local", lambda: True)()                # the position leaves this PC only inside a request to another provider
+
+    def take_place(raw: Any) -> bool:
+        if not here.set(raw):
+            return False
+        register_place_tool(registry, here, local=away)                           # a conversation with no position carries no such tool
+        return True
+
     return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser,
-                      plan_gate=plan_gate, mode_switch=switch_mode,
+                      plan_gate=plan_gate, mode_switch=switch_mode, personal=personal, take_place=take_place,
                       mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {})

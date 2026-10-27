@@ -48,7 +48,7 @@ DIRS_MAX = 8
 WALK_DEPTH_MAX = 8                     # folders below a models folder
 WALK_FILES_MAX = 20000                 # entries looked at per folder, so a whole disk cannot stall the page
 META_MAX = 64 << 20                    # a .basalt meta section larger than this is not read
-CACHE_VERSION = 6                      # 6: a .basalt's context length (GET /v1/models)
+CACHE_VERSION = 7                      # 7: a projector with other float types is rewritten at the load, not refused; 6: a .basalt's context length (GET /v1/models)
 COMMIT_MAX = 0.75                      # a conversion starts only below this share of the commit limit
 DISK_MARGIN = 2 * GiB                  # free space left on the disk after a conversion
 MTP_SECTION_BYTES = 116099072 + 707788800      # mtp/dense + mtp/experts in a converted file
@@ -323,6 +323,7 @@ def read_gguf(path: str, offset: int = 0) -> dict:
         for _ in range(n_kv):
             key = h.string()
             meta[key] = h.value(h.u32(), keep=not key.startswith("tokenizer.ggml."))
+        kv_end = h.f.tell() - offset
         tensors = []
         for _ in range(n_tensors):
             name = h.string()
@@ -337,16 +338,18 @@ def read_gguf(path: str, offset: int = 0) -> dict:
         data_start = (pos + align - 1) // align * align
     finally:
         h.close()
-    return {"version": version, "meta": meta, "tensors": tensors, "data_start": data_start}
+    return {"version": version, "meta": meta, "tensors": tensors, "data_start": data_start, "kv_end": kv_end, "alignment": align}
 
 
 # the image encoder's own checks (src/vision/mmproj.cpp open() and need(), encoder_cpu.cpp / encoder_cuda.cu init()):
 # a qwen3vl_merger projector of these sizes, its vectors in F32 and its matrices in BF16; anything else and the engine
-# stops at start ("tensor mm.2.weight has an unexpected type or size", the last of the failed checks)
+# stops at start ("tensor mm.2.weight has an unexpected type or size", the last of the failed checks). A projector whose
+# tensors are F32, F16 or BF16 in other places is not refused here: the load rewrites it (serve/projector.py)
 VISION_EMBD, VISION_FFN = 1152, 4304
 VISION_HPARAMS = (("clip.vision.embedding_length", VISION_EMBD), ("clip.vision.attention.head_count", 16),
                   ("clip.vision.patch_size", 16), ("clip.vision.feed_forward_length", VISION_FFN))
-_F32, _BF16 = 0, 30
+_F32, _F16, _BF16 = 0, 1, 30
+FLOAT_TYPES = (_F32, _F16, _BF16)                 # the types a projector can be rewritten between
 
 
 def _projector_wants(layers: int, proj: int) -> dict:
@@ -395,16 +398,33 @@ def projector_problem(g: dict) -> dict | None:
         n = sized[0]
         return {"it": f"il tensore {n} ha {have[n][1]} elementi, il motore ne legge {want[n][1]}",
                 "en": f"the tensor {n} has {have[n][1]} elements, the engine reads {want[n][1]}"}
-    typed = [n for n in want if have[n][0] != want[n][0]]
+    typed = [n for n in want if have[n][0] != want[n][0] and have[n][0] not in FLOAT_TYPES]
     if typed:
         kinds = sorted({type_name(have[n][0]) for n in typed})
         example = next((n for n in ("mm.2.weight", "mm.0.weight") if n in typed), typed[0])
         return {"it": f"{len(typed)} tensori sono {'/'.join(kinds)} (per esempio {example}): il motore legge le "
-                      "matrici in BF16 e i vettori in F32. Serve un proiettore esportato in BF16 (mmproj-…-BF16.gguf)",
+                      "matrici in BF16 e i vettori in F32 e non sa riscrivere questi tipi. Serve un proiettore "
+                      "esportato in BF16 (mmproj-…-BF16.gguf)",
                 "en": f"{len(typed)} tensors are {'/'.join(kinds)} (for example {example}): the engine reads the "
-                      "matrices in BF16 and the vectors in F32. A projector exported in BF16 (mmproj-…-BF16.gguf) "
-                      "is needed"}
+                      "matrices in BF16 and the vectors in F32 and cannot rewrite these types. A projector exported "
+                      "in BF16 (mmproj-…-BF16.gguf) is needed"}
     return None
+
+
+def projector_fix(g: dict) -> dict:
+    """What the load rewrites in a projector the engine would otherwise refuse: {"tensors": how many, "bytes": the
+    size the rewritten file has (the data and the header), "from": the types found}; tensors 0 when it reads as it is.
+    Only for a projector without a projector_problem()."""
+    m = g.get("meta") or {}
+    layers, proj = int(m.get("clip.vision.block_count") or 0), int(m.get("clip.vision.projection_dim") or 0)
+    want = _projector_wants(layers, proj)
+    have = {name: (int(t), _elements(shape)) for name, shape, t, _ in g.get("tensors") or []}
+    typed = [n for n in want if n in have and have[n][0] != want[n][0]]
+    size = g["data_start"]
+    for name, shape, t, _ in g.get("tensors") or []:
+        nb = (_elements(shape) * (4 if want[name][0] == _F32 else 2)) if name in want else (_tensor_bytes(shape, t) or 0)
+        size += (nb + g.get("alignment", 32) - 1) // g.get("alignment", 32) * g.get("alignment", 32)
+    return {"tensors": len(typed), "bytes": size, "from": sorted({type_name(have[n][0]) for n in typed})}
 
 
 def profile_plain(path: str) -> bool | None:
@@ -432,6 +452,56 @@ def profile_plain(path: str) -> bool | None:
                 k += 1
         return True
     except (OSError, ValueError, struct.error):
+        return None
+
+
+_PROJECTORS: dict = {"at": 0.0, "key": None, "value": []}
+
+
+def projector_info(path: str) -> dict | None:
+    """One projector file as the Loader offers it: {"path", "name", "bytes" (what stays in RAM), "fix" (tensors the load rewrites),
+    "from" (their types)}; None when the file is not a projector the engine can use with this model."""
+    try:
+        g = read_gguf(path)
+    except (OSError, ValueError, struct.error, UnicodeDecodeError):
+        return None
+    m = g.get("meta") or {}
+    if m.get("general.architecture") != "clip" or projector_problem(g) or m.get("clip.vision.projection_dim") not in (None, GEOMETRY["n_embd"]):
+        return None
+    fix = projector_fix(g)
+    return {"path": _posix(path), "name": Path(path).name, "bytes": fix["bytes"] if fix["tensors"] else _size(path),
+            "fix": fix["tensors"], "from": fix["from"]}
+
+
+def projector_files(folders: list[str] | None = None, ttl: float = 5.0) -> list[dict]:
+    """The projectors in the models folders (projector_info of each), for a model that has none of its own or to use another; the
+    listing is reused for `ttl` seconds."""
+    key = tuple(dirs() if folders is None else folders)
+    if _PROJECTORS["key"] == key and time.monotonic() - _PROJECTORS["at"] < ttl:
+        return _PROJECTORS["value"]
+    found = []
+    try:
+        for x in scan(list(key))["models"]:
+            if x.get("role") == "mmproj" and (info := projector_info(x["path"])):
+                found.append(info)
+    except (OSError, ValueError):
+        pass
+    found.sort(key=lambda p: (p["fix"] > 0, p["name"].lower()))
+    _PROJECTORS.update(at=time.monotonic(), key=key, value=found)
+    return found
+
+
+def embedded_projector_fix(path: str) -> dict | None:
+    """projector_fix() of the vision/mmproj section of a .basalt; None without one or when it cannot be read."""
+    from model_file import ModelFile
+    try:
+        mf = ModelFile(path)
+        if "vision/mmproj" not in mf.sections:
+            return None
+        off, _ = mf.section("vision/mmproj")
+        g = read_gguf(path, off)
+        return None if projector_problem(g) else projector_fix(g)
+    except (OSError, ValueError, struct.error, UnicodeDecodeError):
         return None
 
 
@@ -1129,13 +1199,75 @@ class Refused(Exception):
         self.status, self.body = status, body
 
 
-def convert_plan(model_id: str, out_dir: str | None = None, folders: list[str] | None = None) -> dict:
+MTP_DENSE_BYTES = 116099072            # the drafter layer's dense part: a tuned one has the same size as the original's
+TUNED_PACKS = ("basalt-q2_0", "basalt-iq3_xxs", "basalt-iq3_s")     # the official packs whose drafter layer is fine-tuned on the model's own output
+PROFILE_MODES = ("auto", "plain", "file", "model")
+MTP_MODES = ("original", "none", "tuned_file", "tuned_pack")
+CONVERT_VISION_MODES = ("auto", "none", "file")
+
+
+def tuned_sources() -> list[dict]:
+    """The official packs that carry a tuned drafter layer: {"id", "name", "url"} (the layer is read from them, not the whole file)."""
+    from serve import catalog
+    out = []
+    for e in catalog.CATALOG:
+        if e.get("id") in TUNED_PACKS and e.get("files"):
+            out.append({"id": e["id"], "name": e.get("name"), "quant": e.get("quant"),
+                        "url": f"https://huggingface.co/{e['repo']}/resolve/{e['revision']}/{e['files'][0]}"})
+    return out
+
+
+def clean_options(raw) -> dict:
+    """The conversion options as the plan uses them, or ValueError saying which is wrong. name: the name the server reports; profile:
+    auto (one found next to the model), plain (none), file (an expert profile), model (the profile of another .basalt); mtp: original
+    (Qwen's drafter, downloaded), none (no drafter), tuned_file (original plus a tuned layer from a file), tuned_pack (plus the layer of an
+    official pack); vision: auto (the folder's projector), none, file; compat_bf16: auto, true or false."""
+    out = {"name": None, "profile": {"mode": "auto"}, "mtp": {"mode": "original"}, "vision": {"mode": "auto"}, "compat_bf16": "auto"}
+    if raw is None:
+        return out
+    if not isinstance(raw, dict):
+        raise ValueError("the options are an object")
+    name = raw.get("name")
+    if name not in (None, ""):
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 200 or any(ord(c) < 32 for c in name):
+            raise ValueError("name: a name of 1 to 200 characters")
+        out["name"] = " ".join(name.split())
+    for key, modes, needs in (("profile", PROFILE_MODES, ("file", "model")), ("mtp", MTP_MODES, ("tuned_file",)), ("vision", CONVERT_VISION_MODES, ("file",))):
+        v = raw.get(key)
+        if v is None:
+            continue
+        v = {"mode": v} if isinstance(v, str) else v
+        if not isinstance(v, dict) or v.get("mode") not in modes:
+            raise ValueError(f"{key}: one of {', '.join(modes)}")
+        item = {"mode": v["mode"]}
+        if v["mode"] in needs:
+            path = v.get("path")
+            if not isinstance(path, str) or not path.strip():
+                raise ValueError(f"{key} {v['mode']}: give the path of the file")
+            item["path"] = _posix(path.strip().strip('"'))
+        if v["mode"] == "tuned_pack":
+            if v.get("pack") not in TUNED_PACKS:
+                raise ValueError(f"mtp tuned_pack: pack is one of {', '.join(TUNED_PACKS)}")
+            item["pack"] = v["pack"]
+        out[key] = item
+    compat = raw.get("compat_bf16", "auto")
+    if compat not in ("auto", True, False):
+        raise ValueError("compat_bf16: auto, true or false")
+    out["compat_bf16"] = compat
+    return out
+
+
+def convert_plan(model_id: str, out_dir: str | None = None, folders: list[str] | None = None, options=None) -> dict:
     """What a conversion would do and need: the new file and its size, the disk and its free space, the commit, the
     command, the problems (each with Italian and English text) and the token a confirmation must carry back."""
     listing = scan(folders)
     model = next((m for m in listing["models"] if m["id"] == model_id or _norm(m["path"]) == _norm(model_id)), None)
     if model is None:
         raise Refused(404, {"error": {"type": "not_found", "message": "no such model in the models folders"}})
+    try:
+        opts = clean_options(options)
+    except ValueError as e:
+        raise Refused(400, {"error": {"type": "invalid_request_error", "message": str(e)}}) from None
     problems = []
 
     def problem(code, it, en):
@@ -1163,7 +1295,12 @@ def convert_plan(model_id: str, out_dir: str | None = None, folders: list[str] |
             problem("exists", f"Esiste già {out_path}: spostalo o scegli un'altra cartella.",
                     f"{out_path} exists already: move it or choose another folder.")
     estimate = model.get("estimate_bytes") or 0
-    fetch = model.get("mtp") == "fetch"
+    vision_mode, mtp_mode = opts["vision"]["mode"], opts["mtp"]["mode"]
+    if vision_mode == "none" and model.get("mmproj"):
+        estimate -= _size(model["mmproj"])
+    if mtp_mode == "none":
+        estimate -= MTP_SECTION_BYTES
+    fetch = model.get("mtp") == "fetch" and mtp_mode != "none"
     fetch_dir = os.path.join(out_dir, "mtp-qwen") if out_dir else ""
     need = estimate + (MTP_FETCH_BYTES if fetch else 0) + DISK_MARGIN
     if free is not None and free < need:
@@ -1179,28 +1316,79 @@ def convert_plan(model_id: str, out_dir: str | None = None, folders: list[str] |
                 f"{COMMIT_MAX * 100:.0f}%. Close heavy programs and try again.")
     if JOBS.running():
         problem("busy", "È già in corso una verifica o una conversione.", "A verification or a conversion is running.")
-    args = ["--gguf", model["path"], "--out", _posix(out_path) if out_path else "", "--name",
-            f"{model['name']}{' ' + model['quant'] if model.get('quant') and model['quant'] not in model['name'] else ''}"]
-    if model.get("mmproj"):
+    default_name = f"{model['name']}{' ' + model['quant'] if model.get('quant') and model['quant'] not in model['name'] else ''}"
+    args = ["--gguf", model["path"], "--out", _posix(out_path) if out_path else "", "--name", opts["name"] or default_name]
+    # the projector
+    if vision_mode == "file":
+        info = projector_info(opts["vision"]["path"]) if os.path.isfile(opts["vision"]["path"]) else None
+        if info is None:
+            problem("vision_file", "Il proiettore visivo scelto non c'è o il motore non lo legge con questo modello.",
+                    "The chosen vision projector is not there or the engine does not read it with this model.")
+        else:
+            args += ["--mmproj", opts["vision"]["path"]]
+    elif vision_mode == "auto" and model.get("mmproj"):
         args += ["--mmproj", model["mmproj"]]
     else:
         args += ["--no-vision"]
-    if model.get("compat_bf16"):
+    compat = opts["compat_bf16"]
+    if compat is True or (compat == "auto" and model.get("compat_bf16")):
         args += ["--compat-bf16"]
-    mtp_dir = model.get("mtp_source") or (_posix(fetch_dir) if fetch_dir else "")
-    args += ["--mtp-source", mtp_dir]
-    profile, profile_notes = find_profile(model)
+    # the drafter
+    tuned = None
+    if mtp_mode != "none":
+        mtp_dir = model.get("mtp_source") or (_posix(fetch_dir) if fetch_dir else "")
+        args += ["--mtp-source", mtp_dir]
+        if mtp_mode == "tuned_file":
+            path = opts["mtp"]["path"]
+            if not os.path.isfile(path) or _size(path) != MTP_DENSE_BYTES:
+                problem("mtp_file", f"Il livello del drafter scelto non c'è o non ha la dimensione giusta ({MTP_DENSE_BYTES} byte).",
+                        f"The chosen drafter layer is not there or is not the right size ({MTP_DENSE_BYTES} bytes).")
+            else:
+                args += ["--mtp-dense", path]
+        elif mtp_mode == "tuned_pack":
+            pack = next((p for p in tuned_sources() if p["id"] == opts["mtp"]["pack"]), None)
+            if pack is None:
+                problem("mtp_pack", "Quel pacchetto ufficiale non c'è nel catalogo.", "That official pack is not in the catalog.")
+            else:
+                dest = _posix(os.path.join(fetch_dir or out_dir or "", f"mtp-dense-{pack['id']}.bin")) if (fetch_dir or out_dir) else ""
+                tuned = {"url": pack["url"], "section": "mtp/dense", "out": dest, "name": pack["name"]}
+                args += ["--mtp-dense", dest]
+    # the expert profile
+    profile, profile_notes = None, []
+    pmode = opts["profile"]["mode"]
+    prepare = []
+    if pmode == "auto":
+        profile, profile_notes = find_profile(model)
+    elif pmode in ("file", "model"):
+        from model_file import check_profile
+        src = opts["profile"]["path"]
+        try:
+            if pmode == "file":
+                check_profile(Path(src).read_bytes(), GEOMETRY["n_layer"], model.get("n_expert"))
+                profile = src
+            else:
+                check_basalt(src)
+                from model_file import ModelFile
+                mf = ModelFile(src)
+                if "profile" not in mf.sections:
+                    raise ValueError("it has no profile section")
+                check_profile(mf.read("profile"), GEOMETRY["n_layer"], model.get("n_expert"))
+                profile = _posix(os.path.join(out_dir or "", Path(out_path or "x").stem + ".expert-profile.bin")) if out_dir else ""
+                prepare.append({"step": "profile", "source": src, "section": "profile", "out": profile})
+        except (OSError, ValueError) as e:
+            problem("profile", f"Il profilo degli esperti scelto non si può usare: {e}.", f"The chosen expert profile cannot be used: {e}.")
     if profile:
         args += ["--profile", profile]
-    steps = (["fetch", "check", "convert"] if fetch else ["convert"])
+    steps = (["fetch", "check"] if fetch else []) + (["tuned"] if tuned else []) + (["profile"] if prepare else []) + ["convert"]
     plan = {"model": {k: model.get(k) for k in ("id", "name", "path", "files", "quant", "size_bytes", "experts_bytes",
                                                 "vision", "mmproj", "mtp", "mtp_source", "compat_bf16", "status")},
             "out_dir": _posix(out_dir) if out_dir else "", "out_path": _posix(out_path) if out_path else "",
             "estimate_bytes": estimate, "fetch_bytes": MTP_FETCH_BYTES if fetch else 0,
             "fetch_dir": _posix(fetch_dir) if fetch and fetch_dir else None, "disk": _disk_of(out_dir) if out_dir else "",
             "free_bytes": free, "need_bytes": need, "commit_share": share, "commit_max": COMMIT_MAX,
-            "args": args, "steps": steps, "problems": problems, "ok": not problems, "profile": profile}
-    plan["token"] = hashlib.sha256(json.dumps([model["id"], plan["out_path"], estimate, args, steps],
+            "args": args, "steps": steps, "problems": problems, "ok": not problems, "profile": profile, "options": opts,
+            "tuned": tuned, "prepare": prepare}
+    plan["token"] = hashlib.sha256(json.dumps([model["id"], plan["out_path"], estimate, args, steps, opts],
                                               sort_keys=True).encode()).hexdigest()[:16]
     plan["summary"] = _say(
         f"Scrive un nuovo file di circa {gb(estimate)} GB sul disco {plan['disk'] or '?'} "
@@ -1215,6 +1403,9 @@ def convert_plan(model_id: str, out_dir: str | None = None, folders: list[str] |
     if profile:
         plan["summary"] = {k: v + " " + t for (k, v), t in zip(plan["summary"].items(), (
             f"Profilo degli esperti: {profile}.", f"Expert profile: {profile}."))}
+    elif pmode == "plain":
+        plan["warnings"].append(_say("Profilo piatto, scelto da te: la cache in VRAM parte dagli esperti con il numero più basso.",
+                                     "A plain profile, as you chose: the VRAM cache starts with the lowest-numbered experts."))
     else:
         # no routing profile is passed: the converter writes the plain fill order (profile_plain())
         where = ", ".join(str(p) for p in profile_candidates(model))
@@ -1230,6 +1421,7 @@ def convert_plan(model_id: str, out_dir: str | None = None, folders: list[str] |
 # ------------------------------------------------------------------------------------------------ the jobs
 PY = sys.executable
 TOOLS = {"verify": [str(ROOT / "tools" / "model_file.py"), "verify"],
+         "section": [str(ROOT / "tools" / "convert" / "pack_section.py"), "copy"],
          "convert": [str(ROOT / "tools" / "convert" / "convert.py")],
          "fetch": [str(ROOT / "tools" / "convert" / "mtp_fetch.py"), "fetch"],
          "check": [str(ROOT / "tools" / "convert" / "mtp_fetch.py"), "verify"]}
@@ -1369,8 +1561,8 @@ class Jobs:
         return self.status()
 
     # ---- convert
-    def start_convert(self, model_id: str, out_dir: str | None, token, confirm, folders=None) -> dict:
-        plan = convert_plan(model_id, out_dir, folders)
+    def start_convert(self, model_id: str, out_dir: str | None, token, confirm, folders=None, options=None) -> dict:
+        plan = convert_plan(model_id, out_dir, folders, options)
         if confirm is not True or not token:
             raise Refused(409, {"error": {"type": "confirmation_required", "code": "confirm",
                                           "message": "a conversion writes a large new file: show the plan and send "
@@ -1400,6 +1592,14 @@ class Jobs:
                     code = self._run("check", [PY, *TOOLS["check"], "--out", fdir])
                     if code != 0 or self.cancelled:
                         return self._end(code or 1, "the downloaded drafter does not match its SHA-256")
+                for step in ("tuned", "profile"):                  # a section copied out of an official pack, or out of another .basalt
+                    item = plan["tuned"] if step == "tuned" else (plan["prepare"] or [None])[0]
+                    if step in plan["steps"] and item:
+                        src = item["url"] if step == "tuned" else item["source"]
+                        os.makedirs(os.path.dirname(item["out"]), exist_ok=True)
+                        code = self._run(step, [PY, *TOOLS["section"], src, item["section"], "--out", item["out"]])
+                        if code != 0 or self.cancelled:
+                            return self._end(code or 1, "the section could not be copied")
                 base = 0.1 if "fetch" in plan["steps"] else 0.0
                 partial = plan["out_path"] + ".partial"
                 est = max(1, plan["estimate_bytes"])

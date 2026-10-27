@@ -69,6 +69,8 @@ for line in sys.stdin:
     name = cmd.get("cmd")
     if name == "send":
         text = cmd["text"]
+        if "place" in cmd:                                                  # the position the manager handed over with this message
+            (H / "place.json").write_text(json.dumps(cmd["place"]), encoding="utf-8")
         data["messages"].append({"role": "user", "content": text})
         save(data)
         emit({"event": "accepted", "turn": cmd.get("id")})
@@ -128,6 +130,14 @@ for line in sys.stdin:
         save(data)
         busy["v"] = False
         emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "echo: " + text})
+    elif name == "skill":
+        data["messages"].append({"role": "user", "content": cmd.get("display", "")})
+        emit({"event": "accepted", "turn": cmd.get("id")})
+        final = "skill %s %s" % (cmd.get("name"), json.dumps(cmd.get("values"), sort_keys=True, ensure_ascii=False))
+        data["messages"].append({"role": "assistant", "content": final})
+        data["turns"] += 1
+        save(data)
+        emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": final})
     elif name == "mode":
         emit({"event": "mode", "mode": cmd.get("mode")})
     elif name == "effort":

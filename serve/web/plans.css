@@ -11,7 +11,7 @@
 .pl-bar label, .pl-dform label { color: var(--fg-2); font-size: 13px; display: block; margin-top: 10px; }
 .pl-bar label { margin: 0; }
 .pl-bar select { flex: 1 1 220px; min-width: 0; }
-.pl-modes { display: flex; gap: 8px; margin-left: auto; }
+.pl-modes { display: flex; gap: 8px; }
 .pl-conn { font: 500 13px/1 var(--font-mono); padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg-2); }
 .pl-conn[data-s="live"] { color: var(--pl-done); border-color: var(--pl-done); }
 .pl-conn[data-s="retry"] { color: var(--pl-block); border-color: var(--pl-block); }
@@ -110,19 +110,16 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-treason { color: var(--fg-2); font: 12.5px/1.4 var(--font-mono); overflow-wrap: anywhere; }
 
 /* agent tasks and changes (Monitor view) */
-.tk-list, .chg-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.tk-row, .chg-row { border: 1px solid var(--line); border-left-width: 6px; border-radius: 6px; background: var(--surface); padding: 8px 12px; min-width: 0; }
-.tk-head, .chg-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
-.tk-id, .chg-file { font: 600 13px/1.4 var(--font-mono); overflow-wrap: anywhere; min-width: 0; }
-.tk-badge, .chg-count { font: 12.5px/1.4 var(--font-mono); color: var(--fg-2); }
-.tk-result, .tk-kids { color: var(--fg-2); margin-top: 4px; overflow-wrap: anywhere; }
-.tk-running { border-left-color: var(--pl-run); } .tk-done { border-left-color: var(--pl-done); } .tk-failed { border-left-color: var(--pl-fail); }
-.tk-blocked { border-left-color: var(--pl-block); } .tk-pending, .tk-closed { border-left-color: var(--fg-2); }
+.chg-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.chg-row { border: 1px solid var(--line); border-left-width: 6px; border-radius: 6px; background: var(--surface); padding: 8px 12px; min-width: 0; }
+.chg-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.chg-file { font: 600 13px/1.4 var(--font-mono); overflow-wrap: anywhere; min-width: 0; }
+.chg-count { font: 12.5px/1.4 var(--font-mono); color: var(--fg-2); }
 .chg-added { border-left-color: var(--pl-add); } .chg-modified { border-left-color: var(--pl-upd); } .chg-deleted { border-left-color: var(--pl-del); }
 .chg-row summary { cursor: pointer; min-height: 40px; color: var(--fg-2); padding-top: 4px; }
 .chg-diff { margin: 6px 0 0; max-height: 220px; overflow: auto; font: 12.5px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel); padding: 8px; border-radius: 4px; }
 .dfl-add { color: var(--pl-add); } .dfl-del { color: var(--pl-del); } .dfl-hunk { color: var(--pl-run); }
-.tk-empty, .chg-empty { margin: 0; padding: 8px 0; }
+.chg-empty { margin: 0; padding: 8px 0; }
 .chg-state { margin: 4px 0 0; color: var(--fg-2); overflow-wrap: anywhere; }
 .chg-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
 .chg-block { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; }
@@ -167,3 +164,42 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-rewind { border: 1px solid var(--pl-block); border-left-width: 6px; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; background: var(--surface); }
 .pl-rw-h { margin: 0 0 4px; color: var(--pl-block); font-weight: 600; overflow-wrap: anywhere; }
 .pl-rw-list { margin: 4px 0 8px; padding-left: 20px; overflow-wrap: anywhere; }
+
+/* the page: the column of plans at the left, the open plan at the right in four parts */
+#view-plans { display: flex; overflow: hidden; }
+.plrow { flex: 1; min-width: 0; min-height: 0; }
+.plmain { flex: 1; min-width: 0; min-height: 0; overflow: auto; align-self: stretch; }
+.plmain > .sh { gap: 12px; }
+.pl-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px 0; }
+.plmain > .pl-status, .plmain > .pl-empty { margin: 8px 16px 0; }
+.pl-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 16px; }
+.plcol .pl-new { margin: 6px 4px 8px; }
+.plcol .pl-newform { grid-template-columns: minmax(0, 1fr); }
+.plcol .pl-btn { min-height: var(--btn-h); }
+.cv-act { flex: none; min-width: 24px; min-height: 24px; border-radius: 5px; color: var(--fg-3); font: 400 14px/1 var(--font-sans); }
+.cv-act:hover { background: var(--raised); color: var(--fg); }
+.cv-act.sure { padding: 0 6px; color: #FF8A8A; font-size: 11px; font-weight: 600; }
+.pl-bar { align-items: center; margin-bottom: 0; }
+.pl-bar .btn, .pl-modes .btn { min-height: var(--btn-h); }
+.pl-bar .btn[aria-expanded="true"] { background: var(--raised); color: var(--fg); }
+
+/* the list: a step's row has its own up and down */
+.pl-li { display: flex; align-items: stretch; }
+.pl-libtn { flex: 1; min-width: 0; width: auto; }
+.pl-rowmove { flex: none; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 4px 8px; }
+.pl-rowbtn { min-height: 28px; min-width: 36px; padding: 2px 8px; }
+.pl-rowbtn:disabled { opacity: .4; }
+
+/* the graph: the round ends a link is drawn from, a picked link and the cross that removes it */
+.pl-port { fill: var(--panel); stroke: var(--fg-2); stroke-width: 2; cursor: crosshair; }
+.pl-port:hover { fill: var(--accent); stroke: var(--accent); }
+.pl-node.linktarget rect, .pl-node.linktarget polygon { stroke: var(--accent); stroke-width: 4; }
+.pl-linking { pointer-events: none; }
+.pl-edgehit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: pointer; outline: none; }
+.pl-edgehit:focus-visible { stroke: var(--accent); stroke-opacity: .35; }
+.pl-edgeg:hover .pl-edge, .pl-edge.sel { stroke: var(--accent); stroke-width: 3; }
+.pl-x { cursor: pointer; outline: none; }
+.pl-x circle { fill: var(--panel); stroke: var(--pl-fail); stroke-width: 2; }
+.pl-x text { fill: var(--pl-fail); font: 700 16px var(--font-sans); pointer-events: none; }
+.pl-x:focus-visible circle { stroke-width: 4; }
+.pl-deps { max-height: 220px; overflow: auto; }

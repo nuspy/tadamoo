@@ -2,6 +2,7 @@
 import json
 import io
 import subprocess
+import tempfile
 import time
 import unittest
 import urllib.error
@@ -19,6 +20,7 @@ from serve.util.text import ByteTokenizer
 
 
 class ResidentEngine(ProcessEngine):
+    takes_text = False      # its generate() is the mock engine's: ids only
     def __init__(self, tok):
         self.reply = MockEngine(tok, "Hello.", max_context=4096)
         self.max_context, self.info, self.last = 4096, {}, {}
@@ -155,7 +157,7 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(self.request("/v1/models")[1]["data"][0]["status"]["value"], "unloaded")
         self.assertTrue(self.request("/props")[1]["models_autoload"])
         self.assertEqual(self.engine.starts, 0)
-        chat = {"messages": [{"role": "user", "content": "Hello"}], "max_tokens": 32, "reasoning_effort": "none"}
+        chat = {"model": "qwen3.8-flash-next", "messages": [{"role": "user", "content": "Hello"}], "max_tokens": 32, "reasoning_effort": "none"}
         for _ in range(2):
             code, answer = self.request("/v1/chat/completions", chat)
             self.assertEqual(code, 200)
@@ -166,6 +168,22 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertIn("data: [DONE]", stream)
         self.assertEqual(self.engine.starts, 2)
+
+    def test_a_missing_engine_binary_is_a_503_with_the_reason(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "engine.log"
+            engine = ProcessEngine(str(Path(d) / "no-such-engine"), [], log=str(log), lazy=True)
+            self.svc.engine = engine
+            chat = {"model": "qwen3.8-flash-next", "messages": [{"role": "user", "content": "Hello"}], "max_tokens": 32, "reasoning_effort": "none"}
+            with mock.patch("serve.engine.process.narrate_start", lambda *a, **k: None):
+                for stream in (False, True):
+                    with self.subTest(stream=stream):
+                        code, body = self.request("/v1/chat/completions", {**chat, "stream": stream})
+                        self.assertEqual(code, 503, body)
+                        self.assertIn("the engine could not be started", body["error"]["message"])
+                        self.assertIn("no-such-engine", body["error"]["message"])
+                        self.assertIsNone(engine.proc)
+                        self.assertFalse(engine.starting)
 
     def test_busy_auth_and_foreign_origin_cannot_unload(self):
         self.engine.loaded = True
@@ -184,7 +202,7 @@ class Lifecycle(unittest.TestCase):
         def died():
             raise EngineDied("the engine ended while it started")
         self.engine.restart = died
-        code, body = self.request("/v1/chat/completions", {"messages": [{"role": "user", "content": "Hello"}]})
+        code, body = self.request("/v1/chat/completions", {"model": "qwen3.8-flash-next", "messages": [{"role": "user", "content": "Hello"}]})
         self.assertEqual(code, 503)
         self.assertIn("the next request restarts it", body["error"]["message"])
 

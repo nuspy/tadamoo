@@ -30,7 +30,11 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
+from datetime import datetime
+
 from harness import context_patterns as context_patterns_mod
+from harness.personal_skills.store import PersonalSkills, SkillError
+from harness.personal_skills.values import resolve as resolve_values
 from harness.vault import valid_code
 from harness.worktrees import WorktreeError, Worktrees
 from serve import ROOT
@@ -44,12 +48,15 @@ TEXT_CHARS = 20_000
 EVENTS_KEPT = 3000
 SESSIONS_FILE = "agent_sessions.json"
 TITLE_CHARS = 80
+PLACE_KEEP_S = 86_400           # a position older than this is no longer handed to a conversation
 OPTIONS = ("resume", "close")
 ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free", "free_prefix")
 COMPARES_FILE = "compares.json"
 COMPARE_SETTINGS = ("mode", "max_turns", "ask_only", "end_turn_bias")      # what the two sides of a comparison may differ in
 EFFECTS_FILE = "tool_effects.json"                                          # the effect class of each tool this conversation has used
 SNIPPET_CHARS = 80
+MAX_SAVED_FILE = 200 * 1024 * 1024                                          # the largest file of the folder the page offers to save
+LEVELS = ("", "very_low", "low", "normal", "high", "very_high", "highest")     # how much of pictures or diagrams the person wants; empty is none
 EFFORTS = ("", "none", "low", "medium", "high")                             # how long the model thinks; empty is its own default
 SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact")     # harness/commands.py
 FILE_DIFF_BYTES = 200_000
@@ -77,12 +84,22 @@ class SessionManager:
                  attachments_dir: Optional[Path] = None, outputs_dir: Optional[Path] = None, worktrees: Optional[Worktrees] = None,
                  vault_dir: Optional[Path] = None, payments_dir: Optional[Path] = None,
                  browser_prefs: Optional[Callable[[], Dict[str, bool]]] = None, browser_profile: Optional[Path] = None,
-                 plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: float = 1800.0) -> None:
+                 plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: float = 1800.0,
+                 skills_dir: Optional[Path] = None, projects: Any = None, personal_dir: Optional[Path] = None, personal_keys: Optional[Path] = None,
+                 learn: Optional[Callable[[Dict[str, Any]], Any]] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
         self.router = router                                    # how a message that comes during a task is judged: "model" or "rules"
         self.attachments_dir, self.outputs_dir = attachments_dir, outputs_dir      # the conversation's attached files and the files the agent made
+        self.skills = PersonalSkills(skills_dir) if skills_dir else None            # the person's skills, which a conversation can run
+        self.projects = projects                                # the folders of the Agent tab, whose own registry lists the conversations held in them
+        self.personal_dir, self.personal_keys = personal_dir, personal_keys     # the person's own memories and the key that opens them: each conversation takes in the notes that matter
+        self.learn = learn                                      # told what the person wrote and what was searched for it, when a turn ends, to learn from
+        self._said: Dict[str, Dict[str, Any]] = {}              # per conversation, until its turn ends: what the person wrote and what was searched
+        self._no_learning: set = set()                          # conversations that are not the person's talking (a routine's)
+        self._place: Optional[Dict[str, Any]] = None            # where the person's phone last said they were: held in memory only
+        self._place_sent: Dict[str, float] = {}                 # per conversation process: the receipt time of the position it was given
         self.browser_profile = browser_profile                  # where the browser keeps its sign-ins when the person chose that
         self.browser_prefs = browser_prefs                      # whether the conversations have a browser, and whether it shows a window
         self.payments_dir = payments_dir                        # the person's payment systems and limits, for the agent's request_payment
@@ -147,9 +164,36 @@ class SessionManager:
         rec.update(changes, updated=time.time())
         self._save()
 
+    def workspace_file(self, sid: str, path: Any) -> Tuple[Path, str]:
+        """A file in the folder the conversation works in (its own copy when it has one), for the person to save: only a regular file inside that folder,
+        never in the agent's own `.basalt` or in `.git`, and not a huge one."""
+        rec = self.get(sid)
+        root = Path(rec.get("workdir") or rec["workspace"]).resolve()
+        text = str(path or "").replace("\\", "/").strip("/")
+        if not text or len(text) > 400 or "\0" in text:
+            raise RunError("Name the file, with its path inside the folder.", "bad_path")
+        target = (root / text).resolve()
+        try:
+            inside = target.relative_to(root)
+        except ValueError:
+            raise RunError("That file is not inside the folder this conversation works in.", "bad_path") from None
+        if any(part in (".basalt", ".git") for part in inside.parts) or not target.is_file():
+            raise RunError("That file is not there, or it is one the agent keeps for itself.", "no_file")
+        if target.stat().st_size > MAX_SAVED_FILE:
+            raise RunError("That file is too large to save from here.", "too_large")
+        return target, target.name
+
     def view(self) -> Dict[str, Any]:
         with self._lock:
-            return {"sessions": [dict(r) for r in sorted(self.records, key=lambda r: r.get("updated", 0), reverse=True)]}
+            return {"sessions": [dict(r) for r in sorted(self.records, key=lambda r: r.get("updated", 0), reverse=True)],
+                    "default_workspace": str(self.default_workspace) if self.default_workspace else ""}
+
+    def _registry(self, workspace: Any) -> None:
+        """Tells the folder's own registry what conversations are held in it."""
+        if self.projects is not None and workspace:
+            with self._lock:
+                rows = [dict(r) for r in self.records]
+            self.projects.sync(workspace, rows)
 
     def get(self, sid: str) -> Dict[str, Any]:
         with self._lock:
@@ -167,7 +211,7 @@ class SessionManager:
             return {"messages": [], "turns": 0, "session": dict(rec)}
         shown = []
         for m in self._transcript(sid, data):
-            shown.append({k: (v[:TEXT_CHARS] if isinstance(v, str) else v) for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts")})
+            shown.append({k: (v[:TEXT_CHARS] if isinstance(v, str) else v) for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts", "raw")})
         return {"messages": shown, "turns": data.get("turns", 0), "session": dict(rec)}
 
     def _read_history(self, sid: str) -> Optional[Dict[str, Any]]:
@@ -584,6 +628,12 @@ class SessionManager:
             return
         kind, name, call_id = data.get("type"), data.get("name"), data.get("call_id")
         if kind == "tool_start" and isinstance(name, str):
+            args = data.get("arguments") if isinstance(data.get("arguments"), dict) else {}
+            if name in ("search_web",) and isinstance(args.get("query"), str):
+                with self._lock:
+                    heard = self._said.get(sid)
+                    if heard is not None and len(heard["searches"]) < 10:
+                        heard["searches"].append(args["query"])
             self._learn(sid, name, data.get("effect"))
             calls = self._calls.setdefault(sid, {})
             if len(calls) > 50:
@@ -611,7 +661,8 @@ class SessionManager:
 
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
                confirm_auto: bool = False, max_turns: Any = 15, context_patterns: Any = None,
-               context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "") -> Dict[str, Any]:
+               context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
+               images: Any = "", charts: Any = "") -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         if (workspace is None or workspace == "") and self.default_workspace is not None:
             self.default_workspace.mkdir(parents=True, exist_ok=True)
@@ -621,6 +672,9 @@ class SessionManager:
             raise RunError("The mode must be one of: " + ", ".join(MODES) + ".", "bad_mode")
         if mode == "auto" and confirm_auto is not True:
             raise RunError("Automatic mode runs commands without asking. Confirm that you want that, in a folder you can lose.", "auto_confirm")
+        for name, level in (("images", images), ("charts", charts)):
+            if level not in LEVELS:
+                raise RunError(f"How much {name} are wanted is one of: off, " + ", ".join(LEVELS[1:]) + ".", "bad_visuals")
         if effort not in EFFORTS:
             raise RunError("The thinking level is none, low, medium or high; empty is the model's own.", "bad_effort")
         rules = allow if isinstance(allow, list) else []
@@ -647,7 +701,7 @@ class SessionManager:
             raise RunError("The copy of the folder is off, auto or always.", "bad_worktree")
         sid = secrets.token_hex(4)
         copy = self._copy_for(sid, path, worktree)
-        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "effort": effort,
+        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "effort": effort, "images": images, "charts": charts,
                "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         if copy:
@@ -656,6 +710,9 @@ class SessionManager:
             self.records.append(rec)
             self._events[sid], self._seq[sid] = collections.deque(maxlen=EVENTS_KEPT), 0
             self._save()
+        if self.projects is not None:
+            self.projects.touch(rec["workspace"])
+        self._registry(rec["workspace"])
         return dict(rec)
 
     def _copy_for(self, sid: str, path: Path, mode: str) -> Optional[Dict[str, Any]]:
@@ -679,11 +736,16 @@ class SessionManager:
 
     def _command(self, sid: str, rec: Dict[str, Any], history: Path) -> List[str]:
         cmd = [self.python, "-m", "harness", "session", "--session-id", sid, "--history-dir", str(history), "--workspace", rec.get("workdir") or rec["workspace"],
-               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp"]
+               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp", "--report-changes", "--page-files"]
         for rule in rec.get("allow", []):
             cmd += ["--allow", rule]
         if rec.get("effort"):
             cmd += ["--effort", rec["effort"]]
+        for flag in ("images", "charts"):
+            if rec.get(flag):
+                cmd += [f"--{flag}", rec[flag]]
+        if self.personal_dir:
+            cmd += ["--personal-memory", str(self.personal_dir)] + (["--personal-memory-keys", str(self.personal_keys)] if self.personal_keys else [])
         if rec.get("ask_only"):
             cmd.append("--ask-only")
         elif self.vault_dir:
@@ -730,6 +792,7 @@ class SessionManager:
         contain(proc)
         live = Live(proc)
         self._live[sid] = live
+        self._place_sent.pop(sid, None)                     # a new process holds no position yet
         threading.Thread(target=self._read, args=(sid, live), name=f"session-{sid}", daemon=True).start()
         return live
 
@@ -803,6 +866,8 @@ class SessionManager:
                 if rec["state"] not in ("asking", "blocked"):
                     self._set(rec, state="busy")
             elif kind == "done":
+                if not event.get("more"):
+                    threading.Thread(target=self._flush_heard, args=(sid,), name="learn-flush", daemon=True).start()
                 asked = event.get("stop_reason") == "asked"
                 state = "busy" if event.get("more") else "idle"      # other requests are still waiting: the conversation is still at work
                 self._set(rec, state=state, blocked=None, ask=None, turns=rec.get("turns", 0) + 1, **({} if asked else {"question": None}),
@@ -887,7 +952,28 @@ class SessionManager:
         except KeyError:
             raise RunError("One of the attached files is not there any more: attach it again.", "bad_attachments") from None
 
-    def send(self, sid: str, text: Any, attachments: Any = None) -> Dict[str, Any]:
+    def forget_place(self) -> None:
+        with self._lock:
+            self._place = None
+            self._place_sent.clear()
+
+    def _place_for(self, sid: str, raw: Any) -> Optional[Dict[str, Any]]:
+        """The position to hand to the conversation's process with this message: the one the phone just sent, or the last one it sent when the
+        process does not hold it yet; None when there is nothing new to hand over. A position older than a day is not handed over."""
+        from harness.place import clean
+        held = clean(raw)
+        with self._lock:
+            if held is not None:
+                self._place = held
+            held = self._place
+            if held is None or time.time() - held["got"] + held["fix_age_s"] > PLACE_KEEP_S:
+                return None
+            if self._place_sent.get(sid) == held["got"]:
+                return None
+            self._place_sent[sid] = held["got"]
+            return held
+
+    def send(self, sid: str, text: Any, attachments: Any = None, place: Any = None) -> Dict[str, Any]:
         if not isinstance(text, str) or not text.strip():
             raise RunError("Write a message.", "text_missing")
         cards = self._check_attachments(sid, attachments)
@@ -905,7 +991,8 @@ class SessionManager:
                                    "it then works in its own copy.", "folder_busy")
             turn = secrets.token_hex(3)              # a message that comes while the agent works is looked at by the agent itself
             live = self._ensure(sid)
-            cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {})}
+            held = self._place_for(sid, place)
+            cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {}), **({"place": held} if held else {})}
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
                 rec["title"] = " ".join(text.split())[:TITLE_CHARS]
@@ -916,6 +1003,136 @@ class SessionManager:
             elif not self._write(sid, live, cmd):
                 raise RunError("The agent process did not take the message; try again.", "write_failed")
         self._push(sid, {"event": "user", "turn": turn, "text": text, **({"attachments": [{k: c[k] for k in ("id", "name", "family", "size")} for c in cards]} if cards else {})})
+        self._hear(sid, rec, text)
+        return {"turn": turn, "session": self.get(sid)}
+
+    # -- what the person wrote, for their memories -------------------------------------------------------
+
+    def keep_out_of_memory(self, sid: str) -> None:
+        """A conversation that is not the person talking (a routine's): nothing in it is learned."""
+        with self._lock:
+            self._no_learning.add(sid)
+
+    def _hear(self, sid: str, rec: Dict[str, Any], text: str) -> None:
+        if self.learn is None or sid in self._no_learning:
+            return
+        workspace = str(rec.get("workspace") or "")
+        project = "" if not workspace or (self.default_workspace and Path(workspace) == self.default_workspace) else Path(workspace).name
+        with self._lock:
+            heard = self._said.setdefault(sid, {"texts": [], "searches": [], "project": project})
+            if len(heard["texts"]) < 10:
+                heard["texts"].append(text)
+
+    def _flush_heard(self, sid: str) -> None:
+        """The turn ended: what the person wrote in it, and what was searched for them, goes to be learned from when the GPU is free."""
+        with self._lock:
+            heard = self._said.pop(sid, None)
+        if not heard or self.learn is None:
+            return
+        for n, text in enumerate(heard["texts"]):
+            last = n == len(heard["texts"]) - 1
+            try:
+                self.learn({"text": text, "project": heard["project"], "searches": heard["searches"] if last else []})
+            except Exception:
+                pass                                          # learning never gets in the way of the conversation
+
+    def _skill_source(self, sid: str, turns: Any) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """The requests the person chose (by number, as the page counts them) and the steps taken to answer them."""
+        from harness.personal_skills import distill
+        if not isinstance(turns, list) or not turns or len(turns) > distill.MAX_REQUESTS or any(not isinstance(t, int) or isinstance(t, bool) or t < 1 for t in turns):
+            raise RunError(f"Choose the requests to make the skill from: from 1 to {distill.MAX_REQUESTS}.", "bad_turns")
+        with self._lock:
+            self._record(sid)
+        data = self._read_history(sid)
+        if data is None:
+            raise RunError("That conversation has nothing to make a skill from.", "empty")
+        messages = self._transcript(sid, data)
+        every = distill.requests_of(messages)
+        if max(turns) > len(every):
+            raise RunError(f"That conversation has only {len(every)} requests.", "bad_turns")
+        chosen = [r for r in every if r["n"] in set(turns)]
+        steps = distill.steps_of(messages, every, turns)
+        if not any(s["kind"] == "tool" for s in steps):
+            raise RunError("Nothing was done in those requests that a skill could repeat: no tool was used.", "nothing_to_repeat")
+        return chosen, steps
+
+    def _skill_client(self) -> Any:
+        from harness.client import BasaltClient
+        return BasaltClient(base_url=self.endpoint, api_key=self.api_key or None)
+
+    def skill_propose(self, sid: str, turns: Any) -> Dict[str, Any]:
+        """The first step of making a skill from requests: the values that probably change, named and explained."""
+        from harness.client import BasaltError
+        from harness.personal_skills import distill
+        chosen, steps = self._skill_source(sid, turns)
+        try:
+            proposal = distill.propose(self._skill_client(), chosen, steps)
+        except BasaltError as exc:
+            raise RunError(f"The model could not be reached: {exc}", "model") from None
+        return {**proposal, "requests": [{"n": r["n"], "raw": r["raw"]} for r in chosen],
+                "steps": [{"kind": s["kind"], "turn": s["turn"], **({"name": s["name"], "ok": s["ok"]} if s["kind"] == "tool" else {})} for s in steps]}
+
+    def skill_script(self, sid: str, turns: Any, name: Any, description: Any, params: Any) -> Dict[str, Any]:
+        """The second step: the Python script, written from the requests, the recorded steps and the parameters the person kept."""
+        from harness.client import BasaltError
+        from harness.personal_skills import distill
+        from harness.personal_skills.values import check_spec
+        if not isinstance(params, list) or len(params) > 20 or any(not isinstance(p, dict) for p in params):
+            raise RunError("Send the parameters you kept.", "bad_params")
+        for p in params:
+            problems = check_spec(p)
+            if problems:
+                raise RunError("; ".join(problems), "bad_params")
+        chosen, steps = self._skill_source(sid, turns)
+        try:
+            written = distill.write_script(self._skill_client(), str(name or "")[:60], str(description or "")[:500], params, chosen, steps)
+        except BasaltError as exc:
+            raise RunError(f"The model could not be reached: {exc}", "model") from None
+        keep = ("name", "label", "explanation", "type", "default", "required", "choices", "item_type", "format")
+        return {**written, "skill": {"name": str(name or "")[:60], "description": str(description or "")[:500], "mode": "restricted",
+                                     "params": [{k: p[k] for k in keep if k in p} for p in params], "source": {"conversation": sid, "requests": sorted(set(turns))}}}
+
+    def run_skill(self, sid: str, slug: Any, values: Any = None) -> Dict[str, Any]:
+        """Runs one of the person's skills in this conversation with the values they gave (a date in words is worked out now). The skill must
+        be approved: the person has read it. The process runs the script; its tool calls are decided by the conversation's own rules."""
+        from serve.personal_skills_api import describe
+        if self.skills is None or not isinstance(slug, str) or (values is not None and not isinstance(values, dict)):
+            raise RunError("Choose a skill and give its values.", "bad_skill")
+        try:
+            skill = self.skills.get(slug)
+        except SkillError as exc:
+            raise RunError(str(exc), "no_skill") from None
+        if skill["status"] != "approved":
+            raise RunError("Read the skill and approve it first: it has not been approved on this PC.", "needs_approval")
+        typed, errors = resolve_values(skill.get("params") or [], values or {}, datetime.now())
+        if errors:
+            raise RunError("; ".join(f"{k}: {v}" for k, v in errors.items()), "bad_values")
+        text = describe(skill, typed)
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            if rec["state"] in ("busy", "asking", "starting"):
+                raise RunError("Wait for the agent to finish, or stop it, before running a skill.", "busy")
+            if not rec.get("worktree"):
+                other = next((r for r in self.records if r["id"] != sid and r.get("workspace") == rec["workspace"] and not r.get("worktree")
+                              and r["state"] in ("busy", "asking", "starting")), None)
+                if other is not None:
+                    raise RunError("Another conversation is working in this folder. Wait for it.", "folder_busy")
+            turn = secrets.token_hex(3)
+            live = self._ensure(sid)
+            cmd = {"cmd": "skill", "id": turn, "name": skill["name"], "display": text, "script": skill["script"], "mode": skill.get("mode", "restricted"),
+                   "values": typed, "timeout": skill.get("timeout", 1800), "cache_dir": str(self.skills.dir / slug / ".cache")}
+            self._unconfirmed[sid] = cmd
+            if not rec.get("title"):
+                rec["title"] = " ".join(skill["name"].split())[:TITLE_CHARS]
+            self._set(rec, blocked=None, question=None, state="starting" if not live.ready.is_set() else "busy")
+            if not live.ready.is_set():
+                live.after_ready.append(cmd)
+            elif not self._write(sid, live, cmd):
+                raise RunError("The agent process did not take the skill; try again.", "write_failed")
+        self.skills.note_run(slug)
+        self._push(sid, {"event": "user", "turn": turn, "text": text})
         return {"turn": turn, "session": self.get(sid)}
 
     def answer(self, sid: str, ask_id: Any, value: Any) -> Dict[str, Any]:
@@ -1007,7 +1224,9 @@ class SessionManager:
         if not text:
             raise RunError("Give the conversation a name.", "bad_title")
         with self._lock:
-            self._set(self._record(sid), title=text)
+            rec = self._record(sid)
+            self._set(rec, title=text)
+        self._registry(rec.get("workspace"))
         return self.get(sid)
 
     def favorite(self, sid: str, value: Any) -> Dict[str, Any]:
@@ -1048,6 +1267,7 @@ class SessionManager:
             self._save()
         for folder in folders:
             shutil.rmtree(folder, ignore_errors=True)
+        self._registry(rec.get("workspace"))
         return {"deleted": sid}
 
     def slash(self, sid: str, name: Any, args: Any = "") -> Dict[str, Any]:

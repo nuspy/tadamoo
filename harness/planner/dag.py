@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import copy
 import enum
+import heapq
 import math
 import operator
 import re
@@ -302,6 +303,7 @@ class PlanDAG:
     shared_state: Dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
+    order: List[str] = field(default_factory=list)       # the list the person arranged; list_order() keeps it valid
 
     def _touch(self) -> None:
         self.updated_at = _now()
@@ -458,6 +460,69 @@ class PlanDAG:
         for nid, d in depth.items():
             out[d].append(nid)
         return out
+
+    def list_order(self) -> List[str]:
+        """The steps as a list: the order the person gave them, adjusted so no step comes before one it waits for."""
+        rank = {nid: i for i, nid in enumerate(i for i in self.order if i in self.nodes)}
+        for nid in (n for layer in self.layers() for n in layer):
+            rank.setdefault(nid, len(rank))
+        in_degree = {nid: len(n.dependencies) for nid, n in self.nodes.items()}
+        ready = [(rank[nid], nid) for nid, d in in_degree.items() if d == 0]
+        heapq.heapify(ready)
+        out: List[str] = []
+        while ready:
+            _, cur = heapq.heappop(ready)
+            out.append(cur)
+            for c in self.nodes[cur].outputs:
+                in_degree[c] -= 1
+                if in_degree[c] == 0:
+                    heapq.heappush(ready, (rank[c], c))
+        return out
+
+    def move_node(self, node_id: str, direction: int) -> None:
+        """Moves a step one place up (-1) or down (1) in the list. Neighbours that do not wait for each other change places. A step that
+        waits for its neighbour changes places only in a plain chain, and then the links are redrawn so the work follows the list."""
+        if node_id not in self.nodes:
+            raise KeyError(f"Node '{node_id}' not found")
+        if direction not in (-1, 1) or isinstance(direction, bool):
+            raise PlanError("direction is -1 (up) or 1 (down)")
+        order = self.list_order()
+        i = order.index(node_id)
+        j = i + direction
+        if not 0 <= j < len(order):
+            raise PlanError("the step is already at the " + ("top" if direction < 0 else "bottom") + " of the list")
+        first, second = self.nodes[order[min(i, j)]], self.nodes[order[max(i, j)]]
+        if second.id in first.outputs:
+            self._swap_chain(first, second)
+        order[i], order[j] = order[j], order[i]
+        self.order = order
+        self._touch()
+
+    def _swap_chain(self, a: PlanNode, b: PlanNode) -> None:
+        """a -> b becomes b -> a in a plain chain: before -> a -> b -> after turns into before -> b -> a -> after."""
+        plain = (NodeType.ACTION,)
+        if a.outputs != [b.id] or b.dependencies != [a.id] or a.type not in plain or b.type not in plain:
+            raise PlanError("these two steps are linked to others or are not plain actions; change what the step waits for instead")
+        if a.status not in ("pending", "blocked") or b.status not in ("pending", "blocked"):
+            raise PlanError("a step that has started or finished cannot change places")
+        before, after = list(a.dependencies), list(b.outputs)
+        backup = copy.deepcopy(self.nodes)
+        try:
+            for p in before:
+                self.remove_edge(p, a.id)
+            self.remove_edge(a.id, b.id)
+            for x in after:
+                self.remove_edge(b.id, x)
+            for p in before:
+                self._link(p, b.id)
+            self._link(b.id, a.id)
+            for x in after:
+                self._link(a.id, x)
+            self.validate_acyclic()
+        except PlanError:
+            self.nodes = backup
+            raise
+        self.refresh_blocking()
 
     # editing -----------------------------------------------------------------------------------------
 
@@ -725,6 +790,7 @@ class PlanDAG:
             "shared_state": self.shared_state,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "order": [i for i in self.order if i in self.nodes],
             "nodes": {nid: node_to_dict(n) for nid, n in self.nodes.items()},
         }
 
@@ -742,6 +808,7 @@ class PlanDAG:
                 insight_card=data.get("insight_card") or {}, nodes=nodes,
                 shared_state=data.get("shared_state") or {},
                 created_at=data.get("created_at") or _now(), updated_at=data.get("updated_at") or _now(),
+                order=[str(i) for i in (data.get("order") or [])],
             )
         except (KeyError, TypeError, ValueError, AttributeError) as exc:
             raise PlanError(f"the plan is not valid: {type(exc).__name__}: {exc}") from None

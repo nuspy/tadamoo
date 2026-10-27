@@ -361,6 +361,16 @@ first 20 chunks read higher than the 100-chunk set (higher KLD and higher top-1 
 which uses 20 chunks, reads higher than the 100-chunk numbers; the 100-chunk numbers are the ones to compare. The one gap
 is UD-Q4_K_XL at 20 chunks (0.068 vs 0.0579), explained in the next section.
 
+## Image encoder weights
+
+The image encoder reads a qwen3vl_merger projector with its matrices in BF16 and its vectors in F32. A projector published with F16
+matrices, or with F16 or BF16 vectors, is rewritten at the load into those types (`serve/projector.py`). Vectors go to F32 exactly.
+A matrix goes to BF16 by rounding to nearest even, which is exact when the weights were BF16 before they were stored as F16.
+Measured on the Qwen3.8-Flash-Next uncensored model's F16 projector against the BF16 export of the base model: all 222 F32 tensors
+are equal, and the 112 rewritten ones differ by at most 3e-8 in absolute value (the F16 subnormal grid), which is far below a
+BF16 step for any weight above 1e-5. The encoder's own arithmetic is unchanged. Image quality through the rewritten file has not
+been compared yet (daytime queue, row 28).
+
 ## Why Q8_0 against Q8_0 is not zero
 
 The Basalt Q8_0 pack scores KLD 0.0456 and top-1 95.6% (4 chunks, fp16 KV) against the stock llama.cpp Q8_0 base. This
