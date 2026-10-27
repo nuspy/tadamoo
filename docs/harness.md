@@ -1080,6 +1080,12 @@ budget among roles and run a mock; nothing uses it and `spawn_subagent` does not
 `serve/remote.py`. The server has the one key of `--api-key` (kept as it was) and, besides it, any number of **device keys**: each has a name (the phone it is for), is made on this PC in
 *Settings > Phones*, and is checked by its SHA-256 hash in `api-keys.json` of the user data folder. The key itself is kept in the same file encrypted (AES-256-GCM under a key derived from the vault's device key, with the key's id as associated data), so its code can be shown again (`keys/show`, this PC only); a key made before that, or where `cryptography` is missing, is shown once only. A key is taken away on its own and stops working at once. On the server's own address nothing changes: the master key, when there is one, and no key otherwise. A device key counts only on the **listener for phones** described below, where every request
 needs the master key or a device key, as `Authorization: Bearer ...` or `x-api-key`.
+A device key **ends**: 90 days after it was made unless the person chose 30, 365 or never when making it (a key that never ends is
+confirmed once with the risk said), and *Renew* in *Settings > Phones* gives it a new end; a phone whose key ran out is refused with `key_expired`
+and the name of the key. Keys made before this have no end and show so. A conversation, run or routine started or switched from a phone gets
+the person's limits (`remote.json`: `max_mode`, default `default`, and `rules`): a mode above the limit is refused with `phone_mode_limit`, a
+rule sent by the phone with `phone_rules`, and the PC's own rules take the place of the phone's. A holder of a stolen key can still answer the
+questions of the conversations it starts, so the limit keeps a phone from starting unattended work, not from using what the phone is for.
 
 A phone comes through a second listener, which is bound to **this PC's Tailscale address and nothing else** (`remote.json` keeps whether it is on; it starts
 with the server and follows Tailscale's address). It is off until the person turns it on. What such a client may reach is a short list (`remote_path_ok`): the model (`/v1/`), the
