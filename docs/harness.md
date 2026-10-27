@@ -1095,6 +1095,14 @@ looked at: the vault, the wallet, the settings, the loading of models, the contr
 conversation, attaching files, the routines) need a device key and the Tailscale range (`100.64.0.0/10`); the server's control secret, which protects the page from other sites, is not asked
 of a phone, whose own key is the proof.
 
+**The control secret on this PC.** Writes through `/api/*` (approving a question or a plan, the wallet, the settings) need the server's secret,
+kept in `control-<port>.token` in the user data folder and given to the page as a cookie. The cookie is given only to a browser navigation to
+`/` (`Sec-Fetch-*`; a program has to imitate it), or, with `--api-key`, from `GET /api/session` to a request that carries the key, and never to
+a client whose process descends from an agent session (the server finds the client process of the connection and walks its parents against the
+processes it started; `serve/util/peer.py`). The same client is refused when it presents the secret in the header or the cookie. The file itself is among the places the
+agent's tools cannot open. What stays open: a process the agent starts outside its own tree (a scheduled task, a service) is not seen as the
+agent's, and a program that reads the file as this user, outside the agent's tools, can use it.
+
 *Settings > Phones* does the setup: it shows whether Tailscale is installed (`tailscale status --json`), installs it with `winget` when asked (`POST /api/remote/tailscale/install`; with no
 winget it points to tailscale.com/download), connects it (`tailscale/up`; when a sign-in is needed the page shows the address to open), turns phones on or off (`enable`, `disable`), and makes
 (`keys/create`) and takes away (`keys/revoke`, asked twice) the keys. A key is shown with a **QR code** (when it is made and, from the list, any time after) that holds `{"v":1,"url":"http://<tailscale address>:<port>","key":"bsk_...","name":"..."}`

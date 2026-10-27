@@ -143,3 +143,32 @@ print(c.getresponse().status)
 '''
     out = subprocess.run([sys.executable, "-c", code, str(server), cookie], capture_output=True, text=True, timeout=60)
     assert out.stdout.strip() == "403"
+
+
+def test_the_secret_that_approves_plans_and_questions_is_out_of_reach_of_the_agents_own_code(tmp_path, monkeypatch, server, agent_is_this_process):
+    """The control token sits in a file of the data folder. Code the agent runs can neither read it nor use it if it knew it."""
+    from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
+    from harness.tools.execute import find_runtimes, run_code
+    data = tmp_path / "data"
+    data.mkdir(exist_ok=True)
+    token_file = data / f"control-{server}.token"
+    token_file.write_text(SECRET, encoding="ascii")
+    broker = SecretsBroker()
+    broker.protect_in(data, *PROTECTED_FILES)
+    here = str(data)
+    snippet = f"""
+import http.client, json, os
+path = os.path.join({here[:len(here) // 2]!r} + {here[len(here) // 2:]!r}, 'cont' + 'rol-{server}.tok' + 'en')
+try:
+    print('READ', open(path).read())
+except PermissionError:
+    print('file refused')
+c = http.client.HTTPConnection('127.0.0.1', {server}, timeout=15)
+c.request('POST', '/api/agent/approvals/abc', body=json.dumps({{'decision': 'approve'}}), headers={{'Content-Type': 'application/json', 'X-Basalt-Control': {SECRET!r}}})
+r = c.getresponse()
+print('approve', r.status, r.read().decode()[:120])
+"""
+    res = run_code("python", snippet, tmp_path, find_runtimes(), broker=broker)
+    assert SECRET not in res["stdout"] and "READ" not in res["stdout"], res
+    assert "file refused" in res["stdout"], res
+    assert "approve 403" in res["stdout"] and "agent_code" in res["stdout"], res
