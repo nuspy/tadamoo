@@ -9,7 +9,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from serve.config import PARALLEL_MAX, build_parser, parse_settings
+from serve.config import PARALLEL_MAX, REMOVED_ENGINE_KEYS, build_parser, parse_settings
 from serve.engine.vision import VISION_MODES, vision_mode
 
 KV_MODES = ("fp16", "int8", "q4_0", "k8v4")          # the engine's --kv (q4 is read as q4_0)
@@ -22,20 +22,22 @@ _write_lock = threading.Lock()                       # one save at a time
 
 # (section, key): the fields the page edits; `model` is shown, never written
 FIELDS = (("server", "port"), ("server", "parallel"), ("server", "vision"),
-          ("engine", "max-context"), ("engine", "kv"), ("engine", "spec"), ("engine", "spec-min-p"),
+          ("engine", "max-context"), ("engine", "kv"), ("engine", "spec"),
           ("engine", "expert-cache"), ("engine", "prefill"))
 READ_ONLY = (("server", "model"),)
 # the Loader's fields: the settings page's engine fields and the memory and slot switches
 LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-full-context"), ("server", "vision"),
                  ("server", "vision-projector"), ("server", "vision-hold"),
                  ("engine", "max-context"), ("engine", "kv"), ("engine", "prefill"), ("engine", "spec"),
-                 ("engine", "spec-min-p"), ("engine", "relaxed-drafting"), ("engine", "expert-cache"), ("engine", "resident-experts"),
+                 ("engine", "relaxed-drafting"), ("engine", "expert-cache"), ("engine", "resident-experts"),
                  ("engine", "vram-reserve-mib"), ("engine", "ple-io"), ("engine", "pool-workers"))
 # the model a load profile or the Loader writes (with the API name, when the file sets one)
 MODEL_FIELDS = (("server", "model"), ("server", "alias"))
 PLE_IO_MODES = ("direct", "mmap", "ram")             # the engine's --ple-io
 VISION_HOLDS = ("keep", "release")                   # the image encoder's weights stay in RAM, or are read again for each batch of images
 POOL_WORKERS_MAX = 256
+# fields an older saved file, profile or form may still carry: ignored, and dropped when the file is next saved
+REMOVED_KEYS = frozenset(f"engine.{k}" for k in REMOVED_ENGINE_KEYS)
 RESTART_NOTE = "Saved to the config file. The running server keeps its settings until it is started again."
 
 
@@ -100,10 +102,6 @@ def check_value(section: str, key: str, value):
         return text
     if key == "spec":
         return _whole(value, what, 0, SPEC_MAX)
-    if key == "spec-min-p":
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
-            raise ValueError(f"{what}: a number from 0 to 1, not {value!r}")
-        return value
     if key == "expert-cache":
         if isinstance(value, str) and value.strip().lower() == "auto":
             return "auto"
@@ -182,6 +180,8 @@ def merge(raw: dict, changes: dict, fields=FIELDS) -> tuple[dict, list[str]]:
     out = json.loads(json.dumps(raw))                  # a deep copy
     changed = []
     for name, value in changes.items():
+        if name in REMOVED_KEYS:
+            continue
         if name not in allowed:
             ro = {f"{s}.{k}" for s, k in READ_ONLY}
             raise ValueError(f"{name}: read-only here" if name in ro else f"{name}: not a field this page sets")
@@ -207,6 +207,9 @@ def merge(raw: dict, changes: dict, fields=FIELDS) -> tuple[dict, list[str]]:
         else:
             sec[key] = value
             changed.append(name)
+    if isinstance(out.get("engine"), dict):
+        for k in [k for k in out["engine"] if norm(k) in REMOVED_ENGINE_KEYS]:
+            del out["engine"][k]
     for section in ("server", "engine"):
         if section in out and out[section] == {} and section not in raw:
             del out[section]

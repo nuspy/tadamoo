@@ -15,14 +15,16 @@
 #include <cuda_runtime.h>
 
 #include <algorithm>
+#include <cstring>
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
+#include <atomic>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
+#include "basalt/log.hpp"
 
 namespace basalt::kernels {
 namespace {
@@ -39,6 +41,7 @@ constexpr int WARPS = THREADS / 32;
 constexpr int NRT = 81;              // router items: the experts split over this many CTAs
 constexpr int SMEM = 98 * 1024;      // dynamic shared memory per CTA
 constexpr int RT_MAX_ROWS = (NE + NRT - 1) / NRT;   // router rows per router item
+static_assert(NE / NRT < RT_MAX_ROWS, "router item 0 has a spare row");
 
 // down items over half-streams (no norm tasks)
 constexpr int CN_HS = 2 * HC;                  // half-streams
@@ -150,17 +153,13 @@ constexpr int NSLOT = 4;
 __device__ HcSync g_hc_sync[NSLOT];
 static_assert(sizeof(g_hc_q8cnt) / sizeof(g_hc_q8cnt[0]) == NSLOT, "a q8_1 count set per counter set");
 
-// The tensor maps travel in the kernel's parameters (__grid_constant__).  CUDA 13 declares CUtensorMap alignas(128),
-// and MSVC cannot pass a parameter aligned past 64 bytes by value (C2719), so there the parameter holds the same 128
-// bytes at 64-byte alignment - what the TMA unit requires of a tensor map (CUDA 12 declared it so).
-#if defined(_MSC_VER)
-struct alignas(64) LaunchTmaMap {
-    cuuint64_t opaque[CU_TENSOR_MAP_NUM_QWORDS];
+// A tensor map as a kernel argument. The descriptor type is aligned more strictly than the hardware needs on newer
+// toolkits, and a by-value argument with that alignment is not representable on every host compiler, so the argument
+// carries the bytes at the boundary the hardware requires and the kernel reads them as descriptors.
+struct alignas(64) TmaDesc {
+    unsigned long long w[16];
 };
-static_assert(sizeof(LaunchTmaMap) == sizeof(CUtensorMap), "a launch tensor map is a CUtensorMap's bytes");
-#else
-using LaunchTmaMap = CUtensorMap;
-#endif
+static_assert(sizeof(TmaDesc) == sizeof(CUtensorMap), "a descriptor argument is the descriptor's size");
 
 struct HcLaunch {
     HcFusedArgs a;
@@ -174,8 +173,16 @@ struct HcLaunch {
     float* t10_dummy;                      // [NE] fixed logits for the top-10's dry run
     float* t10_scratch;                    // [nb][2 * KT] its outputs
     unsigned long long* lg64;              // [MAXT][NE] logits tagged with the read's epoch (tag << 32 | f32 bits)
-    LaunchTmaMap tm[6];   // q_down, s_down, q_inject, s_inject by four rows; q_up, s_up
+    TmaDesc tm[6];   // q_down, s_down, q_inject, s_inject by four rows; q_up, s_up
 };
+
+// cuda.h gives the descriptor its alignas only when the compiler reports a C++11 __cplusplus, which MSVC does not
+// unless the build passes /Zc:__cplusplus. A descriptor off the boundary faults when the kernel reads it, so the build
+// says so at compile time rather than at launch. The boundary is named here rather than taken from the header, whose
+// spelling of it changed between toolkit versions; 64 is what the hardware requires, and the newer toolkits align
+// the type more strictly, which satisfies it.
+static_assert(alignof(CUtensorMap) >= 64, "CUtensorMap lost its alignas: the build needs /Zc:__cplusplus");
+static_assert(offsetof(HcLaunch, tm) % 64 == 0, "the TMA descriptors must sit on the map boundary");
 
 // ---------------------------------------------------------------- primitives
 __device__ __forceinline__ unsigned smem_u32(const void* p) { return (unsigned) __cvta_generic_to_shared(p); }
@@ -753,10 +760,12 @@ __device__ __forceinline__ float warp_sum16_ftz(float (&v)[16], int lane) {
 // Router rows [e0, e1) (at most RT_MAX_ROWS, their weights at wsm): bf16_f32_mmvf_multi_kernel<256, *>'s per-row
 // order - thread t's pairs t + 256 j, two ordered FMAs each, the warp's xor tree, then the tree over the 8 warp sums
 // and 24 zeros - for every row and token at once; the xor trees run 16 values at a time (warp_sum16_ftz).
+// `sh`: one row more at wsm, the shared expert's gate input, whose dot gives gate_sh (shared_expert_multi's sigmoid).
 template <int T, int RMAX = RT_MAX_ROWS>
 __device__ void hc_router_rows(const HcFusedArgs& a, const uint16_t* wsm, int e0, int e1, int tid,
-                               float* partials /* [RMAX * T][WARPS] */, unsigned long long* lg64, unsigned tag) {
-    const int lane = tid & 31, warp = tid >> 5, ne = e1 - e0;
+                               float* partials /* [RMAX * T][WARPS] */, unsigned long long* lg64, unsigned tag,
+                               bool sh) {
+    const int lane = tid & 31, warp = tid >> 5, ne = e1 - e0, nr = ne + (sh ? 1 : 0);
     constexpr int PAIRS = N / 2 / THREADS;   // 5
     constexpr int TG = T < 4 ? T : 4;        // tokens per pass
     constexpr int NV = RMAX * TG;            // values per lane per pass (28 at most: two rounds of 16)
@@ -778,7 +787,7 @@ __device__ void hc_router_rows(const HcFusedArgs& a, const uint16_t* wsm, int e0
             uint32_t wr[PAIRS];
 #pragma unroll
             for (int j = 0; j < PAIRS; ++j)
-                wr[j] = e < ne ? reinterpret_cast<const uint32_t*>(wsm + (size_t) e * N)[tid + THREADS * j] : 0u;
+                wr[j] = e < nr ? reinterpret_cast<const uint32_t*>(wsm + (size_t) e * N)[tid + THREADS * j] : 0u;
 #pragma unroll
             for (int q = 0; q < TG; ++q) {
                 float s = 0.0f;
@@ -819,6 +828,8 @@ __device__ void hc_router_rows(const HcFusedArgs& a, const uint16_t* wsm, int e0
                 if ((lane & 1) == 0 && m < NV && e < ne && k0 + q < T) {
                     a.logits[(size_t) (k0 + q) * NE + e0 + e] = sum;
                     st_tagged(lg64 + (size_t) (k0 + q) * NE + e0 + e, sum, tag);
+                } else if ((lane & 1) == 0 && m < NV && e == ne && sh && k0 + q < T) {
+                    a.gate_sh[k0 + q] = __fdividef(1.0f, 1.0f + __expf(-sum));
                 }
             }
         }
@@ -950,7 +961,7 @@ __device__ __noinline__ void hc_top10_item(const float* logits, int32_t* ids, fl
 struct Items {
     int nu, up, rt, t10, end;
     __device__ Items(int nb, int nu_, bool router) {
-        nu = nu_ > 0 ? nu_ : nb - CN_ND;
+        nu = nu_ > 0 ? nu_ : (nb - CN_ND > CN_MIN_NU ? nb - CN_ND : CN_MIN_NU);   // CTAs claim several items when the grid is smaller
         up = CN_ND;
         rt = up + nu;
         t10 = rt + (router ? NRT : 0);
@@ -989,8 +1000,9 @@ __global__ void __launch_bounds__(THREADS, 1) hc_fused_kernel(const __grid_const
     bool staged = false;   // the first down item's rows were requested before the wait
     bool cn_bars = false;  // the staged item uses dbars
     unsigned qpeek = 0;    // an up item: the queue's claim count seen while it runs
+    const CUtensorMap* const tms = reinterpret_cast<const CUtensorMap*>(L.tm);
     if (item < it.up) {    // the item's weights do not depend on the previous kernel
-        cn_bars = cn_issue(a, item, tid, smem, dbars, (const CUtensorMap*) L.tm);
+        cn_bars = cn_issue(a, item, tid, smem, dbars, tms);
         staged = true;
     }
     if (L.early) pdl_launch_dependents();
@@ -1001,7 +1013,7 @@ __global__ void __launch_bounds__(THREADS, 1) hc_fused_kernel(const __grid_const
         if (item < it.up) {
             const int d = item;
             if constexpr (DBG) if (tid == 0) dbg[b * 16 + 15] = 1;
-            if (!staged) cn_bars = cn_issue(a, d, tid, smem, dbars, (const CUtensorMap*) L.tm);
+            if (!staged) cn_bars = cn_issue(a, d, tid, smem, dbars, tms);
             const CnRows w = cn_rows(a, d);
             if (w.q != nullptr) {
                 cn_x<T>(a, w.hs, tid, smem, s_ssp, L.cns, d < CN_HS);
@@ -1015,7 +1027,7 @@ __global__ void __launch_bounds__(THREADS, 1) hc_fused_kernel(const __grid_const
             const UpSlice sl = up_slice(item - it.up, it.nu);
             if constexpr (DBG) if (tid == 0) dbg[b * 16 + 15] = 2;
             uint16_t* const sc8 = up_smem(smem, sl.nc, T).sc;
-            if (tid == 0) hc_up_tma(sl, smem, sc8, (const CUtensorMap*) &L.tm[4], &bars[0]);   // ahead of R'
+            if (tid == 0) hc_up_tma(sl, smem, sc8, &tms[4], &bars[0]);   // ahead of R'
             hc_up_pre<T>(a, sl, tid, smem);
             // the down items' sums by two bulk copies once they are done (after the slice's shared memory)
             const int lst_off = (((up_smem_bytes<T>(sl.nc) + 15) & ~15) + 127) & ~127;
@@ -1043,7 +1055,16 @@ __global__ void __launch_bounds__(THREADS, 1) hc_fused_kernel(const __grid_const
             if (lst) lo_ph ^= 1u;
             if (a.xq != nullptr && a.w_router == nullptr && !up_q8_inline(a, sl.c0, sl.nc))
                 hc_up_q8<T>(a, sl.c0, sl.nc, tid, g_hc_q8cnt[L.slot]);
-            if (a.w_router != nullptr) cta_signal(&sy->up.v, tid);   // nothing waits on it without a router
+            if (a.w_router != nullptr) {   // nothing waits on it without a router
+                __syncthreads();
+                if (tid == 0) {
+                    __threadfence();
+                    if (atomicAdd(&sy->up.v, 1u) == (unsigned) it.nu - 1u && a.pub_ctr != nullptr) {
+                        __threadfence();   // the last slice: mixed is complete
+                        atomicAdd(a.pub_ctr + 2, 1u);
+                    }
+                }
+            }
             stamp<DBG>(dbg, b, 3, tid);
         } else if (item >= it.t10) {
             // the top-10 once every router row has stored its logits: warp k takes token k
@@ -1062,28 +1083,36 @@ __global__ void __launch_bounds__(THREADS, 1) hc_fused_kernel(const __grid_const
             if (k < T)
                 hc_top10_item<DBG>(a.logits + (size_t) k * NE, a.ids + (size_t) k * KT, a.weights + (size_t) k * KT, tid & 31,
                                    cand, tid < 32 ? dbg : nullptr, b, L.lg64 + (size_t) k * NE, tag);
+            if (a.pub_ctr != nullptr) cta_signal(a.pub_ctr + 1, tid);   // the ids are out
             __syncthreads();
             stamp<DBG>(dbg, b, 6, tid);
         } else {
             const int r = item - it.rt, e0 = r * NE / NRT, e1 = (r + 1) * NE / NRT;
+            const bool sh = r == 0 && a.w_gate_sh != nullptr;   // item 0's spare row: the shared expert's gate input
             char* const rt_p = smem + RT_MAX_ROWS * N * 2;
             if (tid == 0) {   // the rows into shared memory while the up slices run
                 const unsigned bytes = (unsigned) (e1 - e0) * N * 2;
-                mbar_expect_tx(&bars[1], bytes);
+                mbar_expect_tx(&bars[1], bytes + (sh ? N * 2 : 0));
                 bulk_g2s(smem, a.w_router + (size_t) e0 * N, bytes, &bars[1]);
+                if (sh) bulk_g2s(smem + bytes, a.w_gate_sh, N * 2, &bars[1]);
             }
             cta_wait(&sy->up.v, (unsigned) it.nu, tid, false);
             mbar_wait(&bars[1], rt_ph);
             rt_ph ^= 1u;
             stamp<DBG>(dbg, b, 4, tid);
             hc_router_rows<T>(a, reinterpret_cast<const uint16_t*>(smem), e0, e1, tid, reinterpret_cast<float*>(rt_p), L.lg64,
-                              tag);
+                              tag, sh);
             stamp<DBG>(dbg, b, 5, tid);
+            const int nq = T * (N / 32), q0 = r * nq / NRT, q1 = (r + 1) * nq / NRT;
             if (a.xq != nullptr) {   // the item's share of mixed's q8_1 blocks, while the top-10 runs
-                const int nq = T * (N / 32), q0 = r * nq / NRT, q1 = (r + 1) * nq / NRT;
                 for (int q = q0 + (tid >> 5); q < q1; q += WARPS)
                     hc_q8_1_store(__ldcg(a.mixed + (size_t) q * 32 + (tid & 31)), static_cast<HcQ81*>(a.xq), q, tid & 31);
+                if (a.pub_ctr != nullptr) cta_signal(a.pub_ctr, tid);   // its share is out
             }
+            if (a.xq_sh != nullptr)   // the same blocks for the shared expert, after the count
+                for (int q = q0 + (tid >> 5); q < q1; q += WARPS)
+                    hc_q8_1_store_native(__ldcg(a.mixed + (size_t) q * 32 + (tid & 31)), static_cast<HcQ81*>(a.xq_sh), q,
+                                         tid & 31);
         }
         staged = false;
         __syncthreads();
@@ -1125,6 +1154,7 @@ __global__ void hc_l2_prefetch_kernel(const void* p0, size_t n0, const void* p1,
     }
 }
 
+#ifndef FZ_DEV_ONLY   // host side: another translation unit (the mid chain) takes only the device code
 using KernelFn = void (*)(HcLaunch);
 constexpr KernelFn kKernels[2][MAXT] = {
     {hc_fused_kernel<1, false>, hc_fused_kernel<2, false>, hc_fused_kernel<3, false>, hc_fused_kernel<4, false>,
@@ -1134,14 +1164,19 @@ constexpr KernelFn kKernels[2][MAXT] = {
 
 unsigned long long* g_dbg = nullptr;
 int g_slot = 0;
+#endif
 }  // namespace
+#ifndef FZ_DEV_ONLY   // host side: another translation unit (the mid chain) takes only the device code
 
 bool hc_fused_q8_rows_ok() { return true; }
+
+unsigned hc_fused_pub_arrivals() { return NRT; }
 
 namespace {
 
 struct DevInfo {
-    bool checked = false, ok = false;
+    std::atomic<bool> checked{false};
+    bool ok = false;
     int sms = 0;
     float* t10 = nullptr;                 // [NE] fixed logits for the top-10's dry run, then [sms][2 * KT] float scratch
     unsigned long long* lg = nullptr;     // [NSLOT][MAXT][NE] tagged router logits (zero: no tag)
@@ -1149,6 +1184,7 @@ struct DevInfo {
 };
 constexpr size_t CN_SLOT = (size_t) CN_PART + CN_SSN;
 DevInfo g_dev[16];
+std::mutex g_dev_mu;
 
 const DevInfo& dev_info() {
     int dev = 0;
@@ -1158,27 +1194,30 @@ const DevInfo& dev_info() {
         return none;
     }
     DevInfo& d = g_dev[dev];
-    if (!d.checked) {
-        int major = 0, sms = 0, optin = 0;
-        cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, dev);
-        cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, dev);
-        cudaDeviceGetAttribute(&optin, cudaDevAttrMaxSharedMemoryPerBlockOptin, dev);
-        d.sms = sms;
-        d.ok = major == 12 && sms - CN_ND >= CN_MIN_NU && optin >= SMEM + 1024 &&
-               cudaMalloc((void**) &d.t10, ((size_t) NE + (size_t) sms * 2 * KT) * 4) == cudaSuccess &&
-               cudaMalloc((void**) &d.cn, (size_t) NSLOT * CN_SLOT * 4) == cudaSuccess &&
-               cudaMalloc((void**) &d.lg, (size_t) NSLOT * MAXT * NE * 8) == cudaSuccess &&
-               cudaMemset(d.lg, 0, (size_t) NSLOT * MAXT * NE * 8) == cudaSuccess;
-        if (d.ok) {   // distinct logits with a few ties, so the dry run takes the usual path
-            std::vector<float> f(NE);
-            for (int e = 0; e < NE; ++e) f[e] = (float) (((e * 389) % NE) / 64.0 - 4.0 + (e % 97 == 0 ? 0.0 : 0.001));
-            d.ok = cudaMemcpy(d.t10, f.data(), NE * 4, cudaMemcpyHostToDevice) == cudaSuccess;
+    if (!d.checked.load(std::memory_order_acquire)) {
+        std::lock_guard<std::mutex> lk(g_dev_mu);
+        if (!d.checked.load(std::memory_order_relaxed)) {
+            int major = 0, sms = 0, optin = 0;
+            cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, dev);
+            cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, dev);
+            cudaDeviceGetAttribute(&optin, cudaDevAttrMaxSharedMemoryPerBlockOptin, dev);
+            d.sms = sms;
+            d.ok = major == 12 && optin >= SMEM + 1024 &&
+                   cudaMalloc((void**) &d.t10, ((size_t) NE + (size_t) sms * 2 * KT) * 4) == cudaSuccess &&
+                   cudaMalloc((void**) &d.cn, (size_t) NSLOT * CN_SLOT * 4) == cudaSuccess &&
+                   cudaMalloc((void**) &d.lg, (size_t) NSLOT * MAXT * NE * 8) == cudaSuccess &&
+                   cudaMemset(d.lg, 0, (size_t) NSLOT * MAXT * NE * 8) == cudaSuccess;
+            if (d.ok) {   // distinct logits with a few ties, so the dry run takes the usual path
+                std::vector<float> f(NE);
+                for (int e = 0; e < NE; ++e) f[e] = (float) (((e * 389) % NE) / 64.0 - 4.0 + (e % 97 == 0 ? 0.0 : 0.001));
+                d.ok = cudaMemcpy(d.t10, f.data(), NE * 4, cudaMemcpyHostToDevice) == cudaSuccess;
+            }
+            for (int t = 0; t < MAXT && d.ok; ++t)
+                d.ok = cudaFuncSetAttribute(kKernels[0][t], cudaFuncAttributeMaxDynamicSharedMemorySize, SMEM) == cudaSuccess &&
+                       cudaFuncSetAttribute(kKernels[1][t], cudaFuncAttributeMaxDynamicSharedMemorySize, SMEM) == cudaSuccess;
+            cudaGetLastError();
+            d.checked.store(true, std::memory_order_release);
         }
-        for (int t = 0; t < MAXT && d.ok; ++t)
-            d.ok = cudaFuncSetAttribute(kKernels[0][t], cudaFuncAttributeMaxDynamicSharedMemorySize, SMEM) == cudaSuccess &&
-                   cudaFuncSetAttribute(kKernels[1][t], cudaFuncAttributeMaxDynamicSharedMemorySize, SMEM) == cudaSuccess;
-        cudaGetLastError();
-        d.checked = true;
     }
     return d;
 }
@@ -1224,6 +1263,33 @@ std::mutex g_hc8_mu;
 std::unordered_map<const void*, Hc8Copy> g_hc8;
 size_t g_hc8_bytes = 0;
 
+// The copies are carved out of large allocations: one cudaMalloc per matrix rounds each up to the allocator's
+// granularity, which costs a fraction of a MiB per matrix.  Offsets stay 256-byte aligned, as separate allocations are.
+// Copies are never returned, so a chunk is never freed.
+cudaError_t hc8_alloc(void** out, size_t bytes) {
+    constexpr size_t kChunk = (size_t) 32 << 20, kAlign = 256;
+    static char* bases[16] = {};
+    static size_t lefts[16] = {};
+    int dev = 0;
+    cudaGetDevice(&dev);
+    if (dev < 0 || dev >= 16) return cudaMalloc(out, bytes);
+    char*& base = bases[dev];
+    size_t& left = lefts[dev];
+    bytes = (bytes + kAlign - 1) / kAlign * kAlign;
+    if (bytes > left) {
+        if (bytes > kChunk / 2) return cudaMalloc(out, bytes);
+        void* p = nullptr;
+        const cudaError_t e = cudaMalloc(&p, kChunk);
+        if (e != cudaSuccess) return e;
+        base = (char*) p;
+        left = kChunk;
+    }
+    *out = base;
+    base += bytes;
+    left -= bytes;
+    return cudaSuccess;
+}
+
 // the copy of the bf16 matrix w (device memory of the current card); false when there is no VRAM for it
 bool hc8_make(const uint16_t* w, int rows, int cols, Hc8Copy& c) {
     const int64_t n = (int64_t) rows * cols, groups = n / G8;
@@ -1232,9 +1298,9 @@ bool hc8_make(const uint16_t* w, int rows, int cols, Hc8Copy& c) {
     c.rows = rows;
     c.cols = cols;
     c.srow = srow;
-    if (cudaMalloc((void**) &c.q, c.bytes) != cudaSuccess) {
+    if (hc8_alloc((void**) &c.q, c.bytes) != cudaSuccess) {
         cudaGetLastError();
-        std::fprintf(stderr, "basalt hc8: no VRAM for an 8-bit copy (%zu bytes)\n", c.bytes);
+        basalt::log::error("basalt hc8", "no VRAM for an 8-bit copy (%zu bytes)", c.bytes);
         return false;
     }
     c.s = reinterpret_cast<uint16_t*>(c.q + n);
@@ -1305,16 +1371,15 @@ const void* hc8_upload(const uint16_t* w, const int8_t* q, const uint16_t* s, in
     c.cols = cols;
     c.srow = ((cols / G8) + 7) & ~7;
     c.bytes = (size_t) n + (size_t) rows * c.srow * 2;
-    if (cudaMalloc((void**) &c.q, c.bytes) != cudaSuccess) {
+    if (hc8_alloc((void**) &c.q, c.bytes) != cudaSuccess) {
         cudaGetLastError();
-        std::fprintf(stderr, "basalt hc8: no VRAM for an 8-bit copy (%zu bytes)\n", c.bytes);
+        basalt::log::error("basalt hc8", "no VRAM for an 8-bit copy (%zu bytes)", c.bytes);
         return nullptr;
     }
     c.s = reinterpret_cast<uint16_t*>(c.q + n);
     if (cudaMemcpy(c.q, q, (size_t) n, cudaMemcpyHostToDevice) != cudaSuccess ||
         cudaMemcpy(c.s, s, (size_t) rows * c.srow * 2, cudaMemcpyHostToDevice) != cudaSuccess) {
         cudaGetLastError();
-        cudaFree(c.q);
         return nullptr;
     }
     c.owned = w == nullptr;
@@ -1398,7 +1463,7 @@ struct CnMaps {
     bool ok;
 };
 // The tensor maps of a read's 8-bit matrices; false when one failed.
-bool cn_maps(const HcFusedArgs& h, LaunchTmaMap* tm) {
+bool cn_maps(const HcFusedArgs& h, CUtensorMap* tm) {
     static std::mutex mu;
     static std::unordered_map<const void*, CnMaps> cache;
     std::lock_guard<std::mutex> lk(mu);
@@ -1418,7 +1483,7 @@ bool cn_maps(const HcFusedArgs& h, LaunchTmaMap* tm) {
         c.ok = c.ok && tmap(&c.tm[4], h.q_up, U64, 4, qd, qs, qb) && tmap(&c.tm[5], h.s_up, U16, 3, sd, ss, sb);
         it = cache.emplace(h.q_down, c).first;
     }
-    std::memcpy((void*) tm, it->second.tm, sizeof it->second.tm);
+    std::copy(it->second.tm, it->second.tm + 6, tm);
     return it->second.ok;
 }
 
@@ -1427,8 +1492,11 @@ void hc_fused_read(const HcFusedArgs& a, void* stream) {
     const DevInfo& d = dev_info();
     if (!d.ok || a.T < 1 || a.T > MAXT || !a.R || !a.R_out || !a.w_norm || !a.w_down || !a.w_up || !a.lo || !a.rs ||
         !a.mixed || !a.xn || (a.w_inject && !a.inject_out) || (a.apply && (!a.bo_prev || !a.inj_prev)) ||
-        (a.w_router && (!a.logits || !a.ids || !a.weights)) || (a.apply && a.inj_prev == a.inject_out)) {
-        std::fprintf(stderr, "hc_fused_read: invalid arguments or unsupported device\n");
+        (a.w_router && (!a.logits || !a.ids || !a.weights)) || (a.apply && a.inj_prev == a.inject_out) ||
+        (a.pub_ctr && (!a.w_router || !a.xq)) ||
+        (a.w_gate_sh && (!a.w_router || !a.gate_sh || (reinterpret_cast<uintptr_t>(a.w_gate_sh) & 15u) != 0)) ||
+        (a.xq_sh && !a.w_router)) {
+        basalt::log::error("basalt", "hc_fused_read: invalid arguments or unsupported device");
         std::exit(1);
     }
     HcLaunch L{};
@@ -1458,7 +1526,7 @@ void hc_fused_read(const HcFusedArgs& a, void* stream) {
                  (a.w_inject == nullptr || (h.q_inject != nullptr && h.s_inject != nullptr));
         }
         if (!q8) {
-            std::fprintf(stderr, "hc_fused_read: the matrices need their 8-bit copies (hc8_prepare)\n");
+            basalt::log::error("basalt", "hc_fused_read: the matrices need their 8-bit copies (hc8_prepare)");
             std::exit(1);
         }
         if (a.w_inject == nullptr) h.q_inject = nullptr;
@@ -1466,16 +1534,18 @@ void hc_fused_read(const HcFusedArgs& a, void* stream) {
     L.cnp = d.cn + (size_t) L.slot * CN_SLOT;
     L.cns = L.cnp + CN_PART;
     L.lg64 = d.lg + (size_t) L.slot * MAXT * NE;
-    if (!cn_maps(L.a, L.tm)) {
-        std::fprintf(stderr, "hc_fused_read: the tensor maps of the 8-bit matrices failed\n");
+    CUtensorMap maps[6];
+    if (!cn_maps(L.a, maps)) {
+        basalt::log::error("basalt", "hc_fused_read: the tensor maps of the 8-bit matrices failed");
         std::exit(1);
     }
+    std::memcpy(L.tm, maps, sizeof L.tm);
     L.nu = a.xq != nullptr && a.w_router == nullptr ? CN_MIN_NU : 0;   // whole q8_1 blocks
     launch_pdl(kKernels[g_dbg != nullptr ? 1 : 0][a.T - 1], dim3((unsigned) L.nb), dim3(THREADS), (size_t) SMEM,
                (cudaStream_t) stream, L);
     const cudaError_t e = cudaGetLastError();
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "hc_fused_read: %s\n", cudaGetErrorString(e));
+        basalt::log::error("basalt", "hc_fused_read: %s", cudaGetErrorString(e));
         std::exit(1);
     }
 }
@@ -1504,4 +1574,5 @@ void hc_l2_prefetch(const void* const* ptrs, const size_t* bytes, int n, void* s
     hc_l2_prefetch_kernel<<<8, 32, 0, (cudaStream_t) stream>>>(p[0], b[0], p[1], b[1], p[2], b[2], p[3], b[3]);
 }
 
+#endif
 }  // namespace basalt::kernels

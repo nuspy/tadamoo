@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -21,19 +22,18 @@
 #include <string>
 #include <vector>
 
+#include "basalt/platform/cpu.hpp"
+#include "basalt/platform/dynlib.hpp"
+#include "basalt/platform/file.hpp"
+#include "basalt/platform/memory.hpp"
+#include "basalt/platform/process.hpp"
+#include "basalt/platform/system.hpp"
+#include "basalt/program/community_row.hpp"
+#include "basalt/program/host_rates.hpp"
+#include "basalt/program/engine_session.hpp"
+#include "basalt/program/gpu_select.hpp"
+
 #include <errno.h>
-#include <fcntl.h>
-#if defined(_WIN32)
-#include "basalt/platform/compat.hpp"   // windows.h, ssize_t, widen()
-#include <io.h>
-#include <process.h>
-#define popen _popen
-#define pclose _pclose
-#else
-#include <dlfcn.h>
-#include <sys/wait.h>
-#include <unistd.h>
-#endif
 
 #ifndef BASALT_VERSION
 #define BASALT_VERSION "unknown"
@@ -46,9 +46,13 @@
 #endif
 #if __has_include("basalt_git.h")
 #include "basalt_git.h"
+#include "basalt/log.hpp"
 #endif
 #ifndef BASALT_BENCH_GIT
 #define BASALT_BENCH_GIT "unknown"
+#endif
+#ifndef BASALT_BENCH_DIRTY
+#define BASALT_BENCH_DIRTY 0
 #endif
 #ifndef BASALT_BENCH_BUILD_TYPE
 #define BASALT_BENCH_BUILD_TYPE "unknown"
@@ -59,6 +63,7 @@
 
 namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
+using namespace basalt::program;
 
 namespace {
 
@@ -79,22 +84,7 @@ std::string fmt(const char* f, ...) {
 
 double secs(Clock::time_point a, Clock::time_point b) { return std::chrono::duration<double>(b - a).count(); }
 
-std::string json_quote(const std::string& s) {
-    std::string o = "\"";
-    for (unsigned char c : s) {
-        switch (c) {
-            case '"': o += "\\\""; break;
-            case '\\': o += "\\\\"; break;
-            case '\n': o += "\\n"; break;
-            case '\t': o += "\\t"; break;
-            case '\r': o += "\\r"; break;
-            default:
-                if (c < 0x20) o += fmt("\\u%04x", (unsigned) c);
-                else o += (char) c;
-        }
-    }
-    return o + "\"";
-}
+using basalt::program::json_quote;
 
 // Streaming JSON writer: commas and key/value pairing are tracked here.
 class JW {
@@ -133,28 +123,31 @@ public:
     struct Snap {
         std::string name;
         double power_limit_w = -1, power_max_w = -1;
+        double power_enforced_w = -1;   // the limit the driver applies now (the management limit when it cannot say)
+        double vram_gib = -1;
         int sm_mhz = -1, mem_mhz = -1;
+        int pcie_gen = -1, pcie_width = -1;   // the link's maximum generation and its current width: the generation drops at idle, the width does not, and the
+                                          // maximum width is the card's, not the slot's
     };
 
     bool open() {
-#if defined(_WIN32)
-        // the driver installs nvml.dll in System32; older drivers only in NVSMI
-        h_ = (void*) LoadLibraryA("nvml.dll");
-        if (h_ == nullptr) h_ = (void*) LoadLibraryA("C:\\Program Files\\NVIDIA Corporation\\NVSMI\\nvml.dll");
-#else
-        h_ = dlopen("libnvidia-ml.so.1", RTLD_NOW);
-#endif
-        if (h_ == nullptr) return false;
-        init_ = sym<int (*)()>("nvmlInit_v2");
-        shut_ = sym<int (*)()>("nvmlShutdown");
-        drv_ = sym<int (*)(char*, unsigned)>("nvmlSystemGetDriverVersion");
-        cuda_ = sym<int (*)(int*)>("nvmlSystemGetCudaDriverVersion");
-        count_ = sym<int (*)(unsigned*)>("nvmlDeviceGetCount_v2");
-        handle_ = sym<int (*)(unsigned, void**)>("nvmlDeviceGetHandleByIndex_v2");
-        name_ = sym<int (*)(void*, char*, unsigned)>("nvmlDeviceGetName");
-        plim_ = sym<int (*)(void*, unsigned*)>("nvmlDeviceGetPowerManagementLimit");
-        pcon_ = sym<int (*)(void*, unsigned*, unsigned*)>("nvmlDeviceGetPowerManagementLimitConstraints");
-        clk_ = sym<int (*)(void*, int, unsigned*)>("nvmlDeviceGetClockInfo");
+        lib_ = basalt::platform::DynLib::open_nvml();
+        if (!lib_) return false;
+        init_ = lib_.sym<int (*)()>("nvmlInit_v2");
+        shut_ = lib_.sym<int (*)()>("nvmlShutdown");
+        drv_ = lib_.sym<int (*)(char*, unsigned)>("nvmlSystemGetDriverVersion");
+        cuda_ = lib_.sym<int (*)(int*)>("nvmlSystemGetCudaDriverVersion");
+        count_ = lib_.sym<int (*)(unsigned*)>("nvmlDeviceGetCount_v2");
+        handle_ = lib_.sym<int (*)(unsigned, void**)>("nvmlDeviceGetHandleByIndex_v2");
+        name_ = lib_.sym<int (*)(void*, char*, unsigned)>("nvmlDeviceGetName");
+        plim_ = lib_.sym<int (*)(void*, unsigned*)>("nvmlDeviceGetPowerManagementLimit");
+        pcon_ = lib_.sym<int (*)(void*, unsigned*, unsigned*)>("nvmlDeviceGetPowerManagementLimitConstraints");
+        clk_ = lib_.sym<int (*)(void*, int, unsigned*)>("nvmlDeviceGetClockInfo");
+        enf_ = lib_.sym<int (*)(void*, unsigned*)>("nvmlDeviceGetEnforcedPowerLimit");
+        mem_ = lib_.sym<int (*)(void*, MemInfo*)>("nvmlDeviceGetMemoryInfo");
+        bus_ = lib_.sym<int (*)(const char*, void**)>("nvmlDeviceGetHandleByPciBusId_v2");
+        maxgen_ = lib_.sym<int (*)(void*, unsigned*)>("nvmlDeviceGetMaxPcieLinkGeneration");
+        maxwid_ = lib_.sym<int (*)(void*, unsigned*)>("nvmlDeviceGetCurrPcieLinkWidth");
         if (!init_ || !count_ || !handle_ || init_() != 0) return false;
         unsigned n = 0;
         if (count_(&n) != 0) return false;
@@ -180,30 +173,46 @@ public:
         if (ok_ && cuda_ && cuda_(&v) == 0) return fmt("%d.%d", v / 1000, (v % 1000) / 10);
         return "unknown";
     }
-    Snap snap(size_t i) const {
-        Snap s;
-        if (!ok_ || i >= dev_.size()) return s;
-        char nm[128] = {0};
-        if (name_ && name_(dev_[i], nm, sizeof nm) == 0) s.name = nm;
-        unsigned mw = 0, lo = 0, hi = 0;
-        if (plim_ && plim_(dev_[i], &mw) == 0) s.power_limit_w = mw / 1000.0;
-        if (pcon_ && pcon_(dev_[i], &lo, &hi) == 0) s.power_max_w = hi / 1000.0;
-        unsigned c = 0;
-        if (clk_ && clk_(dev_[i], 1, &c) == 0) s.sm_mhz = (int) c;    // NVML_CLOCK_SM
-        if (clk_ && clk_(dev_[i], 2, &c) == 0) s.mem_mhz = (int) c;   // NVML_CLOCK_MEM
-        return s;
+    Snap snap(size_t i) const { return i < dev_.size() ? snap_of(dev_[i]) : Snap{}; }
+    /// The card at a PCI bus id (as the CUDA runtime prints it); false when NVML does not know it.
+    bool snap_bus(const std::string& id, Snap& out) const {
+        void* h = nullptr;
+        if (!ok_ || !bus_ || bus_(id.c_str(), &h) != 0) return false;
+        out = snap_of(h);
+        return true;
     }
 
 private:
-    template <class F>
-#if defined(_WIN32)
-    F sym(const char* n) const { return reinterpret_cast<F>((void*) GetProcAddress((HMODULE) h_, n)); }
-#else
-    F sym(const char* n) const { return reinterpret_cast<F>(dlsym(h_, n)); }
-#endif
-    void* h_ = nullptr;
+    struct MemInfo {
+        unsigned long long total, free, used;
+    };
+    Snap snap_of(void* h) const {
+        Snap s;
+        if (!ok_ || h == nullptr) return s;
+        char nm[128] = {0};
+        if (name_ && name_(h, nm, sizeof nm) == 0) s.name = nm;
+        unsigned mw = 0, lo = 0, hi = 0;
+        if (plim_ && plim_(h, &mw) == 0) s.power_limit_w = mw / 1000.0;
+        if (pcon_ && pcon_(h, &lo, &hi) == 0) s.power_max_w = hi / 1000.0;
+        s.power_enforced_w = s.power_limit_w;
+        if (enf_ && enf_(h, &mw) == 0) s.power_enforced_w = mw / 1000.0;
+        MemInfo mi{};
+        if (mem_ && mem_(h, &mi) == 0) s.vram_gib = (double) mi.total / (double) (1ull << 30);
+        unsigned c = 0;
+        if (clk_ && clk_(h, 1, &c) == 0) s.sm_mhz = (int) c;    // NVML_CLOCK_SM
+        if (clk_ && clk_(h, 2, &c) == 0) s.mem_mhz = (int) c;   // NVML_CLOCK_MEM
+        if (maxgen_ && maxgen_(h, &c) == 0) s.pcie_gen = (int) c;
+        if (maxwid_ && maxwid_(h, &c) == 0) s.pcie_width = (int) c;
+        return s;
+    }
+    basalt::platform::DynLib lib_;
     bool ok_ = false;
     std::vector<void*> dev_;
+    int (*enf_)(void*, unsigned*) = nullptr;
+    int (*mem_)(void*, MemInfo*) = nullptr;
+    int (*bus_)(const char*, void**) = nullptr;
+    int (*maxgen_)(void*, unsigned*) = nullptr;
+    int (*maxwid_)(void*, unsigned*) = nullptr;
     int (*init_)() = nullptr;
     int (*shut_)() = nullptr;
     int (*drv_)(char*, unsigned) = nullptr;
@@ -216,282 +225,24 @@ private:
     int (*clk_)(void*, int, unsigned*) = nullptr;
 };
 
-// ---------------------------------------------------------------------------------------------- engine child
-
-#if defined(_WIN32)
-void* volatile g_child = nullptr;   // the engine's process handle
-
-void on_signal(int) {
-    if (g_child != nullptr) TerminateProcess((HANDLE) g_child, 130);
-    _exit(130);
-}
-
-// one argument of a CreateProcess command line, quoted as the MSVC runtime splits it back
-std::wstring quote_arg(const std::wstring& a) {
-    if (!a.empty() && a.find_first_of(L" \t\n\v\"") == std::wstring::npos) return a;
-    std::wstring q = L"\"";
-    for (size_t i = 0;; ++i) {
-        size_t slashes = 0;
-        while (i < a.size() && a[i] == L'\\') { ++i; ++slashes; }
-        if (i == a.size()) { q.append(slashes * 2, L'\\'); break; }
-        if (a[i] == L'"') { q.append(slashes * 2 + 1, L'\\'); q.push_back(L'"'); }
-        else { q.append(slashes, L'\\'); q.push_back(a[i]); }
-    }
-    q.push_back(L'"');
-    return q;
-}
-#else
-volatile sig_atomic_t g_child = -1;
-
-void on_signal(int) {
-    if (g_child > 0) kill((pid_t) g_child, SIGTERM);
-    _exit(130);
-}
-#endif
-
-struct Done {
-    bool ok = false;
-    std::string err;
-    long long generated = 0, prompt = 0, accepted = 0, offered = 0, reused = 0, read_n = -1;
-    double prompt_ms = 0, decode_ms = 0, wall_s = 0, first_token_s = -1;
-    std::string finish;
-};
-
-std::string engine_failure(const std::string& log_path);
-
-class Engine {
-public:
-    ~Engine() { stop(); }
-
-    bool start(const std::string& engine_bin, const std::vector<std::string>& args, const std::string& log_path,
-               std::string& err) {
-#if defined(_WIN32)
-        // the engine's stdin and stdout are pipes, its stderr the log file; only those three handles are inherited
-        SECURITY_ATTRIBUTES sa{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
-        HANDLE in_r = nullptr, in_w = nullptr, out_r = nullptr, out_w = nullptr;
-        if (!CreatePipe(&in_r, &in_w, &sa, 0)) { err = "pipe failed"; return false; }
-        if (!CreatePipe(&out_r, &out_w, &sa, 1 << 16)) { CloseHandle(in_r); CloseHandle(in_w); err = "pipe failed"; return false; }
-        SetHandleInformation(in_w, HANDLE_FLAG_INHERIT, 0);
-        SetHandleInformation(out_r, HANDLE_FLAG_INHERIT, 0);
-        HANDLE lf = CreateFileW(basalt::platform::widen(log_path).c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        STARTUPINFOW si{};
-        si.cb = sizeof si;
-        si.dwFlags = STARTF_USESTDHANDLES;
-        si.hStdInput = in_r;
-        si.hStdOutput = out_w;
-        si.hStdError = lf != INVALID_HANDLE_VALUE ? lf : GetStdHandle(STD_ERROR_HANDLE);
-        std::wstring cmd = quote_arg(basalt::platform::widen(engine_bin)) + L" --serve";
-        for (const auto& a : args) cmd += L" " + quote_arg(basalt::platform::widen(a));
-        PROCESS_INFORMATION pi{};
-        const BOOL made = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE, 0, nullptr, nullptr, &si, &pi);
-        CloseHandle(in_r);
-        CloseHandle(out_w);
-        if (lf != INVALID_HANDLE_VALUE) CloseHandle(lf);
-        if (!made) {
-            CloseHandle(in_w);
-            CloseHandle(out_r);
-            err = "cannot start " + engine_bin + " (error " + std::to_string((unsigned long) GetLastError()) + ")";
-            return false;
-        }
-        CloseHandle(pi.hThread);
-        in_ = _open_osfhandle((intptr_t) in_w, _O_WRONLY | _O_BINARY);
-        out_ = _open_osfhandle((intptr_t) out_r, _O_RDONLY | _O_BINARY);
-        proc_ = pi.hProcess;
-        g_child = proc_;
-#else
-        int in[2], out[2];
-        if (pipe(in) != 0 || pipe(out) != 0) { err = "pipe failed"; return false; }
-        const pid_t pid = fork();
-        if (pid < 0) { err = "fork failed"; return false; }
-        if (pid == 0) {
-            dup2(in[0], 0);
-            dup2(out[1], 1);
-            const int lf = open(log_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            if (lf >= 0) dup2(lf, 2);
-            close(in[0]); close(in[1]); close(out[0]); close(out[1]);
-            std::vector<std::string> store;
-            store.push_back(engine_bin);
-            store.push_back("--serve");
-            for (const auto& a : args) store.push_back(a);
-            std::vector<char*> av;
-            for (auto& s : store) av.push_back(s.data());
-            av.push_back(nullptr);
-            execv(engine_bin.c_str(), av.data());
-            _exit(127);
-        }
-        close(in[0]);
-        close(out[1]);
-        in_ = in[1];
-        out_ = out[0];
-        pid_ = pid;
-        g_child = pid;
-#endif
-        log_path_ = log_path;
-        std::string line;
-        while (read_line(line)) {
-            if (line.rfind("INFO ", 0) == 0) {
-                std::istringstream is(line.substr(5));
-                std::string kv;
-                while (is >> kv) {
-                    const size_t eq = kv.find('=');
-                    if (eq != std::string::npos) info[kv.substr(0, eq)] = kv.substr(eq + 1);
-                }
-            } else if (line.rfind("READY", 0) == 0) {
-                return true;
-            }
-        }
-        err = "the engine exited before READY" + engine_failure(log_path);
-        reap();
-        return false;
-    }
-
-    // One GEN request. `keys` are the sampling keys, each with a leading space.
-    bool request(const std::string& keys, long long max_new, const std::vector<int64_t>& ids, Done& d) {
-        d = Done{};
-        std::string msg = "GEN " + std::to_string(max_new) + keys + " ";
-        msg.reserve(msg.size() + ids.size() * 7 + 2);
-        for (size_t i = 0; i < ids.size(); ++i) {
-            if (i) msg += ',';
-            msg += std::to_string(ids[i]);
-        }
-        msg += '\n';
-        const auto t0 = Clock::now();
-        if (!write_all(msg)) { d.err = "the engine closed its input"; return false; }
-        std::string line;
-        while (read_line(line)) {
-            if (line.rfind("T ", 0) == 0) {
-                if (d.first_token_s < 0) d.first_token_s = secs(t0, Clock::now());
-            } else if (line.rfind("DONE", 0) == 0) {
-                d.wall_s = secs(t0, Clock::now());
-                std::istringstream is(line);
-                std::string tag;
-                std::vector<std::string> f;
-                while (is >> tag) f.push_back(tag);
-                if (f.size() < 8) { d.err = "short DONE line: " + line; return false; }
-                d.generated = std::atoll(f[1].c_str());
-                d.prompt = std::atoll(f[2].c_str());
-                d.prompt_ms = std::atof(f[3].c_str());
-                d.decode_ms = std::atof(f[4].c_str());
-                d.finish = f[5];
-                d.accepted = std::atoll(f[6].c_str());
-                d.offered = std::atoll(f[7].c_str());
-                if (f.size() > 8) d.reused = std::atoll(f[8].c_str());
-                if (f.size() > 14) d.read_n = std::atoll(f[14].c_str());
-                d.ok = true;
-                return true;
-            } else if (line.rfind("ERR", 0) == 0) {
-                d.err = line;
-                return false;
-            }
-        }
-        d.err = "the engine exited during the request (see " + log_path_ + ")";
-        return false;
-    }
-
-    // QUIT and wait: the engine flushes its logs on a normal exit.
-    void stop() {
-#if defined(_WIN32)
-        if (proc_ == nullptr) return;
-        const std::string q = "QUIT\n";
-        if (in_ >= 0) { (void) !_write(in_, q.data(), (unsigned) q.size()); _close(in_); in_ = -1; }
-        if (WaitForSingleObject((HANDLE) proc_, 60000) == WAIT_OBJECT_0) { finish_reap(); return; }
-        TerminateProcess((HANDLE) proc_, 1);
-        reap();
-#else
-        if (pid_ <= 0) return;
-        const std::string q = "QUIT\n";
-        if (in_ >= 0) { (void) !write(in_, q.data(), q.size()); close(in_); in_ = -1; }
-        for (int i = 0; i < 600; ++i) {
-            int st = 0;
-            if (waitpid(pid_, &st, WNOHANG) == pid_) { finish_reap(); return; }
-            usleep(100000);
-        }
-        kill(pid_, SIGTERM);
-        reap();
-#endif
-    }
-
-    std::map<std::string, std::string> info;
-
-private:
-    bool write_all(const std::string& s) {
-        size_t off = 0;
-        while (off < s.size()) {
-            const ssize_t n = write(in_, s.data() + off, s.size() - off);
-            if (n < 0) {
-                if (errno == EINTR) continue;
-                return false;
-            }
-            off += (size_t) n;
-        }
-        return true;
-    }
-    bool read_line(std::string& line) {
-        for (;;) {
-            const size_t nl = buf_.find('\n', rpos_);
-            if (nl != std::string::npos) {
-                line.assign(buf_, rpos_, nl - rpos_);
-                rpos_ = nl + 1;
-                if (rpos_ > (1u << 20)) { buf_.erase(0, rpos_); rpos_ = 0; }
-                return true;
-            }
-            char tmp[65536];
-            const ssize_t n = read(out_, tmp, sizeof tmp);
-            if (n < 0 && errno == EINTR) continue;
-            if (n <= 0) return false;
-            buf_.append(tmp, (size_t) n);
-        }
-    }
-#if defined(_WIN32)
-    void reap() {
-        if (proc_ != nullptr) WaitForSingleObject((HANDLE) proc_, INFINITE);
-        finish_reap();
-    }
-    void finish_reap() {
-        if (in_ >= 0) _close(in_);
-        if (out_ >= 0) _close(out_);
-        in_ = out_ = -1;
-        if (proc_ != nullptr) CloseHandle((HANDLE) proc_);
-        proc_ = nullptr;
-        g_child = nullptr;
-    }
-    void* proc_ = nullptr;
-#else
-    void reap() {
-        if (pid_ > 0) {
-            int st = 0;
-            waitpid(pid_, &st, 0);
-        }
-        finish_reap();
-    }
-    void finish_reap() {
-        if (in_ >= 0) close(in_);
-        if (out_ >= 0) close(out_);
-        in_ = out_ = -1;
-        pid_ = -1;
-        g_child = -1;
-    }
-    pid_t pid_ = -1;
-#endif
-    int in_ = -1, out_ = -1;
-    std::string buf_, log_path_;
-    size_t rpos_ = 0;
-};
-
 // ---------------------------------------------------------------------------------------------- options
 
 struct Options {
     std::string engine, model, fixtures = BASALT_BENCH_FIXTURES, format = "md", logs, kld_base, power_label;
     std::vector<std::pair<std::string, std::string>> sets;
     std::vector<std::string> passthrough;
-    std::string spec, spec_min_p;        // --spec N, --spec-min-p P: engine arguments of the same names
+    std::string spec;                    // --spec N: the engine argument of the same name
+    std::string gpu;                     // --gpu: the cards (gpu_select.hpp); one after -- wins
     std::vector<std::string> decode;     // -t: conv, struct, prose
     std::vector<long long> depths;       // -p: prefill depths in tokens
     bool sel_decode = false, sel_prefill = false;
     int reps = 1;
     bool quality = false, no_windows = false, print_command = false;
+    bool community = false, hardware = false;
+    std::string submitter;
+    std::string community_file;          // --community-file: the table the row is added to
     int quality_chunks = 20, quality_t = 3;
+    unsigned long long seed = 0;         // --seed N: the sampling seed of every decode request (0: the engine seeds from the clock)
 };
 
 void usage(const std::string& engine) {
@@ -507,24 +258,45 @@ void usage(const std::string& engine) {
         "  -r N               repetitions of the whole set (default 1); with N > 1 the table shows mean +- stddev\n"
         "                     and the first repetition is the cold one\n"
         "  --quality [N]      the quality gate on N chunks (default 20): PPL / KLD / top-1 against --kld-base,\n"
-        "                     through the decode path, adaptation off, --spec 5 --spec-min-p 0.7. Alone it runs\n"
+        "                     through the decode path, adaptation off, --spec 5. Alone it runs\n"
         "                     only the gate; with -p / -t it runs after them\n"
         "  --kld-base FILE    llama.cpp KL-divergence base for the quality gate\n"
         "  --quality-t T      tokens per verify window in the quality gate (default 3)\n"
+        "  --seed N           sampling seed (N >= 1) sent with every decode request, so the sampled fixtures\n"
+        "                     (conv, prose) give the same text on every run; without it each request is seeded\n"
+        "                     from the clock\n"
+        "\n"
+        "community row\n"
+        "  --community        the fixed preset \"community-1\" for the public benchmark table: the three decode\n"
+        "                     fixtures, a 16384-token prefill and a 65536-token prefill, once each, with int8 KV cache\n"
+        "                     and the engine's own defaults otherwise (no warm-up, no repetition, drafting at its\n"
+        "                     default). The decode fixtures and each prefill run in their own fresh engine process, so\n"
+        "                     every number is cold. Prints the table, adds the row to benchmarks.json and prints it. prefill_16k_tps and\n"
+        "                     prefill_64k_tps = engine tokens/s of those requests; the row also records the CPU, the RAM read speed and, per GPU, the\n"
+        "                     PCIe link (maximum generation and width) and the pinned host-to-device copy speed, measured before the engine starts; decode_tps = tokens / decode time\n"
+        "                     summed over conv, struct and prose (token-weighted). Needs NVML for the GPU names, VRAM and enforced power limits. Only\n"
+        "                     --model, --submitter, --community-file, --fixtures, --logs and --print-command may be given with it:\n"
+        "                     any other option or engine flag would make rows incomparable and is refused\n"
+        "  --submitter NAME   the name shown in the table, written into the row (required with --community)\n"
+        "  --community-file PATH  the benchmarks.json the row is added to (default: docs/community/benchmarks.json of the\n"
+        "                     checkout this build came from); when it cannot be written the row is printed instead\n"
+        "\n"
+        "  --hardware         measure and print this machine's CPU, RAM read speed and, per GPU, PCIe link and\n"
+        "                     host-to-device copy speed (the figures --community records), then exit; no model, no engine\n"
         "\n"
         "engine\n"
-        "  --model FILE       a .basalt model file; --peer-device 1 is added when a second GPU is visible. Every\n"
+        "  --model FILE       a .basalt model file\n"
+        "  --gpu A,B,..|auto  the GPUs, as for the server and the engine (default: GPU 0 alone). Every\n"
         "                     other --flag is an engine flag, passed on as given (same names as `basalt`; the engine\n"
         "                     rejects a bad one at startup); --print-command shows the command and exits\n"
         "  --engine BIN       engine binary (default: the one built with this program)\n"
         "  --set \"F V ...\"    FLAG VALUE pairs that replace or add engine arguments (repeatable)\n"
-        "  --spec N           speculation window for the engine (--spec N); without it, and without --spec after --,\n"
-        "                     the run has no speculation (--spec 0): a clean baseline\n"
-        "  --spec-min-p P     the draft cutoff (--spec-min-p P); with N >= 2 and no cutoff given, 0.5\n"
-        "                     MTP: --spec 7 --spec-min-p 0.5 (or -- --spec 7 --spec-min-p 0.5)\n"
+        "  --spec N           speculation window for the engine (--spec N, e.g. 7; also --spec after --); without it\n"
+        "                     the engine default (speculation with the pack drafter, window 8); --spec 0 is a\n"
+        "                     plain-decode baseline\n"
         "  -- ARGS...         the same engine arguments, after --: replacing and adding flags\n"
-        "  built in (only what the measurement needs, each replaced by giving the flag): --spec 0, --max-context sized\n"
-        "  to the fixtures, --spec-min-p 0.5 when --spec is 2 or more\n"
+        "  built in (only what the measurement needs, each replaced by giving the flag): --max-context sized\n"
+        "  to the fixtures\n"
         "\n"
         "output\n"
         "  -o md|json         a markdown table (default), or the full detail as JSON on stdout: per-repetition\n"
@@ -559,103 +331,8 @@ void usage(const std::string& engine) {
     if (!bin.empty() && fs::exists(bin)) {
         std::printf("\nEngine flags (passed to basalt):\n");
         std::fflush(stdout);
-#if defined(_WIN32)
-        // cmd /c strips the outer quotes of the whole line: the program's own quotes survive inside them
-        if (FILE* pf = popen(("\"\"" + bin + "\" --help 2>&1\"").c_str(), "r")) {
-#else
-        if (FILE* pf = popen(("'" + bin + "' --help 2>&1").c_str(), "r")) {
-#endif
-            char buf[4096];
-            while (std::fgets(buf, sizeof buf, pf) != nullptr) std::fputs(buf, stdout);
-            pclose(pf);
-        }
+        if (const auto help = basalt::platform::capture_output({bin, "--help"}, true)) std::fputs(help->c_str(), stdout);
     }
-}
-
-std::vector<std::string> split(const std::string& s, char sep) {
-    std::vector<std::string> r;
-    std::string item;
-    std::istringstream is(s);
-    while (std::getline(is, item, sep))
-        if (!item.empty()) r.push_back(item);
-    return r;
-}
-
-bool all_digits(const std::string& s) {
-    return !s.empty() && std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isdigit(c) != 0; });
-}
-
-bool parse_depth(const std::string& s, long long& tokens) {
-    std::string d = s;
-    std::transform(d.begin(), d.end(), d.begin(), [](unsigned char c) { return (char) std::tolower(c); });
-    if (d.empty()) return false;
-    char* e = nullptr;
-    if (d.back() == 'k') {
-        const double v = std::strtod(d.c_str(), &e);
-        if (e != d.c_str() + d.size() - 1 || v <= 0) return false;
-        tokens = (long long) (v * 1024);
-    } else {
-        if (!all_digits(d)) return false;
-        tokens = std::atoll(d.c_str());
-    }
-    return tokens > 0;
-}
-
-// FLAG VALUE: replace the value when the flag is there, else append both.
-void set_arg(std::vector<std::string>& args, const std::string& flag, const std::string& value) {
-    for (size_t i = 0; i + 1 < args.size(); ++i)
-        if (args[i] == flag) { args[i + 1] = value; return; }
-    args.push_back(flag);
-    args.push_back(value);
-}
-
-bool has_arg(const std::vector<std::string>& args, const std::string& flag) {
-    return std::find(args.begin(), args.end(), flag) != args.end();
-}
-
-std::string arg_value(const std::vector<std::string>& args, const std::string& flag) {
-    for (size_t i = 0; i + 1 < args.size(); ++i)
-        if (args[i] == flag) return args[i + 1];
-    return "";
-}
-
-// The GPUs this process can see: CUDA_VISIBLE_DEVICES when set, else what NVML lists.
-size_t visible_gpus() {
-    if (const char* v = std::getenv("CUDA_VISIBLE_DEVICES")) {
-        size_t n = 0;
-        for (const auto& d : split(v, ','))
-            if (d != "-1") ++n;
-        return n;
-    }
-    Nvml nvml;
-    return nvml.open() ? nvml.count() : 0;
-}
-
-// FLAG [VALUE] words added to `args`: a flag already there takes the new value, else both are appended.  A word
-// that does not begin with "--" after a flag is its value.
-void merge_args(std::vector<std::string>& args, const std::vector<std::string>& add) {
-    for (size_t i = 0; i < add.size(); ++i) {
-        const bool value = i + 1 < add.size() && add[i + 1].rfind("--", 0) != 0;
-        if (add[i].rfind("--", 0) != 0) { args.push_back(add[i]); continue; }
-        if (value) { set_arg(args, add[i], add[i + 1]); ++i; }
-        else if (!has_arg(args, add[i])) args.push_back(add[i]);
-    }
-}
-
-// The engine's own `basalt error:` lines from its log, else the last few lines.
-std::string engine_failure(const std::string& log_path) {
-    std::ifstream f(log_path);
-    std::vector<std::string> lines, errors;
-    std::string line;
-    while (std::getline(f, line)) {
-        if (line.empty()) continue;
-        lines.push_back(line);
-        if (line.rfind("basalt error: ", 0) == 0) errors.push_back(line);
-    }
-    if (errors.empty() && lines.size() > 8) lines.erase(lines.begin(), lines.end() - 8);
-    std::string r;
-    for (const auto& l : errors.empty() ? lines : errors) r += "\n  " + l;
-    return r;
 }
 
 bool parse_args(int argc, char** argv, Options& o, std::string& err) {
@@ -676,7 +353,11 @@ bool parse_args(int argc, char** argv, Options& o, std::string& err) {
         } else if (a == "--model") o.model = next("--model");
         else if (a == "--engine") o.engine = next("--engine");
         else if (a == "--spec") o.spec = next("--spec");
-        else if (a == "--spec-min-p") o.spec_min_p = next("--spec-min-p");
+        else if (a == "--community") o.community = true;
+        else if (a == "--gpu") o.gpu = next("--gpu");
+        else if (a == "--hardware") o.hardware = true;
+        else if (a == "--submitter") o.submitter = next("--submitter");
+        else if (a == "--community-file") o.community_file = next("--community-file");
         else if (a == "--fixtures") o.fixtures = next("--fixtures");
         else if (a == "-o") o.format = next("-o");
         else if (a == "--power-label") o.power_label = next("--power-label");
@@ -684,7 +365,11 @@ bool parse_args(int argc, char** argv, Options& o, std::string& err) {
         else if (a == "--kld-base") o.kld_base = next("--kld-base");
         else if (a == "--no-windows") o.no_windows = true;
         else if (a == "-r") o.reps = std::atoi(next("-r").c_str());
-        else if (a == "--quality-t") o.quality_t = std::atoi(next("--quality-t").c_str());
+        else if (a == "--seed") {
+            const std::string v = next("--seed");
+            if (!all_digits(v.c_str()) || std::strtoull(v.c_str(), nullptr, 10) == 0) { err = "--seed needs an integer >= 1"; return false; }
+            o.seed = std::strtoull(v.c_str(), nullptr, 10);
+        } else if (a == "--quality-t") o.quality_t = std::atoi(next("--quality-t").c_str());
         else if (a == "-p") {
             o.sel_prefill = true;
             for (const auto& d : split(next("-p"), ',')) {
@@ -718,6 +403,24 @@ bool parse_args(int argc, char** argv, Options& o, std::string& err) {
         }
         if (!err.empty()) return false;
     }
+    if (o.community) {
+        const char* bad = o.sel_decode || o.sel_prefill ? "-t / -p" : o.reps != 1 ? "-r" : o.quality ? "--quality"
+                        : !o.spec.empty() ? "--spec" : !o.sets.empty() ? "--set" : !o.engine.empty() ? "--engine"
+                        : !o.gpu.empty() ? "--gpu" : !o.power_label.empty() ? "--power-label" : o.seed ? "--seed" : o.no_windows ? "--no-windows"
+                        : o.format != "md" ? "-o" : !o.passthrough.empty() ? o.passthrough[0].c_str() : nullptr;
+        if (bad != nullptr) {
+            err = std::string("--community runs the fixed preset: ") + bad + " would make the row incomparable";
+            return false;
+        }
+        if (o.model.empty()) { err = "--community needs --model FILE"; return false; }
+        std::string who = o.submitter;
+        for (char& c : who) c = (char) std::toupper((unsigned char) c);
+        if (who.find_first_not_of(" \t") == std::string::npos || who == "YOUR_NAME") {
+            err = "--community needs --submitter NAME, the name shown in the table";
+            return false;
+        }
+    }
+    if (!o.community_file.empty() && !o.community) { err = "--community-file needs --community"; return false; }
     if (o.reps < 1) { err = "-r needs N >= 1"; return false; }
     if (o.format != "md" && o.format != "json") { err = "-o takes md or json"; return false; }
     if (o.quality_chunks < 1 || o.quality_t < 1) { err = "--quality and --quality-t need values >= 1"; return false; }
@@ -726,7 +429,7 @@ bool parse_args(int argc, char** argv, Options& o, std::string& err) {
             err = "-t: unknown fixture " + s + " (conv, struct, prose)";
             return false;
         }
-    if (o.model.empty() && o.passthrough.empty()) {
+    if (o.model.empty() && o.passthrough.empty() && !o.hardware) {
         err = "give --model FILE or engine arguments after --";
         return false;
     }
@@ -750,33 +453,14 @@ const Fixture kDecode[] = {
 };
 constexpr long long kStructTokens = 7230;
 constexpr long long kPrefillBase = 16384;   // the base body's depth in tokens
+constexpr long long kCommunityPrefillShort = 16384, kCommunityPrefillLong = 65536;   // the community preset's depths
 constexpr long long kPrefillBaseDecode = 32;
 
-bool read_id_lines(const std::string& path, std::vector<std::vector<int64_t>>& lines, std::string& err) {
-    std::ifstream f(path);
-    if (!f) { err = "cannot read " + path; return false; }
-    std::string line;
-    while (std::getline(f, line)) {
-        std::vector<int64_t> v;
-        const char* p = line.c_str();
-        char* e = nullptr;
-        for (;;) {
-            while (*p == ',' || *p == ' ' || *p == '\t' || *p == '\r') ++p;
-            if (*p == '\0') break;
-            const long long x = std::strtoll(p, &e, 10);
-            if (e == p) { err = path + ": not a list of token ids"; return false; }
-            v.push_back(x);
-            p = e;
-        }
-        if (!v.empty()) lines.push_back(std::move(v));
-    }
-    return true;
-}
-
-std::string sampling_keys(double temperature) {
+std::string sampling_keys(double temperature, unsigned long long seed) {
     std::string k;
     if (temperature > 0.0) k += fmt(" temperature=%.17g", temperature);
     k += " top_p=0.95 top_k=20";
+    if (seed) k += " seed=" + std::to_string(seed);
     return k;
 }
 
@@ -931,6 +615,55 @@ bool read_kld_base(const std::string& path, uint32_t& n_ctx, int32_t& n_vocab, i
     return true;
 }
 
+// ---------------------------------------------------------------------------------------------- hardware
+
+// The host figures a community row records, measured while no engine runs.
+struct Hardware {
+    std::string cpu;
+    double ram_gbps = 0;
+    std::vector<std::pair<std::string, double>> h2d;   // PCI bus id as the runtime spells it, GB/s
+};
+
+Hardware measure_hardware() {
+    Hardware h;
+    const basalt::platform::CpuInfo c = basalt::platform::cpu_info();
+    h.cpu = basalt::program::cpu_label(c.name, c.physical_cores);
+    h.ram_gbps = basalt::program::measure_ram_read_gbps();
+    const std::string dev = BASALT_BENCH_DEVICE;
+    if (!dev.empty() && fs::exists(dev))
+        if (const auto out = basalt::platform::capture_output({dev, "--link-rates"}, false)) h.h2d = basalt::program::parse_link_rates(*out);
+    return h;
+}
+
+double h2d_of(const Hardware& h, const std::string& bus_id) {
+    const std::string k = basalt::program::normalize_bus_id(bus_id);
+    for (const auto& x : h.h2d)
+        if (basalt::program::normalize_bus_id(x.first) == k) return x.second;
+    return 0;
+}
+
+std::string pcie_text(const Nvml::Snap& s) { return s.pcie_gen > 0 && s.pcie_width > 0 ? fmt("%d.0 x%d", s.pcie_gen, s.pcie_width) : ""; }
+
+std::string short_card(std::string n) {
+    for (const char* v : {"NVIDIA ", "GeForce "})
+        if (n.rfind(v, 0) == 0) n.erase(0, std::strlen(v));
+    return n;
+}
+
+// "hardware" block: one line each for the CPU, the RAM and every GPU in `cards` (bus id, snapshot, h2d).
+std::string hardware_text(const Hardware& h, const std::vector<std::pair<std::string, Nvml::Snap>>& cards) {
+    std::string t = "hardware (measured before the engine starts)\n";
+    t += "  CPU   " + (h.cpu.empty() ? std::string("unknown") : h.cpu) + "\n";
+    t += h.ram_gbps > 0 ? fmt("  RAM   read %.1f GB/s\n", h.ram_gbps) : std::string("  RAM   read speed not measured\n");
+    for (const auto& c : cards) {
+        const double g = h2d_of(h, c.first);
+        const std::string link = pcie_text(c.second);
+        t += "  GPU   " + short_card(c.second.name) + "  PCIe " + (link.empty() ? std::string("unknown") : link) +
+             (g > 0 ? fmt("  host-to-device %.1f GB/s", g) : std::string("  host-to-device not measured")) + "\n";
+    }
+    return t;
+}
+
 // ---------------------------------------------------------------------------------------------- main
 
 }  // namespace
@@ -939,14 +672,27 @@ int main(int argc, char** argv) {
     Options o;
     std::string err;
     if (!parse_args(argc, argv, o, err)) {
-        std::fprintf(stderr, "basalt-bench: %s\n", err.c_str());
+        basalt::log::error("basalt-bench", "%s", err.c_str());
         return 2;
     }
-#if !defined(_WIN32)
-    std::signal(SIGPIPE, SIG_IGN);
-#endif
-    std::signal(SIGINT, on_signal);
-    std::signal(SIGTERM, on_signal);
+    basalt::platform::ignore_broken_pipe();   // a closed pipe surfaces as a failed write
+    basalt::platform::install_child_stop_signals();
+
+    if (o.hardware) {
+        Nvml nvml;
+        if (!nvml.open()) basalt::log::warn("basalt-bench", "NVML is unavailable: PCIe links are NOT recorded");
+        const Hardware hw = measure_hardware();
+        std::vector<std::pair<std::string, Nvml::Snap>> cards;
+        for (const auto& x : hw.h2d) {
+            Nvml::Snap sn;
+            nvml.snap_bus(x.first, sn);
+            cards.emplace_back(x.first, sn);
+        }
+        std::fputs(hardware_text(hw, cards).c_str(), stdout);
+        return 0;
+    }
+
+    if (o.community) o.no_windows = true;   // the draft log is analysis, not part of the preset
 
     // what to run
     const bool quality_only = o.quality && !o.sel_decode && !o.sel_prefill;
@@ -954,13 +700,14 @@ int main(int argc, char** argv) {
         o.decode = {"conv", "struct", "prose"};
         o.depths = {kPrefillBase};
     }
+    if (o.community) o.depths = {kCommunityPrefillShort, kCommunityPrefillLong};
     auto wants = [&](const std::string& s) { return std::find(o.decode.begin(), o.decode.end(), s) != o.decode.end(); };
     const bool do_quality = o.quality;
     const bool do_decode = !o.decode.empty();
     const bool do_prefill = !o.depths.empty();
     const bool do_perf = do_decode || do_prefill;
     if (do_quality && o.kld_base.empty()) {
-        std::fprintf(stderr, "basalt-bench: the quality gate needs --kld-base FILE\n");
+        basalt::log::error("basalt-bench", "the quality gate needs --kld-base FILE");
         return 2;
     }
 
@@ -969,40 +716,46 @@ int main(int argc, char** argv) {
     std::vector<std::string> args;
     if (!o.model.empty()) {
         args = {"--model", fs::absolute(o.model).string()};
-        if (!has_arg(args, "--peer-device") && visible_gpus() > 1) set_arg(args, "--peer-device", "1");
     }
     if (engine_bin.empty()) engine_bin = BASALT_BENCH_ENGINE;
     if (o.engine.empty() && std::string(BASALT_BENCH_ENGINE).size() > 0 && fs::exists(BASALT_BENCH_ENGINE)) engine_bin = BASALT_BENCH_ENGINE;
     if (engine_bin.empty() || !fs::exists(engine_bin)) {
-        std::fprintf(stderr, "basalt-bench: the engine binary %s does not exist (--engine BIN)\n", engine_bin.c_str());
+        basalt::log::error("basalt-bench", "the engine binary %s does not exist (--engine BIN)", engine_bin.c_str());
         return 2;
     }
     for (const auto& kv : o.sets) set_arg(args, kv.first, kv.second);
     if (!o.spec.empty()) set_arg(args, "--spec", o.spec);
-    if (!o.spec_min_p.empty()) set_arg(args, "--spec-min-p", o.spec_min_p);
     if (o.model.empty()) for (const auto& a : o.passthrough) args.push_back(a);
     else merge_args(args, o.passthrough);
-    if (!has_arg(args, "--spec")) set_arg(args, "--spec", "0");
-    if (!has_arg(args, "--spec-min-p") && std::atoi(arg_value(args, "--spec").c_str()) >= 2)
-        set_arg(args, "--spec-min-p", "0.5");
+    // the GPUs, chosen here once as the server chooses them: the engine sees only those cards and says nothing again
+    if (!o.model.empty()) {
+        std::string gpu_value, gerr;
+        std::vector<basalt::program::GpuCard> used;
+        // a community run uses every visible card; CUDA_VISIBLE_DEVICES picks them
+        const std::string want = o.community ? "auto" : has_arg(args, "--gpu") ? arg_value(args, "--gpu") : o.gpu;
+        if (!basalt::program::select_gpus(want, "basalt-bench", gpu_value, used, gerr)) {
+            basalt::log::error("basalt-bench", "%s", gerr.c_str());
+            return 2;
+        }
+        set_arg(args, "--gpu", gpu_value);
+    }
 
     // fixtures, read before anything is started
     std::vector<std::vector<int64_t>> decode_ids(3);
     std::vector<std::vector<int64_t>> prefill_parts;
-    const std::vector<long long>& prefill_runs = o.depths;
     if (do_decode)
         for (size_t i = 0; i < 3; ++i) {
             if (!wants(kDecode[i].name)) continue;
             std::vector<std::vector<int64_t>> lines;
             if (!read_id_lines((fs::path(o.fixtures) / kDecode[i].file).string(), lines, err) || lines.empty()) {
-                std::fprintf(stderr, "basalt-bench: %s\n", err.empty() ? (std::string(kDecode[i].file) + " is empty").c_str() : err.c_str());
+                basalt::log::error("basalt-bench", "%s", err.empty() ? (std::string(kDecode[i].file) + " is empty").c_str() : err.c_str());
                 return 2;
             }
             for (auto& l : lines) decode_ids[i].insert(decode_ids[i].end(), l.begin(), l.end());
         }
     if (do_prefill) {
         if (!read_id_lines((fs::path(o.fixtures) / "prefill.ids").string(), prefill_parts, err) || prefill_parts.size() != 3) {
-            std::fprintf(stderr, "basalt-bench: %s\n", err.empty() ? "prefill.ids needs three lines (before, body, after)" : err.c_str());
+            basalt::log::error("basalt-bench", "%s", err.empty() ? "prefill.ids needs three lines (before, body, after)" : err.c_str());
             return 2;
         }
     }
@@ -1020,6 +773,7 @@ int main(int argc, char** argv) {
             }
         set_arg(args, "--max-context", std::to_string(need));
     }
+    if (o.community) set_arg(args, "--kv", "int8");   // the cache format users run
     if (o.print_command) {
         std::printf("%s --serve", engine_bin.c_str());
         for (const auto& a : args) std::printf(" %s", a.c_str());
@@ -1031,16 +785,12 @@ int main(int argc, char** argv) {
     std::string work = o.logs;
     bool temp_work = false;
     if (work.empty()) {
-#if defined(_WIN32)
-        work = (fs::temp_directory_path() / fmt("basalt-bench-%d", (int) _getpid())).string();
-#else
-        work = fmt("/tmp/basalt-bench-%d", (int) getpid());
-#endif
+        work = basalt::platform::temp_dir() + "/basalt-bench-" + std::to_string((long long) basalt::platform::process_id());
         temp_work = true;
     }
     std::error_code ec;
     fs::create_directories(work, ec);
-    if (ec) { std::fprintf(stderr, "basalt-bench: cannot create %s\n", work.c_str()); return 2; }
+    if (ec) { basalt::log::error("basalt-bench", "cannot create %s", work.c_str()); return 2; }
     struct Cleanup {
         std::string dir;
         bool on;
@@ -1054,7 +804,25 @@ int main(int argc, char** argv) {
 
     Nvml nvml;
     const bool have_nvml = nvml.open();
-    if (!have_nvml) std::fprintf(stderr, "basalt-bench: NVML is unavailable: power limits and clocks are NOT recorded\n");
+    if (!have_nvml) basalt::log::warn("basalt-bench", "NVML is unavailable: power limits and clocks are NOT recorded");
+    if (o.community && (!have_nvml || nvml.count() == 0)) {
+        basalt::log::error("basalt-bench", "--community needs NVML (the NVIDIA driver's management library) to read the GPU names, "
+                             "VRAM and enforced power limits for the row; it could not be loaded");
+        return 1;
+    }
+    if (o.community && std::string(BASALT_BENCH_GIT).find_first_not_of("0123456789abcdef") != std::string::npos) {
+        basalt::log::error("basalt-bench", "--community needs a build from a git checkout: the row records the commit");
+        return 1;
+    }
+    if (o.community && BASALT_BENCH_DIRTY)
+        basalt::log::warn("basalt-bench", "tracked files differ from commit %s; the row names that commit", BASALT_BENCH_GIT);
+    Hardware hw;
+    if (o.community) {
+        hw = measure_hardware();
+        if (hw.cpu.empty()) basalt::log::warn("basalt-bench", "the CPU could not be read; the row has no cpu");
+        if (hw.ram_gbps <= 0) basalt::log::warn("basalt-bench", "the RAM read speed could not be measured (needs 3 GiB free); the row has no ram_gbps");
+        if (hw.h2d.empty()) basalt::log::warn("basalt-bench", "the host-to-device copy speed could not be measured; the rows' gpus have no h2d_gbps");
+    }
     std::vector<Nvml::Snap> gpus_start;
     for (size_t i = 0; i < nvml.count(); ++i) gpus_start.push_back(nvml.snap(i));
 
@@ -1074,31 +842,61 @@ int main(int argc, char** argv) {
             set_arg(perf_args, "--draft-log", draft_log);
         }
         for (const auto& a : perf_args) engine_args_text += (engine_args_text.empty() ? "" : " ") + a;
-        const std::string log_path = (fs::path(work) / "engine.log").string();
+        // Normally one engine process runs everything. The community preset runs the decode fixtures in one
+        // fresh process and each prefill depth in its own, so every measurement is the first of its kind.
+        struct Session {
+            std::vector<std::string> decode;
+            std::vector<long long> depths;
+        };
+        std::vector<Session> sessions;
+        if (o.community) {
+            sessions.push_back({o.decode, {}});
+            for (long long d : o.depths) sessions.push_back({{}, {d}});
+        } else {
+            sessions.push_back({o.decode, o.depths});
+        }
+        std::mt19937_64 rng((uint64_t) std::chrono::steady_clock::now().time_since_epoch().count() ^ ((uint64_t) basalt::platform::process_id() << 32));
+        int n_requests = 0, n_decode_requests = 0;
+        bool failed = false;
+        for (size_t si = 0; si < sessions.size() && !failed; ++si) {
+        const Session& sess = sessions[si];
+        const std::string log_path = (fs::path(work) / (si == 0 ? "engine.log" : fmt("engine-%zu.log", si))).string();
         Engine eng;
-        std::fprintf(stderr, "basalt-bench: starting %s\n", engine_bin.c_str());
+        basalt::log::info("basalt-bench", "starting %s (log: %s)", engine_bin.c_str(), log_path.c_str());
         if (!eng.start(engine_bin, perf_args, log_path, err)) {
-            std::fprintf(stderr, "basalt-bench: %s\n", err.c_str());
+            basalt::log::error("basalt-bench", "%s", err.c_str());
             return 1;
         }
-        info = eng.info;
-        {
+        if (o.community) {
+            // every expert must sit in VRAM, the peer GPU or RAM: reads from the file would make the row incomparable
+            const char* k = "file_experts_bytes";
+            const double spill = eng.info.count(k) ? std::atof(eng.info[k].c_str()) / 1073741824.0 : -1.0;
+            if (spill != 0.0) {
+                eng.stop();
+                if (spill < 0)
+                    basalt::log::warn("basalt-bench", "the engine did not report where the experts live; cannot check for SSD spill");
+                else
+                    basalt::log::error("basalt-bench", "this run would read %.1f GiB of experts from the SSD. Community runs need every "
+                                 "expert in VRAM, the peer GPU or RAM: free roughly %.0f GiB more RAM (close other programs) "
+                                 "and run again. No row was written.", spill, std::ceil(spill));
+                return 1;
+            }
+        }
+        if (si == 0) {
+            info = eng.info;
             std::ifstream lg(log_path);
             std::string l;
             while (std::getline(lg, l))
                 if (l.find("peer GPU") != std::string::npos && l.find("experts") != std::string::npos) peer_line = l;
         }
-        std::mt19937_64 rng((uint64_t) std::chrono::steady_clock::now().time_since_epoch().count() ^ ((uint64_t) getpid() << 32));
-        int n_requests = 0, n_decode_requests = 0;
-        bool failed = false;
         for (int run = 1; run <= o.reps && !failed; ++run) {
             for (size_t i = 0; i < 3 && !failed; ++i) {
-                if (!wants(kDecode[i].name)) continue;
+                if (std::find(sess.decode.begin(), sess.decode.end(), kDecode[i].name) == sess.decode.end()) continue;
                 Result r;
                 r.name = kDecode[i].name;
                 r.run = run;
-                if (!eng.request(sampling_keys(kDecode[i].temperature), kDecode[i].max_new, decode_ids[i], r.d)) {
-                    std::fprintf(stderr, "basalt-bench: %s (run %d): %s\n", r.name.c_str(), run, r.d.err.c_str());
+                if (!eng.request(sampling_keys(kDecode[i].temperature, o.seed), kDecode[i].max_new, decode_ids[i], r.d)) {
+                    basalt::log::error("basalt-bench", "%s (run %d): %s", r.name.c_str(), run, r.d.err.c_str());
                     failed = true;
                     break;
                 }
@@ -1108,11 +906,11 @@ int main(int argc, char** argv) {
                 r.checksum_bad = r.name == "struct" && r.d.generated != kStructTokens;
                 ++n_requests;
                 ++n_decode_requests;
-                std::fprintf(stderr, "  run %d %-7s %.1f tok/s, %lld tokens\n", run, r.name.c_str(), tok_s(r.d), r.d.generated);
+                basalt::log::raw("  run %d %-7s %.1f tok/s, %lld tokens\n", run, r.name.c_str(), tok_s(r.d), r.d.generated);
                 results.push_back(std::move(r));
             }
-            for (size_t pi = 0; pi < prefill_runs.size() && !failed; ++pi) {
-                const long long depth = prefill_runs[pi];
+            for (size_t pi = 0; pi < sess.depths.size() && !failed; ++pi) {
+                const long long depth = sess.depths[pi];
                 const auto& pre = prefill_parts[0];
                 const auto& body = prefill_parts[1];
                 const auto& post = prefill_parts[2];
@@ -1128,7 +926,7 @@ int main(int argc, char** argv) {
                 r.run = run;
                 r.depth = depth;
                 if (!eng.request(" top_p=0.95 top_k=20", depth == kPrefillBase ? kPrefillBaseDecode : 1, ids, r.d)) {
-                    std::fprintf(stderr, "basalt-bench: pp%lld (run %d): %s\n", depth, run, r.d.err.c_str());
+                    basalt::log::error("basalt-bench", "pp%lld (run %d): %s", depth, run, r.d.err.c_str());
                     failed = true;
                     break;
                 }
@@ -1136,7 +934,7 @@ int main(int argc, char** argv) {
                 r.sm_mhz = s.sm_mhz;
                 r.mem_mhz = s.mem_mhz;
                 ++n_requests;
-                std::fprintf(stderr, "  run %d pp%lld %lld tokens, %.0f t/s engine, %.0f t/s wall\n", run, depth, r.d.prompt,
+                basalt::log::raw("  run %d pp%lld %lld tokens, %.0f t/s engine, %.0f t/s wall\n", run, depth, r.d.prompt,
                              prefill_engine_ts(r.d), prefill_wall_ts(r.d));
                 results.push_back(std::move(r));
             }
@@ -1146,8 +944,9 @@ int main(int argc, char** argv) {
         eng.stop();
         for (size_t i = 0; i < gpus_end.size() && i < gpus_start.size(); ++i)
             if (gpus_end[i].power_limit_w != gpus_start[i].power_limit_w)
-                std::fprintf(stderr, "basalt-bench: WARNING: the power limit of GPU %zu changed during the run (%.0f W -> %.0f W)\n", i,
+                basalt::log::warn("basalt-bench", "the power limit of GPU %zu changed during the run (%.0f W -> %.0f W)", i,
                              gpus_start[i].power_limit_w, gpus_end[i].power_limit_w);
+        }
         if (failed) return 1;
 
         // the draft log: one block per request, in order
@@ -1160,7 +959,7 @@ int main(int argc, char** argv) {
                 for (size_t i = 0; i < results.size(); ++i)
                     if (results[i].name != "prefill") order.push_back(i);
             } else {
-                std::fprintf(stderr, "basalt-bench: the draft log has %zu request blocks for %d requests: window statistics skipped\n",
+                basalt::log::warn("basalt-bench", "the draft log has %zu request blocks for %d requests: window statistics skipped",
                              blocks.size(), n_requests);
             }
             for (size_t k = 0; k < order.size(); ++k) results[order[k]].win = window_stats(blocks[k]);
@@ -1175,11 +974,10 @@ int main(int argc, char** argv) {
         quality.t = o.quality_t;
         quality.n_chunks_asked = o.quality_chunks;
         if (!read_kld_base(o.kld_base, n_ctx, n_vocab, n_chunk, chunks, o.quality_chunks, quality.err)) {
-            std::fprintf(stderr, "basalt-bench: %s\n", quality.err.c_str());
+            basalt::log::error("basalt-bench", "%s", quality.err.c_str());
         } else {
             std::vector<std::string> qa = args;
             set_arg(qa, "--spec", "5");
-            set_arg(qa, "--spec-min-p", "0.7");
             set_arg(qa, "--adapt-swaps", "0");
             set_arg(qa, "--peer-adapt-swaps", "0");
             // the gate must run on every pack: without this a pack larger than free RAM is refused
@@ -1191,9 +989,9 @@ int main(int argc, char** argv) {
             for (const auto& a : qa) quality.args += (quality.args.empty() ? "" : " ") + a;
             Engine eng;
             const auto t0 = Clock::now();
-            std::fprintf(stderr, "basalt-bench: starting the engine for the quality gate\n");
+            basalt::log::info("basalt-bench", "starting the engine for the quality gate");
             if (!eng.start(engine_bin, qa, (fs::path(work) / "engine-quality.log").string(), quality.err)) {
-                std::fprintf(stderr, "basalt-bench: %s\n", quality.err.c_str());
+                basalt::log::error("basalt-bench", "%s", quality.err.c_str());
             } else {
                 quality.load_s = secs(t0, Clock::now());
                 const auto t1 = Clock::now();
@@ -1211,7 +1009,7 @@ int main(int argc, char** argv) {
                     }
                     pp_ms += d.prompt_ms;
                     dec_ms += d.decode_ms;
-                    if ((k + 1) % 10 == 0) std::fprintf(stderr, "  quality %zu/%zu chunks, %.0f s\n", k + 1, chunks.size(), secs(t1, Clock::now()));
+                    if ((k + 1) % 10 == 0) basalt::log::raw("  quality %zu/%zu chunks, %.0f s\n", k + 1, chunks.size(), secs(t1, Clock::now()));
                 }
                 quality.run_s = secs(t1, Clock::now());
                 eng.stop();
@@ -1228,23 +1026,25 @@ int main(int argc, char** argv) {
     // ---- report
     const std::string model = arg_value(args, "--model");
 
-    // the power limit of the primary GPU: as set now, or the label the caller gave
+    // the power limit of the primary GPU (the first card the engine reports, by PCI bus id): as set now, or the label the caller gave
+    std::string primary_bus;
+    if (info.count("gpus")) primary_bus = info["gpus"].substr(0, info["gpus"].find(','));
+    Nvml::Snap primary;
+    const bool have_primary = !primary_bus.empty() && nvml.snap_bus(primary_bus, primary);
     std::string power = "unknown";
     if (!o.power_label.empty()) {
         power = o.power_label;
         if (all_digits(power)) power += " W";
-    } else if (!gpus_start.empty() && gpus_start[0].power_limit_w > 0) {
+    } else if (have_primary && primary.power_limit_w > 0) {
+        power = fmt("%.0f W", primary.power_limit_w);
+    } else if (primary_bus.empty() && !gpus_start.empty() && gpus_start[0].power_limit_w > 0) {
         power = fmt("%.0f W", gpus_start[0].power_limit_w);
-#if defined(_WIN32)
-    } else if (FILE* pf = popen("nvidia-smi -i 0 --query-gpu=power.limit --format=csv,noheader,nounits 2>NUL", "r")) {
-#else
-    } else if (FILE* pf = popen("nvidia-smi -i 0 --query-gpu=power.limit --format=csv,noheader,nounits 2>/dev/null", "r")) {
-#endif
-        char b[64] = {0};
-        if (std::fgets(b, sizeof b, pf) != nullptr && std::atof(b) > 0) power = fmt("%.0f W", std::atof(b));
-        pclose(pf);
+    } else if (const auto smi = basalt::platform::capture_output(
+                   {"nvidia-smi", "-i", primary_bus.empty() ? "0" : primary_bus, "--query-gpu=power.limit", "--format=csv,noheader,nounits"}, false);
+               smi && std::atof(smi->c_str()) > 0) {
+        power = fmt("%.0f W", std::atof(smi->c_str()));
     }
-    if (power == "unknown") std::fprintf(stderr, "basalt-bench: WARNING: the power limit could not be read; pass --power-label W\n");
+    if (power == "unknown") basalt::log::warn("basalt-bench", "the power limit could not be read; pass --power-label W");
 
     // one table row per test: values over the repetitions
     struct Row {
@@ -1323,6 +1123,63 @@ int main(int argc, char** argv) {
         for (const Result& x : results)
             if (x.checksum_bad && x.run == 1)
                 rep += fmt("\nnote: struct produced %lld tokens, the expected count is %lld\n", x.d.generated, kStructTokens);
+    }
+    std::string community_row;
+    basalt::program::CommunityRow crow;
+    if (o.community) {
+        // one aggregate per direction over the single cold pass: tokens over time summed across requests
+        double pre_tps[2] = {0, 0}, pre_s[2] = {0, 0}, dec_tok = 0, dec_ms = 0;
+        for (const Result& x : results) {
+            if (x.name == "prefill") {
+                const int k = x.depth == kCommunityPrefillLong ? 1 : 0;
+                pre_tps[k] = prefill_engine_ts(x.d);
+                pre_s[k] = x.d.prompt_ms / 1000.0;
+            } else {
+                dec_tok += (double) x.d.generated;
+                dec_ms += x.d.decode_ms;
+            }
+        }
+        std::string gpu_err;
+        std::vector<std::pair<std::string, Nvml::Snap>> cards;
+        for (const std::string& id : basalt::program::split_gpu_ids(info.count("gpus") ? info["gpus"] : "")) {
+            Nvml::Snap g;
+            if (!nvml.snap_bus(id, g) || g.name.empty() || g.vram_gib <= 0 || g.power_enforced_w <= 0) {
+                gpu_err = "NVML could not read the GPU at " + id;
+                break;
+            }
+            g.name = short_card(g.name);
+            crow.gpus.push_back({g.name, g.vram_gib, g.power_enforced_w, pcie_text(g), h2d_of(hw, id)});
+            cards.emplace_back(id, g);
+        }
+        const uint64_t ram_b = basalt::platform::total_physical_memory();
+        if (gpu_err.empty() && crow.gpus.empty()) gpu_err = "the engine did not report which GPUs it used";
+        if (gpu_err.empty() && (pre_tps[0] <= 0 || pre_tps[1] <= 0 || dec_ms <= 0)) gpu_err = "a request reported no time";
+        if (gpu_err.empty() && ram_b == 0) gpu_err = "the system RAM size could not be read";
+        if (!gpu_err.empty()) {
+            basalt::log::error("basalt-bench", "cannot write the community row: %s", gpu_err.c_str());
+            std::fputs(rep.c_str(), stdout);
+            return 1;
+        }
+        std::time_t now = std::time(nullptr);
+        char day[16] = {};
+        std::strftime(day, sizeof day, "%Y-%m-%d", std::localtime(&now));
+        crow.submitter = o.submitter;
+        crow.date = day;
+        crow.commit = BASALT_BENCH_GIT;
+        crow.preset = "community-1";
+        crow.ram_gib = (double) ram_b / (double) (1ull << 30);
+        crow.cpu = hw.cpu;
+        crow.ram_gbps = hw.ram_gbps;
+        crow.os = basalt::platform::host_os_name();
+        crow.quant = info.count("quant") ? info["quant"] : "unknown";
+        crow.prefill_16k_tps = pre_tps[0];
+        crow.prefill_64k_tps = pre_tps[1];
+        crow.decode_tps = dec_tok / (dec_ms / 1000.0);
+        community_row = basalt::program::community_row_text(crow);
+        rep += "\n" + hardware_text(hw, cards);
+        rep += fmt("\ncommunity-1: prefill 16K %.1f t/s (%.1f s), prefill 64K %.1f t/s (%.1f s), decode %.1f t/s (%.0f tokens in %.1f s), "
+                   "each measured cold\n",
+                   pre_tps[0], pre_s[0], pre_tps[1], pre_s[1], dec_tok / (dec_ms / 1000.0), dec_tok, dec_ms / 1000.0);
     }
     if (o.format == "md" && do_quality) {
         rep += fmt("\nquality gate: %d chunks asked, T=%d\n", quality.n_chunks_asked, quality.t);
@@ -1455,5 +1312,19 @@ int main(int argc, char** argv) {
         rep = j.text() + "\n";
     }
     std::fputs(rep.c_str(), stdout);
+    if (!community_row.empty()) {
+        const std::string path = o.community_file.empty() ? std::string(BASALT_BENCH_SOURCE_DIR) + "/docs/community/benchmarks.json"
+                                                          : o.community_file;
+        std::string why;
+        std::printf("\nCOMMUNITY ROW:\n%s\n", community_row.c_str());
+        std::fflush(stdout);
+        if (basalt::program::community_add_row_file(path, crow, why))
+            basalt::log::info("basalt-bench", "the row was added to %s; review it, commit it and open a pull request (docs/community.md)",
+                              path.c_str());
+        else
+            basalt::log::warn("basalt-bench", "the row was not added to %s (%s); paste it at the end of the runs list of docs/community/benchmarks.json, "
+                              "run python3 tools/check_benchmarks.py --fix on it and open a pull request (docs/community.md)",
+                              path.c_str(), why.c_str());
+    }
     return do_quality && !quality.ran ? 1 : 0;
 }

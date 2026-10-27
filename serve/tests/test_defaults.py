@@ -70,7 +70,7 @@ class InTheServer(Base):
         self.assertEqual(item["sampling"]["top_p"], 0.95)
         self.assertEqual(item["sampling_source"], "gguf")
         with mock.patch.object(modelfile, "extract_tokenizer", return_value=self.root):
-            cfg = modelfile.model_config(str(p), "basalt.exe", gpus=1)
+            cfg = modelfile.model_config(str(p), "basalt.exe")
         self.assertEqual(cfg["sampling"], {"temperature": 1.0, "top_p": 0.95, "top_k": 20})
 
 

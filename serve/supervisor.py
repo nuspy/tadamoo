@@ -14,13 +14,12 @@ from serve import loader, settings
 from serve.config import build_parser, engine_flags_of, parse_settings, sampling_defaults_from_config, sampling_line
 from serve.engine.errors import EngineStartError
 from serve.engine.flags import flag_index, flag_value
-from serve.engine.vision import EngineVision, Vision, child_env, engine_args, gpu_list, gpus_in_play, vision_env
+from serve.engine.vision import EngineVision, Vision, child_env, engine_args, gpus_in_play, vision_env
 
 RELOAD_WAIT_S = 300.0          # how long a reload waits for the running request to finish
 BUSY = ("waiting", "stopping", "starting", "calibrating", "measuring")   # a job runs: no other may start
 MEASURE_ANSWER = 384           # tokens of each answer the wizard's measurement times
-SPEC_MIN_P_TRIES = (0.3, 0.5, 0.7)   # draft floors tried per request, without reloading
-SPEC_TRIES = (5, 7, 8)         # verify windows the wizard's measurement tries (set at the start: one reload each)
+SPEC_TRIES = (5, 7, 8)         # maximum verify windows the wizard's measurement tries (set at the start: one reload each)
 CALIBRATION_ANSWER = 512       # tokens of the reasoning-off answer
 CALIBRATION_THINKING = 1024    # tokens of the reasoning-on answer
 CALIBRATION_PROMPT = 8192      # tokens of the long prompt
@@ -50,7 +49,7 @@ def settings_info(a, words: list[str], argv: list[str]) -> dict:
                "server.vision-projector": getattr(a, "vision_projector", "auto"),
                "server.vision-hold": getattr(a, "vision_hold", "keep"),
                "server.slot-full-context": bool(a.slot_full_context)}
-    for name in ("max-context", "kv", "spec", "spec-min-p", "relaxed-drafting", "expert-cache", "prefill", "resident-experts",
+    for name in ("max-context", "kv", "spec", "relaxed-drafting", "expert-cache", "prefill", "resident-experts",
                  "vram-reserve-mib", "ple-io", "pool-workers"):
         running[f"engine.{name}"] = flag_setting(words, f"--{name}")
     if getattr(a, "shared_context", None):              # the total, before it was divided among the slots
@@ -67,7 +66,6 @@ def engine_config(a, words: list[str], mock: bool = False) -> dict:
     cfg = {}
     if a.gpu is not None:
         cfg["gpu"] = a.gpu
-    listed = gpu_list(cfg)
     vision_arg = False if mock or a.vision == "off" else a.vision
     hold = getattr(a, "vision_hold", "keep")
     if vision_arg == "dynamic" and hold == "release":
@@ -77,7 +75,7 @@ def engine_config(a, words: list[str], mock: bool = False) -> dict:
     try:
         projector = loader.projector_path(getattr(a, "vision_projector", "auto"), a.model) if vision_arg else None
         cfg.update({k: v for k, v in modelfile.model_config(
-            a.model, a.engine_bin, gpus=len(listed) if listed else None, vision=vision_arg,
+            a.model, a.engine_bin, vision=vision_arg,
             engine_words=words, projector=projector, hold=hold).items() if k not in cfg})
     except (OSError, KeyError) as e:
         raise ValueError(f"{a.model}: {e}") from None
@@ -112,7 +110,7 @@ def make_vision(cfg: dict, env: dict):
     if cfg["vision"].get("mode") == "dynamic":
         return EngineVision(cfg["vision"])
     return Vision(cfg["vision"], log=open(cfg["log"], "a", encoding="utf-8") if cfg.get("log") else None,
-                  env=vision_env(cfg, env, "on" if cfg["vision"].get("mode") == "on" else "peer"))
+                  env=vision_env(env, cfg["vision"].get("mode")))
 
 
 class Supervisor:
@@ -258,11 +256,10 @@ class Supervisor:
             self.thread.join()
         return True
 
-    def _measure(self, prompt: str, max_new: int, effort: str | None, extra: dict | None = None) -> dict:
+    def _measure(self, prompt: str, max_new: int, effort: str | None) -> dict:
         from serve.frontend import openai_to_messages
         svc = self.svc
-        req = {"messages": [{"role": "user", "content": prompt}], "temperature": 0.7, "top_p": 0.95, "seed": 1234,
-               **(extra or {})}
+        req = {"messages": [{"role": "user", "content": prompt}], "temperature": 0.7, "top_p": 0.95, "seed": 1234}
         if effort:
             req["reasoning_effort"] = effort
         messages, tools, kw = openai_to_messages(req)
@@ -352,8 +349,8 @@ class Supervisor:
     def measure(self, values: dict, wait: bool = False) -> bool:
         """Load `values` (the wizard's computed Loader values) for this server's model and measure them: the real
         memory after the load against the plan (a smaller context, then no resident experts, while it is above), the
-        calibration, the drafting floor per request (SPEC_MIN_P_TRIES, no reload) and the verify windows SPEC_TRIES (one
-        reload each; the fastest decode is kept, a tie keeps the lower window). The result {"values", "measured" (every
+        calibration and the maximum verify windows SPEC_TRIES (one reload each; the fastest decode is kept, a tie keeps
+        the lower window). The result {"values", "measured" (every
         candidate's speed), "log"} is the job's message; False when a job is running."""
         if not self._begin("measure"):
             return False
@@ -386,8 +383,8 @@ class Supervisor:
             return f"RAM available {avail / loader.GiB:.1f} GiB"
         return None
 
-    def _decode(self, extra: dict | None = None) -> float:
-        return float(self._measure(self.ASK, MEASURE_ANSWER, "none", extra)["decode"] or 0)
+    def _decode(self) -> float:
+        return float(self._measure(self.ASK, MEASURE_ANSWER, "none")["decode"] or 0)
 
     def _measure_job(self, values: dict):
         log = []
@@ -424,27 +421,22 @@ class Supervisor:
                         "prefill": record["prefill"], "hit_rate": record.get("hit_rate"), "accept": record.get("accept")}
             v = loader.effective(current)
             if self.facts.get("has_mtp") and int(v["engine.spec"] or 0) >= 2:
-                self._set(step="spec_min_p")
-                tries = {p: self._decode({"spec_min_p": p}) for p in SPEC_MIN_P_TRIES}
-                best_p = max(tries, key=tries.get)
-                say("drafting floor: " + ", ".join(f"{p} -> {tries[p]:.1f} tok/s" for p in SPEC_MIN_P_TRIES))
-                current["engine.spec-min-p"] = best_p
                 windows = {}
                 for spec in SPEC_TRIES:                  # set only at the engine's start: one reload each
                     self._set(step="spec")
                     self._write_values({**current, "engine.spec": spec})
                     self._reload_now(phase="measuring")
                     self._set(phase="measuring")
-                    windows[spec] = round(self._decode({"spec_min_p": best_p}), 1)
+                    windows[spec] = round(self._decode(), 1)
                 best = max(windows, key=lambda s: (windows[s], -s))         # the fastest; a tie keeps the lower
-                say("verify window: " + ", ".join(f"{s} -> {windows[s]:.1f} tok/s" for s in SPEC_TRIES)
+                say("maximum verify window: " + ", ".join(f"{s} -> {windows[s]:.1f} tok/s" for s in SPEC_TRIES)
                     + f"; kept {best}")
                 current["engine.spec"] = best
                 if best != SPEC_TRIES[-1]:
                     self._write_values(current)
                     self._reload_now(phase="measuring")
                     self._set(phase="measuring")
-                measured.update(decode=windows[best], spec_min_p=tries, spec=windows)
+                measured.update(decode=windows[best], spec=windows)
             result = {"values": current, "measured": measured, "log": log}
             self._set(phase="ready", finished=time.time(), step=None, message=json.dumps(result))
             print(f"[server] wizard: measurement done: {json.dumps(measured)}", flush=True)

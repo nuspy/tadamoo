@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import tempfile
@@ -12,7 +13,22 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from serve.config import build_parser, check_engine_flags, engine_flags_of, engine_line, load_config_file, parallel_count, parse_settings, SAMPLING_KEYS, sampling_defaults_from_config, sampling_line, server_options, split_engine_extras  # noqa: E402
+from serve.config import (  # noqa: E402
+    SAMPLING_KEYS,
+    budget_count,
+    build_parser,
+    check_engine_flags,
+    engine_flags_of,
+    engine_line,
+    load_config_file,
+    parallel_count,
+    parse_settings,
+    sampling_defaults_from_config,
+    sampling_line,
+    server_options,
+    split_engine_extras,
+    vision_setting,
+)
 from serve.engine.flags import flag_value  # noqa: E402
 from serve.security import exposed_without_key  # noqa: E402
 
@@ -52,19 +68,19 @@ def engine_parser_flags() -> dict:
 class ConfigFile(unittest.TestCase):
     def test_server_and_engine_sections(self):
         ap = build_parser()
-        argv, engine = load_config_file(conf({"server": {"port": 9000, "vision": "on", "lazy": False,
+        argv, engine = load_config_file(conf({"server": {"port": 9000, "vision": 2, "lazy": False,
                                                          "allowed-host": ["a", "b"], "--gpu": "0,1"},
                                               "engine": {"max-context": 32768, "--kv": "int8",
                                                          "resident-experts": True}}), ap)
-        self.assertEqual(argv, ["--port", "9000", "--vision", "on", "--allowed-host", "a", "--allowed-host", "b",
+        self.assertEqual(argv, ["--port", "9000", "--vision", "2", "--allowed-host", "a", "--allowed-host", "b",
                                 "--gpu", "0,1"])
         self.assertEqual(engine, ["--max-context", "32768", "--kv", "int8", "--resident-experts"])
 
     def test_paths_are_relative_to_the_file(self):
         p = conf({"server": {"model": "m/x.basalt", "tokenizer": "tok"}})
         argv, _ = load_config_file(p, build_parser())
-        here = str(Path(p).resolve().parent)
-        self.assertEqual(argv, ["--model", f"{here}/m/x.basalt", "--tokenizer", f"{here}/tok"])
+        here = Path(p).resolve().parent
+        self.assertEqual(argv, ["--model", str(here / "m" / "x.basalt"), "--tokenizer", str(here / "tok")])
 
     def test_errors(self):
         ap = build_parser()
@@ -72,9 +88,9 @@ class ConfigFile(unittest.TestCase):
                          ({"server": {"nope": 1}}, "not a server option"),
                          ({"server": {"spec": 7}}, "not a server option \\(engine flags go under"),
                          ({"server": {"engine-bin": "/x/basalt"}}, "engine-bin is set by basalt serve"),
-                         ({"server": {"vision": "yes"}}, "vision: use one of on, off, peer, dynamic, cpu"),
-                         ({"server": {"vision": True}}, "vision: use one of on, off, peer, dynamic, cpu"),
-                         ({"server": {"vision": False}}, "vision: use one of on, off, peer, dynamic, cpu"),
+                         ({"server": {"vision": "yes"}}, "vision: use one of off, dynamic, cpu or a GPU number"),
+                         ({"server": {"vision": True}}, "vision: use one of off, dynamic, cpu or a GPU number"),
+                         ({"server": {"vision": False}}, "vision: use one of off, dynamic, cpu or a GPU number"),
                          ({"server": {"port": [1]}}, "one value"),
                          ({"server": {"config": "x"}}, "not a server option"),
                          ({"engine": {"port": 1}}, "a server option"),
@@ -160,9 +176,15 @@ class Precedence(unittest.TestCase):
                                                   "--control-vector-layer-range", "1", "2"])
 
     def test_negative_value_words(self):
-        _, _, _, cli_words = parse(["--peer-device", "-1", "--x=-2"])
-        self.assertEqual(cli_words, ["--peer-device", "-1", "--x", "-2"])
-        check_engine_flags(cli_words, {"--peer-device", "--x"}, "cli")
+        _, _, _, cli_words = parse(["--vram-reserve-mib", "-1", "--x=-2"])
+        self.assertEqual(cli_words, ["--vram-reserve-mib", "-1", "--x", "-2"])
+        check_engine_flags(cli_words, {"--vram-reserve-mib", "--x"}, "cli")
+
+    def test_gpu_is_a_server_setting(self):
+        with self.assertRaisesRegex(ValueError, "cli: --peer-device is not an engine flag"):
+            check_engine_flags(["--peer-device", "1"], {"--gpu"}, "cli")
+        with self.assertRaisesRegex(ValueError, "gpu is a server setting"):
+            check_engine_flags(["--gpu", "0,1"], {"--gpu"}, "--config c.json")
 
     def test_extras(self):
         self.assertEqual(split_engine_extras(["--kv", "int8", "--resident-experts", "--seed=3", "--x", "-1"]),
@@ -173,7 +195,7 @@ class Precedence(unittest.TestCase):
                 split_engine_extras(bad)
 
     def test_former_server_options_are_engine_flags(self):
-        for name in ("spec", "spec-min-p", "mtp-max-t", "max-context", "peer-exclusive"):
+        for name in ("spec", "mtp-max-t", "max-context", "peer-exclusive"):
             self.assertNotIn(name, server_options(build_parser()))
         _, _, _, cli_words = parse(["--spec", "5", "--peer-exclusive", "--max-context=8192"])
         self.assertEqual(cli_words, ["--spec", "5", "--peer-exclusive", "--max-context", "8192"])
@@ -186,13 +208,12 @@ class Precedence(unittest.TestCase):
     def test_startup_line(self):
         self.assertEqual(engine_line(["--max-context", "32768", "--resident-experts", "--kv", "int8",
                                       "--control-vector-layer-range", "4", "44"], ["--spec", "7"]),
-                         "[server] engine: --max-context 32768 (config), --resident-experts (config), "
-                         "--kv int8 (config), --control-vector-layer-range 4 44 (config), --spec 7 (cli)")
-        self.assertEqual(engine_line([], [], config=False),
-                         "[server] engine: built-in defaults (no --config): spec off, 4096 context")
-        self.assertEqual(engine_line([], ["--spec", "7"], config=False),
-                         "[server] engine: built-in defaults (no --config): spec 7, 4096 context; --spec 7 (cli)")
-        self.assertEqual(engine_line([], []), "[server] engine: config sets nothing, built-in defaults")
+                         "[server] engine   ctx=32768 resident-experts kv=int8 control-vector-layer-range=4,44 "
+                         "(from config)  spec=7 (from cli)")
+        self.assertEqual(engine_line([], ["--spec", "7"]), "[server] engine   spec=7 (from cli)")
+        self.assertEqual(engine_line([], [], grammar=(False, "cli")),
+                         "[server] engine   grammar=off (from cli)")
+        self.assertEqual(engine_line([], []), "[server] engine   defaults")
 
 
 class SamplingOptions(unittest.TestCase):
@@ -240,7 +261,20 @@ class SamplingOptions(unittest.TestCase):
 
     def test_startup_line_marks_the_source(self):
         self.assertEqual(sampling_line({"temperature": 0.8, "top_k": 20, "top_p": 0.9}, {"temperature"}, {"top_k"}),
-                         "[server] sampling defaults: temperature=0.8 (command line), top_k=20 (config), top_p=0.9")
+                         "[server] sampling temp=0.8(cli) top_k=20(config) top_p=0.9")
+
+
+class ThinkingBudget(unittest.TestCase):
+    """reasoning-budget-tokens is the launch default for the request field of the same name; the field itself and
+    what a budget does to a reply are covered in test_server's ThinkingBudget (Service level)."""
+
+    def test_left_out_the_request_decides(self):
+        self.assertIsNone(parse([])[0].reasoning_budget_tokens)
+
+    def test_a_bad_budget_is_refused(self):
+        for bad in ("-1", "-3072", "lots", "1.5", ""):
+            with self.subTest(value=bad), self.assertRaises(SystemExit):
+                parse(["--reasoning-budget-tokens", bad])
 
 
 class SlotContext(unittest.TestCase):
@@ -271,10 +305,10 @@ class SlotContext(unittest.TestCase):
     def test_engine_line_shows_the_division(self):
         ap = build_parser()
         a, _, file_words, cli_words = parse_settings(ap, ["--parallel", "4", "--max-context", "65536"])
-        line = engine_line(file_words, cli_words, False, (a.shared_context, a.parallel))
+        line = engine_line(file_words, cli_words, (a.shared_context, a.parallel))
         self.assertEqual(flag_value(cli_words, "--max-context"), "16384")
-        self.assertIn("--max-context 16384 (cli: 65536 / 4 slots)", line)
-        self.assertNotIn("slots", engine_line(file_words, cli_words, False))
+        self.assertIn("ctx=16384 (65536/4 slots)", line)
+        self.assertNotIn("slots", engine_line(file_words, cli_words))
 
     def test_slot_full_context_keeps_the_whole(self):
         self.assertEqual(self.context(["--parallel", "4", "--max-context", "262144", "--slot-full-context"]), 262144)
@@ -288,18 +322,22 @@ class EveryOption(unittest.TestCase):
             return True
         if act.choices:
             return [c for c in act.choices][-1]
-        if act.type is int or act.type is parallel_count:
+        if act.type is int or act.type is parallel_count or act.type is budget_count:
             return 7
+        if act.type is vision_setting:                      # --vision: a GPU number is a valid sample
+            return "1"
         if act.type is float:
             return 0.25
         if act.dest in SAMPLING_KEYS:                      # the model file's checks apply
             return 0.5 if SAMPLING_KEYS[act.dest][0] is float else 7
-        return "/x" if act.dest in ("model", "tokenizer") else "x"
+        # a path the config file resolves against its own directory: absolute in this platform's own form, so the
+        # resolution leaves it as it is
+        return str(Path(TMP.name) / "x") if act.dest in ("model", "tokenizer") else "x"
 
     def test_every_server_option_by_both_paths(self):
         ap = build_parser()
         for name, act in server_options(ap).items():
-            if name in ("api-key", "engine-bin"):
+            if name in ("api-key", "engine-bin", "grammar"):   # grammar is on by default: no-grammar differs, see test_grammar
                 continue
             v = "localhost" if name == "host" else self.sample(act)
             if isinstance(act, argparse._AppendAction):
@@ -316,8 +354,10 @@ class EveryOption(unittest.TestCase):
 
     def test_every_engine_flag_by_both_paths(self):
         flags = engine_parser_flags()
-        self.assertGreater(len(flags), 100)
         server = set(server_options(build_parser()))
+        # A parse that came back empty or cut short would make the loop below vacuous.
+        self.assertIn("--help", flags)
+        self.assertTrue(any(f[2:] not in server for f in flags), "no engine-only flags parsed")
         engine_bin = write("\0".join(flags) + "\0", "fake-engine")
         known = engine_flags_of(engine_bin)
         self.assertEqual(known, set(flags))
@@ -366,14 +406,18 @@ class ApiKey(unittest.TestCase):
         self.assertFalse(exposed_without_key("127.0.0.1", ""))
 
 
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 class Startup(unittest.TestCase):
     """The server process itself: the checks of main() apply to values from the file."""
 
     def run_server(self, cfg, *argv):
-        # a test port unless the case sets one: the server's fail-fast port check must never touch a real one (7232)
-        server = cfg.get("server", {})
-        cfg = {**cfg, "server": server if "port" in server else {**server, "port": 7286}}
-        r = subprocess.run([sys.executable, "-m", "serve.server", "--config", conf(cfg), *argv], cwd=ROOT,
+        own_port = [] if "port" in cfg.get("server", {}) or "--port" in argv else ["--port", str(free_port())]
+        r = subprocess.run([sys.executable, "-m", "serve.server", "--config", conf(cfg), *own_port, *argv], cwd=ROOT,
                            capture_output=True, text=True, timeout=60, env=os.environ)
         return r.returncode, r.stderr
 

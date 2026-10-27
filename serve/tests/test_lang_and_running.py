@@ -106,7 +106,7 @@ class Language(Isolated):
 
 class Compare(Isolated):
     RUNNING = {"server.port": 7232, "server.parallel": 1, "server.vision": "dynamic", "server.slot-full-context": False,
-               "engine.max-context": 65536, "engine.kv": "q4_0", "engine.spec": 7, "engine.spec-min-p": 0.5,
+               "engine.max-context": 65536, "engine.kv": "q4_0", "engine.spec": 7,
                "engine.expert-cache": "auto", "engine.prefill": "auto", "engine.resident-experts": True,
                "engine.vram-reserve-mib": 1536, "engine.ple-io": "direct", "engine.pool-workers": 15}
 
@@ -125,10 +125,10 @@ class Compare(Isolated):
         self.assertEqual([d["field"] for d in r["differences"]], ["server.model"])
 
     def test_a_different_field_and_port(self):
-        r = profiles.compare(self.RUNNING, None, self.requested(**{"engine.max-context": 131072, "engine.spec-min-p": 0.3}),
+        r = profiles.compare(self.RUNNING, None, self.requested(**{"engine.max-context": 131072, "engine.spec": 5}),
                              None, 7232, 7240)
         self.assertEqual(sorted(d["field"] for d in r["differences"]),
-                         ["engine.max-context", "engine.spec-min-p", "server.port"])
+                         ["engine.max-context", "engine.spec", "server.port"])
         self.assertTrue(profiles.compare(self.RUNNING, None, self.requested(**{"engine.kv": "Q4_0"}), None)["same"])
         absent = profiles.compare({}, None, {"engine.kv": "fp16"}, None)                 # the engine's defaults
         self.assertTrue(absent["same"], absent)

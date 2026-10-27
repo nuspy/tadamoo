@@ -11,7 +11,6 @@
     "max-context": 32768,
     "kv": "int8",
     "spec": 7,
-    "spec-min-p": 0.5,
     "expert-cache": "auto",
     "prefill": "auto",
     "resident-experts": true,

@@ -40,6 +40,8 @@ bool cpu_avx512bw_ok();
 /// Whether this CPU (and its OS) runs the AVX2 kernels (AVX, AVX2, FMA, F16C): the floor of every expert kernel
 /// (q2_avx2.cpp, iq_avx2.cpp, and the ggml dot products).
 bool cpu_avx2_ok();
+/// Whether this CPU (and its OS) also has the 256-bit AVX-VNNI instructions (`vpdpwssd`, `vpdpbusd`).
+bool cpu_avxvnni_ok();
 /// Whether this CPU (and its OS) runs AVX (Sandy Bridge and newer): the AVX1 router dot (kq_avx1.cpp).
 bool cpu_avx1_ok();
 /// SSE4.2 + POPCNT.
@@ -61,6 +63,6 @@ const ExpertLayout& expert_layout();
 /// `layer gu_type d_type offset blob_bytes`; further columns are ignored).  A newer version is refused.
 bool expert_layout_load_text(const std::string& text, int64_t n_layers, int64_t n_expert, std::string& err);
 /// The newest layout version this engine reads.
-inline constexpr int kExpertLayoutVersion = 5;
+inline constexpr int kExpertLayoutVersion = 6;   // v6: NVFP4 blobs end in a 16-byte scale tail
 
 }  // namespace basalt::kernels::cpu

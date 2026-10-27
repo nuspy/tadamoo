@@ -490,13 +490,13 @@ configurazione guidata calcola ogni valore da quello che rileva, dice perché, e
    programmi usano ora sulla GPU si mostra, non si somma: la cache degli esperti si dimensiona sulla VRAM libera al
    momento del caricamento, che lo lascia a loro.
 3. **Il modello** e i suoi valori per la chat.
-4. **I valori calcolati**, con i motivi e la previsione: cache KV q4_0, prefill auto, il drafter a spec 7 e min-p 0,5
+4. **I valori calcolati**, con i motivi e la previsione: cache KV q4_0, prefill auto, il drafter a spec 7
    quando il file ce l'ha, esperti residenti e tabella PLE in RAM quando ci stanno, i thread della CPU dal processore,
    il contesto più lungo che ci sta.
 5. **Misura** (facoltativa, circa 5-10 minuti, solo con meno del 75% del limite di commit in uso): i valori si
    caricano, la memoria vera dopo il caricamento si confronta con il piano (un contesto più corto, poi niente esperti
-   residenti, finché è sopra), si calibra la velocità, si prova la soglia del drafter per richiesta (0,3, 0,5, 0,7) e
-   le finestre di verifica 5, 7 e 8 (si fissano all'avvio del motore: un ricaricamento ciascuna); si tiene la più
+   residenti, finché è sopra), si calibra la velocità e si provano
+   le finestre massime di verifica 5, 7 e 8 (si fissano all'avvio del motore: un ricaricamento ciascuna); si tiene la più
    veloce (a parità, la finestra più piccola) e si mostrano tutti i risultati.
 6. **Salva**: il profilo di caricamento **Machine Default** (con il modello; diventa il predefinito) e il preset della
    chat **Machine Default** (i valori di campionamento del modello). **Ripristina Machine Default** li rimette: nel
@@ -616,12 +616,12 @@ i piani di quel modello aggiungono quello che era in più (mostrato come «misur
 Il profilo incorporato si calcola ogni volta dall'hardware trovato e dal modello scelto, con le stesse regole di ogni
 piano e della configurazione guidata: la quota di RAM e commit di questo PC resta libera; la riserva di VRAM è quella
 della configurazione guidata (o la sua regola, con 1 GB per il monitor finché la configurazione non conferma dov'è:
-1,5 GB in tutto); la cache KV è q4_0 e il contesto il più lungo che ci sta (fino a 262.144); il drafter è acceso (spec 7,
-min-p 0,5) solo se il file ce l'ha, le immagini solo se ha un proiettore; esperti residenti e tabella PLE in RAM solo se
+1,5 GB in tutto); la cache KV è q4_0 e il contesto il più lungo che ci sta (fino a 262.144); il drafter è acceso (spec 7)
+solo se il file ce l'ha, le immagini solo se ha un proiettore; esperti residenti e tabella PLE in RAM solo se
 ci stanno; i thread della CPU sono i core performance più metà dei core efficienza, meno uno (su un processore senza
 core efficienza, i core fisici meno uno). Ogni valore ha il suo motivo nel Loader. Per esempio, su una RTX 5090 (32 GB,
 1 GB usato da altri programmi) con 128 GB di RAM e un processore con 8 core performance e 16 efficienza, il file a 3 bit
-dà: 262.144 token, q4_0, spec 7 a min-p 0,5, cache esperti auto, esperti residenti, 1,5 GB lasciati liberi, 15 thread
+dà: 262.144 token, q4_0, spec 7, cache esperti auto, esperti residenti, 1,5 GB lasciati liberi, 15 thread
 CPU, immagini dynamic.
 
 ### Dove stanno le impostazioni
@@ -828,8 +828,7 @@ si scrivono nelle sezioni `server` / `engine` di `basalt_config.json`. Valgono q
 | **Contesto** (`engine.max-context`) | la conversazione più lunga, in token (fino a 262.144) | il più lungo che ci sta (lo scelgono «Valori sicuri» e la configurazione guidata); uno più corto lascia più VRAM agli esperti (un po' più veloce) e chiede meno commit |
 | **Cache KV** (`engine.kv`) | la precisione della memoria dell'attenzione: `fp16`, `int8`, `q4_0`, `k8v4` (chiavi INT8, valori Q4_0) | `q4_0`: un quarto della memoria di fp16, così i contesti lunghi ci stanno; `int8` o `k8v4` per un'attenzione un po' più precisa con più memoria |
 | **Blocchi del prompt** (`engine.prefill`) | come si leggono i prompt lunghi: `auto` (il blocco più grande che la cache degli esperti può prestare), `auto:8192/16384/32768` (un tetto), o una misura fissa | `auto` |
-| **Finestra di verifica** (`engine.spec`, 0-8) | il drafter MTP propone fino a N-1 token, il modello li controlla in un passaggio; 0 = spento | 7 se il file ha un drafter (la configurazione guidata misura 5, 7 e 8); il testo è lo stesso a ogni valore, cambia solo la velocità |
-| **Soglia del drafter** (`engine.spec-min-p`, 0-1) | una proposta si fa solo finché il drafter ne è sicuro almeno così | 0,5; la configurazione guidata prova 0,3, 0,5 e 0,7. Più bassa propone di più (più lavoro sprecato sul testo difficile), più alta di meno |
+| **Finestra di verifica** (`engine.spec`, 0-8) | la finestra più lunga: il drafter MTP propone fino a N-1 token (meno quando è incerto), il modello li controlla in un passaggio; 0 = spento | 7 se il file ha un drafter (la configurazione guidata misura 5, 7 e 8); il testo è lo stesso a ogni valore, cambia solo la velocità |
 | **Cache degli esperti** (`engine.expert-cache`) | posti per esperti tenuti in VRAM: `auto` (tutta la VRAM che resta dopo la riserva) o un numero | `auto` |
 | **Esperti residenti** (`engine.resident-experts`) | gli esperti che non sono in VRAM si copiano in RAM una volta al caricamento, invece di leggerli dal file | acceso se ci stanno in RAM tenendo libera la quota (circa 50 GiB per il file a 3 bit); spento sui PC con meno RAM, a costo di velocità |
 | **VRAM da lasciare libera** (`engine.vram-reserve-mib`) | VRAM che il motore non tocca (desktop, driver, altri programmi) | vedi [VRAM da lasciare libera](#vram-da-lasciare-libera); la regola della configurazione guidata: 0,5 GB + 1,5 GB se la GPU comanda il monitor principale (circa 0,4 GB per uno secondario) |
@@ -885,7 +884,7 @@ ragionamento (1.024 token) e un prompt lungo (circa 8.000 token). Il risultato v
 cartella dei dati, legato al modello e alle impostazioni. Da lì in poi le previsioni di quel modello partono dalla
 calibrazione delle stesse identiche impostazioni, altrimenti dalla più recente del modello, invece che dal riferimento
 incorporato, e il Loader dice quale ha usato. La misura della configurazione guidata è la stessa calibrazione, ripetuta
-per le soglie del drafter e le finestre di verifica che prova. Accanto alle velocità, il file conserva RAM e commit
+per le finestre di verifica che prova. Accanto alle velocità, il file conserva RAM e commit
 presi davvero dal caricamento (vedi «Memoria misurata»).
 
 ## Lingua

@@ -118,6 +118,8 @@ def clean(values) -> dict:
         raise ValueError('send {"values": {"engine.kv": "q4_0", ...}}')
     out = {}
     for name, value in values.items():
+        if name in settings.REMOVED_KEYS:
+            continue
         if name not in FIELD_NAMES:
             raise ValueError(f"{name}: not a field the Loader sets")
         section, key = name.split(".", 1)

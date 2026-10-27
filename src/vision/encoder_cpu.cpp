@@ -6,23 +6,15 @@
 #include <cstring>
 #include <thread>
 
+#include "basalt/platform/compiler.hpp"
+
 #include "gemm_cpu.hpp"
-#if defined(_MSC_VER)
-#include "basalt/kernels/f16_bits.hpp"
-#endif
 
 namespace basalt::vision {
 
 namespace {
 
-// a value rounded to fp16 and back (round to nearest even): GCC's _Float16, the bit-exact converter on MSVC
-inline float round_f16(float x) {
-#if defined(_MSC_VER)
-    return basalt::kernels::f32_from_f16(basalt::kernels::f16_from_f32(x));
-#else
-    return (float) (_Float16) x;
-#endif
-}
+float f16_round(float x) { return platform::f16_round(x); }
 
 void parallel_for(int threads, int n, const std::function<void(int, int)>& fn) {
     threads = std::max(1, std::min(threads, n));
@@ -43,7 +35,7 @@ float gelu_exact(float x) {
 float gelu_f16(float x) {
     if (x <= -10.f) return 0.f;
     if (x >= 10.f) return x;
-    return round_f16(gelu_exact(round_f16(x)));
+    return f16_round(gelu_exact(f16_round(x)));
 }
 
 void layer_norm(const float* x, const float* w, const float* b, float* y, int rows, int n, float eps, int threads) {
@@ -123,7 +115,7 @@ bool CpuEncoder::encode(const std::vector<float>& patches, Size canvas, std::vec
 
     // patch embedding + bilinear position embedding, rows in merge order
     std::vector<float> p16(patches);
-    if (f16_) for (float& v : p16) v = round_f16(v);
+    if (f16_) for (float& v : p16) v = f16_round(v);
     gemm_f32w(p16.data(), wpatch_.data(), x.data(), n, E, 768, T);
     {
         const int S = 48;

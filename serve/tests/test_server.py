@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -68,10 +69,10 @@ class MaxTokens(unittest.TestCase):
         """-> (status, body, prompt tokens, completion tokens); `budget` is merged into the request as given."""
         msgs = [{"role": "user", "content": text}]
         if api == "openai":
-            s, b = self.post("/v1/chat/completions", {"model": "m", "messages": msgs, **budget})
+            s, b = self.post("/v1/chat/completions", {"model": "qwen3.8-flash-next", "messages": msgs, **budget})
             u = b.get("usage", {})
             return s, b, u.get("prompt_tokens"), u.get("completion_tokens")
-        s, b = self.post("/v1/messages", {"model": "m", "messages": msgs, **budget})
+        s, b = self.post("/v1/messages", {"model": "qwen3.8-flash-next", "messages": msgs, **budget})
         u = b.get("usage", {})
         return s, b, u.get("input_tokens"), u.get("output_tokens")
 
@@ -87,11 +88,12 @@ class MaxTokens(unittest.TestCase):
         self.assertNotIn("enable_thinking", kw(thinking={"type": "enabled", "budget_tokens": 2048}))
         self.assertNotIn("enable_thinking", kw(output_config={"effort": "high"}))
         self.assertNotIn("enable_thinking", kw(reasoning_budget_tokens=30))
+        self.assertNotIn("enable_thinking", kw(thinking_budget_tokens=30))
 
     def test_count_tokens_is_the_prompt_messages_reads(self):
         # /v1/messages/count_tokens renders and tokenizes the same prompt /v1/messages would read, without running it
         msgs = [{"role": "user", "content": "how many tokens is this?"}]
-        s, b = self.post("/v1/messages/count_tokens", {"model": "m", "messages": msgs})
+        s, b = self.post("/v1/messages/count_tokens", {"model": "qwen3.8-flash-next", "messages": msgs})
         self.assertEqual(s, 200)
         s2, _, n_in, _ = self.call("anthropic", "how many tokens is this?", max_tokens=8)
         self.assertEqual(s2, 200)
@@ -142,7 +144,10 @@ class MaxTokens(unittest.TestCase):
                 s, b, _, _ = self.call(api, max_tokens=CTX)
                 self.assertEqual(s, 400)
                 self.assertIn("exceeds the context", b["error"]["message"])
-                self.assertIn("\"fit_max_tokens\": true", b["error"]["message"])     # says how to get past it
+                self.assertIn("--fit-max-tokens", b["error"]["message"])     # says how to get past it
+                self.assertIn('"fit-max-tokens": true', b["error"]["message"])
+                self.assertIn('"server" section', b["error"]["message"])
+                self.assertNotIn(".json", b["error"]["message"])
                 self.assertRegex(b["error"]["message"], r"at most \d+ here")
 
     def test_unset_budget_with_a_near_full_prompt(self):
@@ -226,8 +231,50 @@ class ImageMarkers(unittest.TestCase):
             self.rows = self.dir / "img.sve"
             self.rows.write_bytes(b"rows")
 
-        def encode(self, source):
-            return self.rows, 3
+        def encode(self, sources):
+            return self.rows, [3] * len(sources)
+
+    def test_combined_file_removed_when_prepare_raises(self):
+        import tempfile
+        tok = ByteTokenizer()
+
+        class Fresh(self.FakeVision):
+            extra = 0
+
+            def encode(self, sources):
+                combined = self.dir / "req-test.sve"
+                combined.write_bytes(b"rows")
+                return combined, [3] * (len(sources) + self.extra)
+
+        msgs = [{"role": "user", "content": [{"type": "text", "text": "look"}, {"type": "image", "source": "x.png"}]}]
+        with tempfile.TemporaryDirectory() as d:
+            for case, extra, ctx in (("images and markers differ", 1, CTX), ("context too small", 0, 8)):
+                with self.subTest(case=case):
+                    vision = Fresh(d)
+                    vision.extra = extra
+                    svc = Service(MockEngine(tok, "ok", max_context=ctx), tok,
+                                  ChatTemplate(ROOT / "serve/chat_template.jinja"), vision=vision)
+                    with self.assertRaises(ValueError):
+                        svc.prepare(msgs, None, {})
+                    self.assertFalse((Path(d) / "req-test.sve").exists())
+                    self.assertIsNone(svc.embeddings.path)
+
+    def test_refused_image_is_logged(self):
+        import contextlib
+        import io
+        tok = ByteTokenizer()
+
+        class Refuses:
+            def encode(self, sources):
+                raise ValueError("the image could not be read: the image needs 528 expert-cache slots and 454 can be lent")
+
+        msgs = [{"role": "user", "content": [{"type": "text", "text": "look"}, {"type": "image", "source": "x.png"}]}]
+        svc = Service(MockEngine(tok, "ok", max_context=CTX), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"),
+                      vision=Refuses())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaisesRegex(ValueError, "528 expert-cache slots"):
+            svc.prepare(msgs, None, {})
+        self.assertIn("[server] error: the image could not be read: the image needs 528", out.getvalue())
 
     def test_literal_marker_with_an_image(self):
         import tempfile
@@ -253,8 +300,8 @@ class ImageMarkers(unittest.TestCase):
         quoted = "the template writes <|vision_start|><|image_pad|><|vision_end|> per picture"
 
         class TwoPictures(self.FakeVision):
-            def encode(self, source):
-                return self.rows, {"a.png": 2, "b.png": 5}[source]
+            def encode(self, sources):
+                return self.rows, [{"a.png": 2, "b.png": 5}[src] for src in sources]
 
         def holds(ids, part):
             return any(ids[i:i + len(part)] == part for i in range(len(ids) - len(part) + 1))
@@ -484,7 +531,7 @@ class StopStrings(unittest.TestCase):
     def post(self, api, stream, **extra):
         """-> (status, text, finish or stop_reason, stop_sequence, the streamed text pieces)"""
         path = "/v1/chat/completions" if api == "openai" else "/v1/messages"
-        body = {"model": "x", "max_tokens": 200, "stream": stream, "messages": [{"role": "user", "content": "hi"}],
+        body = {"model": "qwen3.8-flash-next", "max_tokens": 200, "stream": stream, "messages": [{"role": "user", "content": "hi"}],
                 **extra}
         req = urllib.request.Request(self.base + path, data=json.dumps(body).encode(), headers={
             "Content-Type": "application/json", "anthropic-version": "2023-06-01"})
@@ -756,7 +803,7 @@ class UnfinishedToolCall(unittest.TestCase):
         try:
             for api, path in (("openai", "/v1/chat/completions"), ("anthropic", "/v1/messages")):
                 for stream in (False, True):
-                    body = {"model": "x", "max_tokens": max_tokens, "stream": stream, "tools": tools[api],
+                    body = {"model": "qwen3.8-flash-next", "max_tokens": max_tokens, "stream": stream, "tools": tools[api],
                             "messages": [{"role": "user", "content": "save my notes"}]}
                     req = urllib.request.Request(base + path, data=json.dumps(body).encode(), headers={
                         "Content-Type": "application/json", "anthropic-version": "2023-06-01"})
@@ -852,7 +899,7 @@ class ClientShapes(unittest.TestCase):
         return bytes(i for i in self.engine.last_ids if i < 256).decode("utf-8", "replace")
 
     def test_query_string(self):
-        body = {"model": "x", "max_tokens": 20, "messages": [{"role": "user", "content": "hi"}]}
+        body = {"model": "qwen3.8-flash-next", "max_tokens": 20, "messages": [{"role": "user", "content": "hi"}]}
         for path in ("/v1/messages?beta=true", "/v1/chat/completions?api-version=1", "/v1/messages/?beta=true"):
             status, b = self.post(path, body)
             self.assertEqual(status, 200, (path, b))
@@ -861,7 +908,7 @@ class ClientShapes(unittest.TestCase):
 
     def test_anthropic_mid_conversation_system(self):
         status, b = self.post("/v1/messages?beta=true", {
-            "model": "x", "max_tokens": 50,
+            "model": "qwen3.8-flash-next", "max_tokens": 50,
             "system": [{"type": "text", "text": "You are terse."}],
             "messages": [
                 {"role": "user", "content": [{"type": "text", "text": "1+1? digits only"}]},
@@ -875,7 +922,7 @@ class ClientShapes(unittest.TestCase):
 
     def test_openai_late_developer_and_system(self):
         status, b = self.post("/v1/chat/completions", {
-            "model": "x", "max_tokens": 50,
+            "model": "qwen3.8-flash-next", "max_tokens": 50,
             "messages": [{"role": "system", "content": "Be brief."}, {"role": "user", "content": "hello"},
                          {"role": "assistant", "content": "hi"}, {"role": "developer", "content": "Now use digits."},
                          {"role": "system", "content": "Also this."}, {"role": "user", "content": "1+1?"}]})
@@ -894,12 +941,12 @@ class ClientShapes(unittest.TestCase):
             template, self.svc.template = self.svc.template, ChatTemplate(tpl)
             try:
                 status, b = self.post("/v1/chat/completions", {
-                    "model": "x", "max_tokens": 20, "messages": [{"role": "system", "content": "Only a system."}]})
+                    "model": "qwen3.8-flash-next", "max_tokens": 20, "messages": [{"role": "system", "content": "Only a system."}]})
                 self.assertEqual(status, 400, b)
                 self.assertIn("No user query found", b["error"]["message"])
             finally:
                 self.svc.template = template
-        status, b = self.post("/v1/chat/completions", {"model": "x", "max_tokens": 20,
+        status, b = self.post("/v1/chat/completions", {"model": "qwen3.8-flash-next", "max_tokens": 20,
                                                        "messages": [{"role": "user", "content": "hi"}]})
         self.assertEqual(status, 200, b)                            # the server goes on
 
@@ -908,10 +955,10 @@ class ClientShapes(unittest.TestCase):
         encoded = json.dumps([{"role": "user", "content": "1+1?"}])
         for path in ("/v1/chat/completions", "/v1/messages"):
             with self.subTest(path=path):
-                status, b = self.post(path, {"model": "x", "max_tokens": 20, "messages": encoded})
+                status, b = self.post(path, {"model": "qwen3.8-flash-next", "max_tokens": 20, "messages": encoded})
                 self.assertEqual(status, 200, b)
                 self.assertIn("1+1?", self.prompt_text())
-                status, b = self.post(path, {"model": "x", "max_tokens": 20, "messages": ["hi"]})
+                status, b = self.post(path, {"model": "qwen3.8-flash-next", "max_tokens": 20, "messages": ["hi"]})
                 self.assertEqual(status, 400, b)
                 self.assertIn("messages must be a list of objects", b["error"]["message"])
 
@@ -924,10 +971,10 @@ class ClientShapes(unittest.TestCase):
         for path in ("/v1/chat/completions", "/v1/messages"):
             for tools in bad:
                 with self.subTest(path=path, tools=tools):
-                    status, b = self.post(path, {"model": "x", "max_tokens": 8, "messages": msgs, "tools": tools})
+                    status, b = self.post(path, {"model": "qwen3.8-flash-next", "max_tokens": 8, "messages": msgs, "tools": tools})
                     self.assertEqual(status, 400, b)
                     self.assertIn("tools", b["error"]["message"])
-        status, b = self.post("/v1/chat/completions", {"model": "x", "max_tokens": 8, "messages": msgs})
+        status, b = self.post("/v1/chat/completions", {"model": "qwen3.8-flash-next", "max_tokens": 8, "messages": msgs})
         self.assertEqual(status, 200, b)                            # the server goes on
 
     def test_a_tool_schema_that_is_not_an_object_is_a_400(self):
@@ -941,7 +988,7 @@ class ClientShapes(unittest.TestCase):
         for path, shapes in bad.items():
             for tools in shapes:
                 with self.subTest(path=path, tools=tools):
-                    status, b = self.post(path, {"model": "x", "max_tokens": 8, "messages": msgs, "tools": tools})
+                    status, b = self.post(path, {"model": "qwen3.8-flash-next", "max_tokens": 8, "messages": msgs, "tools": tools})
                     self.assertEqual(status, 400, b)
                     self.assertIn("tools[0] (f)", b["error"]["message"])
                     self.assertIn("must be an object", b["error"]["message"])
@@ -949,7 +996,7 @@ class ClientShapes(unittest.TestCase):
                             ("/v1/chat/completions", [{"name": "f", "parameters": None}]),
                             ("/v1/messages", [{"name": "f", "input_schema": {}}])):
             with self.subTest(path=path, tools=tools):
-                status, b = self.post(path, {"model": "x", "max_tokens": 8, "messages": msgs, "tools": tools})
+                status, b = self.post(path, {"model": "qwen3.8-flash-next", "max_tokens": 8, "messages": msgs, "tools": tools})
                 self.assertEqual(status, 200, b)
 
     def test_well_formed_tools_still_work(self):
@@ -962,7 +1009,7 @@ class ClientShapes(unittest.TestCase):
                             ("/v1/messages", [{"name": "get_weather", "input_schema": {"type": "object"}}]),
                             ("/v1/messages", [])):
             with self.subTest(path=path, tools=tools):
-                status, b = self.post(path, {"model": "x", "max_tokens": 8, "messages": msgs, "tools": tools})
+                status, b = self.post(path, {"model": "qwen3.8-flash-next", "max_tokens": 8, "messages": msgs, "tools": tools})
                 self.assertEqual(status, 200, b)
                 if tools:
                     self.assertIn("get_weather", self.prompt_text())
@@ -976,12 +1023,12 @@ class ClientShapes(unittest.TestCase):
                 raise BrokenPipeError("the encoder is gone")
 
         v = Vision.__new__(Vision)
-        v.dir, v.lock, v.cache = Path(tempfile.mkdtemp(prefix="basalt-vision-test-")), threading.Lock(), {}
+        v.dir, v.lock, v.cache, v.cache_bytes, v.pinned = Path(tempfile.mkdtemp(prefix="basalt-vision-test-")), threading.Lock(), {}, 0, {}
         v.proc = mock.Mock(stdin=Gone())
         with mock.patch.object(Vision, "load", return_value=b""), mock.patch.object(Vision, "normalize",
                                                                                    return_value=b"png"):
             with self.assertRaises(BrokenPipeError):
-                v.encode("x")
+                v.encode(["x"])
         self.assertEqual(list(v.dir.iterdir()), [])
         v.dir.rmdir()
 
@@ -1013,7 +1060,7 @@ class ClientShapes(unittest.TestCase):
             for fn in (openai_to_messages, anthropic_to_messages):
                 with self.subTest(bad=bad, fn=fn.__name__):
                     with self.assertRaisesRegex(ValueError, "messages must be a list of objects"):
-                        fn({"messages": bad})
+                        fn({"model": "qwen3.8-flash-next", "messages": bad})
         for calls in (["f"], "[1]", [{"function": "f"}], "{"):
             with self.subTest(calls=calls), self.assertRaisesRegex(ValueError, "tool_calls must be a list of objects"):
                 openai_to_messages({"messages": [{"role": "assistant", "content": "", "tool_calls": calls}]})
@@ -1082,13 +1129,13 @@ class GpuChoice(unittest.TestCase):
         try:
             with mock.patch.object(EngineVision, "load", side_effect=lambda s: s.encode()), \
                     mock.patch.object(EngineVision, "normalize", side_effect=lambda d: d):
-                first = v.encode_many(["a", "b", "a"])
+                _, first = v.encode(["a", "b", "a"])
                 self.assertEqual(len(sent), 1)
                 self.assertEqual(len(sent[0]), 2)                       # the repeat is one image
-                self.assertEqual([n for _, n in first], [10, 11, 10])
-                v.encode_many(["b", "a"])                               # cached: the engine is not asked again
+                self.assertEqual(first, [10, 11, 10])
+                v.encode(["b", "a"])                               # cached: the engine is not asked again
                 self.assertEqual(len(sent), 1)
-                self.assertEqual(v.encode("c")[1], 10)
+                self.assertEqual(v.encode(["c"])[1], [10])
                 self.assertEqual(len(sent), 2)
             self.assertEqual(list(v.dir.glob("*.img")), [])             # the temporary images are removed
             self.assertTrue(v.alive())
@@ -1114,45 +1161,58 @@ class GpuChoice(unittest.TestCase):
     def test_vision_startup_line(self):
         from serve.engine.vision import vision_line
         name = lambda i: f"card{i}"
-        self.assertEqual(vision_line(None, {}), "[server] vision mode: off")
+        self.assertEqual(vision_line(None, {}), "[server] vision   mode=off")
         cpu = vision_line({"gpu": False, "mode": "cpu"}, {}, 2.34)
-        self.assertRegex(cpu, r"^\[server\] vision mode: cpu, \d+ threads, ready in 2\.3 s$")
-        self.assertEqual(vision_line({"gpu": True, "mode": "peer"}, {"gpu": "0,1"}, 5.0, name=name),
-                         "[server] vision mode: peer, GPU 1 (card1), ready in 5.0 s")
-        self.assertEqual(vision_line({"gpu": True, "mode": "peer"}, {"gpu": "0"}, 5.0, name=lambda i: None),
-                         "[server] vision mode: peer, GPU 0, ready in 5.0 s")
-        self.assertEqual(vision_line({"gpu": True, "mode": "on"}, {"gpu": "0,1"}, 5.0, name=name),
-                         "[server] vision mode: on, GPU 0 (card0), ready in 5.0 s")
+        self.assertRegex(cpu, r"^\[server\] vision   mode=cpu threads=\d+ ready=2\.3s$")
+        self.assertEqual(vision_line({"gpu": True, "mode": "1"}, {"gpu": "0,1"}, 5.0, name=name),
+                         "[server] vision   mode=gpu gpu=1 (card1) ready=5.0s")
+        self.assertEqual(vision_line({"gpu": True, "mode": "2"}, {"gpu": "0"}, 5.0, name=lambda i: None),
+                         "[server] vision   mode=gpu gpu=2 ready=5.0s")
         self.assertEqual(vision_line({"gpu": True, "mode": "dynamic"}, {"gpu": "0,1"}, 0.0, name=name),
-                         "[server] vision mode: dynamic, GPU 0 (card0), loads per image")
+                         "[server] vision   mode=dynamic gpu=0 (card0) load=per-image")
 
     def test_vision_device(self):
-        from unittest import mock
-        from serve.engine.vision import child_env, vision_env
-        cfg = {"gpu": "0,1"}
-        env = child_env(cfg)
-        venv = vision_env(cfg, env)                         # peer: the second card
-        self.assertEqual(venv["CUDA_VISIBLE_DEVICES"], "1")
-        self.assertEqual(venv["CUDA_DEVICE_ORDER"], "PCI_BUS_ID")
-        self.assertEqual(env["CUDA_VISIBLE_DEVICES"], "0,1")
-        main = vision_env(cfg, env, "on")                 # true: the model's own card
-        self.assertEqual(main["CUDA_VISIBLE_DEVICES"], "0")
-        self.assertEqual(main["CUDA_DEVICE_ORDER"], "PCI_BUS_ID")
-        self.assertIs(vision_env({"gpu": "0"}, env), env)   # one card listed: the engine's environment
-        self.assertIs(vision_env({"gpu": "0"}, env, "on"), env)
-        with mock.patch("serve.engine.modelfile.gpu_count", return_value=1):
-            self.assertIs(vision_env({}, env), env)         # none listed, one card
-        with mock.patch("serve.engine.modelfile.gpu_count", return_value=2):
-            self.assertEqual(vision_env({}, env)["CUDA_VISIBLE_DEVICES"], "1")
-            self.assertIs(vision_env({}, env, "on"), env)
+        from serve.engine.vision import child_env, vision_card, vision_env
+        env = child_env({"gpu": "0,1"})
+        pinned = vision_env(env, "2")                       # the sidecar's own card, in gpu's numbering
+        self.assertEqual(pinned["CUDA_VISIBLE_DEVICES"], "2")
+        self.assertEqual(pinned["CUDA_DEVICE_ORDER"], "PCI_BUS_ID")
+        self.assertEqual(vision_env(env, 2)["CUDA_VISIBLE_DEVICES"], "2")   # a number as well as a string
+        self.assertEqual(env["CUDA_VISIBLE_DEVICES"], "0,1")                # the engine's environment untouched
+        self.assertIs(vision_env(env, "cpu"), env)                          # the other modes inherit it
+        self.assertIs(vision_env(env, "dynamic"), env)
+        self.assertIsNone(vision_card("off"))
+        self.assertEqual(vision_card("3"), 3)
+
+    def test_gpu_plan(self):
+        from serve.engine.vision import check_gpu, gpu_plan, gpu_text
+        self.assertEqual(gpu_text([0, 1]), "0,1")
+        self.assertEqual(gpu_text(1), "1")
+        self.assertEqual(gpu_text(None), "")
+        for good in (None, "", "auto", "0", "1,0", [0, 1]):
+            check_gpu(good)
+        for bad in ("a,b", "0,0", "-1", "0,"):
+            with self.assertRaises(ValueError):
+                check_gpu(bad)
+        ok = mock.Mock(stdout='{"devices":"1,0","cards":[{"smi":1},{"smi":0}],"notes":[],"warning":"","error":""}\n')
+        with mock.patch("subprocess.run", return_value=ok) as run:
+            self.assertEqual(gpu_plan("/x/basalt", "1,0")["devices"], "1,0")
+            self.assertEqual(run.call_args.args[0], ["/x/basalt", "--gpu-plan", "--gpu", "1,0"])
+            gpu_plan("/x/basalt", None)
+            self.assertEqual(run.call_args.args[0], ["/x/basalt", "--gpu-plan"])
+        bad = mock.Mock(stdout='{"devices":"","cards":[],"notes":[],"warning":"","error":"gpu 2: 2 GPUs are visible (0-1)"}')
+        with mock.patch("subprocess.run", return_value=bad), self.assertRaisesRegex(ValueError, "2 GPUs are visible"):
+            gpu_plan("/x/basalt", "2")
+        with mock.patch("subprocess.run", side_effect=OSError), self.assertRaisesRegex(ValueError, "--gpu-plan"):
+            gpu_plan("/x/basalt", "auto")
 
     def test_vision_modes(self):
         from serve.engine.vision import vision_mode
-        for given, want in ((None, "off"), ("off", "off"), ("on", "on"), ("Peer", "peer"), ("dynamic", "dynamic"),
-                            ("cpu", "cpu")):
+        for given, want in ((None, "off"), ("off", "off"), ("dynamic", "dynamic"), ("cpu", "cpu"),
+                            ("2", "2"), (1, "1"), ("01", "1")):
             self.assertEqual(vision_mode(given), want)
-        for bad in (True, False, "true", "false", "gpu"):
-            with self.assertRaisesRegex(ValueError, "vision: use one of on, off, peer, dynamic, cpu"):
+        for bad in (True, False, "true", "false", "gpu", "on", "peer", "-1", "1.5", "٢", "²"):
+            with self.assertRaisesRegex(ValueError, "vision: use one of off, dynamic, cpu or a GPU number"):
                 vision_mode(bad)
 
 
@@ -1216,7 +1276,7 @@ class ClientHangUp(unittest.TestCase):
 
     def hang_up(self, stream):
         import socket as so
-        body = json.dumps({"model": "x", "max_tokens": 20, "stream": stream,
+        body = json.dumps({"model": "qwen3.8-flash-next", "max_tokens": 20, "stream": stream,
                            "messages": [{"role": "user", "content": "a long prompt"}]}).encode()
         c = so.create_connection(("127.0.0.1", self.port))
         c.sendall(b"POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
@@ -1256,13 +1316,13 @@ class EngineDeath(unittest.TestCase):
                     with e:
                         return e.code, e.read().decode()
             msgs = [{"role": "user", "content": "hi"}]
-            code, text = post({"model": "m", "messages": msgs, "max_tokens": 50, "stream": True})
+            code, text = post({"model": "qwen3.8-flash-next", "messages": msgs, "max_tokens": 50, "stream": True})
             self.assertEqual(code, 200)
             self.assertIn('"error"', text)
             self.assertIn("stopped unexpectedly", text)
             self.assertTrue(text.rstrip().endswith("data: [DONE]"))
             self.assertEqual(svc.metrics()["requests"][0]["finish"], "error")
-            code, text = post({"model": "m", "messages": msgs, "max_tokens": 50})
+            code, text = post({"model": "qwen3.8-flash-next", "messages": msgs, "max_tokens": 50})
             self.assertEqual(code, 200, text)
             self.assertEqual(eng.restarts, 1)
             self.assertEqual(json.loads(text)["usage"]["completion_tokens"], 50)
@@ -1282,9 +1342,9 @@ class EngineDeath(unittest.TestCase):
         httpd = serve(svc, port=0)
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         try:
-            for path, body in [("/v1/chat/completions", {"model": "m", "stream": True, "max_tokens": 20,
+            for path, body in [("/v1/chat/completions", {"model": "qwen3.8-flash-next", "stream": True, "max_tokens": 20,
                                                           "messages": [{"role": "user", "content": "hi"}]}),
-                               ("/v1/messages", {"model": "m", "stream": True, "max_tokens": 20,
+                               ("/v1/messages", {"model": "qwen3.8-flash-next", "stream": True, "max_tokens": 20,
                                                  "messages": [{"role": "user", "content": "hi"}]})]:
                 req = urllib.request.Request(base + path, data=json.dumps(body).encode(),
                                              headers={"Content-Type": "application/json"})
@@ -1326,7 +1386,7 @@ class DraftCounts(unittest.TestCase):
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         try:
             for _ in range(3):
-                body = json.dumps({"model": "m", "max_tokens": 10, "messages": [{"role": "user", "content": "hi"}]})
+                body = json.dumps({"model": "qwen3.8-flash-next", "max_tokens": 10, "messages": [{"role": "user", "content": "hi"}]})
                 with urllib.request.urlopen(urllib.request.Request(base + "/v1/chat/completions", data=body.encode(),
                                                                    headers={"Content-Type": "application/json"}),
                                             timeout=30) as r:
@@ -1356,7 +1416,7 @@ class PcieShare(unittest.TestCase):
         rows = list(svc.history)
         self.assertEqual([r["hit_rate"] for r in rows], [0.6, 0.6, 0.6])
         self.assertEqual([r["pcie_share"] for r in rows], [0.2, 0.0, None])
-        self.assertIn("expert cache 60.0% hit (+20.0% of the routed experts over PCIe)", out.getvalue())
+        self.assertIn("end=length  hit=60.0%  pcie=20.0%", out.getvalue())
 
 
 class RepeatStop(unittest.TestCase):
@@ -1504,6 +1564,40 @@ class StartFailureLog(unittest.TestCase):
         self.assertIsNone(engine_error("basalt error: "))
         self.assertIsNone(engine_error("basalt warning: x"))
 
+    def test_marked_lines_of_any_area(self):
+        from serve.engine.progress import engine_error, engine_ram_floor, engine_warning, start_errors
+        self.assertEqual(engine_error("basalt generate: error: the weight arena failed"), "the weight arena failed")
+        self.assertEqual(engine_error("basalt: error: dec_moe_vram: formats 1 / 2"), "dec_moe_vram: formats 1 / 2")
+        self.assertIsNone(engine_error("basalt generate: warning: x"))
+        self.assertIsNone(engine_error("basalt generate: no error here, nothing failed"))
+        self.assertIsNone(engine_error("CUDA error: out of memory"))
+        self.assertEqual(engine_warning("basalt serve: warning: model 60.0 GiB"), "model 60.0 GiB")
+        self.assertEqual(engine_warning("basalt warning: older form"), "older form")
+        self.assertIsNone(engine_warning("basalt generate: WARNING: not a marker"))
+        self.assertIsNone(engine_warning("basalt serve: warning: "))
+        self.assertEqual(engine_ram_floor("basalt generate: RAM floor 4.0 GiB"), "4.0 GiB")
+        self.assertIsNone(engine_ram_floor("basalt serve: RAM floor 4.0 GiB"))
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "engine.log"
+            log.write_text("basalt generate: error: an earlier start\n", encoding="utf-8")
+            off = log.stat().st_size
+            with open(log, "a", encoding="utf-8") as f:
+                f.write("basalt generate: GPU 0\nbasalt generate: warning: slow\nbasalt generate: error: first\n"
+                        "basalt serve: error: second\nbasalt serve: no error\n")
+            self.assertEqual(start_errors(str(log), off), ["first", "second"])
+            from serve.engine.progress import start_last_line
+            self.assertEqual(start_last_line(str(log), off), "no error")
+
+    def test_the_draft_head_hint_reads_marked_lines(self):
+        d = tempfile.mkdtemp()
+        p = Path(d) / "engine.log"
+        p.write_text("basalt mtp: warning: the draft head over 106299 tokens needs 348 MiB of VRAM and 120 MiB is free.\n"
+                     "basalt mtp: hint: free VRAM (...)\n"
+                     "basalt serve: error: mtp: the draft head does not fit\n", encoding="utf-8")
+        h = start_failure_hint(str(p), 0)
+        self.assertIn("348 MiB", h)
+        self.assertIn("free VRAM", h)
+
 
 class Tty(io.StringIO):
     def isatty(self):
@@ -1545,8 +1639,8 @@ class LoadProgress(unittest.TestCase):
         bars.finish()
         lines = out.getvalue().splitlines()
         self.assertEqual(len(lines), 1)
-        self.assertTrue(lines[0].startswith("[server] loaded 100.0 GiB in "))
-        self.assertTrue(lines[0].endswith("(system ram 100.0 GiB)"))
+        self.assertTrue(lines[0].startswith("[server] loaded   100.0GiB "))
+        self.assertTrue(lines[0].endswith("ram=100.0GiB"))
 
     def test_phases_add_up_to_one_result(self):
         from serve.engine.progress import LoadBars
@@ -1560,8 +1654,8 @@ class LoadProgress(unittest.TestCase):
         bars.update("cuda1", 2 << 30, 2 << 30, copy=True)
         bars.finish()
         line, = out.getvalue().splitlines()
-        self.assertTrue(line.startswith("[server] loaded 5.0 GiB in "))
-        self.assertTrue(line.endswith("(cuda2 5.0 GiB; cuda3 copy 2.0 GiB)"))
+        self.assertTrue(line.startswith("[server] loaded   5.0GiB "))
+        self.assertTrue(line.endswith("cuda2=5.0GiB cuda3-copy=2.0GiB"))
 
     def test_unfinished_start_is_not_reported(self):
         from serve.engine.progress import LoadBars
@@ -1607,6 +1701,91 @@ class LoadProgress(unittest.TestCase):
         bars.update("ram", 0, 2 << 30)
         self.assertEqual([r.split(" [")[0].split()[-1] for r in bars.lines()], ["cuda2", "cuda3", "ram"])
 
+    def test_the_ngram_table_lock_is_its_own_row_outside_the_total(self):
+        from serve.engine.progress import LoadBars, load_progress
+        self.assertEqual(load_progress("basalt load: ngram 1073741824 3221225472"), ("ngram", 1 << 30, 3 << 30, False))
+        out = Tty()
+        bars = LoadBars(out, gpus=[2, 3])
+        bars.set_total(2 << 30)
+        bars.set_plan("cuda0", 2 << 30)
+        bars.update("cuda0", 2 << 30, 2 << 30)
+        bars.update("ngram", 1 << 30, 3 << 30)                          # no plan line: the total is the plan
+        rows = [r.split("\x1b[2K")[-1] for r in out.getvalue().splitlines()[-2:]]
+        self.assertEqual(rows[0], "[server] loading weights into cuda2".ljust(49) + " [" + "=" * 24 + "]   2.0/2.0 GiB")
+        self.assertEqual(rows[1], "[server] loading the n-gram table into system ram [" + "=" * 8 + ">" + " " * 15 + "]   1.0/3.0 GiB")
+        bars.update("ngram", 3 << 30, 3 << 30)
+        bars.finish()
+        self.assertIn("[server] loaded   2.0GiB ", out.getvalue())     # the table is not part of the loaded bytes
+        self.assertIn("cuda2=2.0GiB", out.getvalue())
+
+    @staticmethod
+    def _screen(raw: str) -> list[str]:
+        """What a terminal shows after `raw`: cursor-up and erase-line moves applied to the written lines."""
+        rows, r = [""], 0
+        for part in re.split(r"(\x1b\[1A|\x1b\[2K|\n)", raw):
+            if part == "\x1b[1A":
+                r = max(0, r - 1)
+            elif part == "\x1b[2K":
+                rows[r] = ""
+            elif part == "\n":
+                r += 1
+                rows += [""] * (r + 1 - len(rows))
+            else:
+                rows[r] += part
+        return [x for x in rows if x]
+
+    def _ple_ram_start(self, out, foreign):
+        """The line sequence of a start with the n-gram table in RAM: the table rows come while cuda0 is loading."""
+        from serve.engine import progress
+        from serve.engine.progress import LoadBars
+        G = 1 << 30
+        bars = progress._active = LoadBars(out, gpus=[0, 1])
+        try:
+            bars.set_total(40 * G)
+            bars.set_plan("cuda0", 30 * G)
+            bars.set_plan("ram", 10 * G)
+            for k in range(1, 6):
+                bars.update("cuda0", 5 * G * k, 30 * G)
+            for k in range(0, 4):
+                bars.update("ngram", 18 * G * k // 3 * 1, 18 * G)
+                bars.update("cuda0", (25 + k) * G, 30 * G)
+            bars.update("cuda0", 30 * G, 30 * G)
+            bars.update("ram", 10 * G, 10 * G)
+            bars.update("ngram", 18 * G, 18 * G)
+            if foreign:
+                progress.server_line("[server] auto flags: spec 7")
+            bars.finish()
+        finally:
+            progress._active = None
+
+    def test_no_live_row_is_left_after_the_loaded_line(self):
+        for foreign in (False, True):
+            out = Tty()
+            self._ple_ram_start(out, foreign)
+            shown = self._screen(out.getvalue())
+            self.assertEqual(len([x for x in shown if "loading" in x]), 0, shown)
+            self.assertTrue(shown[0].startswith("[server] auto ") if foreign else shown[0].startswith("[server] loaded"), shown)
+            self.assertTrue(any(x.startswith("[server] loaded") for x in shown), shown)
+
+    def test_the_ngram_row_is_drawn_while_the_table_loads(self):
+        out = Tty()
+        from serve.engine.progress import LoadBars
+        bars = LoadBars(out)
+        bars.set_plan("cuda0", 4 << 30)
+        bars.update("cuda0", 3 << 30, 4 << 30)
+        bars.update("ngram", 1 << 30, 3 << 30)
+        shown = self._screen(out.getvalue())
+        self.assertEqual([x.split(" [")[0].rstrip() for x in shown],
+                         ["[server] loading weights into cuda0", "[server] loading the n-gram table into system ram"])
+
+    def test_off_a_terminal_only_the_result_line_prints(self):
+        out = io.StringIO()
+        self._ple_ram_start(out, True)
+        lines = out.getvalue().splitlines()
+        self.assertEqual(len(lines), 2, lines)
+        self.assertTrue(lines[0].startswith("[server] auto ") and lines[1].startswith("[server] loaded   40.0GiB"))
+        self.assertNotIn("\x1b", out.getvalue())
+
     def test_kv_is_a_line_after_the_result_and_not_a_load(self):
         from serve.engine.progress import LoadBars, load_kv, load_progress
         self.assertEqual(load_kv("basalt load: kv cuda0 4509715660 262144"), ("cuda0", 4509715660, 262144, "", 4509715660))
@@ -1623,8 +1802,8 @@ class LoadProgress(unittest.TestCase):
         bars.update("cuda0", 2 << 30, 2 << 30)
         bars.finish()
         first, second = out.getvalue().splitlines()
-        self.assertTrue(first.startswith("[server] loaded 2.0 GiB in "))   # the allocation is not in the total
-        self.assertEqual(second, "[server] kv cache: 4.0 GiB on cuda2, 262144 tokens")
+        self.assertTrue(first.startswith("[server] loaded   2.0GiB "))   # the allocation is not in the total
+        self.assertEqual(second, "[server] kv       4.0GiB cuda2 tokens=262144")
 
     def test_kv_line_sums_solo_slots_and_draft_per_device(self):
         from serve.engine.progress import LoadBars
@@ -1635,19 +1814,19 @@ class LoadProgress(unittest.TestCase):
         bars.set_kv("cuda0", 1 << 29, 262144, "draft")
         bars.set_kv("cuda1", 1 << 30, 1000, "slot")
         self.assertEqual(bars.kv_lines(), [
-            "[server] kv cache: 12.5 GiB on cuda2 (solo 262144 tokens + 2 slots x 262144 tokens + draft K/V 0.5 GiB)",
-            "[server] kv cache: 1.0 GiB on cuda3 (1 slot x 1000 tokens)"])
+            "[server] kv       12.5GiB cuda2 solo=262144 slots=2x262144 draft=0.5GiB",
+            "[server] kv       1.0GiB cuda3 slots=1x1000"])
 
     def test_an_elastic_kv_line_reads_backed_over_most(self):
         from serve.engine.progress import LoadBars, load_kv
         bars = LoadBars(io.StringIO(), gpus=[2, 3])
         bars.set_kv(*load_kv("basalt load: kv cuda0 536870912 262144 4294967296"))
         bars.set_kv(*load_kv("basalt load: kv draft cuda0 107374182 262144 429496729"))
-        self.assertEqual(bars.kv_lines(), ["[server] kv cache: 0.6 / 4.4 GiB on cuda2 (elastic)"])
+        self.assertEqual(bars.kv_lines(), ["[server] kv       0.6/4.4GiB cuda2 elastic"])
         slots = LoadBars(io.StringIO())
         slots.set_kv("cuda0", 1 << 29, 262144, "slot", 4 << 30)
         slots.set_kv("cuda0", 1 << 29, 262144, "slot", 4 << 30)
-        self.assertEqual(slots.kv_lines(), ["[server] kv cache: 1.0 / 8.0 GiB on cuda0 (elastic, 2 slots)"])
+        self.assertEqual(slots.kv_lines(), ["[server] kv       1.0/8.0GiB cuda0 elastic slots=2"])
 
     def test_a_target_planned_empty_shows_nothing(self):
         from serve.engine.progress import LoadBars
@@ -1668,7 +1847,7 @@ class LoadProgress(unittest.TestCase):
         bars.update("cuda0", 4 << 30, 4 << 30)
         bars.set_total(4 << 30)                                         # the engine left 2 GiB on the file
         bars.finish()
-        self.assertTrue(out.getvalue().startswith("[server] loaded 4.0 GiB in "))
+        self.assertTrue(out.getvalue().startswith("[server] loaded   4.0GiB "))
 
     def test_names_follow_the_picked_cards(self):
         from serve.engine.progress import LoadBars
@@ -1694,8 +1873,8 @@ class LoadProgress(unittest.TestCase):
         lines = out.getvalue().splitlines()
         self.assertEqual(lines[0], "[server] warning: model 1.0 GiB, free VRAM + RAM 0.5 GiB: slow")
         self.assertEqual(len(lines), 2)
-        self.assertTrue(lines[1].startswith("[server] loaded 0.0 GiB in "))
-        self.assertTrue(lines[1].endswith("(cuda0 0.0 GiB, system ram 0.0 GiB; cuda1 copy 0.0 GiB)"))
+        self.assertTrue(lines[1].startswith("[server] loaded   0.0GiB "))
+        self.assertTrue(lines[1].endswith("cuda0=0.0GiB ram=0.0GiB cuda1-copy=0.0GiB"))
 
     def test_narrator_shows_the_ram_floor_line(self):
         from serve.engine.progress import engine_ram_floor, narrate_start
@@ -1713,7 +1892,7 @@ class LoadProgress(unittest.TestCase):
             time.sleep(0.6)
             done.set()
             t.join(5)
-        self.assertEqual(out.getvalue().splitlines()[0], "[server] RAM floor: " + text)
+        self.assertEqual(out.getvalue().splitlines()[0], "[server] ram      floor " + text)
 
     def test_an_older_engine_without_a_total_counts_bytes(self):
         from serve.engine.progress import narrate_start
@@ -1760,7 +1939,7 @@ class CancelledRead(unittest.TestCase):
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         try:
             for _ in range(3):
-                body = json.dumps({"model": "m", "max_tokens": 10, "messages": [{"role": "user", "content": "hi"}]})
+                body = json.dumps({"model": "qwen3.8-flash-next", "max_tokens": 10, "messages": [{"role": "user", "content": "hi"}]})
                 with urllib.request.urlopen(urllib.request.Request(base + "/v1/chat/completions", data=body.encode(),
                                                                    headers={"Content-Type": "application/json"}),
                                             timeout=30) as r:
@@ -1796,6 +1975,56 @@ class LiveRate(unittest.TestCase):
     def metrics(self):
         with urllib.request.urlopen(self.base + "/metrics", timeout=10) as r:
             return json.loads(r.read())
+
+    def test_done_line_formats(self):
+        from serve.service import done_line, request_timings
+        last = {"prompt_ms": 1200.0, "decode_ms": 8560.0, "generated": 412, "reused": 3700,
+                "drafts_offered": 100, "drafts_accepted": 65}
+        tm = request_timings(3838, 412, last)
+        # 138 newly read tokens: the time, no rate; drafts give acc and dl
+        self.assertEqual(done_line(0, 3838, 412, "stop", False, tm, 1.3, 40.0, 2.9, 0.897, 0.393),
+                         "[server] s1 done  pp=3838/3700c 1.2s  tg=412 48.1t/s acc=65% dl=2.9  ttft=1.3s  "
+                         "end=stop  hit=89.7%  pcie=39.3%")
+        # 512 or more newly read tokens: the read rate, and no cache
+        tm = request_timings(2000, 5, {"prompt_ms": 4000.0, "decode_ms": 500.0, "generated": 5})
+        self.assertEqual(done_line(2, 2000, 5, "length", False, tm, 4.1, 9.0),
+                         "[server] s3 done  pp=2000/0c 4.0s 500t/s  tg=5 10.0t/s  ttft=4.1s  end=length")
+        tm = request_timings(512, 5, {"prompt_ms": 1000.0, "decode_ms": 500.0, "generated": 5})
+        self.assertIn(" 1.0s 512t/s", done_line(0, 512, 5, "stop", False, tm, 1.0, 9.0))
+        tm = request_timings(511, 5, {"prompt_ms": 1000.0, "decode_ms": 500.0, "generated": 5})
+        self.assertIn("pp=511/0c 1.0s  ", done_line(0, 511, 5, "stop", False, tm, 1.0, 9.0))
+        # no drafting: no acc, no dl; a cancel
+        tm = request_timings(3839, 10, {"prompt_ms": 30.0, "decode_ms": 200.0, "generated": 10, "reused": 3838})
+        self.assertEqual(done_line(0, 3839, 10, "cancel", True, tm, 0.2, 50.0, 3.0),
+                         "[server] s1 done  pp=3839/3838c 0.0s  tg=10 50.0t/s  ttft=0.2s  end=cancelled")
+        # no engine clock: the wall rate from 16 tokens, no prompt timing
+        self.assertEqual(done_line(0, 100, 0, "stop", False, None, None, 0.0),
+                         "[server] s1 done  pp=100/0c  tg=0  end=stop")
+        self.assertEqual(done_line(None, 100, 7, "error", False, None, 0.5, 21.0),
+                         "[server] s? done  pp=100/0c  tg=7  ttft=0.5s  end=error")
+        self.assertIn("tg=20 21.0t/s", done_line(0, 100, 20, "stop", False, None, 0.5, 21.0))
+
+    def live(self, rows, now):
+        """The live line for requests given as (slot, generated, max, started-ago, windows, window tokens)."""
+        from types import SimpleNamespace
+        self.svc.engine = SimpleNamespace(batch=4)
+        self.svc.live_reqs = {}
+        for i, (slot, n, mx, ago, w, wt) in enumerate(rows):
+            st = {"busy": True, "slot": slot, "generated": n, "max_tokens": mx, "started": now - ago - 1,
+                  "first_token": now - ago, "windows": w, "window_tokens": wt}
+            self.svc.live_reqs[i] = (st, [])
+        return self.svc.live_line(now)
+
+    def test_the_engine_counts_windows_per_thread(self):
+        eng = ProcessEngine.__new__(ProcessEngine)
+        eng._reset_windows()
+        eng._count_window(3)
+        eng._count_window(2)
+        seen = []
+        t = threading.Thread(target=lambda: seen.append(eng.window_stats()))
+        t.start()
+        t.join()
+        self.assertEqual((eng.window_stats(), seen), ((2, 5), [(0, 0)]))
 
     def test_prefill_rate_excludes_cached_tokens(self):
         import io
@@ -1842,7 +2071,7 @@ class LiveRate(unittest.TestCase):
                     live_samples.append((live["generated"], live["tok_s"]))
                 time.sleep(0.01)
 
-        body = json.dumps({"model": "m", "max_tokens": self.TOKENS, "temperature": 0,
+        body = json.dumps({"model": "qwen3.8-flash-next", "max_tokens": self.TOKENS, "temperature": 0,
                            "messages": [{"role": "user", "content": "hi"}]}).encode()
         watcher = threading.Thread(target=poll, daemon=True)
         watcher.start()
@@ -1880,7 +2109,7 @@ class LiveRate(unittest.TestCase):
         httpd = serve(svc, port=0)
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         try:
-            body = json.dumps({"model": "m", "max_tokens": self.TOKENS, "stream": True,
+            body = json.dumps({"model": "qwen3.8-flash-next", "max_tokens": self.TOKENS, "stream": True,
                                "messages": [{"role": "user", "content": "hi"}]}).encode()
             with urllib.request.urlopen(urllib.request.Request(base + "/v1/chat/completions", data=body,
                                                                headers={"Content-Type": "application/json"}),
@@ -2007,7 +2236,7 @@ class WebApp(unittest.TestCase):
                 self.assertEqual(self.get(path)[0], 404)
 
     def test_metrics(self):
-        data = json.dumps({"model": "m", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5}).encode()
+        data = json.dumps({"model": "qwen3.8-flash-next", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5}).encode()
         urllib.request.urlopen(urllib.request.Request(self.base + "/v1/chat/completions", data=data,
                                                       headers={"Content-Type": "application/json"}), timeout=10).read()
         code, ctype, body = self.get("/metrics")
@@ -2147,7 +2376,7 @@ class UsageAndStatus(unittest.TestCase):
             return r.status, r.read()
 
     def chat(self, path, stream=False):
-        body = {"model": "x", "max_tokens": 20, "messages": [{"role": "user", "content": "hi"}], "stream": stream}
+        body = {"model": "qwen3.8-flash-next", "max_tokens": 20, "messages": [{"role": "user", "content": "hi"}], "stream": stream}
         status, raw = self.request(path, body)
         self.assertEqual(status, 200)
         if not stream:
@@ -2192,7 +2421,7 @@ class UsageAndStatus(unittest.TestCase):
 
     def test_sse_is_not_buffered_by_proxies(self):
         req = urllib.request.Request(self.base + "/v1/chat/completions", headers={"Content-Type": "application/json"},
-                                     data=json.dumps({"model": "m", "stream": True,
+                                     data=json.dumps({"model": "qwen3.8-flash-next", "stream": True,
                                                       "messages": [{"role": "user", "content": "hi"}]}).encode())
         with urllib.request.urlopen(req, timeout=30) as r:
             self.assertEqual(r.headers.get("X-Accel-Buffering"), "no")
@@ -2249,7 +2478,7 @@ class UsageAndStatus(unittest.TestCase):
                       ChatTemplate(ROOT / "serve/chat_template.jinja"))
         httpd = serve(svc, port=0)
         try:
-            data = json.dumps({"model": "x", "max_tokens": 5, "messages": [{"role": "user", "content": "hi"}]}).encode()
+            data = json.dumps({"model": "qwen3.8-flash-next", "max_tokens": 5, "messages": [{"role": "user", "content": "hi"}]}).encode()
             req = urllib.request.Request(f"http://127.0.0.1:{httpd.server_address[1]}/v1/chat/completions", data=data,
                                          headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=30) as r:
@@ -2319,7 +2548,7 @@ class SharingTheGpu(unittest.TestCase):
                 return e.code, json.loads(e.read())
 
     def chat(self):
-        return self.req("/v1/chat/completions", {"model": "m", "messages": [{"role": "user", "content": "hi"}]})
+        return self.req("/v1/chat/completions", {"model": "qwen3.8-flash-next", "messages": [{"role": "user", "content": "hi"}]})
 
     def test_unload_then_the_next_request_loads(self):
         self.assertEqual(self.req("/api/control/unload", {}), (200, {"status": "unloaded"}))
@@ -2476,7 +2705,7 @@ class ThinkingBudget(unittest.TestCase):
                 return e.code, json.loads(e.read())
 
     def openai(self, **extra):
-        return self.post("/v1/chat/completions", {"model": "m", "messages": [{"role": "user", "content": "2+2?"}],
+        return self.post("/v1/chat/completions", {"model": "qwen3.8-flash-next", "messages": [{"role": "user", "content": "2+2?"}],
                                                   "max_tokens": 400, **extra})
 
     def test_off_by_default(self):
@@ -2533,7 +2762,7 @@ class ThinkingBudget(unittest.TestCase):
 
     def test_anthropic_stream(self):
         from serve.service import REASONING_WRAP_UP
-        code, raw = self.post("/v1/messages", {"model": "m", "max_tokens": 400, "stream": True,
+        code, raw = self.post("/v1/messages", {"model": "qwen3.8-flash-next", "max_tokens": 400, "stream": True,
                                                "reasoning_budget_tokens": 30,
                                                "messages": [{"role": "user", "content": "2+2?"}]})
         self.assertEqual(code, 200)
@@ -2544,19 +2773,52 @@ class ThinkingBudget(unittest.TestCase):
         self.assertEqual(text, ThinkingEngine.ANSWER)
         self.assertEqual(evs[-2]["delta"]["stop_reason"], "end_turn")
 
+    def test_thinking_budget_tokens_is_the_same_budget(self):
+        from serve.service import REASONING_WRAP_UP
+        wrap = REASONING_WRAP_UP.split("</think>")[0]
+        code, b = self.openai(thinking_budget_tokens=20)
+        self.assertEqual(code, 200, b)
+        self.assertEqual(b["choices"][0]["message"]["reasoning_content"], ThinkingEngine.THOUGHT[:20] + wrap)
+        code, b = self.openai(reasoning_budget_tokens=10, thinking_budget_tokens=20)    # the existing key wins
+        self.assertEqual(b["choices"][0]["message"]["reasoning_content"], ThinkingEngine.THOUGHT[:10] + wrap)
+
     def test_a_budget_the_thinking_stays_under(self):
         code, b = self.openai(reasoning_budget_tokens=10_000)
         self.assertEqual(b["choices"][0]["message"]["reasoning_content"], ThinkingEngine.THOUGHT)
         self.assertEqual(len(self.engine.prompts), 1)
 
     def test_the_config_default_and_a_request_that_turns_it_off(self):
-        self.svc.reasoning_budget_tokens = 20
+        self.svc.reasoning_budget_tokens = 20                          # what --reasoning-budget-tokens sets
         code, b = self.openai()
         self.assertEqual(len(self.engine.prompts), 2)
         self.assertTrue(b["choices"][0]["message"]["reasoning_content"].startswith(ThinkingEngine.THOUGHT[:20] + "\n"))
         code, b = self.openai(reasoning_budget_tokens=0)
         self.assertEqual(b["choices"][0]["message"]["reasoning_content"], ThinkingEngine.THOUGHT)
         self.assertEqual(len(self.engine.prompts), 3)
+
+    def test_the_launch_default_applies_on_the_anthropic_path_too(self):
+        self.svc.reasoning_budget_tokens = 20
+        code, raw = self.post("/v1/messages", {"model": "qwen3.8-flash-next", "max_tokens": 400, "stream": True,
+                                                "messages": [{"role": "user", "content": "2+2?"}]})
+        self.assertEqual(code, 200)
+        self.assertEqual(self.anthropic_thinking(raw).startswith(ThinkingEngine.THOUGHT[:20]), True)
+
+    def anthropic_thinking(self, raw):
+        evs = [json.loads(line[6:]) for line in raw.splitlines() if line.startswith("data: {")]
+        return "".join(e["delta"].get("thinking", "") for e in evs if e["type"] == "content_block_delta")
+
+    def test_anthropics_budget_tokens_is_the_same_budget(self):
+        from serve.service import REASONING_WRAP_UP
+        wrap = REASONING_WRAP_UP.split("</think>")[0]
+        body = {"model": "qwen3.8-flash-next", "max_tokens": 400, "stream": True,
+                "messages": [{"role": "user", "content": "2+2?"}]}
+        code, raw = self.post("/v1/messages", {**body, "thinking": {"type": "enabled", "budget_tokens": 30}})
+        self.assertEqual(code, 200)
+        self.assertEqual(self.anthropic_thinking(raw), ThinkingEngine.THOUGHT[:30] + wrap)
+        # a budget the request spells out itself wins over Anthropic's
+        code, raw = self.post("/v1/messages", {**body, "reasoning_budget_tokens": 10,
+                                               "thinking": {"type": "enabled", "budget_tokens": 30}})
+        self.assertEqual(self.anthropic_thinking(raw), ThinkingEngine.THOUGHT[:10] + wrap)
 
     def test_without_thinking_there_is_nothing_to_limit(self):
         self.engine.THOUGHT = ""
@@ -2773,7 +3035,7 @@ class RestartWindow(unittest.TestCase):
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         try:
             req = urllib.request.Request(base + "/v1/chat/completions",
-                                         data=json.dumps({"model": "m", "max_tokens": 16,
+                                         data=json.dumps({"model": "qwen3.8-flash-next", "max_tokens": 16,
                                                           "messages": [{"role": "user", "content": "hi"}]}).encode(),
                                          headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=30) as r:
@@ -2788,9 +3050,9 @@ class RestartWindow(unittest.TestCase):
         httpd = serve(svc, port=0)
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         try:
-            for path, body in (("/v1/chat/completions", {"model": "m", "messages": [{"role": "user", "content": "hi"}],
+            for path, body in (("/v1/chat/completions", {"model": "qwen3.8-flash-next", "messages": [{"role": "user", "content": "hi"}],
                                                          "max_tokens": 16}),
-                               ("/v1/messages", {"model": "m", "max_tokens": 16,
+                               ("/v1/messages", {"model": "qwen3.8-flash-next", "max_tokens": 16,
                                                  "messages": [{"role": "user", "content": "hi"}]})):
                 req = urllib.request.Request(base + path, data=json.dumps(body).encode(),
                                              headers={"Content-Type": "application/json"})
@@ -2913,7 +3175,7 @@ class LostStep(unittest.TestCase):
                 svc = Service(eng, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
                 httpd = serve(svc, port=0)
                 base = f"http://127.0.0.1:{httpd.server_address[1]}"
-                body = {"model": "m", "max_tokens": 2, "reasoning_effort": "none", "stream": stream,
+                body = {"model": "qwen3.8-flash-next", "max_tokens": 2, "reasoning_effort": "none", "stream": stream,
                         "messages": [{"role": "user", "content": "hi"}]}
                 try:
                     first = eng.proc

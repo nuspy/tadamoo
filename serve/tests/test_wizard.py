@@ -110,8 +110,8 @@ class Proposals(Isolated):
     def test_the_tested_values_on_a_roomy_pc(self):
         p = loader.wizard_proposal(self.hw(), loader.DEMO_FACTS)
         v = p["values"]
-        self.assertEqual((v["engine.kv"], v["engine.prefill"], v["engine.spec"], v["engine.spec-min-p"]),
-                         ("q4_0", "auto", 7, 0.5))
+        self.assertEqual((v["engine.kv"], v["engine.prefill"], v["engine.spec"]), ("q4_0", "auto", 7))
+        self.assertNotIn("engine.spec-min-p", v)
         self.assertEqual(v["engine.max-context"], 262144)
         self.assertTrue(v["engine.resident-experts"])
         self.assertEqual(v["engine.pool-workers"], 15)
@@ -238,7 +238,7 @@ class Measure(Isolated):
             self.assertTrue(self.sup.measure(values, wait=True))
         return self.sup.status()
 
-    def test_load_calibrate_and_try_the_drafting(self):
+    def test_load_calibrate_and_try_the_verify_windows(self):
         values = {**loader.SAFE, "engine.max-context": 8192}
         st = self.run_measure(values)
         self.assertEqual(st["phase"], "ready", st)
@@ -248,19 +248,16 @@ class Measure(Isolated):
         spec = out["measured"]["spec"]
         best = max(spec.values())
         self.assertEqual(out["values"]["engine.spec"], min(int(s) for s, d in spec.items() if d == best))
-        self.assertIn(out["values"]["engine.spec-min-p"], supervisor.SPEC_MIN_P_TRIES)
-        self.assertEqual(sorted(map(float, out["measured"]["spec_min_p"])), list(supervisor.SPEC_MIN_P_TRIES))
+        self.assertNotIn("engine.spec-min-p", out["values"])
+        self.assertNotIn("spec_min_p", out["measured"])
         self.assertGreater(out["measured"]["decode"], 0)
         written = json.loads(self.cfg.read_text(encoding="utf-8"))["engine"]
         self.assertEqual(written["spec"], out["values"]["engine.spec"])         # the file has the kept values
-        sent = [s for _, s in self.svc.engine.requests if "spec_min_p" in s]
-        self.assertGreaterEqual(len(sent), 3)                                   # per request, no reload
+        self.assertFalse([s for _, s in self.svc.engine.requests if "spec_min_p" in s])   # no per-request floor tries
 
-    def test_the_drafting_floor_reaches_the_engine_per_request(self):
+    def test_the_drafting_floor_is_no_longer_a_per_request_key(self):
         from serve.engine.process import ProcessEngine
-        self.assertIn("spec_min_p=0.3", ProcessEngine.sampling_keys({"spec_min_p": 0.3}))
-        for bad in (1.5, -1, True, "0.5"):
-            self.assertNotIn("spec_min_p", ProcessEngine.sampling_keys({"spec_min_p": bad}))
+        self.assertNotIn("spec_min_p", ProcessEngine.sampling_keys({"spec_min_p": 0.3}))
 
     def test_above_the_plan_it_shrinks(self):
         tight = {**system(), "vram_free": 100 * MiB}

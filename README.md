@@ -449,12 +449,12 @@ it detects, says why, and can check it with a real measurement.
    now is shown, not added: the expert cache sizes itself to the VRAM free at the load, which leaves it to them.
 3. **The model** and its own chat values.
 4. **The computed values**, with their reasons and the prediction: KV cache q4_0, prefill auto, the drafter at spec 7
-   and min-p 0.5 when the file has one, resident experts and the PLE table in RAM when they fit, CPU workers from the
+   when the file has one, resident experts and the PLE table in RAM when they fit, CPU workers from the
    processor, the longest context that fits.
 5. **Measure** (optional, about 5-10 minutes, only with less than 75% of the commit limit in use): the values are
    loaded, the real memory after the load is compared with the plan (a shorter context, then no resident experts,
-   while it is above), the speed is calibrated, the drafting floor is tried per request (0.3, 0.5, 0.7) and the
-   verify windows 5, 7 and 8 (set at the engine's start: one reload each); the fastest is kept (a tie keeps the lower
+   while it is above), the speed is calibrated, and the
+   maximum verify windows 5, 7 and 8 (set at the engine's start: one reload each); the fastest is kept (a tie keeps the lower
    window) and every result is shown.
 6. **Save**: the load profile **Machine Default** (with the model; it becomes the default) and the chat preset
    **Machine Default** (the model's sampling values). **Restore Machine Default** puts them back: in the Loader next
@@ -566,12 +566,12 @@ from then on the plans of that model add what was above (shown as "measured at t
 The built-in profile is computed each time from the hardware found and the chosen model, with the same rules as
 every plan and the wizard: this PC's share of RAM and commit stays free; the VRAM reserve is the wizard's (or its rule,
 with 1 GB for the monitor until the wizard confirms where it is, 1.5 GB in all); the KV cache is q4_0 and the context the longest that
-fits (up to 262,144); the drafter is on (spec 7, min-p 0.5) only when the file has one, image input only when it has a
+fits (up to 262,144); the drafter is on (spec 7) only when the file has one, image input only when it has a
 projector; resident experts and the PLE table in RAM only when they fit; the CPU workers are the performance cores plus
 half the efficiency cores, less one (on a processor without efficiency cores, the physical cores less one). Each value
 comes with its reason in the Loader. As an example, on an RTX 5090 (32 GB, 1 GB used by other programs) with 128 GB of
-RAM and a processor with 8 performance and 16 efficiency cores, the 3-bit file gives: 262,144 tokens, q4_0, spec 7 at
-min-p 0.5, expert cache auto, resident experts, 1.5 GB left free, 15 CPU workers, image input dynamic.
+RAM and a processor with 8 performance and 16 efficiency cores, the 3-bit file gives: 262,144 tokens, q4_0, spec 7,
+expert cache auto, resident experts, 1.5 GB left free, 15 CPU workers, image input dynamic.
 
 ### Where the settings live
 
@@ -772,8 +772,7 @@ Set in the Loader (each with its reason and the live prediction), saved in load 
 | **Context** (`engine.max-context`) | the longest conversation, in tokens (up to 262,144) | the longest that fits ("Valori sicuri" and the wizard pick it); a shorter one leaves more VRAM for experts (a little faster) and needs less commit |
 | **KV cache** (`engine.kv`) | the precision of the attention cache: `fp16`, `int8`, `q4_0`, `k8v4` (INT8 keys, Q4_0 values) | `q4_0`: a quarter of fp16's memory, so long contexts fit; `int8` or `k8v4` for slightly more precise attention at more memory |
 | **Prompt chunks** (`engine.prefill`) | how long prompts are read: `auto` (the largest chunk the expert cache can lend), `auto:8192/16384/32768` (a ceiling), or a fixed size | `auto` |
-| **Verify window** (`engine.spec`, 0-8) | the MTP drafter proposes up to N-1 tokens, the model checks them in one pass; 0 = off | 7 when the file has a drafter (the wizard measures 5, 7 and 8); the output is the same at any value, only the speed changes |
-| **Drafting floor** (`engine.spec-min-p`, 0-1) | a draft is proposed only while the drafter is at least this sure of it | 0.5; the wizard tries 0.3, 0.5 and 0.7. Lower drafts more (more wasted work on hard text), higher drafts less |
+| **Verify window** (`engine.spec`, 0-8) | the longest window: the MTP drafter proposes up to N-1 tokens (fewer when it is unsure), the model checks them in one pass; 0 = off | 7 when the file has a drafter (the wizard measures 5, 7 and 8); the output is the same at any value, only the speed changes |
 | **Expert cache** (`engine.expert-cache`) | expert slots kept in VRAM: `auto` (all the VRAM left after the reserve) or a number | `auto` |
 | **Resident experts** (`engine.resident-experts`) | the experts not in VRAM are copied into RAM once at load, instead of being read from the file | on when they fit in RAM with the free share kept (they take about 50 GiB for the 3-bit file); off on PCs with less RAM, at a cost in speed |
 | **VRAM to leave free** (`engine.vram-reserve-mib`) | VRAM the engine never touches (desktop, driver, other programs) | see [VRAM to leave free](#vram-to-leave-free); the wizard's rule: 0.5 GB + 1.5 GB if the GPU drives the main monitor (about 0.4 GB for a secondary one) |
@@ -825,7 +824,7 @@ configuration with three requests: an answer without reasoning (512 tokens), one
 long prompt (about 8,000 tokens). The result goes to `calibration\<model>.json` in the user data folder, keyed by the
 model and the settings. From then on the predictions of that model start from the calibration of exactly the same settings, else
 from the model's newest one, instead of the built-in reference, and the Loader says which one it used. The wizard's measurement is the same calibration, repeated
-for the drafting floors and verify windows it tries. Next to the speeds, the file keeps the RAM and commit the load
+for the verify windows it tries. Next to the speeds, the file keeps the RAM and commit the load
 really took (see "Measured memory").
 
 ## Language
@@ -911,7 +910,7 @@ bin/basalt serve --model /path/to/model.basalt --host 127.0.0.1 --port 7232 [--a
 
 The server listens on 127.0.0.1 by default; do not expose it beyond that without `--api-key`.
 
-Its web UI is at http://127.0.0.1:7232/: **Chat** streams from the server's own `/v1/chat/completions` (the conversation stays in the browser), **Monitor** and **Hardware** show the live statistics, and **Settings** edits the main fields of the `--config` file (port, parallel, vision, max-context, kv, spec, spec-min-p, expert-cache, prefill) through `GET`/`POST /api/settings`. Values are checked with the server's and engine's own rules, every other key in the file is kept, and the old file is saved as `FILE.bak`. Saving needs the API key when one is set and works only from the PC the server runs on; the changes apply when the server is started again.
+Its web UI is at http://127.0.0.1:7232/: **Chat** streams from the server's own `/v1/chat/completions` (the conversation stays in the browser), **Monitor** and **Hardware** show the live statistics, and **Settings** edits the main fields of the `--config` file (port, parallel, vision, max-context, kv, spec, expert-cache, prefill) through `GET`/`POST /api/settings`. Values are checked with the server's and engine's own rules, every other key in the file is kept, and the old file is saved as `FILE.bak`. Saving needs the API key when one is set and works only from the PC the server runs on; the changes apply when the server is started again.
 
 ### Settings: `--config`
 
@@ -931,7 +930,6 @@ file carries no engine flags. Put every setting in one `basalt_config.json` and 
     "expert-cache": "auto",
     "prefill": "auto",
     "spec": 7,
-    "spec-min-p": 0.5,
     "max-context": 262144,
     "kv": "int8",
     "resident-experts": true,

@@ -4,8 +4,9 @@
 
 Each binary runs as `--serve` with BASE plus any flags after `--` (which replace BASE values). The bench fixtures'
 prompts (conv, struct, prose: comma-separated token ids per line) run at temperature 0 and every token is compared.
-Adaptive swaps and the PCIe share are off so placement cannot drift; pin the tiers too (`-- --peer-slots N
---expert-cache N`) when the builds' VRAM use differs, since auto-sized tiers change rounding.
+Adaptive swaps and the PCIe share are off so placement cannot drift; pin the main card's tier too (`-- --expert-cache
+N`) when the builds' VRAM use differs, since auto-sized tiers change rounding. A second card's tier holds what fits:
+check that its expert count ("peer GPU 1: N experts" in both logs) matches.
 
 Prints "GREEDY IDENTICAL" (exit 0) or "GREEDY DIFFERS" with the first difference (exit 1); exit 2 when an engine fails.
 """
@@ -22,8 +23,8 @@ sys.path.insert(0, str(HERE))
 
 PROMPTS = ("conv", "struct", "prose")
 # flags after `--` replace these
-BASE = ["--spec", "7", "--spec-min-p", "0.5", "--max-context", "8192"]
-PINNED = ["--adapt-swaps", "0", "--peer-adapt-swaps", "0", "--pcie-frac", "0"]
+BASE = ["--spec", "7", "--max-context", "8192"]
+PINNED = ["--adapt-swaps", "0", "--peer-adapt-swaps", "0"]
 
 
 def set_args(args: list[str], extra: list[str]) -> list[str]:

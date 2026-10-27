@@ -30,7 +30,7 @@ RELAX_DEFAULT = (0.0, 0.5, 0.3, 0.2)      # 0 = exact sampling
 KEEP = 5                                  # results kept for each step and model
 
 # the settings a result depends on, by step
-ENGINE_KEYS = ("max-context", "kv", "spec", "spec-min-p", "prefill", "resident-experts", "vram-reserve-mib", "ple-io", "pool-workers", "parallel")
+ENGINE_KEYS = ("max-context", "kv", "spec", "prefill", "resident-experts", "vram-reserve-mib", "ple-io", "pool-workers", "parallel")
 VISION_KEYS = ("vision", "vision-hold", "vision-projector")
 STEP_KEYS = {"memory": ENGINE_KEYS + VISION_KEYS, "speed": ENGINE_KEYS + ("relax", "reps", "power"), "image": VISION_KEYS + ("max-context",),
              "quality": ("kv", "n", "max-context")}

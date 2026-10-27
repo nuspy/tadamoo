@@ -263,8 +263,8 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
   secondary monitor connected to the GPU), asks the user to confirm where the monitor is, what share of RAM and commit
   and how much VRAM to leave free (0.5 GB, +1.5 GB with the main monitor on the GPU, +0.4 GB with a secondary one;
   what other programs use now is shown, not added), computes the values with `loader.safe()`, optionally measures them
-  on a real load (below 75% of the commit limit: real memory against the plan, calibration, the drafting floor per
-  request through the engine's `spec_min_p` key, the verify windows 5, 7 and 8 with one reload each) and saves
+  on a real load (below 75% of the commit limit: real memory against the plan, calibration, the maximum verify
+  windows 5, 7 and 8 with one reload each) and saves
   "Machine Default". Every real load also records the RAM and commit it really took against its plan, per model
   (`calibration\<model>.json`), and later plans add what was above.
 * **The desktop app** `tools\windows\desktop` (`dotnet publish -c Release -o publish`, .NET 8, WebView2) builds

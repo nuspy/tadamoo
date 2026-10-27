@@ -20,9 +20,17 @@ void gr_norm(const float* R, const float* w_norm, float eps, float* xn, uint16_t
 /// F-1: gr_norm without its FP32 output: the row scales rs[t*4 + c] and the BF16 image; gr_mix_r then reads R.
 void gr_norm_rs(const float* R, const float* w_norm, float eps, float* rs, uint16_t* xn16, int64_t T, void* stream,
                 uint16_t* xn16_lo = nullptr);
-/// gr_mix with xn recomputed from R, rs and w_norm exactly as gr_norm computes it (the same bits).
+/// gr_mix with xn recomputed from R, rs and w_norm exactly as gr_norm computes it (the same bits); `mixed` may be null.
 void gr_mix_r(const float* R, const float* rs, const float* w_norm, const float* gated, float* mixed, uint16_t* mixed16,
               int64_t T, void* stream, uint16_t* mixed_h = nullptr, uint16_t* mixed16_lo = nullptr);
+/// The up product gated = lo16 [T, 320] . w_up [10240, 320]^T (BF16 in, FP32 accumulate) and gr_mix_r in one kernel:
+/// the gate rows stay in registers.  Each gate value is one m16n8k16 chain over k from zero, the chain cuBLAS runs
+/// for this product from kUpMixMinT tokens up (it adds k in another order below), so there the outputs are the two
+/// steps' bits.  Any output may be null.  false: a pointer is not aligned for the kernel's vector accesses (nothing ran).
+constexpr int64_t kUpMixMinT = 33;
+bool gr_up_mix(const uint16_t* lo16, const uint16_t* w_up, const float* R, const float* rs, const float* w_norm,
+               float* mixed, uint16_t* mixed16, int64_t T, void* stream, uint16_t* mixed_h = nullptr,
+               uint16_t* mixed16_lo = nullptr);
 /// F-2: gr_write, then gr_norm_rs of the next half (its norm weights) over the rows just written - the same bits as
 /// the two calls, without reading R back.
 void gr_write_norm_rs(float* R, const float* bo, const float* inj, int64_t inj_ld, const float* w_norm_next, float eps,
@@ -40,13 +48,16 @@ void gr_broadcast(const float* e, float* R, int64_t T, void* stream);
 // ---- GDN (state 128, 16 k heads, 48 v heads, 10240 conv channels, 4 taps)
 /// gate[t,h] = softplus(ab[t,h] + dt[h]) * ssm_a[h];  beta[t,h] = sigmoid(ab[t, 48 + h])  (ab: [T, 96])
 void gdn_gates(const float* ab, const float* dt, const float* ssm_a, float* gate, float* beta, int64_t T, void* stream);
-/// The 4-tap causal conv + SiLU over the chunk (history [C][3] in, updated to the chunk's last three inputs), then
-/// the L2 norm of the q and k heads of every token.  h: [T, C].
-void gdn_conv(float* history, const float* qkv, const float* conv_w, float* h, int64_t T, float eps, void* stream);
-/// The recurrence over the chunk, state in registers; y16[t] = rmsnorm(o) * gamma * sigmoid(z) in FP16 (what the
-/// out projection reads); y is FP32 scratch.
+/// The 4-tap causal conv + SiLU over the chunk (history [C][3] in, updated to the chunk's last three inputs).
+/// h: [T, C].
+void gdn_conv(float* history, const float* qkv, const float* conv_w, float* h, int64_t T, void* stream);
+/// The bytes of scratch gdn_recurrence needs for T tokens.
+uint64_t gdn_work_bytes(int64_t T);
+/// The recurrence over the chunk in 16-token chunks (src/prefill/gdn_chunked.cu): q/k L2-normalized (eps) and
+/// rounded to BF16, the state [key][value head][value] kept in FP32; y16[t] = rmsnorm(o) * gamma * sigmoid(z) in FP16
+/// (what the out projection reads); y is FP32 scratch, work gdn_work_bytes(T) bytes.
 void gdn_recurrence(float* state, const float* h, const float* gate, const float* beta, const float* z,
-                    const float* gamma, float eps, float* y, uint16_t* y16, int64_t T, void* stream);
+                    const float* gamma, float eps, void* work, float* y, uint16_t* y16, int64_t T, void* stream);
 
 // ---- MoE
 /// softmax over 512, top-10 (ties to the lower id), weights renormalised over the ten (the native router).

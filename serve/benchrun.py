@@ -65,7 +65,7 @@ def standard_settings(overrides: Optional[dict] = None) -> Dict[str, Any]:
     """The settings every model is tested with, so that the figures compare: the longest context that costs no quality (int8 KV), the drafter on,
     one slot, images read by the engine with the projector released between them."""
     from serve import hardware
-    s = {"max-context": 131072, "kv": "int8", "spec": 7, "spec-min-p": 0.5, "prefill": "auto", "resident-experts": True, "vram-reserve-mib": 1536,
+    s = {"max-context": 131072, "kv": "int8", "spec": 7, "prefill": "auto", "resident-experts": True, "vram-reserve-mib": 1536,
          "ple-io": "direct", "pool-workers": hardware.pool_workers()[0], "parallel": 1, "vision": "dynamic", "vision-hold": "release",
          "vision-projector": "auto"}
     for k, v in (overrides or {}).items():

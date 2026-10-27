@@ -111,18 +111,18 @@ struct PleIoOptions {
     PleIo mode = PleIo::Direct;
     uint32_t max_inflight = 256;     ///< outstanding SSD reads (decode needs 16; a prompt chunk saturates the SSD at 256)
     uint64_t cache_rows = 1u << 20;  ///< bounded row cache: 1,048,576 rows x 90 B ~ 95 MB; 0 disables
-    bool io_thread = true;           ///< reads submitted by a worker thread, not the caller
     /// Mmap mode only (`--ple-io ram`): lock the whole mapped table in RAM at open, so no SSD read ever sits on
-    /// the prompt or token path. Needs RAM for the full table. POSIX only (mlock); `locked()` reports the outcome.
+    /// the prompt or token path. Needs RAM for the full table. Locked through the platform helper (`mlock` on
+    /// Linux, the working-set minimum plus `VirtualLock` on Windows); `locked()` reports the outcome.
     bool lock = false;
-    /// Direct mode with the I/O worker only: keep the SSD awake while rows are asked for - one page of the table
+    /// Direct mode: keep the SSD awake while rows are asked for - one page of the table
     /// after this long without a read (0 = off), until `keepalive_window_s` after the last request for rows
     /// (see PleReader::set_keepalive).
     double keepalive_ms = 0;
     double keepalive_window_s = 60;
 };
 
-/// The PLE table.  Held by pointer-to-impl so this header does not drag `<windows.h>` into every
+/// The PLE table.  Held by pointer-to-impl so this header does not drag the file reader and the I/O ring into every
 /// translation unit that wants the hash.
 class PleTable {
 public:
@@ -149,9 +149,18 @@ public:
     /// prefetch ring or the single-token slot, so a prompt read on another thread cannot collect, or wait on,
     /// the decode path's prefetches. Safe to call concurrently with the decode path's methods.
     bool gather_rows(const uint32_t* rows, size_t n_tokens, float* out, std::string& err);
+    /// Reads the rows of `n_tokens` tokens (16 each) into the reader's row cache and discards them, so a later
+    /// `gather_rows` of the same rows is served from memory.  Direct mode only (no-op otherwise); the gathered
+    /// values are unchanged.  Safe to call concurrently with `gather_rows`.
+    bool warm_rows(const uint32_t* rows, size_t n_tokens, std::string& err);
+    /// Capacity of the row cache in rows (0 when there is none).
+    uint64_t cache_rows() const;
 
     /// Fault injection (Direct mode): every row read completes no earlier than `us` after issue.
     void set_injected_delay_us(double us);
+
+    /// Starts the SSD keep-alive window again from now (see PleReader::rearm_keepalive).
+    void rearm_keepalive();
 
     /// Maps the ORIGINAL second GGUF shard read-only.  The tensor's data does NOT start at file offset 0:
     /// the manifest's `shard2_tensor.offset` is relative to the GGUF's DATA SECTION, and the header before it
@@ -161,7 +170,7 @@ public:
     bool open(const std::string& gguf_path, std::string& err);
     void close();
     bool is_open() const;
-    /// True when `PleIoOptions::lock` was asked for and mlock succeeded (false: pages only pre-touched).
+    /// True when `PleIoOptions::lock` was asked for and the whole table was locked (false: pages only pre-touched).
     bool locked() const;
     uint64_t rows() const;
     /// "IQ4_NL" or "Q5_0".
@@ -186,18 +195,6 @@ private:
     struct Impl;
     Impl* impl_ = nullptr;
 };
-
-// ================================ THE PLE GATHER'S PREFETCH, AND ITS A/B ARM ================================
-//
-// `gather` issues its sixteen row reads as sixteen SEPARATE page faults into a 26.8 GB mapping.  The table
-// is 90 B per row, so the sixteen rows are 1,440 B per token: the cost is latency, not bandwidth, and it comes
-// from taking the sixteen pages one at a time.  A prefetch issues them together.
-//
-// **THIS SWITCH EXISTS SO THE CLAIM CAN BE MEASURED RATHER THAN ASSERTED.**  Cross-build comparisons are
-// unreliable (run-to-run drift is large), so the two arms are alternated inside one session.  Off is
-// `--no-ple-prefetch`.
-void ple_prefetch_enable(bool on);
-bool ple_prefetch_enabled();
 
 
 }  // namespace basalt::kernels

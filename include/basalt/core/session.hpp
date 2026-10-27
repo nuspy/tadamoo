@@ -117,14 +117,30 @@ bool session_kv_unmap(SessionState& s, int64_t cells, std::string& err);
 /// from the reference's own `zeros()`.
 void session_zero(SessionState& s, const ModelGeometry& g, const float* R_init, void* stream);
 
+/// A prompt-time stage's session for layers [layer_lo, layer_hi): only what the prompt path reads and writes - the GDN
+/// recurrences, the QSA layers' K/V and indexers (qsa_prompt_state_carve), the PLE history and the PLE run's device
+/// buffers - at `max_cells`.  `prompt_session_carve` lays pointers out over `base` (DEVICE memory,
+/// `prompt_session_bytes` long) and writes nothing; it may be carved again (another size or place) between prompts.
+/// The PLE weights and table are the caller's to set.
+uint64_t prompt_session_bytes(const ModelGeometry& g, int64_t max_cells, int64_t layer_lo, int64_t layer_hi);
+void prompt_session_carve(const ModelGeometry& g, int64_t max_cells, int64_t k, void* base, SessionState& s,
+                          int64_t layer_lo, int64_t layer_hi);
+/// Zeroes a carved prompt session, as `session_zero` a whole one, on `stream`.
+void prompt_session_clear(SessionState& s, const ModelGeometry& g, void* stream);
+/// Copies the state of layers [layer_lo, layer_hi) from `src` into `dst` through `copy`: the GDN rows, the QSA layers'
+/// cells [cell0, cell1) with their indexers, and the PLE history when the range holds layer 1.  Both sessions hold
+/// those layers whole in VRAM.
+bool session_copy_state(SessionState& dst, const SessionState& src, const ModelGeometry& g, int64_t layer_lo,
+                        int64_t layer_hi, int64_t cell0, int64_t cell1, const DeviceCopy& copy, std::string& err);
+
 /// One token: layers 0..47 in order, each a `block_layer`, and the residual is updated in place.
 ///
 /// `parts` is (k, n_embd) DEVICE memory, filled by the caller - by the CPU expert pool and the VRAM-resident experts.
 /// `moe_layer` consumes it directly; the doorbell protocol's job is to let it be produced DURING the layer rather
 /// than before it, which is a change to *when* the host runs, not to what this function computes.
 ///
-/// `sync_every_layer` inserts a device synchronisation and an error check after EVERY layer.  That is the
-/// `--sync-every-layer` debug mode, and it is deliberately a parameter rather than a compile-time choice: the errors
+/// `sync_every_layer` inserts a device synchronisation and an error check after EVERY layer.  That is a
+/// debug mode, and it is deliberately a parameter rather than a compile-time choice: the errors
 /// it catches (a kernel reading a buffer that a later layer writes) are invisible otherwise, and the synchronisation
 /// it costs is exactly what the fast path avoids.
 bool session_token(const WeightTable& tables, const ModelGeometry& g, int64_t pos, int32_t pos_base,
@@ -344,13 +360,12 @@ using PoolFn = void (*)(void* user, const float* x_f, const int32_t* ids, const 
 ///
 /// Per-token scratch that MUST NOT be reallocated per token.
 ///
-/// **`session_loop` IS CALLED ONCE PER TOKEN, SO ANYTHING IT ALLOCATES IS A PER-TOKEN ALLOCATION**, and these three
+/// **`session_loop` IS CALLED ONCE PER TOKEN, SO ANYTHING IT ALLOCATES IS A PER-TOKEN ALLOCATION**, and these two
 /// must not be:
 ///
 ///   * `cudaHostAlloc` for the pool's pinned staging, freed by an RAII destructor at the end of the call - and
 ///     `cudaFreeHost` IMPLICITLY SYNCHRONISES THE DEVICE, so every token would end with a device sync;
-///   * `cudaEventCreate` / `cudaEventDestroy` for the doorbell probe;
-///   * a host-affinity change (`physical_cores` + pin + restore).
+///   * `cudaEventCreate` / `cudaEventDestroy` for the doorbell probe.
 ///
 /// Own one of these at session setup and pass it in.  **Passing `nullptr` makes the loop allocate and free locally**,
 /// so every existing caller and test is unaffected, but the allocation is then visible at the call site instead of
@@ -359,12 +374,10 @@ struct SessionLoopScratch {
     float* y_miss = nullptr;        ///< pinned host staging for the pool's answer, `parts_bytes` long
     size_t parts_bytes = 0;
     cudaEvent_t probe = nullptr;
-    basalt::kernels::cpu::ThreadAffinity pinned_core{};  ///< affinity to restore, or invalid if the host was not pinned
-    bool pinned = false;
 
-    /// Allocates the buffers and pins the host thread.  Call ONCE, at session setup.
+    /// Allocates the buffers.  Call ONCE, at session setup.
     bool init(size_t parts_bytes_in, std::string& err);
-    /// Frees everything and restores the affinity.  Safe to call twice, or on a default-constructed object.
+    /// Frees everything.  Safe to call twice, or on a default-constructed object.
     void free();
 };
 

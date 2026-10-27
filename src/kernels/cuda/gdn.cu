@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include "basalt/log.hpp"
 
 namespace basalt::kernels {
 namespace {
@@ -154,7 +155,7 @@ void gdn_step(float* state, const float* q, const float* k, const float* v, cons
               const float* beta, float* o, const GdnShapes& s, void* stream) {
     if (s.S <= 0 || s.h_k <= 0 || s.h_v <= 0) return;
     if (s.S > 128) {
-        std::fprintf(stderr, "gdn_step: S = %lld exceeds the staged 128 (`ks`/`qs` are [8][128])\n",
+        basalt::log::error("basalt", "gdn_step: S = %lld exceeds the staged 128 (`ks`/`qs` are [8][128])",
                      (long long) s.S);
         std::exit(1);
     }
@@ -165,7 +166,7 @@ void gdn_step(float* state, const float* q, const float* k, const float* v, cons
     if (stream == nullptr) {
         const cudaError_t e = cudaDeviceSynchronize();
         if (e != cudaSuccess) {
-            std::fprintf(stderr, "gdn_step: %s\n", cudaGetErrorString(e));
+            basalt::log::error("basalt", "gdn_step: %s", cudaGetErrorString(e));
             std::exit(1);
         }
     }
@@ -180,7 +181,7 @@ void gdn_conv_step(float* conv_state, const float* x, const float* kW, float* ou
     if (stream == nullptr) {
         const cudaError_t e = cudaDeviceSynchronize();
         if (e != cudaSuccess) {
-            std::fprintf(stderr, "gdn_conv_step: %s\n", cudaGetErrorString(e));
+            basalt::log::error("basalt", "gdn_conv_step: %s", cudaGetErrorString(e));
             std::exit(1);
         }
     }
@@ -189,42 +190,14 @@ void gdn_conv_step(float* conv_state, const float* x, const float* kW, float* ou
 void gdn_l2_norm(float* x, int64_t rows, int64_t cols, float eps, void* stream) {
     if (rows <= 0 || cols <= 0) return;
     if (cols > 1024) {
-        std::fprintf(stderr, "gdn_l2_norm: cols = %lld exceeds the 1024-wide warp reduction\n", (long long) cols);
+        basalt::log::error("basalt", "gdn_l2_norm: cols = %lld exceeds the 1024-wide warp reduction", (long long) cols);
         std::exit(1);
     }
     gdn_l2_kernel<<<(unsigned) rows, 32, 0, (cudaStream_t) stream>>>(x, (int) cols, eps);
     if (stream == nullptr) {
         const cudaError_t e = cudaDeviceSynchronize();
         if (e != cudaSuccess) {
-            std::fprintf(stderr, "gdn_l2_norm: %s\n", cudaGetErrorString(e));
-            std::exit(1);
-        }
-    }
-}
-
-/// `beta = sigmoid(beta)`, in place, over the `h_v` per-head scalars.
-///
-/// **THIS IS `build_layer_attn_linear`'s SIGMOID, AND LEAVING IT OUT IS WRONG.**  The reference computes
-/// `beta = ggml_sigmoid(ssm_beta @ cur)` and hands the RESULT to the delta net; `gdn_step_kernel` is documented
-/// as `d[h,j] = (v[h,j] - sk[h,j]) * beta[h]` and applies no sigmoid of its own, so the layer glue owes it one.
-/// Passing the raw pre-activation, which is unbounded and signed, makes the delta-net write strength stop being
-/// a fraction and the whole recurrence wrong from layer 0.
-///
-/// **`gdn_parity` CANNOT SEE IT, BECAUSE THAT TEST SUPPLIES ITS OWN `beta`.**  The step kernel is right; the
-/// glue between the projection and the kernel is what owes the sigmoid, so the layer-level parity test is the check.
-__global__ void gdn_beta_gate_kernel(float* __restrict__ beta, int n) {
-    const int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < n) beta[i] = sigmoid_f(beta[i]);
-}
-
-void gdn_beta_gate(float* beta, int64_t h_v, void* stream) {
-    if (beta == nullptr || h_v <= 0) return;
-    const int n = (int) h_v;
-    gdn_beta_gate_kernel<<<(unsigned) ((n + 127) / 128), 128, 0, (cudaStream_t) stream>>>(beta, n);
-    if (stream == nullptr) {
-        const cudaError_t e = cudaDeviceSynchronize();
-        if (e != cudaSuccess) {
-            std::fprintf(stderr, "gdn_beta_gate: %s\n", cudaGetErrorString(e));
+            basalt::log::error("basalt", "gdn_l2_norm: %s", cudaGetErrorString(e));
             std::exit(1);
         }
     }
@@ -237,7 +210,7 @@ void gdn_out_norm(const float* o, const float* z, const float* ssm_norm, float* 
     if (stream == nullptr) {
         const cudaError_t e = cudaDeviceSynchronize();
         if (e != cudaSuccess) {
-            std::fprintf(stderr, "gdn_out_norm: %s\n", cudaGetErrorString(e));
+            basalt::log::error("basalt", "gdn_out_norm: %s", cudaGetErrorString(e));
             std::exit(1);
         }
     }
