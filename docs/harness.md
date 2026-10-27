@@ -1041,6 +1041,12 @@ the folder, and `confirm_from_trace(trace)` to answer questions as the person di
 does the first and prints the divergence. Permissions are decided by the rules you replay under, so a replay under another level is
 the way to see what a change in the rules would have done to a past session.
 
+The LOGS page reaches the same code (section **Session traces**; `serve/traces_api.py`): `GET /api/agent/traces` lists the conversations
+with a saved history, `POST /api/agent/traces/<id>/replay` (`{"mode": "read_only|default|auto", "results": bool}`) replays one with the
+stand-ins, `GET /api/agent/traces/<id>/export` downloads the masked JSONL, and `GET /api/agent/traces/<id>/audit?limit=<n>` verifies the
+hash chain of the audit ledger of the conversation's folder (`status`: `intact`, `broken`, `empty` or `missing`) and returns its newest
+records. The ledger belongs to the folder, not to one conversation.
+
 ## Running code
 
 `run_code` (`harness/tools/execute.py`) runs a snippet in a separate process: Python with the interpreter of Basalt's own
