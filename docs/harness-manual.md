@@ -410,7 +410,8 @@ run) blocks too. A file with a mistake stops the agent from starting, with the r
   through the **Cron Jobs** tab: a list with *Turn on/off*, *Run now* and *Delete*, an editor, the latest results of each job, and a small chat at the right to
   talk a job over. The chat only proposes: *Use in the editor* fills the form, and nothing is saved or turned on until you press *Save* and *Turn on*.
 - **Evaluation**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` runs each task k times on a fresh
-  folder and reports pass@k, pass^k, cost and cache use. These are development comparisons, not headline numbers.
+  folder and reports pass@k, pass^k, cost and cache use (a `--k` below 5 is warned about). These are development comparisons, not headline numbers. Public benchmarks
+  (BFCL, subsets of Terminal-Bench and SWE-bench Pro) are read from a folder you downloaded: `--bfcl DIR`, `--terminal-bench DIR`, `--swebench DIR`.
 - **Replay**: `python -m harness.replay trace.jsonl --mode auto` runs a recorded session again with the recorded model answers and
   reports the first place where the tool calls differ. It tests the harness, not the model. The same replay, a masked JSONL export of
   a conversation and the check of the audit ledger are in the LOGS page, section *Session traces*.

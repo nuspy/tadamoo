@@ -437,7 +437,8 @@ scaduto, non autorizzato a girare) blocca anch'esso. Un file con un errore imped
   occupata. Si gestiscono dalla scheda **Cron Jobs**: un elenco con *Accendi/Spegni*, *Esegui ora* ed *Elimina*, un editor, gli ultimi risultati di ogni job e una
   piccola chat a destra per discuterne uno. La chat propone soltanto: *Usa nell'editor* riempie il modulo, e nulla è salvato o acceso finché non premi *Salva* e *Accendi*.
 - **Valutazione**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` esegue ogni compito k volte su una
-  cartella nuova e riporta pass@k, pass^k, costo e uso della cache. Sono confronti di sviluppo, non numeri da titolo.
+  cartella nuova e riporta pass@k, pass^k, costo e uso della cache (un `--k` sotto 5 viene segnalato). Sono confronti di sviluppo, non numeri da titolo. I benchmark pubblici
+  (BFCL, sottoinsiemi di Terminal-Bench e SWE-bench Pro) si leggono da una cartella che hai scaricato tu: `--bfcl DIR`, `--terminal-bench DIR`, `--swebench DIR`.
 - **Riesecuzione**: `python -m harness.replay trace.jsonl --mode auto` rifà una sessione registrata con le risposte registrate del modello
   e riporta il primo punto in cui le chiamate agli strumenti divergono. Prova l'harness, non il modello. La stessa riesecuzione,
   l'esportazione JSONL mascherata di una conversazione e il controllo del registro di audit sono nella pagina LOGS, sezione *Tracce delle sessioni*.
