@@ -225,7 +225,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 | Modo | Cos'è |
 |---|---|
 | Scheda **Chat** | Conversazioni con l'agente. Ognuna è un processo che resta vivo, con la sua cronologia salvata, quindi un messaggio non paga l'avvio. È il modo principale. |
-| Scheda **Agente** | Un'esecuzione alla volta: una cartella, un compito, una modalità, un registro leggibile e *Torna indietro* a un checkpoint. |
+| Scheda **Agente** | La pagina delle conversazioni, che lavora nelle cartelle che aggiungi: ogni cartella ha le sue conversazioni e un registro `.basalt`, e le modifiche dell'agente si tengono o si annullano blocco per blocco. |
 | `python -m harness -p "compito"` o `basalt-agent` | La riga di comando, per gli script: codici di uscita, `--json`, limiti. `basalt-agent.cmd` funziona da qualunque cartella. |
 | `python -m harness acp` | L'agente di un editor che parla l'Agent Client Protocol, su stdio. |
 
@@ -276,6 +276,12 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
   l'ora in grassetto, la data sotto, in caratteri piccoli.
 - **Le fonti si aprono fuori.** Dopo una notizia o un dato preso dal web, un piccolo pulsante *fonte ↗* apre quella pagina nel browser
   predefinito del sistema (anche dopo un indirizzo scritto nel testo, e per i siti usati da una ricerca o dalla lettura di una pagina).
+- **Skill personali.** Premi *Trasforma in skill* sotto una richiesta, spunta le richieste che fanno parte del compito (oppure scrivi
+  `/start-learn-skill` e `/stop-learn-skill`), e l'harness conserva ciò che hai fatto come uno script Python con le parti che cambiano come
+  parametri: segnate da te con `# una frase #`, o trovate dalle tue parole e dalle date. La riesegui dal bottone *Skill* o con `/skilluse`, con un
+  modulo che legge le date a parole. Quasi tutto è codice semplice, quindi non costa token; il modello serve una volta per scriverla e poi solo dove
+  bisogna capire il linguaggio. Una skill passa a un altro PC come un solo file `.pskill` e arriva *da approvare*. Vedi il
+  [manuale](docs/harness-manual.it.md#17-skill-personali).
 - **Un messaggio mentre lavora** viene indirizzato nel compito, messo in coda o trattato come urgente; **Ferma** vuol dire ferma.
 - **Rami, tornare indietro, confrontare**: un albero di conversazioni, *Torna qui* su ogni richiesta (le azioni che restano avvenute
   sono elencate prima) e due continuazioni della stessa richiesta affiancate.
@@ -294,7 +300,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 - **Hook scritti da te** (`hooks.json`): comandi o blocchi fissi su chiamate di strumenti, turni e sessione; un hook che non riesce a
   decidere blocca.
 - **Checkpoint e ritorno**: l'area di lavoro viene salvata prima della prima modifica di un turno, fuori dal progetto e con limiti di
-  dimensione; `python -m harness.rewind` e il pulsante *Torna indietro* la ripristinano. Tornare indietro non disfa un comando che ha
+  dimensione; `python -m harness.rewind`, `/rewind` e *Torna qui* su un messaggio la ripristinano. Tornare indietro non disfa un comando che ha
   eseguito, e lo dice.
 - **Un registro di audit**: una riga per ogni chiamata di strumento (argomenti con hash e mascherati, la decisione, l'esito), in una
   catena di hash verificabile.
@@ -484,13 +490,13 @@ configurazione guidata calcola ogni valore da quello che rileva, dice perché, e
    programmi usano ora sulla GPU si mostra, non si somma: la cache degli esperti si dimensiona sulla VRAM libera al
    momento del caricamento, che lo lascia a loro.
 3. **Il modello** e i suoi valori per la chat.
-4. **I valori calcolati**, con i motivi e la previsione: cache KV q4_0, prefill auto, il drafter a spec 7 e min-p 0,5
+4. **I valori calcolati**, con i motivi e la previsione: cache KV q4_0, prefill auto, il drafter a spec 7
    quando il file ce l'ha, esperti residenti e tabella PLE in RAM quando ci stanno, i thread della CPU dal processore,
    il contesto più lungo che ci sta.
 5. **Misura** (facoltativa, circa 5-10 minuti, solo con meno del 75% del limite di commit in uso): i valori si
    caricano, la memoria vera dopo il caricamento si confronta con il piano (un contesto più corto, poi niente esperti
-   residenti, finché è sopra), si calibra la velocità, si prova la soglia del drafter per richiesta (0,3, 0,5, 0,7) e
-   le finestre di verifica 5, 7 e 8 (si fissano all'avvio del motore: un ricaricamento ciascuna); si tiene la più
+   residenti, finché è sopra), si calibra la velocità e si provano
+   le finestre massime di verifica 5, 7 e 8 (si fissano all'avvio del motore: un ricaricamento ciascuna); si tiene la più
    veloce (a parità, la finestra più piccola) e si mostrano tutti i risultati.
 6. **Salva**: il profilo di caricamento **Machine Default** (con il modello; diventa il predefinito) e il preset della
    chat **Machine Default** (i valori di campionamento del modello). **Ripristina Machine Default** li rimette: nel
@@ -566,6 +572,25 @@ stati eseguiti con Basalt. Il catalogo è stato letto dai repository il 17/10/20
 si rileggono quando si prepara un download. Le rotte (solo da questo PC e dalla pagina del server): `GET
 /api/models/catalog | download | hf`, `POST /api/models/download-plan | download | download-cancel | hf-token`.
 
+### Convertitore di modelli (Modelli > Convertitore di modelli)
+
+Converte un set GGUF in un file `.basalt` con le scelte che decidono come si comporterà: il **profilo degli esperti** (quello trovato accanto al
+modello, nessuno, un file o quello di un altro modello), il **drafter** (il livello originale di Qwen, nessuno, oppure il livello affinato
+sull'output del modello stesso che hanno i pacchetti ufficiali, letto dal pacchetto con richieste a intervalli e non scaricato intero), il
+**proiettore delle immagini** (quello della cartella, nessuno o un file) e l'arrotondamento a BF16. Il piano mostra il comando, i passi, la
+dimensione e il disco, e rifiuta una scelta sbagliata prima di scrivere qualsiasi cosa.
+
+Accanto, ogni modello pronto si può **provare** in un server a parte con le stesse impostazioni per tutti (così i numeri si confrontano): la
+memoria occupata al caricamento (RAM, commit, VRAM) e il tempo di caricamento, la velocità di scrittura con campionamento esatto e con bozze
+rilassate 0,5, 0,3 e 0,2 (e senza drafter), la velocità di lettura del prompt, una richiesta con immagine e da 100 a 300 domande di matematica
+(gsm8k) valutate sul numero finale. La prova richiede la GPU: un modello caricato viene prima scaricato, e il controllo del Loader deve dire che
+il modello ci sta. Una prova già fatta con le stesse impostazioni viene **proposta per il riuso** (un dialogo chiede, passo per passo: riusa o
+rifai); i risultati restano nella cartella dei dati dell'utente (`bench`) con le impostazioni e il limite di potenza con cui sono stati misurati,
+e il risultato di qualità è condiviso dai file con gli stessi pesi. Il confronto mostra i modelli spuntati e i dati pubblicati dei pacchetti
+ufficiali come riferimento, come **stella** (ogni asse va dal peggiore al migliore dei modelli mostrati, il bordo esterno è sempre il migliore),
+**barre** (un pannello per ogni misura, valori in punta), **punti** (due misure una contro l'altra, una terza come dimensione) o **tabella**;
+ogni segno ha gli stessi numeri nel testo al passaggio, e un modello conserva il suo colore.
+
 ### VRAM da lasciare libera
 
 **VRAM da lasciare libera** (nel Loader e nella configurazione guidata; `engine.vram-reserve-mib`,
@@ -591,12 +616,12 @@ i piani di quel modello aggiungono quello che era in più (mostrato come «misur
 Il profilo incorporato si calcola ogni volta dall'hardware trovato e dal modello scelto, con le stesse regole di ogni
 piano e della configurazione guidata: la quota di RAM e commit di questo PC resta libera; la riserva di VRAM è quella
 della configurazione guidata (o la sua regola, con 1 GB per il monitor finché la configurazione non conferma dov'è:
-1,5 GB in tutto); la cache KV è q4_0 e il contesto il più lungo che ci sta (fino a 262.144); il drafter è acceso (spec 7,
-min-p 0,5) solo se il file ce l'ha, le immagini solo se ha un proiettore; esperti residenti e tabella PLE in RAM solo se
+1,5 GB in tutto); la cache KV è q4_0 e il contesto il più lungo che ci sta (fino a 262.144); il drafter è acceso (spec 7)
+solo se il file ce l'ha, le immagini solo se ha un proiettore; esperti residenti e tabella PLE in RAM solo se
 ci stanno; i thread della CPU sono i core performance più metà dei core efficienza, meno uno (su un processore senza
 core efficienza, i core fisici meno uno). Ogni valore ha il suo motivo nel Loader. Per esempio, su una RTX 5090 (32 GB,
 1 GB usato da altri programmi) con 128 GB di RAM e un processore con 8 core performance e 16 efficienza, il file a 3 bit
-dà: 262.144 token, q4_0, spec 7 a min-p 0,5, cache esperti auto, esperti residenti, 1,5 GB lasciati liberi, 15 thread
+dà: 262.144 token, q4_0, spec 7, cache esperti auto, esperti residenti, 1,5 GB lasciati liberi, 15 thread
 CPU, immagini dynamic.
 
 ### Dove stanno le impostazioni
@@ -799,17 +824,36 @@ si scrivono nelle sezioni `server` / `engine` di `basalt_config.json`. Valgono q
 | **Porta** (`server.port`) | la porta HTTP, predefinita 7232 | cambiala solo per due server insieme o se la 7232 è occupata |
 | **Richieste in parallelo** (`server.parallel`, 1-8) | richieste servite insieme nei posti (slot) del motore | 1 per un utente o un agente (la più veloce per richiesta); di più solo per più agenti insieme. Il contesto si divide: ogni posto ha `max-context / N` |
 | **Contesto intero per posto** (`server.slot-full-context`) | ogni posto ha tutto il contesto invece di una parte | costa N volte la cache KV, presa dalla cache degli esperti: lascialo spento salvo che ogni agente abbia bisogno di tutta la lunghezza |
-| **Immagini** (`server.vision`) | `off`, `dynamic` (prende in prestito posti della cache degli esperti solo mentre legge un'immagine: nessuna VRAM fissa), `on` (encoder sempre sulla GPU, circa 2,2 GiB), `peer` (su una seconda GPU), `cpu` (niente VRAM, lento) | `dynamic` se il file ha un proiettore, altrimenti `off` |
+| **Immagini** (`server.vision`) | `off`, `dynamic` (prende in prestito posti della cache degli esperti solo mentre legge un'immagine: nessuna VRAM fissa), un numero di GPU come `0` (encoder sempre su quella scheda, circa 2,2 GiB della sua VRAM; i vecchi `on` e `peer` si leggono come GPU 0 e GPU 1), `cpu` (niente VRAM, lento) | `dynamic` se il file ha un proiettore, altrimenti `off` |
 | **Contesto** (`engine.max-context`) | la conversazione più lunga, in token (fino a 262.144) | il più lungo che ci sta (lo scelgono «Valori sicuri» e la configurazione guidata); uno più corto lascia più VRAM agli esperti (un po' più veloce) e chiede meno commit |
 | **Cache KV** (`engine.kv`) | la precisione della memoria dell'attenzione: `fp16`, `int8`, `q4_0`, `k8v4` (chiavi INT8, valori Q4_0) | `q4_0`: un quarto della memoria di fp16, così i contesti lunghi ci stanno; `int8` o `k8v4` per un'attenzione un po' più precisa con più memoria |
 | **Blocchi del prompt** (`engine.prefill`) | come si leggono i prompt lunghi: `auto` (il blocco più grande che la cache degli esperti può prestare), `auto:8192/16384/32768` (un tetto), o una misura fissa | `auto` |
-| **Finestra di verifica** (`engine.spec`, 0-8) | il drafter MTP propone fino a N-1 token, il modello li controlla in un passaggio; 0 = spento | 7 se il file ha un drafter (la configurazione guidata misura 5, 7 e 8); il testo è lo stesso a ogni valore, cambia solo la velocità |
-| **Soglia del drafter** (`engine.spec-min-p`, 0-1) | una proposta si fa solo finché il drafter ne è sicuro almeno così | 0,5; la configurazione guidata prova 0,3, 0,5 e 0,7. Più bassa propone di più (più lavoro sprecato sul testo difficile), più alta di meno |
+| **Finestra di verifica** (`engine.spec`, 0-8) | la finestra più lunga: il drafter MTP propone fino a N-1 token (meno quando è incerto), il modello li controlla in un passaggio; 0 = spento | 7 se il file ha un drafter (la configurazione guidata misura 5, 7 e 8); il testo è lo stesso a ogni valore, cambia solo la velocità |
 | **Cache degli esperti** (`engine.expert-cache`) | posti per esperti tenuti in VRAM: `auto` (tutta la VRAM che resta dopo la riserva) o un numero | `auto` |
 | **Esperti residenti** (`engine.resident-experts`) | gli esperti che non sono in VRAM si copiano in RAM una volta al caricamento, invece di leggerli dal file | acceso se ci stanno in RAM tenendo libera la quota (circa 50 GiB per il file a 3 bit); spento sui PC con meno RAM, a costo di velocità |
 | **VRAM da lasciare libera** (`engine.vram-reserve-mib`) | VRAM che il motore non tocca (desktop, driver, altri programmi) | vedi [VRAM da lasciare libera](#vram-da-lasciare-libera); la regola della configurazione guidata: 0,5 GB + 1,5 GB se la GPU comanda il monitor principale (circa 0,4 GB per uno secondario) |
 | **Tabella PLE** (`engine.ple-io`) | la tabella n-gram per strato: `direct` (letta dall'SSD quando serve, mai in RAM), `ram` (bloccata in RAM all'avvio: RAM ma niente commit), `mmap` (una variante di prova) | `ram` se ci sta tenendo libera la quota, altrimenti `direct`; su un disco lento o meccanico meglio `ram` |
 | **Thread CPU** (`engine.pool-workers`) | i thread che calcolano gli esperti che non sono in VRAM | i core performance più metà dei core efficienza, meno uno (un core resta per il server e il desktop) |
+| **KV tenuta in VRAM** (`engine.kv-resident`, 0 o da 20.480 celle) | in VRAM restano solo queste celle della KV di ogni strato, tutta la K/V è bloccata in RAM e la VRAM liberata va agli esperti; un contesto che sta in queste celle non viene trasferito | contesti molto lunghi su una scheda piccola; più lento quanto più si trasferisce; non con `k8v4`. Il piano sposta il pool KV dalla cifra della VRAM a quella della RAM |
+| **Estensione del contesto** (`engine.rope-scaling`: `none`, `linear`, `yarn`) | estende il contesto oltre la lunghezza addestrata | fissa per l'avvio e cambia l'output; vuoto = quella del file del modello |
+| **Fattore di estensione** (`engine.rope-scale`, 1 o più) | il fattore per `linear` e `yarn` | vuoto = quello del file del modello, altrimenti 1 |
+| **Base di frequenza RoPE** (`engine.rope-freq-base`, 0 o sopra 1) | la base di frequenza grezza, 0 = quella del modello | lascia vuoto se non sai il valore che vuoi; fissa per l'avvio |
+| **Quota CPU degli esperti del prompt** (`engine.prefill-cpu-share`, 0-1) | la quota degli esperti del prompt trasferiti che calcola la CPU; 0 fa trasferire tutto alla GPU | 0,6 predefinito; più bassa con una CPU più debole |
+| **Scambi adattivi** (`engine.adapt-swaps`) | il massimo di esperti che un giro adattivo scambia nella cache esperti della GPU principale; 0 = spenti | 96 predefinito; con gli scambi accesi l'output non è identico bit per bit da una volta all'altra |
+| **Budget di RAM per gli esperti** (`engine.resident-budget-gib`, GiB) | al massimo questi GiB di esperti copiati in RAM, i più usati per primi | vuoto = automatico; la cifra di RAM del piano ne è limitata; il motore rifiuta un budget che lascia libera meno RAM del suo margine |
+| **Esperti nella mappatura del file** (`engine.mmap-experts`) | nessuna copia residente in RAM: gli esperti si leggono da una mappatura del file; prevale su esperti residenti e budget di RAM | di solito più lento (dipende dalla cache di pagine del sistema); spento di default |
+| **Cache esperti elastica** (`engine.vram-elastic`) | la cache degli esperti a segmenti, così `POST /v1/vram` può prestare VRAM ad altri programmi tra una richiesta e l'altra | spenta salvo che un altro programma abbia bisogno ogni tanto di VRAM |
+| **Restituisci il commit della memoria GPU** (`engine.release-vram-commit`, Windows) | restituisce il commit di sistema che WDDM addebita per la memoria della GPU | spento; il motore può bloccarsi se un altro programma ne spinge fuori la VRAM |
+| **File del profilo esperti** (`engine.expert-profile-save`, avanzata) | il file in cui il motore salva ciò che la cache adattiva ha imparato, all'uscita e a intervalli | vuoto = non si salva; lo legge `tools/convert/convert.py --profile` |
+| **Intervallo di salvataggio del profilo** (`engine.expert-profile-save-every`, minuti, avanzata) | ogni quanto si salva il profilo; 0 = solo all'uscita | 10 predefinito |
+| **Checkpoint del prompt** (`engine.prompt-cache`) | checkpoint di conversazione tenuti tra una richiesta e l'altra, circa 118 MB di RAM ciascuno per slot; 0 rilegge ogni prompt dall'inizio | 6 predefinito; il piano li conta |
+| **Checkpoint ogni** (`engine.prompt-cache-every`, token) | crea un checkpoint anche ogni N token di prompt appena letti; 0 = spento | 16.384 predefinito |
+| **Checkpoint del primo turno** (`engine.prompt-cache-root`, token) | crea un checkpoint alla fine del prompt di sistema quando è lungo almeno così; 0 = mai | 2.048 predefinito |
+| **Conversazioni parcheggiate** (`engine.conversation-cache-mib`, MiB) | budget di RAM per le conversazioni parcheggiate, così chat separate tornano senza rileggere; 0 = spenta | 0 predefinito; il piano conta l'intero budget |
+| **Conversazioni parcheggiate, al massimo** (`engine.conversation-cache-slots`) | quante conversazioni si parcheggiano per volta | 4 predefinito; 0 spegne la cache |
+| **RAM libera al parcheggio** (`engine.conversation-cache-min-free-mib`, MiB) | il margine di RAM fisica che resta libero quando si parcheggia una conversazione | 2.560 predefinito |
+| **Grammatica** (`server.grammar`) | tiene ogni chiamata di strumento e ogni formato di risposta JSON al suo schema dentro il motore | acceso di default; vale al prossimo Carica |
+| **Budget di ragionamento predefinito** (`server.reasoning-budget-tokens`) | il budget di ragionamento per le richieste che non ne indicano uno; 0 = nessuno | tienilo sotto il `max_tokens` delle richieste; vale al prossimo Carica |
 
 Una regola in più vale per il PC, non per il profilo: la **quota di RAM e commit lasciata libera** agli altri
 programmi (15% se la configurazione guidata non ha avuto un'altra risposta, dal 5 al 50%, almeno 2 GB). Ogni piano,
@@ -860,7 +904,7 @@ ragionamento (1.024 token) e un prompt lungo (circa 8.000 token). Il risultato v
 cartella dei dati, legato al modello e alle impostazioni. Da lì in poi le previsioni di quel modello partono dalla
 calibrazione delle stesse identiche impostazioni, altrimenti dalla più recente del modello, invece che dal riferimento
 incorporato, e il Loader dice quale ha usato. La misura della configurazione guidata è la stessa calibrazione, ripetuta
-per le soglie del drafter e le finestre di verifica che prova. Accanto alle velocità, il file conserva RAM e commit
+per le finestre di verifica che prova. Accanto alle velocità, il file conserva RAM e commit
 presi davvero dal caricamento (vedi «Memoria misurata»).
 
 ## Lingua
@@ -876,6 +920,47 @@ Per avere tutto in italiano una volta per tutte:
 ```powershell
 .venv\Scripts\python -m serve.lang set it
 ```
+
+## Misure della comunità
+
+Righe inviate al progetto originale (`docs/community/benchmarks.json` di `jesdga95/basalt`, copiate il 2026-10-26, 25 prove), tutte prese con
+`basalt-bench --community`, quindi confrontabili tra loro: velocità di lettura di un prompt da 16k token (token/s) e velocità di scrittura
+(token/s), ciascuna con il limite di potenza della GPU con cui è stata fatta. Il merito è di chi le ha inviate. Le due righe in fondo sono
+**le nostre misure di sviluppo** su questo fork (Windows, RTX 5090, 600 W, 127,6 GiB di RAM) e **non usano lo stesso metodo**: la scrittura è
+una richiesta di chat con temperatura 0,6 e il drafter acceso, la lettura è un testo ripetuto da 13,5k token, e il modello è la versione
+Uncensored di OrcaRouter della stessa architettura. Le righe della stessa fonte si confrontano tra loro; queste due con le altre solo come
+ordine di grandezza.
+
+| GPU | Potenza | RAM GiB | SO | Quant | Prompt 16k tok/s | Scrittura tok/s | Inviata da |
+|---|---|---|---|---|---|---|---|
+| 2x RTX 5090 32 GB | 500 W | 123 | Linux | NVFP4 | 7.740 | 461 | neuro |
+| RTX 5060 Ti + RTX 5090 32 GB | 400 W | 121 | Linux | NVFP4 | 7.741 | 438 | jesdga95 |
+| RTX 5090 32 GB | 575 W | 62 | Linux | IQ3_S | 5.677 | 376 | knoopx |
+| RTX 5090 32 GB | 500 W | 62 | Linux | IQ3_S | 8.859 | 375 | drakiss79 |
+| RTX 5090 32 GB | 500 W | 62 | Linux | IQ3_XXS | 8.784 | 564 | drakiss79 |
+| RTX 5090 32 GB | 475 W | 247 | Linux | NVFP4 | 9.556 | 312 | giveen |
+| RTX 5090 32 GB | 500 W | 62 | Linux | NVFP4 | 9.289 | 305 | drakiss79 |
+| RTX 5090 32 GB | 500 W | 191 | Windows | NVFP4 | 2.431 | 199 | HenryPDT |
+| RTX 5090 32 GB | 400 W | 121 | Linux | NVFP4 | 7.732 | 317 | jesdga95 |
+| RTX 5090 Laptop GPU 24 GB | 175 W | 47 | WSL2 | IQ3_XXS | 3.892 | 243 | pyj99_fr |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 123 | Linux | IQ3_S | 3.226 | 187 | foolio |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 126 | Linux | IQ3_S | 3.236 | 158 | fukc-gihtub |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 123 | Linux | IQ3_XXS | 3.169 | 202 | foolio |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 126 | Linux | IQ3_XXS | 2.894 | 189 | fukc-gihtub |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 123 | Linux | NVFP4 | 4.072 | 131 | foolio |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 126 | Linux | NVFP4 | 3.316 | 96 | fukc-gihtub |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 126 | Linux | Q4_K_XL | 2.983 | 72 | fukc-gihtub |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 123 | Linux | UD-Q4_K_XL | 2.866 | 104 | foolio |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 123 | Linux | UD-Q5_K_XL | 2.981 | 77 | foolio |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 123 | Linux | UD-Q6_K_XL | 2.674 | 66 | foolio |
+| 2x RTX 5060 Ti 16 GB | 180 W | 60 | Linux | IQ3_S | 2.370 | 161 | KimDaeHwan99 |
+| RTX 5060 Ti 16 GB | 180 W | 121 | Linux | IQ3_S | 2.427 | 137 | jesdga95 |
+| RTX 5060 Ti 16 GB | 180 W | 121 | Linux | NVFP4 | 2.687 | 92 | jesdga95 |
+| RTX 5080 16 GB | 360 W | 88 | WSL2 | IQ3_S | 3.180 | 138 | lindworm-hermes2026 |
+| RTX 5080 16 GB | 360 W | 88 | WSL2 | Q4_K_XL | 2.835 | 78 | lindworm-hermes2026 |
+| RTX 5090 32 GB | 600 W | 127,6 | Windows | IQ3_XXS (questo fork, metodo nostro) | 7.319 | 179 (esatta) / 195 (rilassata 0,3) | questo fork |
+| RTX 5090 32 GB | 600 W | 127,6 | Windows | IQ4_XS (questo fork, metodo nostro) | 5.206 | 100 (esatta) / 117 (rilassata 0,3) | questo fork |
+
 
 ## Licenza
 

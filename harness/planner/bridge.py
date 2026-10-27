@@ -31,7 +31,7 @@ HISTORY_SHOWN = 30
 # who made a change: the person at the page, the Chat for the person, the planner's own re-planning, the system
 ACTORS = ("user", "chat", "planner", "system")
 # events that write straight into the plan; they may carry `base_rev`, the revision the sender last read
-DIRECT = ("plan:update_node", "plan:mark", "plan:rewind", "plan:update_meta", "plan:fallback_response")
+DIRECT = ("plan:update_node", "plan:move", "plan:mark", "plan:rewind", "plan:update_meta", "plan:fallback_response")
 TARGET_TYPES = ("constant", "occasional")
 TITLE_CHARS = 200
 
@@ -132,7 +132,7 @@ class PlanCanvasBridge:
 
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
-            return {"plan": self.dag.to_dict(), "seq": self.seq, "rev": self.rev, "layers": self.dag.layers(),
+            return {"plan": self.dag.to_dict(), "seq": self.seq, "rev": self.rev, "layers": self.dag.layers(), "order": self.dag.list_order(),
                     "card": self.card.to_dict() if self.card else None, "profile": self.profile.to_dict(),
                     "review_due": self.dag.target_type == "constant" and self.profile.review_due(), "alignment": self.alignment,
                     "history": list(self.history)[-HISTORY_SHOWN:],
@@ -146,7 +146,7 @@ class PlanCanvasBridge:
         """Applies one event. Returns {"ok": True, ...} or {"ok": False, "error": ...}; never raises for bad input."""
         kind = event.get("type") if isinstance(event, dict) else None
         handlers = {
-            "plan:get": self._get, "plan:update_node": self._update_node, "plan:mark": self._mark,
+            "plan:get": self._get, "plan:update_node": self._update_node, "plan:move": self._move, "plan:mark": self._mark,
             "plan:rewind": self._rewind, "plan:rewind_impact": self._rewind_impact, "plan:note_effect": self._note_effect, "plan:propose_diff": self._propose, "plan:approve": self._approve,
             "plan:reject": self._reject, "plan:human_fallback": self._offer_fallback,
             "plan:fallback_response": self._answer_fallback, "plan:update_meta": self._update_meta, "plan:event": self._feed,
@@ -192,6 +192,13 @@ class PlanCanvasBridge:
         self._bump("update_node", node.title)
         self._emit("plan:node_updated", {"node": node_to_dict(node)})
         return {"node": node_to_dict(node), "ready": self.dag.ready_nodes()}
+
+    def _move(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        self.dag.move_node(e["node_id"], e.get("direction"))
+        node = self.dag.nodes[e["node_id"]]
+        self._bump("move", node.title)
+        self._emit("plan:graph", {"seq_graph": True})
+        return {"order": self.dag.list_order(), "ready": self.dag.ready_nodes()}
 
     def _mark(self, e: Dict[str, Any]) -> Dict[str, Any]:
         retry = self.dag.mark(e["node_id"], e["status"], e.get("outputs"))
@@ -398,6 +405,11 @@ class PlanStore:
             self._bridges[dag.plan_id] = bridge
             self.save(dag.plan_id)
             return bridge
+
+    def exists(self, plan_id: str) -> bool:
+        """Whether the id is taken by a plan, an archived one or a route of the server."""
+        with self._lock:
+            return (plan_id in RESERVED_IDS or plan_id in self._bridges or self._path(plan_id).exists() or self._archived_path(plan_id).exists())
 
     def get(self, plan_id: str, replanner: Optional[Replanner] = None) -> PlanCanvasBridge:
         with self._lock:

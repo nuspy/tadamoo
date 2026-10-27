@@ -7,11 +7,49 @@ from __future__ import annotations
 import os
 import threading
 
-from serve import loader, settings
-from serve.config import PARALLEL_MAX
+from serve import hardware, loader, settings
+from serve.config import PARALLEL_MAX, engine_flags_of, engine_words
 from serve.engine.vision import VISION_MODES
 
 FIELD_NAMES = [f"{s}.{k}" for s, k in settings.LOADER_FIELDS]
+
+
+_flags_cache: dict = {}
+
+
+def engine_flags(engine_bin: str | None) -> set[str] | None:
+    """The flags the engine binary knows (config.engine_flags_of), read again only when the file changes."""
+    try:
+        st = os.stat(engine_bin)
+    except (OSError, TypeError):
+        return None
+    key = (str(engine_bin), st.st_mtime_ns, st.st_size)
+    if _flags_cache.get("key") != key:
+        _flags_cache.update(key=key, flags=engine_flags_of(engine_bin))
+    return _flags_cache["flags"]
+
+
+def known_flags(svc) -> set[str] | None:
+    """The flags this server's engine binary knows; None for the mock engine or when the binary cannot be read."""
+    sup = sup_of(svc)
+    if sup.mock:
+        return None
+    try:
+        return engine_flags(sup._parse()[0].engine_bin)
+    except (ValueError, SystemExit, AttributeError):
+        return None
+
+
+def unsupported(values: dict, known: set[str] | None) -> list[str]:
+    """The Loader fields among `values` that would pass an engine flag the binary does not know."""
+    if known is None:
+        return []
+    out = []
+    for name, value in values.items():
+        section, key = name.split(".", 1)
+        if section == "engine" and value is not None and engine_words(key, value) and f"--{key}" not in known:
+            out.append(name)
+    return out
 
 
 def sup_of(svc):
@@ -49,6 +87,8 @@ def _holds(svc, sup):
     """What the running engine gives back when a load stops it: its process memory, and the VRAM its own settings
     planned (the GPU cannot say per process under WDDM)."""
     holds = loader.engine_holds(svc.engine)
+    side = loader.engine_holds(getattr(svc, "vision", None))        # the image encoder's own process, when it has one
+    holds = {"ram": holds["ram"] + side["ram"], "commit": holds["commit"] + side["commit"]}
     vram = 0
     if holds["ram"] or holds["commit"]:
         running = (getattr(svc, "settings_info", None) or {}).get("running") or {}
@@ -84,16 +124,23 @@ def facts_of(svc, model: str | None) -> dict:
         raise ValueError(f"model: {e}") from None
 
 
+def with_projectors(facts: dict) -> dict:
+    """The facts and the projector files of the models folders, which a model can read images with."""
+    from serve import models
+    return {**facts, "projectors": models.projector_files()}
+
+
 def evaluate(svc, values: dict, lang: str = "en", model: str | None = None) -> dict:
     """The plan and speed of `values` ({"engine.kv": "q4_0", ...}; None = the engine's default) against now, for the
     running model or `model` (a .basalt file)."""
     sup = sup_of(svc)
-    facts = facts_of(svc, model)
+    facts = with_projectors(facts_of(svc, model))
     holds, holds_vram = _holds(svc, sup)
     system = loader.system_now(getattr(svc, "gpu_index", 0))
     p = loader.plan(values, facts, system, holds, holds_vram)
     p["model"] = {k: v for k, v in facts.items() if k != "path"} | {"path": facts.get("path")}
-    from serve import hardware
+    mode = str(p["values"].get("server.vision"))
+    p["vision_gpu"] = {"index": int(mode), "name": hardware.gpu_name(mode)} if mode.isdigit() else None
     p["gpu"] = hardware.gpu(getattr(svc, "gpu_index", 0))
     p["warnings"] = loader.reserve_warnings(values, p["gpu"])
     cal = loader.best_calibration(facts, values)
@@ -110,6 +157,8 @@ def clean(values) -> dict:
         raise ValueError('send {"values": {"engine.kv": "q4_0", ...}}')
     out = {}
     for name, value in values.items():
+        if name in settings.REMOVED_KEYS:
+            continue
         if name not in FIELD_NAMES:
             raise ValueError(f"{name}: not a field the Loader sets")
         section, key = name.split(".", 1)
@@ -132,7 +181,8 @@ def info(svc, local: bool, lang: str = "en") -> dict:
            "from_command_line": [n for n in si.get("cli") or [] if n in FIELD_NAMES], "fields": FIELD_NAMES,
            "defaults": loader.ENGINE_DEFAULTS, "editable": False, "reason": "",
            "limits": {"parallel_max": PARALLEL_MAX, "spec_max": settings.SPEC_MAX, "kv": list(settings.KV_MODES),
-                      "vision": list(VISION_MODES), "ple_io": list(settings.PLE_IO_MODES),
+                      "vision": list(VISION_MODES), "gpus": hardware.gpu_list(),
+                      "windows": os.name == "nt", "ple_io": list(settings.PLE_IO_MODES),
                       "context_max": loader.CONTEXT_UI_MAX, "prefill_ceilings": list(settings.PREFILL_CEILINGS),
                       "pool_workers_max": settings.POOL_WORKERS_MAX, "cpu_threads": os.cpu_count()},
            "status": sup.status(), "mock": sup.mock, "standby": bool(getattr(svc, "standby", False)),
@@ -145,10 +195,10 @@ def info(svc, local: bool, lang: str = "en") -> dict:
     except ValueError:
         out["plan"] = evaluate(svc, values, lang)
         facts = sup.facts
+    out["unsupported"] = unsupported({f: 1 for f in FIELD_NAMES}, known_flags(svc))
     why = {}
-    out["safe"] = loader.safe(facts, system, holds, holds_vram, why=why)
+    out["safe"] = loader.safe(with_projectors(facts), system, holds, holds_vram, why=why)
     out["safe_why"] = {k: {"en": en, "it": it} for k, (en, it) in why.items()}
-    from serve import hardware
     out["gpu"] = out["plan"]["gpu"]
     out["gpu_warning"] = {"it": hardware.gpu_warning(out["gpu"], "it"), "en": hardware.gpu_warning(out["gpu"], "en")}
     out["reserve"] = {"default_mib": out["safe"]["engine.vram-reserve-mib"],
@@ -190,6 +240,11 @@ def load(svc, req: dict) -> dict:
         raise Refused(400, {"error": {"type": "invalid_request_error", "message": str(e)}}) from None
     merged = {**file_values(svc), **values}
     merged = {k: v for k, v in merged.items() if v is not None and k in FIELD_NAMES}
+    refused = unsupported(merged, known_flags(svc))
+    if refused:
+        raise Refused(400, {"error": {"type": "invalid_request_error", "code": "unknown_flag",
+                                      "message": ", ".join(f"--{n.split('.', 1)[1]}" for n in refused)
+                                      + ": this engine binary does not know the flag; build the engine again or leave the field empty"}})
     p = evaluate(svc, merged, model=model)
     if not p["fits"]:
         raise Refused(422, {"error": {"type": "insufficient_memory", "code": "does_not_fit",

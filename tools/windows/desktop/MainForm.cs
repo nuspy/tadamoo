@@ -78,6 +78,9 @@ sealed class MainForm : Form
         string data = Environment.GetEnvironmentVariable("BASALT_DATA");
         statePath = opt.TestMock ? Path.Combine(Path.GetTempPath(), "basalt-desktop-test", "desktop.json")
                   : Path.Combine(string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello") : data, "desktop.json");
+        LoadWindow();
+        Resize += (_, _) => { if (WindowState != FormWindowState.Minimized) lastState = WindowState; };
+        ResizeEnd += (_, _) => SaveWindow();
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(Tr.T("Apri", "Open"), null, (_, _) => ShowWindow());
@@ -741,7 +744,7 @@ sealed class MainForm : Form
         return p.TryGetProperty("load", out var load) && load.EnumerateArray().Any(x => x.GetProperty("name").GetString() == "Machine Default");
     }
 
-    /// <summary>The page asks for the folder dialog: {"type": "pickFolder", "id": ..., "path": ...}; the answer is
+    /// <summary>The page asks for the folder dialog: {"type": "pickFolder", "id": ..., "path": ..., "title"?: ...}; the answer is
     /// {"type": "folder", "id": ..., "path": ...} (no path when cancelled).</summary>
     void OnWebMessage(object sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
@@ -751,7 +754,8 @@ sealed class MainForm : Form
             if (m.GetProperty("type").GetString() != "pickFolder") return;
             string id = m.TryGetProperty("id", out var i) ? i.GetString() : "";
             string start = m.TryGetProperty("path", out var sp) && sp.ValueKind == JsonValueKind.String ? sp.GetString() : null;
-            using var dlg = new FolderBrowserDialog { Description = Tr.T("Cartella dei modelli", "Models folder"), UseDescriptionForTitle = true, ShowNewFolderButton = false };
+            string title = m.TryGetProperty("title", out var tp) && tp.ValueKind == JsonValueKind.String && tp.GetString().Length > 0 ? tp.GetString() : Tr.T("Cartella dei modelli", "Models folder");
+            using var dlg = new FolderBrowserDialog { Description = title, UseDescriptionForTitle = true, ShowNewFolderButton = title != Tr.T("Cartella dei modelli", "Models folder") };
             if (!string.IsNullOrEmpty(start) && Directory.Exists(start)) dlg.InitialDirectory = start;
             string path = dlg.ShowDialog(this) == DialogResult.OK ? dlg.SelectedPath : null;
             web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "folder", id, path }));
@@ -976,8 +980,40 @@ sealed class MainForm : Form
         Activate();
     }
 
+    // ------------------------------------------------------------------ the window's place and size, kept between runs
+    FormWindowState lastState = FormWindowState.Normal;       // the state before a minimize
+
+    bool KeepsWindow => !opt.TestMock || opt.TestWindow;
+
+    /// <summary>Opens where and as large as the window was last, when enough of it still lies on a screen.</summary>
+    void LoadWindow()
+    {
+        if (!KeepsWindow || ReadState("window") is not string text) return;
+        try
+        {
+            var w = JsonDocument.Parse(text).RootElement;
+            var r = new Rectangle(w.GetProperty("x").GetInt32(), w.GetProperty("y").GetInt32(), w.GetProperty("w").GetInt32(), w.GetProperty("h").GetInt32());
+            r.Width = Math.Max(r.Width, MinimumSize.Width);
+            r.Height = Math.Max(r.Height, MinimumSize.Height);
+            var bar = new Rectangle(r.X, r.Y, r.Width, 40);                  // the title bar must be reachable
+            if (!Screen.AllScreens.Any(s => Rectangle.Intersect(s.WorkingArea, bar) is { Width: >= 100, Height: >= 20 })) return;
+            StartPosition = FormStartPosition.Manual;
+            Bounds = r;
+            if (w.TryGetProperty("max", out var m) && m.ValueKind == JsonValueKind.True) WindowState = FormWindowState.Maximized;
+        }
+        catch { }
+    }
+
+    void SaveWindow()
+    {
+        if (!KeepsWindow || !IsHandleCreated) return;
+        var r = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        WriteState("window", new { x = r.X, y = r.Y, w = r.Width, h = r.Height, max = lastState == FormWindowState.Maximized });
+    }
+
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        SaveWindow();
         if (!exiting && e.CloseReason == CloseReason.UserClosing && (web.Visible || ours))
         {
             e.Cancel = true;                               // the server keeps running: the window goes to the tray

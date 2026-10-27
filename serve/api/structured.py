@@ -1,11 +1,68 @@
-"""JSON response formats: the schema goes in the prompt and the answer is validated before delivery; generation is not
-constrained (the engine has no grammar sampler). /v1/chat/completions tries again with the error fed back
-(api/openai.py structured_retry_chunks); a last failure is an error.
+"""JSON response formats: the request is checked here; the engine enforces the schema with a grammar. As a fallback a request
+can ask for tries (`structured_retries`): the answer is then validated here and, when it fails (a cut-off answer, a rule the
+grammar does not express), generated again with the error fed back (api/openai.py structured_retry_chunks).
 
 `jsonschema` is optional: without it json_schema only checks for one JSON object (said once).
 """
 import json
 import threading
+
+
+def check_format(response_format) -> bool:
+    """True for a JSON response format (json_object or json_schema), False for plain text. ValueError for a request
+    the server cannot take."""
+    if response_format is None:
+        return False
+    if not isinstance(response_format, dict):
+        raise ValueError("response_format must be an object")
+    kind = response_format.get("type")
+    if kind == "text":
+        return False
+    if kind == "json_object":
+        return True
+    if kind != "json_schema":
+        raise ValueError("response_format.type must be text, json_object or json_schema")
+    spec = response_format.get("json_schema")
+    if not isinstance(spec, dict) or not isinstance(spec.get("schema"), dict):
+        raise ValueError("response_format.json_schema needs a schema object")
+    if not isinstance(spec.get("name"), str) or not spec["name"]:
+        raise ValueError("response_format.json_schema needs a name")
+    if "strict" in spec and not isinstance(spec["strict"], bool):
+        raise ValueError("response_format.json_schema.strict must be boolean")
+    if spec["schema"].get("type") != "object":
+        raise ValueError("response_format schema must have type object at its root")
+
+    def check_refs(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in ("$ref", "$dynamicRef") and isinstance(value, str) and not value.startswith("#"):
+                    raise ValueError("response_format supports only local schema references (#...)")
+                check_refs(value)
+        elif isinstance(node, list):
+            for value in node:
+                check_refs(value)
+    check_refs(spec["schema"])
+    return True
+
+
+def anthropic_format(req: dict):
+    """The chat path's response_format for an Anthropic request's `output_config.format` (or the older top-level
+    `output_format`), or None for plain text. ValueError for a request the server cannot take."""
+    out = req.get("output_config")
+    fmt = out.get("format") if isinstance(out, dict) else None
+    where = "output_config.format"
+    if fmt is None and req.get("output_format") is not None:
+        fmt, where = req["output_format"], "output_format"
+    if fmt is None:
+        return None
+    if not isinstance(fmt, dict) or fmt.get("type") != "json_schema":
+        raise ValueError(f"{where}.type must be json_schema")
+    response_format = {"type": "json_schema", "json_schema": {"name": "output", "schema": fmt.get("schema")}}
+    try:
+        check_format(response_format)
+    except ValueError as e:
+        raise ValueError(str(e).replace("response_format.json_schema", where).replace("response_format", where)) from None
+    return response_format
 
 
 class StructuredOutputError(RuntimeError):
@@ -48,71 +105,28 @@ def jsonschema_modules():
         return _jsonschema or None
 
 
-def prepare_format(response_format, messages):
-    if response_format is None:
-        return messages, None
-    if not isinstance(response_format, dict):
-        raise ValueError("response_format must be an object")
-    kind = response_format.get("type")
-    if kind == "text":
-        return messages, None
-    if kind == "json_object":
-        schema = {"type": "object"}
-        modules = None                 # the standard library is enough for "one JSON object"
-    elif kind == "json_schema":
-        spec = response_format.get("json_schema")
-        if not isinstance(spec, dict) or not isinstance(spec.get("schema"), dict):
-            raise ValueError("response_format.json_schema needs a schema object")
-        if not isinstance(spec.get("name"), str) or not spec["name"]:
-            raise ValueError("response_format.json_schema needs a name")
-        if "strict" in spec and not isinstance(spec["strict"], bool):
-            raise ValueError("response_format.json_schema.strict must be boolean")
-        schema = spec["schema"]
-        if schema.get("type") != "object":
-            raise ValueError("response_format schema must have type object at its root")
-        modules = jsonschema_modules()
-    else:
-        raise ValueError("response_format.type must be text, json_object or json_schema")
-
-    def check_refs(node):
-        if isinstance(node, dict):
-            for key, value in node.items():
-                if key in ("$ref", "$dynamicRef") and isinstance(value, str) and not value.startswith("#"):
-                    raise ValueError("response_format supports only local schema references (#...)")
-                check_refs(value)
-        elif isinstance(node, list):
-            for value in node:
-                check_refs(value)
-    check_refs(schema)
+def json_validator(response_format):
+    """What an answer must pass for this response_format: one JSON object, and its schema when jsonschema is installed. None
+    for plain text. ValueError for a request the server cannot take (check_format's rules)."""
+    if not check_format(response_format):
+        return None
+    if response_format.get("type") == "json_object":
+        return _ObjectOnly()
+    schema = response_format["json_schema"]["schema"]
+    modules = jsonschema_modules()
     if modules is None:
-        validator = _ObjectOnly()
-    else:
-        validators, SchemaError, Registry, NoSuchResource = modules
+        return _ObjectOnly()
+    validators, SchemaError, Registry, NoSuchResource = modules
 
-        def no_remote(uri):
-            raise NoSuchResource(ref=uri)
+    def no_remote(uri):
+        raise NoSuchResource(ref=uri)
 
-        try:
-            cls = validators.validator_for(schema)
-            cls.check_schema(schema)
-            validator = cls(schema, registry=Registry(retrieve=no_remote))
-        except SchemaError as exc:
-            raise ValueError(f"invalid response_format schema: {exc.message}") from exc
-    directive = ("OUTPUT FORMAT REQUIREMENT: Return exactly one JSON object matching the JSON Schema below. "
-                 "No Markdown, headings, code fences, commentary, or text outside the JSON. "
-                 "Use every required field, correct types, and only allowed fields. "
-                 "Put all requested writing inside the appropriate JSON string fields.\nJSON Schema:\n" +
-                 json.dumps(schema, ensure_ascii=False, allow_nan=False, separators=(",", ":")))
-    messages = [dict(message) for message in messages]
-    if messages and messages[0].get("role") == "system":
-        content = messages[0].get("content") or ""
-        if isinstance(content, list):
-            messages[0]["content"] = content + [{"type": "text", "text": directive}]
-        else:
-            messages[0]["content"] = content + "\n\n" + directive
-    else:
-        messages.insert(0, {"role": "system", "content": directive})
-    return messages, validator
+    try:
+        cls = validators.validator_for(schema)
+        cls.check_schema(schema)
+        return cls(schema, registry=Registry(retrieve=no_remote))
+    except SchemaError as exc:
+        raise ValueError(f"invalid response_format schema: {exc.message}") from exc
 
 
 def validated_json(text, validator, finish):

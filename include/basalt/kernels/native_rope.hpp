@@ -3,8 +3,6 @@
 #include "basalt/kernels/rope_scaling.hpp"
 
 namespace basalt::kernels {
-void native_rope_set_enabled(bool enabled);
-bool native_rope_enabled();
 
 // Pinned CUDA text-only IMRoPE: F32 rows, 64 rotated channels, equal text positions in all four
 // IMRoPE sections. Each device position must be nonnegative. The position buffer remains live

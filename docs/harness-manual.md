@@ -21,8 +21,9 @@ done. The engine needs no manual and has none here.
 - [14. The command line and the editor](#14-the-command-line-and-the-editor)
 - [15. Hooks](#15-hooks)
 - [16. Routines, evaluation and replay](#16-routines-evaluation-and-replay)
-- [17. When something goes wrong](#17-when-something-goes-wrong)
-- [18. What it does not do](#18-what-it-does-not-do)
+- [17. Personal skills](#17-personal-skills)
+- [18. When something goes wrong](#18-when-something-goes-wrong)
+- [19. What it does not do](#19-what-it-does-not-do)
 
 ## 1. What it is
 
@@ -35,7 +36,7 @@ Four ways to use it, all with the same abilities:
 | Way in | Use it when |
 |---|---|
 | **Chat** tab, *With tools* | you want a conversation: ask, correct, go on tomorrow. The main way. |
-| **Agent** tab | you want one job done in a folder you name, with a log and a way back. |
+| **Agent** tab | you work on a folder of yours over several conversations, with its edits to keep or undo. |
 | `python -m harness` / `basalt-agent` | you want it in a script, with exit codes and JSON. |
 | `python -m harness acp` | you want it as the agent of an editor that speaks the Agent Client Protocol. |
 
@@ -104,8 +105,7 @@ with. Going to **Automatic** the first time shows a highlighted risk label and a
 message carefully and understand the risk*); once you have said yes it is not asked again until you close the app, in any conversation. If
 you refuse, the cycle passes over it.
 
-**Rules for commands.** In *Chat → Settings → What the agent may do without asking* (for new conversations) or under *More options* in
-the Agent tab, write one rule per line, such as `shell_command:python -m pytest*`. A matching command runs without asking. A **deny**
+**Rules for commands.** In *Chat → Settings → What the agent may do without asking* (for new conversations) write one rule per line, such as `shell_command:python -m pytest*`. A matching command runs without asking. A **deny**
 rule always wins. A rule never covers a command that chains or redirects another (`pytest && rm -rf ~` is not `pytest`). In a question,
 the **Always allow …** button adds a rule for you.
 
@@ -178,7 +178,7 @@ you it may already have run. After that, or when the server refuses for good, th
   copy of what came later is kept. The files are not touched: undo them from the Changes panel. Actions that stay done (a command, a
   call, a payment, a browser action) are listed first, and you must press again to go back anyway.
 - **Checkpoints.** Before the first change of each turn the folder is saved outside the project. `python -m harness.rewind
-  --workspace D:\proj` lists them and `--to ID` restores one; the Agent tab has *Go back*. A rewind takes a safety snapshot first, so it
+  --workspace D:\proj` lists them and `--to ID` restores one; the conversations have `/rewind` and *Back to here*. A rewind takes a safety snapshot first, so it
   can be undone. It does not undo a command the agent ran, and says so.
 - **Branches.** `/branch` copies a conversation at a request; *Branches* shows the tree. *Run both and compare* sends one request down two
   continuations, one after the other, and shows the two answers and the files each changed, side by side.
@@ -210,6 +210,37 @@ The agent can keep short notes about a project and read them in later conversati
 - **Permissions.** In *Ask first* and *Automatic* it writes and deletes notes without asking; in *Read only* it asks before writing;
   in *Plan only* it can only recall.
 - **Off.** `--no-memory` on the command line removes the tools and the retrieval.
+
+## 8a. Your own memories
+
+Besides the notes about a project, the assistant can keep two memories about **you**, in *Settings > Memories*. **Nothing is learned or used until you switch it on there.**
+
+- **Long-term memory:** what changes slowly. Sections: who you are, where you live, people, companies, business partners, character, tastes, interests,
+  values, how you think, the foundations of your thinking, emotions, and one short card that sums you up. A note does not expire.
+- **Short-term memory:** what happened lately. Sections: facts, searches, topics, projects (the state of what you build in the Agent tab). Notes are kept until you
+  delete them, but only those seen in the last 14 days (you can change the number) go into answers. To use older ones, ask the assistant to look further back:
+  it then searches all of them (`recall_about_user`).
+- **Learning** (a switch for each memory). What you write is kept in an encrypted queue and, when the GPU has had nothing to do for a few seconds, a separate
+  model call decides what is worth keeping and in which section. It reads only your own messages and the searches done for you, never an answer, a page, a file
+  or a tool result, and it never touches a note you wrote or confirmed. Notes that look like a secret (card numbers, passwords, keys) or like an order to
+  an assistant are refused. A note it only guesses is marked *a guess* with how sure it is; the *It is right* button makes it count fully. A routine is never learned from.
+- **Using** (another switch for each memory). At each message only the notes that share words with it are put in, after your message and as data, up to a small
+  budget; the same note is never put in twice in a conversation. Each section has a **weight**: off, low, normal, high or highest. Low puts in one note and only on
+  a clear match; normal up to two; high up to four and the first two of the section at the start of a conversation; highest up to eight and six at the start. What
+  the assistant only guessed (character, values, how you think, emotions, the card) starts at *low*.
+- **Where it is kept.** On this PC only, encrypted with the same device key as the Wallet's vault (Windows DPAPI wraps it for your user: code running as you can
+  still ask Windows for it). A phone never sees or edits the memories, although its conversations use them. When a conversation is pointed at a provider that is not
+  this PC's model, the notes stay out of the request unless you allow it in the red box, which asks twice.
+- **Read, correct, delete.** The same page lists the notes (search and filter by section), edits, confirms and deletes them one by one or all of a memory with two
+  presses, and shows what was learned lately and how many messages wait for a free GPU.
+
+## 8b. Where you are (Android app)
+
+In the app's Settings, **Send my position with messages** is off at first. Switching it on asks Android for the permission to read the location while the app is open. With it on, each message tells the PC where
+the phone is (street, number, city when the phone can work them out, coordinates otherwise). The assistant does not read it at every message: it asks for it only when the task depends on the place, for example
+restaurants near you, or an emergency where someone must be told where you are. It is kept in the PC's memory only, for at most a day, is not written to the conversation or to your memories, and is erased when you
+switch the setting off or restart the server. If a conversation is pointed at a provider that is not this PC's model, the position is not given to it. The assistant does not call anyone for you: in an emergency it gives
+you the address and the number to call.
 
 ## 9. Rules, context and reference documents
 
@@ -270,6 +301,15 @@ The agent can keep short notes about a project and read them in later conversati
 The **Plans** view shows plans as graphs: actions, sensors (they wait for an event), decisions, merges, and tasks handed to you. A step
 can be moved, retried (with a limit and a wait) and rewound; rewinding over actions that stay done lists them first.
 
+The parts of the view, from the left: a **column of plans** (like the Chat's column of conversations; the arrow shuts it) where each plan has
+three buttons, *Open*, *Duplicate* and *Delete* (deleting asks for a second press and erases for good; archiving keeps the plan), and at the
+right the open plan in four tabs: *Aims, dates and amounts*, *Plan details and archive*, *Judge incoming events* and *Plan definition*. In
+the definition you choose **Graph** or **List**. On the graph you drag steps and draw a link from the round end of one step to another (the
+step it reaches waits for the one it starts from); a click on a link picks it, the cross or the Delete key removes it; the arrows and
+*Automatic place* in a step's panel move the box on the graph. In the list each row has an up and a down arrow: two steps that do not wait for
+each other swap, two steps in a plain chain swap and their links are redrawn, anything else is refused with the reason. A step's panel also
+has *Waits for* boxes to set from the keyboard what it waits for.
+
 - In the Chat the agent can read plans and, **with your yes**, create and change them. The yes is either a quotation of your own words
   in your last message, or a question made from the real change (the real title, steps and diff) that you answer with a button. A plan
   must be read before it is changed, and a plan that moved on meanwhile is refused until it is read again.
@@ -279,12 +319,40 @@ can be moved, retried (with a limit and a wait) and rewound; rewinding over acti
   a key, replaces names, and does not send health data unless you tick it.
 - Nothing in a plan changes behind your back: the planner only prepares proposals, which you approve.
 
+## 12a. Files in answers
+
+When the agent makes a file for you, or points to one in your folder, the answer holds a **button with the file's name**; press it and the file is saved where you choose
+(the *Save as* window in the desktop app and in most browsers). A file it wrote or edited also has a *Save* button in its step. Only files inside the conversation's folder
+can be saved this way, never the agent's own `.basalt` or `.git`.
+
+## 12b. Pictures and charts in answers
+
+*Chat → Settings → Pictures and charts* has two switches, each with its own level of presence (very low, low, normal, high, very high, highest). They apply to
+the next new conversation. **Pictures**: the agent looks for them on the web, preferably on the article it cites, keeps one in the conversation and shows it with the
+source named; the page shows only pictures the agent kept, never one from an address written in the text. **Charts**: the agent draws workflows, deployments and
+interactions as diagrams that the page draws; *Source of the diagram* shows the text it was made from.
+
+## 12c. Phones
+
+*Settings > Phones* sets up the Basalt app for a phone. 1) **Tailscale** on this PC: the page installs it (with winget) and connects it, and shows the address this PC has on your private network. 2) **Let phones connect**:
+the server then also listens on that address, only for Tailscale, never on the internet. 3) **A key for each phone**: give the phone a name, press *Make a key*, and scan the QR code with the app
+(or copy the key). The key stays on this PC, encrypted, so *Show code* in the list shows its QR code again (for example after reinstalling the app); the phone also keeps its settings through an update, and Android's backup restores them after an uninstall and reinstall when the phone's backup is on. To stop a phone, take its key away. On the phone, install Tailscale from the Play Store and sign in with the same account. A phone can use the model, the
+conversations, files and routines; it cannot reach the wallet, the vault, the settings or the loading of models.
+
+The Android app (`mobile/`, see its README) then needs only the address and the key: scan the QR code in its Settings. Its **+** button offers *Image*, *Photo* and *Documents/Files* (*Local*, *Server*: the folders added on the PC, and
+*Network*: other devices, over SMB); the microphone writes what you say and answers can be read aloud, with the phone's own speech.
+
 ## 13. The Agent tab
 
-For one job in a folder you name. Write the **folder** (the full path) and **what it should do**, choose the mode (as in section 4),
-and press *Start*. Under *More options* are the most steps and the rules for commands. The page shows the run's state and a readable log,
-questions appear at the top of the right column (*Approve* or *Deny*; one nobody answers in 15 minutes counts as a refusal), and the
-Monitor shows the edits. *Stop* ends the agent and everything it started. *Go back* lists the folder's checkpoints. One run at a time.
+The Agent tab is the conversation page working in a **folder of yours**. At the left, the column lists the folders you added, each with its
+conversations. Press **Add folder**, write the full path (or *Browse...* inside the app) and the folder is added: the agent works there, its
+file tools stay inside it, and the folder gets a `.basalt` folder with a registry of its conversations. A cross next to a folder takes it off
+the list without touching its files or its conversations; a **+** starts a new conversation in it.
+
+Then talk to it as in the Chat: step by step, over as many messages and days as you like, with no limit on steps. **Shift + Tab** changes
+how much it may do on its own at any time (*Plan only*, *Read only*, *Ask first*, *Automatic*, as in section 4): plan first, then tell it to
+go ahead. The *Changes* button opens the list of the files it edited, with *Keep* and *Undo* for each block. The commands it runs are not
+limited to the folder; a sandbox for them is not there yet.
 
 ## 14. The command line and the editor
 
@@ -337,13 +405,52 @@ run) blocks too. A file with a mistake stops the agent from starting, with the r
 
 - **Routines** run a prompt on a schedule (`every 30m`, `daily 08:30`, `weekdays 08:30`, `mon,wed,fri 18:15`) in a folder and a mode.
   A routine is created **disabled** and read-only; only one runs at a time and only while no conversation is busy. They are managed
-  through `/api/routines`; there is no page for them yet.
+  through the **Cron Jobs** tab: a list with *Turn on/off*, *Run now* and *Delete*, an editor, the latest results of each job, and a small chat at the right to
+  talk a job over. The chat only proposes: *Use in the editor* fills the form, and nothing is saved or turned on until you press *Save* and *Turn on*.
 - **Evaluation**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` runs each task k times on a fresh
   folder and reports pass@k, pass^k, cost and cache use. These are development comparisons, not headline numbers.
 - **Replay**: `python -m harness.replay trace.jsonl --mode auto` runs a recorded session again with the recorded model answers and
   reports the first place where the tool calls differ. It tests the harness, not the model.
 
-## 17. When something goes wrong
+## 17. Personal skills
+
+A personal skill is what you did in a conversation, kept as a Python script you can run again with other values. Most of it is plain code,
+so it costs no tokens, is fast and gives the same result every time; the model is used only where the language has to be understood.
+
+**Making one**
+1. Do the task in a conversation with tools. You can mark the parts that will change next time between two `#` with a space inside, as in
+   `find the news # of today # about # the war in Ukraine #`. A marked part can be several words, and `# city: Rome #` also names it. The model
+   gets the request without the marks, and the conversation shows what you wrote.
+2. Press **Make a skill** under a request. A box appears next to each earlier request: check the ones that belong to the task (those that
+   followed each other closely are checked for you). The skill ends with the answer to the request whose button you pressed, so you can press it on
+   an earlier one. Or write `/start-learn-skill` before the task and `/stop-learn-skill` after it, and the requests in between are chosen.
+3. **What changes each time.** The page proposes parameters, found from your `#` marks, from the values a call took from your words (a file name, a
+   city, a number) and from dates, and named by the model. Keep or drop each one, rename it, give it a type (text, number, date, date and time, choice,
+   list of numbers, texts or both, file or folder, yes or no) and a usual value, or add another. A date can be written in words (yesterday, now,
+   in 3 days) and is then worked out each time the skill runs.
+4. **The script.** The model writes it once, from what was done and the parameters you kept. You read it, change it if you like, press *Check* and
+   then *Save the skill*. Nothing is saved until you do.
+
+**Using it.** The **Skills** button (after Branches) lists them; `/skilluse name` opens the form of one (`/skilluse name city=Rome` fills a value).
+The form asks each value with its explanation and type: a date has a picker and can be written in words, with what it will be shown under it
+(*→ 2026-10-25*); a list takes one value per line, or separated by `;` or a comma. The skill runs **in the open conversation**: its tool calls
+appear like the agent's, follow the same permissions and questions, and stay in the history; **Stop** ends it.
+
+**The list.** *Run*, *Edit* (the definition, the parameters, the script, and the earlier versions), *Export* (one `.pskill` file, to keep or to
+copy to another PC by pen drive or e-mail), *Delete* (press twice) and *Import personal skills…*. A skill that arrives from a file, or whose
+files were changed by hand, is **to approve**: read its script and approve it before it can run. One you made yourself is approved.
+
+**Access.** *Restricted* (the usual): the script uses only `tool(...)`, `ai(...)`, `ask(...)`, `say(...)` and plain Python (text, JSON, dates, lists…),
+never files, programs or the network directly, so everything it does goes through the agent's permissions, hooks and audit log. *Free*: the script
+may use anything Python can, with your rights, without those controls; it is saved only after the risk label and its two questions. The check
+on a restricted script is a fence against mistakes, not a wall against someone who means harm: read the script of a skill that comes from others.
+
+**On a schedule:** in the **Cron Jobs** tab a job can run one of your skills instead of a task you write. Fill in its values once; a date in words such as *today* or
+*tomorrow* is worked out again each time the job runs. The job's mode and rules decide what the skill may do without asking.
+
+**Not done yet:** a test run that compares with what was recorded, and going on with the agent from the step that failed.
+
+## 18. When something goes wrong
 
 | What you see | Why | What to do |
 |---|---|---|
@@ -361,7 +468,7 @@ run) blocks too. A file with a mistake stops the agent from starting, with the r
 | It forgot what you told it | it did not keep a note, or the folder differs | see section 8 |
 | A restart interrupted an irreversible tool | it may already have run | check the result yourself, then go on |
 
-## 18. What it does not do
+## 19. What it does not do
 
 - It does not isolate files and network for commands: *Automatic* belongs in a folder you can lose.
 - Basalt is an A2A **client** only; it does not receive tasks from other agents. ACP has no `fs/*` and no `session/load`.

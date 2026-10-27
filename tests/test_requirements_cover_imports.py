@@ -10,13 +10,14 @@ REQUIREMENT_FILES = (ROOT / "requirements.txt", ROOT / "harness" / "requirements
 DISTRIBUTION = {"PIL": "pillow", "yaml": "pyyaml", "fitz": "pymupdf"}
 # imported only inside a try block or a function, with a plain message when absent (not installed by default)
 OPTIONAL = {
-    "jsonschema": "json_schema responses without it check for one JSON object",
+    "jsonschema": "json_schema answers checked after the fact (structured_retries) without it check for one JSON object",
     "referencing": "comes with jsonschema",
     "pypdf": "a PDF is read with pypdf or PyMuPDF, whichever is installed",
     "fitz": "PyMuPDF, the other PDF reader",
 }
 # modules of this repository that the code reaches through sys.path (tools/ is added at run time)
-LOCAL_FOLDERS = (ROOT, ROOT / "tools", ROOT / "tools" / "convert")
+# (the personal skills' runtime folder holds basalt_skill, which a skill's script imports from the process that runs it)
+LOCAL_FOLDERS = (ROOT, ROOT / "tools", ROOT / "tools" / "convert", ROOT / "harness" / "personal_skills" / "runtime")
 
 
 def required():

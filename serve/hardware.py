@@ -3,6 +3,7 @@ about the machine):
 
   cpu()          logical and physical cores, and on hybrid processors the performance and efficiency cores
                  (Windows: GetLogicalProcessorInformationEx's EfficiencyClass; Linux: /sys/devices/cpu_core|cpu_atom)
+  gpu_list()     the NVIDIA GPUs found, [{"index", "name"}] (nvidia-smi's numbering), read once a minute at most
   gpu(index)     name, CUDA compute capability (the engine's kernels are built for Blackwell: 10.x and 12.x), VRAM,
                  and the other processes on the card (NVML; their memory is unknown under Windows' WDDM)
 
@@ -19,6 +20,7 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import time
 
 BLACKWELL_MAJORS = (10, 12)             # sm_100 (data centre) and sm_120 (GeForce RTX 50, RTX PRO)
 
@@ -188,6 +190,48 @@ def gpu(index: int = 0) -> dict:
     except Exception:  # noqa: BLE001 - an unreadable GPU leaves None
         pass
     return out
+
+
+GPU_LIST_MAX = 16                       # GPUs looked for
+GPU_LIST_TTL = 60.0                     # seconds a reading is kept
+_gpu_list_cache: dict = {}
+
+
+def _read_gpu_list() -> list[dict]:
+    out = []
+    try:
+        from serve.util.telemetry import _Nvml
+        for i in range(GPU_LIST_MAX):
+            nv = _Nvml(i)
+            if not nv.ok():
+                break
+            out.append({"index": i, "name": nv.name()})
+    except Exception:  # noqa: BLE001 - an unreadable driver leaves the list as far as it got
+        pass
+    return out
+
+
+def gpu_list() -> list[dict]:
+    """The NVIDIA GPUs of this PC, [{"index", "name"}] in the numbering nvidia-smi uses ([] when none can be read); the
+    reading is kept for GPU_LIST_TTL seconds, so asking per request costs nothing."""
+    fake = _fake("BASALT_FAKE_GPU")
+    if os.environ.get("BASALT_FAKE_SYSTEM_OK") == "1" and os.environ.get("BASALT_FAKE_GPU") == "null":
+        return []
+    if isinstance(fake, dict):
+        return [{"index": 0, "name": fake["name"]}] if fake.get("name") else []
+    now = time.monotonic()
+    if not _gpu_list_cache or now - _gpu_list_cache["at"] > GPU_LIST_TTL:
+        _gpu_list_cache.update(at=now, gpus=_read_gpu_list())
+    return [dict(g) for g in _gpu_list_cache["gpus"]]
+
+
+def gpu_name(index) -> str | None:
+    """The name of the GPU numbered `index` (nvidia-smi's number), None when it is not found."""
+    try:
+        want = int(index)
+    except (TypeError, ValueError):
+        return None
+    return next((g["name"] for g in gpu_list() if g["index"] == want and g["name"]), None)
 
 
 def gpu_warning(g: dict, lang: str = "it") -> str | None:

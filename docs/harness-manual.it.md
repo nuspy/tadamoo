@@ -21,8 +21,9 @@ cosa non è fatto. Il motore non ha bisogno di un manuale e qui non ne ha.
 - [14. La riga di comando e l'editor](#14-la-riga-di-comando-e-leditor)
 - [15. Gli hook](#15-gli-hook)
 - [16. Routine, valutazione e riesecuzione](#16-routine-valutazione-e-riesecuzione)
-- [17. Quando qualcosa non va](#17-quando-qualcosa-non-va)
-- [18. Cosa non fa](#18-cosa-non-fa)
+- [17. Skill personali](#17-skill-personali)
+- [18. Quando qualcosa non va](#18-quando-qualcosa-non-va)
+- [19. Cosa non fa](#19-cosa-non-fa)
 
 ## 1. Cos'è
 
@@ -107,8 +108,7 @@ modalità con cui partirà la prossima. Passare ad **Automatico** la prima volta
 capito il rischio*, poi *Ho letto con attenzione il messaggio precedente e ho capito il rischio*); una volta detto sì non lo chiede più
 finché non chiudi l'app, in nessuna conversazione. Se rifiuti, il giro lo salta.
 
-**Regole per i comandi.** In *Chat → Impostazioni → Cosa può fare l'agente senza chiedere* (per le nuove conversazioni) o sotto *Altre
-opzioni* nella scheda Agente, scrivi una regola per riga, come `shell_command:python -m pytest*`. Un comando che corrisponde si
+**Regole per i comandi.** In *Chat → Impostazioni → Cosa può fare l'agente senza chiedere* (per le nuove conversazioni) scrivi una regola per riga, come `shell_command:python -m pytest*`. Un comando che corrisponde si
 esegue senza chiedere. Una regola di **divieto** vince sempre. Una regola non copre mai un comando che ne concatena o reindirizza un
 altro (`pytest && rm -rf ~` non è `pytest`). In una domanda, il pulsante **Permetti sempre …** ne aggiunge una per te.
 
@@ -188,7 +188,7 @@ conversazione ti dice che potrebbe essere già partito. Dopo di che, o quando il
   avvenute (un comando, una telefonata, un pagamento, un'azione del browser) sono elencate prima, e devi premere ancora per tornare
   indietro lo stesso.
 - **Checkpoint.** Prima della prima modifica di ogni turno la cartella viene salvata fuori dal progetto. `python -m harness.rewind
-  --workspace D:\proj` li elenca e `--to ID` ne ripristina uno; la scheda Agente ha *Torna indietro*. Il ritorno fa prima uno
+  --workspace D:\proj` li elenca e `--to ID` ne ripristina uno; le conversazioni hanno `/rewind` e *Torna qui*. Il ritorno fa prima uno
   snapshot di sicurezza, quindi si può a sua volta annullare. Non disfa un comando che l'agente ha eseguito, e lo dice.
 - **Rami.** `/branch` copia una conversazione a una richiesta; *Rami* mostra l'albero. *Esegui entrambi e confronta* manda una richiesta lungo due
   continuazioni, una dopo l'altra, e mostra le due risposte e i file cambiati da ciascuna, affiancati.
@@ -223,6 +223,38 @@ L'agente può tenere appunti brevi su un progetto e rileggerli nelle conversazio
 - **Permessi.** In *Chiedi prima* e *Automatico* scrive e cancella appunti senza chiedere; in *Sola lettura* chiede prima di
   scrivere; in *Solo un piano* può solo richiamare.
 - **Spenta.** `--no-memory` sulla riga di comando toglie gli strumenti e il recupero.
+
+## 8a. Le tue memorie
+
+Oltre alle note su un progetto, l'assistente può tenere due memorie su **di te**, in *Impostazioni > Memorie*. **Nulla viene imparato o usato finché non lo accendi lì.**
+
+- **Memoria a lungo termine:** ciò che cambia lentamente. Sezioni: chi sei, dove vivi, persone, aziende, partner economici, carattere, gusti, interessi, valori,
+  come pensi, i fondamenti del tuo pensiero, emozioni, e una breve scheda che ti riassume. Una nota non scade.
+- **Memoria a breve termine:** ciò che è successo da poco. Sezioni: fatti, ricerche, argomenti, progetti (lo stato di ciò che costruisci nella scheda Agente). Le
+  note restano finché non le cancelli, ma nelle risposte entrano solo quelle viste negli ultimi 14 giorni (il numero si cambia). Per usare le più vecchie chiedi
+  all'assistente di guardare più indietro: allora cerca in tutte (`recall_about_user`).
+- **Imparare** (un interruttore per ogni memoria). Ciò che scrivi resta in una coda cifrata e, quando la GPU non ha avuto nulla da fare per qualche secondo, una
+  chiamata separata al modello decide cosa vale la pena tenere e in quale sezione. Legge solo i tuoi messaggi e le ricerche fatte per te, mai una risposta, una pagina,
+  un file o il risultato di uno strumento, e non tocca mai una nota scritta o confermata da te. Le note che sembrano un segreto (numeri di carta, password, chiavi) o un
+  ordine a un assistente vengono rifiutate. Una nota solo intuita è segnata *un'intuizione* con quanto è sicura; il pulsante *È giusto* la fa contare del tutto. Una
+  routine non viene mai imparata.
+- **Usare** (un altro interruttore per ogni memoria). A ogni messaggio entrano solo le note che hanno parole in comune con esso, dopo il tuo messaggio e come dati, entro
+  un piccolo budget; la stessa nota non entra due volte in una conversazione. Ogni sezione ha un **peso**: spento, basso, normale, alto o altissimo. Basso mette una nota e
+  solo con una corrispondenza chiara; normale fino a due; alto fino a quattro e le prime due della sezione all'inizio di una conversazione; altissimo fino a otto e sei
+  all'inizio. Ciò che l'assistente ha solo intuito (carattere, valori, come pensi, emozioni, scheda) parte da *basso*.
+- **Dove sta.** Solo su questo PC, cifrata con la stessa chiave del dispositivo della cassaforte del Portafoglio (Windows DPAPI la protegge per il tuo utente: un
+  programma che gira come te può comunque chiederla a Windows). Un telefono non vede né modifica le memorie, anche se le sue conversazioni le usano. Quando una
+  conversazione è diretta a un fornitore che non è il modello di questo PC, le note restano fuori dalla richiesta, salvo che tu lo permetta nel riquadro rosso, che chiede due volte.
+- **Leggere, correggere, cancellare.** La stessa pagina elenca le note (con ricerca e filtro per sezione), le modifica, le conferma e le cancella una per una, o tutte
+  quelle di una memoria con due pressioni, e mostra cosa è stato imparato di recente e quanti messaggi aspettano una GPU libera.
+
+## 8b. Dove sei (app Android)
+
+Nelle Impostazioni dell'app, **Invia la mia posizione con i messaggi** è spento all'inizio. Accenderlo chiede ad Android il permesso di leggere la posizione mentre l'app è aperta. Con l'interruttore acceso, ogni
+messaggio dice al PC dove si trova il telefono (via, numero, città quando il telefono riesce a ricavarli, altrimenti le coordinate). L'assistente non la legge a ogni messaggio: la chiede solo quando il compito
+dipende dal luogo, per esempio i ristoranti vicino a te o un'emergenza in cui qualcuno deve sapere dove sei. Resta solo nella memoria del PC, per al massimo un giorno, non viene scritta nella conversazione né nelle
+tue memorie, e si cancella quando spegni l'interruttore o riavvii il server. Se una conversazione è diretta a un fornitore che non è il modello di questo PC, la posizione non gli viene data. L'assistente non chiama
+nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare.
 
 ## 9. Regole, contesto e documenti di riferimento
 
@@ -289,6 +321,16 @@ La vista **Piani** mostra i piani come grafi: azioni, sensori (aspettano un even
 passo si può spostare, riprovare (con un limite e un'attesa) e far tornare indietro; tornare indietro su azioni che restano avvenute
 le elenca prima.
 
+Le parti della vista, da sinistra: una **colonna di piani** (come quella delle conversazioni della Chat, si chiude con la freccia) dove ogni
+piano ha tre pulsanti, *Apri*, *Duplica* ed *Elimina* (l'eliminazione chiede una seconda pressione e cancella per sempre; archiviare invece
+lo conserva), e a destra il piano aperto in quattro schede: *Obiettivi, date e importi*, *Dettagli del piano e archivio*, *Valuta gli eventi
+in arrivo* e *Definizione del piano*. Nella definizione scegli **Grafo** o **Elenco**. Nel grafo trascini i passi e tiri un collegamento dal
+capo rotondo di un passo a un altro (il passo di arrivo aspetta quello di partenza); un clic su un collegamento lo sceglie, la croce o il
+tasto Canc lo toglie; le frecce e *Posizione automatica* del pannello del passo spostano il riquadro sul grafo. Nell'elenco ogni riga ha le
+frecce su e giù: due passi che non si aspettano si scambiano, due passi in catena semplice si scambiano e i collegamenti vengono ridisegnati,
+altrimenti la mossa è rifiutata con il motivo. Il pannello di un passo ha anche le caselle *Aspetta* per decidere da tastiera cosa
+aspetta.
+
 - Nella Chat l'agente può leggere i piani e, **col tuo sì**, crearli e cambiarli. Il sì è o una citazione delle tue parole nel tuo
   ultimo messaggio, o una domanda fatta con la modifica vera (il titolo, i passi e il diff reali) a cui rispondi con un pulsante. Un
   piano va letto prima di essere cambiato, e un piano andato avanti nel frattempo viene rifiutato finché non lo si rilegge.
@@ -299,13 +341,41 @@ le elenca prima.
   non li spunti.
 - Nulla in un piano cambia alle tue spalle: il planner prepara solo proposte, che approvi tu.
 
+## 12a. File nelle risposte
+
+Quando l'agente crea un file per te, o ne indica uno nella tua cartella, la risposta contiene un **pulsante con il nome del file**; premilo e il file viene salvato dove scegli
+(la finestra *Salva con nome* nell'app desktop e nella maggior parte dei browser). Anche un file che ha scritto o modificato ha un pulsante *Salva* nel suo passo. Si possono
+salvare così solo file dentro la cartella della conversazione, mai `.basalt` o `.git` dell'agente.
+
+## 12b. Immagini e grafici nelle risposte
+
+*Chat → Impostazioni → Immagini e grafici* ha due interruttori, ciascuno con il suo livello di presenza (molto bassa, bassa, normale, alta, molto alta, altissima).
+Valgono per la prossima nuova conversazione. **Immagini**: l'agente le cerca in rete, di preferenza nell'articolo che cita, ne tiene una nella conversazione e la mostra
+con la fonte; la pagina mostra solo immagini che l'agente ha tenuto, mai una da un indirizzo scritto nel testo. **Grafici**: l'agente disegna flussi di lavoro,
+deployment e interazioni come diagrammi che la pagina disegna; *Sorgente del diagramma* mostra il testo da cui è nato.
+
+## 12c. Telefoni
+
+*Impostazioni > Telefoni* prepara l'app Basalt per un telefono. 1) **Tailscale** su questo PC: la pagina lo installa (con winget), lo collega e mostra l'indirizzo che questo PC ha nella tua rete privata. 2) **Lascia
+collegare i telefoni**: il server ascolta anche su quell'indirizzo, solo per Tailscale, mai su internet. 3) **Una chiave per ogni telefono**: dai un nome al telefono, premi *Crea una chiave* e inquadra il
+codice QR con l'app (o copia la chiave). La chiave resta su questo PC, cifrata, quindi *Mostra il codice* nell'elenco ne rimostra il QR (per esempio dopo aver reinstallato l'app); il telefono tiene le sue impostazioni negli aggiornamenti, e il backup di Android le ripristina dopo una disinstallazione e una reinstallazione se il backup del telefono è attivo. Per fermare un telefono, togli la sua chiave. Sul telefono installa Tailscale dal Play Store e accedi con lo stesso account. Un telefono può
+usare il modello, le conversazioni, i file e le routine; non raggiunge il portafoglio, la cassaforte, le impostazioni né il caricamento dei modelli.
+
+L'app Android (`mobile/`, vedi il suo README) richiede poi solo l'indirizzo e la chiave: inquadra il codice QR nelle sue Impostazioni. Il suo pulsante **+** offre *Immagine*, *Foto* e *Documenti/File* (*Locale*, *Server*: le cartelle aggiunte
+sul PC, e *Rete*: altri dispositivi, via SMB); il microfono scrive ciò che dici e le risposte si possono far leggere ad alta voce, con la voce e il riconoscimento del telefono.
+
 ## 13. La scheda Agente
 
-Per un lavoro in una cartella che indichi. Scrivi la **cartella** (il percorso completo) e **cosa deve fare**, scegli la modalità
-(come nella sezione 4) e premi *Avvia*. Sotto *Altre opzioni* ci sono il numero massimo di passi e le regole per i comandi. La pagina
-mostra lo stato dell'esecuzione e un registro leggibile, le domande compaiono in cima alla colonna di destra (*Approva* o *Nega*;
-una a cui nessuno risponde in 15 minuti vale come rifiuto), e il Monitor mostra le modifiche. *Ferma* termina l'agente e tutto ciò che
-ha avviato. *Torna indietro* elenca i checkpoint della cartella. Una sola esecuzione alla volta.
+La scheda Agente è la pagina delle conversazioni che lavora in una **cartella tua**. A sinistra la colonna elenca le cartelle che hai
+aggiunto, ciascuna con le sue conversazioni. Premi **Aggiungi cartella**, scrivi il percorso completo (o *Sfoglia...* dentro l'app) e la
+cartella è aggiunta: l'agente lavora lì, i suoi strumenti per i file restano dentro, e la cartella riceve una cartella `.basalt` con il
+registro delle sue conversazioni. Una croce accanto a una cartella la toglie dall'elenco senza toccarne i file né le conversazioni; un **+**
+avvia una nuova conversazione al suo interno.
+
+Poi parlaci come nella Chat: un passo alla volta, in quanti messaggi e giorni vuoi, senza limite di passi. **Maiusc + Tab** cambia in
+qualsiasi momento quanto può fare da solo (*Solo piano*, *Sola lettura*, *Chiedi prima*, *Automatica*, come nella sezione 4): prima il
+piano, poi digli di procedere. Il pulsante *Modifiche* apre l'elenco dei file che ha modificato, con *Tieni* e *Annulla* per ogni blocco. I
+comandi che esegue non sono limitati alla cartella; un sandbox per loro non c'è ancora.
 
 ## 14. La riga di comando e l'editor
 
@@ -362,13 +432,56 @@ scaduto, non autorizzato a girare) blocca anch'esso. Un file con un errore imped
 
 - Le **routine** eseguono un prompt secondo un orario (`every 30m`, `daily 08:30`, `weekdays 08:30`, `mon,wed,fri 18:15`) in una cartella
   e in una modalità. Una routine nasce **disattivata** e in sola lettura; ne gira una alla volta e solo quando nessuna conversazione è
-  occupata. Si gestiscono tramite `/api/routines`; non c'è ancora una pagina.
+  occupata. Si gestiscono dalla scheda **Cron Jobs**: un elenco con *Accendi/Spegni*, *Esegui ora* ed *Elimina*, un editor, gli ultimi risultati di ogni job e una
+  piccola chat a destra per discuterne uno. La chat propone soltanto: *Usa nell'editor* riempie il modulo, e nulla è salvato o acceso finché non premi *Salva* e *Accendi*.
 - **Valutazione**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` esegue ogni compito k volte su una
   cartella nuova e riporta pass@k, pass^k, costo e uso della cache. Sono confronti di sviluppo, non numeri da titolo.
 - **Riesecuzione**: `python -m harness.replay trace.jsonl --mode auto` rifà una sessione registrata con le risposte registrate del modello
   e riporta il primo punto in cui le chiamate agli strumenti divergono. Prova l'harness, non il modello.
 
-## 17. Quando qualcosa non va
+## 17. Skill personali
+
+Una skill personale è ciò che hai fatto in una conversazione, conservato come uno script Python che puoi rieseguire con altri valori. Quasi tutto
+è codice semplice, quindi non costa token, è veloce e dà ogni volta lo stesso risultato; il modello si usa solo dove bisogna capire il linguaggio.
+
+**Farne una**
+1. Fai il compito in una conversazione con strumenti. Puoi segnare le parti che la prossima volta cambieranno tra due `#` con uno spazio dentro,
+   come in `trova le notizie # di oggi # riguardanti # la guerra in Ucraina #`. Una parte segnata può essere di più parole, e `# città: Roma #` le
+   dà anche un nome. Il modello riceve la richiesta senza i segni, e la conversazione mostra ciò che hai scritto.
+2. Premi **Trasforma in skill** sotto una richiesta. Accanto a ogni richiesta precedente compare una casella: spunta quelle che fanno parte del
+   compito (quelle che si sono susseguite da vicino sono già spuntate). La skill finisce con la risposta alla richiesta di cui hai premuto il
+   bottone, quindi puoi premerlo anche su una precedente. Oppure scrivi `/start-learn-skill` prima del compito e `/stop-learn-skill` dopo, e le
+   richieste in mezzo sono scelte.
+3. **Cosa cambia ogni volta.** La pagina propone dei parametri, trovati dai tuoi `#`, dai valori che una chiamata ha preso dalle tue parole (un
+   nome di file, una città, un numero) e dalle date, e battezzati dal modello. Tieni o scarta ciascuno, rinominalo, dagli un tipo (testo, numero,
+   data, data e ora, scelta, lista di numeri, di testi o di entrambi, file o cartella, sì o no) e un valore abituale, oppure aggiungine un altro. Una
+   data può essere scritta a parole (ieri, adesso, tra 3 giorni) e allora viene calcolata ogni volta che la skill gira.
+4. **Lo script.** Lo scrive il modello una volta sola, da ciò che è stato fatto e dai parametri che hai tenuto. Lo leggi, lo cambi se vuoi, premi
+   *Verifica* e poi *Salva la skill*. Finché non lo fai non si salva nulla.
+
+**Usarla.** Il bottone **Skill** (dopo Rami) le elenca; `/skilluse nome` apre il modulo di una (`/skilluse nome città=Roma` compila un valore). Il
+modulo chiede ogni valore con la sua spiegazione e il suo tipo: una data ha un selettore e si può scrivere a parole, con sotto ciò che diventerà
+(*→ 2026-10-25*); una lista prende un valore per riga, oppure separati da `;` o da una virgola. La skill gira **nella conversazione aperta**: le
+sue chiamate agli strumenti compaiono come quelle dell'agente, seguono gli stessi permessi e le stesse domande e restano nella cronologia;
+**Ferma** la interrompe.
+
+**L'elenco.** *Esegui*, *Modifica* (la definizione, i parametri, lo script e le versioni precedenti), *Esporta* (un solo file `.pskill`, da tenere o
+da copiare su un altro PC con una chiavetta o per e-mail), *Elimina* (premi due volte) e *Importa skill personali…*. Una skill che arriva da un
+file, o i cui file sono stati cambiati a mano, è **da approvare**: leggi lo script e approvalo prima che possa girare. Una che hai fatto tu è
+approvata.
+
+**Accesso.** *Ristretto* (il solito): lo script usa solo `tool(...)`, `ai(...)`, `ask(...)`, `say(...)` e Python semplice (testo, JSON, date,
+liste…), mai file, programmi o rete direttamente, quindi tutto ciò che fa passa dai permessi, dagli hook e dal registro di audit dell'agente.
+*Libero*: lo script può usare tutto ciò che Python sa fare, con i tuoi diritti, senza quei controlli; si salva solo dopo l'etichetta di rischio e
+le sue due domande. Il controllo su uno script ristretto è una staccionata contro gli errori, non un muro contro chi vuole fare danno: leggi lo
+script di una skill che viene da altri.
+
+**A un orario:** nella scheda **Cron Jobs** un job può eseguire una delle tue skill invece di un compito scritto da te. Compili i valori una volta; una data in parole come *oggi*
+o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job decidono cosa la skill può fare senza chiedere.
+
+**Non ancora fatto:** una prova che confronta con ciò che era stato registrato e il riprendere con l'agente dal passo che è fallito.
+
+## 18. Quando qualcosa non va
 
 | Cosa vedi | Perché | Cosa fare |
 |---|---|---|
@@ -386,7 +499,7 @@ scaduto, non autorizzato a girare) blocca anch'esso. Un file con un errore imped
 | Ha dimenticato ciò che gli hai detto | non ha tenuto un appunto, o la cartella è diversa | vedi la sezione 8 |
 | Un riavvio ha interrotto uno strumento irreversibile | potrebbe essere già partito | controlla tu il risultato, poi prosegui |
 
-## 18. Cosa non fa
+## 19. Cosa non fa
 
 - Non isola file e rete per i comandi: *Automatico* va in una cartella che puoi perdere.
 - Basalt è solo un **client** A2A; non riceve compiti da altri agenti. ACP non ha `fs/*` né `session/load`.

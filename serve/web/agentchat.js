@@ -5,7 +5,7 @@
    Everything the agent or a tool wrote enters the page through text nodes; the Markdown of its answers goes through the
    same safe renderer as the model-only chat. */
 (() => {
-  const MODE_KEY = "basalt.chatmode", LAST_KEY = "basalt.chat.session";
+  const MODE_KEY = "basalt.chatmode", LAST_KEYS = { chat: "basalt.chat.session", agent: "basalt.agent.session" }, PROJECT_KEY = "basalt.agent.project";
   const MODES = ["agent", "ask", "direct"];
   const FAST_MS = 350, SLOW_MS = 3000, SHOWN_OUTPUT = 1500;
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } };
@@ -13,8 +13,52 @@
   const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick) => { const b = mk("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; return b; };
 
+  /* a small icon button that copies a text; the icon turns into a tick for a moment */
+  const SVGNS = "http://www.w3.org/2000/svg";
+  function icon(paths) {
+    const s = document.createElementNS(SVGNS, "svg");
+    s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("aria-hidden", "true"); s.setAttribute("focusable", "false"); s.classList.add("aicon-svg");
+    paths.forEach(d => { const p = document.createElementNS(SVGNS, "path"); p.setAttribute("d", d); s.append(p); });
+    return s;
+  }
+  const COPY_ICON = ["M9 9h10v11H9z", "M5 15V4h10"], TICK_ICON = ["M5 12l5 5 9-10"], BRANCH_ICON = ["M6 4v10", "M6 14a4 4 0 0 0 4 4h4", "M18 4v6", "M6 4h0", "M18 10h0"];
+  async function clipboardCopy(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* no clipboard here: the old way */ }
+    const t = document.createElement("textarea");
+    t.value = text; t.style.position = "fixed"; t.style.opacity = "0"; document.body.append(t); t.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    t.remove();
+    return ok;
+  }
+  function copyButton(textOf) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "aicon"; b.title = T("ch.copy"); b.setAttribute("aria-label", T("ch.copy"));
+    b.append(icon(COPY_ICON));
+    let timer = 0;
+    b.onclick = async ev => {
+      ev.stopPropagation();
+      const text = textOf();
+      if (!text) return;
+      const ok = await clipboardCopy(text);
+      status(T(ok ? "ch.copied" : "ch.copy.fail"));
+      if (!ok) return;
+      b.replaceChildren(icon(TICK_ICON)); b.classList.add("done");
+      clearTimeout(timer);
+      timer = setTimeout(() => { b.replaceChildren(icon(COPY_ICON)); b.classList.remove("done"); }, 1500);
+    };
+    return b;
+  }
+
   let mode = load(MODE_KEY, "agent");
   if (!MODES.includes(mode)) mode = "agent";
+  const inAgent = () => document.body.dataset.view === "agent";           // the Agent tab is this page, working in a folder
+  const lastKey = () => LAST_KEYS[inAgent() ? "agent" : "chat"];
+  let projects = [], curProject = load(PROJECT_KEY, ""), defaultWs = "", lastCtx = null;
+  const sameDir = (a, b) => String(a || "").replace(/[\\/]+$/, "").toLowerCase() === String(b || "").replace(/[\\/]+$/, "").toLowerCase();
+  const isChatSession = x => !x.workspace || (defaultWs && sameDir(x.workspace, defaultWs));
+  const inContext = x => (inAgent() ? !isChatSession(x) : isChatSession(x));
+  const curPath = () => (projects.some(x => sameDir(x.path, curProject)) ? curProject : "");
   let supported = null;                               // whether this server offers conversations
   let sid = "", after = 0, state = "dormant", rec = null, timer = 0, items = [], current = null, busyNow = false;
   const status = t => { $("#chat-status").textContent = t; };
@@ -22,6 +66,8 @@
   function scrollDown(force) { const s = scroller(); if (force || s.scrollHeight - s.scrollTop - s.clientHeight < 160) s.scrollTop = s.scrollHeight; }
 
   const box = $("#amsgs"), empty = $("#achat-empty"), modeSel = $("#chatmode");
+  let pick = null, learn = null;                                // making a skill: the requests being chosen, and where a recording began
+  const bar = $("#pskill-bar"), badge = $("#learn-badge");
 
   async function api(method, path, body) {
     try {
@@ -46,12 +92,22 @@
     const attachName = T(on ? "ch.att.btn" : "ch.att.img");
     $("#attach").setAttribute("aria-label", attachName); $("#attach").title = attachName;
     $("#branches-open").hidden = !on;
+    $("#pskills-open").hidden = !on;
+    $("#chatmode-label").hidden = inAgent();
     modeSel.title = T("ch.mode." + mode + ".d");                              // what the kind of conversation is, as a tooltip
     drawPend();
     if (on) { $("#chat-hint").textContent = T("ch.hint"); poll(true); } else { clearTimeout(timer); $("#chat-hint").textContent = T("ch.hint.direct"); }
     setControls();
   }
+  function paintFolder() {
+    const agent = inAgent(), chipEl = $("#folder-chip");
+    const p = projects.find(x => sameDir(x.path, rec && rec.workspace ? rec.workspace : curProject));
+    chipEl.hidden = !(agent && p);
+    if (!chipEl.hidden) { chipEl.textContent = T("ag.folder.chip", p.name); chipEl.title = p.path; }
+    $("#chg-open").hidden = !agent;
+  }
   function setControls() {
+    paintFolder();
     paintChip();
     const on = active();
     if (!on) return;
@@ -118,8 +174,47 @@
     li.append(open, star, del);
     return li;
   }
+  /* the Agent tab's column: the folders added, each with the conversations held in it */
+  function setProject(path) { curProject = path; keep(PROJECT_KEY, path); }
+  async function addFolder() {
+    const p = await window.agentProjects.open();
+    if (!p) return null;
+    projects = window.agentProjects.list();
+    setProject(p.path);
+    paintList(); setControls();
+    return p;
+  }
+  function projectGroup(p) {
+    const group = mk("div", "cv-group cv-proj"), head = mk("div", "cv-projhead" + (sameDir(p.path, curProject) ? " here" : ""));
+    const name = mk("button", "cv-projname", p.name);
+    name.type = "button"; name.title = p.path;
+    name.onclick = () => { setProject(p.path); paintList(); setControls(); };
+    const plus = mk("button", "cv-act", "+"), gone = mk("button", "cv-act", "\u2715");
+    plus.type = gone.type = "button";
+    plus.title = T("ag.proj.new"); plus.setAttribute("aria-label", `${plus.title}: ${p.name}`);
+    plus.onclick = () => { setProject(p.path); newChat(); $("#prompt").focus(); };
+    gone.title = T("ag.proj.remove"); gone.setAttribute("aria-label", `${gone.title}: ${p.name}`);
+    gone.onclick = async () => { await window.agentProjects.remove(p.path); projects = window.agentProjects.list(); if (sameDir(p.path, curProject)) setProject(""); paintList(); setControls(); };
+    head.append(name, plus, gone);
+    const mine = known.filter(x => x.state !== "closed" && inContext(x) && sameDir(x.workspace, p.path));
+    const ul = mk("ul", "cv-list");
+    ul.replaceChildren(...[...mine.filter(x => x.favorite), ...mine.filter(x => !x.favorite)].map(convRow));
+    group.append(head, ul);
+    if (!p.exists) group.append(mk("p", "cv-empty", T("ag.proj.missing")));
+    else if (!mine.length) group.append(mk("p", "cv-empty", T("cv.empty")));
+    return group;
+  }
   function paintList() {
-    const shown = known.filter(s => s.state !== "closed");
+    const agent = inAgent();
+    $("#cv-projects").hidden = !agent;
+    $("#cv-chatlists").hidden = agent;
+    $("#cv-title").textContent = T(agent ? "ag.projects.title" : "cv.title");
+    if (agent) {
+      $("#cv-proj-empty").hidden = projects.length > 0;
+      $("#cv-proj-list").replaceChildren(...projects.map(projectGroup));
+      return;
+    }
+    const shown = known.filter(s => s.state !== "closed" && inContext(s));
     const fav = shown.filter(s => s.favorite), rest = shown.filter(s => !s.favorite);
     $("#cv-fav-group").hidden = !fav.length;
     $("#cv-fav").replaceChildren(...fav.map(convRow));
@@ -131,11 +226,12 @@
     if (!r.ok) { supported = r.status === 404 || r.status === 0 ? false : supported; return; }
     supported = true;
     known = r.json.sessions || [];
+    defaultWs = r.json.default_workspace || "";
     paintList();
   }
-  async function branch() {
+  async function branch(at) {
     const h = await api("GET", `/${sid}/history`);
-    const turn = h.ok ? h.json.messages.filter(m => m.role === "user").length : 0;
+    const turn = Number.isInteger(at) ? at : (h.ok ? h.json.messages.filter(m => m.role === "user").length : 0);
     if (!turn) { status(T("ch.branch.none")); return; }
     const r = await api("POST", `/${sid}/branch`, { turn });
     if (!r.ok) { status(errText(r)); return; }
@@ -143,16 +239,20 @@
     await openSession(r.json.session.id);
     status(T("ch.branch.done"));
   }
-  $("#branch-chat").onclick = branch;
+  $("#branch-chat").onclick = () => branch();
   document.addEventListener("basalt:chatset", () => setControls());
 
-  function forget() { pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(LAST_KEY, ""); copyShown = false; }
-  function newChat() { forget(); status(T("ch.new")); setControls(); paintList(); }
+  function forget() { pick = null; learn = null; paintPick(); paintLearn(); pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(lastKey(), ""); copyShown = false; }
+  function newChat() {
+    if (inAgent() && !curPath()) { addFolder(); return; }                      // a conversation in the Agent tab needs a folder to work in
+    forget(); status(T("ch.new")); setControls(); paintList();
+  }
   async function openSession(id) {
     forget();
     const h = await api("GET", `/${id}/history`);
     if (!h.ok) { status(errText(h)); return; }
-    sid = id; keep(LAST_KEY, id); rec = h.json.session; state = rec.state;
+    sid = id; keep(lastKey(), id); rec = h.json.session; state = rec.state;
+    if (inAgent() && rec.workspace && projects.some(x => sameDir(x.path, rec.workspace))) setProject(rec.workspace);
     if (typeof rec.effort === "string") effortSel.value = rec.effort;
     fromHistory(h.json.messages || []);
     if (state === "busy" || state === "starting" || state === "asking") {      // mid-turn: rebuild what is going on from its events
@@ -258,7 +358,7 @@
       stampAt = typeof m.ts === "number" ? m.ts : null;
       if (m.role === "user") {
         const text = typeof m.content === "string" ? m.content : "";
-        if (text.startsWith("[harness]")) { assistant(); addBlock({ t: "note", s: text.replace(/^\[harness\]\s*/, "") }); } else userItem(text, (m.attachments || []).map(n => ({ name: n })));
+        if (text.startsWith("[harness]")) { assistant(); addBlock({ t: "note", s: text.replace(/^\[harness\]\s*/, "") }); } else userItem(typeof m.raw === "string" ? m.raw : text, (m.attachments || []).map(n => ({ name: n })));
       } else if (m.role === "assistant") {
         if (m.content) textBlock("text", m.content);
         (m.tool_calls || []).forEach(tc => {
@@ -321,6 +421,7 @@
       d.append(Object.assign(mk("summary"), {}), mk("div", "think-b"));
       d.querySelector("summary").append(mk("span", "think-t"));
       d.querySelector(".think-b").tabIndex = 0; d.querySelector(".think-b").setAttribute("role", "region"); d.querySelector(".think-b").setAttribute("aria-label", T("ch.reasoning"));
+      d.append(mk("div", "think-end", "")); d.querySelector(".think-end").append(copyButton(() => b.s || ""));
       const wrap = mk("div", "ablock"); wrap.append(d); window.chatUi.watchThink(wrap); return wrap;
     }
     if (b.t === "text") return mk("div", "answer");
@@ -359,6 +460,8 @@
       el.querySelector(".atool-o").hidden = !b.output;
       const made = /^\[file:([a-f0-9]{12}):([^\]]{1,120})\]/.exec(b.output || "");          // written by the tool, never by the model's own text
       let save = el.querySelector(".asave");
+      const wrote = ["write_file", "edit_file"].includes(b.name) && b.status === "ok" && b.args && typeof b.args.path === "string" ? b.args.path : "";   // a file it wrote or edited can be saved too
+      if (wrote && !save) { const leaf = wrote.split(/[\\/]/).pop(); save = btn(T("ch.out.save", leaf), "ghost asave", () => saveWorkspace(wrote, leaf, save)); el.querySelector("summary").after(save); }
       if (made && !save) { save = btn(T("ch.out.save", made[2]), "primary asave", () => saveOutput(made[1], made[2], save)); el.querySelector("summary").after(save); }
       let chip = el.querySelector(".chip");
       const pid = b.name.startsWith("plan_") ? planIdOf(b) : "";
@@ -454,12 +557,27 @@
           bubble.append(mk("div", "", it.text));
           row.append(window.chatUi.stamp(it.ts), bubble);
           it.el.append(row);
-          it.el.append(backButton(it));
+          it.row = row;
+          const acts = mk("div", "aacts");
+          acts.append(copyButton(() => it.text || ""), backButton(it), skillButton(it));
+          it.el.append(acts);
         }
         else { it.body = mk("div", "ablocks"); it.metaEl = mk("div", "meta"); it.el.append(it.body, it.metaEl); }
         box.insertBefore(it.el, null);
       }
       if (it.kind !== "assistant") return;
+      if (it.done && !it.actsEl) {                                              // at the end of an answer: copy it, or go on from there in a conversation of its own
+        it.actsEl = mk("div", "aacts aend");
+        const branchBtn = btn(T("ch.branch.from"), "ghost abranch", async () => {
+          if (busyNow || state === "busy" || state === "asking") { status(T("ch.back.busy")); return; }
+          const turn = items.slice(0, items.indexOf(it)).filter(x => x.kind === "user").length;
+          if (turn) await branch(turn);
+        });
+        branchBtn.title = T("ch.branch.from.tip");
+        branchBtn.prepend(icon(BRANCH_ICON));
+        it.actsEl.append(copyButton(() => it.blocks.filter(x => x.t === "text").map(x => x.s).join("\n\n")), branchBtn);
+        it.el.append(it.actsEl);
+      }
       it.blocks.forEach(b => {
         if (!b.el) { b.el = makeBlock(b); b.row = mk("div", "arow"); b.row.append(window.chatUi.stamp(b.ts), b.el); it.body.append(b.row); b.dirty = true; }
         if (b.dirty || b.t === "reasoning" || b.t === "text") { paintBlock(b, b.el, it); b.dirty = false; }
@@ -500,6 +618,69 @@
     b.setAttribute("aria-label", T("ch.back.n", it.text.slice(0, 60)));
     return b;
   }
+
+  /* ---- making a skill from requests: "Make a skill" on a request puts a box beside each request up to it, the person checks the ones that
+     belong to the task, and pskills.js goes on from there; /start-learn-skill and /stop-learn-skill mark the first and the last request ---- */
+  function requestsOf() { return items.filter(x => x.kind === "user"); }
+  const GAP_S = 30 * 60;
+  function suggested(end) {                                     // back from the request pressed, while the requests follow each other closely
+    const users = requestsOf(), out = [end];
+    for (let n = end - 1; n >= 1 && out.length < 10; n--) {
+      const before = users[n - 1], after = users[n];
+      if (before.ts && after.ts && after.ts - before.ts > GAP_S) break;
+      out.push(n);
+    }
+    return out;
+  }
+  function paintPick() {
+    requestsOf().forEach((it, i) => {
+      const n = i + 1, want = !!pick && n <= pick.end && !!it.row;
+      if (want && !it.box) {
+        const cb = mk("input", "askill-box"); cb.type = "checkbox";
+        cb.setAttribute("aria-label", T("psk.sel.check", n));
+        cb.onchange = () => { if (!pick) return; if (cb.checked) pick.picked.add(n); else pick.picked.delete(n); paintPick(); };
+        it.row.prepend(cb); it.box = cb;
+      }
+      if (!want && it.box) { it.box.remove(); it.box = null; }
+      if (it.box) it.box.checked = pick.picked.has(n);
+    });
+    bar.hidden = !pick;
+    if (pick) $("#pskill-bar-text").textContent = T("psk.sel.bar", [...pick.picked].sort((a, b) => a - b).join(", ") || "-", pick.end);
+  }
+  function startPick(end, picked) {
+    if (!sid || !window.pskills) return;
+    pick = { end, picked: new Set(picked || suggested(end)) };
+    paintPick();
+    bar.scrollIntoView({ block: "nearest" });
+  }
+  $("#pskill-cancel").onclick = () => { pick = null; paintPick(); };
+  $("#pskill-go").onclick = () => {
+    if (!pick || !pick.picked.size) { status(T("psk.sel.none")); return; }
+    const turns = [...pick.picked].sort((a, b) => a - b);
+    pick = null; paintPick();
+    window.pskills.make(sid, turns);
+  };
+  function skillButton(it) {
+    const b = btn(T("psk.make.btn"), "ghost aback askill", () => startPick(requestsOf().indexOf(it) + 1));
+    b.title = T("psk.make.btn.title");
+    b.setAttribute("aria-label", `${T("psk.make.btn")}: ${it.text.slice(0, 60)}`);
+    return b;
+  }
+  function paintLearn() {
+    badge.hidden = !learn;
+    if (learn) badge.textContent = T("psk.learn.on", learn.from);
+  }
+  const skills = {
+    startLearn() { learn = { from: requestsOf().length + 1 }; paintLearn(); note(T("psk.learn.started")); },
+    stopLearn() {
+      if (!learn) { note(T("psk.learn.none")); return; }
+      const end = requestsOf().length, from = learn.from;
+      learn = null; paintLearn();
+      if (end < from || !sid) { note(T("psk.learn.empty")); return; }
+      startPick(end, Array.from({ length: end - from + 1 }, (_, k) => from + k));
+    },
+    learning: () => !!learn,
+  };
 
   /* ---- files to attach: uploaded to this conversation as they are picked ---- */
   let pend = [];                                      // [{id, name, family, size} | {name, uploading, pct}]
@@ -558,6 +739,26 @@
     } catch (e) { if (!(e && e.name === "AbortError")) status(T("ch.out.fail", name)); }
     button.disabled = false;
   }
+  /* a file of the conversation's folder: the button of a link the agent wrote, or of a file it wrote or edited */
+  async function saveWorkspace(path, name, button) {
+    if (button) button.disabled = true;
+    try {
+      const r = await fetch(`api/agent/sessions/${encodeURIComponent(sid)}/file?path=${encodeURIComponent(path)}`, { headers: authHeaders() });
+      if (!r.ok) {
+        let why = ""; try { why = ((await r.json()).error || {}).message || ""; } catch (e) { /* no body */ }
+        throw new Error(why || `HTTP ${r.status}`);
+      }
+      await saveBlob(await r.blob(), name || path.split(/[\\/]/).pop());
+    } catch (e) { if (!(e && e.name === "AbortError")) status(T("ch.out.fail", name || path) + (e && e.message ? ` (${e.message})` : "")); }
+    if (button) button.disabled = false;
+  }
+  /* every button a link to a file became, in any answer, saves through the same two functions */
+  box.addEventListener("click", e => {
+    const b = e.target.closest && e.target.closest("button.afile");
+    if (!b || !sid) return;
+    if (b.dataset.kind === "file") saveOutput(b.dataset.id, b.dataset.name, b);
+    else saveWorkspace(b.dataset.path, b.dataset.name, b);
+  });
   async function saveBlob(blob, name) {
     try {
       const app = window.chrome && window.chrome.webview;
@@ -653,6 +854,21 @@
 
   /* ---- the conversation's own copy of the folder: what it changed waits here until the person applies it ---- */
   const copyBar = $("#acopy"), copyText = $("#acopy-text"), copyOpen = $("#acopy-open"), copyPanel = $("#acopy-panel");
+  /* pictures and charts: each is switched on by its own box and asked for at a level; they apply to the next new conversation */
+  const VIS_KEY = "basalt.visuals";
+  const vis = { imgOn: $("#cs-img-on"), imgLevel: $("#cs-img-level"), chartOn: $("#cs-chart-on"), chartLevel: $("#cs-chart-level") };
+  (() => {
+    let saved = {};
+    try { saved = JSON.parse(load(VIS_KEY, "{}")) || {}; } catch (e) { saved = {}; }
+    vis.imgOn.checked = !!saved.imgOn; vis.chartOn.checked = !!saved.chartOn;
+    if (saved.imgLevel) vis.imgLevel.value = saved.imgLevel;
+    if (saved.chartLevel) vis.chartLevel.value = saved.chartLevel;
+    const store = () => keep(VIS_KEY, JSON.stringify({ imgOn: vis.imgOn.checked, imgLevel: vis.imgLevel.value, chartOn: vis.chartOn.checked, chartLevel: vis.chartLevel.value }));
+    const sync = () => { vis.imgLevel.disabled = !vis.imgOn.checked; vis.chartLevel.disabled = !vis.chartOn.checked; store(); };
+    Object.values(vis).forEach(e => e.addEventListener("change", sync));
+    sync();
+  })();
+  const visuals = () => ({ images: vis.imgOn.checked ? vis.imgLevel.value : "", charts: vis.chartOn.checked ? vis.chartLevel.value : "" });
   const copyMode = () => "auto";                              // the page does not offer a choice: a copy is made only when the server finds another conversation in the same git folder
   let copyShown = false;
   const kindText = s => T("wc." + (["added", "deleted"].includes(s) ? s : "modified"));
@@ -727,9 +943,10 @@
   /* ---- talking to the conversation ---- */
   async function ensure() {
     if (sid) return true;
-    const r = await api("POST", "", { mode: permMode(), allow: allowRules(), confirm_auto: permMode() === "auto", ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), end_turn_bias: chatSettings.body().end_turn_bias, worktree: copyMode() });
+    if (inAgent() && !curPath() && !(await addFolder())) { status(T("ag.noproject")); return false; }
+    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath() } : {}), mode: permMode(), allow: allowRules(), confirm_auto: permMode() === "auto", ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), end_turn_bias: chatSettings.body().end_turn_bias, worktree: copyMode(), ...visuals() });
     if (!r.ok) { status(errText(r)); return false; }
-    sid = r.json.session.id; rec = r.json.session; keep(LAST_KEY, sid); after = 0;
+    sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0;
     await refreshList();
     return true;
   }
@@ -782,7 +999,38 @@
     } else if (r.status === 404) { newChat(); }
     timer = setTimeout(() => poll(), busyNow ? FAST_MS : SLOW_MS);
   }
-  document.addEventListener("basalt:view", e => { if (e.detail === "chat") { refreshList(); poll(true); } });
+  /* the same page serves two tabs: the conversation held with no folder, and the conversations of the folders added */
+  const chgSide = $("#chg-side"), chgOpen = $("#chg-open");
+  function showChanges(on) { chgSide.hidden = !on; chgOpen.setAttribute("aria-expanded", String(on)); }
+  chgOpen.onclick = () => showChanges(chgSide.hidden);
+  $("#chg-close").onclick = () => showChanges(false);
+  $("#cv-addfolder").onclick = () => { addFolder(); };
+  function paintContext() {
+    const agent = inAgent();
+    $("#achat-empty").querySelector("b").textContent = T(agent ? "ag.empty.t" : "ch.empty.t");
+    $("#achat-empty").querySelector("span").textContent = T(agent ? "ag.empty.b" : "ch.empty.b");
+    if (!agent) showChanges(false);
+  }
+  async function enterContext() {
+    const agent = inAgent();
+    if (agent === lastCtx) return;
+    lastCtx = agent;
+    const kept = { chat: load(LAST_KEYS.chat, ""), agent: load(LAST_KEYS.agent, "") };
+    forget();                                                                    // what is open belongs to the tab it was opened in
+    keep(LAST_KEYS.chat, kept.chat); keep(LAST_KEYS.agent, kept.agent);       // each tab goes back to its own last conversation
+    if (agent) mode = "agent";
+    else { mode = load(MODE_KEY, "agent"); if (!MODES.includes(mode)) mode = "agent"; }
+    modeSel.value = mode;
+    paintContext();
+    await window.agentProjects.load();
+    projects = window.agentProjects.list();
+    await refreshList();
+    applyMode();
+    const last = load(lastKey(), "");
+    if (active() && last && known.some(x => x.id === last && inContext(x))) openSession(last);
+  }
+  window.agentProjects.onChange(list => { projects = list; paintList(); setControls(); });
+  document.addEventListener("basalt:view", e => { if (e.detail === "chat" || e.detail === "agent") { enterContext().then(() => { refreshList(); poll(true); }); } });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(true); });
 
   /* ---- what the slash commands (slash.js) use ---- */
@@ -815,27 +1063,35 @@
     rec = r.json.session; await refreshList();
     return true;
   }
-  window.agentChat = { active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, rename, transcript, saveBlob, answers: answersOf,
+  window.agentChat = { skills, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, rename, transcript, saveBlob, answers: answersOf,
     perm: { now: permNow, set: setPerm, cycle: cyclePerm, available: () => active() && mode !== "ask", modes: PERM_CYCLE },
-    sessions: () => known.filter(s => s.state !== "closed").map(s => ({ id: s.id, label: `${s.title || s.id} \u00B7 ${T("ch.state." + s.state)}` })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
+    sessions: () => known.filter(s => s.state !== "closed" && inContext(s)).map(s => ({ id: s.id, label: `${s.title || s.id} \u00B7 ${T("ch.state." + s.state)}` })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
     toggleCopy: () => copyOpen.click() };
   document.addEventListener("basalt:open-session", async e => {      // the tree of branches opens a conversation here
     const id = e.detail && e.detail.id;
     if (!id) return;
-    if (mode === "direct") { mode = "agent"; modeSel.value = mode; keep(MODE_KEY, mode); applyMode(); }
     await refreshList();
+    const there = known.find(x => x.id === id);
+    if (there && !inContext(there)) { view(inAgent() ? "chat" : "agent"); await enterContext(); }     // a conversation of the other tab: go there
+    if (mode === "direct") { mode = "agent"; modeSel.value = mode; keep(MODE_KEY, mode); applyMode(); }
     await openSession(id);
   });
   window.chatUi.agentActive = active;
+  window.chatUi.sessionId = () => sid;
 
   [box, $("#acopy"), convs].forEach(root => applyT(root));
   convs.setAttribute("aria-label", T("cv.title"));   // the static texts, in the page's language
   (async () => {
+    await window.agentProjects.load();
+    projects = window.agentProjects.list();
     await refreshList();
     $("#attach").dataset.can = $("#attach").hidden ? "" : "1";
     if (supported === false) { modeSel.querySelectorAll("option").forEach(o => { if (o.value !== "direct") o.disabled = true; }); modeSel.value = "direct"; }
+    lastCtx = inAgent();
+    if (lastCtx) { mode = "agent"; modeSel.value = mode; }
+    paintContext();
     applyMode();
-    const last = load(LAST_KEY, "");
-    if (active() && last && known.some(s => s.id === last)) openSession(last);
+    const last = load(lastKey(), "");
+    if (active() && last && known.some(s => s.id === last && inContext(s))) openSession(last);
   })();
 })();

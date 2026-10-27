@@ -62,8 +62,8 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
 - `--listen-first` (the page answers while the model loads), `--standby` (nothing loaded until the Loader's Load),
   `--relaunch-on-model-change` (a Load of another model restarts the server with it); a reload re-reads the sampling
   defaults and refuses a bad value before stopping the running engine.
-- A first start that fails says the engine's reason; a vision projector the engine would refuse turns image input off,
-  with the reason.
+- A first start that fails says the engine's reason; a vision projector with F16 or BF16 tensors where the encoder reads F32 or BF16 is rewritten at the
+  load (once, kept in the cache, same weights); one the engine cannot read at all turns image input off, with the reason.
 
 **4. Models**
 - A **models library** of one or more folders: a header-only scan marks every model Ready, To convert or Not compatible
@@ -205,7 +205,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
 | Way in | What it is |
 |---|---|
 | **Chat** tab | Conversations with the agent. Each is a long-lived process with its own saved history, so a message does not pay for the start. This is the main way. |
-| **Agent** tab | One run at a time: a folder, a task, a mode, a readable log, and *Go back* to a checkpoint. |
+| **Agent** tab | The conversation page, working in folders you add: each folder has its own conversations and a `.basalt` registry, and the agent's edits can be kept or undone block by block. |
 | `python -m harness -p "task"` or `basalt-agent` | The command line, for scripts: exit codes, `--json`, budgets. `basalt-agent.cmd` works from any folder. |
 | `python -m harness acp` | The agent of an editor that speaks the Agent Client Protocol, over stdio. |
 
@@ -253,6 +253,11 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   small type.
 - **Sources open outside.** After a news item or a fact taken from the web, a small *source ↗* button opens that page in the system's
   default browser (also after an address written in the text, and for the sites a search or a page-reading step used).
+- **Personal skills.** Press *Make a skill* under a request, check the requests that belong to the task (or write `/start-learn-skill` and
+  `/stop-learn-skill`), and the harness keeps what you did as a Python script with the parts that change as parameters: marked by you with
+  `# a phrase #`, or found from your words and dates. Run it again from the *Skills* button or with `/skilluse`, with a form that reads dates in
+  words. Most of it is plain code, so it costs no tokens; the model is used once to write it and then only where the language must be understood. A
+  skill moves to another PC as one `.pskill` file and arrives *to approve*. See the [manual](docs/harness-manual.md#17-personal-skills).
 - **A message while it works** is steered into the task, queued, or treated as urgent; **Stop** means stop.
 - **Branches, going back, comparing**: a tree of conversations, *Back to here* on any request (actions that stay done are listed
   first), and two continuations of one request side by side.
@@ -268,7 +273,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   once the conversation has read outside content and can reach a secret or a vault entry (the Rule of Two).
 - **Hooks you write** (`hooks.json`): commands or fixed blocks on tool calls, turns and the session; a hook that cannot decide blocks.
 - **Checkpoints and rewind**: the workspace is saved before the first change of a turn, outside the project and within size limits;
-  `python -m harness.rewind` and the *Go back* button restore it. Rewinding does not undo a command it ran, and says so.
+  `python -m harness.rewind`, `/rewind` and *Back to here* on a message restore it. Rewinding does not undo a command it ran, and says so.
 - **An audit log**: one record per tool call (arguments hashed and masked, the decision, the outcome), in a hash chain you can verify.
 - **Time limits and Stop**: every tool has a time limit (15 minutes unless set); Stop ends a running command and everything it started.
 - **What it is not**: an operating-system sandbox. A command runs with your rights, with a scrubbed environment, no stdin, a time limit,
@@ -444,12 +449,12 @@ it detects, says why, and can check it with a real measurement.
    now is shown, not added: the expert cache sizes itself to the VRAM free at the load, which leaves it to them.
 3. **The model** and its own chat values.
 4. **The computed values**, with their reasons and the prediction: KV cache q4_0, prefill auto, the drafter at spec 7
-   and min-p 0.5 when the file has one, resident experts and the PLE table in RAM when they fit, CPU workers from the
+   when the file has one, resident experts and the PLE table in RAM when they fit, CPU workers from the
    processor, the longest context that fits.
 5. **Measure** (optional, about 5-10 minutes, only with less than 75% of the commit limit in use): the values are
    loaded, the real memory after the load is compared with the plan (a shorter context, then no resident experts,
-   while it is above), the speed is calibrated, the drafting floor is tried per request (0.3, 0.5, 0.7) and the
-   verify windows 5, 7 and 8 (set at the engine's start: one reload each); the fastest is kept (a tie keeps the lower
+   while it is above), the speed is calibrated, and the
+   maximum verify windows 5, 7 and 8 (set at the engine's start: one reload each); the fastest is kept (a tie keeps the lower
    window) and every result is shown.
 6. **Save**: the load profile **Machine Default** (with the model; it becomes the default) and the chat preset
    **Machine Default** (the model's sampling values). **Restore Machine Default** puts them back: in the Loader next
@@ -520,6 +525,24 @@ The catalog was read from the repositories on 2026-10-17 (`serve/catalog.py`); s
 planned. The routes (this PC and the server's own page only): `GET /api/models/catalog | download | hf`, `POST
 /api/models/download-plan | download | download-cancel | hf-token`.
 
+### Model converter (Models > Model converter)
+
+Convert a GGUF set to a `.basalt` file with the choices that decide how it will behave: the **expert profile** (the one found next to the
+model, none, a file, or another model's), the **drafter** (Qwen's original layer, none, or the layer fine-tuned on the model's own output that
+the official packs carry, read from the pack with range requests, not downloaded whole), the **image projector** (the folder's, none or a
+file) and the BF16 rounding. The plan shows the command, the steps, the size and the disk, and refuses a wrong choice before anything is
+written.
+
+Next to it, every ready model can be **tested** in a server of its own with the same settings for all (so the figures compare): the memory it
+takes at load (RAM, commit, VRAM) and the load time, decode speed with exact sampling and with relaxed drafting 0.5, 0.3 and 0.2 (and without
+the drafter), prompt reading speed, an image request, and 100 to 300 maths questions (gsm8k) scored on the final number. The test needs the GPU:
+a loaded model is unloaded first, and the Loader's own check must say the model fits. A test already made with the same settings is **offered
+for reuse** (a dialog asks, step by step: reuse or test again); results are kept in the user data folder (`bench`) with the settings and the
+power limit they were measured under, and the quality result is shared by files with the same weights. The comparison shows the models you tick,
+and the published figures of the official packs as references, as a **star** (every axis from the worst to the best of the models shown, the
+outer edge always better), **bars** (one panel for each measure, values at the tip), **points** (two measures against each other, a third as
+the size) or a **table**; every mark has the same figures in its hover text, and a model keeps its colour.
+
 ### VRAM to leave free
 
 **VRAM to leave free** (in the Loader and in the wizard; `engine.vram-reserve-mib`, saved in profiles) is
@@ -543,12 +566,12 @@ from then on the plans of that model add what was above (shown as "measured at t
 The built-in profile is computed each time from the hardware found and the chosen model, with the same rules as
 every plan and the wizard: this PC's share of RAM and commit stays free; the VRAM reserve is the wizard's (or its rule,
 with 1 GB for the monitor until the wizard confirms where it is, 1.5 GB in all); the KV cache is q4_0 and the context the longest that
-fits (up to 262,144); the drafter is on (spec 7, min-p 0.5) only when the file has one, image input only when it has a
+fits (up to 262,144); the drafter is on (spec 7) only when the file has one, image input only when it has a
 projector; resident experts and the PLE table in RAM only when they fit; the CPU workers are the performance cores plus
 half the efficiency cores, less one (on a processor without efficiency cores, the physical cores less one). Each value
 comes with its reason in the Loader. As an example, on an RTX 5090 (32 GB, 1 GB used by other programs) with 128 GB of
-RAM and a processor with 8 performance and 16 efficiency cores, the 3-bit file gives: 262,144 tokens, q4_0, spec 7 at
-min-p 0.5, expert cache auto, resident experts, 1.5 GB left free, 15 CPU workers, image input dynamic.
+RAM and a processor with 8 performance and 16 efficiency cores, the 3-bit file gives: 262,144 tokens, q4_0, spec 7,
+expert cache auto, resident experts, 1.5 GB left free, 15 CPU workers, image input dynamic.
 
 ### Where the settings live
 
@@ -745,17 +768,36 @@ Set in the Loader (each with its reason and the live prediction), saved in load 
 | **Port** (`server.port`) | the HTTP port, default 7232 | change it only to run two servers or when 7232 is taken |
 | **Parallel requests** (`server.parallel`, 1-8) | requests served at once in the engine's batch slots | 1 for one user or one agent (fastest per request); more only for several agents at once. The context is shared: each slot gets `max-context / N` |
 | **Full context per slot** (`server.slot-full-context`) | every slot gets the whole context instead of a share | costs N times the KV cache, taken from the expert cache: leave off unless each agent really needs the full length |
-| **Image input** (`server.vision`) | `off`, `dynamic` (borrows expert-cache slots only while it reads an image: no standing VRAM), `on` (encoder always on the GPU, about 2.2 GiB), `peer` (on a second GPU), `cpu` (no VRAM, slow) | `dynamic` when the file has a projector, else `off` |
+| **Image input** (`server.vision`) | `off`, `dynamic` (borrows expert-cache slots only while it reads an image: no standing VRAM), a GPU number such as `0` (encoder always on that card, about 2.2 GiB of its VRAM; the old names `on` and `peer` still read as GPU 0 and GPU 1), `cpu` (no VRAM, slow) | `dynamic` when the file has a projector, else `off` |
 | **Context** (`engine.max-context`) | the longest conversation, in tokens (up to 262,144) | the longest that fits ("Valori sicuri" and the wizard pick it); a shorter one leaves more VRAM for experts (a little faster) and needs less commit |
 | **KV cache** (`engine.kv`) | the precision of the attention cache: `fp16`, `int8`, `q4_0`, `k8v4` (INT8 keys, Q4_0 values) | `q4_0`: a quarter of fp16's memory, so long contexts fit; `int8` or `k8v4` for slightly more precise attention at more memory |
 | **Prompt chunks** (`engine.prefill`) | how long prompts are read: `auto` (the largest chunk the expert cache can lend), `auto:8192/16384/32768` (a ceiling), or a fixed size | `auto` |
-| **Verify window** (`engine.spec`, 0-8) | the MTP drafter proposes up to N-1 tokens, the model checks them in one pass; 0 = off | 7 when the file has a drafter (the wizard measures 5, 7 and 8); the output is the same at any value, only the speed changes |
-| **Drafting floor** (`engine.spec-min-p`, 0-1) | a draft is proposed only while the drafter is at least this sure of it | 0.5; the wizard tries 0.3, 0.5 and 0.7. Lower drafts more (more wasted work on hard text), higher drafts less |
+| **Verify window** (`engine.spec`, 0-8) | the longest window: the MTP drafter proposes up to N-1 tokens (fewer when it is unsure), the model checks them in one pass; 0 = off | 7 when the file has a drafter (the wizard measures 5, 7 and 8); the output is the same at any value, only the speed changes |
 | **Expert cache** (`engine.expert-cache`) | expert slots kept in VRAM: `auto` (all the VRAM left after the reserve) or a number | `auto` |
 | **Resident experts** (`engine.resident-experts`) | the experts not in VRAM are copied into RAM once at load, instead of being read from the file | on when they fit in RAM with the free share kept (they take about 50 GiB for the 3-bit file); off on PCs with less RAM, at a cost in speed |
 | **VRAM to leave free** (`engine.vram-reserve-mib`) | VRAM the engine never touches (desktop, driver, other programs) | see [VRAM to leave free](#vram-to-leave-free); the wizard's rule: 0.5 GB + 1.5 GB if the GPU drives the main monitor (about 0.4 GB for a secondary one) |
 | **PLE table** (`engine.ple-io`) | the per-layer n-gram table: `direct` (read from the SSD as needed, never in RAM), `ram` (locked in RAM at the start: RAM but no commit), `mmap` (a test arm) | `ram` when it fits with the free share kept, else `direct`; on a slow or rotational disk prefer `ram` |
 | **CPU workers** (`engine.pool-workers`) | the threads that compute the experts not in VRAM | the performance cores plus half the efficiency cores, less one (one core stays for the server and the desktop) |
+| **KV kept in VRAM** (`engine.kv-resident`, 0 or from 20,480 cells) | only this many cells of each layer's KV stay in VRAM, the whole K/V is pinned in RAM and the VRAM it frees goes to experts; a context that fits in these cells is not streamed | very long contexts on a small card; slower the more is streamed; not with `k8v4`. The plan moves the KV pool from the VRAM figure to the RAM figure |
+| **Context extension** (`engine.rope-scaling`: `none`, `linear`, `yarn`) | extends the context past the trained length | fixed for the run and it changes the output; empty = the model file's |
+| **Extension factor** (`engine.rope-scale`, 1 or more) | the factor for `linear` and `yarn` | empty = the model file's, else 1 |
+| **RoPE frequency base** (`engine.rope-freq-base`, 0 or above 1) | the raw frequency base, 0 = the model's own | leave empty unless you know the value you want; fixed for the run |
+| **CPU share of the prompt experts** (`engine.prefill-cpu-share`, 0-1) | the share of the streamed prompt experts the CPU computes; 0 has the GPU stream them all | 0.6 by default; lower on a weaker CPU |
+| **Adaptive swaps** (`engine.adapt-swaps`) | the most experts one adaptive round swaps into the main GPU's expert cache; 0 = off | 96 by default; with swaps on, the output is not bit-identical from run to run |
+| **RAM budget for experts** (`engine.resident-budget-gib`, GiB) | at most this many GiB of experts copied to RAM, the most used first | empty = automatic; the plan's RAM figure is limited to it; the engine refuses a budget that leaves less than its RAM floor free |
+| **Experts in the file mapping** (`engine.mmap-experts`) | no resident RAM copy: the experts are read through a file mapping; it wins over resident experts and the RAM budget | usually slower (it depends on the OS page cache); off by default |
+| **Elastic expert cache** (`engine.vram-elastic`) | the expert cache in segments, so `POST /v1/vram` can lend VRAM to other programs between requests | off unless another program needs VRAM at times |
+| **Give back the GPU memory's commit** (`engine.release-vram-commit`, Windows) | gives back the system commit WDDM charges for the GPU memory | off; the engine can hang if another program then pushes its VRAM out |
+| **Expert profile file** (`engine.expert-profile-save`, advanced) | the file the engine saves what the adaptive cache learned to, on exit and periodically | empty = not saved; `tools/convert/convert.py --profile` reads it |
+| **Profile save interval** (`engine.expert-profile-save-every`, minutes, advanced) | how often the profile is saved; 0 = on exit only | 10 by default |
+| **Prompt checkpoints** (`engine.prompt-cache`) | conversation checkpoints kept between requests, about 118 MB of RAM each per slot; 0 reads every prompt from the start | 6 by default; the plan counts them |
+| **Checkpoint every** (`engine.prompt-cache-every`, tokens) | also checkpoint every N freshly read prompt tokens; 0 = off | 16,384 by default |
+| **First-turn checkpoint** (`engine.prompt-cache-root`, tokens) | checkpoint the end of the system prompt when it is at least this long; 0 = never | 2,048 by default |
+| **Parked conversations** (`engine.conversation-cache-mib`, MiB) | RAM budget for parked conversations, so separate chats come back without re-reading; 0 = off | 0 by default; the plan counts the whole budget |
+| **Parked conversations, at most** (`engine.conversation-cache-slots`) | how many conversations are parked at a time | 4 by default; 0 turns the cache off |
+| **RAM kept free when parking** (`engine.conversation-cache-min-free-mib`, MiB) | the physical RAM floor kept free when a conversation is parked | 2,560 by default |
+| **Grammar** (`server.grammar`) | holds every tool call and JSON response format to its schema inside the engine | on by default; applies at the next Load |
+| **Default thinking budget** (`server.reasoning-budget-tokens`) | the thinking budget for requests that name none; 0 = none | keep it below the requests' `max_tokens`; applies at the next Load |
 
 One more rule is per PC, not per profile: the **share of RAM and commit kept free** for other programs (15% unless the
 wizard was told otherwise, 5-50%, at least 2 GB). Every plan, "Valori sicuri" and the wizard keep it free, and a load
@@ -802,7 +844,7 @@ configuration with three requests: an answer without reasoning (512 tokens), one
 long prompt (about 8,000 tokens). The result goes to `calibration\<model>.json` in the user data folder, keyed by the
 model and the settings. From then on the predictions of that model start from the calibration of exactly the same settings, else
 from the model's newest one, instead of the built-in reference, and the Loader says which one it used. The wizard's measurement is the same calibration, repeated
-for the drafting floors and verify windows it tries. Next to the speeds, the file keeps the RAM and commit the load
+for the verify windows it tries. Next to the speeds, the file keeps the RAM and commit the load
 really took (see "Measured memory").
 
 ## Language
@@ -888,7 +930,7 @@ bin/basalt serve --model /path/to/model.basalt --host 127.0.0.1 --port 7232 [--a
 
 The server listens on 127.0.0.1 by default; do not expose it beyond that without `--api-key`.
 
-Its web UI is at http://127.0.0.1:7232/: **Chat** streams from the server's own `/v1/chat/completions` (the conversation stays in the browser), **Monitor** and **Hardware** show the live statistics, and **Settings** edits the main fields of the `--config` file (port, parallel, vision, max-context, kv, spec, spec-min-p, expert-cache, prefill) through `GET`/`POST /api/settings`. Values are checked with the server's and engine's own rules, every other key in the file is kept, and the old file is saved as `FILE.bak`. Saving needs the API key when one is set and works only from the PC the server runs on; the changes apply when the server is started again.
+Its web UI is at http://127.0.0.1:7232/: **Chat** streams from the server's own `/v1/chat/completions` (the conversation stays in the browser), **Monitor** and **Hardware** show the live statistics, and **Settings** edits the main fields of the `--config` file (port, parallel, vision, max-context, kv, spec, expert-cache, prefill) through `GET`/`POST /api/settings`. Values are checked with the server's and engine's own rules, every other key in the file is kept, and the old file is saved as `FILE.bak`. Saving needs the API key when one is set and works only from the PC the server runs on; the changes apply when the server is started again.
 
 ### Settings: `--config`
 
@@ -908,7 +950,6 @@ file carries no engine flags. Put every setting in one `basalt_config.json` and 
     "expert-cache": "auto",
     "prefill": "auto",
     "spec": 7,
-    "spec-min-p": 0.5,
     "max-context": 262144,
     "kv": "int8",
     "resident-experts": true,
@@ -1033,29 +1074,28 @@ Basalt refuses settings that would leave the machine without memory, and never s
 
 ### Vision: `--vision`
 
-Image input is one server option, `--vision off | on | peer | dynamic | cpu` (config: `"vision": "peer"` in the
-`server` section). It is `off` by default. The encoder is Basalt's own and shares its kernels in every mode, so all
-five give bitwise identical embeddings.
+Image input is one server option, `--vision off | dynamic | cpu | N` (config: `"vision": "0"` in the `server` section), where
+N is a GPU number as `nvidia-smi` numbers them. It is `off` by default. The encoder is Basalt's own and shares its kernels
+in every mode, so all of them give bitwise identical embeddings. The old names `on` and `peer` are still read from saved
+Loader settings, as GPU 0 and GPU 1. The Loader shows each card with its name.
 
-| mode | where the encoder runs | VRAM cost | fresh-image latency (IQ3_S, 400 W) |
+| mode | where the encoder runs | VRAM cost | fresh-image latency (IQ3_S, 400 W, measured by the original project) |
 | --- | --- | --- | --- |
 | `off` | no image input | none | |
-| `on` | sidecar `bin/basalt-vision` on the main GPU, always loaded | about 2.2 GiB of the main card's expert cache | TTFT 0.77 s at 1k image tokens, 1.4 s at 3k, 1.8 s at 4k |
-| `peer` | the same sidecar on the second `--gpu` card | about 1.8 GiB of the peer card's cache, none on the main card | 0.86 s, 2.1 s, 2.9 s |
+| `N` | sidecar `bin/basalt-vision` on card N, always loaded | about 2.2 GiB of the main card's expert cache, or about 1.8 GiB of a second card's | main card: TTFT 0.77 s at 1k image tokens, 1.4 s at 3k, 1.8 s at 4k; second card: 0.86 s, 2.1 s, 2.9 s |
 | `dynamic` | inside the engine, on the main GPU | none at rest (0.87 GiB of pinned RAM) | 0.77 s, 1.45 s, 1.8 s |
 | `cpu` | sidecar on the CPU | none | about 6 s at 1k, 40 s at 3k, 70 s at 4k |
 
 `dynamic` borrows up to 1.55 GiB of expert-cache slots per image (the prompt path's lend), uploads the weights from the
 pinned copy (about 30 ms), encodes on a side stream, and refills the same slots from RAM (about 60 ms), so the cache is
 identical afterwards. Other `--parallel` slots pause for the encode. An image already seen is served from the
-encoder cache in tens of milliseconds in every mode. `peer` on a single GPU warns and loads the encoder on that GPU;
-with two cards, `on` says so at startup and names `peer` as the way to put it on the second card.
+encoder cache in tens of milliseconds in every mode.
 
 ```json
-{ "server": { "gpu": "0,1", "vision": "peer" } }
+{ "server": { "gpu": "0,1", "vision": "1" } }
 ```
 
-`on` and `peer` use the sidecar, which the main build also produces (`tools/vision` also builds on its own); the
+A card number uses the sidecar, which the main build also produces (`tools/vision` also builds on its own); the
 server looks for it next to `bin/basalt`. `dynamic` needs no sidecar.
 
 The image encoder is Basalt's own, written for this model's vision tower (no llama.cpp or ggml): bf16 tensor-core
@@ -1119,6 +1159,46 @@ The model files are derived from Qwen3.8-Flash-Next and are distributed under th
 [Qwen Community License 1.0](https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/main/LICENSE), not Basalt's MIT
 license. The GSQ-RCO quants come from IST Austria's Deep Algorithms and Systems Lab; please cite the
 [GSQ](https://arxiv.org/abs/2604.18556) and [RCO](https://arxiv.org/abs/2605.00649) papers if you use them.
+
+## Community benchmark runs
+
+Rows submitted to the original project (`docs/community/benchmarks.json` of `jesdga95/basalt`, copied on 2026-10-26, 25 runs), all taken with
+`basalt-bench --community`, so they compare with each other: prompt reading speed on a 16k-token prompt (tokens/s) and decode speed (tokens/s),
+each with the GPU power limit it ran at. Credit to the people who submitted them. The two rows at the end are **our own development
+measurements** on this fork (Windows, RTX 5090, 600 W, 127.6 GiB RAM) and are **not the same method**: decode is a chat request with
+temperature 0.6 and the drafter on, prompt reading is a 13.5k-token repeated text, and the model is the OrcaRouter Uncensored build of the
+same architecture. Compare the rows of one source with each other, and these two with the others only as an order of magnitude.
+
+| GPU | Power | RAM GiB | OS | Quant | Prompt 16k tok/s | Decode tok/s | Submitted by |
+|---|---|---|---|---|---|---|---|
+| 2x RTX 5090 32 GB | 500 W | 123 | Linux | NVFP4 | 7,740 | 461 | neuro |
+| RTX 5060 Ti + RTX 5090 32 GB | 400 W | 121 | Linux | NVFP4 | 7,741 | 438 | jesdga95 |
+| RTX 5090 32 GB | 575 W | 62 | Linux | IQ3_S | 5,677 | 376 | knoopx |
+| RTX 5090 32 GB | 500 W | 62 | Linux | IQ3_S | 8,859 | 375 | drakiss79 |
+| RTX 5090 32 GB | 500 W | 62 | Linux | IQ3_XXS | 8,784 | 564 | drakiss79 |
+| RTX 5090 32 GB | 475 W | 247 | Linux | NVFP4 | 9,556 | 312 | giveen |
+| RTX 5090 32 GB | 500 W | 62 | Linux | NVFP4 | 9,289 | 305 | drakiss79 |
+| RTX 5090 32 GB | 500 W | 191 | Windows | NVFP4 | 2,431 | 199 | HenryPDT |
+| RTX 5090 32 GB | 400 W | 121 | Linux | NVFP4 | 7,732 | 317 | jesdga95 |
+| RTX 5090 Laptop GPU 24 GB | 175 W | 47 | WSL2 | IQ3_XXS | 3,892 | 243 | pyj99_fr |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 123 | Linux | IQ3_S | 3,226 | 187 | foolio |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 126 | Linux | IQ3_S | 3,236 | 158 | fukc-gihtub |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 123 | Linux | IQ3_XXS | 3,169 | 202 | foolio |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 126 | Linux | IQ3_XXS | 2,894 | 189 | fukc-gihtub |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 123 | Linux | NVFP4 | 4,072 | 131 | foolio |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 126 | Linux | NVFP4 | 3,316 | 96 | fukc-gihtub |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 126 | Linux | Q4_K_XL | 2,983 | 72 | fukc-gihtub |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 123 | Linux | UD-Q4_K_XL | 2,866 | 104 | foolio |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 123 | Linux | UD-Q5_K_XL | 2,981 | 77 | foolio |
+| RTX PRO 4000 Blackwell 24 GB | 145 W | 123 | Linux | UD-Q6_K_XL | 2,674 | 66 | foolio |
+| 2x RTX 5060 Ti 16 GB | 180 W | 60 | Linux | IQ3_S | 2,370 | 161 | KimDaeHwan99 |
+| RTX 5060 Ti 16 GB | 180 W | 121 | Linux | IQ3_S | 2,427 | 137 | jesdga95 |
+| RTX 5060 Ti 16 GB | 180 W | 121 | Linux | NVFP4 | 2,687 | 92 | jesdga95 |
+| RTX 5080 16 GB | 360 W | 88 | WSL2 | IQ3_S | 3,180 | 138 | lindworm-hermes2026 |
+| RTX 5080 16 GB | 360 W | 88 | WSL2 | Q4_K_XL | 2,835 | 78 | lindworm-hermes2026 |
+| RTX 5090 32 GB | 600 W | 127.6 | Windows | IQ3_XXS (this fork, own method) | 7,319 | 179 (exact) / 195 (relaxed 0.3) | this fork |
+| RTX 5090 32 GB | 600 W | 127.6 | Windows | IQ4_XS (this fork, own method) | 5,206 | 100 (exact) / 117 (relaxed 0.3) | this fork |
+
 
 ## Contributing
 

@@ -11,7 +11,10 @@
 <link rel="preload" href="fonts/geist-mono-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="web/app.css">
 <link rel="stylesheet" href="web/plans.css">
-<link rel="stylesheet" href="web/agent.css">
+<link rel="stylesheet" href="web/cron.css">
+<link rel="stylesheet" href="web/mobile.css">
+<link rel="stylesheet" href="web/memories.css">
+<link rel="stylesheet" href="web/converter.css">
 <link rel="stylesheet" href="web/shell.css">
 <link rel="stylesheet" href="web/wallet.css">
 <link rel="stylesheet" href="web/risk.css">
@@ -20,24 +23,31 @@
 <script defer src="web/risk.js"></script>
 <script defer src="web/app.js"></script>
 <script defer src="web/shell.js"></script>
+<script defer src="web/subtabs.js"></script>
 <script defer src="web/patterns.js"></script>
 <script defer src="web/chatset.js"></script>
 <script defer src="web/chat.js"></script>
+<script defer src="web/projects.js"></script>
 <script defer src="web/agentchat.js"></script>
 <script defer src="web/slash.js"></script>
+<script defer src="web/pskills.js"></script>
 <script defer src="web/branches.js"></script>
 <script defer src="web/settings.js"></script>
 <script defer src="web/capabilities.js"></script>
 <script defer src="web/models.js"></script>
 <script defer src="web/download.js"></script>
+<script defer src="web/relaxed.js"></script>
 <script defer src="web/loader.js"></script>
+<script defer src="web/charts.js"></script>
+<script defer src="web/converter.js"></script>
 <script defer src="web/providers.js"></script>
 <script defer src="web/wizard.js"></script>
 <script defer src="web/reqlog.js"></script>
-<script defer src="web/tasks.js"></script>
 <script defer src="web/changes.js"></script>
 <script defer src="web/plans.js"></script>
-<script defer src="web/agent.js"></script>
+<script defer src="web/cron.js"></script>
+<script defer src="web/mobile.js"></script>
+<script defer src="web/memories.js"></script>
 <script defer src="web/wallet.js"></script>
 </head>
 <body>
@@ -49,11 +59,9 @@
     <button class="tab" role="tab" id="tab-chat" data-view="chat" aria-controls="view-chat" aria-selected="false" tabindex="-1" data-t="tab.chat" aria-keyshortcuts="Alt+1">Chat</button>
     <button class="tab" role="tab" id="tab-agent" data-view="agent" aria-controls="view-agent" aria-selected="false" tabindex="-1" data-t="tab.agent">Agent</button>
     <button class="tab" role="tab" id="tab-plans" data-view="plans" aria-controls="view-plans" aria-selected="false" tabindex="-1" data-t="tab.plans">Plans</button>
+    <button class="tab" role="tab" id="tab-cron" data-view="cron" aria-controls="view-cron" aria-selected="false" tabindex="-1" data-t="tab.cron">Cron Jobs</button>
     <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats" aria-selected="true" data-t="tab.stats">Monitor</button>
     <button class="tab" role="tab" id="tab-loader" data-view="loader" aria-controls="view-loader" aria-selected="false" tabindex="-1" data-t="tab.loader">Models</button>
-    <button class="tab" role="tab" id="tab-hardware" data-view="hardware" aria-controls="view-hardware" aria-selected="false" tabindex="-1" data-t="tab.hardware">Hardware</button>
-    <button class="tab" role="tab" id="tab-logs" data-view="logs" aria-controls="view-logs" aria-selected="false" tabindex="-1" data-t="tab.logs">LOGS</button>
-    <button class="tab" role="tab" id="tab-wallet" data-view="wallet" aria-controls="view-wallet" aria-selected="false" tabindex="-1" data-t="tab.wallet">Wallet</button>
     <button class="tab" role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1" data-t="tab.settings">Settings</button>
   </nav>
   <span class="grow"></span>
@@ -66,6 +74,8 @@
   <span class="where" id="host"></span>
   <span class="where" id="keyed" hidden>API key</span>
 </header>
+
+<nav class="subtabs viewsub" id="viewsub" role="tablist" aria-label="Sections" hidden></nav>
 
 <div class="nomodel" id="nomodel" role="status" hidden>
   <span></span>
@@ -108,6 +118,21 @@
   <div class="pal-foot" data-t="pal.foot">Up and down choose, Enter runs, Esc closes.</div>
 </dialog>
 
+<dialog class="psk afolder" id="afolder" aria-labelledby="af-title">
+  <form id="af-form" novalidate>
+    <div class="brd-h"><h2 id="af-title" data-t="ag.add.title">Add a folder</h2><button type="button" class="btn" id="af-close" data-t="br.close">Close</button></div>
+    <div class="brd-b">
+      <p class="brd-dim" data-t="ag.add.what"></p>
+      <label for="af-path" data-t="ag.add.label">Full path of the folder</label>
+      <div class="pfrow"><input id="af-path" type="text" list="af-recent" autocomplete="off" spellcheck="false" data-t-ph="ag.add.ph" placeholder="D:\projects\site">
+        <button type="button" class="btn" id="af-browse" data-t="ag.add.browse" hidden>Browse...</button></div>
+      <datalist id="af-recent"></datalist>
+      <p class="ag-msg" id="af-msg" role="alert"></p>
+      <div class="ag-buttons"><button type="submit" class="btn primary" id="af-go" data-t="ag.add.go">Add the folder</button></div>
+    </div>
+  </form>
+</dialog>
+
 <dialog class="brd" id="branches" aria-labelledby="br-title">
   <div class="brd-h"><h2 id="br-title" data-t="br.title">Branches</h2><button type="button" class="btn" id="br-close" data-t="br.close">Close</button></div>
   <div class="brd-b">
@@ -141,10 +166,16 @@
     <div class="chatrow">
     <aside class="convs" id="convs" aria-label="Conversations" data-t-aria="cv.title" hidden>
       <div class="cv-head">
-        <b data-t="cv.title">Conversations</b>
+        <b id="cv-title" data-t="cv.title">Conversations</b>
         <button type="button" class="cv-toggle" id="cv-toggle" aria-expanded="true" aria-controls="cv-body"></button>
       </div>
       <div class="cv-body" id="cv-body">
+        <div id="cv-projects" hidden>
+          <button type="button" class="btn cv-addfolder" id="cv-addfolder" data-t="ag.add" data-t-title="ag.add.tip">Add folder</button>
+          <div id="cv-proj-list"></div>
+          <p class="cv-empty" id="cv-proj-empty" data-t="ag.projects.empty" hidden>No folders yet.</p>
+        </div>
+        <div id="cv-chatlists">
         <div class="cv-group" id="cv-fav-group" hidden>
           <h3 id="cv-fav-h" data-t="cv.fav">Favorites</h3>
           <ul class="cv-list" id="cv-fav" aria-labelledby="cv-fav-h"></ul>
@@ -154,17 +185,22 @@
           <ul class="cv-list" id="cv-recent" aria-labelledby="cv-recent-h"></ul>
           <p class="cv-empty" id="cv-empty" data-t="cv.empty" hidden>No conversations yet.</p>
         </div>
+        </div>
       </div>
     </aside>
     <section class="sec chatbox" aria-label="Chat">
       <div class="sh chathead">
         <button type="button" class="btn" id="new-chat" data-t="ch.newbtn">New conversation</button>
         <button type="button" class="btn" id="branches-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="branches" data-t="br.open" hidden>Branches</button>
+        <button type="button" class="btn" id="pskills-open" aria-haspopup="dialog" data-t="psk.btn" data-t-title="psk.btn.title" hidden>Skills</button>
+        <button type="button" class="btn" id="chg-open" aria-expanded="false" aria-controls="chg-side" data-t="ch.title" hidden>Changes</button>
+        <span class="folderchip" id="folder-chip" hidden></span>
         <button type="button" class="btn" id="branch-chat" data-t="ch.branch" hidden>Branch here</button>
         <button type="button" class="modechip" id="mode-chip" aria-keyshortcuts="Shift+Tab" hidden></button>
+        <span class="learnbadge" id="learn-badge" role="status" hidden></span>
         <span id="chat-model" hidden></span>
         <span class="grow"></span>
-        <label class="effort" for="chatmode"><span data-t="ch.mode">Mode</span>
+        <label class="effort" for="chatmode" id="chatmode-label"><span data-t="ch.mode">Mode</span>
           <select id="chatmode">
             <option value="agent" data-t="ch.mode.agent">With tools</option>
             <option value="ask" data-t="ch.mode.ask">Question only</option>
@@ -198,6 +234,11 @@
           <span data-t="ch.empty.b"></span>
         </div>
       </div>
+      <div class="pskill-bar" id="pskill-bar" role="region" aria-label="Personal skill" data-t-aria="psk.make.title" hidden>
+        <span id="pskill-bar-text"></span>
+        <button type="button" class="btn primary" id="pskill-go" data-t="psk.sel.continue">Continue</button>
+        <button type="button" class="btn ghost" id="pskill-cancel" data-t="psk.sel.cancel">Cancel</button>
+      </div>
       <form class="composer" id="composer">
         <div class="slashhost"><div class="slashmenu" id="slash-menu" role="listbox" aria-label="Commands" data-t-aria="sl.menu" hidden></div></div>
         <div class="attachments" id="attachments" aria-label="Attached images" hidden></div>
@@ -219,6 +260,11 @@
         <div class="sr" id="chat-status" role="status"></div>
       </form>
     </section>
+    <aside class="sec chgside" id="chg-side" aria-labelledby="h-changes" hidden>
+      <div class="sh"><b id="h-changes" data-t="ch.title">Changes</b><span class="grow"></span>
+        <button type="button" class="btn ghost" id="chg-close" data-t="cs.close">Close</button></div>
+      <div class="pad"><div id="changes-root"></div></div>
+    </aside>
     </div>
     <aside class="sec chatset" id="chatset" aria-labelledby="cs-title" hidden>
       <div class="sh"><b id="cs-title" data-t="cs.title">Chat settings</b><span class="grow"></span>
@@ -256,6 +302,16 @@
             <label for="cs-threshold" data-t="cs.threshold">Compact at (% of context)</label>
             <input id="cs-threshold" type="number" inputmode="numeric" min="30" max="100" step="5" placeholder="80">
           </div>
+        </fieldset>
+        <fieldset class="csgroup" id="cs-visuals">
+          <legend data-t="vis.title">Pictures and charts</legend>
+          <p class="help" data-t="vis.help"></p>
+          <label class="check"><input type="checkbox" id="cs-img-on"><span data-t="vis.img">Pictures from the web, taken from the article cited when it has one</span></label>
+          <label for="cs-img-level" data-t="vis.level">How present</label>
+          <select id="cs-img-level"><option value="very_low" data-t="vis.level.very_low">very_low</option><option value="low" data-t="vis.level.low">low</option><option value="normal" selected data-t="vis.level.normal">normal</option><option value="high" data-t="vis.level.high">high</option><option value="very_high" data-t="vis.level.very_high">very_high</option><option value="highest" data-t="vis.level.highest">highest</option></select>
+          <label class="check"><input type="checkbox" id="cs-chart-on"><span data-t="vis.chart">Charts and diagrams that explain (workflows, deployments, interactions)</span></label>
+          <label for="cs-chart-level" data-t="vis.level">How present</label>
+          <select id="cs-chart-level"><option value="very_low" data-t="vis.level.very_low">very_low</option><option value="low" data-t="vis.level.low">low</option><option value="normal" selected data-t="vis.level.normal">normal</option><option value="high" data-t="vis.level.high">high</option><option value="very_high" data-t="vis.level.very_high">very_high</option><option value="highest" data-t="vis.level.highest">highest</option></select>
         </fieldset>
         <fieldset class="csgroup" id="cs-perm">
           <legend data-t="cs.perm">What the agent may do without asking</legend>
@@ -307,7 +363,8 @@
           </div>
           <div class="csnum" id="cs-retries-box">
             <label for="cs-retries" data-t="cs.retries">Tries after a rejected answer</label>
-            <input id="cs-retries" type="number" inputmode="numeric" min="0" max="5" step="1" placeholder="2">
+            <input id="cs-retries" type="number" inputmode="numeric" min="0" max="5" step="1" placeholder="0" aria-describedby="cs-retries-h">
+            <p class="help" id="cs-retries-h" data-t="cs.retries.help"></p>
           </div>
           <p class="csnote" id="cs-format-note" data-t="cs.format.note"></p>
         </fieldset>
@@ -414,100 +471,47 @@
         </div>
       </section>
 
-      <section class="sec" id="sec-tasks" aria-labelledby="h-tasks">
-        <div class="sh"><b id="h-tasks" data-t="tk.heading">Agent tasks and changes</b></div>
-        <div class="pad tkgrid">
-          <div><h3 class="subh" data-t="tk.tasks">Tasks</h3><div id="task-root"></div></div>
-          <div><h3 class="subh" data-t="ch.title">Changes</h3><div id="changes-root"></div></div>
-        </div>
-      </section>
-    </div>
-  </div>
-
-  <div class="view agent" id="view-agent" role="tabpanel" aria-labelledby="tab-agent" hidden>
-    <div class="ag-grid">
-      <div class="ag-col">
-        <section class="sec" aria-labelledby="ag-h">
-          <div class="sh"><b id="ag-h" data-t="ag.title">Run the agent</b></div>
-          <form class="pad ag-form" id="ag-form" novalidate>
-            <p class="ag-lead" data-t="ag.lead">The agent works on a task in a folder of this PC, using the model that is loaded. What it does shows under Monitor, where you can undo its edits.</p>
-            <p class="ag-nomodel" id="ag-nomodel" hidden><span data-t="ag.nomodel">No model is loaded, so the agent cannot start.</span> <button type="button" class="btn" id="ag-nomodel-go" data-t="ag.nomodel.go">Open Models</button></p>
-            <label for="ag-folder" data-t="ag.folder">Folder the agent works in</label>
-            <input id="ag-folder" type="text" list="ag-folders" autocomplete="off" spellcheck="false" aria-describedby="ag-folder-help" data-t-ph="ag.folder.ph" placeholder="D:\projects\site">
-            <datalist id="ag-folders"></datalist>
-            <p class="help" id="ag-folder-help" data-t="ag.folder.help">The full path. Its file tools stay inside this folder; the commands it runs are not limited to it.</p>
-            <label for="ag-goal" data-t="ag.goal">What should it do?</label>
-            <textarea id="ag-goal" rows="5" maxlength="4000" data-t-ph="ag.goal.ph" placeholder="For example: add a test for the date parser and make it pass"></textarea>
-            <fieldset class="ag-modes">
-              <legend data-t="ag.mode">How much may it do on its own?</legend>
-              <label class="ag-mode"><input type="radio" name="ag-mode" value="plan"><span><b data-t="ag.mode.plan">Plan only</b><small data-t="ag.mode.plan.d">Reads and proposes a plan. Changes nothing and runs nothing.</small></span></label>
-              <label class="ag-mode"><input type="radio" name="ag-mode" value="read_only"><span><b data-t="ag.mode.read_only">Read only</b><small data-t="ag.mode.read_only.d">Reads files. Asks you before anything else.</small></span></label>
-              <label class="ag-mode"><input type="radio" name="ag-mode" value="default" checked><span><b data-t="ag.mode.default">Ask first</b><small data-t="ag.mode.default.d">Edits files in the folder. Asks you before it runs a command.</small></span></label>
-              <label class="ag-mode"><input type="radio" name="ag-mode" value="auto"><span><b data-t="ag.mode.auto">Automatic</b><small data-t="ag.mode.auto.d">Runs commands without asking. Use it only in a folder you can lose.</small></span></label>
-            </fieldset>
-            <div id="ag-auto-row" hidden></div>
-            <details class="ag-adv">
-              <summary data-t="ag.adv">More options</summary>
-              <label for="ag-steps" data-t="ag.steps">Most steps</label>
-              <input id="ag-steps" type="number" inputmode="numeric" min="1" max="50" step="1" value="15" aria-describedby="ag-steps-help">
-              <p class="help" id="ag-steps-help" data-t="ag.steps.help">The run stops after this many turns of the model.</p>
-              <label for="ag-allow" data-t="ag.allow">Commands it may run without asking</label>
-              <textarea id="ag-allow" rows="3" spellcheck="false" aria-describedby="ag-allow-help" data-t-ph="ag.allow.ph" placeholder="shell_command:python -m pytest*"></textarea>
-              <p class="help" id="ag-allow-help" data-t="ag.allow.help">One rule per line. A rule never covers a command that chains others.</p>
-            </details>
-            <p class="ag-msg" id="ag-msg" role="alert"></p>
-            <div class="ag-buttons">
-              <button type="submit" class="btn primary" id="ag-start" data-t="ag.start">Start</button>
-              <button type="button" class="btn ag-stop" id="ag-stop" data-t="ag.stop" hidden>Stop</button>
-            </div>
-          </form>
-        </section>
-      </div>
-      <div class="ag-col">
-        <section class="sec" id="ag-cv-sec" aria-labelledby="ag-cv-h">
-          <div class="sh"><b id="ag-cv-h" data-t="ag.cv.title">Conversations</b></div>
-          <div class="pad" id="ag-conversations" aria-live="polite"></div>
-        </section>
-        <section class="sec" aria-labelledby="ag-pl-h">
-          <div class="sh"><b id="ag-pl-h" data-t="ag.pl.title">Plans</b></div>
-          <div class="pad" id="ag-plans"></div>
-        </section>
-        <section class="sec" id="ag-ap-sec" aria-labelledby="ag-ap-h">
-          <div class="sh"><b id="ag-ap-h" data-t="ag.ap.title">Waiting for you</b></div>
-          <div class="pad" id="ag-approvals" aria-live="polite"></div>
-        </section>
-        <section class="sec" aria-labelledby="ag-run-h">
-          <div class="sh"><b id="ag-run-h" tabindex="-1" data-t="ag.run.title">Current run</b></div>
-          <div class="pad">
-            <div id="ag-run"></div>
-            <h3 class="subh ag-logh" data-t="ag.log">What it printed</h3>
-            <pre class="ag-log" id="ag-log" role="log" aria-live="off" tabindex="0"></pre>
-          </div>
-        </section>
-        <section class="sec" aria-labelledby="ag-back-h">
-          <div class="sh"><b id="ag-back-h" data-t="ag.back.title">Go back</b></div>
-          <div class="pad">
-            <p class="help" data-t="ag.back.help">Puts the folder's files back as they were before one of the agent's steps. It cannot undo a command it ran.</p>
-            <div id="ag-checkpoints"></div>
-            <p class="ag-msg" id="ag-back-msg" role="status"></p>
-          </div>
-        </section>
-        <section class="sec" aria-labelledby="ag-hist-h">
-          <div class="sh"><b id="ag-hist-h" data-t="ag.hist.title">Earlier runs</b></div>
-          <div class="pad" id="ag-history"></div>
-        </section>
-      </div>
     </div>
   </div>
 
   <div class="view plans" id="view-plans" role="tabpanel" aria-labelledby="tab-plans" hidden>
-    <section class="sec plans-sec" aria-labelledby="pl-h">
-      <div class="sh"><b id="pl-h" data-t="pl.title">Plans</b></div>
-      <div class="pad" id="plans-root"></div>
-    </section>
+    <div class="chatrow plrow" id="plans-root"></div>
   </div>
 
-  <div class="view hw" id="view-hardware" role="tabpanel" aria-labelledby="tab-hardware" hidden>
+  <div class="view cron" id="view-cron" role="tabpanel" aria-labelledby="tab-cron" hidden>
+    <div class="cj-grid" id="cron-root">
+      <section class="sec cj-listsec" aria-labelledby="cj-h">
+        <div class="sh"><b id="cj-h" data-t="cj.title">Cron Jobs</b><span class="grow"></span><button type="button" class="btn primary" id="cj-new" data-t="cj.newbtn" data-t-title="cj.tip.new">New job</button></div>
+        <p class="help pad" id="cj-running" role="status" hidden></p>
+        <ul class="cj-list" id="cj-list" aria-label="Cron Jobs" data-t-aria="cj.title"></ul>
+        <p class="pad dim" id="cj-empty" data-t="cj.empty" hidden>No jobs yet.</p>
+        <p class="cj-status pad" id="cj-status" role="status" aria-live="polite"></p>
+      </section>
+      <section class="sec cj-edsec" aria-label="Job" data-t-aria="cj.job">
+        <p class="pad dim" id="cj-pick" data-t="cj.pick">Choose a job, or press New job.</p>
+        <div id="cj-editor" hidden></div>
+        <datalist id="cj-folders"></datalist>
+        <div class="cj-runs" id="cj-runs" hidden>
+          <div class="sh"><b data-t="cj.runs">Latest results</b></div>
+          <ul class="cj-runlist" id="cj-runs-list"></ul>
+          <p class="pad dim" id="cj-runs-none" data-t="cj.runs.none">Not run yet.</p>
+        </div>
+      </section>
+      <aside class="sec cj-chat" aria-labelledby="cj-chat-h">
+        <div class="sh"><b id="cj-chat-h" data-t="cj.chat.title">Talk it over</b><span class="grow"></span><button type="button" class="btn ghost" id="cj-chat-clear" data-t="cj.chat.clear">Clear</button></div>
+        <p class="help pad" data-t="cj.chat.help"></p>
+        <div class="cj-msgs" id="cj-chat-msgs" role="log" aria-live="polite"></div>
+        <p class="pad dim" id="cj-chat-empty" data-t="cj.chat.empty"></p>
+        <form id="cj-chat-form" class="cj-chatform">
+          <label class="sr" for="cj-chat-input" data-t="cj.chat.title">Talk it over</label>
+          <textarea id="cj-chat-input" rows="2" data-t-ph="cj.chat.ph" placeholder="Describe the job"></textarea>
+          <button type="submit" class="btn primary" id="cj-chat-send" data-t="cj.chat.send">Send</button>
+        </form>
+      </aside>
+    </div>
+  </div>
+
+  <div class="view hw" id="view-hardware" role="tabpanel" aria-labelledby="sub-hardware" hidden>
     <div class="hwgrid">
       <section class="sec wide">
         <div class="sh"><b>Devices</b></div>
@@ -540,8 +544,10 @@
     <div class="subtabs" role="tablist" aria-label="Models">
       <button type="button" class="btn subtab" role="tab" id="sub-providers" aria-selected="false" aria-controls="ld-providers" data-t="pv.sub.providers">Providers</button>
       <button type="button" class="btn subtab" role="tab" id="sub-qwen" aria-selected="true" aria-controls="ld-qwen" data-t="pv.sub.qwen">Qwen Loader</button>
+      <button type="button" class="btn subtab" role="tab" id="sub-converter" aria-selected="false" aria-controls="ld-converter" data-t="pv.sub.converter">Model converter</button>
     </div>
     <div class="pv" id="ld-providers" role="tabpanel" aria-labelledby="sub-providers" hidden></div>
+    <div id="ld-converter" role="tabpanel" aria-labelledby="sub-converter" hidden></div>
     <div id="ld-qwen" role="tabpanel" aria-labelledby="sub-qwen">
     <p class="sec setnote warnnote ldgpu" id="ld-gpu" role="alert" hidden></p>
     <p class="sec setnote ldstandby" id="ld-standby" data-t="ld.standby" role="status" hidden></p>
@@ -562,25 +568,25 @@
     </div>
   </div>
 
-  <div class="view wallet" id="view-wallet" role="tabpanel" aria-labelledby="tab-wallet" hidden>
+  <div class="view wallet" id="view-wallet" role="tabpanel" aria-labelledby="sub-wallet" hidden>
     <p class="sr" id="wl-live" role="status" aria-live="polite"></p>
     <div class="wl-grid" id="wl-root"></div>
   </div>
   <div class="view settings" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
-    <nav class="stindex" id="st-index" aria-label="Settings sections"></nav>
-    <section class="sec stlang" aria-labelledby="st-lang-h">
+    <section class="sec stlang" data-sub="general" aria-labelledby="st-lang-h">
       <div class="sh"><b id="st-lang-h" data-t="st.lang.title">Language</b></div>
       <div class="stlang-body">
         <label for="st-lang" data-t="st.lang.label">Language</label>
-        <select id="st-lang">
+        <select id="st-lang" aria-describedby="st-lang-h">
           <option value="auto" data-t="st.lang.auto">Automatic</option>
           <option value="it" lang="it">Italiano</option>
           <option value="en" lang="en">English</option>
         </select>
+        <p class="help" id="st-lang-h" data-t="st.lang.help"></p>
         <p class="setstatus" id="st-lang-msg" role="status" aria-live="polite"></p>
       </div>
     </section>
-    <section class="sec stui" aria-labelledby="st-ui-h">
+    <section class="sec stui" data-sub="general" aria-labelledby="st-ui-h">
       <div class="sh"><b id="st-ui-h" data-t="ui.title">Interface size</b></div>
       <div class="st-ui-body">
         <label for="st-ui-scale" data-t="ui.scale">Size of text and controls</label>
@@ -589,7 +595,7 @@
         <p class="help" id="st-ui-note" role="status" aria-live="polite"></p>
       </div>
     </section>
-    <section class="sec stload" id="st-load" aria-labelledby="st-load-h">
+    <section class="sec stload" data-sub="models" id="st-load" aria-labelledby="st-load-h">
       <div class="sh"><b id="st-load-h" data-t="st.load.title">Loading parameters</b></div>
       <div class="stload-body">
         <p class="stload-help" data-t="st.load.help"></p>
@@ -598,16 +604,24 @@
         <div class="stload-act"><button type="button" class="btn primary" id="st-open-loader" data-t="ld.open">Open the Loader</button></div>
       </div>
     </section>
-    <section class="sec stmodels" id="st-models" aria-label="Models folders"></section>
-    <section class="sec stplanner" id="st-planner" aria-labelledby="st-planner-h">
+    <section class="sec stmodels" data-sub="models" id="st-models" aria-label="Models folders"></section>
+    <section class="sec stplanner" data-sub="privacy" id="st-planner" aria-labelledby="st-planner-h">
       <div class="sh"><b id="st-planner-h" data-t="pl.set">Cloud filter and privacy</b></div>
       <div id="st-planner-body"></div>
     </section>
-    <section class="sec stcaps" id="st-caps" aria-labelledby="st-caps-h">
+    <section class="sec stcaps" data-sub="models" id="st-caps" aria-labelledby="st-caps-h">
       <div class="sh"><b id="st-caps-h" data-t="cp.title">Capabilities and visual analysis</b></div>
       <div id="st-caps-body" class="stcaps-body"></div>
     </section>
-    <section class="sec stprefs" id="st-prefs" aria-labelledby="st-prefs-h">
+    <section class="sec stmobile" data-sub="mobile" id="mb-section" aria-labelledby="mb-h">
+      <div class="sh"><b id="mb-h" data-t="mb.title">Phones</b></div>
+      <div class="pad" id="mb-root"></div>
+    </section>
+    <section class="sec stmemories" data-sub="memories" id="me-section" aria-labelledby="me-h">
+      <div class="sh"><b id="me-h" data-t="me.title">Memories</b></div>
+      <div class="pad" id="me-root"></div>
+    </section>
+    <section class="sec stprefs" data-sub="general" id="st-prefs" aria-labelledby="st-prefs-h">
       <div class="sh"><b id="st-prefs-h" data-t="st.prefs.title">Memory and start</b></div>
       <form class="stprefs-body" id="st-share-form" novalidate>
         <div class="field">
@@ -624,7 +638,7 @@
       </form>
     </section>
   </div>
-  <div class="view logs" id="view-logs" role="tabpanel" aria-labelledby="tab-logs" hidden>
+  <div class="view logs" id="view-logs" role="tabpanel" aria-labelledby="sub-logs" hidden>
     <svg class="rl-sprite" width="0" height="0" aria-hidden="true" focusable="false">
       <symbol id="rl-i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="rl-i-save" viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>

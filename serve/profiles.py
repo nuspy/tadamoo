@@ -20,7 +20,7 @@ import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from serve import lang, loader, settings  # noqa: E402
+from serve import hardware, lang, loader, settings  # noqa: E402
 
 SAFE_NAME = "Valori sicuri"
 MACHINE_NAME = "Machine Default"        # the configuration wizard's load profile and inference preset
@@ -52,6 +52,9 @@ def _read() -> dict:
             data[kind] = {}
     if not isinstance(data.get("default"), str):
         data["default"] = None                          # none chosen: default_of() picks one
+    for p in data["load"].values():
+        if isinstance(p, dict) and isinstance(p.get("values"), dict):
+            p["values"] = {k: v for k, v in p["values"].items() if k not in settings.REMOVED_KEYS}
     return data
 
 
@@ -104,12 +107,15 @@ def check_load(values) -> dict:
         raise ValueError("values: an object of Loader fields")
     out = {}
     for name, value in values.items():
+        if name in settings.REMOVED_KEYS:
+            continue
         if name not in LOAD_FIELDS:
             raise ValueError(f"{name}: not a field a load profile keeps")
         if value is None or value == "":
             continue
         section, key = name.split(".", 1)
         out[name] = settings.check_value(section, key, value)
+    settings.check_combination({k.split(".", 1)[1]: v for k, v in out.items() if k.startswith("engine.")})
     return out
 
 
@@ -367,7 +373,13 @@ def compare(running: dict, running_model: str | None, requested: dict, requested
         out.append({"field": "server.model", "running": running_model, "requested": requested_model})
     for f in COMPARED:
         if not _same_value(r.get(f), q.get(f)):
-            out.append({"field": f, "running": r.get(f), "requested": q.get(f)})
+            item = {"field": f, "running": r.get(f), "requested": q.get(f)}
+            if f == "server.vision":                        # a GPU number is shown with the card's name
+                for side in ("running", "requested"):
+                    name = hardware.gpu_name(item[side]) if str(item[side]).isdigit() else None
+                    if name:
+                        item[f"{side}_name"] = name
+            out.append(item)
     if requested_port and running_port and int(requested_port) != int(running_port):
         out.append({"field": "server.port", "running": running_port, "requested": requested_port})
     return {"same": not out, "differences": out}

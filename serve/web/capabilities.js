@@ -16,7 +16,7 @@
     kids.flat().forEach(k => { if (k != null && k !== false) e.append(k.nodeType ? k : document.createTextNode(String(k))); });
     return e;
   };
-  const btn = (text, cls, fn) => { const b = h("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = fn; return b; };
+  const btn = (text, cls, fn, tip) => { const b = h("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = fn; if (tip) b.title = tip; return b; };
   const pick = o => (o && (o[LANG] || o.en)) || "";
 
   async function call(method, path, payload) {
@@ -91,9 +91,10 @@
     if (r.ok) { online = r.data; say(T("cp.saved")); } else say(why(r), true);
     draw();
   }
-  function numberField(label, value, fn) {
+  function numberField(label, value, fn, tip) {
     const input = h("input"); input.type = "number"; input.min = "0"; input.max = "100"; input.step = "1"; input.value = String(Math.round(value));
     input.setAttribute("aria-label", label);
+    if (tip) input.title = tip;
     input.onchange = () => { const v = Number(input.value); if (input.value === "" || !(v >= 0 && v <= 100)) { draw(); return; } fn(v); };
     return h("label", "cp-num", h("span", "", label), input);
   }
@@ -118,7 +119,7 @@
       sources.append(h("label", "cp-check", box, h("span", "", T("cp.src." + k))));
     });
     const weights = h("div", "cp-weights");
-    online.weights.forEach(k => weights.append(numberField(T("cp.w." + k), s.weights[k], v => saveOnline({ weights: { [k]: v } }))));
+    online.weights.forEach(k => weights.append(numberField(T("cp.w." + k), s.weights[k], v => saveOnline({ weights: { [k]: v } }), T("cp.w.tip"))));
     const market = h("textarea"); market.rows = 3; market.value = s.marketplaces.join("\n"); market.setAttribute("aria-label", T("cp.on.market"));
     market.onchange = () => saveOnline({ marketplaces: market.value.split(/\s*\n\s*/).map(x => x.trim()).filter(Boolean) });
     const auto = h("input"); auto.type = "checkbox"; auto.checked = !!s.auto_install;
@@ -136,7 +137,7 @@
     });
     sec.append(h("h3", "", T("cp.on.title")), h("p", "setnote", T("cp.on.help")), h("p", "setnote cp-scorenote", T("cp.on.score")), sources,
       !online.tools.npm ? h("p", "setnote warnnote", T("cp.on.nonpm")) : null, !online.tools.uv && !online.tools.pip ? h("p", "setnote warnnote", T("cp.on.nopy")) : null,
-      numberField(T("cp.on.min"), s.min_score, v => saveOnline({ min_score: v })),
+      numberField(T("cp.on.min"), s.min_score, v => saveOnline({ min_score: v }), T("cp.on.min.tip")),
       h("fieldset", "cp-fs", h("legend", "", T("cp.on.weights")), h("p", "setnote", T("cp.on.weights.help")), weights),
       h("label", "cp-field", h("span", "", T("cp.on.market")), market),
       h("label", "cp-check", auto, h("span", "", T("cp.on.auto"))), s.auto_install ? riskLabel(T("cp.on.risk")) : null,
@@ -153,20 +154,20 @@
       if (e.state === "pending") acts.append(btn(T("cp.review"), "", async () => { const r = await call("GET", "api/capabilities/review?id=" + encodeURIComponent(e.id)); if (r.ok) { review = r.data; draw(); } else say(why(r), true); }));
       if (e.remote && e.state === "approved") {
         acts.append(h("span", "cp-badge", T(signed[e.id] ? "cp.signed" : "cp.notsigned")));
-        acts.append(btn(T(signed[e.id] ? "cp.signin.again" : "cp.signin"), "", () => signIn(e)));
+        acts.append(btn(T(signed[e.id] ? "cp.signin.again" : "cp.signin"), "", () => signIn(e), T("cp.signin.tip")));
         if (signed[e.id]) acts.append(btn(T("cp.signout"), "ghost", async () => {
           const o = await call("POST", "api/mcp/auth/signout", { id: e.id });
           if (o.ok) { await loadSignins(); say(T("cp.signout.done", e.name)); draw(); } else say(why(o), true);
-        }));
+        }, T("cp.signout.tip")));
       }
-      if (e.state === "approved") acts.append(btn(T("cp.revoke"), "ghost", async () => { if (await act("api/capabilities/revoke", { id: e.id })) say(T("cp.saved")); draw(); }));
+      if (e.state === "approved") acts.append(btn(T("cp.revoke"), "ghost", async () => { if (await act("api/capabilities/revoke", { id: e.id })) say(T("cp.saved")); draw(); }, T("cp.revoke.tip")));
       const off = state.settings.off.includes(e.id);
       acts.append(btn(off ? T("cp.turnon") : T("cp.turnoff"), "ghost", async () => {
         const next = off ? state.settings.off.filter(x => x !== e.id) : [...state.settings.off, e.id];
         if (await act("api/capabilities/settings", { off: next })) say(T("cp.saved")); draw();
-      }));
+      }, T(off ? "cp.turnon.tip" : "cp.turnoff.tip")));
       const mv = h("select", "", state.nodes.map(n => Object.assign(h("option", "", n), { value: n })));
-      mv.value = e.node; mv.setAttribute("aria-label", T("cp.move", e.name));
+      mv.value = e.node; mv.setAttribute("aria-label", T("cp.move", e.name)); mv.title = T("cp.move.tip");
       mv.onchange = async () => { if (await act("api/capabilities/move", { id: e.id, node: mv.value })) say(T("cp.saved")); draw(); };
       acts.append(mv);
       row.append(acts);
@@ -201,8 +202,8 @@
     search.oninput = () => { filter = search.value; const pos = search.selectionStart; draw(); const s = body.querySelector("input[type=search]"); if (s) { s.focus(); s.setSelectionRange(pos, pos); } };
     const n = h("p", "setnote cp-note", note); n.setAttribute("role", "status"); n.hidden = !note; n.dataset.bad = noteBad ? "1" : "";
     body.replaceChildren(h("p", "setnote", T("cp.help")), n, visualBox(), online ? onlineBox() : null,
-      h("div", "cp-bar", search, btn(T("cp.rescan"), "", async () => { const r = await call("POST", "api/capabilities/rescan", {}); if (r.ok) { state = r.data; say(T("cp.rescanned", state.entries.length)); } else say(why(r), true); draw(); })),
-      h("p", "setnote", T("cp.top", state.tree_top)), tree());
+      h("div", "cp-bar", search, btn(T("cp.rescan"), "", async () => { const r = await call("POST", "api/capabilities/rescan", {}); if (r.ok) { state = r.data; say(T("cp.rescanned", state.entries.length)); } else say(why(r), true); draw(); }, T("cp.rescan.tip"))),
+      h("p", "setnote", T("cp.top", state.tree_top)), h("p", "setnote", T("cp.actions.help")), tree());
   }
 
   document.addEventListener("basalt:view", e => { if (e.detail === "settings") load(); });

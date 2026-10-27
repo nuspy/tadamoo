@@ -15,6 +15,7 @@ PAGE_SCRIPTS = tuple(re.findall(r'<script[^>]+src="web/([^"]+)"', (WEB / "index.
 # older scripts that still build some of their markup as HTML strings; every other script is held to the stricter checks
 LEGACY_SCRIPTS = ("i18n.js", "app.js", "chat.js", "chatset.js", "download.js", "loader.js", "models.js", "wizard.js")
 NEW_SCRIPTS = tuple(n for n in PAGE_SCRIPTS if n not in LEGACY_SCRIPTS)
+ESCAPED_MARKUP = ("converter.js", "charts.js")
 # keys the scripts build at run time, as prefix + each value
 DYNAMIC = {
     "pl.type.": ["action", "sensor", "decision", "merge"],
@@ -53,17 +54,17 @@ DYNAMIC = {
     "cp.e.": ["offline", "gone", "changed", "needs_approval", "bad_choice", "bad_node"],
     "pv.e.": ["offline", "bad_type", "bad_cap", "gone", "not_allowed", "bad_function"],
     "ch.blocked.": ["refused", "error", "model_unavailable", "model_not_loaded", "process_unstable", "interrupted_irreversible", "crash", "start_failed", "other"],
-    "pl.h.": ["create", "archive", "restore", "update_node", "mark", "rewind", "apply", "fallback", "update_meta", "sensor"],
-    "tk.status.": ["running", "done", "failed", "closed", "pending", "blocked"],
-    "ag.status.": ["running", "done", "failed", "stopped", "interrupted"],
+    "pl.h.": ["create", "archive", "restore", "update_node", "move", "mark", "rewind", "apply", "fallback", "update_meta", "sensor"],
+    "pl.tab.": ["aims", "details", "events", "define", "aims.tip", "details.tip", "events.tip", "define.tip"],
     "ag.mode.": ["plan", "read_only", "default", "auto"],
-    "ag.e.": ["folder_missing", "folder_relative", "folder_not_found", "folder_drive", "goal_missing", "goal_long", "bad_mode", "auto_confirm", "bad_rules", "bad_steps", "busy", "start_failed", "not_running", "gone", "approval", "offline", "key", "local", "needs_yes", "no_checkpoint", "rewind_failed"],
+    "ag.add.e.": ["folder_missing", "folder_relative", "folder_not_found", "folder_drive", "folder_readonly"],
     "ch.state.": ["pending", "partial", "kept", "reverted", "superseded"],
     "br.cmp.state.": ["running", "done", "interrupted"],
     "br.side.state.": ["waiting", "running", "done", "needs_you", "ended", "timeout", "failed", "interrupted"],
     "sl.d.": ['help', 'clear', 'model', 'effort', 'mode', 'plan', 'permissions', 'settings', 'status', 'context', 'compact', 'tools', 'hooks', 'mcp', 'memory', 'copy', 'export', 'rename', 'branch', 'branches', 'resume', 'rewind', 'stop', 'diff', 'plans', 'wallet', 'init', 'review', 'security-review', 'research'],
     "sl.r.compact.": ["busy", "short", "moved", "unsupported"],
-    "tab.": ["chat", "agent", "plans", "stats", "loader", "hardware", "logs", "wallet", "settings"],
+    "tab.": ["chat", "agent", "plans", "cron", "stats", "loader", "hardware", "logs", "wallet", "settings"],
+    "cj.status.": ["done", "asked", "failed", "skipped", "cancelled", "timeout"],
 }
 NODE = shutil.which("node")
 
@@ -133,7 +134,7 @@ class TranslationsTest(unittest.TestCase):
                 self.assertEqual(sorted(re.findall(r"\{\d+\}", en)), sorted(re.findall(r"\{\d+\}", self.s["it"][key])), key)
 
     def test_the_new_keys_are_translated_not_copied_where_it_matters(self):
-        for key in ("pl.triage.go", "pl.approve", "pl.reject", "pl.set.cloud", "tk.empty", "pl.none"):
+        for key in ("pl.triage.go", "pl.approve", "pl.reject", "pl.set.cloud", "pl.none"):
             self.assertNotEqual(self.s["en"][key], self.s["it"][key], key)
 
 
@@ -153,7 +154,7 @@ class MarkupTest(unittest.TestCase):
     def test_every_script_of_the_folder_is_loaded_by_the_page(self):
         orphans = sorted(p.name for p in WEB.glob("*.js") if p.name not in PAGE_SCRIPTS)
         self.assertEqual(orphans, [], "scripts that no page loads")
-        for name in ("risk.js", "wallet.js", "changes.js", "tasks.js"):
+        for name in ("risk.js", "wallet.js", "changes.js"):
             self.assertIn(name, NEW_SCRIPTS)                                # found from the page, checked as new code
 
     def test_no_dead_scripts_remain(self):
@@ -167,12 +168,14 @@ class MarkupTest(unittest.TestCase):
         views = re.search(r"const VIEWS = \[([^\]]*)\]", (WEB / "app.js").read_text(encoding="utf-8")).group(1)
         for tab in re.findall(r'data-view="(\w+)"', self.html):
             self.assertIn(f'"{tab}"', views, tab)
-            self.assertIn(f'id="view-{tab}"', self.html, tab)
+            if tab != "agent":                                                    # the Agent tab shows the conversation page, in a folder
+                self.assertIn(f'id="view-{tab}"', self.html, tab)
+        self.assertNotIn('id="view-agent"', self.html)
 
     def test_navigation_order_and_the_palette_and_the_notice_exist(self):
         tabs = re.findall(r'<button class="tab" role="tab" id="tab-(\w+)" data-view=', self.html)
-        self.assertEqual(tabs, ["chat", "agent", "plans", "stats", "loader", "hardware", "logs", "wallet", "settings"])
-        for needle in ('id="palette"', 'id="pal-input"', 'id="pal-list"', 'id="pal-open"', 'id="nomodel"', 'id="st-index"',
+        self.assertEqual(tabs, ["chat", "agent", "plans", "cron", "stats", "loader", "settings"])     # Hardware and LOGS sit under Monitor, Wallet under Settings
+        for needle in ('id="palette"', 'id="pal-input"', 'id="pal-list"', 'id="pal-open"', 'id="nomodel"', 'id="viewsub"',
                        'id="st-ui-scale"', 'id="st-planner-body"', 'aria-keyshortcuts="Control+K"'):
             self.assertIn(needle, self.html, needle)
         css = (WEB / "shell.css").read_text(encoding="utf-8")
@@ -182,7 +185,9 @@ class MarkupTest(unittest.TestCase):
     def test_plan_text_is_never_inserted_as_markup(self):
         for name in NEW_SCRIPTS:
             text = (WEB / name).read_text(encoding="utf-8")
-            for banned in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval("):
+            # these two build markup from templates in which every server string passes through esc() (test_converter_page checks it)
+            banned_here = ("document.write", "eval(") if name in ESCAPED_MARKUP else ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(")
+            for banned in banned_here:
                 self.assertNotIn(banned, text, f"{name}: {banned}")
 
     def test_the_scripts_send_the_api_key_and_use_relative_urls(self):
@@ -197,9 +202,9 @@ class MarkupTest(unittest.TestCase):
         self.assertRegex(css, r"(?m)^\.dl \{")                             # the downloads list owns .dl
         self.assertNotRegex((WEB / "changes.js").read_text(encoding="utf-8"), r'className = "dl[ "-]')
 
-    def test_the_agent_view_translates_its_own_static_texts(self):
-        text = (WEB / "agent.js").read_text(encoding="utf-8")
-        self.assertIn('applyT($id("view-agent"))', text)
+    def test_the_folder_window_translates_its_own_static_texts(self):
+        text = (WEB / "projects.js").read_text(encoding="utf-8")
+        self.assertIn("applyT(dlg)", text)
 
     def test_undoing_asks_twice_and_posts_to_the_review_route(self):
         text = (WEB / "changes.js").read_text(encoding="utf-8")
@@ -209,9 +214,9 @@ class MarkupTest(unittest.TestCase):
         self.assertNotIn("confirm(", text.replace("T(\"ch.confirm\")", ""))   # no browser dialog
 
     def test_polling_stops_when_the_view_is_hidden(self):
-        for name in ("tasks.js", "changes.js"):
+        for name in ("changes.js",):
             text = (WEB / name).read_text(encoding="utf-8")
-            self.assertIn('document.body.dataset.view === "stats"', text, name)
+            self.assertIn('document.body.dataset.view === "agent"', text, name)
             self.assertIn("document.hidden", text, name)
 
     def test_touch_targets_and_reduced_motion_are_covered(self):
@@ -422,7 +427,7 @@ class WalletViewTest(unittest.TestCase):
             self.assertIn("var(--btn-h)", rule, selector)
 
     def test_small_targets_of_the_bar_and_the_wallet_are_40_px_tall(self):
-        for name, selector in (("wallet.css", ".wl-pill"), ("shell.css", ".pal-open"), ("shell.css", ".st-link")):
+        for name, selector in (("wallet.css", ".wl-pill"), ("shell.css", ".pal-open")):
             css = (WEB / name).read_text(encoding="utf-8")
             rule = re.search(re.escape(selector) + r" \{([^}]*)\}", css).group(1)
             self.assertIn("min-height: 40px", rule, selector)
@@ -431,7 +436,7 @@ class WalletViewTest(unittest.TestCase):
 class TopBarTest(unittest.TestCase):
     css = (WEB / "app.css").read_text(encoding="utf-8")
 
-    def test_the_nine_tabs_wrap_to_a_second_row_instead_of_breaking_words(self):
+    def test_the_tabs_wrap_to_a_second_row_instead_of_breaking_words(self):
         tabs = re.search(r"(?m)^\.tabs \{([^}]*)\}", self.css).group(1)
         self.assertIn("flex-wrap: wrap", tabs)
         self.assertIn("white-space: nowrap", re.search(r"(?m)^\.tab \{([^}]*)\}", self.css).group(1))
@@ -446,15 +451,15 @@ class ChangesViewTest(unittest.TestCase):
         self.assertIn("scrollTop", js)
         self.assertIn("function scroller", js)
 
-    def test_the_text_of_the_changes_and_tasks_is_at_least_12_px(self):
+    def test_the_text_of_the_changes_is_at_least_12_px(self):
         css = (WEB / "plans.css").read_text(encoding="utf-8")
         for line in css.splitlines():
             if re.match(r"\s*\.(chg|tk|dfl)", line):
                 for size in re.findall(r"font(?:-size)?:\s*(?:\d{3} )?(\d+(?:\.\d+)?)px", line):
                     self.assertGreaterEqual(float(size), 12, line)
 
-    def test_no_text_of_the_two_panels_is_written_in_the_script(self):
-        for name in ("changes.js", "tasks.js"):
+    def test_no_text_of_the_changes_panel_is_written_in_the_script(self):
+        for name in ("changes.js",):
             js = (WEB / name).read_text(encoding="utf-8")
             self.assertNotRegex(js, r'textContent = "[^"]*[A-Za-z]{3}', name)
 

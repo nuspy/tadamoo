@@ -49,6 +49,18 @@ class Store(unittest.TestCase):
             with self.assertRaises(ValueError):
                 profiles.change(req)
 
+    def test_a_profile_saved_with_the_removed_drafting_floor_is_read_without_it(self):
+        old = {**FAST, "engine.spec-min-p": 0.5}
+        path = profiles.path()
+        path.write_text(json.dumps({"load": {"Vecchio": {"values": old, "saved": "2026-01-01T00:00:00+00:00"}}}), encoding="utf-8")
+        self.assertEqual(profiles.get_load("Vecchio"), FAST)
+        listed = next(p for p in profiles.listing(ROOMY)["load"] if p["name"] == "Vecchio")
+        self.assertEqual(listed["values"], FAST)
+        self.assertEqual(profiles.export("load")["load"]["Vecchio"]["values"], FAST)
+        profiles.change({"action": "import", "data": {"load": {"Importato": {"values": old}}}})   # an older export
+        self.assertEqual(profiles.get_load("Importato"), FAST)
+        self.assertEqual(profiles.check_load(old), FAST)
+
     def test_save_rename_default_delete(self):
         profiles.change({"action": "save", "kind": "load", "name": "Veloce", "values": FAST})
         self.assertEqual(profiles.get_load("Veloce"), FAST)

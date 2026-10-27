@@ -81,17 +81,6 @@ void silu_inplace(float* x, int64_t n, void* stream);
 /// which); this one does not, and the same `sqrt(cols)`-sized argument applies to getting it wrong.
 void rms_norm_weighted(float* x, const float* w, int64_t rows, int64_t cols, float eps, void* stream);
 
-/// *seq = v in MAPPED PINNED memory - THE DOORBELL.  A KERNEL and not cudaEventRecord, because an
-/// event record inside a capture is SILENTLY DROPPED while a kernel is captured normally, and the host sees
-/// this one's result early in the graph.
-///
-/// It lives here because the caller that needs it - moe_layer - is a HOST translation unit, where
-/// __global__ and <<<>>> do not exist.
-/// *seq += 1 - AN INCREMENT, NOT A STORE OF A CALLER-SUPPLIED VALUE.  A value passed in is evaluated on the
-/// HOST at CAPTURE time, so a captured graph would ring the same number on every replay.  Reading and
-/// incrementing in memory is what makes the count advance under cudaGraphLaunch.
-void doorbell_ring(uint32_t* d_seq, void* stream);
-
 /// Plan v0.3 P3 token graph: one thread spins until the host-written `*d_flag` equals the ring value `*d_seq`
 /// (both mapped pinned memory), then fences so everything the host wrote before the flag is visible to the
 /// nodes that follow.  Captured once per layer between `pre[l]` and the parts copy; it is what lets one graph
@@ -124,5 +113,8 @@ void doorbell_publish_res(const float* x, const int32_t* ids, const int32_t* d_r
 /// Plan v0.3 P3: copy `n` int32 from mapped pinned host memory into device memory with a kernel (the QSA
 /// per-token step and positions), instead of a host-to-device memcpy node in the middle of a layer.
 void copy_i32_from_mapped(int32_t* dst, const int32_t* src, int64_t n, void* stream);
+/// Three such copies in one launch (sizes n0, n1, n2; a size may be 0).
+void copy_i32x3_from_mapped(int32_t* d0, const int32_t* s0, int64_t n0, int32_t* d1, const int32_t* s1, int64_t n1,
+                            int32_t* d2, const int32_t* s2, int64_t n2, void* stream);
 
 }  // namespace basalt::kernels

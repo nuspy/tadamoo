@@ -362,6 +362,37 @@ def test_the_process_speaks_lines_of_json_and_closes_on_command(tmp_path, monkey
     assert json.loads((tmp_path / "h" / "history.json").read_text(encoding="utf-8"))["turns"] == 1
 
 
+def test_a_position_sent_with_a_message_brings_the_tool_for_that_turn(tmp_path, monkeypatch):
+    import harness.session as hs
+    offered = []
+
+    class Spy(Scripted):
+        def chat_completion(self, messages, tools=None, **kwargs):
+            offered.append([t["function"]["name"] for t in tools or []])
+            return super().chat_completion(messages, tools=tools, **kwargs)
+
+    client = Spy(call("where_is_user"), say("Sei in Via Roma."))
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    real_build = hs.build_agent
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=client: real_build(cfg, client=_c))
+    feed, out = Feed(), io.StringIO()
+    t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "pl",
+                                              "--no-memory", "--no-checkpoints", "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)
+    t.start()
+    feed.put({"cmd": "send", "id": "m1", "text": "ristoranti qui vicino", "place": {
+        "lat": 45.46427, "lon": 9.18951, "address": {"street": "Via Roma", "number": "12", "city": "Milano"}}})
+    deadline = time.monotonic() + 10
+    while '"done"' not in out.getvalue() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    feed.put({"cmd": "close"})
+    t.join(10)
+    events = [json.loads(line) for line in out.getvalue().splitlines()]
+    ended = next(e["data"] for e in events if e["event"] == "agent" and e["data"].get("type") == "tool_end")
+    assert "Via Roma 12" in ended["output"] and "Milano" in ended["output"]
+    assert "where_is_user" in offered[0]
+
+
 # ---- questions to the person: confirmations that wait, questions that end the turn, the plans note ----------------
 
 class FakePlans:

@@ -63,8 +63,12 @@ The Linux code paths are unchanged; the Windows ones sit behind `_WIN32` / `MSVC
 * **Memory** (`src/platform/memory.cpp`): `VirtualLock` after raising the working-set minimum (the Windows
   `mlock`); the available memory is the smaller of the free RAM and the commit left (RAM + page file - committed),
   because Windows charges every allocation - and the VRAM a WDDM driver backs - to the commit, and a budget from
-  the RAM alone could be granted only by growing the page file.  The RAM margin left free is 15% of the RAM (5% on
-  Linux).  Read-ahead hints are `PrefetchVirtualMemory`.
+  the RAM alone could be granted only by growing the page file.  The RAM margin left free is the share the person
+  chose (5 to 50%; Settings or the configuration wizard), which the server hands to the engine in `BASALT_RAM_FREE_PCT`
+  when it starts it, else 15% of the RAM (5% on Linux); never less than 2 GiB.  The same margin sizes the RAM copy of the
+  experts at load and, while serving, decides when a request is stopped for low RAM: the guard is the margin plus 3.5 GiB
+  of prompt reads when experts are read from the file (the margin alone when none are).  The engine reads the variable
+  when it starts, so a changed share applies at the next load.  Read-ahead hints are `PrefetchVirtualMemory`.
 * **The commit of the GPU memory** (`src/platform/vram_backing.cpp`, `--release-vram-commit`, off by default):
   see the section of that name below.
 * **Pinned arena** (`src/core/pinned.cu`): large pages when the account holds `SeLockMemoryPrivilege` (it is
@@ -259,8 +263,8 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
   secondary monitor connected to the GPU), asks the user to confirm where the monitor is, what share of RAM and commit
   and how much VRAM to leave free (0.5 GB, +1.5 GB with the main monitor on the GPU, +0.4 GB with a secondary one;
   what other programs use now is shown, not added), computes the values with `loader.safe()`, optionally measures them
-  on a real load (below 75% of the commit limit: real memory against the plan, calibration, the drafting floor per
-  request through the engine's `spec_min_p` key, the verify windows 5, 7 and 8 with one reload each) and saves
+  on a real load (below 75% of the commit limit: real memory against the plan, calibration, the maximum verify
+  windows 5, 7 and 8 with one reload each) and saves
   "Machine Default". Every real load also records the RAM and commit it really took against its plan, per model
   (`calibration\<model>.json`), and later plans add what was above.
 * **The desktop app** `tools\windows\desktop` (`dotnet publish -c Release -o publish`, .NET 8, WebView2) builds
@@ -277,12 +281,14 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
   Exit code 75 starts the server again with `--listen-first` and the new model; any
   other end shows the reason, the log's last lines and the native start panel (model, profile, VRAM, port, memory
   check, Avvia / Avvia solo server) as a fallback. Without WebView2 the page opens in the default browser. Closing the
-  window hides it to the notification area; the icon's menu has Open, Reload with other settings… (the Loader), Start
+  window hides it to the notification area (the window's place and size, and whether it was maximized, are kept in
+  `desktop.json` and used at the next start; a place that no screen shows any more falls back to the centre); the icon's menu has Open, Reload with other settings… (the Loader), Start
   the server alone (for agents)… and Turn off (unload, end the job, report the RAM freed). A second start brings the
   first window to the front; when a Basalt server already runs it offers "Connect to the running server" or "Change
   model" (stops only that server's tree with `Ferma-Basalt.ps1 --port N`, then opens the Loader). Hidden test
   options: `--test-mock` (the mock engine on port 7288), `--test-screenshot FILE`, `--test-exit`, `--test-no-wizard`,
-  `--test-fallback`, `--test-folder-prompt [--test-models-dir DIR]`, `--test-no-webview`.
+  `--test-fallback`, `--test-folder-prompt [--test-models-dir DIR]`, `--test-no-webview`, `--test-window` (with `--test-mock`: keep
+  the window's place and size in the test state file).
 
 ### For agents
 

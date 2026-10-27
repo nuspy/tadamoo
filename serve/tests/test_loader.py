@@ -28,7 +28,7 @@ ROOMY = {"ram_total": 128 * GiB, "ram_available": 120 * GiB, "commit_limit": 144
 TIGHT = {**ROOMY, "commit_used": 123 * GiB, "ram_available": 44 * GiB}
 F = loader.DEMO_FACTS
 CONFIG = {"server": {"port": 7232, "vision": "dynamic"},
-          "engine": {"max-context": 32768, "kv": "int8", "spec": 7, "spec-min-p": 0.5, "expert-cache": "auto",
+          "engine": {"max-context": 32768, "kv": "int8", "spec": 7, "expert-cache": "auto",
                      "resident-experts": True, "vram-reserve-mib": 1200, "ple-io": "direct", "pool-workers": 15}}
 
 
@@ -258,6 +258,22 @@ class OverHttp(unittest.TestCase):
         self.assertTrue(body["plan"]["fits"])
         self.assertEqual(body["plan"]["speed"]["source"]["kind"], "seed")
         self.assertIn("server.slot-full-context", body["fields"])
+
+    def test_a_file_saved_with_the_removed_drafting_floor_still_loads(self):
+        old = {**CONFIG, "engine": {**CONFIG["engine"], "spec-min-p": 0.5}}
+        Path(self.path).write_text(json.dumps(old, indent=2), encoding="utf-8")
+        code, body = self.req("GET", "/api/loader")
+        self.assertEqual(code, 200)
+        self.assertNotIn("engine.spec-min-p", body["values"])
+        self.assertNotIn("engine.spec-min-p", body["fields"])
+        code, body = self.post("plan", {"values": {"engine.kv": "q4_0", "engine.spec-min-p": 0.5}})   # an old form
+        self.assertEqual(code, 200, body)
+        code, body = self.post("load", {"values": {"engine.kv": "q4_0", "engine.spec-min-p": 0.5}},
+                               Origin=f"http://127.0.0.1:{self.port}")
+        self.assertEqual(code, 202, body)
+        self.assertEqual(body["changed"], ["engine.kv"])
+        self.assertEqual(self.wait_ready()["phase"], "ready")
+        self.assertNotIn("spec-min-p", json.loads(Path(self.path).read_text(encoding="utf-8"))["engine"])
 
     def test_plan_is_a_computation(self):
         code, body = self.post("plan", {"values": {"engine.kv": "q4_0", "engine.max-context": 262144}})

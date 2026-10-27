@@ -10,6 +10,7 @@
 #include "basalt/kernels/s2_expert_grouped.hpp"
 #include "basalt/kernels/cpu/pool.hpp"
 #include "basalt/kernels/ngram.hpp"
+#include "basalt/platform/compiler.hpp"
 
 #include <cuda_runtime.h>
 
@@ -20,15 +21,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
-
-// `_mm_pause` for the doorbell spin.  Guarded because it is x86-only; a target without it still builds, the
-// spin is just less polite to the pipeline.
-#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64)
-#include <immintrin.h>
-#define SPIN_PAUSE() _mm_pause()
-#else
-#define SPIN_PAUSE() ((void) 0)
-#endif
 
 namespace basalt::core {
 namespace {
@@ -216,6 +208,91 @@ void session_zero(SessionState& s, const ModelGeometry& g, const float* R_init, 
     s.ple_prev[0] = -1;
     s.ple_prev[1] = -1;
     s.ple_token = -1;
+}
+
+namespace {
+// the prompt session's layout over `base`; `s` gets the pointers
+uint64_t prompt_session_layout(const ModelGeometry& g, int64_t max_cells, int64_t k, uint8_t* base, SessionState& s,
+                               int64_t layer_lo, int64_t layer_hi) {
+    if (layer_hi < 0 || layer_hi > g.n_layers) layer_hi = g.n_layers;
+    if (layer_lo < 0) layer_lo = 0;
+    uint64_t used = 0;
+    auto take = [&](uint64_t bytes) {
+        uint8_t* r = base + used;
+        used = align_up(used + bytes, SESSION_STATE_ALIGN);
+        return r;
+    };
+    const int64_t I = std::max<int64_t>(g.qsa_interval, 1);
+    const int64_t q_n_range = layer_hi / I - layer_lo / I;
+    s.max_cells = max_cells;
+    s.k = k;
+    s.layer_lo = layer_lo;
+    s.layer_hi = layer_hi;
+    s.qsa_ord0 = layer_lo / I;
+    s.qsa_alloc = std::max<int64_t>(q_n_range, g.n_qsa_layers() > 0 ? 1 : 0);   // the primary state, as session_init
+    s.gdn_ord0 = layer_lo - layer_lo / I;
+    s.gdn_alloc = std::max<int64_t>((layer_hi - layer_lo) - q_n_range, 0);
+    s.gdn_state = (float*) take((uint64_t) s.gdn_alloc * gdn_state_floats(g) * 4);
+    if (s.qsa_states == nullptr && g.n_qsa_layers() > 0) s.qsa_states = new QsaState[(size_t) g.n_qsa_layers()]();
+    const uint64_t per = qsa_prompt_state_bytes(g, max_cells);
+    for (int64_t j = 0; j < s.qsa_alloc; ++j) qsa_prompt_state_carve(g, max_cells, take(per), s.qsa_states[s.qsa_ord0 + j]);
+    s.ple_hist = (float*) take(ple_hist_bytes());
+    s.ple.hist = s.ple_hist;
+    s.ple.emb_dev = (float*) take((uint64_t) basalt::kernels::NG_N_EMBD * 4);
+    s.ple.scratch = (float*) take(ple_run_scratch_bytes());
+    s.ple.token = &s.ple_token;
+    s.ple.prev = s.ple_prev;
+    s.R = nullptr;
+    return used;
+}
+}  // namespace
+
+uint64_t prompt_session_bytes(const ModelGeometry& g, int64_t max_cells, int64_t layer_lo, int64_t layer_hi) {
+    SessionState s;
+    const uint64_t n = prompt_session_layout(g, max_cells, 10, reinterpret_cast<uint8_t*>(uint64_t{1} << 20), s,
+                                             layer_lo, layer_hi);
+    delete[] s.qsa_states;
+    return align_up(n, SESSION_STATE_ALIGN) + 4096;
+}
+
+void prompt_session_carve(const ModelGeometry& g, int64_t max_cells, int64_t k, void* base, SessionState& s,
+                          int64_t layer_lo, int64_t layer_hi) {
+    prompt_session_layout(g, max_cells, k, (uint8_t*) base, s, layer_lo, layer_hi);
+}
+
+void prompt_session_clear(SessionState& s, const ModelGeometry& g, void* stream) {
+    cudaStream_t cs = (cudaStream_t) stream;
+    cudaMemsetAsync(s.gdn_state, 0, (size_t) s.gdn_alloc * gdn_state_floats(g) * 4, cs);
+    for (int64_t j = 0; j < s.qsa_alloc; ++j) qsa_prompt_state_clear(s.qsa_states[s.qsa_ord0 + j], g, stream);
+    cudaMemsetAsync(s.ple_hist, 0, (size_t) ple_hist_bytes(), cs);
+    s.ple_prev[0] = -1;
+    s.ple_prev[1] = -1;
+    s.ple_token = -1;
+}
+
+bool session_copy_state(SessionState& dst, const SessionState& src, const ModelGeometry& g, int64_t layer_lo,
+                        int64_t layer_hi, int64_t cell0, int64_t cell1, const DeviceCopy& copy, std::string& err) {
+    const int64_t I = std::max<int64_t>(g.qsa_interval, 1);
+    const int64_t g0 = layer_lo - layer_lo / I, g1 = layer_hi - layer_hi / I;   // the GDN ordinals of the range
+    const int64_t q0 = layer_lo / I, q1 = layer_hi / I;                         // and the QSA ones
+    if (g0 < dst.gdn_ord0 || g1 > dst.gdn_ord0 + dst.gdn_alloc || g0 < src.gdn_ord0 || g1 > src.gdn_ord0 + src.gdn_alloc ||
+        q0 < dst.qsa_ord0 || q1 > dst.qsa_ord0 + dst.qsa_alloc || q0 < src.qsa_ord0 || q1 > src.qsa_ord0 + src.qsa_alloc) {
+        err = "a session state copy of layers one of the sessions does not hold";
+        return false;
+    }
+    const uint64_t row = gdn_state_floats(g);
+    if (g1 > g0 && !copy(dst.gdn_state + (size_t) (g0 - dst.gdn_ord0) * row, src.gdn_state + (size_t) (g0 - src.gdn_ord0) * row,
+                         (uint64_t) (g1 - g0) * row * 4)) {
+        err = "a session state copy could not be queued";
+        return false;
+    }
+    for (int64_t q = q0; q < q1; ++q)
+        if (!qsa_state_copy_cells(dst.qsa_states[q], src.qsa_states[q], g, cell0, cell1, copy, err)) return false;
+    if (layer_lo <= 1 && 1 < layer_hi && !copy(dst.ple_hist, src.ple_hist, ple_hist_bytes())) {
+        err = "a session state copy could not be queued";
+        return false;
+    }
+    return true;
 }
 
 /// Sets `s.gdn.state`/`conv_state` for `layer`, which is what makes one layer's GDN state its own.  Shared by
@@ -594,27 +671,10 @@ bool SessionLoopScratch::init(size_t parts_bytes_in, std::string& err) {
         free();
         return false;
     }
-    // **PIN THE HOST ONCE, NOT ONCE PER TOKEN.**  `ExpertPool` builds its workers from `physical_cores(true)`,
-    // which drops the first physical core so the host loop can spin without taking a worker's cycles - and
-    // nothing in the pool can pin the host, so if this does not happen the spin is free to land on a worker's
-    // core or its SMT sibling.  The symptom is not an error: it is a slower CPU path.  Doing and undoing it on EVERY
-    // token would be a syscall pair on the critical path for a property that wants to hold for the whole session.
-    const std::vector<int> cores = basalt::kernels::cpu::physical_cores(false);
-    if (!cores.empty()) {
-        pinned_core = basalt::kernels::cpu::pin_current_thread(cores[0]);
-        pinned = pinned_core.valid;
-    }
     return true;
 }
 
 void SessionLoopScratch::free() {
-    // Restores the caller's affinity on every path, including teardown: a library that silently leaves its
-    // caller's thread nailed to one core is worse than one that never pinned at all.
-    if (pinned) {
-        basalt::kernels::cpu::restore_thread_affinity(pinned_core);
-        pinned = false;
-        pinned_core = {};
-    }
     if (probe != nullptr) { cudaEventDestroy(probe); probe = nullptr; }
     if (y_miss != nullptr) { cudaFreeHost(y_miss); y_miss = nullptr; }
     parts_bytes = 0;
@@ -721,7 +781,7 @@ bool session_loop(const ModelGeometry& g, int64_t pos, int32_t pos_base, Session
         volatile uint32_t* const seq = s.db->h_seq;
         for (;;) {
             // **THE PER-ITERATION DRIVER CALL IS REQUIRED.**  Throttling it, with or without
-            // `__threadfence_system()` in `doorbell_ring_kernel` and a volatile read here, breaks the protocol.
+            // `__threadfence_system()` in the ring kernel and a volatile read here, breaks the protocol.
             // The call is not merely flushing submission and it is not a missing fence either: the device's
             // write to mapped pinned memory becomes host-visible only when the driver is entered.  The fence and the volatile read are kept because they are correct and cost nothing -
             // without them the ring's ordering against `x_f`/`ids`/`weights` is unstated - but they do not
@@ -737,7 +797,7 @@ bool session_loop(const ModelGeometry& g, int64_t pos, int32_t pos_base, Session
                 return false;
             }
             if (rang) break;                             // rung, and the graph is still running: the overlap
-            SPIN_PAUSE();
+            basalt::platform::cpu_relax();
         }
         if (mid_graph) ++gr.rings_mid_graph;
         // the window, from just before the launch to the instant the ring was seen
@@ -968,7 +1028,7 @@ bool session_run_token(const ModelGeometry& g, int64_t pos, int32_t pos_base, Se
         uint32_t spins = 0;
         progress_at("token: waiting for the GPU to reach layer", l);
         while (*seq < want) {
-            SPIN_PAUSE();
+            basalt::platform::cpu_relax();
             if ((++spins & 1023u) != 0) continue;
             const auto now = Clock::now();
             if (now - last_flush > std::chrono::microseconds(flush_us)) {

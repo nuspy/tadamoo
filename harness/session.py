@@ -6,10 +6,11 @@ for the start, and saves the history after every model turn, so a process that d
 
 Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd": "cancel"}, {"cmd": "resume"}, {"cmd": "close"},
 {"cmd": "promote", "id"}, {"cmd": "drop", "id"}, {"cmd": "ping"}, {"cmd": "mode", "mode"} (the permission mode of the conversation),
-{"cmd": "effort", "level"} (how long the model thinks), {"cmd": "command", "id", "name", "args"} (a slash command: harness/commands.py).
+{"cmd": "effort", "level"} (how long the model thinks), {"cmd": "command", "id", "name", "args"} (a slash command: harness/commands.py),
+{"cmd": "skill", "id", "name", "display", "script", "mode", "values", "timeout", "cache_dir"} (runs a personal skill in the conversation).
 Events: ready, accepted, queued, routed, started, suspended, resumed, agent (an assistant text or a tool start or end), delta
 (text as it is written), ask (a question with buttons: a confirmation the task waits for, or a question that ends the turn),
-retrying, done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, effort, command, heartbeat, error.
+retrying, done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, effort, command, skill, skill_say, heartbeat, error.
 
 A message that comes while a task is under way is looked at before the task's next model call (harness/router.py): it goes into
 that task (steer), waits its turn (queue), or, when it cannot wait and has nothing to do with the task, the task is put aside where
@@ -145,6 +146,7 @@ class Task:
     text: str
     agent: Any
     side: bool = False
+    skill: Optional[Dict[str, Any]] = None        # a personal skill this task runs, instead of a model working on the request
     interrupt: bool = False                       # asked to stop its model call now, to be put aside
     state_running: bool = False                   # a model call or a tool is in progress
 
@@ -196,6 +198,7 @@ class Session:
         self._ask_lock = threading.Lock()
         self._waiting_n = 0                                     # a task waiting for the person is not stuck
         self.planner: Any = None
+        self.reporter: Any = None                               # sends the file edits to the server's Changes panel, when asked to
         self._summary = ""                                      # the plans summary the conversation last got
         self.attachment_store: Any = None                       # AttachmentStore of this conversation's files, when it has one
         self.endpoint, self.api_key = "", None
@@ -295,6 +298,8 @@ class Session:
             if isinstance(shown.get(key), str) and len(shown[key]) > EVENT_CHARS:
                 shown[key] = shown[key][:EVENT_CHARS] + f"\n[... {len(event[key]) - EVENT_CHARS} more characters]"
         self.emit({"event": "agent", "turn": task.turn, "data": shown})
+        if self.reporter is not None:
+            self.reporter.on_event(event)
 
     # -- questions to the person -------------------------------------------------------------------------
 
@@ -468,9 +473,55 @@ class Session:
         threading.Thread(target=self._work, args=(task,), name="session-task", daemon=True).start()
         return True
 
+    def run_skill(self, turn_id: str, skill: Dict[str, Any]) -> bool:
+        """Runs a personal skill in this conversation, as a task of its own: the person's request is said in it, the skill's tool calls
+        go through the agent's gate and are kept in it, and its result is its answer. One thing at a time: while a task is under way it
+        is refused."""
+        with self._lock:
+            if self._workers > 0:
+                self.emit({"event": "error", "code": "busy", "message": "a task is still running"})
+                return False
+            self._workers += 1
+            self.busy, self.turn_id, self.blocked = True, turn_id, None
+        agent = self.agent
+        agent.cancel.clear()
+        display = str(skill.get("display") or f"Run the skill {skill.get('name')}")
+        agent.add_user_message(display)
+        task = Task(turn_id, display, agent, skill=skill)
+        self._adopt(task)
+        self.tasks[turn_id] = task
+        self._save()
+        self.emit({"event": "accepted", "turn": turn_id})
+        threading.Thread(target=self._work, args=(task,), name="session-skill", daemon=True).start()
+        return True
+
+    def _run_skill_task(self, task: Task) -> str:
+        """The body of a task that runs a personal skill: the script runs, and what it did is told as the answer."""
+        from harness.agent_loop import AgentTurn
+        from harness.personal_skills.hosting import SkillRun, result_text
+        agent, skill = task.agent, task.skill or {}
+        result = SkillRun(self, task, skill).execute()
+        text = result_text(str(skill.get("name") or "skill"), result)
+        agent.stop_reason = al.CANCELLED if result.error == "stopped" else al.FINAL
+        agent.error = ""
+        agent.append({"role": "assistant", "content": text})
+        agent._emit({"type": "assistant", "reasoning": "", "content": text})
+        agent.turns.append(AgentTurn(len(agent.turns) + 1, task.text, "", text))
+        return "done"
+
     def _add_message(self, agent: Any, text: str, origin: str, attachments: Optional[List[str]], steer: bool = False) -> None:
         """Puts the person's message in the conversation: with files attached, they come first as data in blocks of their own and the
-        person's words after; what the person can confirm with is only their words."""
+        person's words after; what the person can confirm with is only their words. The phrases they marked with # (a skill's variable parts)
+        are given to the model as plain text; what they wrote is kept beside it, for a skill made from it."""
+        raw = text
+        if origin == "user" and "#" in text:
+            from harness.personal_skills import markers
+            text = markers.clean(text)
+        self._add_user(agent, text, origin, attachments, steer)
+        if raw != text and agent.messages and agent.messages[-1].get("role") == "user":
+            agent.messages[-1]["raw"] = raw
+
+    def _add_user(self, agent: Any, text: str, origin: str, attachments: Optional[List[str]], steer: bool) -> None:
         if origin == "user" and attachments and self.attachment_store is not None:
             from harness.attachments import compose_message
             full, inlined = compose_message(self.attachment_store, self.session_id, attachments, text, self.window_tokens())
@@ -717,6 +768,12 @@ class Session:
         task.interrupt = False
         agent.cancel.clear()
         self.emit({"event": "started", "turn": task.turn, "side": task.side})
+        if task.skill is not None:
+            task.state_running = True
+            try:
+                return self._run_skill_task(task)
+            finally:
+                task.state_running = False
         while True:
             self.last_progress = time.monotonic()
             task.state_running = True
@@ -844,6 +901,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     add_agent_arguments(parser, max_turns=15)
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of in the conversation")
     parser.add_argument("--ask-only", action="store_true", help="answer without tools: a greeting does not become a loop")
+    parser.add_argument("--report-changes", action="store_true", help="send each file edit to the server's Changes panel, to keep or undo by block")
     parser.add_argument("--no-planner", action="store_true", help="do not offer the planner's tools")
     parser.add_argument("--effort", default="", choices=["", *EFFORT_LEVELS], help="how long the model thinks (empty: the model's own default)")
     parser.add_argument("--router", choices=["model", "rules"], default="model",
@@ -904,6 +962,9 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         built.agent.context.on_removed = store.archive
     built.agent.pipeline = Pipeline(args.pipeline, (lambda q, o, c, j=judge_for("pipeline", here): j.choose(q, o, c)) if args.pipeline == "full" else None)
     session = Session(built, store, emit, session_id=sid, health=lambda: server_health(cfg.endpoint, cfg.api_key), router=router)
+    if args.report_changes and not args.ask_only:
+        from harness.reporting import PanelReporter
+        session.reporter = PanelReporter(cfg.endpoint, cfg.api_key, built.sandbox, "", session=sid, tasks=False)
     if args.attachments_dir:
         from harness.attachments import AttachmentStore
         session.attachment_store = AttachmentStore(Path(args.attachments_dir))
@@ -955,6 +1016,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
             name = cmd.get("cmd") if isinstance(cmd, dict) else None
             if name == "send" and isinstance(cmd.get("text"), str) and cmd["text"].strip():
                 ids = [i for i in cmd.get("attachments", []) if isinstance(i, str)][:20] if isinstance(cmd.get("attachments"), list) else []
+                if cmd.get("place") is not None and built.take_place:
+                    built.take_place(cmd["place"])                  # before the message, so the tool is there from this turn on
                 session.send(str(cmd.get("id") or uuid.uuid4().hex[:8]), cmd["text"], attachments=ids or None)
             elif name == "answer":
                 session.answer(cmd.get("id"), cmd.get("value"))
@@ -973,6 +1036,9 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
             elif name == "command" and isinstance(cmd.get("name"), str):
                 threading.Thread(target=session.run_command, args=(str(cmd.get("id") or ""), cmd["name"], str(cmd.get("args") or "")[:2000]),
                                  name="session-command", daemon=True).start()           # a command may take a model call; the others go on meanwhile
+            elif name == "skill" and isinstance(cmd.get("script"), str) and isinstance(cmd.get("values"), dict):
+                session.run_skill(str(cmd.get("id") or uuid.uuid4().hex[:8]),
+                                  {k: cmd.get(k) for k in ("name", "display", "script", "mode", "values", "timeout", "cache_dir")})
             elif name == "resume":
                 session.resume()
             elif name == "ping":

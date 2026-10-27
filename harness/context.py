@@ -14,8 +14,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-PIN_ORDER = ("system_core", "project_rules", "knowledge", "user_profile", "vault", "active_skills", "capabilities")
-INTERNAL_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts")
+PIN_ORDER = ("system_core", "project_rules", "knowledge", "user_profile", "vault", "active_skills", "capabilities", "visuals", "files")
+INTERNAL_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw")
 ERROR_LINE = re.compile(
     r"(error|exception|traceback|fatal|panic|failed|failure|assertion|segmentation fault|stack trace)"
     r"|^\s+at\s+\S+\(|^\s+File \".*\", line \d+|^E\s{2,}",
@@ -282,7 +282,7 @@ class ContextBuilder:
 
     def assemble_system_message(self) -> str:
         titles = {"project_rules": "# Project Rules & Guidelines", "knowledge": "# Reference Material", "user_profile": "# User Profile",
-                  "vault": "# Vault", "active_skills": "# Available Skills", "capabilities": "# Capabilities"}
+                  "vault": "# Vault", "active_skills": "# Available Skills", "capabilities": "# Capabilities", "visuals": "# Pictures and diagrams", "files": "# Files for the person"}
         sections = [self.blocks["system_core"]]
         for category in PIN_ORDER[1:]:
             if self.blocks.get(category):

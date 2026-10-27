@@ -38,18 +38,22 @@ async function get(path) {
 }
 
 /* ---- views: Chat, Monitor (stats), Plans, Hardware, Loader, Settings, Logs ---- */
-const VIEWS = ["chat", "agent", "stats", "plans", "hardware", "loader", "wallet", "settings", "logs"];
+const VIEWS = ["chat", "agent", "stats", "plans", "cron", "hardware", "loader", "wallet", "settings", "logs"];
 applyT($(".tabs"));                                   // the tab names in the page's language
 $(".tabs").setAttribute("aria-label", T("tab.nav"));
+// pages that live under another tab: Hardware and LOGS under Monitor, Wallet under Settings
+const TAB_OF = { hardware: "stats", logs: "stats", wallet: "settings" };
+// the Agent tab shows the conversation page, working in a folder
+const SHOWN_AS = { agent: "chat" };
 let viewOn = "";
 function view(v, focus) {
   if (!VIEWS.includes(v)) v = "chat";
   viewOn = v;
-  VIEWS.forEach(x => { $("#view-" + x).hidden = x !== v; });
+  VIEWS.forEach(x => { const page = document.getElementById("view-" + x); if (page) page.hidden = x !== (SHOWN_AS[v] || v); });
   $("#top").hidden = v !== "stats";
   document.body.dataset.view = v;
   $$(".tabs .tab").forEach(t => {
-    const on = t.dataset.view === v;
+    const on = t.dataset.view === (TAB_OF[v] || v);
     t.setAttribute("aria-selected", String(on));
     t.tabIndex = on ? 0 : -1;
     if (on && focus) t.focus();

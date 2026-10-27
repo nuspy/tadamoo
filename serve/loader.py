@@ -51,7 +51,9 @@ CUDA_CONTEXT = 600 * MiB                # estimate: CUDA context, cuBLAS and ker
 VISION_SIDECAR = int(2.2 * GiB)         # --vision on: the encoder process on the main GPU
 MIN_CACHE_SLOTS = 256                   # below this the prompt reads cannot borrow slots (k + 128 <= slots)
 RESIDENT_SPARE_BLOBS = 96               # spare places of the resident copy
-PROMPT_CHECKPOINTS = 6 * 118 * MiB      # --prompt-cache 6 checkpoints of the recurrent state
+PROMPT_CHECKPOINT = 118 * MiB           # one --prompt-cache checkpoint of the recurrent state
+ATTENTION_LAYERS = 12                   # layers with a KV cache; KV_CELL_BYTES is one of them
+KV_RESIDENT_MIN = 20480                 # --kv-resident keeps at least this many cells in VRAM
 PLE_ROW_CACHE = 1048576 * 90            # --ple-io direct: the row cache
 HOST_OTHER = 2 * GiB                    # estimate: the server, the engine heap and CUDA's host runtime
 # the prompt path's lend region (generate.cpp plan_lend: at most kAutoLendPct of the cache's slots, 128 left): with
@@ -66,15 +68,25 @@ MTP_EXPERT_BLOB = 1382400
 
 # what the engine does without the key (generate.cpp option defaults)
 ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.prefill": None, "engine.spec": 0,
-                   "engine.spec-min-p": 0, "engine.expert-cache": 0, "engine.resident-experts": False,
+                   "engine.expert-cache": 0, "engine.resident-experts": False,
                    "engine.vram-reserve-mib": 700, "engine.ple-io": "direct", "engine.pool-workers": None,
-                   "server.parallel": 1, "server.slot-full-context": False, "server.vision": "off", "server.port": 7232}
+                   "server.parallel": 1, "server.slot-full-context": False, "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep", "engine.relaxed-drafting": None,
+                   "server.port": 7232,
+                   "engine.kv-resident": 0, "engine.resident-budget-gib": None, "engine.mmap-experts": False,
+                   "engine.adapt-swaps": 96, "engine.prefill-cpu-share": 0.6, "engine.vram-elastic": False,
+                   "engine.release-vram-commit": False, "engine.expert-profile-save": None,
+                   "engine.expert-profile-save-every": 10,
+                   "engine.prompt-cache": 6, "engine.prompt-cache-every": 16384, "engine.prompt-cache-root": 2048,
+                   "engine.conversation-cache-mib": 0, "engine.conversation-cache-slots": 4,
+                   "engine.conversation-cache-min-free-mib": 2560,
+                   "engine.rope-scaling": None, "engine.rope-scale": None, "engine.rope-freq-base": 0,
+                   "server.grammar": True, "server.reasoning-budget-tokens": 0}
 
 # "Valori sicuri" are computed from this PC and the model (safe()); SAFE is what that gives on one example PC (an RTX
 # 5090 with 32 GiB, 128 GiB of RAM, a processor with 8 performance and 16 efficiency cores, the IQ3_XXS file with its
 # drafter and vision projector), kept as a documented example and for the tests
 SAFE = {"engine.max-context": 262144, "engine.kv": "q4_0", "engine.prefill": "auto", "engine.spec": 7,
-        "engine.spec-min-p": 0.5, "engine.expert-cache": "auto", "engine.resident-experts": True,
+        "engine.expert-cache": "auto", "engine.resident-experts": True,
         "engine.vram-reserve-mib": 1536, "engine.ple-io": "direct", "engine.pool-workers": 15,
         "server.parallel": 1, "server.slot-full-context": False, "server.vision": "dynamic"}
 
@@ -120,19 +132,24 @@ def model_facts(path: str | None) -> dict:
     head = tensors.get("output.weight") or {}
     shape = head.get("shape") or [0, 0]
     profile = meta.get("profile") if isinstance(meta.get("profile"), dict) else {}
-    vision_problem = None
+    vision_problem, vision_fix, mmproj_bytes = None, None, size("vision/mmproj")
     if "vision/mmproj" in mf.sections:                  # a projector the engine's encoder would refuse at start
         from serve import models
         vision_problem = models.embedded_projector_problem(str(path))
+        vision_fix = None if vision_problem else models.embedded_projector_fix(str(path))
+        if vision_fix and vision_fix["tensors"]:        # with other tensor types: rewritten at the load, a little larger
+            mmproj_bytes = vision_fix["bytes"]
+        else:
+            vision_fix = None
     return {"name": meta.get("name") or Path(path).stem, "path": str(path), "experts_bytes": size("experts"),
             "n_layers": len(blobs), "n_expert": n_expert, "max_blob": max(blobs) if blobs else 0,
             "dense_bytes": size("dense"), "head_bytes": tb("output.weight"),
             "has_mtp": "mtp/dense" in mf.sections, "mtp_bytes": size("mtp/dense") + size("mtp/experts"),
             "n_vocab": int(shape[-1]) if shape else 0, "token_embd_bytes": tb("token_embd.weight"),
-            "ple_bytes": tb("per_layer_token_embd.weight"), "mmproj_bytes": size("vision/mmproj"),
+            "ple_bytes": tb("per_layer_token_embd.weight"), "mmproj_bytes": mmproj_bytes,
             "profile_slots": int(profile.get("slots") or 0), "has_profile": "profile" in mf.sections,
             "meta_hash": mf.sections["meta"][2].hex()[:16], "sampling": meta_sampling(meta)[0],
-            "vision_problem": vision_problem}
+            "vision_problem": vision_problem, "vision_fix": vision_fix}
 
 
 # ------------------------------------------------------------------------------------------------ this PC now
@@ -314,6 +331,58 @@ def lend_tokens(v: dict) -> int:
     return min(2048, ctx)
 
 
+# ------------------------------------------------------------------------------------------------ the vision projector
+def projector_options(facts: dict) -> list[dict]:
+    """What a model can read images with: its own projector, when the file has one, and the projector files of the models folders
+    ({"value": "embedded" or the file, "name", "bytes" held in RAM, "fix" tensors rewritten at the load, "problem"})."""
+    out = []
+    if facts.get("mmproj_bytes"):
+        out.append({"value": "embedded", "name": "embedded", "bytes": int(facts["mmproj_bytes"]),
+                    "fix": int((facts.get("vision_fix") or {}).get("tensors") or 0), "problem": facts.get("vision_problem")})
+    out += [{"value": p["path"], "name": p["name"], "bytes": int(p["bytes"]), "fix": int(p["fix"]), "problem": None}
+            for p in facts.get("projectors") or []]
+    return out
+
+
+def _same_file(a, b) -> bool:
+    return os.path.normcase(os.path.abspath(str(a))) == os.path.normcase(os.path.abspath(str(b)))
+
+
+def pick_projector(choice, facts: dict) -> dict | None:
+    """The option `choice` stands for: "embedded" (the model file's own), a file, or "auto" (the model's own when it reads, else the
+    first file that does); None when the model has none to offer."""
+    options = projector_options(facts)
+    choice = str(choice or "auto")
+    if choice == "embedded":
+        return next((o for o in options if o["value"] == "embedded"), None)
+    if choice != "auto":
+        found = next((o for o in options if o["value"] != "embedded" and _same_file(o["value"], choice)), None)
+        if found:
+            return found
+        from serve import models
+        info = models.projector_info(choice) if os.path.isfile(choice) else None
+        if info:
+            return {"value": info["path"], "name": info["name"], "bytes": info["bytes"], "fix": info["fix"], "problem": None}
+        return {"value": choice, "name": Path(choice).name, "bytes": 0, "fix": 0,
+                "problem": {"it": "il file non c'è, o non è un proiettore che il motore legge con questo modello",
+                            "en": "the file is not there, or is not a projector the engine reads with this model"}}
+    usable = [o for o in options if not o["problem"]]
+    own = [o for o in usable if o["value"] == "embedded"]
+    return (own or usable or options or [None])[0]
+
+
+def projector_path(choice, model_path: str) -> str | None:
+    """The file to hand the engine for `choice` (None: the model file's own projector); ValueError when the choice cannot be used."""
+    from serve import models
+    facts = {**model_facts(model_path), "projectors": models.projector_files()}
+    picked = pick_projector(choice, facts)
+    if picked is None:
+        raise ValueError("no vision projector: this model file has none and none was found in the models folders")
+    if picked["problem"]:
+        raise ValueError(f"the vision projector is not usable: {picked['problem']['en']}")
+    return None if picked["value"] == "embedded" else picked["value"]
+
+
 # ------------------------------------------------------------------------------------------------ the plan
 def _item(key, nbytes, estimate=False):
     return {"key": key, "bytes": int(max(0, nbytes)), "estimate": estimate}
@@ -335,12 +404,28 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     mode = v["server.vision"]
     # ---- VRAM
     dense = facts["dense_bytes"] + facts["head_bytes"]
-    kv = par * (KV_TOKEN_BYTES[kvf] * ctx + SESSION_FIXED)
+    # --kv-resident N: only max(N, KV_RESIDENT_MIN) cells of each layer's K/V stay in VRAM and the whole K/V is pinned
+    # in RAM; the per-token state (indexer keys, page table, RoPE table) stays whole. A context that fits in those
+    # cells is not streamed; k8v4 cannot stream (the engine refuses it).
+    notes = []
+    kv_res = int(v["engine.kv-resident"] or 0)
+    pool_cell = ATTENTION_LAYERS * KV_CELL_BYTES[kvf]            # the K/V of one token, all layers
+    vram_cells = max(kv_res, KV_RESIDENT_MIN)
+    streamed = kv_res > 0 and kvf != "k8v4" and vram_cells < ctx
+    if kv_res > 0 and kvf == "k8v4":
+        notes.append({"code": "kv_k8v4"})
+    elif kv_res > 0 and not streamed:
+        notes.append({"code": "kv_fits", "cells": vram_cells})
+    kv = par * (KV_TOKEN_BYTES[kvf] * ctx - (pool_cell * (ctx - vram_cells) if streamed else 0) + SESSION_FIXED)
+    kv_host = par * pool_cell * ctx if streamed else 0
+    if streamed:
+        notes.append({"code": "kv_stream", "cells": vram_cells, "vram": kv, "host": kv_host})
     drafter = 0
     if facts.get("has_mtp") and spec >= 2:
         cell = KV_CELL_BYTES["int8" if kvf == "k8v4" else kvf] + 128
         drafter = facts["mtp_bytes"] + par * cell * ctx + spec * facts.get("n_vocab", 0) * 4
-    vision_vram = VISION_SIDECAR if mode == "on" else (ctx + 64) * 12 if mode == "dynamic" else 0
+    projector = pick_projector(v["server.vision-projector"], facts)
+    vision_vram = VISION_SIDECAR if str(mode).isdigit() else (ctx + 64) * 12 if mode == "dynamic" else 0
     buffers = VERIFY_WINDOWS + LATE_DEVICE
     if not facts.get("has_profile"):                    # without a profile the prompt buffers are not borrowed
         buffers += (160 + prefill_chunk(v) * 680 // 1024) * MiB
@@ -359,14 +444,37 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     cache = slots * blob
     vram_need = fixed + cache
     # ---- host RAM (committed unless file-backed)
-    if v["engine.resident-experts"]:
-        arena = max(0, facts["experts_bytes"] - cache) + RESIDENT_SPARE_BLOBS * blob
+    # --mmap-experts keeps the experts in the file mapping and so wins over resident-experts; --resident-budget-gib
+    # makes them resident but at most that many GiB (the hottest first), the rest stays in the file
+    budget = v["engine.resident-budget-gib"]
+    mmap = bool(v["engine.mmap-experts"])
+    resident = (bool(v["engine.resident-experts"]) or budget is not None) and not mmap
+    if mmap and (v["engine.resident-experts"] or budget is not None):
+        notes.append({"code": "mmap_wins"})
+    if resident:
+        copy = max(0, facts["experts_bytes"] - cache)
+        if budget is not None:
+            copy = min(copy, int(float(budget) * GiB))
+            notes.append({"code": "budget", "bytes": copy})
+        arena = copy + RESIDENT_SPARE_BLOBS * blob
     else:
         arena = facts["experts_bytes"] + blob
-    host = [_item("experts", arena), _item("token_embd", facts["token_embd_bytes"]),
-            _item("checkpoints", PROMPT_CHECKPOINTS * par)]
+    # the conversation caches: --prompt-cache checkpoints per slot, and the parked conversations up to their budget
+    checkpoints = max(0, int(v["engine.prompt-cache"])) * PROMPT_CHECKPOINT * par
+    parked = int(v["engine.conversation-cache-mib"]) * MiB if int(v["engine.conversation-cache-slots"]) > 0 else 0
+    if checkpoints != 6 * PROMPT_CHECKPOINT * par or parked:
+        notes.append({"code": "caches", "checkpoints": int(v["engine.prompt-cache"]), "slots": par, "parked": parked})
+    host = [_item("experts", arena), _item("token_embd", facts["token_embd_bytes"]), _item("checkpoints", checkpoints)]
+    if kv_host:
+        host.append(_item("kv_host", kv_host, True))
+    if parked:
+        host.append(_item("conversation", parked, True))
+    held = projector["bytes"] if projector else 0
+    released = mode == "dynamic" and v["server.vision-hold"] == "release"      # the encoder's weights are read again for each batch of images
     if mode == "dynamic":
-        host.append(_item("vision", facts["mmproj_bytes"]))
+        host.append(_item("vision", 0 if released else held))
+    elif mode == "cpu":                                  # the sidecar keeps the projector in its own RAM
+        host.append(_item("vision", held))
     ple_ram = facts["ple_bytes"] if v["engine.ple-io"] == "ram" else 0
     host.append(_item("ple", ple_ram if ple_ram else PLE_ROW_CACHE))
     host.append(_item("other", HOST_OTHER, True))
@@ -381,7 +489,7 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     # the lent slots' RAM copies: elastic (the engine keeps what fits above its own margin), so they are shown in the
     # need but not held against the share kept free
     lend = 0
-    if v["engine.resident-experts"] and facts.get("has_profile") and slots > 128 and prefill_chunk(v) > 0:
+    if resident and facts.get("has_profile") and slots > 128 and prefill_chunk(v) > 0:
         cap = min(max(0, min(slots * LEND_PCT // 100, slots - 128)) * blob, lend_tokens(v) * LEND_BYTES_PER_TOKEN)
         before = sum(h["bytes"] for h in host)          # taken before the copies are sized (the PLE table in RAM too)
         rooms = [x for x in (None if ram_avail is None else ram_avail - before,     # the PLE map takes no commit
@@ -410,9 +518,17 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     if commit_avail is not None and commit_need - lend > commit_avail - commit_keep:
         problems.append({"code": "commit", "need": commit_need - lend, "have": commit_avail, "keep": commit_keep,
                          "share": share})
-    if mode != "off" and facts.get("vision_problem"):   # the engine would stop at start on this projector
-        problems.append({"code": "vision", "it": facts["vision_problem"]["it"], "en": facts["vision_problem"]["en"]})
+    if mode != "off":                                   # the engine would stop at start without a projector it reads
+        if projector is None:
+            problems.append({"code": "vision", "it": "questo file non ha un proiettore visivo e nelle cartelle dei modelli non ce n'è uno adatto",
+                             "en": "this model file has no vision projector and the models folders hold none that fits"})
+        elif projector["problem"]:
+            problems.append({"code": "vision", "it": projector["problem"]["it"], "en": projector["problem"]["en"]})
+    rd = v["engine.relaxed-drafting"]
+    p_relaxed = 0.5 if rd is True else float(rd or 0)
+    why_not = [] if not p_relaxed else [code for code, bad in (("spec", spec < 2), ("mtp", not facts.get("has_mtp")), ("parallel", par > 1)) if bad]
     return {
+        "relaxed": {"p": p_relaxed, "effective": not why_not, "why": why_not}, "notes": notes,
         "values": v, "slot_context": ctx, "parallel": par,
         "vram": {"items": [_item("dense", dense), _item("drafter", drafter), _item("kv", kv),
                            _item("vision", vision_vram), _item("buffers", buffers),
@@ -428,6 +544,9 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
         "unknown": [k for k, x in (("vram", vram_avail), ("ram", ram_avail), ("commit", commit_avail)) if x is None],
         "fits": not problems, "problems": problems,
         "kv_bytes_per_token": KV_TOKEN_BYTES[kvf] * par,
+        "vision_hold": {"release": released, "bytes": held if released else 0},
+        "projector": None if projector is None else {k: projector[k] for k in ("value", "name", "bytes", "fix")},
+        "projectors": [{k: o[k] for k in ("value", "name", "bytes", "fix", "problem")} for o in projector_options(facts)],
     }
 
 
@@ -512,7 +631,7 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
     the RAM and of the commit limit stays free (`keep_share`, else the saved one, else 15%); the VRAM reserve is
     `reserve_mib`, else the one the wizard saved, else reserve_proposal() for where the monitor is (`monitor`, else
     the wizard's answer); the KV cache is the smallest (q4_0) and the context the longest that fits; the drafter is
-    on (spec 7, spec-min-p 0.5) when the file has one; prefill auto; the experts are resident in RAM and the PLE table
+    on (spec 7) when the file has one; prefill auto; the experts are resident in RAM and the PLE table
     in RAM when they fit; the CPU workers follow the cores (hardware.pool_workers). `why`, when given, is filled with
     each value's reason {key: (English, Italian)}."""
     from serve import hardware
@@ -534,9 +653,10 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
         r_en = tuple(r_en)
     workers, w_en, w_it = hardware.pool_workers(cpu)
     mtp = bool(facts.get("has_mtp"))
-    vision = "dynamic" if facts.get("mmproj_bytes") and not facts.get("vision_problem") else "off"
+    picked = pick_projector("auto", facts)
+    vision = "dynamic" if picked and not picked["problem"] else "off"
     out = {"engine.max-context": CONTEXT_STEPS[-1], "engine.kv": "q4_0", "engine.prefill": "auto",
-           "engine.spec": 7 if mtp else 0, "engine.spec-min-p": 0.5 if mtp else None, "engine.expert-cache": "auto",
+           "engine.spec": 7 if mtp else 0, "engine.expert-cache": "auto",
            "engine.resident-experts": True, "engine.vram-reserve-mib": reserve, "engine.ple-io": "direct",
            "engine.pool-workers": workers, "server.parallel": 1, "server.slot-full-context": False,
            "server.vision": vision}
@@ -579,10 +699,6 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
                          "0: this model file has no MTP drafter."),
                         ("7: il drafter propone fino a 6 token per passo; di solito la velocità migliore." if mtp else
                          "0: questo file non ha il drafter MTP.")),
-        "engine.spec-min-p": (("0.5: drafting stops when the drafter is unsure, so fewer wasted checks." if mtp else
-                               "Not used without a drafter."),
-                              ("0.5: il drafter si ferma quando è incerto, meno verifiche sprecate." if mtp else
-                               "Non serve senza drafter.")),
         "engine.expert-cache": ("auto: every MiB of VRAM left after the reserve holds experts.",
                                 "auto: tutta la VRAM che resta oltre la riserva contiene esperti."),
         "engine.resident-experts": (
@@ -609,12 +725,12 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
         "server.slot-full-context": ("off: with one slot it changes nothing.", "spento: con un solo slot non cambia nulla."),
         "server.vision": (("dynamic: images are read inside the engine, no VRAM kept for them." if vision == "dynamic"
                            else f"off: the engine does not read this file's vision projector "
-                                f"({facts['vision_problem']['en']})." if facts.get("vision_problem")
-                           else "off: this model file has no vision projector."),
+                                f"({picked['problem']['en']})." if picked and picked["problem"]
+                           else "off: this model file has no vision projector, and the models folders hold none that fits."),
                           ("dynamic: le immagini si leggono dentro il motore, nessuna VRAM fissa." if vision == "dynamic"
                            else f"off: il motore non legge il proiettore visivo di questo file "
-                                f"({facts['vision_problem']['it']})." if facts.get("vision_problem")
-                           else "off: questo file non ha il proiettore visivo.")),
+                                f"({picked['problem']['it']})." if picked and picked["problem"]
+                           else "off: questo file non ha il proiettore visivo e nelle cartelle dei modelli non ce n'è uno adatto.")),
     })
     return out
 
@@ -647,14 +763,22 @@ def reserve_warnings(values: dict, gpu: dict | None, monitor: str | None = ...) 
 
 
 # ------------------------------------------------------------------------------------------------ speed
-SPEED_KEYS = ("engine.kv", "engine.max-context", "engine.prefill", "engine.spec", "engine.spec-min-p",
+SPEED_KEYS = ("engine.kv", "engine.max-context", "engine.prefill", "engine.spec",
               "engine.expert-cache", "engine.resident-experts", "engine.vram-reserve-mib", "engine.ple-io",
               "engine.pool-workers", "server.parallel", "server.slot-full-context", "server.vision")
 
 
+# settings that change speed but are left out of the fingerprint at their default, so a calibration made before they
+# existed still matches
+SPEED_KEYS_NON_DEFAULT = ("engine.kv-resident", "engine.resident-budget-gib", "engine.mmap-experts", "engine.adapt-swaps",
+                          "engine.prefill-cpu-share", "engine.vram-elastic")
+
+
 def fingerprint(values: dict) -> str:
     v = effective(values)
-    return hashlib.sha256(json.dumps({k: v.get(k) for k in SPEED_KEYS}, sort_keys=True).encode()).hexdigest()[:16]
+    key = {k: v.get(k) for k in SPEED_KEYS}
+    key.update({k: v.get(k) for k in SPEED_KEYS_NON_DEFAULT if v.get(k) != ENGINE_DEFAULTS[k]})
+    return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
 
 def _drafts(spec: int) -> int:

@@ -7,7 +7,7 @@
 // walk the chunk inside one kernel, and the routed experts are grouped by expert: resident ones are read from the
 // VRAM tier, the others streamed from the host arena through a pinned ring on a copy stream.
 //
-// Requires the native weights (`--native`): every quantized projection must carry its GGUF blocks.
+// Requires the native weights: every quantized projection must carry its GGUF blocks.
 #pragma once
 
 #include "basalt/core/expert_cache.hpp"
@@ -75,6 +75,9 @@ public:
     /// request lends only the slots its prompt needs.  The stream must be idle (between prompts).
     bool relayout(int64_t chunk, void* borrow, uint64_t borrow_bytes, std::string& err);
     int64_t chunk() const;
+    /// The next runs read their first chunk with at most `tokens` tokens (0: every chunk is `chunk()` long), so the
+    /// rows it waits for before layer 1 are few; the chunks after it are `chunk()` long.
+    void set_head_chunk(int64_t tokens) { head_chunk_ = tokens; }
     /// Points the prompt path at another session's state (a view of `ss` with a batch slot's state fields) for the
     /// next runs; the buffers and the layer range stay.
     void set_session(core::SessionState& ss);
@@ -93,9 +96,18 @@ public:
     /// The ring depth of the current layout.
     int ring_depth() const;
     static double pinned_share();
+    /// The pack's prompt experts run on the FP4 tensor cores (NVFP4 gate/up and down in every layer).
+    static bool fp4_experts();
 
     /// Device bytes `init` needs for a chunk of `chunk` tokens (what a borrowed region must hold).
     static uint64_t bytes_needed(const core::ModelGeometry& g, const core::SessionState& ss, int64_t chunk);
+
+    /// Lays every buffer of a chunk of `chunk` tokens out over a region of exactly `bytes_needed` bytes without
+    /// touching device memory (the pointers are never dereferenced) and reports the bytes the layout took; false when
+    /// a buffer, or one of the sets that share the scratch region, does not fit.  `with_source`: the layout streams
+    /// experts.  For tests of the sizing.
+    static bool layout_fits(const core::ModelGeometry& g, core::SessionState& ss, int64_t chunk, bool with_source,
+                            uint64_t* used, uint64_t* capacity);
 
     /// The streamed ring's slot count for a chunk of `chunk` tokens.
     static int64_t ring_slots_for(int64_t chunk);
@@ -103,6 +115,11 @@ public:
     /// Positions [pos0, pos0 + n) holding `tokens`; `ss.ple_prev` must be the two tokens before pos0 (oldest
     /// first, -1 for none) and is advanced to the last two of these.
     bool run(const int64_t* tokens, int64_t n, int64_t pos0, std::string& err);
+
+    /// For the next `run` (which must start at `run_pos0`): once its first chunk's n-gram rows have landed, the rows of
+    /// `tokens[from, to)` (the prompt's later parts) are read into the row cache on a thread, so the runs that read
+    /// them find the rows in memory.  Needs `from >= 2`; `to` is cut to what the cache holds.  Cleared by that run.
+    void set_ple_warm(const int64_t* tokens, int64_t run_pos0, int64_t from, int64_t to);
 
     const PrefillStats& stats() const { return stats_; }
 
@@ -114,23 +131,42 @@ public:
     bool route_hist_take(std::vector<uint32_t>& out, int64_t& tokens);
 
     /// multi-GPU: the experts the peer GPU holds are computed THERE for every prompt chunk (up to `cap_rows` routed
-    /// rows per layer; the rest of the peer's experts are read by this GPU over P2P).  Allocates the peer's buffers for
-    /// chunks of up to init's `chunk` tokens.  Needs P2P between the two cards.
-    bool set_peer(core::PeerExperts* peer, int64_t cap_rows, std::string& err);
-    /// --peer-exclusive: experts only `peer` holds have no host copy; the prompt path reads them from its memory
-    /// over P2P (into the ring, or in place).  Independent of set_peer.
+    /// rows per layer).  Allocates the peer's buffers for chunks of up to init's `chunk` tokens: the routed-only
+    /// chunks, and the streamed ones up to a fixed size on the FP4 experts (the same bits as this GPU's), with the rows
+    /// crossing through host memory.
+    bool set_peer(core::PeerExperts* peer, int64_t cap_rows, bool streamed_share, std::string& err);
+    /// The bytes `set_peer` takes on the peer card for chunks of up to `chunk` tokens (0: no peer share); the peer tier
+    /// leaves them free when it sizes itself.
+    static uint64_t peer_bytes(int64_t chunk, bool streamed_share);
+    /// --peer-exclusive: experts only `peer` holds have no host copy; the prompt path copies them from its memory
+    /// through host staging into the ring.  Independent of set_peer.
     void set_ring_peer(core::PeerExperts* peer);
+    /// A stage on another card than the main one: an expert with no pinned host copy that the cache on `device` holds
+    /// (`res`: n_layers x n_expert slot or -1, read at every chunk) is copied from that card through host staging into
+    /// the ring.  Null `res`: none.
+    void set_ring_remote(const int32_t* res, const core::ExpertCache* cache, int device);
+    /// Off: the peer card's share (set_peer) is skipped, every expert of a chunk stays on this card - while the peer
+    /// card runs a stage of the same prompt.
+    void set_peer_share(bool on);
 
     /// The CPU expert pool (idle while a prompt is read). A chunk below stream_all_min() tokens hands it the
     /// non-resident experts with a host copy that few of its tokens route to, instead of streaming them; their rows
-    /// go to the tail of Dm unweighted, like the peer's, and the combine weights them. The share is balanced from the
-    /// measured CPU and GPU cost per expert. Only for a pool no other thread runs meanwhile. Null: every expert on the GPU.
+    /// go to the tail of Dm unweighted, like the peer's, and the combine weights them. The share is set by
+    /// set_cpu_share(). Only for a pool no other thread runs meanwhile. Null: every expert on the GPU.
     void set_cpu_pool(kernels::cpu::ExpertPool* pool);
+    /// The share, 0 to 1 (default 0.6), of the streamed experts the CPU computes; 0 leaves them all to the GPU. Fixed
+    /// for the run, so the output does not depend on timing.
+    void set_cpu_share(double share);
 
     /// Called after every chunk with the chunk's final multi-stream residual rows (device,
     /// T x hc*n_embd, valid until the next chunk) and the chunk's first position; the MTP draft layer builds its
     /// K/V from them.  The prefill stream is synchronized before the call.
     std::function<bool(const float* R_rows, int64_t T, int64_t pos0, std::string& err)> on_chunk;
+
+    /// Called on the host before each layer of a chunk with the layers done so far, the layer count, the chunk's
+    /// length and first position.  No device work is added; the MoE layers' routing readback keeps the host in step
+    /// with the GPU.  Not called under a layer split.
+    std::function<void(int64_t layers_done, int64_t n_layers, int64_t T, int64_t pos0)> on_layer;
 
     /// Layer split: called by every stage when it has read a chunk, with the position reached, while its own state
     /// is still at that chunk's end (its stream synchronized; the last stage calls it just before `on_chunk`).  An
@@ -140,6 +176,9 @@ public:
 
     /// Checked before every chunk: true stops the prompt early (`run` returns false with err "cancelled").
     std::function<bool()> should_stop;
+    /// Layer split, a first stage with `set_keep_last`: checked at each chunk's end (the position reached) before the
+    /// chunk is handed on; true keeps that chunk as the last one and ends the run there.
+    std::function<bool(int64_t done)> keep_here;
 
     /// The vision path: HOST rows (n_embd floats) indexed by absolute position, read in place of the token
     /// embedding where non-null (an image's <|image_pad|> cells).  Null (default): every position embeds its token.
@@ -149,10 +188,18 @@ public:
     /// device `init` runs on.  A stage that does not start at layer 0 reads each chunk's residual rows from the
     /// previous stage instead of embedding the tokens; a stage that does not end at the last layer copies its rows
     /// to pinned host buffers (two, allocated by `init`) and runs `next` on them - on a thread, so the next stage
-    /// reads chunk c while this one reads chunk c + 1.  `on_chunk` belongs on the last stage.  Set before `init`.
-    void set_stage(int64_t layer_begin, int64_t layer_end, Prefill* next) {
-        stage_lb_ = layer_begin; stage_le_ = layer_end; next_ = next;
-    }
+    /// reads chunk c while this one reads chunk c + 1.  `on_chunk` belongs on the last stage.  Set before `init`, or
+    /// between runs (a successor set after `init` needs `reserve_hand_off` first).
+    void set_stage(int64_t layer_begin, int64_t layer_end, Prefill* next);
+    /// The two pinned hand-off buffers for chunks of up to `rows` tokens, for a successor set after `init`.
+    bool reserve_hand_off(int64_t rows, std::string& err);
+    /// Layer split: the first stage keeps a run's last chunk - it reads that chunk's layers and neither hands it on nor
+    /// reports it - for its card to read the later layers too (`continue_in_place`) once the later stages are done.
+    void set_keep_last(bool on) { keep_last_ = on; }
+    /// The next run reads the rows this stage's own buffers hold (the chunk it kept), not tokens or a hand-off.
+    void continue_in_place() { rows_in_place_ = true; hand_in_ = nullptr; }
+    /// A later stage: the hand-off buffer it read its last chunk from (pinned host, the stage before's), or null.
+    const float* hand_in() const { return hand_in_; }
 
 
 private:
@@ -163,9 +210,12 @@ private:
 
     kernels::cpu::ExpertPool* cpu_pool_ = nullptr;
     int64_t stage_lb_ = 0, stage_le_ = -1;
+    int64_t head_chunk_ = 0;
     Prefill* next_ = nullptr;
     bool single_chunk_ = false;         ///< a later stage: the prompt is one chunk (set by the stage before)
     const float* hand_in_ = nullptr;    ///< the previous stage's rows of the chunk being read (host, pinned)
+    bool rows_in_place_ = false;        ///< the next run's rows are in this stage's own buffers (continue_in_place)
+    bool keep_last_ = false;            ///< set_keep_last
 
     std::string next_err_;
     std::future<bool> next_run_;
