@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +39,10 @@ class Task:
     system: Optional[str] = None
     knowledge: Dict[str, str] = field(default_factory=dict)   # reference documents the task may use
     strategy: str = "none"                                    # how they are offered: none, rag or cag
+    workspace_from: str = ""                                  # a folder copied into the workspace before the run (public benchmarks)
+    workspace_ignore: List[str] = field(default_factory=list)  # names left out of that copy: tests and solutions stay out of the model's reach
+    hidden: Dict[str, str] = field(default_factory=dict)      # source folder -> folder in the workspace, copied in only for the checks
+    path_map: Dict[str, str] = field(default_factory=dict)    # text replaced in the files copied for the checks ({workspace} is the workspace's path)
 
 
 NEEDS = {"file_contains": ("path", "text"), "file_not_contains": ("path", "text"), "file_equals": ("path", "content"), "file_regex": ("path", "pattern"),
@@ -127,6 +134,8 @@ def load_task_set(path_or_name: str | Path) -> Tuple[Dict[str, Any], List[Task]]
 
 def make_workspace(task: Task, root: Path) -> Path:
     root.mkdir(parents=True, exist_ok=True)
+    if task.workspace_from:
+        shutil.copytree(task.workspace_from, root, dirs_exist_ok=True, ignore=shutil.ignore_patterns(*task.workspace_ignore) if task.workspace_ignore else None)
     for rel, content in task.files.items():
         target = root / rel
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -153,6 +162,7 @@ def run_checks(task: Task, workspace: Path, answer: str, calls: Sequence[Dict[st
     failures: List[str] = []
     ran = [c for c in calls if c.get("executed")]
     sandbox = ProcessSandbox(workspace, timeout=30)
+    place_hidden(task, workspace)
 
     def read(rel: str) -> Optional[str]:
         p = workspace / rel
@@ -201,6 +211,11 @@ def run_checks(task: Task, workspace: Path, answer: str, calls: Sequence[Dict[st
         elif kind == "tool_not_called":
             if any(c["name"] == check["name"] for c in ran):
                 failures.append(f"{check['name']} was called but must not be")
+        elif kind == "bfcl_calls":
+            from .benchmarks import bfcl_failures
+            failures += bfcl_failures(check, calls)
+        elif kind == "swe_resolved":
+            failures += swe_failures(check, workspace, sandbox)
         elif kind == "tool_args":
             ic = bool(check.get("ignore_case", True))
             wanted = check["args"]
@@ -209,6 +224,43 @@ def run_checks(task: Task, workspace: Path, answer: str, calls: Sequence[Dict[st
             if not hit:
                 failures.append(f"no call of {check['name']} with {json.dumps(wanted, ensure_ascii=False)}")
     return failures
+
+
+def place_hidden(task: Task, workspace: Path) -> None:
+    """The files a task keeps from the model (its tests) are put into the workspace now, with the task's paths rewritten to this workspace."""
+    for source, target in task.hidden.items():
+        destination = workspace / target
+        if destination.exists():
+            shutil.rmtree(destination, ignore_errors=True)                 # whatever the model left under that name is not the task's test
+        shutil.copytree(Path(source) / target, destination)
+        if task.path_map:
+            for path in destination.rglob("*"):
+                if path.is_file() and path.suffix in (".py", ".sh", ".txt", ".json", ".yaml", ".yml", ".cfg", ".toml"):
+                    text = path.read_bytes().decode("utf-8", errors="replace")
+                    for old, new in task.path_map.items():
+                        text = text.replace(old, new.replace("{workspace}", workspace.resolve().as_posix()))
+                    path.write_bytes(text.encode("utf-8"))
+
+
+def swe_failures(check: Dict[str, Any], workspace: Path, sandbox: Any) -> List[str]:
+    """SWE-bench's own verdict: the instance's test patch is applied, the tests that must start passing pass, and the ones that passed still do."""
+    patch = Path(tempfile.mkdtemp(prefix="basalt-swe-")) / "tests.patch"
+    patch.write_bytes(check["test_patch"].encode("utf-8"))
+    try:
+        applied = sandbox.run(subprocess.list2cmdline(["git", "apply", "--whitespace=nowarn", str(patch)]), timeout=60)
+        if applied["exit_code"] != 0:
+            return [f"the instance's tests could not be added: {(applied['stderr'] or applied['stdout'])[-160:].strip()}"]
+        out: List[str] = []
+        for label, ids in (("FAIL_TO_PASS", check.get("fail_to_pass") or []), ("PASS_TO_PASS", check.get("pass_to_pass") or [])):
+            if not ids:
+                continue
+            command = check.get("test_command", "{python} -m pytest -q").replace("{python}", f'"{sys.executable}"') + " " + subprocess.list2cmdline(ids)
+            res = sandbox.run(command, timeout=float(check.get("timeout", 900)))
+            if res["exit_code"] != 0:
+                out.append(f"{label} tests failed ({len(ids)} named): {(res['stdout'] or res['stderr'])[-160:].strip()}")
+        return out
+    finally:
+        shutil.rmtree(patch.parent, ignore_errors=True)
 
 
 def expand_strategies(tasks: List[Task], strategies: Sequence[str]) -> List[Task]:

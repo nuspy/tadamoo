@@ -473,8 +473,16 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   the retried request's `params`, and the shape of the `notifications/cancelled` sent on a stdio timeout.
 - The ACP agent follows protocol version 1 over stdio: `initialize`, `session/new`, `session/prompt`, `session/cancel`,
   `session/set_mode`, `session/update` (message and thought text, tool calls, edits as `diff` content) and
-  `session/request_permission` toward the editor. It edits files itself rather than through the editor's `fs/*`, offers no
-  `session/load` and no authentication, and reads text only. It is built like the command line's agent and takes the same options
+  `session/request_permission` toward the editor, plus `session/load`, `authenticate` and the editor's `fs/read_text_file` and
+  `fs/write_text_file`. Each conversation is saved after every prompt (`acp_sessions/<id>/history.json` in the user data folder of the
+  folder the agent was started in); `session/load` takes the id, replays the conversation as `user_message_chunk`, thought, message,
+  `tool_call` and `tool_call_update` updates, and the next prompt goes on from it. When the editor says it offers `fs`, the file tools read
+  through it (so unsaved text is seen) and write through it (a write the editor refuses is an error for the model); every edit is still
+  reported as a diff. When the Basalt server refuses requests without a key and the agent has none, `initialize` lists the method
+  `basalt_api_key` and `session/new` and `session/load` answer -32000 with `data.authRequired` until `authenticate` finds the key accepted;
+  the key itself can only be given at launch (`BASALT_API_KEY` or `--api-key`), so `authenticate` checks it and does not receive it. It
+  reads text only and has no `terminal/*`. It was tested against a scripted editor over in-memory pipes and against Basalt's own ACP client,
+  never in Zed or JetBrains. It is built like the command line's agent and takes the same options
   (`python -m harness acp --capabilities --lsp --vault-dir ...`), and the `mcpServers` the editor sends with `session/new` (a program to
   start, or a Streamable HTTP address; SSE is refused) are connected for that session: their tools are always irreversible and untrusted,
   so they ask like any action that cannot be undone, and a server that cannot be started is reported on stderr and left out. Plan mode
@@ -613,7 +621,15 @@ top and the four tools cost about 400.
 - **Tools**: `find_capability` (local FTS5/BM25, five results at most, results are untrusted text), `load_capability` (the text of an
   approved skill, read again and checked against its hash; it is the text the person approved, so it is not fenced as outside content
   and does not count towards the Rule of Two), `call_capability` (a tool of an approved MCP server; it asks the person
-  like any action that cannot be undone; the server is started with no environment from the config). The prompt holds one line:
+  like any action that cannot be undone; the server is started with no environment from the config). With no `tool` it lists the
+  server's tools with their arguments (a star marks a required one); `query` finds tools of a large server and returns their whole
+  definitions; `tool` with `describe` returns one definition (input and result schema) without calling it; a call with wrong
+  arguments comes back with the definition. A tool's own failure (`isError`) is told apart from a server that cannot be used, a
+  structured result is kept next to the text, and the pages of `tools/list` (`nextCursor`) are all read. A server that stops in the
+  middle of a call to ask for values (elicitation, form mode; in the stateless revision an `input_required` result) asks the person
+  in the conversation (`harness/mcp_elicit.py`): the values come back after the prefix `elicit:`, only the declared fields are taken
+  and checked against the server's schema. A tool a 2025-11-25 server runs only as a task is called as one and polled to its result;
+  the tasks extension of the stateless revision, sampling and roots are not offered. The prompt holds one line:
   the roots and how many entries each has.
 - **Visual analysis** (Settings): the loaded model's own vision, an approved skill or MCP server from the vision/analysis branch, or
   none. `analyze_image(path, question, crop)` crops and enlarges a region for fine detail, limits the image's size, and says so
@@ -1023,6 +1039,10 @@ holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/
 python -m harness.eval --set core --k 5 --endpoint http://127.0.0.1:7232 --gpu-power-limit-w 450 --out report.md
 python -m harness.eval --set toolcalls --k 5
 python -m harness.eval --set knowledge --k 3 --strategies none,rag,cag
+python -m harness.eval --compare-strategies --k 5          # the same, and the report gets a none / RAG / CAG table
+python -m harness.eval --bfcl D:\data\bfcl --k 5 --limit 200
+python -m harness.eval --terminal-bench D:\data\terminal-bench --only tb/hello-world --k 5
+python -m harness.eval --swebench D:\data\swe-bench-pro --limit 20 --k 3
 ```
 
 Each trial is a fresh agent run on a fresh workspace with its own seed, checked on what happened (files, commands, the
@@ -1035,6 +1055,24 @@ commit, the model, the hardware, the GPU power limit (or says it was not recorde
 validity, cost per trial and the prefix cache hit rate. These are development A/Bs, not headline numbers; a difference under about 3
 points is noise until repeated. The task sets are small starting points; add private tasks of your own. Running other
 harnesses against the same endpoint is not automated.
+
+A `--k` below 5 is accepted but warned about, on stderr and at the top of the report: pass^k over so few repetitions says little. The
+report also carries what the server itself measured: with the request log on (the default) each trial reads the `timing` events of its
+requests (`harness/eval/serverlog.py`) and the report gives the median time to the first token and prefill time, the share of the prompt
+read from the cache, and a TTFT and cache column per task; the figures belong to a trial only when nothing else used the server meanwhile,
+and `--no-server-timings` leaves them out. With `--compare-strategies` (or `--strategies` on the `knowledge` set) the report adds a table of
+none, RAG and CAG side by side: success, pass^k, tokens in, seconds and cache share.
+
+**Public benchmarks** are read from a folder you downloaded yourself; nothing is fetched (`harness/eval/benchmarks.py` has the layouts).
+`--bfcl` takes `BFCL_v<n>_<category>.json` with `possible_answer/` beside it (simple, multiple, parallel, parallel_multiple and irrelevance by
+default) and scores the calls by BFCL's rule: the function, every required argument, no unknown argument, each value among the accepted ones, parallel
+calls in any order, and for irrelevance no call at all; Java, JavaScript, SQL, REST and multi-turn files are left out and listed. `--terminal-bench`
+takes a folder of tasks (`task.yaml` and `tests/`): the model works in a copy that holds neither the tests nor the solution, the tests are copied in for
+the check with `/app` rewritten to the workspace, and the task passes when its own `pytest` does. `--swebench` takes `instances.jsonl` and a checkout of
+each repository at its base commit in `repos/<instance_id>` (without `.git`): the instance's test patch is applied with `git apply` and the instance
+is resolved when its FAIL_TO_PASS tests pass and its PASS_TO_PASS tests still do (`--swebench-test-command` changes the test command). These run on this machine
+with the local Python, not in the containers the datasets were made for, so choose a subset this machine can check (`--only`, `--limit`); the layouts are the ones
+the datasets are described as having and were written without a copy of them, so the first real folder is the test. No dataset has been run and no score exists yet.
 
 `python -m harness.eval.alternate` measures what it costs when two conversations take turns on one model (the time to the first token and the share of the
 prompt read from the cache, taking turns against one after the other). It decides whether a queue that groups requests by conversation is worth building.
@@ -1052,6 +1090,12 @@ stand-ins that return the recorded results (so nothing is run); pass your own re
 the folder, and `confirm_from_trace(trace)` to answer questions as the person did. `python -m harness.replay trace.jsonl --mode auto`
 does the first and prints the divergence. Permissions are decided by the rules you replay under, so a replay under another level is
 the way to see what a change in the rules would have done to a past session.
+
+The LOGS page reaches the same code (section **Session traces**; `serve/traces_api.py`): `GET /api/agent/traces` lists the conversations
+with a saved history, `POST /api/agent/traces/<id>/replay` (`{"mode": "read_only|default|auto", "results": bool}`) replays one with the
+stand-ins, `GET /api/agent/traces/<id>/export` downloads the masked JSONL, and `GET /api/agent/traces/<id>/audit?limit=<n>` verifies the
+hash chain of the audit ledger of the conversation's folder (`status`: `intact`, `broken`, `empty` or `missing`) and returns its newest
+records. The ledger belongs to the folder, not to one conversation.
 
 ## Running code
 
@@ -1224,5 +1268,5 @@ An approval from the page asks the server for an answer, and any process on this
 one, so it matters that an agent which can run arbitrary code (an allow rule such as `python *`, or Automatic mode) can approve
 its own later requests: such a rule already grants that power, and only the isolation below would take it away.
 
-Not done: file and network isolation for commands (the job object limits resources only); `fs/*` and `session/load` in ACP;
+Not done: file and network isolation for commands (the job object limits resources only); `terminal/*` in ACP and a try of the ACP agent in a real editor;
 reading bank accounts through an authorized aggregator, and a test of Google Pay or an embedded Stripe form on a real site; the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.

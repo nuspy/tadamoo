@@ -49,7 +49,9 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   free now), a **speed prediction**, calibration, load profiles, and loading or reloading the engine inside the running
   server. **Configuration wizard** and **Machine Default**: the best values for this PC, saved as a profile.
 - **LOGS**: every request as the model saw it (what came in, the reasoning and the answer as written, each structured
-  try, times, why it ended) plus the server's and the engine's lines, kept in memory, exportable.
+  try, times, why it ended) plus the server's and the engine's lines, kept in memory, exportable. A second section,
+  **Session traces**, replays a Chat or Agent conversation with its recorded answers (nothing runs), saves it as JSONL with
+  secrets masked, and verifies the hash-chained audit ledger of its folder.
 - **Download models**: a catalog of 23 downloadable Qwen3.8-Flash-Next files (ready `.basalt`, GGUF to convert, uncensored
   versions; 6 more are shown as not compatible), with what differs from the base and how close each is to the full model, and the source of that figure), downloaded
   with resume and SHA-256 checks.
@@ -331,8 +333,8 @@ the note.
 
 ### What is not done
 
-File and network isolation for commands (the job object limits resources only); `fs/*` and `session/load` in ACP; Basalt as an A2A
-server (it is a client only); bank accounts through an aggregator; a test of Google Pay or an embedded Stripe form on a real site;
+File and network isolation for commands (the job object limits resources only); a try of the ACP agent in a real editor (Zed, JetBrains) and
+`terminal/*`; Basalt as an A2A server (it is a client only); bank accounts through an aggregator; a test of Google Pay or an embedded Stripe form on a real site;
 and a measure of which context strategy works best (it needs the real model). No real phone call was placed in a test, and Stripe and
 Google Pay were not tried against the live services. The list with the reasons is at the end of [docs/harness.md](docs/harness.md).
 

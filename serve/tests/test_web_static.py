@@ -33,7 +33,7 @@ DYNAMIC = {
     "ch.stop.": ["budget", "loop"],
     "ch.act.": ["shell_command", "write_file", "edit_file", "read_file", "list_directory", "search_web", "browse_url", "run_code", "spawn_subagent", "browser_open", "browser",
                "plan", "read_attachment", "write_output_file", "find_online_capability"],
-    "ch.q.": ["plan_create", "plan_mark", "plan_change", "plan_archive", "permission", "code", "payment", "capability_choice"],
+    "ch.q.": ["plan_create", "plan_mark", "plan_change", "plan_archive", "permission", "code", "payment", "capability_choice", "mcp_elicitation"],
     "ch.cap.f.": ["downloads", "released", "stars", "verified", "license"],
     "ch.cap.w.": ["stale", "few_downloads", "no_repo", "lookalike", "needs_keys", "install_scripts", "runs_program", "archived", "deprecated", "no_license",
                   "github_unchecked", "remote", "skill_files"],

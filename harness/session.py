@@ -1006,6 +1006,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         built.agent.secrets.ask_code = session.ask_code
     if getattr(built.agent.tools, "capability_ask", None) is not None:
         built.agent.tools.capability_ask.ask = session._ask                      # find_online_capability puts its choice to the person here
+    if getattr(built.agent.tools, "mcp_asker", None) is not None:
+        built.agent.tools.mcp_asker.ask = session._ask                           # so does an MCP server that stops to ask for a few values
     if built.payment_confirm is not None:
         built.payment_confirm.ask = session.ask_payment
         built.payment_confirm.notice = session.payment_notice

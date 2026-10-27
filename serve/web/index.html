@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="web/app.css">
 <link rel="stylesheet" href="web/plans.css">
 <link rel="stylesheet" href="web/cron.css">
+<link rel="stylesheet" href="web/traces.css">
 <link rel="stylesheet" href="web/mobile.css">
 <link rel="stylesheet" href="web/memories.css">
 <link rel="stylesheet" href="web/converter.css">
@@ -46,6 +47,7 @@
 <script defer src="web/providers.js"></script>
 <script defer src="web/wizard.js"></script>
 <script defer src="web/reqlog.js"></script>
+<script defer src="web/traces.js"></script>
 <script defer src="web/changes.js"></script>
 <script defer src="web/plans.js"></script>
 <script defer src="web/cron.js"></script>
@@ -669,6 +671,10 @@
       <symbol id="rl-i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></symbol>
       <symbol id="rl-i-play" viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
     </svg>
+    <div class="tr-switch" id="tr-switch" role="group" aria-label="Sections of LOGS" data-t-aria="tr.switch.aria">
+      <button type="button" class="btn" id="tr-sw-req" aria-pressed="true" data-t="tr.switch.requests">Requests</button>
+      <button type="button" class="btn" id="tr-sw-tr" aria-pressed="false" data-t="tr.switch.traces">Session traces</button>
+    </div>
     <section class="sec rl" id="rl" aria-label="Request log" data-t-aria="lg.region">
       <div class="rl-off" id="rl-off" hidden>
         <h2 data-t="lg.off.title">The request log is off</h2>
@@ -702,6 +708,45 @@
         <div class="rl-wrap">
           <div class="rl-log" id="rl-log" role="log" aria-live="off" aria-label="Request log" data-t-aria="lg.region" tabindex="0"></div>
           <button type="button" class="btn rl-latest" id="rl-latest" hidden data-t="lg.latest">Latest</button>
+        </div>
+      </div>
+    </section>
+    <section class="sec tr" id="tr" aria-labelledby="tr-h" hidden>
+      <div class="tr-body">
+        <h2 id="tr-h" data-t="tr.title">Session traces</h2>
+        <p class="tr-help" data-t="tr.intro"></p>
+        <div class="tr-pick">
+          <div class="field">
+            <label for="tr-sel" data-t="tr.pick">Conversation</label>
+            <select id="tr-sel"></select>
+          </div>
+          <button type="button" class="btn" id="tr-refresh" data-t="tr.refresh">Refresh the list</button>
+        </div>
+        <p class="tr-help" id="tr-none" data-t="tr.none" hidden></p>
+        <div class="tr-cards" id="tr-cards">
+          <div class="tr-card">
+            <h3 data-t="tr.replay.title">Replay</h3>
+            <div class="field">
+              <label for="tr-mode" data-t="tr.mode">Permission level of the replay</label>
+              <select id="tr-mode" aria-describedby="tr-mode-h"><option value="default" data-t="tr.mode.default">Default</option><option value="read_only" data-t="tr.mode.read_only">Read only</option><option value="auto" data-t="tr.mode.auto">Automatic</option></select>
+              <p class="tr-help" id="tr-mode-h" data-t="tr.mode.help"></p>
+            </div>
+            <label class="tr-check" for="tr-results"><input type="checkbox" id="tr-results"><span data-t="tr.results">Also compare whether each call succeeded</span></label>
+            <div class="tr-act"><button type="button" class="btn primary" id="tr-replay" data-t="tr.replay">Replay this conversation</button></div>
+            <div class="tr-out" id="tr-replay-out" role="status" aria-live="polite"></div>
+          </div>
+          <div class="tr-card">
+            <h3 data-t="tr.export.title">Export</h3>
+            <p class="tr-help" data-t="tr.export.help"></p>
+            <div class="tr-act"><button type="button" class="btn" id="tr-export" data-t="tr.export">Save the trace (secrets masked)</button></div>
+            <div class="tr-out" id="tr-export-out" role="status" aria-live="polite"></div>
+          </div>
+          <div class="tr-card">
+            <h3 data-t="tr.ledger.title">Audit ledger</h3>
+            <p class="tr-help" data-t="tr.ledger.help"></p>
+            <div class="tr-act"><button type="button" class="btn" id="tr-verify" data-t="tr.verify">Verify the ledger</button></div>
+            <div class="tr-out" id="tr-ledger-out" role="status" aria-live="polite"></div>
+          </div>
         </div>
       </div>
     </section>

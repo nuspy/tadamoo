@@ -19,9 +19,10 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 import urllib.error
 import urllib.request
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from harness.integrations._http import _OPENER
@@ -54,6 +55,10 @@ class MCPError(RuntimeError):
         self.code = code                # the JSON-RPC code when the peer sent one, else the HTTP status
         self.status = status            # the HTTP status, for errors that came with one
         self.data = data
+
+
+class MCPToolError(MCPError):
+    """The tool ran and reported a failure (`isError`): its text is for the model to read; the server itself works."""
 
 
 class MCPAuthRequired(MCPError):
@@ -147,9 +152,17 @@ def flatten_result(res: Dict[str, Any]) -> str:
             parts.append(str(r.get("text") or f"[resource {r.get('uri', '')}, not shown]"))
         elif kind == "resource_link":
             parts.append(f"[resource link {item.get('uri', '')}]")
-    if not parts and res.get("structuredContent") is not None:
-        parts.append(json.dumps(res["structuredContent"], ensure_ascii=False))
+    structured = res.get("structuredContent")
+    if structured is not None and not any(_is_json_of(p, structured) for p in parts):      # a server that repeats it as text is not shown twice
+        parts.append(("structured result: " if parts else "") + json.dumps(structured, ensure_ascii=False))
     return "\n".join(parts)
+
+
+def _is_json_of(text: str, value: Any) -> bool:
+    try:
+        return json.loads(text) == value
+    except ValueError:
+        return False
 
 
 class _Client:
@@ -167,6 +180,9 @@ class _Client:
         self.era = ""                   # "modern" or "legacy" once connected
         self._probing = False
         self.instructions = ""
+        self.elicit: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None     # answers a server's request for input from the person: params -> {"action", "content"}
+        self._asking = 0                                  # requests for input being answered, whose waiting is not the server's time
+        self.task_tools: set = set()                      # tools the server runs only as a task
 
     def send_request(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None) -> Dict[str, Any]:
         raise NotImplementedError
@@ -174,9 +190,29 @@ class _Client:
     def notify(self, method: str, params: Optional[Dict[str, Any]] = None) -> None:
         raise NotImplementedError
 
-    @staticmethod
-    def modern_meta() -> Dict[str, Any]:
-        return {META_VERSION: MODERN_VERSION, META_INFO: CLIENT_INFO, META_CAPS: {}}
+    def client_capabilities(self) -> Dict[str, Any]:
+        return {"elicitation": {"form": {}}} if self.elicit is not None else {}
+
+    def modern_meta(self) -> Dict[str, Any]:
+        return {META_VERSION: MODERN_VERSION, META_INFO: CLIENT_INFO, META_CAPS: self.client_capabilities()}
+
+    def answer_elicitation(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """The result for a server's elicitation/create: what the person accepted, or that they declined or cancelled."""
+        if self.elicit is None or params.get("mode", "form") != "form":
+            return {"action": "decline"}
+        self._asking += 1
+        try:
+            answer = self.elicit(params)
+        except Exception:
+            answer = {"action": "cancel"}
+        finally:
+            self._asking -= 1
+        action = answer.get("action") if isinstance(answer, dict) else None
+        if action not in ("accept", "decline", "cancel"):
+            return {"action": "cancel"}
+        if action == "accept":
+            return {"action": "accept", "content": answer.get("content") if isinstance(answer.get("content"), dict) else {}}
+        return {"action": action}
 
     def request(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None) -> Dict[str, Any]:
         """A request in the era this server speaks. Modern requests carry their metadata and may be answered with a
@@ -191,12 +227,25 @@ class _Client:
                 return res
             if kind != "input_required":
                 raise MCPError(f"The server answered with an unknown result type {kind!r}")
-            if res.get("inputRequests"):
-                raise MCPError("The server asked for input (sampling, elicitation or roots) that this client does not offer")
-            if res.get("requestState") is None:
+            requests = res.get("inputRequests")
+            if requests:
+                sent["inputResponses"] = self._input_responses(requests)
+            elif res.get("requestState") is None:
                 raise MCPError("The server asked for more input without saying what")
-            sent["requestState"] = res["requestState"]
+            if res.get("requestState") is not None:
+                sent["requestState"] = res["requestState"]
         raise MCPError("The server kept asking for more input")
+
+    def _input_responses(self, requests: Any) -> Dict[str, Any]:
+        """The person's answers to the server's requests for input, by the key each request came with. Only elicitation is offered."""
+        if self.elicit is None or not isinstance(requests, dict):
+            raise MCPError("The server asked for input (sampling, elicitation or roots) that this client does not offer")
+        out: Dict[str, Any] = {}
+        for key, req in requests.items():
+            if not isinstance(req, dict) or req.get("method") != "elicitation/create":
+                raise MCPError("The server asked for input (sampling, elicitation or roots) that this client does not offer")
+            out[key] = self.answer_elicitation(req.get("params") if isinstance(req.get("params"), dict) else {})
+        return out
 
     def _discover(self) -> Dict[str, Any]:
         return self.send_request("server/discover", {"_meta": self.modern_meta()}, self.request_timeout)
@@ -242,7 +291,7 @@ class _Client:
                 self.instructions = found.get("instructions") if isinstance(found.get("instructions"), str) else ""
                 return found
         self.era = "legacy"
-        res = self.send_request("initialize", {"protocolVersion": SUPPORTED_VERSIONS[0], "capabilities": {},
+        res = self.send_request("initialize", {"protocolVersion": SUPPORTED_VERSIONS[0], "capabilities": self.client_capabilities(),
                                                "clientInfo": CLIENT_INFO})
         version = res.get("protocolVersion")
         if version not in SUPPORTED_VERSIONS:
@@ -256,12 +305,15 @@ class _Client:
     def list_tools(self) -> List[Dict[str, Any]]:
         tools: List[Dict[str, Any]] = []
         cursor: Optional[str] = None
+        seen: set = set()
         for _ in range(MAX_PAGES):
             res = self.request("tools/list", {"cursor": cursor} if cursor else {})
             tools.extend(t for t in res.get("tools", []) if isinstance(t, dict) and t.get("name") and self._tool_is_valid(t))
             cursor = res.get("nextCursor")
-            if not cursor:
+            if not isinstance(cursor, str) or not cursor or cursor in seen:       # no more pages, or a server that keeps handing back the same one
                 break
+            seen.add(cursor)
+        self.task_tools = {t["name"] for t in tools if isinstance(t.get("execution"), dict) and t["execution"].get("taskSupport") == "required"}
         self.tools_changed = False
         return tools
 
@@ -269,11 +321,43 @@ class _Client:
         return True
 
     def call_tool(self, name: str, arguments: Dict[str, Any], timeout: Optional[float] = None) -> str:
-        res = self.request("tools/call", {"name": name, "arguments": arguments}, timeout or self.call_timeout)
+        limit = timeout or self.call_timeout
+        if name in self.task_tools and self.era == "legacy" and self._offers_tasks():
+            res = self._call_as_task(name, arguments, limit)
+        else:
+            res = self.request("tools/call", {"name": name, "arguments": arguments}, limit)
         text = flatten_result(res)
         if res.get("isError"):
-            raise MCPError(text or f"The tool '{name}' reported an error")
+            raise MCPToolError(text or f"The tool '{name}' reported an error")
         return text
+
+    def _offers_tasks(self) -> bool:
+        tools = ((self.capabilities.get("tasks") or {}).get("requests") or {}).get("tools") or {}
+        return isinstance(tools, dict) and "call" in tools
+
+    def _call_as_task(self, name: str, arguments: Dict[str, Any], limit: float) -> Dict[str, Any]:
+        """A tool the server runs only as a task (revision 2025-11-25): ask for the task, poll it until it ends, read its result.
+        A task still running when `limit` seconds are over is cancelled."""
+        created = self.request("tools/call", {"name": name, "arguments": arguments, "task": {"ttl": int(limit * 1000)}}, self.request_timeout).get("task")
+        task_id = created.get("taskId") if isinstance(created, dict) else None
+        if not isinstance(task_id, str) or not task_id:
+            raise MCPError(f"The server did not create a task for '{name}'")
+        end = time.monotonic() + limit
+        status = created.get("status")
+        while status not in ("completed", "failed", "cancelled", "input_required"):
+            if time.monotonic() >= end:
+                try:
+                    self.request("tasks/cancel", {"taskId": task_id}, self.request_timeout)
+                except MCPError:
+                    pass
+                raise TimeoutError(f"The task of '{name}' did not finish in {limit}s")
+            wait = created.get("pollInterval")
+            time.sleep(min(5.0, max(0.05, wait / 1000.0 if isinstance(wait, (int, float)) else 1.0)))
+            created = self.request("tasks/get", {"taskId": task_id}, self.request_timeout)
+            status = created.get("status")
+        if status in ("failed", "cancelled"):
+            raise MCPToolError(str(created.get("statusMessage") or f"The task of '{name}' {status}"))
+        return self.request("tasks/result", {"taskId": task_id}, max(self.request_timeout, end - time.monotonic()))
 
     def register_into(self, registry: ToolRegistry, prefix: str = "", tools: Optional[List[Dict[str, Any]]] = None) -> List[str]:
         """Registers every tool of the server (`tools`: the list already read, else it is read now). They are all
@@ -370,9 +454,17 @@ class MCPClient(_Client):
             return
         if method == "ping":
             self._write({"jsonrpc": "2.0", "id": msg["id"], "result": {}})
+        elif method == "elicitation/create" and self.elicit is not None:
+            threading.Thread(target=self._answer_input, args=(msg,), daemon=True).start()       # the person takes their time: the reader goes on
         else:                                                 # sampling, roots, elicitation: not offered
             self._write({"jsonrpc": "2.0", "id": msg["id"],
                          "error": {"code": -32601, "message": f"Method not supported: {method}"}})
+
+    def _answer_input(self, msg: Dict[str, Any]) -> None:
+        try:
+            self._write({"jsonrpc": "2.0", "id": msg["id"], "result": self.answer_elicitation(msg.get("params") if isinstance(msg.get("params"), dict) else {})})
+        except MCPError:
+            pass                                              # the server went away while the person was answering
 
     def _write(self, payload: Dict[str, Any]) -> None:
         if not self.proc or self.proc.poll() is not None or not self.proc.stdin:
@@ -401,7 +493,13 @@ class MCPClient(_Client):
         try:
             self._write({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params or {}})
             limit = timeout if timeout is not None else self.request_timeout
-            if not slot[0].wait(limit):
+            end = time.monotonic() + limit
+            while not slot[0].wait(min(0.25, limit)):
+                if self._asking:
+                    end = time.monotonic() + limit                  # the person is answering the server: that is not the tool's time
+                elif time.monotonic() >= end:
+                    break
+            if not slot[0].is_set():
                 try:
                     self.notify("notifications/cancelled", {"requestId": req_id, "reason": "timeout"})
                 except MCPError:
@@ -563,6 +661,9 @@ class MCPHttpClient(_Client):
                 if "method" in msg:
                     if msg.get("id") is not None and msg["method"] == "ping":
                         self._post({"jsonrpc": "2.0", "id": msg["id"], "result": {}}, self.request_timeout).close()
+                    elif msg.get("id") is not None and msg["method"] == "elicitation/create" and self.elicit is not None:
+                        answer = self.answer_elicitation(msg.get("params") if isinstance(msg.get("params"), dict) else {})
+                        self._post({"jsonrpc": "2.0", "id": msg["id"], "result": answer}, self.request_timeout).close()
                     elif msg.get("method") == "notifications/tools/list_changed":
                         self.tools_changed = True
                     continue

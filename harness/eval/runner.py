@@ -7,6 +7,7 @@ means something; with temperature 0 they would repeat the same run.
 from __future__ import annotations
 
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -21,6 +22,7 @@ from harness.client import BasaltClient
 from harness.stack import AgentConfig, build_agent
 from harness.tools.registry import EffectClass, ToolRegistry
 
+from .serverlog import ServerTimings, summarize_requests
 from .tasks import Task, load_task_set, make_workspace, run_checks
 
 ClientFactory = Callable[[Task, int], Any]
@@ -42,6 +44,11 @@ class Trial:
     cached_tokens: int = 0
     seconds: float = 0.0
     answer: str = ""
+    server_requests: int = 0             # requests the server's own log shows in this trial's time window (0: not read)
+    server_ttft_s: Optional[float] = None       # their median time to the first token
+    server_prefill_s: Optional[float] = None    # their median prefill time
+    server_prompt_tokens: int = 0
+    server_cached_tokens: int = 0
 
 
 @dataclass
@@ -77,6 +84,7 @@ class EvalRunner:
         max_total_tokens: Optional[int] = 60_000,
         max_seconds: Optional[float] = 600.0,
         council: bool = False,
+        timings: Optional[ServerTimings] = None,
     ) -> None:
         self.client = client
         self.client_factory = client_factory
@@ -86,6 +94,7 @@ class EvalRunner:
         self.max_total_tokens = max_total_tokens
         self.max_seconds = max_seconds
         self.council = council
+        self.timings = timings                      # reads the server's own figures for each trial's requests
 
     def load_task_set(self, path: str | Path) -> List[Task]:
         return load_task_set(path)[1]
@@ -99,11 +108,13 @@ class EvalRunner:
 
     def run_trial(self, task: Task, rep: int) -> Trial:
         t0 = time.monotonic()
-        work = Path(tempfile.mkdtemp(prefix=f"basalt-eval-{task.id}-"))
+        name = re.sub(r"[^A-Za-z0-9_.@-]", "_", task.id)                 # a task id may hold a slash (bfcl/simple_0): it names folders here
+        work = Path(tempfile.mkdtemp(prefix=f"basalt-eval-{name}-"))
         data = Path(tempfile.mkdtemp(prefix="basalt-eval-data-"))
         trial = Trial(repetition=rep, passed=False)
         agent = None
         built = None
+        mark = self.timings.mark() if self.timings is not None else None
         try:
             workspace = make_workspace(task, work / "ws")
             client = self._client_for(task, rep)
@@ -121,6 +132,10 @@ class EvalRunner:
                 agent = built.agent
                 agent.sampling = sampling
             turns = agent.run(task.prompt)
+            if self.timings is not None:
+                seen = summarize_requests(self.timings.requests_since(mark))
+                trial.server_requests, trial.server_ttft_s, trial.server_prefill_s = seen["requests"], seen["ttft_median_s"], seen["prefill_median_s"]
+                trial.server_prompt_tokens, trial.server_cached_tokens = seen["prompt_tokens"], seen["cached_tokens"]
             calls = [{"name": c.tool_name, "arguments": c.arguments, "executed": c.decision == "executed"}
                      for t in turns for c in t.tool_calls]
             trial.turns = len(turns)
@@ -152,7 +167,7 @@ class EvalRunner:
                     pass
             if self.keep:
                 try:
-                    shutil.copytree(work, self.keep / f"{task.id}-{rep}", dirs_exist_ok=True)
+                    shutil.copytree(work, self.keep / f"{name}-{rep}", dirs_exist_ok=True)
                 except OSError:
                     pass
             shutil.rmtree(work, ignore_errors=True)
@@ -173,7 +188,8 @@ class EvalRunner:
                 text, reasoning, _tokens = mock_output_fn({"id": t.id}, rep - 1)
                 from types import SimpleNamespace
                 return SimpleNamespace(chat_completion=lambda **kw: {"choices": [{"message": {"role": "assistant", "content": text}}]})
-            runner = EvalRunner(client_factory=factory, temperature=self.temperature, seed_base=self.seed_base)
+            runner = EvalRunner(client_factory=factory, temperature=self.temperature, seed_base=self.seed_base, keep_workspaces=self.keep,
+                                max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds, council=self.council)
             return runner.evaluate_task(task, k)
         trials = [self.run_trial(task, i + 1) for i in range(k)]
         passed = sum(t.passed for t in trials)
