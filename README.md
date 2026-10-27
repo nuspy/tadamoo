@@ -229,7 +229,10 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   one), an optional waiver with caps, and a question above them. The second factor of each login is your choice. Real phone calls ask
   every time and are off by default.
 - **Plan**: plans as graphs (actions, sensors, decisions, merges, tasks handed to you) shown in the **Plans** view; the Chat can read
-  and propose changes to them, and every change has your yes. An event filter and re-planning by the local model are optional.
+  and propose changes to them, read what the planner's proposals would do and approve or reject them, and every change has your yes. Every
+  plan has a card the incoming events are judged against; the Chat asks you only what the card lacks. A decision with no exit that holds
+  passes to you instead of skipping in silence. The event filter (local; the cloud one only with your consent) runs from the start of the
+  server, and re-planning by the local model is optional.
 - **Run on its own schedule**: routines (a prompt, a folder, a schedule, a mode), evaluation (`python -m harness.eval`, pass^k, cost
   and cache use), replay of a recorded session, and the energy a task used.
 

@@ -180,7 +180,7 @@ def parse_hooks(data: Any, source: str) -> List[HookSpec]:
         if action is not None:
             if action == "block":
                 if event != "pre_tool":
-                    raise HookConfigError(f"{where}: a 'block' action belongs to 'pre_tool'")
+                    raise HookConfigError(f"{where}: the 'block' action works only on 'pre_tool'")
                 if not isinstance(raw.get("reason"), str) or not raw["reason"].strip():
                     raise HookConfigError(f"{where}: a 'block' action needs a 'reason'")
             elif action == "plan_event":

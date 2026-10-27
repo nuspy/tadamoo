@@ -251,8 +251,10 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
   imposti tu (nessuno finché non lo imposti), una rinuncia facoltativa con massimali e una domanda oltre questi. Il secondo fattore di
   ogni accesso lo scegli tu. Le telefonate vere chiedono ogni volta e sono spente di default.
 - **Pianificare**: piani come grafi (azioni, sensori, decisioni, riunioni, compiti passati a te) mostrati nella vista **Piani**; la
-  Chat può leggerli e proporre modifiche, e ogni modifica ha il tuo sì. Un filtro degli eventi e la ripianificazione col modello locale
-  sono facoltativi.
+  Chat può leggerli e proporre modifiche, leggere cosa farebbero le proposte del planner e approvarle o rifiutarle, e ogni modifica ha il
+  tuo sì. Ogni piano ha una scheda rispetto a cui si giudicano gli eventi in arrivo; la Chat ti chiede solo ciò che alla scheda manca. Una
+  decisione senza uscita valida passa a te invece di saltare in silenzio. Il filtro degli eventi (locale; quello nel cloud solo con il tuo
+  consenso) parte con il server, e la ripianificazione col modello locale è facoltativa.
 - **Lavorare con orari propri**: routine (un prompt, una cartella, un orario, una modalità), valutazione (`python -m harness.eval`,
   pass^k, costo e uso della cache), riesecuzione di una sessione registrata e l'energia usata da un compito.
 

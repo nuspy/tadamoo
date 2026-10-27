@@ -52,9 +52,9 @@ class PlannerClient:
         """One bridge event (plan:mark, plan:propose_diff, plan:approve, ...), sent as the Chat."""
         return self._call("POST", f"/api/plans/{self._id(plan_id)}/events", {**event, "actor": ACTOR})
 
-    def ingest(self, text: str, source: str) -> Dict[str, Any]:
-        """One event from the world, for the planner's mailbox (its sensors and, with the pump on, its filter)."""
-        return self._call("POST", "/api/plans/events", {"text": text, "source": source})
+    def ingest(self, text: str, source: str, plan_id: Optional[str] = None) -> Dict[str, Any]:
+        """One event from the world, for the planner's mailbox (its sensors and, with the pump on, its filter); for one plan, or for every plan."""
+        return self._call("POST", "/api/plans/events", {"text": text, "source": source, **({"plan_id": plan_id} if plan_id else {})})
 
     def task(self, task_id: str, status: str, result: str = "", metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """The Tasks panel's line for a step being carried out (running, done, failed)."""
