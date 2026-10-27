@@ -225,6 +225,9 @@ class FakeSecrets:
     def __init__(self, vault):
         self.vault = vault
 
+    def path_hit(self, path):
+        return ""
+
 
 def test_a_key_in_a_vault_entry_named_after_the_provider_is_enough(tmp_path, monkeypatch):
     _providers(tmp_path, monkeypatch)
