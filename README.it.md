@@ -244,7 +244,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 - **Raggiungere altri strumenti**: skill, plugin e server MCP trovati su questo PC (ognuno *da approvare* finché non lo leggi e lo
   approvi, legato a un hash di ciò che hai letto); la ricerca online di quello che manca, con i candidati migliori proposti a te e
   un'installazione che non esegue mai gli script di un pacchetto; server MCP remoti con accesso OAuth; altri agenti tramite un client
-  ACP e un client A2A; un consiglio di consiglieri per le domande difficili; un modello diverso per ogni funzione (quello caricato,
+  ACP e un client A2A; un consiglio di consiglieri con ruoli modificabili che discutono una domanda difficile per un numero di giri scelto, con il costo mostrato prima; un modello diverso per ogni funzione (quello caricato,
   un altro su questo PC, un servizio cloud).
 - **Gestire denaro e identità**: il vault del **Portafoglio** tiene cifrati carte, dati personali e accessi; il modello scrive
   segnaposto e il valore viene inserito all'ultimo passo, solo verso i siti che la voce indica. I pagamenti seguono un limite che

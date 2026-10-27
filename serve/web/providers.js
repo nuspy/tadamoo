@@ -119,6 +119,35 @@
     return sec;
   }
 
+  /* ---- the council: roles, rounds and what a debate costs ---- */
+  function councilSection() {
+    const c = state.council, cur = c.settings, sec = h("section", "sec pv-council");
+    sec.append(h("div", "sh", h("b", "", T("pv.council"))), h("p", "setnote", T("pv.council.help")));
+    const rounds = h("input"); rounds.type = "number"; rounds.min = "1"; rounds.max = String(c.limits.rounds); rounds.value = cur.rounds; rounds.inputMode = "numeric";
+    sec.append(field("pv-c-rounds", T("pv.council.rounds"), rounds, T("pv.council.rounds.help", c.limits.rounds)));
+    const rows = [];
+    const person = (id, title, role) => {
+      const name = h("input"), job = h("textarea");
+      name.type = "text"; name.maxLength = c.limits.name; name.value = role.name; name.autocomplete = "off";
+      job.rows = 2; job.maxLength = c.limits.job; job.value = role.job;
+      const box = h("fieldset", "pv-role", h("legend", "", title), field(id + "-n", T("pv.council.name"), name), field(id + "-j", T("pv.council.job"), job));
+      rows.push({ name, job });
+      sec.append(box);
+    };
+    cur.roles.forEach((r, i) => person("pv-c-r" + i, T("pv.council.adviser", i + 1), r));
+    person("pv-c-m", T("pv.council.moderator"), cur.moderator);
+    const e = c.estimate;
+    const cost = h("p", "pv-cost", T("pv.council.cost", e.calls_min, e.calls_max, e.read_tokens_min, e.read_tokens_max, e.written_tokens_max));
+    cost.setAttribute("role", "status");
+    sec.append(cost, h("p", "setnote", T("pv.council.order")));
+    if (e.outside_calls_max) sec.append(h("p", "setnote warnnote", T("pv.council.outside", e.outside_calls_max)));
+    if (!c.configured) sec.append(h("p", "setnote", T("pv.council.off")));
+    const collect = () => ({ rounds: Number(rounds.value), roles: rows.slice(0, 3).map(r => ({ name: r.name.value, job: r.job.value })), moderator: { name: rows[3].name.value, job: rows[3].job.value } });
+    const save = async body => { const r = await call("POST", "api/llm/council", body); if (r.ok) { state = r.data; say(T("pv.saved")); draw(); } else say(explain(r), true); };
+    sec.append(h("div", "pv-actions", btn(T("pv.save"), "primary", () => save(collect())), btn(T("pv.council.reset"), "ghost", () => save(c.defaults))));
+    return sec;
+  }
+
   /* ---- the providers ---- */
   function providerCard(p) {
     const card = h("li", "pv-card");
@@ -199,7 +228,7 @@
     if (!state) return;
     const top = await strip();
     const noteEl = h("p", "setnote pv-note", note); noteEl.setAttribute("role", "status"); noteEl.hidden = !note; noteEl.dataset.bad = noteBad ? "1" : "";
-    panel.replaceChildren(noteEl, top, functionsTable(), providersSection());
+    panel.replaceChildren(noteEl, top, functionsTable(), councilSection(), providersSection());
   }
 
   document.addEventListener("basalt:view", e => { if (e.detail === "loader" && !panel.hidden) refresh(); });

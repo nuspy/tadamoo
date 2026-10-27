@@ -1792,6 +1792,10 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.consent(req.get("function"), req.get("allowed")))
                 if parts == ["import"]:
                     return self._json(200, api.import_shared(req.get("path")))
+                # --- council settings: begin ---
+                if parts == ["council"]:
+                    return self._json(200, api.set_council(req))
+                # --- council settings: end ---
             except LlmError as e:
                 return self._json(409 if e.code in ("not_allowed", "gone") else 400, {"error": {"type": "llm", "message": str(e), "code": e.code}})
             except BadBody as e:

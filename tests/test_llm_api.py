@@ -102,3 +102,17 @@ def test_the_catalog_of_context_patterns_is_served_and_a_preset_keeps_a_checked_
     assert ok["context_patterns"]["summary"] == {"on": True, "strategy": "incremental"} and ok["context_patterns"]["pruning"]["strategy"] == "mask_old"
     with pytest.raises(ValueError):
         profiles.check_inference({"context_patterns": {"summary": {"strategy": "poetry"}}})
+
+
+def test_the_council_roles_and_rounds_are_saved_with_their_cost_and_bad_ones_are_refused(api):
+    call, reg = api
+    view = call("GET", "/api/llm")[1]["council"]
+    assert view["settings"] == view["defaults"] and view["estimate"]["calls_max"] == 12 and view["configured"] is False
+    roles = [{"name": "lawyer", "job": "Say what the law allows."}, {"name": "accountant", "job": "Say what it costs."}, {"name": "skeptic", "job": "Doubt."}]
+    code, body = call("POST", "/api/llm/council", {"rounds": 2, "roles": roles, "moderator": {"name": "judge", "job": "Decide."}})
+    assert code == 200 and body["council"]["settings"]["roles"][0]["name"] == "lawyer" and body["council"]["estimate"]["calls_max"] == 8
+    assert call("GET", "/api/llm")[1]["council"]["settings"]["moderator"]["name"] == "judge"
+    code, err = call("POST", "/api/llm/council", {"rounds": 99})
+    assert code == 400 and err["error"]["code"] == "bad_council" and call("GET", "/api/llm")[1]["council"]["settings"]["rounds"] == 2
+    assert call("POST", "/api/llm/council", {"roles": roles[:2]})[0] == 400
+    assert call("POST", "/api/llm/council", {"rounds": 1}, headers={"Origin": "http://evil.example"})[0] in (400, 403)

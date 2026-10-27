@@ -223,7 +223,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
 - **Reach other tools**: skills, plugins and MCP servers found on this PC (each one *to approve* until you read and approve it, tied to
   a hash of what you read); a search for a missing one online, with the best candidates put to you and an install that never runs a
   package's scripts; remote MCP servers with OAuth sign-in; other agents through an ACP client and an A2A client; a council of
-  advisers for hard questions; a different model for each function (the loaded one, another on this PC, a cloud service).
+  advisers with editable roles that debate a hard question for a set number of rounds, with the cost shown first; a different model for each function (the loaded one, another on this PC, a cloud service).
 - **Handle money and identity**: the **Wallet** vault keeps cards, personal data and logins encrypted; the model writes placeholders and
   the value is put in at the last step, only toward the sites the entry names. Payments follow a limit you set (nothing until you set
   one), an optional waiver with caps, and a question above them. The second factor of each login is your choice. Real phone calls ask
