@@ -1163,7 +1163,9 @@ topics, projects). Each note has a section, a text of up to 400 characters, an o
 `mon,wed,fri 18:15`; there is no cron syntax. A routine is created **disabled** and its mode is read-only unless the person
 chooses otherwise (`auto` needs the same confirmation as a conversation). Only one routine runs at a time and only while no
 other conversation is busy or asking; a due routine waits (an hour at most, then the result is `skipped`). A routine that is
-running is not interrupted when the person starts talking. A routine runs as a conversation through the server's
+running is stopped for the person's conversation only if it has a budget, `yield_s` (0 to 3600 seconds, empty for never; the Cron Jobs form offers 60 for a
+new one): once a conversation of the person's has been at work that long the routine is asked to stop and the result is `yielded`; it is not run again
+by itself. A routine runs as a conversation through the server's
 `SessionManager`, which is closed when it ends; if the agent needs an answer nobody can give, the result is `asked` with the
 question, and nothing is decided for the person. Overdue interval routines run once when the program starts; a fixed time that
 passed while it was off is skipped.
