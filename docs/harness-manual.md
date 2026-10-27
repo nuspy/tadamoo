@@ -194,17 +194,20 @@ The agent can keep short notes about a project and read them in later conversati
 
 - **Tell it what to keep.** It writes a note only when it decides to, so ask: *"remember that the build uses --arch=native"*. It keeps
   a note of at most 2,000 characters with a category; the same text is kept once; there is room for 5,000 notes per project.
-- **What comes back by itself.** At each message you write, up to four notes that match your words are added after your message, as
-  data. The setting is *Injection → Retrieval at the end* in the Chat settings (the default); with the other two choices nothing is
+- **What comes back by itself.** At each message you write, the notes that share enough with your words are added after your message, as
+  data: a shared word scores up to 1 point (less the more notes have it), a specific one such as `sm_120` or `e-mail` up to 2, common words
+  (the, and, il, di) never count, and a note needs 1.5 points (or all the words of a request of three or fewer). At most four notes and 600
+  tokens are added. *Settings → Memories → Project notes* changes the points, the number and the token limit, each with its explanation.
+  The setting is *Injection → Retrieval at the end* in the Chat settings (the default); with the other two choices nothing is
   added and the agent calls `recall` when it wants to.
 - **See and search.** `/memory` shows the last ten notes (each cut at 300 characters), `/memory words` searches, `/status` counts them.
 - **Remove one.** Ask the agent to forget it (it uses the note's id), or, with no conversation open, delete the file `memory\<16 hex digits>.db` in the user data
   folder (and the `-wal` and `-shm` files beside it, if any) to forget the whole project.
-- **Which notes belong together.** One file per folder path (case ignored). All **Chat** conversations work in the same folder, so they
-  share one memory; each folder of the Agent tab or the command line has its own; a conversation working in a git copy of its own has
-  another one again. There is no export and nothing is shared between PCs.
-- **What it is not.** The search is by words, not by meaning: "built" does not find "build", and a note that shares one word with your
-  message can come back although it is not about it. Notes are kept as written, in plain text, unencrypted; do not ask it to remember
+- **Which notes belong together.** One file per project folder (case ignored). All **Chat** conversations work in the same folder, so they
+  share one memory; each folder of the Agent tab or the command line has its own. A conversation working in a git copy of its own
+  (a work tree) uses the memory of the repository it was made from. There is no export and nothing is shared between PCs.
+- **What it is not.** The search is by words, not by meaning: "build" finds "builds" and "building" but "built" does not, and a note that shares
+  specific words with your message can come back although it is not about it. Notes are kept as written, in plain text, unencrypted; do not ask it to remember
   a password or a key. A note it was talked into keeping by a page it read will come back, as data it is told not to obey; read
   `/memory` now and then.
 - **Permissions.** In *Ask first* and *Automatic* it writes and deletes notes without asking; in *Read only* it asks before writing;
@@ -249,11 +252,20 @@ you the address and the number to call.
 - **Long conversations.** Old tool results are replaced by a short placeholder only when the context nears its budget, oldest first,
   with the full text saved and named; errors are never cut. `/context` shows the use; `/compact` summarises the older half on demand.
   The Chat settings choose the policy for a full context: *Stop at the limit*, *Sliding window* or *Compact*.
+- **Reading files and long output.** `read_file` returns what is asked: the whole file, or lines `offset` to `offset + limit - 1`; a file
+  that does not fit in one answer ends with a line giving the lines shown, the total and the offset to go on with. Noisy results (a
+  command's output, searches) are shortened to their first and last lines and every error line, with the number of hidden lines and the
+  saved full text named; a very long line is cut in the middle with the number of characters hidden. A file read on purpose, a skill
+  and a saved result read again are never shortened.
 - **Context patterns.** The Chat settings have six switches (injection, rewriting, pruning, summary, branches, versioning), each with a
   description of what it does, its advantages, drawbacks and what it does to the server's cache of the start. Leave them as they are
   until you have a reason.
-- **Reference documents.** On the command line, `--reference DIR` offers documents as a fixed block (fast after the first turn, but it
-  fills the context) or searched (small context, passages arrive as untrusted data); `auto` picks by size.
+- **Reference documents.** *Settings → Memories → Reference documents* (or `--reference DIR` on the command line) offers the .md and .txt
+  files of a folder as a fixed block (fast after the first turn, but it fills the context) or searched (small context, passages arrive as
+  untrusted data); `auto` picks by size. They apply to the conversations that start after you save.
+- **The wiki.** *Settings → Memories → Wiki (wikibridge)* turns on `wiki_search`, `wiki_page` and `wiki_context` in the Chat and the Agent,
+  with the address of the service (default `http://127.0.0.1:8775`) and a project; a plan step that asks the wiki uses them. *Check the
+  connection* tells the address tried and, if it did not answer, why. A key, if the service asks for one, is `BASALT_WIKIBRIDGE_KEY`.
 - **Cache.** The start of the prompt is kept byte-identical from turn to turn so the server reuses its cache. That is why notes and
   plan summaries come after your message, never in the system block.
 
@@ -263,6 +275,9 @@ you the address and the number to call.
   (`~/.claude/skills`, the project's `.claude/skills`, plugins, `.mcp.json` and the like).
 - **Nothing is active until you approve it.** In *Settings → Capabilities* open an entry, read its text (a skill) or its command (a
   server) and approve. The approval is tied to what you read; if the file changes, it is *to approve* again.
+- **Your own skill folders.** In *Settings → Capabilities → Skill folders* (and with `--skills DIR` on the command line) you name folders
+  of `SKILL.md` skills. Their skills are listed there as *to approve*; `load_skill` loads an approved one, and refuses a new or changed
+  one with a message that says so. It never waits for an answer.
 - **Using them.** The agent searches (`find_capability`), loads an approved skill (`load_capability`) or calls an approved server's tool
   (`call_capability`, which asks like any action that cannot be undone). From the Chat you can call a skill with `/name text`.
 - **Missing something?** The agent can look online for an MCP server or a skill (`find_online_capability`), show you the best five

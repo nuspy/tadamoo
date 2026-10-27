@@ -32,10 +32,15 @@ def create_standard_tool_registry(
 
     registry.register(
         name="read_file",
-        description="Reads the content of a file within the workspace.",
+        description="Reads the content of a file within the workspace, whole or a range of lines. A long file is read in parts: "
+                    "the answer says which lines it holds, how many the file has and the offset to go on with.",
         parameters={
             "type": "object",
-            "properties": {"path": {"type": "string", "description": "Relative path to file"}},
+            "properties": {
+                "path": {"type": "string", "description": "Relative path to file"},
+                "offset": {"type": "integer", "description": "First line to read, counting from 1 (default 1)"},
+                "limit": {"type": "integer", "description": "How many lines to read (default: as many as one answer holds)"},
+            },
             "required": ["path"],
         },
         effect=EffectClass.PURE,

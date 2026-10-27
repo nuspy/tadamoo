@@ -99,6 +99,9 @@ def _tool_timeouts(specs: List[str]) -> "tuple[Optional[float], Dict[str, float]
     return default, own
 
 
+DEFAULT_MEMORY_MIN_SCORE, DEFAULT_MEMORY_NOTES, DEFAULT_MEMORY_BUDGET = 1.5, 4, 600
+
+
 def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = 15) -> None:
     """The options every way of running the agent takes (the Chat's process, the command line, the editor): what it can reach and how."""
     parser.add_argument("--workspace", default=".", help="folder the agent works in")
@@ -111,7 +114,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = 15) ->
     parser.add_argument("--secret-env", action="append", default=[], metavar="NAME",
                         help="environment variable the agent may use as {{secret:NAME}}; NAME=host1,host2 limits where it can be sent "
                              "(without hosts it is for local commands only)")
-    parser.add_argument("--skills", action="append", default=[], metavar="DIR", help="folder with SKILL.md skills")
+    parser.add_argument("--skills", action="append", default=[], metavar="DIR", help="folder with SKILL.md skills; it is added to the skill folders of Settings > Capabilities, where a new or changed skill is approved")
     parser.add_argument("--payments-dir", default="", help="the person's payment systems and limits: the agent may ask to pay and the broker decides")
     parser.add_argument("--browser", action="store_true", help="offer the browser tools: Edge or Chrome on this PC, for forms, purchases and bookings")
     parser.add_argument("--browser-headless", action="store_true", help="the browser has no window")
@@ -130,8 +133,16 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = 15) ->
     parser.add_argument("--page-files", action="store_true", help="the answers are read in a page that turns links to files into buttons that save them")
     parser.add_argument("--lsp", action="store_true", help="offer diagnostics, go_to_definition and find_references when a language server is found")
     parser.add_argument("--council", action="store_true", help="offer ask_council when a council is set up on the Providers page")
-    parser.add_argument("--wiki", action="store_true", help="offer the wikibridge tools (BASALT_WIKIBRIDGE_URL, BASALT_WIKIBRIDGE_KEY)")
+    parser.add_argument("--wiki", action="store_true", help="offer the wikibridge tools (the address is --wiki-url or BASALT_WIKIBRIDGE_URL; the key BASALT_WIKIBRIDGE_KEY)")
+    parser.add_argument("--wiki-url", default="", help="the wikibridge address (default: BASALT_WIKIBRIDGE_URL, else http://127.0.0.1:8775)")
     parser.add_argument("--wiki-project", default="", help="wikibridge project slug used when a call names none")
+    parser.add_argument("--reference", default=None, metavar="DIR", help="folder of .md and .txt reference documents")
+    parser.add_argument("--reference-strategy", choices=["auto", "cag", "rag", "none"], default="auto",
+                        help="cag: a fixed block at the start of the context; rag: searched passages; auto: by size")
+    parser.add_argument("--memory-min-score", type=float, default=DEFAULT_MEMORY_MIN_SCORE,
+                        help="the points a project note must score from the words it shares with a request to be added to it (a shared word is up to 1 point, a specific one up to 2; 0: the best matches whatever they share)")
+    parser.add_argument("--memory-notes", type=int, default=DEFAULT_MEMORY_NOTES, help="most project notes added to a request")
+    parser.add_argument("--memory-budget", type=int, default=DEFAULT_MEMORY_BUDGET, help="most tokens the project notes added to a request may take")
     parser.add_argument("--phone", action="store_true", help="offer the phone tools (callAPIcall; CALLAPICALL_URL and CALLAPICALL_TOKEN); every call asks you")
     parser.add_argument("--on-behalf-of", default="", help="name the phone assistant gives when it calls")
     parser.add_argument("--context-patterns", default="", metavar="JSON", help="what shapes the context (harness/context_patterns.py)")
@@ -160,13 +171,26 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         allow=args.allow, deny=args.deny, secret_names=secret_names, secret_hosts=secret_hosts, skill_paths=args.skills,
         payments_dir=args.payments_dir, browser=args.browser, browser_headless=args.browser_headless, browser_private=args.browser_private,
         browser_profile=args.browser_profile, browser_consent=args.browser_consent, browser_permissions=args.browser_permissions, vault_dir=args.vault_dir, capabilities=args.capabilities, lsp=args.lsp, council=args.council,
-        wiki=args.wiki, wiki_project=args.wiki_project, phone=args.phone, phone_on_behalf_of=args.on_behalf_of,
+        wiki=args.wiki, wiki_url=args.wiki_url, wiki_project=args.wiki_project, phone=args.phone,
+        reference_docs=read_reference(args.reference), reference_strategy=args.reference_strategy,
+        memory_min_score=args.memory_min_score, memory_notes=args.memory_notes, memory_budget_tokens=args.memory_budget, phone_on_behalf_of=args.on_behalf_of,
         context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold,
         end_turn_bias=args.end_turn_bias, attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
         personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys,
     )
+
+
+def read_reference(folder: Optional[str]) -> Dict[str, str]:
+    """The .md and .txt files of a folder, by relative path; a missing folder is an error, not an empty set."""
+    if not folder:
+        return {}
+    root = Path(folder)
+    if not root.is_dir():
+        raise FileNotFoundError(f"reference folder not found: {root}")
+    return {p.relative_to(root).as_posix(): p.read_text(encoding="utf-8", errors="replace")
+            for p in sorted(root.rglob("*")) if p.is_file() and p.suffix.lower() in (".md", ".txt")}
 
 
 def data_dir_for(workspace: Path) -> Path:
@@ -208,7 +232,11 @@ class AgentConfig:
     personal_memory_keys: str = ""      # where the device key that opens them is (default: the same folder)
     reference_docs: Dict[str, str] = field(default_factory=dict)   # path -> text of reference documents
     reference_strategy: str = "auto"   # auto, cag (a fixed block at the start), rag (searched passages) or none
-    wiki: bool = False                 # offer the wikibridge tools (address and key from the environment)
+    wiki: bool = False                 # offer the wikibridge tools (the key from the environment)
+    wiki_url: str = ""                 # the wikibridge address; empty: BASALT_WIKIBRIDGE_URL, else the usual local one
+    memory_min_score: float = DEFAULT_MEMORY_MIN_SCORE     # the points a project note must score from the words it shares with a request to be added to it
+    memory_notes: int = DEFAULT_MEMORY_NOTES               # most project notes added to a request
+    memory_budget_tokens: int = DEFAULT_MEMORY_BUDGET      # most tokens those notes may take
     wiki_project: str = ""
     report: bool = False               # tell the server's Agent tab about the run and its edits
     run_id: str = ""                    # names the run in the Monitor; the server gives one when it starts the agent
@@ -277,6 +305,9 @@ class BuiltAgent:
     take_place: Optional[Callable[[Any], bool]] = None     # keeps the position the person's phone sent and offers where_is_user (harness/place.py)
     mcp_errors: Dict[str, str] = field(default_factory=dict)       # the servers that could not be started, and why
     refresh_budget: Optional[Callable[[], None]] = None            # asks the server for its context again and sets the context budget by it
+    memory_min_score: float = DEFAULT_MEMORY_MIN_SCORE
+    memory_notes: int = DEFAULT_MEMORY_NOTES
+    memory_budget_tokens: int = DEFAULT_MEMORY_BUDGET
 
     def set_mode(self, mode: str) -> None:
         """Changes the permission mode of the running conversation; plan mode brings `present_plan`, any other takes it away."""
@@ -284,12 +315,15 @@ class BuiltAgent:
             raise ValueError(f"permission mode must be one of {sorted(PERMISSION_MODES)}")
         self.mode_switch(mode)
 
-    def retrieved_message(self, goal: str, limit: int = 4) -> Optional[Dict[str, Any]]:
-        """Memories relevant to a goal, as an untrusted-data message for the tail of the conversation."""
+    def retrieved_message(self, goal: str, limit: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """Project notes relevant to a goal, as an untrusted-data message for the tail of the conversation: only notes whose shared words
+        weigh enough, as many as the settings allow."""
         injection = self.patterns.get("injection") or {}
         message = None
         if self.memory and injection.get("on", True) and injection.get("strategy", "tail") == "tail":     # else off, or the model asks for notes itself
-            self.builder.set_memories([m["content"] for m in self.memory.search(goal, limit=limit)])
+            notes = self.memory.relevant(goal, limit=self.memory_notes if limit is None else limit, min_score=self.memory_min_score,
+                                         budget_tokens=self.memory_budget_tokens)
+            self.builder.set_memories([m["content"] for m in notes])
             message = self.builder.memory_message()
         about = self.personal.message(goal) if self.personal is not None else None
         if about:
@@ -335,14 +369,7 @@ def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builde
     from harness.capabilities import CapabilityIndex, register_capability_tools
     from harness.mcp_client import MCPClient, MCPHttpClient, MCPHub
     from harness.vision_tool import register_vision_tool
-    if cfg.capabilities_dir:
-        directory = Path(cfg.capabilities_dir)
-    else:
-        try:
-            from serve.userdata import user_data_dir
-            directory = user_data_dir() / "capabilities"
-        except Exception:
-            directory = Path.home() / ".basalt" / "capabilities"
+    directory = _capabilities_directory(cfg)
     index = CapabilityIndex(directory, workspace, home=Path(cfg.capabilities_home) if cfg.capabilities_home else None,
                             appdata=Path(cfg.capabilities_home) / "appdata" if cfg.capabilities_home else None)
 
@@ -388,6 +415,17 @@ def _hook_files(cfg: AgentConfig, workspace: Path) -> List[Path]:
     if cfg.workspace_hooks:
         files.append(workspace / ".basalt" / "hooks.json")
     return files
+
+
+def _capabilities_directory(cfg: "AgentConfig") -> Path:
+    """Where the capability index and its approvals are kept."""
+    if cfg.capabilities_dir:
+        return Path(cfg.capabilities_dir)
+    try:
+        from serve.userdata import user_data_dir
+        return user_data_dir() / "capabilities"
+    except Exception:
+        return Path.home() / ".basalt" / "capabilities"
 
 
 def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summarizer: Optional[Any] = None) -> BuiltAgent:
@@ -501,10 +539,13 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     if cfg.wiki:
         from harness.integrations.wiki_tools import register_wiki_tools
         from harness.integrations.wikibridge_client import WikiBridgeClient
-        register_wiki_tools(registry, WikiBridgeClient.from_environment(), cfg.wiki_project or None)
-    catalog = SkillCatalog([Path(p) for p in cfg.skill_paths], approvals=ApprovalStore(data / "approved_skills.json"),
-                           require_approval=True)
+        register_wiki_tools(registry, WikiBridgeClient.from_environment(url=cfg.wiki_url or None), cfg.wiki_project or None)
+    # The approvals are the Capabilities page's, so a skill approved there loads here and a new or changed one is listed there to approve.
+    skill_approvals = ApprovalStore(_capabilities_directory(cfg) / "approved.json", prefix="skill:")
+    catalog = SkillCatalog([Path(p) for p in cfg.skill_paths], approvals=skill_approvals, require_approval=True)
     if cfg.skill_paths:
+        from harness.capabilities import add_skill_folders
+        add_skill_folders(_capabilities_directory(cfg), cfg.skill_paths)
         catalog.discover_skills()
         if catalog.skills:
             builder.set_skills_catalog(catalog.format_catalog_prompt())
@@ -612,4 +653,5 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
 
     return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser,
                       plan_gate=plan_gate, mode_switch=switch_mode, personal=personal, take_place=take_place,
-                      mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {}, refresh_budget=refresh_budget)
+                      mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {}, refresh_budget=refresh_budget,
+                      memory_min_score=cfg.memory_min_score, memory_notes=cfg.memory_notes, memory_budget_tokens=cfg.memory_budget_tokens)
