@@ -58,6 +58,18 @@ INTERRUPTED_NOTE = ("[harness] The previous turn was interrupted while it was ru
                     "run already. Do not run it again without first checking what really happened, and tell the user.")
 
 
+PLAN_NEWS_SECONDS = 600            # a plan made by someone else is asked about only while it is new
+
+
+def _recent(stamp: Any) -> bool:
+    """Whether a plan's `updated_at` (UTC, ISO) is within the last PLAN_NEWS_SECONDS."""
+    try:
+        import calendar
+        return time.time() - calendar.timegm(time.strptime(str(stamp), "%Y-%m-%dT%H:%M:%SZ")) <= PLAN_NEWS_SECONDS
+    except ValueError:
+        return False
+
+
 class SessionStore:
     """The history of one conversation and the record of an action in flight, as files in one folder."""
 
@@ -398,6 +410,9 @@ class Session:
         """Gives the conversation the planner's tools and the question tool; every change to a plan asks."""
         from harness.planner_tools import Confirmer, register_ask_tool, register_planner_tools
         self.planner = client
+        hooks = getattr(self.agent, "hooks", None)
+        if hooks is not None:                                    # a hook of the person's that tells the planner reaches it from here
+            hooks.plan_event_sink = lambda text, source: client.ingest(text, source)
         register_planner_tools(self.agent.tools, client, Confirmer(self.current, ask=self._ask))
         register_ask_tool(self.agent.tools, self.current, self._question)
 
@@ -605,6 +620,13 @@ class Session:
             for node in ((snap.get("plan") or {}).get("nodes") or {}).values() if isinstance((snap.get("plan") or {}).get("nodes"), dict) else (snap.get("plan") or {}).get("nodes") or []:
                 if isinstance(node, dict) and node.get("status") == "failed":
                     news.append((f"f:{pid}:{node.get('id')}", f'the step "{node.get("title")}" failed.'))
+                stuck = (node.get("state_variables") or {}).get("no_route") if isinstance(node, dict) else None
+                if stuck:
+                    news.append((f"n:{pid}:{node.get('id')}:{stuck.get('at')}", f'the decision "{node.get("title")}" has no exit that holds and waits for the person (values: {json.dumps(stuck.get("values", {}), ensure_ascii=False)[:200]}).'))
+            gaps = snap.get("card_missing") or []
+            if gaps and not any(h.get("actor") == "chat" for h in snap.get("history") or []) and _recent(plan.get("updated_at")):
+                news.append((f"c:{pid}:{','.join(gaps)}", "to judge incoming events the planner still lacks " + ", ".join(gaps) + ": ask the person only these, in one short question, "
+                                                         "and write what they say with plan_set_card."))
             fresh = [(k, t) for k, t in news if k not in self._announced]
             if fresh:
                 key, text = fresh[0]

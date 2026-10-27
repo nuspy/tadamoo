@@ -334,8 +334,8 @@ has *Waits for* boxes to set from the keyboard what it waits for.
   must be read before it is changed, and a plan that moved on meanwhile is refused until it is read again.
 - `ask_user` ends a turn with a question and buttons; what you press or write is your next message.
 - **Events from the world** can be fed to plans (`POST /api/plans/events`) or read from RSS feeds, a mailbox (headers only) or a Telegram
-  bot. The event pump and the cloud filter are **off** until you turn them on in *Settings*; the cloud filter also needs your consent and
-  a key, replaces names, and does not send health data unless you tick it.
+  bot. The event pump is **on**: it starts with the server and sleeps while nothing arrives (turn it off in *Settings*). The cloud filter is **off** until you turn it on; it needs your consent and
+  a key and replaces names; it sends the whole plan card, health and allergies of the participants included, unless you untick a field.
 - Nothing in a plan changes behind your back: the planner only prepares proposals, which you approve.
 
 ## 12a. Files in answers
