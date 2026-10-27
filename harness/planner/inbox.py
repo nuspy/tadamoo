@@ -21,6 +21,7 @@ class EventInbox:
         self._buffers: Dict[str, EventBuffer] = {}
         self._lock = threading.Lock()
         self.accepted = 0
+        self.activity = threading.Event()                  # set when an event arrives: an idle pump sleeps until then
 
     def buffer(self, plan_id: str) -> EventBuffer:
         with self._lock:
@@ -32,7 +33,9 @@ class EventInbox:
         """Puts an event in the plan's buffer; True when a batch is now due."""
         with self._lock:
             self.accepted += 1
-        return self.buffer(plan_id).add_event(text)
+        due = self.buffer(plan_id).add_event(text)
+        self.activity.set()
+        return due
 
     def forget(self, plan_id: str) -> None:
         with self._lock:
@@ -92,11 +95,18 @@ class InboxPump:
         return done
 
     def _run(self) -> None:
-        while not self._stop.wait(self.poll_seconds):
+        """Judges what is due. With nothing waiting the thread sleeps until an event arrives; with events waiting for their batch or
+        their window it looks again every `poll_seconds`."""
+        while not self._stop.is_set():
+            self.inbox.activity.clear()
             try:
                 self.process_once()
             except Exception as exc:
                 self.errors.append(f"{type(exc).__name__}: {exc}")
+            if self.inbox.pending():
+                self._stop.wait(self.poll_seconds)
+            else:
+                self.inbox.activity.wait()
 
     def start(self) -> None:
         if not self.running:
@@ -107,6 +117,7 @@ class InboxPump:
     def stop(self, timeout: float = 10.0) -> None:
         """Ends the thread: a batch being judged finishes first (its network call is bounded), then the thread returns."""
         self._stop.set()
+        self.inbox.activity.set()                          # wakes a pump that is asleep
         if self._thread is not None:
             self._thread.join(timeout)
         self._thread = None

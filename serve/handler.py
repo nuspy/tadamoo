@@ -79,12 +79,36 @@ _CAPS = None                                          # the Settings page's side
 _LLM = None                                           # the Providers page's side of llmswitch, made on first use
 
 
+def _plans_service(svc: Service, port: int):
+    """The planner's service for this server, made on first use and pointed at the model this server runs."""
+    global _PLANS
+    if _PLANS is None:
+        _PLANS = plans_mod.PlanService(userdata.path("planner"))
+    from harness.client import BasaltClient
+    _PLANS.client_factory = lambda: BasaltClient(base_url=f"http://127.0.0.1:{port}", api_key=svc.api_key or None)
+    if _LLM is not None:
+        _PLANS.registry = _LLM.registry
+    return _PLANS
+
+
+def _start_planner(svc: Service, port: int) -> None:
+    """With saved planner settings (or a service already made), the event pump and the sources start now and not at the first request."""
+    try:
+        if _PLANS is None and not (userdata.path("planner") / "planner.json").is_file():
+            return
+        _plans_service(svc, port).start()
+    except Exception as exc:                                   # the planner never keeps the server from starting
+        print(f"planner: not started ({type(exc).__name__}: {exc})", file=sys.stderr, flush=True)
+
+
 def stop_sessions() -> None:
     """The server ends: the conversations' processes end with it (the next start finds the conversations again)."""
     if _ROUTINES is not None:
         _ROUTINES.shutdown()
     if _MEM_WORKER is not None:
         _MEM_WORKER.stop()
+    if _PLANS is not None:
+        _PLANS.close()
     if _SESSIONS is not None:
         _SESSIONS.shutdown()
 _WALLET = None                                         # the vault and the payment systems, made on first use
@@ -1457,15 +1481,7 @@ def make_handler(svc: Service, remote: bool = False):
         # -- planner -----------------------------------------------------------------------------
 
         def _plan_service(self):
-            global _PLANS
-            if _PLANS is None:
-                _PLANS = plans_mod.PlanService(userdata.path("planner"))
-            from harness.client import BasaltClient
-            port = self.server.server_address[1]
-            _PLANS.client_factory = lambda: BasaltClient(base_url=f"http://127.0.0.1:{port}", api_key=svc.api_key or None)
-            if _LLM is not None:
-                _PLANS.registry = _LLM.registry
-            return _PLANS
+            return _plans_service(svc, self.server.server_address[1])
 
         def _plan_error(self, exc):
             if isinstance(exc, KeyError):
@@ -2716,6 +2732,7 @@ def serve(svc: Service, host="127.0.0.1", port=7232) -> ThreadingHTTPServer:
     svc.host_names = host_names_for(host, svc.allowed_hosts, svc.trusted_origins)
     svc.start_telemetry()
     httpd = _listen(svc, host, port)
+    threading.Thread(target=_start_planner, args=(svc, httpd.server_address[1]), daemon=True, name="planner-start").start()
     if getattr(svc, "keys", None) is None:
         svc.keys = ApiKeys(userdata.path("api-keys.json"), key_dir=userdata.path("vault"))
     if getattr(svc, "remote", None) is None:

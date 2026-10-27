@@ -355,9 +355,9 @@ aspetta.
   piano va letto prima di essere cambiato, e un piano andato avanti nel frattempo viene rifiutato finché non lo si rilegge.
 - `ask_user` chiude un turno con una domanda e dei pulsanti; ciò che premi o scrivi è il tuo messaggio successivo.
 - **Eventi dal mondo** si possono dare ai piani (`POST /api/plans/events`) o leggere da feed RSS, da una casella di posta (solo le
-  intestazioni) o da un bot Telegram. La pompa degli eventi e il filtro nel cloud sono **spenti** finché non li accendi in
-  *Impostazioni*; il filtro nel cloud richiede anche il tuo consenso e una chiave, sostituisce i nomi e non manda dati sanitari se
-  non li spunti.
+  intestazioni) o da un bot Telegram. La pompa degli eventi è **accesa**: parte con il server e dorme finché non arriva nulla (si spegne in *Impostazioni*). Il filtro nel cloud è **spento** finché non lo accendi;
+  richiede il tuo consenso e una chiave, sostituisce i nomi e manda tutta la scheda del piano, salute e allergie dei
+  partecipanti comprese, a meno che togli una spunta.
 - Nulla in un piano cambia alle tue spalle: il planner prepara solo proposte, che approvi tu.
 
 ## 12a. File nelle risposte

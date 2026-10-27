@@ -56,6 +56,15 @@ class PlansPageTest(unittest.TestCase):
             self.assertIn(f'title: T(key)', JS)
             self.assertEqual(I18N.count(f'"{sym}":'), 2)
 
+    def test_a_decision_is_added_with_at_least_two_exits_each_with_a_condition(self):
+        self.assertIn('id: "pl-a-exits"', JS)
+        self.assertIn('if (rows.length < 2 || rows.some(r => !r.title || !r.cond))', JS)             # refused here, as the server refuses it
+        self.assertIn("add[0].conditions[xid] = r.cond", JS)
+        self.assertIn('document.getElementById("pl-a-exits").hidden = ', JS)                          # only a decision shows the exits
+        self.assertIn("if (!(await userDiff({ add_nodes: add }, T(\"pl.add\")))) return;", JS)          # a refused change does not reset the form
+        self.assertIn("#pl-a-exits[hidden]", CSS)
+        self.assertIn("no_route", JS)                                                                # a decision no exit of which holds is shown with its facts
+
     def test_the_page_never_writes_markup_and_the_new_texts_exist_in_both_languages(self):
         for banned in ("innerHTML", "insertAdjacentHTML", "document.write", "eval("):
             self.assertNotIn(banned, JS)

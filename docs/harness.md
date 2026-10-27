@@ -180,7 +180,7 @@ An urgent request is not put aside for another urgent one: they go in order.
 ### The Chat and the planner
 
 A conversation has the planner's tools (`harness/planner_tools.py`), unless it is started `ask_only`: `plan_list`,
-`plan_get` and `plan_step_requests` (the call and the wiki question a step prepared) read; `plan_create`, `plan_propose_change`, `plan_mark`, `plan_step_start`, `plan_prepare_call` and `plan_archive` change (`plan_step_start` starts a ready step for the agent: the step is marked in progress and shows in the Tasks panel with its plan, and is marked done or failed after the result is read); `ask_user` asks a question with
+`plan_get`, `plan_proposals` (what each pending proposal would do: steps added, changed, removed, links; the text is data, so the tool is untrusted) and `plan_step_requests` (the call and the wiki question a step prepared) read; `plan_create`, `plan_set_card`, `plan_decide_proposal` (approve or reject a pending proposal, with the user's yes to that real change), `plan_propose_change`, `plan_mark`, `plan_step_start`, `plan_prepare_call` and `plan_archive` change (`plan_step_start` starts a ready step for the agent: the step is marked in progress and shows in the Tasks panel with its plan, and is marked done or failed after the result is read); `ask_user` asks a question with
 buttons. The plans live in the server, in the one store the Plans view uses, and every change made from the Chat names the
 Chat as its author in the plan's history.
 
@@ -302,7 +302,8 @@ from starting with the reason: a policy that is silently dropped protects nothin
 |---|---|
 | `event` | `pre_tool`, `post_tool`, `turn_end`, `session_start` or `session_end` |
 | `command` | what to run (text, or a list of words), in the workspace, with a scrubbed environment and the job limits of any command; the event is given as JSON on its standard input (`event`, `tool`, `arguments`, and for `post_tool` the `result`, masked; for the other events `turn`, `goal`, `stop_reason`, ...) and in `BASALT_HOOK_EVENT` and `BASALT_HOOK_TOOL` |
-| `action` | `block`, instead of a command, only on `pre_tool`: refuses a matching call with `reason`, running nothing |
+| `action` | `block`, instead of a command, only on `pre_tool`: refuses a matching call with `reason`, running nothing; or `plan_event`, on any other event: gives the planner an event whose `text` is the one written here (`{event}` and `{tool}` are filled in, nothing else of the call goes in; only the Chat's conversation has a planner to tell) |
+| `text` | what a `plan_event` action tells the planner, up to 300 characters |
 | `tool` | a pattern or a list of patterns for the tool's name (`*` and `?`); default every tool; `pre_tool` and `post_tool` only |
 | `match` | `{"argument": "pattern"}`: all must match the call's arguments (text, case does not matter); `pre_tool` and `post_tool` only |
 | `timeout` | seconds, more than 0 and at most 120; default 10 |
@@ -503,16 +504,27 @@ and the bridge the page talks to.
   (`plan_check` with `with_model`, or the button), kept with the plan, said to be out of date once the plan changes, and never stated
   as fact. Plans are not compared for overlap with each other, only short ones with long ones. Not done: aims that are numbers to
   measure (KPIs, habits), a review that records what was found, and reading conflicts between two long-term plans by arithmetic.
+- **Every plan has a card** (what events are judged against), however it was made: one that is not given is drawn from the plan (title, dates of the profile,
+  the steps and their state) and those fields follow the plan until someone writes them (`card_auto` in the snapshot). The place, the participants
+  and what limits them are not in a plan's data: `card_missing` lists what a trip lacks, the `plan_create`/`plan_get` text tells the model to ask the
+  person only that (`ask_user`) and to save it with `plan_set_card` (the person's yes), and a plan made elsewhere (the Plans view) while the Chat is open
+  is asked about once, as a note from the planner. Without the cloud filter's consent nothing of a card leaves the machine.
 - A plan is a graph of action, sensor, decision and merge nodes with shared values. Decisions route by simple conditions
-  (`len(guests) >= 2`; never code); merges wait for their inputs; a task the software cannot do is offered to you with an
+  (`len(guests) >= 2`; never code) and need at least two exits, each with a condition: a plan or a change that breaks this is refused, and a
+  stored decision that breaks it cannot be completed (the Plans view adds a decision together with its exits and their conditions). When a decision is completed and no exit holds (or a condition cannot be read yet) it is
+  not taken: the step becomes the user's, nothing below it is skipped, and the step shows which conditions were read and with which values
+  (`state_variables.no_route`; the Chat is told and `plan_mark` says so). A step writes the plan's values when it is completed (`outputs` of
+  `plan:mark` and of `plan_mark`: names a condition can read, plain data up to 4,000 characters each and 50,000 in all); merges wait for their inputs; a task the software cannot do is offered to you with an
   alternative and, if you decline, becomes yours and blocks what depends on it. You can rewind a step. A rewind says first which recorded actions of those steps stay done (see *Branches, going back and comparing*).
 - Incoming events wait in a buffer (10 events or 5 minutes after the first) and are judged by the filter. **The cloud filter
   (TypeSafe Jev) is off.** It needs your consent in Settings *and* a key in the server's `TYPESAFE_API_KEY`; only the plan
   fields you tick are sent. People's names are replaced by labels (a full name also by its first name and its surname on their
   own, case-insensitively; common words such as "amico" or "nonna" are not taken for names), and e-mail addresses and phone
-  numbers are taken out of the events and the card; one switch ("replace names") controls both. **By default the participants'
-  health, allergies and personal constraints (`profilo_e_vincoli_partecipanti`) are not sent**; they go only when you tick that
-  field in Settings (a highlighted label and two questions), and the filter judges events that depend on them less well without it. The
+  numbers are taken out of the events and the card; one switch ("replace names") controls both. **By default the whole card goes**, the participants'
+  health, allergies and personal constraints (`profilo_e_vincoli_partecipanti`) included, as in the specification's experiment: they are what lets the
+  filter see an event that matters only through them. Turning the cloud filter on says so in the consent question, and any field can be unticked in
+  Settings (the filter then judges events that depend on it less well; `tests/test_jev_replay.py` replays the recorded answers of the real service
+  through the gate and the payload, offline, but the quality of the cloud verdict with pseudonymized names has not been measured). The
   answer says whether it came from the cloud, from the local keyword filter or from a failure. When the filter says wake, the local model proposes two or three alternatives
   as diffs; only the ones that apply cleanly are shown, and nothing changes until you approve.
 - Every change to a plan raises its **revision** and adds a line to its **history** that says who made it (`user`, `chat`,
@@ -541,15 +553,16 @@ and the bridge the page talks to.
   next event and shows why. A step also carries its `position` on the canvas, an optional prepared `call_request` and a `wiki_query` (below).
   Conditions are bounded (lists and texts up to 10,000, whole numbers up to 256 bits, powers up to 64) and everything that goes wrong is a plan error.
 - **Events from the world**: `POST /api/plans/events` takes `{"text", "source", "at"?, "plan_id"?}` or `{"events": [...]}` (up to 100). Each event goes to
-  the sensors of the plan it names, or of every plan, always; with the event pump on it also goes into that plan's buffer (only plans with a card),
+  the sensors of the plan it names, or of every plan, always; with the event pump on it also goes into that plan's buffer (only plans with something left to protect: a long-term plan, or one with an unfinished step),
   and the pump thread judges a buffer when it holds 10 events or 5 minutes have passed since the first, tells the plan's viewers (`plan:triage` with
-  `via: "pump"`) and, when the filter says wake, starts the local model, which only prepares proposals. **The pump is off** until it is turned on in
-  Settings (`event_pump`); it ends with the server (`atexit`) and when it is turned off, and a pump saved as on starts again the first time the planner
-  is used after a restart (not at server start). The read-only **sources** (`sources` in Settings, up to 10) poll on their own threads, with the standard library only:
+  `via: "pump"`) and, when the filter says wake, starts the local model, which only prepares proposals. **The pump is on** unless it is turned off in
+  Settings (`event_pump`): it starts with the server when planner settings are saved (otherwise at the first use of the planner), sleeps with no polling
+  while nothing is waiting, ends with the server and when it is turned off, and a pump turned off stays off after a restart. Without the cloud
+  filter's consent the pump judges with the local keyword filter, which sends nothing out. The read-only **sources** (`sources` in Settings, up to 10) poll on their own threads, with the standard library only:
   an RSS or Atom feed (the first look only learns what is there, a DTD is refused), a mailbox over IMAP (opened with EXAMINE, headers fetched with
   `BODY.PEEK`, only sender and subject, never the body; the login is a `login` entry of the Wallet, read when needed) and a Telegram bot (long polling
   of `getUpdates`, the token a `secret` entry, only the chats in `allowed_chat_ids`; it never sends anything). Settings hold the names of the Wallet
-  entries, never a password or a token, and an error shown for a source never contains one. SMS is not done: it needs a provider or the modem.
+  entries, never a password or a token, and an error shown for a source never contains one. Two sources need nothing from outside: `system` (`disk_path`, `min_free_gb`: one event when the free space falls below the limit) and `deadlines` (`lead_days`, default 7, 3, 1 and 0: a plan whose profile dates are near gets one event for the nearest lead time, addressed to that plan; plans with nothing left to protect are left out). A hook with the `plan_event` action (see *Hooks*) also feeds the mailbox. SMS and calendar have their interface (`SmsSource`, `CalendarSource` in `harness/planner/local_sources.py`, which take items from a provider function) but nothing connects them to a modem or an account, so a Settings entry cannot name them; an ACP sensor has no schema in this code, and the mailbox takes such events as they are.
 - **A step and a call, or the wiki**: a step can carry `call_request` `{number, reason, text}` prepared by the plan (`plan_prepare_call`, with the
   person's yes). Nothing places it: `plan_step_requests` shows it, and the Chat places the call only with `phone_call`, which asks every time. A step's
   `wiki_query` is shown with `wiki_context` as the way to ask when the conversation has the wiki tools (`--wiki`). When `phone_call` cannot place

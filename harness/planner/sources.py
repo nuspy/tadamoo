@@ -34,7 +34,7 @@ MAX_FEED_BYTES = 2 << 20
 MAX_NEW_PER_POLL = 50
 SEEN_KEPT = 500
 SOURCE_ID = re.compile(r"^[a-z0-9][a-z0-9_\-]{0,31}$")
-KINDS = ("rss", "imap", "telegram")
+KINDS = ("rss", "imap", "telegram", "system", "deadlines")
 MIN_INTERVAL, MAX_INTERVAL = 1, 86400
 MAX_SOURCES = 10
 
@@ -48,6 +48,7 @@ class SourceEvent:
     text: str
     source: str
     at: float
+    plan_id: Optional[str] = None          # set when the event is about one plan (a deadline); otherwise the source's own plan, or every plan
 
 
 def redact(message: str, secrets: Iterable[str]) -> str:
@@ -329,6 +330,9 @@ def clean_source(cfg: Any, index: int = 0) -> Dict[str, Any]:
             raise ValueError("mailbox is a folder name")
         out.update(host=host, port=port, ssl=cfg.get("ssl", True) is not False, mailbox=mailbox, login_entry=_entry(cfg, "login_entry"),
                    interval_seconds=_interval(cfg, 300.0))
+    elif kind in ("system", "deadlines"):
+        from . import local_sources
+        out.update(local_sources.clean_local(kind, cfg))
     else:
         chats = cfg.get("allowed_chat_ids")
         if not isinstance(chats, list) or not chats or any(isinstance(c, bool) or not isinstance(c, int) for c in chats):
@@ -348,9 +352,14 @@ def clean_sources(value: Any) -> List[Dict[str, Any]]:
     return cleaned
 
 
-def build_source(cfg: Dict[str, Any], reveal: Callable[[str, str], str], state: Optional[Dict[str, Any]] = None) -> Source:
-    """The adapter for a cleaned configuration. `reveal(entry, field)` reads a vault value at the moment it is needed."""
+def build_source(cfg: Dict[str, Any], reveal: Callable[[str, str], str], state: Optional[Dict[str, Any]] = None,
+                 plans: Optional[Callable[[], List[Dict[str, Any]]]] = None) -> Source:
+    """The adapter for a cleaned configuration. `reveal(entry, field)` reads a vault value at the moment it is needed; `plans()` lists the
+    plans' dates for the deadlines source."""
     interval = cfg.get("interval_seconds", 60.0)
+    if cfg["kind"] in ("system", "deadlines"):
+        from . import local_sources
+        return local_sources.build_local(cfg, state, plans)
     if cfg["kind"] == "rss":
         return RssSource(cfg["id"], cfg["url"], interval, state)
     if cfg["kind"] == "imap":
