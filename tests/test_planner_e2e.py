@@ -106,7 +106,7 @@ def test_an_event_in_the_mailbox_ends_in_a_prepared_call_that_only_the_chat_can_
     assert wait_for(lambda: svc.snapshot("cervinia")["proposals"] and not svc.snapshot("cervinia")["replanning"])
     sent = json.dumps(jev.requests[0]["body"], ensure_ascii=False)
     assert "Persona 1" in sent and not any(w in sent for w in ("Gianni", "gianni@example.com", "333 1234567"))      # names and contacts did not leave
-    assert "Allergica" not in sent and "Macchinista" not in sent                                                        # nor the personal constraints
+    assert "Allergica agli ovini" in sent and "Persona 3" in sent                                                       # the profile goes with the card, under the labels
     assert jev.requests[0]["headers"]["Authorization"] == "Bearer sk-test"
     triage = [e for e in svc.events_since("cervinia", 0) if e["type"] == "plan:triage"][0]
     assert triage["via"] == "pump" and triage["result"]["source"] == "cloud" and triage["result"]["replan_state"] == "started"
