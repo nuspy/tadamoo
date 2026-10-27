@@ -1086,21 +1086,21 @@ def test_contacts_are_taken_out_and_dates_are_not():
         assert scrub_contacts(keep) == keep
 
 
-def test_by_default_the_whole_card_goes_with_names_replaced_and_a_choice_can_keep_the_personal_fields_home(jev):
-    assert "profilo_e_vincoli_partecipanti" in PERSONAL_FIELDS and set(DEFAULT_SHARED_FIELDS) == set(CARD_FIELDS)
+def test_by_default_the_participants_health_and_constraints_do_not_leave_and_a_choice_sends_them(jev):
+    assert "profilo_e_vincoli_partecipanti" in PERSONAL_FIELDS and set(DEFAULT_SHARED_FIELDS) == set(CARD_FIELDS) - set(PERSONAL_FIELDS)
     card = PlanInsightCard.from_dict(FULL)
-    assert set(share_card(card)) == set(CARD_FIELDS)
+    assert set(share_card(card)) == set(DEFAULT_SHARED_FIELDS)
     fake = jev(answer=jev_answer(0.1, "ZERO_EVENTS_IMPACTFUL"))
     gate(fake).triage_event_batch(card, ["Gianni è ricoverato, scrivete a gianni@x.org o al 333 1234567"])
     sent = json.dumps(fake.requests[0]["body"], ensure_ascii=False)
-    assert "Allergica agli ovini" in sent and "asma" in sent                         # the profile is what lets an indirect event be seen
+    assert "asma" not in sent and "ovini" not in sent and "Allergica" not in sent               # the personal field stayed home
     assert not any(w in sent for w in ("Gianni", "Verdi", "Diana", "Rossi", "gianni@x.org", "333 1234567", "949136", "example.com"))
     assert "Persona 1 è ricoverato, scrivete a [email] o al [telefono]" in sent
     assert "Hotel prenotato, referente Persona 1 [telefono]" in sent                            # the card's own text is cleaned too
-    home = jev(answer=jev_answer(0.1, "ZERO_EVENTS_IMPACTFUL"))
-    gate(home, card_fields=[f for f in CARD_FIELDS if f not in PERSONAL_FIELDS]).triage_event_batch(card, ["Gianni è ricoverato"])
-    sent = json.dumps(home.requests[0]["body"], ensure_ascii=False)
-    assert "asma" not in sent and "ovini" not in sent and "Allergica" not in sent and "Gianni" not in sent       # kept home when the user takes the field out
+    chosen = jev(answer=jev_answer(0.1, "ZERO_EVENTS_IMPACTFUL"))
+    gate(chosen, card_fields=list(CARD_FIELDS)).triage_event_batch(card, ["Gianni è ricoverato"])
+    sent = json.dumps(chosen.requests[0]["body"], ensure_ascii=False)
+    assert "asma" in sent and "Allergica agli ovini" in sent and "Gianni" not in sent and "Diana" not in sent
 
 
 # -- the gate: any strong sign (or), or a strong blocker that is also serious (and) ----------------------

@@ -89,21 +89,27 @@ def ids(gate_mode, replay):
 
 # -- what is sent with the default settings ----------------------------------------------------------------------
 
-def test_the_default_sends_the_whole_card_of_the_specification_and_no_participants_name(replay):
+def test_the_default_keeps_the_participants_profile_home(replay):
     gate = replay.gate()
     assert gate.card_fields is None
+    gate.triage_event_batch(CARD, [SINGLES[0]["event"]])
+    assert "profilo_e_vincoli_partecipanti" not in replay.asked[-1]["state"]["active_plan"]
+
+
+def test_the_whole_card_of_the_specification_goes_when_chosen_and_no_participants_name(replay):
+    gate = replay.gate(card_fields=list(CARD_FIELDS))
     for rec in SINGLES:
         gate.triage_event_batch(CARD, [rec["event"]])
     assert len(replay.asked) == len(SINGLES)
     for body in replay.asked:
         sent = json.dumps(body, ensure_ascii=False)
-        assert set(body["state"]["active_plan"]) == set(CARD_FIELDS)                       # nothing taken out of the card that the experiment sent
+        assert set(body["state"]["active_plan"]) == set(CARD_FIELDS)                       # nothing taken out of the card
         assert not any(name in sent for name in NAMES)
         assert "Persona 1" in sent and "Persona 2" in sent and "Persona 3" in sent
 
 
 def test_an_event_about_a_participant_and_the_participants_profile_use_the_same_label(replay):
-    gate = replay.gate()
+    gate = replay.gate(card_fields=list(CARD_FIELDS))
     for rec in (r for r in SINGLES if "Diana" in r["event"] or "Gianni" in r["event"] or "Erica" in r["event"]):
         gate.triage_event_batch(CARD, [rec["event"]])
         body = replay.asked[-1]
@@ -114,7 +120,7 @@ def test_an_event_about_a_participant_and_the_participants_profile_use_the_same_
 
 
 def test_the_profile_lines_that_the_indirect_detections_relied_on_are_in_the_payload(replay):
-    gate = replay.gate()
+    gate = replay.gate(card_fields=list(CARD_FIELDS))
     gate.triage_event_batch(CARD, [next(r["event"] for r in SINGLES if r["id"] == "CAT3-IND-3-BREVE")])
     sent = json.dumps(replay.asked[-1], ensure_ascii=False)
     assert "allergia a pecore, lana grezza e ovini" in sent
