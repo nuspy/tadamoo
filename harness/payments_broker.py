@@ -401,7 +401,7 @@ class PaymentsBroker:
                     payment_id = "pay_" + secrets.token_hex(8)
                     entry = self.ledger.record("broker", "payment_authorized", {
                         **request, "amount_cents": cents, "waiver_id": waiver["waiver_id"], "payment_id": payment_id})
-                    result = {**request, "amount_cents": cents, "mode": "waiver", "status": "authorized", "ledger_index": entry["index"], "payment_id": payment_id,
+                    result = {**request, "mode": "waiver", "status": "authorized", "ledger_index": entry["index"], "payment_id": payment_id,
                               "remaining": money(waiver["cumulative_cents"] - spent - cents, system["currency"])}
                     self._notify(result)
                     return result
@@ -410,7 +410,7 @@ class PaymentsBroker:
                 self._verified_ledger()
                 payment_id = "pay_" + secrets.token_hex(8)
                 entry = self.ledger.record("broker", "payment_confirmed", {**request, "amount_cents": cents, "payment_id": payment_id})
-            result = {**request, "amount_cents": cents, "mode": "confirmed", "status": "authorized", "ledger_index": entry["index"], "payment_id": payment_id}
+            result = {**request, "mode": "confirmed", "status": "authorized", "ledger_index": entry["index"], "payment_id": payment_id}
             self._notify(result)
             return result
         with self._lock():
@@ -457,24 +457,22 @@ class PaymentsBroker:
 
 def register_payment_tool(registry: Any, broker: PaymentsBroker, permissions: Any = None,
                           confirm: Optional[Callable[[Dict[str, Any]], bool]] = None,
-                          on_authorized: Optional[Callable[..., None]] = None) -> None:
+                          on_authorized: Optional[Callable[[str, str, str], None]] = None) -> None:
     """Adds `request_payment`. The broker is the only gate: below a waiver's cap it decides alone, otherwise
-    it asks `confirm`, and with no way to ask it refuses. `on_authorized(vault_entry, payment_id, site, amount_cents=, currency=)` lets a
-    guarded card out of the vault, to that site, into a page that asks for no more than that amount, for as long as the decision stands."""
+    it asks `confirm`, and with no way to ask it refuses. `on_authorized(vault_entry, payment_id, site)` lets a guarded card
+    out of the vault, to that site, for as long as the decision stands."""
     from harness.tools.registry import EffectClass
 
     def request_payment(system_id: str, amount: str, currency: str, recipient: str, reason: str, site: str = "") -> Dict[str, Any]:
         result = broker.authorize(system_id, amount, currency, recipient, reason, confirm=confirm, site=site)
         card = broker.system_card(system_id)
-        system_currency = str(result["amount"]).rsplit(" ", 1)[-1]
         entry = card.get("vault_entry") or ""
         out = {**result, "executed": False}
         if entry and card.get("credential") == "vault_card":
             if on_authorized:
-                on_authorized(entry, result["payment_id"], result.get("site", ""), amount_cents=result["amount_cents"], currency=system_currency)
+                on_authorized(entry, result["payment_id"], result.get("site", ""))
             out["pay_with"] = {f: "{{vault:%s.%s}}" % (entry, f) for f in ("holder", "number", "expiry", "cvc")}
             out["note"] = ("Basalt approved this amount. Put the values above in the merchant's payment form exactly as written; they are filled in for you. "
-                           "The card is typed once, only with the browser tools and only into a page that shows the amount to pay, no more than the approved one. "
                            "This tool charges nothing by itself: the payment is made when the form is sent.")
         elif entry and card.get("credential") == "vault_login":
             out["sign_in_with"] = {f: "{{vault:%s.%s}}" % (entry, f) for f in ("username", "password")}

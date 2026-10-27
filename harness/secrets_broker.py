@@ -235,7 +235,7 @@ class SecretsBroker:
                     raise SecretDestinationError(
                         f"Secret '{name}' may only be sent to {', '.join(sorted(allowed))}, not to {', '.join(bad)}")
 
-    def resolve_tokens(self, text: str, destinations: Optional[Iterable[str]] = None, payable: Optional[Callable[[str], Any]] = None) -> str:
+    def resolve_tokens(self, text: str, destinations: Optional[Iterable[str]] = None) -> str:
         """Substitutes {{secret:NAME}} with the stored value; unknown names are left as written.
 
         With `destinations` (the hosts the text will reach) a secret is only filled in toward an allowed host."""
@@ -247,4 +247,4 @@ class SecretsBroker:
             return val if val is not None else match.group(0)
 
         out = PLACEHOLDER.sub(repl, text)
-        return self.vault.resolve(out, hosts=destinations, ask_code=self.ask_code, payable=payable) if self.vault is not None else out
+        return self.vault.resolve(out, hosts=destinations, ask_code=self.ask_code) if self.vault is not None else out

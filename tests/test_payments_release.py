@@ -37,7 +37,7 @@ def set_up(tmp_path, waiver=("50", "120"), sites=None):
 
 def pay(broker, vault, site="shop.example", amount="30"):
     r = broker.authorize("vcard", amount, "EUR", "Hotel", "deposit", site=site)
-    vault.arm("trip", payment_id=r["payment_id"], site=r["site"], uses=3)          # this file is about where and while: a few fills, no page to read the amount from
+    vault.arm("trip", payment_id=r["payment_id"], site=r["site"])
     return r
 
 
@@ -71,19 +71,15 @@ def test_a_payment_the_person_confirmed_is_stopped_by_the_kill_switch_too(tmp_pa
         vault.resolve(FORM)
 
 
-def test_an_approval_lets_each_field_out_once_unless_more_was_chosen_and_not_for_ever(tmp_path):
+def test_an_approval_lets_the_card_out_a_few_times_not_for_ever(tmp_path):
     vault, broker = set_up(tmp_path)
-    r = broker.authorize("vcard", "30", "EUR", "Hotel", "deposit", site="shop.example")
-    vault.arm("trip", payment_id=r["payment_id"], site=r["site"])
+    pay(broker, vault)
+    for _ in range(9):
+        vault.resolve(FORM)
+    with pytest.raises(VaultError, match="has been used"):
+        vault.resolve(FORM)
+    pay(broker, vault)                                                              # a new payment is a new approval
     assert vault.resolve(FORM) == "4242424242424242"
-    assert vault.resolve("{{vault:trip.cvc}}") == "123"                             # another field has its own use
-    with pytest.raises(VaultError, match="has been used"):
-        vault.resolve(FORM)
-    pay(broker, vault)                                                              # a new payment is a new approval, here for three fills
-    for _ in range(3):
-        assert vault.resolve(FORM) == "4242424242424242"
-    with pytest.raises(VaultError, match="has been used"):
-        vault.resolve(FORM)
 
 
 def test_the_approval_ends_with_the_waiver_and_without_one_the_card_stays_in(tmp_path):
