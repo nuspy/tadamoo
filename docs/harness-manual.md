@@ -268,6 +268,9 @@ you the address and the number to call.
   (`~/.claude/skills`, the project's `.claude/skills`, plugins, `.mcp.json` and the like).
 - **Nothing is active until you approve it.** In *Settings → Capabilities* open an entry, read its text (a skill) or its command (a
   server) and approve. The approval is tied to what you read; if the file changes, it is *to approve* again.
+- **Your own skill folders.** In *Settings → Capabilities → Skill folders* (and with `--skills DIR` on the command line) you name folders
+  of `SKILL.md` skills. Their skills are listed there as *to approve*; `load_skill` loads an approved one, and refuses a new or changed
+  one with a message that says so. It never waits for an answer.
 - **Using them.** The agent searches (`find_capability`), loads an approved skill (`load_capability`) or calls an approved server's tool
   (`call_capability`, which asks like any action that cannot be undone). From the Chat you can call a skill with `/name text`.
 - **Missing something?** The agent can look online for an MCP server or a skill (`find_online_capability`), show you the best five

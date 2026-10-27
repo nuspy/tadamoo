@@ -111,7 +111,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = 15) ->
     parser.add_argument("--secret-env", action="append", default=[], metavar="NAME",
                         help="environment variable the agent may use as {{secret:NAME}}; NAME=host1,host2 limits where it can be sent "
                              "(without hosts it is for local commands only)")
-    parser.add_argument("--skills", action="append", default=[], metavar="DIR", help="folder with SKILL.md skills")
+    parser.add_argument("--skills", action="append", default=[], metavar="DIR", help="folder with SKILL.md skills; it is added to the skill folders of Settings > Capabilities, where a new or changed skill is approved")
     parser.add_argument("--payments-dir", default="", help="the person's payment systems and limits: the agent may ask to pay and the broker decides")
     parser.add_argument("--browser", action="store_true", help="offer the browser tools: Edge or Chrome on this PC, for forms, purchases and bookings")
     parser.add_argument("--browser-headless", action="store_true", help="the browser has no window")
@@ -335,14 +335,7 @@ def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builde
     from harness.capabilities import CapabilityIndex, register_capability_tools
     from harness.mcp_client import MCPClient, MCPHttpClient, MCPHub
     from harness.vision_tool import register_vision_tool
-    if cfg.capabilities_dir:
-        directory = Path(cfg.capabilities_dir)
-    else:
-        try:
-            from serve.userdata import user_data_dir
-            directory = user_data_dir() / "capabilities"
-        except Exception:
-            directory = Path.home() / ".basalt" / "capabilities"
+    directory = _capabilities_directory(cfg)
     index = CapabilityIndex(directory, workspace, home=Path(cfg.capabilities_home) if cfg.capabilities_home else None,
                             appdata=Path(cfg.capabilities_home) / "appdata" if cfg.capabilities_home else None)
 
@@ -388,6 +381,17 @@ def _hook_files(cfg: AgentConfig, workspace: Path) -> List[Path]:
     if cfg.workspace_hooks:
         files.append(workspace / ".basalt" / "hooks.json")
     return files
+
+
+def _capabilities_directory(cfg: "AgentConfig") -> Path:
+    """Where the capability index and its approvals are kept."""
+    if cfg.capabilities_dir:
+        return Path(cfg.capabilities_dir)
+    try:
+        from serve.userdata import user_data_dir
+        return user_data_dir() / "capabilities"
+    except Exception:
+        return Path.home() / ".basalt" / "capabilities"
 
 
 def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summarizer: Optional[Any] = None) -> BuiltAgent:
@@ -502,9 +506,12 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         from harness.integrations.wiki_tools import register_wiki_tools
         from harness.integrations.wikibridge_client import WikiBridgeClient
         register_wiki_tools(registry, WikiBridgeClient.from_environment(), cfg.wiki_project or None)
-    catalog = SkillCatalog([Path(p) for p in cfg.skill_paths], approvals=ApprovalStore(data / "approved_skills.json"),
-                           require_approval=True)
+    # The approvals are the Capabilities page's, so a skill approved there loads here and a new or changed one is listed there to approve.
+    skill_approvals = ApprovalStore(_capabilities_directory(cfg) / "approved.json", prefix="skill:")
+    catalog = SkillCatalog([Path(p) for p in cfg.skill_paths], approvals=skill_approvals, require_approval=True)
     if cfg.skill_paths:
+        from harness.capabilities import add_skill_folders
+        add_skill_folders(_capabilities_directory(cfg), cfg.skill_paths)
         catalog.discover_skills()
         if catalog.skills:
             builder.set_skills_catalog(catalog.format_catalog_prompt())

@@ -19,7 +19,7 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from harness.skills import ApprovalStore, parse_frontmatter
 
@@ -53,6 +53,30 @@ MAX_RESULTS = 5
 STOP = frozenset("a an the of to in on for from with and or is are be it this that my me i do does you how what which into as at by use using want need please can could".split())
 DESC_CHARS = 300
 HIT_CHARS = 160
+
+
+MAX_SKILL_DIRS = 50
+
+
+def add_skill_folders(directory: Path, paths: Sequence[str | Path]) -> List[str]:
+    """Names folders of skills the person chose (a --skills option) in the saved settings, so the Capabilities page lists what is in them
+    and the person can approve it there. Only folders that exist are added; returns the folders now saved."""
+    file = Path(directory) / "settings.json"
+    data = _load_json(file)
+    data = data if isinstance(data, dict) else {}
+    saved = [str(x) for x in data.get("skill_dirs", []) if isinstance(x, str)]
+    for p in paths:
+        folder = str(Path(p).resolve())
+        if Path(folder).is_dir() and folder not in saved:
+            saved.append(folder)
+    saved = saved[:MAX_SKILL_DIRS]
+    if saved != data.get("skill_dirs"):
+        data["skill_dirs"] = saved
+        Path(directory).mkdir(parents=True, exist_ok=True)
+        tmp = file.with_name(file.name + ".tmp")
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        tmp.replace(file)
+    return saved
 
 
 def _sha(text: str) -> str:
@@ -187,8 +211,9 @@ class Launch(list):
     env: Optional[Dict[str, str]] = None
 
 
-def discover(workspace: Path, home: Optional[Path] = None, appdata: Optional[Path] = None) -> List[Found]:
-    """Everything found, in a fixed order; the first of a name wins (the person's own, then the project's, then plugins')."""
+def discover(workspace: Path, home: Optional[Path] = None, appdata: Optional[Path] = None, folders: Sequence[str] = ()) -> List[Found]:
+    """Everything found, in a fixed order; the first of a name wins (the folders the person named, then their own, then the project's,
+    then plugins')."""
     home = home or Path.home()
     appdata = appdata if appdata is not None else (Path(os.environ["APPDATA"]) if os.environ.get("APPDATA") else None)
     found: List[Found] = []
@@ -199,6 +224,8 @@ def discover(workspace: Path, home: Optional[Path] = None, appdata: Optional[Pat
                 if not _disabled(f) and (entry := _read_skill(f, origin)):
                     found.append(entry)
 
+    for folder in folders:
+        skills_in(Path(folder), "folder")
     skills_in(home / ".claude" / "skills", "user")
     skills_in(workspace / ".claude" / "skills", "project")
     skills_in(workspace / ".agents" / "skills", "project")
@@ -282,7 +309,12 @@ class CapabilityIndex:
         data = _load_json(self._file("settings.json"))
         data = data if isinstance(data, dict) else {}
         return {"visual": data.get("visual") if isinstance(data.get("visual"), str) else "builtin",
-                "off": [str(x) for x in data.get("off", []) if isinstance(x, str)]}
+                "off": [str(x) for x in data.get("off", []) if isinstance(x, str)],
+                "skill_dirs": [str(x) for x in data.get("skill_dirs", []) if isinstance(x, str)][:MAX_SKILL_DIRS]}
+
+    def folders_changed(self) -> bool:
+        """Whether the folders named in the settings are not the ones the last scan looked in."""
+        return self.settings()["skill_dirs"] != getattr(self, "_scanned_dirs", [])
 
     def _write(self, name: str, data: Any) -> None:
         tmp = self._file(name + ".tmp")
@@ -314,7 +346,8 @@ class CapabilityIndex:
     def refresh(self, rescan: bool = True) -> List[Dict[str, Any]]:
         with self._lock:
             if rescan or not self.entries:
-                found = discover(self.workspace, self.home, self.appdata)
+                self._scanned_dirs = self.settings()["skill_dirs"]
+                found = discover(self.workspace, self.home, self.appdata, self._scanned_dirs)
                 found += [e for e in installed_entries(self.dir) if e.id not in {f.id for f in found}]
                 self._raw = {f.id: f.raw_command for f in found if f.raw_command}
                 self._urls = {f.id: f.url for f in found if f.url}
