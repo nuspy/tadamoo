@@ -1027,6 +1027,10 @@ holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/
 python -m harness.eval --set core --k 5 --endpoint http://127.0.0.1:7232 --gpu-power-limit-w 450 --out report.md
 python -m harness.eval --set toolcalls --k 5
 python -m harness.eval --set knowledge --k 3 --strategies none,rag,cag
+python -m harness.eval --compare-strategies --k 5          # the same, and the report gets a none / RAG / CAG table
+python -m harness.eval --bfcl D:\data\bfcl --k 5 --limit 200
+python -m harness.eval --terminal-bench D:\data\terminal-bench --only tb/hello-world --k 5
+python -m harness.eval --swebench D:\data\swe-bench-pro --limit 20 --k 3
 ```
 
 Each trial is a fresh agent run on a fresh workspace with its own seed, checked on what happened (files, commands, the
@@ -1039,6 +1043,24 @@ commit, the model, the hardware, the GPU power limit (or says it was not recorde
 validity, cost per trial and the prefix cache hit rate. These are development A/Bs, not headline numbers; a difference under about 3
 points is noise until repeated. The task sets are small starting points; add private tasks of your own. Running other
 harnesses against the same endpoint is not automated.
+
+A `--k` below 5 is accepted but warned about, on stderr and at the top of the report: pass^k over so few repetitions says little. The
+report also carries what the server itself measured: with the request log on (the default) each trial reads the `timing` events of its
+requests (`harness/eval/serverlog.py`) and the report gives the median time to the first token and prefill time, the share of the prompt
+read from the cache, and a TTFT and cache column per task; the figures belong to a trial only when nothing else used the server meanwhile,
+and `--no-server-timings` leaves them out. With `--compare-strategies` (or `--strategies` on the `knowledge` set) the report adds a table of
+none, RAG and CAG side by side: success, pass^k, tokens in, seconds and cache share.
+
+**Public benchmarks** are read from a folder you downloaded yourself; nothing is fetched (`harness/eval/benchmarks.py` has the layouts).
+`--bfcl` takes `BFCL_v<n>_<category>.json` with `possible_answer/` beside it (simple, multiple, parallel, parallel_multiple and irrelevance by
+default) and scores the calls by BFCL's rule: the function, every required argument, no unknown argument, each value among the accepted ones, parallel
+calls in any order, and for irrelevance no call at all; Java, JavaScript, SQL, REST and multi-turn files are left out and listed. `--terminal-bench`
+takes a folder of tasks (`task.yaml` and `tests/`): the model works in a copy that holds neither the tests nor the solution, the tests are copied in for
+the check with `/app` rewritten to the workspace, and the task passes when its own `pytest` does. `--swebench` takes `instances.jsonl` and a checkout of
+each repository at its base commit in `repos/<instance_id>` (without `.git`): the instance's test patch is applied with `git apply` and the instance
+is resolved when its FAIL_TO_PASS tests pass and its PASS_TO_PASS tests still do (`--swebench-test-command` changes the test command). These run on this machine
+with the local Python, not in the containers the datasets were made for, so choose a subset this machine can check (`--only`, `--limit`); the layouts are the ones
+the datasets are described as having and were written without a copy of them, so the first real folder is the test. No dataset has been run and no score exists yet.
 
 `python -m harness.eval.alternate` measures what it costs when two conversations take turns on one model (the time to the first token and the share of the
 prompt read from the cache, taking turns against one after the other). It decides whether a queue that groups requests by conversation is worth building.
