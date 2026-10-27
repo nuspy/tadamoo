@@ -3,7 +3,7 @@
 The model only ever writes placeholders such as {{secret:github_token}}; the value is substituted at
 the execution boundary and masked again in anything that flows back. A secret may name the hosts it
 can be sent to; a command that would send it anywhere else is refused. This is a check of what the
-command says, not network isolation: a command that builds its address at run time needs a firewall.
+command and the scripts it names say (and a command that uses the network without naming a site is refused), not network isolation.
 """
 from __future__ import annotations
 
