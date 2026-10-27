@@ -1,13 +1,15 @@
 """The planner's tools for the Chat, and the rule that no change to a plan happens without the person's yes.
 
-Reading a plan is free. Creating, changing, marking and archiving one is always confirmed, in every permission mode,
-and the confirmation is one of two things:
+Reading a plan is free. Creating, changing, marking and archiving one is confirmed, and the confirmation is one of two things:
 
 * **the person's own words**: the call carries a literal quotation of what they asked for; it counts only if it is in their
   latest message and nothing from outside (a page, a file, a tool's answer) came in after that message. It is a brake for
   the common case, not a proof, so every change is also shown in the conversation with its result;
 * **a question from the harness**: the question is made here from the call's real data, never from the model's words, and
   the person answers it with a button.
+
+At the Auto level the person chose that nothing is asked, except for a plan that involves other people (participants, a step for
+someone else), a call to prepare, or effects that cannot be undone (a booking, a payment): there the question stands and names why.
 
 A plan must have been read (`plan_get`) before it is changed, and the change carries the revision that was read: a plan
 that changed meanwhile is refused and has to be read again.
@@ -39,15 +41,41 @@ def _norm(text: str) -> str:
     return " ".join(str(text).lower().split())
 
 
+def involved(snap: Dict[str, Any]) -> List[str]:
+    """What in a plan reaches beyond the person's own files: other people, a call to prepare, effects that cannot be taken back (a booking, a
+    payment). The facts come from the plan's data, not from a guess about its words."""
+    plan = snap.get("plan") or {}
+    nodes = list((plan.get("nodes") or {}).values())
+    out: List[str] = []
+    people = [str(x) for x in (snap.get("card") or {}).get("participants") or [] if str(x).strip()]
+    if people:
+        out.append("people: " + ", ".join(people[:5]))
+    if any(n.get("assignee") == "third_party" for n in nodes):
+        out.append("a step for someone else")
+    if any(n.get("call_request") for n in nodes):
+        out.append("a phone call to prepare")
+    if any(e.get("effect") != "reversible" for n in nodes for e in (n.get("state_variables") or {}).get("effects") or []):
+        out.append("effects already done that cannot be undone (bookings, payments)")
+    return out
+
+
 class Confirmer:
     """Decides whether a change to a plan has the person's yes (see the module's text)."""
 
-    def __init__(self, agent: Any, ask: Optional[Callable[[Dict[str, Any]], str]] = None) -> None:
+    def __init__(self, agent: Any, ask: Optional[Callable[[Dict[str, Any]], str]] = None, auto: Optional[Callable[[], bool]] = None) -> None:
         self.agent = agent
         self.ask = ask                 # shows a question with buttons and waits; returns "confirm", "cancel" or ""
+        self.auto = auto               # true while the conversation runs at the Auto level: the person chose that nothing is asked
 
-    def check(self, facts: Dict[str, Any], question: str, quote: str = "") -> Tuple[bool, str]:
-        """(True, how) when the person said yes; (False, what to tell the model) otherwise."""
+    def check(self, facts: Dict[str, Any], question: str, quote: str = "", snap: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
+        """(True, how) when the person said yes; (False, what to tell the model) otherwise. At the Auto level the person chose that nothing
+        is asked, except when the plan involves other people, a booking or a step that cannot be undone: then the question stands, and says why."""
+        involves = involved(snap or {})
+        if involves:
+            facts = {**facts, "involves": involves}
+            question = f"{question}\n\nThis plan involves: {'; '.join(involves)}."
+        if self.auto is not None and self.auto() and not involves:
+            return True, "auto"
         said = _norm(quote or "")
         if len(said) >= MIN_QUOTE and said in _norm(self.agent.last_user_text) and not self.agent.untrusted_since_user:
             return True, "quoted"
@@ -269,7 +297,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         ok, how = confirmer.check({"kind": "plan_change" if decision == "approve" else "plan_proposal_reject", "plan": snap["plan"]["title"],
                                    "title": str(prop.get("title")), "changes": changes, "proposal": proposal_id},
                                   f'{verb} the proposal "{str(prop.get("title"))[:120]}" on the plan "{snap["plan"]["title"]}"'
-                                  + (f'. This {"; ".join(parts)}.' if decision == "approve" else "?"), quote)
+                                  + (f'. This {"; ".join(parts)}.' if decision == "approve" else "?"), quote, snap)
         if not ok:
             return how
         try:
@@ -309,7 +337,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         shown = [n["title"] for n in nodes.values()]
         ok, how = confirmer.check({"kind": "plan_create", "title": title, "plan_kind": kind, "steps": shown},
                                   f'Create the plan "{title}" ({kind}) with {len(shown)} steps: ' + "; ".join(f"{i}. {t}" for i, t in enumerate(shown[:10], 1)) +
-                                  ("..." if len(shown) > 10 else ""), quote)
+                                  ("..." if len(shown) > 10 else ""), quote, {"plan": {"nodes": nodes}})
         if not ok:
             return how
         try:
@@ -352,7 +380,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         written = "; ".join(label for label, v in (("dates", date), ("place", destination), ("participants", participants), ("constraints", constraints)) if v)
         ok, how = confirmer.check({"kind": "plan_change", "plan": snap["plan"]["title"], "title": f"what events are judged against: {written}"},
                                   f'In the plan "{snap["plan"]["title"]}", write into its card: {written}. The card is what incoming events are judged against; '
-                                  "it leaves this computer only if the cloud filter is on and these fields are allowed.", quote)
+                                  "it leaves this computer only if the cloud filter is on and these fields are allowed.", quote, snap)
         if not ok:
             return how
         try:
@@ -375,7 +403,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         except Exception as exc:
             return failure(exc)
         ok, how = confirmer.check({"kind": "plan_change", "plan": snap["plan"]["title"], "title": "aims, dates and amounts"},
-                                  f'Set what the plan "{snap["plan"]["title"]}" says about time and money: ' + "; ".join(sorted(profile)) + ".", quote)
+                                  f'Set what the plan "{snap["plan"]["title"]}" says about time and money: ' + "; ".join(sorted(profile)) + ".", quote, snap)
         if not ok:
             return how
         try:
@@ -419,7 +447,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         ok, how = confirmer.check({"kind": "plan_mark", "plan": snap["plan"]["title"], "step": node["title"], "from": node.get("status"), "to": status,
                                    **({"sets": outputs} if outputs else {})},
                                   f'In the plan "{snap["plan"]["title"]}", mark the step "{node["title"]}" as {status} (now {node.get("status")})'
-                                  + (f" and set the plan's values: {writes}" if writes else "") + "?", quote)
+                                  + (f" and set the plan's values: {writes}" if writes else "") + "?", quote, snap)
         if not ok:
             return how
         try:
@@ -468,7 +496,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         if node.get("assignee") != "agent" or node.get("type", "action") != "action":
             return f"Step {node_id} is for {node.get('assignee')} and is not an action the agent can do: tell the user."
         ok, how = confirmer.check({"kind": "plan_step_start", "plan": snap["plan"]["title"], "step": node["title"]},
-                                  f'In the plan "{snap["plan"]["title"]}", start the step "{node["title"]}" now?', quote)
+                                  f'In the plan "{snap["plan"]["title"]}", start the step "{node["title"]}" now?', quote, snap)
         if not ok:
             return how
         try:
@@ -494,7 +522,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         pid, changes = proposed.get("proposal_id"), classify_diff(diff)
         parts = [f"{label} {', '.join(map(str, ids))}" for label, ids in (("adds", changes["added"]), ("removes", changes["removed"]), ("changes", changes["updated"])) if ids]
         ok, how = confirmer.check({"kind": "plan_change", "plan": snap["plan"]["title"], "title": str(title), "changes": changes},
-                                  f'Change the plan "{snap["plan"]["title"]}": {str(title)[:120]}. This {"; ".join(parts) or "changes nothing"}.', quote)
+                                  f'Change the plan "{snap["plan"]["title"]}": {str(title)[:120]}. This {"; ".join(parts) or "changes nothing"}.', quote, snap)
         try:
             if not ok:
                 client.event(plan_id, {"type": "plan:reject", "proposal_id": pid})
@@ -531,7 +559,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         shown = ("remove the prepared call and wiki question" if clear else
                  "; ".join(([f'prepare a call to {number}: {reason[:100]}'] if "call_request" in changes else []) + ([f'ask the wiki: {wiki_query[:100]}'] if wiki_query else [])))
         ok, how = confirmer.check({"kind": "plan_change", "plan": snap["plan"]["title"], "title": f'step "{node["title"]}": {shown}'},
-                                  f'In the plan "{snap["plan"]["title"]}", on the step "{node["title"]}": {shown}. This places no call by itself.', quote)
+                                  f'In the plan "{snap["plan"]["title"]}", on the step "{node["title"]}": {shown}. This places no call by itself.', quote, snap)
         if not ok:
             return how
         try:
@@ -570,7 +598,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         except Exception as exc:
             return failure(exc)
         ok, how = confirmer.check({"kind": "plan_archive", "plan": snap["plan"]["title"]},
-                                  f'Archive the plan "{snap["plan"]["title"]}"? It leaves the list and can be restored.', quote)
+                                  f'Archive the plan "{snap["plan"]["title"]}"? It leaves the list and can be restored.', quote, snap)
         if not ok:
             return how
         try:

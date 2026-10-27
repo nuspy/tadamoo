@@ -284,14 +284,15 @@ def test_a_deny_rule_still_catches_a_program_named_inside_a_multi_line_command()
     assert not allowed
 
 
-def test_an_allow_rule_for_python_does_not_cover_a_multi_line_wrapper():
+def test_an_allow_rule_for_python_covers_a_multi_line_wrapper_because_the_person_allowed_python():
     asked = []
     pm = PermissionManager(level=PermissionLevel.DEFAULT, rules=[PermissionRule("shell_command:python *", "allow")],
                            confirm_callback=lambda tool, args: asked.append(args["command"]) or False)
     assert pm.evaluate(*SHELL, {"command": "python build.py"})[0] and asked == []
-    wrapper = 'python -c "\nimport shutil\nshutil.rmtree(\'x\')\n"'
-    assert not pm.evaluate(*SHELL, {"command": wrapper})[0] and asked == [wrapper]      # asked, with the whole text
-    assert not pm.evaluate(*SHELL, {"command": wrapper, "shell": "powershell"})[0]
+    wrapper = 'python -c "' + chr(10) + 'import shutil' + chr(10) + "shutil.rmtree('x')" + chr(10) + '"'
+    assert pm.evaluate(*SHELL, {"command": wrapper})[0] and asked == []
+    other = wrapper + chr(10) + "del /s x"
+    assert not pm.evaluate(*SHELL, {"command": other})[0] and asked == [other]      # a statement no rule covers still asks, with the whole text
 
 
 def test_the_deny_list_judges_every_line_of_a_wrapper_and_nothing_runs(tmp_path):

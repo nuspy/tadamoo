@@ -393,26 +393,28 @@ class Session:
     def permission_confirm(self, tool: str, arguments: Dict[str, Any]) -> bool:
         """The permission manager's question, put to the person in the conversation. The answer reaches as far as they choose: this call, this
         conversation, or every conversation from now on (for the Rule of Two's own question, the conversation or every one stops being asked)."""
-        from harness.permissions import suggest_rule
+        from harness.permissions import suggest_rules
         two = arguments.get("rule_of_two")                            # set when the Rule of Two is what asks: the question says which facts made it ask
         arguments = {k: v for k, v in arguments.items() if k != "rule_of_two"}
         shown = json.dumps(arguments, ensure_ascii=False)[:300]
         permissions = self.built.permissions
-        rule = None if two else suggest_rule(tool, arguments, permissions.always_ask)    # facts change from call to call: no rule can answer the Rule of Two
+        rules = [] if two else suggest_rules(tool, arguments, permissions.always_ask)    # facts change from call to call: no rule can answer the Rule of Two
+        label = ", ".join(rules)
         options = [{"label": "Allow this call", "value": "confirm"}]
-        if rule or two:
-            options += [{"label": f"Allow in this conversation{f' ({rule})' if rule else ''}", "value": "chat", **({"rule": rule} if rule else {})},
-                        {"label": f"Always allow{f' ({rule})' if rule else ''}", "value": "always", **({"rule": rule} if rule else {})}]
+        if rules or two:
+            options += [{"label": f"Allow in this conversation{f' ({label})' if rules else ''}", "value": "chat", **({"rule": label, "rules": rules} if rules else {})},
+                        {"label": f"Always allow{f' ({label})' if rules else ''}", "value": "always", **({"rule": label, "rules": rules} if rules else {})}]
         options.append({"label": "Deny", "value": "cancel"})
         answer = self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments,
                             "question": f"{two}" + "\n\n" + f"Allow {tool} {shown}?" if two else f"Allow {tool} {shown}?", "options": options})
         if answer in ("chat", "always"):
-            if rule:
-                permissions.add_rule(rule, "allow")                   # the server keeps it for this conversation's next starts; "always" also for every other one
-                self.emit({"event": "rule_added", "rule": rule, "scope": "global" if answer == "always" else "chat"})
-            elif two:
+            scope = "global" if answer == "always" else "chat"
+            for rule in rules:
+                permissions.add_rule(rule, "allow")                   # the server keeps it for this conversation's next starts; "always" for every other one too
+                self.emit({"event": "rule_added", "rule": rule, "scope": scope})
+            if two:
                 permissions.two.set_level("off")
-                self.emit({"event": "rule_of_two_off", "scope": "global" if answer == "always" else "chat"})
+                self.emit({"event": "rule_of_two_off", "scope": scope})
         return answer in ("confirm", "chat", "always")
 
     def enable_planner(self, client: Any) -> None:
@@ -422,7 +424,7 @@ class Session:
         hooks = getattr(self.agent, "hooks", None)
         if hooks is not None:                                    # a hook of the person's that tells the planner reaches it from here
             hooks.plan_event_sink = lambda text, source: client.ingest(text, source)
-        register_planner_tools(self.agent.tools, client, Confirmer(self.current, ask=self._ask))
+        register_planner_tools(self.agent.tools, client, Confirmer(self.current, ask=self._ask, auto=lambda: self.built.permissions.level.value == "auto"))
         register_ask_tool(self.agent.tools, self.current, self._question)
 
     def _plans_note(self) -> Optional[str]:

@@ -185,7 +185,7 @@ A conversation has the planner's tools (`harness/planner_tools.py`), unless it i
 buttons. The plans live in the server, in the one store the Plans view uses, and every change made from the Chat names the
 Chat as its author in the plan's history.
 
-**Every change to a plan has the person's yes, in every permission mode**, and it is one of two things:
+**Every change to a plan has the person's yes, in every permission mode below `auto`; at `auto` it is asked only for a plan that involves other people, a call to prepare or effects that cannot be undone (bookings, payments)**, and it is one of two things:
 
 * *their own words*: the call carries a literal quotation (`quote`) of what they asked for. It counts only when it is
   at least 6 characters, is in their latest message, and nothing from outside (a page, a file, a memory, a plan read in this
@@ -214,16 +214,14 @@ that fails refuses too); the permission manager; a checkpoint of the workspace b
 tool; secrets masked in the result; results of untrusted tools fenced as data; an audit record.
 
 Permissions: plan mode refuses anything that is not read-only; then **deny rules** (matched against every segment of a
-shell command and the words inside `cmd /c`, `powershell -c`); tools that always ask (`phone_call`); **allow rules**, which
-never cover a command that chains or redirects (`pytest && rm -rf ~` is not `pytest`); then the level: read-only asks for
-anything, `default` allows reversible workspace edits and asks for irreversible actions, `auto` allows everything **unless
-the Rule of Two is broken**: once the session has read untrusted content (web, MCP, phone, wiki, memory) and can reach
-sensitive data (secrets or a vault entry), irreversible actions ask again. Whether the session can reach sensitive data is looked at at each call,
-not when the conversation began, so an entry the person adds to the Wallet later counts at once. One tool is outside this check:
-`request_payment` carries an allow rule, which skips the level and the Rule of Two, because the payment broker is its only gate (the
-person's limit, the waiver, and a question to the person above them), whatever the conversation has read. `write_file` and `edit_file` are reversible, except inside a `.git` folder
-(a hook or the config can make git run code later): there the person is asked, once per file, as for an irreversible action (the
-level and the Rule of Two decide it, and with nobody to ask it is refused), and the checkpoint before it holds the hooks and the config.
+shell command and the words inside `cmd /c`, `powershell -c`); then, **at the `auto` level, everything passes and nothing is asked**: the
+person chose that. Below it: tools that always ask (`phone_call`); **allow rules**, which cover a command of several statements when each
+statement is covered (`cd x && make` needs `cd *` and `make *`; a command built at run time with `$(...)`, a backtick or `%VAR%` is covered
+by none); then the level: read-only asks for anything, `default` allows reversible workspace edits and asks for irreversible actions.
+The Rule of Two asks only below `auto`, and only for an outward action. `request_payment` carries an allow rule because the payment broker
+is its only gate (the person's limit, the waiver, and a question to the person above them). `write_file` and `edit_file` are reversible,
+except inside a `.git` folder (a hook or the config can make git run code later): below `auto` the person is asked there, once per file, and
+the checkpoint before it holds the hooks and the config.
 
 The Rule of Two is kept as three facts about the conversation (`harness/rule_of_two.py`). **Untrusted**: it read content from outside the
 person's control: a page, a search result, an MCP or A2A answer, a file, a command's output, an attachment, a recalled note, a note the
@@ -416,7 +414,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   grants for that site only on a yes; `grant-safe` also allows only writing to the clipboard. USB, serial and HID choosers are never granted. JavaScript
   dialogs never send anything: an alert is accepted, a question or a prompt dismissed, a warning on leaving accepted only when `browser_open` or
   `browser_back` asked to go; each is reported to the model.
-- **Phone calls** (`--phone`): `phone_call` always asks, even at the `auto` level and with an allow rule; the call opens by
+- **Phone calls** (`--phone`): below the `auto` level `phone_call` asks every time, even with an allow rule; the call opens by
   saying it is an AI assistant calling for you; what the other person says is untrusted. Tests of real calls are skipped
   and queued in `tests/QUEUE_live_calls.md` until you authorize them (`BASALT_LIVE_CALLS=1`).
 - **Recordings** (audio and video attachments): the same callAPIcall client sends a file to the service's analysis routes in

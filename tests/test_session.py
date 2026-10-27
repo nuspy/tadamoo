@@ -414,7 +414,7 @@ class FakePlans:
         self.plans = [p for p in self.plans if p["plan_id"] != plan_id]
 
 
-def with_planner(tmp_path, client, plans=None, mode="auto"):
+def with_planner(tmp_path, client, plans=None, mode="default"):
     ws = tmp_path / "ws"
     ws.mkdir(exist_ok=True)
     built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False,
@@ -745,13 +745,22 @@ def test_allowing_for_this_conversation_is_not_for_good_and_a_program_that_runs_
     assert ev.wait("rule_added")["scope"] == "chat"
 
 
-def test_no_always_button_for_a_command_that_chains_others_or_a_payment(tmp_path):
+def test_a_command_that_chains_others_gets_the_same_three_choices_and_a_payment_only_its_own(tmp_path):
     client = Scripted(call("shell_command", command="pytest && rm -rf x"), say("no"))
     session, ev, plans, built = with_planner(tmp_path, client, mode="default")
     built.agent.tools.register("shell_command", "runs", {"type": "object", "properties": {"command": {"type": "string"}}}, EffectClass.IRREVERSIBLE,
                                lambda **kw: "ok")
     session.send("m1", "prova")
     ask = ev.wait("ask")
-    assert [o["value"] for o in ask["options"]] == ["confirm", "cancel"]
+    assert [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "cancel"]
+    assert ask["options"][2]["rules"] == ["shell_command:pytest *", "shell_command:rm *"]
     session.answer(ask["id"], "cancel")
     ev.wait("done")
+
+
+def test_a_change_to_a_plan_asks_nothing_at_the_auto_level(tmp_path):
+    client = Scripted(call("plan_archive", plan_id="p1"), say("Archiviato."))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="auto")
+    session.send("m1", "metti via quel piano")
+    ev.wait("done")
+    assert "ask" not in ev.kinds()
