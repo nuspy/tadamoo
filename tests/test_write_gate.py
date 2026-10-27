@@ -67,7 +67,8 @@ def test_the_secret_in_the_header_lets_a_program_through(server, path, body):
 
 
 def test_the_page_gets_the_cookie_and_changes_things_with_it(server):
-    code, page, resp = call(server, "GET", "/")
+    nav = {"Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none"}           # what a browser sends when it opens the page
+    code, page, resp = call(server, "GET", "/", headers=nav)
     cookie = resp.getheader("Set-Cookie")
     assert code == 200 and cookie.startswith(f"basalt_control_{server}={SECRET}") and "HttpOnly" in cookie and "SameSite=Strict" in cookie
     sent = cookie.split(";")[0]

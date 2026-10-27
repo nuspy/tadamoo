@@ -89,6 +89,7 @@ def stop_sessions() -> None:
 _WALLET = None                                         # the vault and the payment systems, made on first use
 _MCP_AUTH = None                                       # the sign-in of the remote MCP servers, made on first use
 _PLANS = None                                          # the planner's service, made on first use
+from serve.util import peer
 from serve.util.reqtrace import RequestTrace
 from serve.util.text import IM_END, stop_strings
 
@@ -491,6 +492,20 @@ def make_handler(svc: Service, remote: bool = False):
                     self._plans_get(path)
             elif path == "/api/prefs":
                 self._json(200, self._prefs())
+            elif path == "/api/session":
+                # with an API key set the page gets its change secret here, after the key is typed; a page cannot send the key on a navigation
+                if not svc.api_key:
+                    self._json(404, {"error": {"message": "not found"}})
+                elif self._authorized():
+                    if not self._page_may_change_things(navigation=False):
+                        return self._json(403, {"error": {"type": "forbidden", "message": "the change secret is given only to the page on this PC"}})
+                    body = b"{}"
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.send_header("Set-Cookie", self._control_cookie_header())
+                    self.end_headers()
+                    self.wfile.write(body)
             elif path == "":
                 # the page opens in the user's language (serve/lang.py) unless this browser chose another
                 code = lang_mod.lang()
@@ -499,8 +514,8 @@ def make_handler(svc: Service, remote: bool = False):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
-                if svc.control_token:                       # the page changes things with this; its own code never reads it
-                    self.send_header("Set-Cookie", f"{self._control_cookie()}={svc.control_token}; Path=/; HttpOnly; SameSite=Strict")
+                if self._page_may_change_things(navigation=True):   # the page changes things with this; its own code never reads it
+                    self.send_header("Set-Cookie", self._control_cookie_header())
                 self.end_headers()
                 self.wfile.write(body)
             elif path in ("/health", "/api/health"):
@@ -863,7 +878,40 @@ def make_handler(svc: Service, remote: bool = False):
             if not key_matches(self.headers.get(CONTROL_HEADER, ""), svc.control_token):
                 self._json(403, {"error": {"type": "forbidden", "message": f"the {CONTROL_HEADER} header is missing or wrong"}})
                 return False
+            if self._agent_code():
+                self._json(403, {"error": {"type": "forbidden", "code": "agent_code", "message": "the agent's own commands and code cannot use the control routes"}})
+                return False
             return True
+
+        def _key_given(self) -> bool:
+            """The request carries this server's API key (no reply is written)."""
+            auth = self.headers.get("Authorization", "")
+            given = auth[7:].strip() if auth.lower().startswith("bearer ") else self.headers.get("x-api-key", "")
+            return bool(svc.api_key) and key_matches(given, svc.api_key)
+
+        def _agent_code(self) -> bool:
+            """The client is a process the agent started (a command, a snippet, a tool's helper), not the person's page."""
+            return peer.is_agent_code(self.client_address[0], self.client_address[1], self.server.server_address[1])
+
+        def _page_may_change_things(self, navigation: bool) -> bool:
+            """Whether this request may be given the cookie of the change secret: the page of the person on this PC, never agent-run code.
+            With an API key the key is the proof; without one the request must be a browser's own navigation to the page, which a web
+            page cannot forge and a program has to imitate; either way the client must not descend from an agent session."""
+            if not svc.control_token or self.remote_listener or not settings.is_loopback(self.client_address[0]):
+                return False
+            if svc.api_key:
+                if not self._key_given():
+                    return False
+            elif navigation:
+                h = self.headers
+                if (h.get("Sec-Fetch-Dest", ""), h.get("Sec-Fetch-Mode", "")) != ("document", "navigate") or h.get("Sec-Fetch-Site", "") not in ("none", "same-origin"):
+                    return False
+            else:
+                return False
+            return not self._agent_code()
+
+        def _control_cookie_header(self) -> str:
+            return f"{self._control_cookie()}={svc.control_token}; Path=/; HttpOnly; SameSite=Strict"
 
         def _control_cookie(self) -> str:
             """One cookie name for each port: cookies are shared by every port of an address, and each server has its own secret."""
@@ -884,7 +932,12 @@ def make_handler(svc: Service, remote: bool = False):
                     jar = {}
                 given = jar[self._control_cookie()].value if self._control_cookie() in jar else ""
             if key_matches(given, token):
-                return True
+                if not self._agent_code():
+                    return True
+                if self._control_body():
+                    self._json(403, {"error": {"type": "forbidden", "code": "agent_code",
+                                               "message": "the agent's own commands and code cannot change things through the server"}})
+                return False
             if self._control_body():
                 self._json(403, {"error": {"type": "forbidden", "code": "control_secret",
                                            "message": "this change needs the server's secret: reload the page (the server may have restarted)"}})
