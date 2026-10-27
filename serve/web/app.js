@@ -420,6 +420,10 @@ $("#auth").onsubmit = e => {
   try { sessionStorage.setItem("basalt.key", apiKey); } catch (err) { /* kept for this page only */ }
   document.dispatchEvent(new CustomEvent("basalt:key"));
 };
+// with an API key set the server gives the page its change secret only to a request that carries the key
+const openSession = () => { if (apiKey) fetch("api/session", { cache: "no-store", headers: authHeaders() }).catch(() => { /* the next change says what is missing */ }); };
+document.addEventListener("basalt:key", openSession);
+openSession();
 // a 401 from any view shows the key prompt
 function askKey() { $("#auth").hidden = false; $("#key").focus(); }
 
