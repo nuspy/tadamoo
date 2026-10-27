@@ -238,6 +238,8 @@ class PlansApiTest(PlansApiBase):
                   "nodes": {"meteo": {"id": "meteo", "type": "sensor", "title": "Neve", "description": "", "assignee": "agent", "dependencies": [], "outputs": [],
                                       "conditions": {"when": "'nev' in text", "set": {"neve": True}}}}}
         self.assertEqual(self.call("POST", "/api/plans", {"plan": sensor})[0], 201)
+        self.assertTrue(self.call("GET", "/api/planner/settings")[1]["event_pump"])                  # on unless the person turns it off
+        self.assertEqual(self.call("POST", "/api/planner/settings", {"event_pump": False})[0], 200)
         code, res = self.call("POST", "/api/plans/events", {"text": "Sole a Cervinia", "source": "meteo"})
         self.assertEqual((code, res["accepted"], res["resolved"].get("snow-http"), res["pump"]), (200, 1, None, False))
         code, res = self.call("POST", "/api/plans/events", {"events": [{"text": "Nevicata a Cervinia", "source": "meteo"}], "actor": "system"})

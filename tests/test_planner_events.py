@@ -356,9 +356,20 @@ SNOW = {"plan_id": "neve", "title": "Neve", "target_type": "occasional",
                             "conditions": {"when": "'nev' in text", "set": {"neve": True}}}}}
 
 
+_made = []
+
+
+@pytest.fixture(autouse=True)
+def _close_services():
+    yield
+    while _made:
+        _made.pop().close()
+
+
 def service(tmp_path, model=None, **kw):
     svc = PlanService(tmp_path / "planner", client_factory=(lambda: model) if model else None, pump_batch=2, pump_window=300, pump_poll=0.02, **kw)
     svc.registry = False
+    _made.append(svc)
     return svc
 
 
@@ -366,7 +377,8 @@ def test_the_mailbox_feeds_the_sensors_even_with_the_pump_off_and_buffers_nothin
     svc = service(tmp_path)
     svc.create({"plan": PLAN, "card": CARD})
     svc.create({"plan": SNOW})
-    assert svc.settings()["event_pump"] is False
+    assert svc.settings()["event_pump"] is True                                           # on unless the person turns it off
+    svc.update_settings({"event_pump": False})
     quiet = svc.ingest({"text": "Sole a Cervinia", "source": "meteo"})
     assert quiet == {"accepted": 1, "resolved": {}, "buffered": {}, "pump": False}
     res = svc.ingest({"events": [{"text": "Nevicata in arrivo", "source": "meteo", "at": 1.7e9}, "altra cosa"]})
@@ -403,25 +415,56 @@ def test_with_the_pump_on_events_are_buffered_judged_and_a_wake_starts_the_repla
     assert not svc.events_status()["pump"]
 
 
-def test_the_pump_is_off_until_turned_on_and_off_again_stops_the_threads(tmp_path):
+def pump_threads():
+    return [t for t in threading.enumerate() if t.name == "inbox-pump" and t.is_alive()]
+
+
+def test_the_pump_is_on_by_default_stops_when_turned_off_and_stays_off_after_a_restart(tmp_path):
     svc = service(tmp_path)
     svc.create({"plan": PLAN, "card": CARD})
-    assert not svc.events_status()["pump"] and not any(t.name == "inbox-pump" for t in threading.enumerate() if t.is_alive())
-    svc.update_settings({"event_pump": True})
-    assert any(t.name == "inbox-pump" and t.is_alive() for t in threading.enumerate())
+    assert svc.events_status()["pump"] is True and pump_threads()
     svc.update_settings({"event_pump": False})
-    assert wait_for(lambda: not any(t.name == "inbox-pump" and t.is_alive() for t in threading.enumerate()))
+    assert wait_for(lambda: not pump_threads()) and svc.events_status()["pump"] is False
     with pytest.raises(ValueError, match="event_pump"):
         svc.update_settings({"event_pump": "yes"})
-    # saved as on, a new service (a restart) brings the pump back when the planner is first used
-    svc.update_settings({"event_pump": True})
     svc.close()
-    again = service(tmp_path)
-    try:
-        again.list()
-        assert again.events_status()["pump"] is True
-    finally:
-        again.close()
+    again = service(tmp_path)                                                               # a restart: the person's "off" is kept
+    again.list()
+    assert again.events_status()["pump"] is False and not pump_threads()
+    again.update_settings({"event_pump": True})
+    again.close()
+    third = service(tmp_path)
+    third.list()
+    assert third.events_status()["pump"] is True
+
+
+def test_the_pump_starts_with_the_server_not_at_the_first_request(tmp_path):
+    svc = service(tmp_path)
+    assert svc._pump is None and not pump_threads()
+    svc.start()
+    assert svc.events_status()["pump"] is True and pump_threads()
+
+
+def test_an_idle_pump_sleeps_until_an_event_comes_and_then_judges_it(tmp_path):
+    model = FakeModel()
+    svc = service(tmp_path, model)
+    svc.create({"plan": PLAN, "card": CARD})
+    pump = svc._pump
+    assert wait_for(lambda: pump.running)
+    real, looks = pump.process_once, []
+    pump.process_once = lambda: (looks.append(1), real())[1]
+    time.sleep(0.4)                                                   # twenty polls of 0.02 seconds, were it polling
+    assert len(looks) <= 1
+    svc.ingest({"events": ["Sciopero dei treni", "Frana sulla strada"], "plan_id": PLAN["plan_id"]})
+    assert wait_for(lambda: pump.batches == 1)                        # woke on the event and judged the batch of 2
+
+
+def test_closing_ends_a_sleeping_pump(tmp_path):
+    svc = service(tmp_path)
+    svc.create({"plan": PLAN, "card": CARD})
+    assert pump_threads()
+    svc.close()
+    assert wait_for(lambda: not pump_threads())
 
 
 def test_configured_sources_read_the_vault_deliver_into_plans_and_hold_no_secret_in_the_settings(tmp_path, web, imap):
