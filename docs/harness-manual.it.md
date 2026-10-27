@@ -264,6 +264,11 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
   avvicina al suo limite, dal più vecchio, con il testo completo salvato e nominato; gli errori non si tagliano mai. `/context` mostra
   l'uso; `/compact` riassume su richiesta la metà più vecchia. Le impostazioni della Chat scelgono la politica per un contesto pieno:
   *Ferma al limite*, *Finestra scorrevole* o *Compatta*.
+- **Lettura dei file e output lunghi.** `read_file` restituisce ciò che si chiede: il file intero, oppure le righe da `offset` a
+  `offset + limit - 1`; un file che non sta in una risposta finisce con una riga che dice le righe mostrate, il totale e l'offset con cui
+  proseguire. I risultati rumorosi (output di comandi, ricerche) sono ridotti alle prime e ultime righe e a tutte le righe di errore,
+  con il numero di righe nascoste e il testo completo salvato e nominato; una riga lunghissima è tagliata nel mezzo con il numero di
+  caratteri nascosti. Un file letto apposta, una skill e un risultato salvato riletto non sono mai accorciati.
 - **Schemi di contesto.** Le impostazioni della Chat hanno sei interruttori (iniezione, riscrittura, potatura, riassunto, rami,
   versioni), ognuno con la descrizione di cosa fa, vantaggi, svantaggi e cosa fa alla cache dell'inizio del server. Lasciali come
   sono finché non hai un motivo.

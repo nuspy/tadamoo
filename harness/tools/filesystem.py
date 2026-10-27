@@ -13,6 +13,8 @@ from harness.environment import similar_names
 
 MAX_RECORDED_TEXT = 200_000        # larger files keep their diff but not the full before/after text
 MAX_LISTED = 500
+READ_CHARS = 40_000                # what one read_file answer may hold; a longer file is read in ranges
+SCAN_BYTES = 256_000_000           # how much of a file is read to count its lines
 # what a shell command may have changed is found by comparing the workspace's text files before and after it
 SKIP_DIRS = frozenset({".git", ".basalt", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache",
                        ".idea", ".vscode"})
@@ -109,18 +111,60 @@ class WorkspaceSandbox:
                 pass
             raise
 
-    def read_file(self, path: str, max_bytes: int = 100_000) -> str:
+    def read_file(self, path: str, offset: int = 1, limit: int = 0, max_chars: int = READ_CHARS) -> str:
+        """The text of a file, whole or lines `offset` to `offset + limit - 1` (1-based; limit 0 means to the end). When the answer
+        is not the whole file, a last line says which lines it holds, how many the file has, and where to go on."""
+        try:
+            offset, limit = max(1, int(offset)), max(0, int(limit))
+        except (TypeError, ValueError):
+            raise ValueError("offset and limit must be whole numbers: offset is the first line to read (from 1), limit how many lines (0 for all)")
         safe_path = self.resolve_safe(path)
         if not safe_path.is_file():
             raise FileNotFoundError(f"File not found: {path}.{self._where(path, safe_path)}")
+        taken: List[str] = []
+        size = total = scanned = cut_length = 0
+        exact = True                                           # the whole file was counted
+        collecting = True
+        capped = False                                         # the character limit ended the answer before the lines wanted did
         with open(safe_path, "rb") as f:
-            data = f.read(max_bytes + 1)
-        if b"\x00" in data[:8000]:
-            raise ValueError(f"'{path}' is a binary file")
-        text = data[:max_bytes].decode("utf-8", errors="ignore" if len(data) > max_bytes else "replace")
-        if len(data) > max_bytes:
-            text += f"\n[... file continues; only the first {max_bytes} bytes were read ...]"
-        return text
+            if b"\x00" in f.read(8000):
+                raise ValueError(f"'{path}' is a binary file")
+            f.seek(0)
+            for raw in f:
+                total += 1
+                scanned += len(raw)
+                if scanned > SCAN_BYTES:
+                    exact = False
+                    break
+                if total < offset or not collecting:
+                    continue
+                if limit and total >= offset + limit:
+                    collecting = False
+                    continue
+                line = raw.decode("utf-8", errors="replace")
+                if size + len(line) > max_chars:
+                    collecting, capped = False, True
+                    if not taken:                              # one line longer than the limit is shown in part, and says so
+                        taken.append(line[:max_chars])
+                        cut_length = len(line)
+                    continue
+                taken.append(line)
+                size += len(line)
+        count = str(total) if exact else f"more than {total}"
+        if not taken:
+            return "" if total >= offset or (total == 0 and offset == 1) else f"[offset {offset} is past the end: the file has {count} lines]"
+        last = offset + len(taken) - 1
+        text = "".join(taken)
+        if offset == 1 and exact and last >= total and not cut_length:
+            return text
+        notes = [f"lines {offset}-{last} of {count} shown"]
+        if cut_length:
+            notes.append(f"line {last} has {cut_length} characters and only the first {len(text)} are shown")
+        if capped:
+            notes.append(f"one answer holds at most {max_chars} characters")
+        if last < total or not exact:
+            notes.append(f"read_file with offset={last + 1} shows the next lines")
+        return text + ("" if text.endswith("\n") else "\n") + "[" + "; ".join(notes) + "]"
 
     def _record(self, path: str, kind: str, old: str, new: str) -> Dict[str, Any]:
         diff_lines = list(difflib.unified_diff(

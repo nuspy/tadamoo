@@ -24,6 +24,8 @@ ERROR_LINE = re.compile(
 MAX_PROTECTED_LINES = 200
 MAX_LINE_CHARS = 2000        # a longer line (minified code, a one-line dump) is cut, whatever it says
 MAX_OUTPUT_CHARS = 40_000    # what one tool result may take of the context
+# tools whose result is what the model asked to read: they bound it themselves (ranges, limits), so it is passed on whole
+VERBATIM_TOOLS = ("read_file", "read_attachment", "load_skill", "load_capability")
 
 
 def available_budget(window: int, buffer_fraction: float, max_output: int) -> int:
@@ -124,6 +126,7 @@ class TokenJuiceCompactor:
         display_dir: Optional[str] = None,
         max_line_chars: int = MAX_LINE_CHARS,
         max_output_chars: int = MAX_OUTPUT_CHARS,
+        verbatim: Iterable[str] = VERBATIM_TOOLS,
     ) -> None:
         if keep_head_lines < 0 or keep_tail_lines < 0 or keep_head_lines + keep_tail_lines >= collapse_threshold_lines:
             raise ValueError("head plus tail lines must stay below the collapse threshold")
@@ -136,6 +139,7 @@ class TokenJuiceCompactor:
         self.display_dir = (display_dir or self.artifacts_dir.as_posix()).rstrip("/")
         self.max_line_chars = max(80, max_line_chars)
         self.max_output_chars = max(1000, max_output_chars)
+        self.verbatim = frozenset(verbatim)
 
     @staticmethod
     def _cut(text: str, keep: int) -> str:
@@ -160,17 +164,48 @@ class TokenJuiceCompactor:
             output = html_to_markdown(output)
         else:
             output = trim_json(output, self.json_min_bytes)
+            fielded = self._compress_fields(output, tool_name)
+            if fielded is not None:
+                return fielded
+        return self._compress_text(output, tool_name, self.max_output_chars)
 
+    def _needs_compacting(self, text: str, budget: int) -> bool:
+        lines = text.splitlines()
+        return len(lines) > self.collapse_threshold or len(text) > budget or any(len(ln) > self.max_line_chars for ln in lines)
+
+    def _compress_fields(self, output: str, tool_name: str) -> Optional[str]:
+        """A JSON object whose text fields are long (a shell result: stdout and stderr) is shortened field by field, so the
+        line rule applies to the text inside the fields and not to the one line the object is written on. None when no field needs it."""
+        if not output.startswith("{"):
+            return None
+        try:
+            data = json.loads(output)
+        except (json.JSONDecodeError, RecursionError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        budget = self.max_output_chars
+        big = [k for k, v in data.items() if isinstance(v, str) and self._needs_compacting(v, budget // 2)]
+        if not big:
+            return None
+        share = budget // len(big)
+        for key in big:
+            data[key] = self._compress_text(data[key], f"{tool_name}_{key}", share)
+        return json.dumps(data, ensure_ascii=False, default=str)
+
+    def _compress_text(self, output: str, tool_name: str, budget: int) -> str:
+        """Plain text within `budget` characters: head, tail and error lines are kept, a long line is cut in the middle, and
+        the full text is saved; whatever is left out is counted in the text."""
         lines = output.splitlines()
         long_lines = any(len(ln) > self.max_line_chars for ln in lines)
-        if len(lines) <= self.collapse_threshold and not long_lines and len(output) <= self.max_output_chars:
+        if len(lines) <= self.collapse_threshold and not long_lines and len(output) <= budget:
             return output
 
         art = self.save_artifact(output, tool_name)
         note = f"full output saved to {self.display_dir}/{art.name}"
         if len(lines) <= self.collapse_threshold:
             shortened = [self._cut(ln, self.max_line_chars) for ln in lines]
-            return self._fit("\n".join(shortened), f"[long lines shortened; {note}]")
+            return self._fit("\n".join(shortened), f"[long lines shortened; {note}]", budget)
         head = lines[: self.keep_head]
         tail_start = len(lines) - self.keep_tail
         tail = lines[tail_start:]
@@ -193,15 +228,16 @@ class TokenJuiceCompactor:
             pieces.append(f"[... {tail_start - cursor} lines hidden ...]")
         pieces.extend(tail)
         hidden = len(lines) - len(head) - len(tail) - len(protected)
-        return self._fit("\n".join(pieces), f"[{hidden} lines hidden in total; {note}]")
+        return self._fit("\n".join(pieces), f"[{hidden} lines hidden in total; {note}]", budget)
 
-    def _fit(self, body: str, footer: str) -> str:
-        """The body and the footer within the per-result character limit; the footer, which names the saved full text, is never cut."""
-        return self._cut(body, max(200, self.max_output_chars - len(footer) - 1)) + "\n" + footer
+    def _fit(self, body: str, footer: str, budget: int) -> str:
+        """The body and the footer within `budget` characters; the footer, which names the saved full text, is never cut."""
+        return self._cut(body, max(200, budget - len(footer) - 1)) + "\n" + footer
 
     def as_filter(self):
-        """The (tool name, text) -> text callable the agent loop expects."""
-        return lambda name, text: self.compress_output(text, name)
+        """The (tool name, text) -> text callable the agent loop expects. A tool that reads on purpose (a file, a skill)
+        is not shortened: what it returns is already bounded and the model asked for all of it."""
+        return lambda name, text: text if name in self.verbatim else self.compress_output(text, name)
 
 
 MASK_HEAD_CHARS = 400        # the most a masked result's description may take
