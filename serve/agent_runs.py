@@ -1,8 +1,7 @@
 """Starts the agent from the server's pages, watches it and stops it.
 
 The agent is the separate process `python -m harness`; this only launches it with the choices made on the page,
-keeps its progress lines in a log, reads its result file, and records how it ended. One run at a time: the model serves one conversation at a time
-and two agents in one folder would undo each other. A run that is still going when the server ends is killed with it.
+keeps its progress lines in a log, reads its result file, and records how it ended. A run that is still going when the server ends is killed with it.
 """
 from __future__ import annotations
 
@@ -24,10 +23,8 @@ from serve.util.winjob import contain
 
 MODES = ("plan", "read_only", "default", "auto")
 KEEP_RUNS = 50
-GOAL_CHARS = 4000
 SHOWN_CHARS = 300
 LOG_TAIL_BYTES = 65_536
-MAX_ALLOW = 10
 RUNS_FILE = "agent_runs.json"
 SAFE_ENV_KEYS = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "COMSPEC", "PATHEXT", "USERPROFILE", "HOME", "APPDATA",
                  "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMDATA", "LANG", "LC_ALL", "TERM", "BASALT_DATA"}
@@ -181,31 +178,21 @@ class AgentRunner:
             raise RunError("Give the full path of the folder, for example D:\\projects\\site.", "folder_relative")
         if not path.is_dir():
             raise RunError(f"That folder does not exist: {path}", "folder_not_found")
-        path = path.resolve()
-        if len(path.parts) <= 1:
-            raise RunError("Choose a folder, not a whole drive.", "folder_drive")
-        return path
+        return path.resolve()
 
-    def start(self, workspace: Any, goal: Any, mode: Any = "default", allow: Any = None, max_turns: Any = 15,
-              confirm_auto: bool = False) -> Dict[str, Any]:
+    def start(self, workspace: Any, goal: Any, mode: Any = "default", allow: Any = None, max_turns: Any = 15) -> Dict[str, Any]:
         path = self.check_workspace(workspace)
         if not isinstance(goal, str) or not goal.strip():
             raise RunError("Write what the agent should do.", "goal_missing")
-        if len(goal) > GOAL_CHARS:
-            raise RunError(f"The task is too long ({len(goal)} characters; at most {GOAL_CHARS}).", "goal_long")
         if mode not in MODES:
             raise RunError("The mode must be one of: " + ", ".join(MODES) + ".", "bad_mode")
-        if mode == "auto" and confirm_auto is not True:
-            raise RunError("Automatic mode runs commands without asking. Confirm that you want that, in a folder you can lose.", "auto_confirm")
         rules = allow if isinstance(allow, list) else []
-        if len(rules) > MAX_ALLOW or any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
-            raise RunError(f"Allow rules are lines of text, at most {MAX_ALLOW}.", "bad_rules")
-        if not isinstance(max_turns, int) or isinstance(max_turns, bool) or not 1 <= max_turns <= 50:
-            raise RunError("The number of steps must be between 1 and 50.", "bad_steps")
+        if any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
+            raise RunError("Allow rules are lines of text.", "bad_rules")
+        if not isinstance(max_turns, int) or isinstance(max_turns, bool) or max_turns == 0 or max_turns < -1:
+            raise RunError("The number of steps is -1 for no limit, or a whole number from 1.", "bad_steps")
 
         with self._lock:
-            if any(r["status"] == "running" for r in self.runs):
-                raise RunBusy("An agent is already running. Stop it or wait for it to finish.", "busy")
             run_id = secrets.token_hex(3)
             log_path = self._log_path(run_id)
             log_path.parent.mkdir(parents=True, exist_ok=True)

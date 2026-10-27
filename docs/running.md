@@ -57,7 +57,7 @@ the slots that did fit; if fewer than two fit, `--batch is off` and the server r
 
 - `server` holds the server's options (`python -m serve.server --help`), named as the flags without the dashes:
   strings or numbers, `true`/`false` for a switch (`lazy`, ...), a list for the repeatable ones
-  (`allowed-host`, `cors-origin`). `model` and `tokenizer` paths are relative to the file.
+  (`script`). `model` and `tokenizer` paths are relative to the file.
 - `engine` holds engine flags (`bin/basalt --help`), the same way: a string or number, `true` for a switch, `false`
   to leave it off, a list for a flag with several values (`"control-vector-layer-range": [4, 44]`). Any flag the engine accepts works, on the command line as well (`--kv int8`, `--resident-experts`).
   A name the engine does not accept stops the server at startup, as does one in the wrong section.

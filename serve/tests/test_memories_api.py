@@ -81,7 +81,7 @@ class Plain(unittest.TestCase):
         cls.mem = PersonalMemory(base / "pm", key=KEY)
         cls.patches = [mock.patch.object(handler, "_TASKS", TaskJournal(base / "j")), mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
                        mock.patch.object(handler, "_PLANS", PlanService(base / "planner")), mock.patch.object(handler, "_PERSONAL", cls.mem),
-                       mock.patch.object(handler, "_MEMORIES", MemoriesApi(cls.mem)), mock.patch.object(handler, "in_tailscale", lambda address: True)]
+                       mock.patch.object(handler, "_MEMORIES", MemoriesApi(cls.mem))]
         for p in cls.patches:
             p.start()
         cls.httpd = serve(cls.svc, port=0)
@@ -121,20 +121,15 @@ class Plain(unittest.TestCase):
         status, body = self.call("POST", "/api/memories/item", {"kind": "short", "section": "nothing", "text": "x y z"})
         self.assertEqual(status, 400)
         self.assertIn("sections", body["error"]["message"])
-        request = urllib.request.Request(self.base + "/api/memories/settings", data=b"{}", headers={"Content-Type": "text/plain"}, method="POST")
-        with self.assertRaises(urllib.error.HTTPError) as cm:
-            urllib.request.urlopen(request, timeout=10)
-        self.assertEqual(cm.exception.code, 415)
-        status, _ = self.call("POST", "/api/memories/settings", {"use_long": True}, headers={"Origin": "http://evil.example"})
-        self.assertEqual(status, 403)                                                    # another site's page cannot change them
 
-    def test_a_phone_cannot_reach_them_even_with_its_key(self):
+    def test_a_phone_from_away_cannot_reach_them_even_with_its_key(self):
         auth = {"Authorization": "Bearer " + self.key}
         self.svc.remote._httpd = object()
-        for method, path in (("GET", "/api/memories"), ("POST", "/api/memories/settings"), ("POST", "/api/memories/item")):
-            status, _ = self.call(method, path, {} if method == "POST" else None, headers=auth, base=self.phone_base)
-            self.assertIn(status, (401, 403, 404), path)
-        self.assertEqual(self.call("GET", "/api/agent/sessions", headers=auth, base=self.phone_base)[0], 200)       # what a phone may use still works
+        with mock.patch.object(handler.settings, "is_loopback", lambda address: False):                    # the test's own connection is on this PC
+            for method, path in (("GET", "/api/memories"), ("POST", "/api/memories/settings"), ("POST", "/api/memories/item")):
+                status, _ = self.call(method, path, {} if method == "POST" else None, headers=auth, base=self.phone_base)
+                self.assertEqual(status, 403, path)
+            self.assertEqual(self.call("GET", "/api/agent/sessions", headers=auth, base=self.phone_base)[0], 200)
 
 
 class FakeService:

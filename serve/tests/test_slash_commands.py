@@ -102,18 +102,17 @@ class ModeLabelWiringTest(unittest.TestCase):
         self.assertIn("prompt.addEventListener(\"keydown\"", self.slash)
         self.assertNotIn("document.addEventListener(\"keydown\"", self.slash)          # the rest of the page keeps its keyboard
 
-    def test_going_to_automatic_asks_twice_and_a_refusal_is_passed_over(self):
-        self.assertIn('m === "auto" && !(await confirmAuto())', self.chat)
-        self.assertIn('r.value === "auto" && !(await confirmAuto())', self.chat)
-        self.assertIn("confirm_auto: m === \"auto\"", self.chat)
-        self.assertIn("passed over", self.chat)
+    def test_going_to_automatic_asks_nothing_and_sends_no_confirmation(self):
+        for gone in ("confirmAuto", "confirm_auto", "AUTO_OK", "autook", "riskConfirm"):
+            self.assertNotIn(gone, self.chat)
 
-    def test_the_two_questions_of_automatic_are_asked_the_first_time_only(self):
-        confirm = re.search(r"async function confirmAuto\(\) \{(.*?)\n  \}", self.chat, re.S).group(1)
-        self.assertEqual(self.chat.count('riskConfirm([T("ag.auto.risk")])'), 1)                 # one place asks
-        self.assertIn('sessionStorage.getItem(AUTO_OK) === "1"', confirm)                          # and does not ask again in the same session
-        self.assertIn("if (said) return true;", confirm)
-        self.assertLess(confirm.index("if (said) return true;"), confirm.index("riskConfirm"))
+    def test_the_other_risk_questions_are_answered_yes_by_themselves_while_the_mode_is_automatic(self):
+        risk = (WEB / "risk.js").read_text(encoding="utf-8")
+        self.assertIn('window.basaltAutoMode = () => permNow() === "auto";', self.chat)
+        body = risk[risk.index("window.riskConfirm"):]
+        before_dialog = body[:body.index("showModal")]
+        self.assertIn("window.basaltAutoMode()", before_dialog)
+        self.assertIn("resolve(true); return;", before_dialog)
 
     def test_the_menu_is_a_listbox_the_message_box_controls_and_the_script_is_loaded_after_the_chat(self):
         self.assertIn('id="slash-menu" role="listbox"', self.html)

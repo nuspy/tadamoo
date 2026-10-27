@@ -1,9 +1,9 @@
 """Runs a personal skill's script and answers its calls.
 
 The script runs in a process of its own (the interpreter in isolated mode, a scrubbed environment, on Windows inside a job object with a
-memory and process cap) and talks over its pipes in lines of JSON. What it asks for - a tool, the model, a question to the person - is done
+that ends everything it started) and talks over its pipes in lines of JSON. What it asks for - a tool, the model, a question to the person - is done
 here by the functions the caller gives, so it goes through the same permissions, hooks and audit record as anything the agent does. Stop
-(the cancel event) and the time limit end the process and everything it started."""
+(the cancel event) and the time limit, when the skill has one, end the process and everything it started."""
 from __future__ import annotations
 
 import json
@@ -21,10 +21,6 @@ from harness.sandbox import CommandJob, CREATE_SUSPENDED, kill_tree, safe_enviro
 
 ENTRY = Path(__file__).with_name("runtime") / "entry.py"
 PREFIX = "@@basalt@@ "
-DEFAULT_TIMEOUT = 1800.0
-MAX_OUTPUT = 200_000
-MAX_MEMORY = 2 << 30
-MAX_PROCESSES = 16
 
 
 @dataclass
@@ -47,13 +43,13 @@ class Handlers:
     say: Callable[[str], None] = lambda text: None
 
 
-def run(script: Path, mode: str, values: Dict[str, Any], handlers: Handlers, cancel: Optional[threading.Event] = None,
-        timeout: float = DEFAULT_TIMEOUT, cwd: Optional[Path] = None) -> RunResult:
+def run(script: Path, values: Dict[str, Any], handlers: Handlers, cancel: Optional[threading.Event] = None,
+        timeout: Optional[float] = None, cwd: Optional[Path] = None) -> RunResult:
     started = time.monotonic()
     context = Path(tempfile.mkstemp(prefix="skill-", suffix=".json")[1])
     try:
-        context.write_text(json.dumps({"mode": mode, "params": values}, ensure_ascii=False), encoding="utf-8")
-        job = CommandJob(MAX_MEMORY, MAX_PROCESSES)
+        context.write_text(json.dumps({"params": values}, ensure_ascii=False), encoding="utf-8")
+        job = CommandJob()
         flags = 0
         if os.name == "nt":
             flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | (CREATE_SUSPENDED if job.active else 0)
@@ -76,7 +72,7 @@ def run(script: Path, mode: str, values: Dict[str, Any], handlers: Handlers, can
             while not done.wait(0.2):
                 if cancel is not None and cancel.is_set():
                     ended["why"] = "stopped"
-                elif time.monotonic() - started > timeout:
+                elif timeout and time.monotonic() - started > timeout:
                     ended["why"] = "timeout"
                 else:
                     continue
@@ -122,13 +118,13 @@ def run(script: Path, mode: str, values: Dict[str, Any], handlers: Handlers, can
                 kill_tree(proc)
             job.close()
         seconds = round(time.monotonic() - started, 2)
-        text = "\n".join(printed)[:MAX_OUTPUT]
+        text = "\n".join(printed)
         if ended["why"] == "stopped":
             return RunResult(False, printed=text, error="stopped", seconds=seconds, calls=calls)
         if ended["why"] == "timeout":
             return RunResult(False, printed=text, error=f"it took more than {timeout:g} seconds and was ended", seconds=seconds, calls=calls)
         if result.get("type") == "result":
-            return RunResult(True, output=str(result.get("value", ""))[:MAX_OUTPUT], printed=text, seconds=seconds, calls=calls)
+            return RunResult(True, output=str(result.get("value", "")), printed=text, seconds=seconds, calls=calls)
         message = result.get("message") or (stderr[0].strip().splitlines()[-1] if stderr and stderr[0].strip() else f"the script ended without a result (code {proc.returncode})")
         return RunResult(False, printed=text, error=str(message), seconds=seconds, calls=calls)
     finally:

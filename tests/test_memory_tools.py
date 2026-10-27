@@ -1,7 +1,7 @@
 """The model's own memory of a project: remember, recall and forget, and the way the notes come back."""
 import pytest
 
-from harness.memory import MAX_MEMORY_CHARS, MemoryStore, default_db_path, register_memory_tools
+from harness.memory import MemoryStore, default_db_path, register_memory_tools
 from harness.stack import AgentConfig, build_agent
 from harness.tools.registry import EffectClass, ToolRegistry
 
@@ -24,24 +24,22 @@ def test_remember_recall_and_forget(tmp_path):
     assert registry.execute("recall", {"query": "sm_120"}) == [] and registry.execute("forget", {"id": saved["id"]})["forgotten"] is False
 
 
-def test_the_same_note_is_kept_once_and_a_note_must_be_short_and_not_empty(tmp_path):
+def test_the_same_note_is_kept_once_and_a_note_must_not_be_empty(tmp_path):
     registry, store = registry_with(tmp_path)
     first = registry.execute("remember", {"content": "use ninja"})
     again = registry.execute("remember", {"content": "use ninja"})
     assert again["saved"] is False and again["id"] == first["id"] and store.count() == 1
-    for bad in ("   ", "x" * (MAX_MEMORY_CHARS + 1)):
-        with pytest.raises(ValueError):
-            registry.execute("remember", {"content": bad})
+    with pytest.raises(ValueError):
+        registry.execute("remember", {"content": "   "})
 
 
-def test_the_memory_has_a_ceiling(tmp_path, monkeypatch):
-    import harness.memory as memory
-    registry, _ = registry_with(tmp_path)
-    monkeypatch.setattr(memory, "MAX_MEMORIES", 2)
-    registry.execute("remember", {"content": "one"})
-    registry.execute("remember", {"content": "two"})
-    with pytest.raises(ValueError, match="full"):
-        registry.execute("remember", {"content": "three"})
+def test_a_note_can_be_long_and_the_memory_has_no_ceiling(tmp_path):
+    registry, store = registry_with(tmp_path)
+    long = "x" * 20000
+    assert registry.execute("remember", {"content": long})["saved"] is True
+    for i in range(5100):
+        store.add_memory(f"note {i}", "general")
+    assert registry.execute("remember", {"content": "one more"})["saved"] is True and store.count() == 5102
 
 
 def test_effects_and_trust(tmp_path):

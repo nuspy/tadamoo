@@ -173,10 +173,8 @@ class OverHttp(unittest.TestCase):
         json_ = {"Content-Type": "application/json"}
         self.assertEqual(self.req("POST", "/api/profiles", {"action": "save", "name": "A", "values": FAST}, json_)[0], 200)
         self.assertEqual(self.req("POST", "/api/profiles", {"action": "delete", "name": profiles.SAFE_NAME}, json_)[0], 400)
-        self.assertEqual(self.req("POST", "/api/profiles", {"action": "save", "name": "B", "values": {}},
-                                  {**json_, "Origin": "http://evil.example.com"})[0], 403)
         with mock.patch("serve.settings.is_loopback", return_value=False):
-            self.assertEqual(self.req("POST", "/api/profiles", {"action": "save", "name": "B", "values": {}}, json_)[0], 403)
+            self.assertEqual(self.req("POST", "/api/profiles", {"action": "save", "name": "B", "values": {}}, json_)[0], 200)
         code, data = self.req("GET", "/api/profiles/export?kind=load")
         self.assertEqual(code, 200)
         self.assertIn("A", data["load"])

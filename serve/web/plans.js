@@ -1247,7 +1247,12 @@
     const personal = s.card_fields_personal || [];
     ui.setBody.replaceChildren(
       el("p", { class: "help", text: T("pl.set.help") }),
-      el("p", { class: "pl-fact", text: s.key_present ? T("pl.set.key.yes") : T("pl.set.key.no") }),
+      el("p", { class: "pl-fact", text: s.key_present ? T("pl.set.key.yes") : s.key_saved ? T("pl.set.key.unused") : T("pl.set.key.no") }),
+      ...(s.key_saved ? [el("p", { class: "help", text: T("pl.set.key.saved") })] : []),
+      el("label", { for: "pl-s-key", text: T("pl.set.key.field") }),
+      el("input", { id: "pl-s-key", type: "password", autocomplete: "new-password", autocapitalize: "off", spellcheck: "false", "aria-describedby": "pl-s-key-h" }),
+      el("p", { class: "help", id: "pl-s-key-h", text: T("pl.set.key.field.help") }),
+      ...(s.key_saved ? [el("button", { type: "button", class: "btn pl-btn", text: T("pl.set.key.remove"), onclick: removeKey })] : []),
       el("label", { class: "pl-check" }, el("input", { type: "checkbox", id: "pl-s-cloud", checked: s.cloud_triage, disabled: !s.key_present, "aria-describedby": "pl-s-cloud-h" }), el("span", { text: T("pl.set.cloud") })),
       el("p", { class: "help", id: "pl-s-cloud-h", text: T("pl.set.cloud.help") }),
       ...(s.cloud_triage ? [riskLabel(T("pl.risk.cloud"))] : []),
@@ -1256,6 +1261,15 @@
       el("label", { for: "pl-s-gate", text: T("pl.set.gate") }),
       el("select", { id: "pl-s-gate" }, ["or", "and"].map(m => el("option", { value: m, text: T("pl.set.gate." + m), selected: (s.gate_mode || "or") === m }))),
       el("p", { class: "help", text: T("pl.set.gate.help") }),
+      el("label", { for: "pl-s-thr", text: T("pl.set.threshold") }),
+      el("input", { id: "pl-s-thr", type: "number", min: "0", max: "1", step: "0.01", inputmode: "decimal", value: String(s.blocker_threshold ?? 0.8), "aria-describedby": "pl-s-thr-h" }),
+      el("p", { class: "help", id: "pl-s-thr-h", text: T("pl.set.threshold.help") }),
+      el("label", { for: "pl-s-to", text: T("pl.set.timeout") }),
+      el("input", { id: "pl-s-to", type: "number", min: "0.1", step: "any", inputmode: "decimal", value: String(s.cloud_timeout ?? 5), "aria-describedby": "pl-s-to-h" }),
+      el("p", { class: "help", id: "pl-s-to-h", text: T("pl.set.timeout.help") }),
+      el("label", { for: "pl-s-chunk", text: T("pl.set.chunk") }),
+      el("input", { id: "pl-s-chunk", type: "number", min: "1", step: "1", inputmode: "numeric", value: String(s.max_events ?? 20), "aria-describedby": "pl-s-chunk-h" }),
+      el("p", { class: "help", id: "pl-s-chunk-h", text: T("pl.set.chunk.help") }),
       el("fieldset", { class: "pl-parents" }, el("legend", { text: T("pl.set.fields") }), el("p", { class: "help", text: T("pl.set.fields.help") }),
         FIELDS.map(f => [el("label", { class: "pl-check" }, el("input", { type: "checkbox", name: "field", value: f, checked: picked.includes(f) }), el("span", { text: T("pl.card." + f) })),
           personal.includes(f) ? el("p", { class: "help", text: T("pl.set.personal.help") }) : []]).flat()),
@@ -1274,6 +1288,13 @@
     S.settings = r.ok ? r.data : null;
     drawSettings();
   }
+  async function removeKey() {
+    const r = await api("api/planner/settings", { clear_jev_key: true });
+    if (!r.ok) { say(errText(r.data) || T("pl.failed"), true); return; }
+    S.settings = r.data;
+    drawSettings();
+    say(T("pl.saved"));
+  }
   async function saveSettings(e) {
     e.preventDefault();
     const fields = [...ui.setBody.querySelectorAll("input[name=field]:checked")].map(i => i.value);
@@ -1282,7 +1303,12 @@
     const isStandard = fields.length === standard.length && standard.every(f => fields.includes(f));
     const body = { cloud_triage: ui.setBody.querySelector("#pl-s-cloud").checked, pseudonymize: ui.setBody.querySelector("#pl-s-pseudo").checked,
       gate_mode: ui.setBody.querySelector("#pl-s-gate").value, card_fields: isStandard ? null : fields,
-      event_pump: ui.setBody.querySelector("#pl-s-pump").checked };
+      event_pump: ui.setBody.querySelector("#pl-s-pump").checked,
+      blocker_threshold: Number(ui.setBody.querySelector("#pl-s-thr").value), cloud_timeout: Number(ui.setBody.querySelector("#pl-s-to").value),
+      max_events: Number(ui.setBody.querySelector("#pl-s-chunk").value) };
+    if (![body.blocker_threshold, body.cloud_timeout, body.max_events].every(Number.isFinite)) { say(T("pl.badnum"), true); return; }
+    const newKey = ui.setBody.querySelector("#pl-s-key").value.trim();
+    if (newKey) body.jev_key = newKey;
     const text = ui.setBody.querySelector("#pl-s-sources").value.trim();
     try { body.sources = text ? JSON.parse(text) : []; } catch (err) { say(T("pl.badjson"), true); return; }
     const sends = fields.some(f => personal.includes(f));

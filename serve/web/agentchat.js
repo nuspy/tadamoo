@@ -934,22 +934,10 @@
     chip.setAttribute("aria-label", T("ch.chip", T("ag.mode." + m)));
     chip.title = T("ag.mode." + m + ".d");
   }
-  /* the two questions of Automatic are asked the first time; once answered yes they are not asked again until the app is closed */
-  const AUTO_OK = "basalt.chat.autook";
-  let autoOk = false;
-  async function confirmAuto() {
-    let said = autoOk;
-    try { said = said || sessionStorage.getItem(AUTO_OK) === "1"; } catch (e) { /* kept in the page only */ }
-    if (said) return true;
-    if (!(await riskConfirm([T("ag.auto.risk")]))) return false;
-    autoOk = true;
-    try { sessionStorage.setItem(AUTO_OK, "1"); } catch (e) { /* kept in the page only */ }
-    return true;
-  }
-  async function setPerm(m) {                                                // false when the person did not go through with it
-    if (m === "auto" && !(await confirmAuto())) return false;
+  window.basaltAutoMode = () => permNow() === "auto";                         // the risk questions of other settings answer yes by themselves while this is on
+  async function setPerm(m) {                                                // false when the server did not take it
     if (sid) {
-      const r = await api("POST", `/${sid}/mode`, { mode: m, confirm_auto: m === "auto" });
+      const r = await api("POST", `/${sid}/mode`, { mode: m });
       if (!r.ok) { status(errText(r)); return false; }
       rec = r.json.session;
     } else { keep(PERM_KEY, m); paintPerm(); }
@@ -958,10 +946,8 @@
   }
   async function cyclePerm() {
     const at = PERM_CYCLE.indexOf(permNow());
-    for (let k = 1; k <= PERM_CYCLE.length; k++) {                           // an automatic mode that was declined is passed over, not asked again at once
-      const next = PERM_CYCLE[(at + k) % PERM_CYCLE.length];
-      if (await setPerm(next)) { status(T("ch.mode.now", T("ag.mode." + next))); return; }
-    }
+    const next = PERM_CYCLE[(at + 1) % PERM_CYCLE.length];
+    if (await setPerm(next)) status(T("ch.mode.now", T("ag.mode." + next)));
   }
   chip.onclick = () => { cyclePerm(); $("#prompt").focus(); };
   const effortSel = $("#effort");
@@ -974,10 +960,7 @@
   }
   allowBox.value = load(ALLOW_KEY, "");
   allowBox.oninput = () => keep(ALLOW_KEY, allowBox.value);
-  permRadios.forEach(r => r.addEventListener("change", async () => {
-    if (r.value === "auto" && !(await confirmAuto())) { paintPerm(); return; }
-    keep(PERM_KEY, r.value); paintPerm(); paintChip();
-  }));
+  permRadios.forEach(r => r.addEventListener("change", () => { keep(PERM_KEY, r.value); paintPerm(); paintChip(); }));
   paintPerm();
   const allowRules = () => allowBox.value.split("\n").map(s => s.trim()).filter(Boolean);
 
@@ -1073,7 +1056,7 @@
   async function ensure() {
     if (sid) return true;
     if (inAgent() && !curPath() && !(await addFolder())) { status(T("ag.noproject")); return false; }
-    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath() } : {}), mode: permMode(), allow: allowRules(), confirm_auto: permMode() === "auto", ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals() });
+    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath() } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals() });
     if (!r.ok) { status(errText(r)); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0;
     await refreshList();

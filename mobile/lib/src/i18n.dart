@@ -100,8 +100,6 @@ class Texts {
     'mode.read_only.d': ['Legge i file. Ti chiede prima di tutto il resto.', 'Reads files. Asks you before anything else.'],
     'mode.default.d': ['Modifica i file nella cartella. Ti chiede prima di eseguire un comando.', 'Edits files in the folder. Asks you before it runs a command.'],
     'mode.auto.d': ['Esegue comandi senza chiedere. Solo in una cartella che puoi perdere.', 'Runs commands without asking. Only in a folder you can lose.'],
-    'mode.auto.risk': ['Automatica esegue comandi senza chiederti niente, nella cartella scelta. Sei sicuro?', 'Automatic runs commands without asking you, in the chosen folder. Are you sure?'],
-    'mode.auto.risk2': ['Ultima conferma: attivare la modalità Automatica?', 'Last confirmation: turn Automatic on?'],
     'plus.image': ['Immagine', 'Image'],
     'plus.photo': ['Foto', 'Photo'],
     'plus.files': ['Documenti/File', 'Documents/Files'],

@@ -54,16 +54,35 @@ def test_the_subagent_reads_in_its_own_context_and_only_its_summary_comes_back(w
     assert "tool_executed" in actions
 
 
-def test_default_tools_are_read_only_and_it_cannot_start_subagents(ws, tmp_path):
+def test_default_tools_are_the_callers_own_and_a_subagent_may_start_another(ws, tmp_path):
     client = ScriptedClient(say("ok"))
     _, runner, _, _ = build(ws, client, tmp_path)
     names = runner.default_tools()
-    assert "read_file" in names and "list_directory" in names
-    assert "write_file" not in names and "shell_command" not in names and TOOL_NAME not in names
-    refused = runner.run("x", tools=[TOOL_NAME])
-    assert refused["status"] == "refused" and TOOL_NAME in refused["summary"]
+    assert {"read_file", "write_file", "shell_command", TOOL_NAME} <= set(names)
     assert runner.run("x", tools=["no_such_tool"])["status"] == "refused"
     assert client.sent == []                                            # nothing reached the model
+
+
+def test_a_nested_subagent_runs_inside_the_first_and_its_summary_comes_back_up(ws, tmp_path):
+    client = ScriptedClient(
+        call(TOOL_NAME, {"task": "level one"}, "p1"),
+        call(TOOL_NAME, {"task": "level two"}, "s1"),
+        say("level two done"),
+        say("level one saw: level two done"),
+        say("parent saw: level one"))
+    parent, _, audit, _ = build(ws, client, tmp_path)
+    parent.run("go")
+    assert parent.stop_reason == FINAL
+    assert [r["action"] for r in audit.records].count("subagent_start") == 2
+    assert "level one saw: level two done" in next(m for m in parent.messages if m["role"] == "tool")["content"]
+
+
+def test_nothing_is_cut_from_the_task_or_the_summary(ws, tmp_path):
+    long = "x" * 20000
+    client = ScriptedClient(say(long))
+    _, runner, _, _ = build(ws, client, tmp_path)
+    out = runner.run("t" * 20000)
+    assert len(client.sent[0][1]["content"]) == 20000 and out["summary"] == long
 
 
 def test_a_tool_the_parent_gave_it_is_decided_by_the_parents_permissions(ws, tmp_path):
@@ -84,7 +103,7 @@ def test_plan_mode_of_the_parent_holds_for_the_subagent(ws, tmp_path):
     assert not (ws / "a.txt").exists()
 
 
-def test_the_turn_cap_stops_it_and_says_so(ws, tmp_path):
+def test_the_turns_are_limited_only_when_asked_for(ws, tmp_path):
     client = ScriptedClient(*[call("list_directory", {"path": f"."}, f"c{i}", content=f"step {i}") for i in range(5)])
     # identical calls trip the loop detector; distinct arguments keep it going to the cap
     client.steps = [call("list_directory", {"path": "." if i % 2 else "./"}, f"c{i}", content=f"step {i}") for i in range(5)]
@@ -92,6 +111,14 @@ def test_the_turn_cap_stops_it_and_says_so(ws, tmp_path):
     out = runner.run("look around", max_turns=2)
     assert out["status"] == "incomplete" and out["stop_reason"] == "max_turns" and out["turns"] == 2
     assert "stopped early" in out["summary"] and "step 1" in out["summary"]
+
+
+def test_without_a_turn_limit_it_goes_on_past_twenty_turns(ws, tmp_path):
+    steps = [call("list_directory", {"path": "." + "/" * i}, f"c{i}") for i in range(25)] + [say("finished")]
+    client = ScriptedClient(*steps)
+    _, runner, _, _ = build(ws, client, tmp_path)
+    out = runner.run("look around")
+    assert out["status"] == "done" and out["turns"] == 26 and out["summary"] == "finished"
 
 
 def test_a_model_error_comes_back_as_an_incomplete_result(ws, tmp_path):

@@ -2126,7 +2126,7 @@ class LiveRate(unittest.TestCase):
 
 
 class OwnPage(unittest.TestCase):
-    """POST /load changes the server's state, so only JSON from the server's own page (or a trusted origin) may send it."""
+    """POST /load changes the server's state, so it needs the server's control secret (and the API key, when one is set)."""
 
     @classmethod
     def setUpClass(cls):
@@ -2153,14 +2153,12 @@ class OwnPage(unittest.TestCase):
             with e:
                 return e.code, json.loads(e.read())
 
-    def test_only_server_s_own_page_may_control_the_model(self):
-        code, _ = self.req("/api/control/load", None, {"Content-Type": "text/plain"}, raw=b"{}")
-        self.assertEqual(code, 415)
-        code, _ = self.req("/api/control/load", {}, {"Origin": "http://evil.example"})
+    def test_the_control_routes_need_the_secret_and_not_the_page(self):
+        for headers, raw in (({"Content-Type": "text/plain"}, b"{}"), ({"Origin": "http://evil.example"}, None), ({"Origin": "http://127.0.0.1:1"}, None)):
+            code, _ = self.req("/api/control/load", {}, headers, raw=raw)
+            self.assertEqual(code, 200, headers)
+        code, _ = self.req("/api/control/load", {}, {"X-Basalt-Control": "wrong"})
         self.assertEqual(code, 403)
-        host = self.base.split("://", 1)[1]
-        code, _ = self.req("/api/control/load", {}, {"Origin": "http://" + host})
-        self.assertEqual(code, 200)
 
     def test_they_need_the_key_when_one_is_set(self):
         self.svc.api_key = "secret"
@@ -2169,28 +2167,6 @@ class OwnPage(unittest.TestCase):
             self.assertEqual(self.req("/api/control/load", {}, {"Authorization": "Bearer secret"})[0], 200)
         finally:
             self.svc.api_key = ""
-
-    def test_proxy_headers_do_not_make_a_page_server_s_own(self):
-        # X-Forwarded-*, CF-Ray or CF-Connecting-IP say nothing about the page that sent the request - any web
-        # page behind any proxy would otherwise control the model
-        for extra in ({"X-Forwarded-Host": "proxy.example.com"}, {"CF-Ray": "1234567890"},
-                      {"X-Forwarded-For": "203.0.113.9"}, {"CF-Connecting-IP": "203.0.113.9"}):
-            code, _ = self.req("/api/control/load", {}, {"Origin": "https://proxy.example.com", **extra})
-            self.assertEqual(code, 403, extra)
-        # another port on the same host is another site (a local dev server's page)
-        code, _ = self.req("/api/control/load", {}, {"Origin": "http://127.0.0.1:1"})
-        self.assertEqual(code, 403)
-
-    def test_a_trusted_origin_is_server_s_own_page(self):
-        # the page behind a reverse proxy or tunnel: the config's trusted_origins
-        self.svc.trusted_origins = ["https://host.example.com"]
-        try:
-            code, _ = self.req("/api/control/load", {}, {"Origin": "https://host.example.com"})
-            self.assertEqual(code, 200)
-            code, _ = self.req("/api/control/load", {}, {"Origin": "https://evil.example.com"})
-            self.assertEqual(code, 403)
-        finally:
-            self.svc.trusted_origins = []
 
 
 class WebApp(unittest.TestCase):
@@ -2391,33 +2367,19 @@ class UsageAndStatus(unittest.TestCase):
         with urllib.request.urlopen(req, timeout=10) as r:
             return r.status, r.headers
 
-    def test_cors_is_off_by_default(self):
-        # OPTIONS is answered, but without cors_origins no page of another origin is let in
-        status, h = self.preflight("/v1/chat/completions")
-        self.assertEqual(status, 204)
-        self.assertIsNone(h.get("Access-Control-Allow-Origin"))
+    def test_cors_lets_every_origin_use_the_api_and_only_the_api(self):
+        for origin in ("https://chat.example.com", "https://evil.example.com", "null"):
+            status, h = self.preflight("/v1/chat/completions", origin)
+            self.assertEqual((status, h.get("Access-Control-Allow-Origin")), (204, "*"), origin)
+        self.assertIn("OPTIONS", h.get("Access-Control-Allow-Methods", ""))
+        self.assertIn("authorization", h.get("Access-Control-Allow-Headers", ""))
+        # not on the server's own controls (/unload, ...) nor on its pages
+        self.assertIsNone(self.preflight("/api/control/unload")[1].get("Access-Control-Allow-Origin"))
         with urllib.request.urlopen(self.base + "/health", timeout=10) as r:
             self.assertIsNone(r.headers.get("Access-Control-Allow-Origin"))
-
-    def test_cors_for_the_configured_origins_on_the_api_only(self):
-        self.svc.cors_origins = ["https://chat.example.com"]
-        try:
-            status, h = self.preflight("/v1/chat/completions")
-            self.assertEqual((status, h.get("Access-Control-Allow-Origin")), (204, "https://chat.example.com"))
-            self.assertIn("OPTIONS", h.get("Access-Control-Allow-Methods", ""))
-            self.assertIn("authorization", h.get("Access-Control-Allow-Headers", ""))
-            self.assertIsNone(self.preflight("/v1/chat/completions", "https://evil.example.com")[1]
-                              .get("Access-Control-Allow-Origin"))
-            # never on the server's own controls (/unload, ...)
-            self.assertIsNone(self.preflight("/api/control/unload")[1].get("Access-Control-Allow-Origin"))
-            req = urllib.request.Request(self.base + "/v1/models", headers={"Origin": "https://chat.example.com"})
-            with urllib.request.urlopen(req, timeout=10) as r:
-                self.assertEqual(r.headers.get("Access-Control-Allow-Origin"), "https://chat.example.com")
-            self.svc.cors_origins = ["*"]
-            self.assertEqual(self.preflight("/v1/messages", "https://any.example.com")[1]
-                             .get("Access-Control-Allow-Origin"), "*")
-        finally:
-            self.svc.cors_origins = []
+        req = urllib.request.Request(self.base + "/v1/models", headers={"Origin": "https://chat.example.com"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            self.assertEqual(r.headers.get("Access-Control-Allow-Origin"), "*")
 
     def test_sse_is_not_buffered_by_proxies(self):
         req = urllib.request.Request(self.base + "/v1/chat/completions", headers={"Content-Type": "application/json"},
@@ -2426,15 +2388,6 @@ class UsageAndStatus(unittest.TestCase):
         with urllib.request.urlopen(req, timeout=30) as r:
             self.assertEqual(r.headers.get("X-Accel-Buffering"), "no")
             r.read()
-
-    def test_origin_lists_are_checked(self):
-        from serve.security import origins_of
-        self.assertEqual(origins_of(None, "k", True), [])
-        self.assertEqual(origins_of("https://a.example.com/", "k", False), ["https://a.example.com"])
-        self.assertEqual(origins_of(["*", "http://localhost:3000"], "k", True), ["*", "http://localhost:3000"])
-        for bad in ("*", "a.example.com", "https://a.example.com/path", "https://*.example.com", 5):
-            with self.assertRaises(SystemExit):
-                origins_of(bad, "k", False)
 
     def test_openai(self):
         b = self.chat("/v1/chat/completions")

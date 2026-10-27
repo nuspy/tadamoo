@@ -319,13 +319,12 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), CONFIG)
 
     def test_guards(self):
-        self.assertEqual(self.post("load", {"values": {}}, Origin="http://evil.example.com")[0], 403)
-        self.assertEqual(self.req("POST", "/api/loader/load", {"values": {}}, {"Content-Type": "text/plain"})[0], 415)
         with mock.patch("serve.settings.is_loopback", return_value=False):
-            self.assertEqual(self.post("load", {"values": {}})[0], 403)
-            self.assertEqual(self.post("calibrate", {})[0], 403)
-            self.assertFalse(self.req("GET", "/api/loader")[1]["editable"])
-            self.assertEqual(self.post("plan", {"values": {}})[0], 200)      # a plan changes nothing
+            self.assertIn(self.post("load", {"values": {}})[0], (200, 202))              # from another device too: the server loads from its own disks
+            self.assertNotEqual(self.post("calibrate", {})[0], 403)
+            body = self.req("GET", "/api/loader")[1]
+            self.assertTrue(body["editable"] and body["reason"] == "", body["reason"])
+            self.assertEqual(self.post("plan", {"values": {}})[0], 200)
         self.svc.api_key = "k"
         self.assertEqual(self.req("GET", "/api/loader")[0], 401)
         self.assertEqual(self.post("load", {"values": {}})[0], 401)

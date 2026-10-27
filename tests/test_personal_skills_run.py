@@ -51,7 +51,7 @@ def main(params):
     return ai("Summarise {t} for {who}", t=text, who=params.who) + " / " + choice
 ''')
     h, calls = handlers()
-    res = run(path, "restricted", values([{"name": "file", "type": "path"}, {"name": "who", "type": "text"}], {"file": "notes.txt", "who": "Anna"}), h)
+    res = run(path, values([{"name": "file", "type": "path"}, {"name": "who", "type": "text"}], {"file": "notes.txt", "who": "Anna"}), h)
     assert res.ok, res.error
     assert res.output == "AI(Summarise <read_file:notes.txt> for Anna) / a"
     assert res.printed == "a line of output" and calls["say"] == ["starting"]
@@ -69,7 +69,7 @@ def main(params):
 ''')
     specs = [{"name": "day", "type": "date"}, {"name": "n", "type": "number"}, {"name": "items", "type": "list", "item_type": "mixed"},
              {"name": "on", "type": "bool"}, {"name": "when", "type": "datetime"}]
-    res = run(path, "restricted", values(specs, {"day": "2026-10-26", "n": "4", "items": "1; due", "on": "si", "when": "2026-10-26 15:30"}), handlers()[0])
+    res = run(path, values(specs, {"day": "2026-10-26", "n": "4", "items": "1; due", "on": "si", "when": "2026-10-26 15:30"}), handlers()[0])
     assert res.ok, res.error
     assert res.output == '[\n  "date",\n  "2026-10-26",\n  "2026-10-27",\n  8,\n  [\n    1,\n    "due"\n  ],\n  true,\n  15\n]'
 
@@ -84,27 +84,33 @@ def main(params):
     except ToolError as e:
         return "went on after: " + str(e)
 ''')
-    res = run(path, "restricted", {}, handlers()[0])
+    res = run(path, {}, handlers()[0])
     assert res.ok and res.output == "went on after: Permission denied" and res.calls == [{"name": "refused", "ok": False}]
 
 
 def test_an_error_in_the_script_ends_the_run_and_says_where(tmp_path):
     path = script(tmp_path, "def main(params):\n    x = 1\n    return 1 / 0\n")
-    res = run(path, "restricted", {}, handlers()[0])
+    res = run(path, {}, handlers()[0])
     assert not res.ok and "ZeroDivisionError" in res.error and "line 3" in res.error
 
 
-def test_in_the_restricted_mode_files_and_programs_are_not_there_even_if_the_check_was_skipped(tmp_path):
-    for body in ("import os\n    return os.getcwd()", "return open(__file__).read()", "import subprocess\n    return 1", "return __import__('os').getcwd()",
-                 "return eval('1+1')", "import urllib.request\n    return 1"):
+def test_the_script_may_use_files_programs_and_any_module(tmp_path):
+    for body in ("import os\n    return os.getcwd()", "return open('skill.py').read()[:3]", "import subprocess\n    return 'x'", "return eval('1+1')",
+                 "import urllib.request\n    return 'x'"):
         path = script(tmp_path, f"def main(params):\n    {body}\n")
-        res = run(path, "restricted", {}, handlers()[0])
-        assert not res.ok, body
+        res = run(path, {}, handlers()[0])
+        assert res.ok, (body, res.error)
 
 
-def test_in_the_free_mode_the_script_may_use_python_as_it_is(tmp_path):
+def test_the_output_is_not_cut(tmp_path):
+    path = script(tmp_path, "def main(params):\n    print('p' * 300000)\n    return 'r' * 300000\n")
+    res = run(path, {}, handlers()[0])
+    assert res.ok and len(res.output) == 300000 and len(res.printed) == 300000
+
+
+def test_the_script_may_use_python_as_it_is(tmp_path):
     path = script(tmp_path, "import os\n\ndef main(params):\n    return os.path.basename(os.getcwd())\n")
-    res = run(path, "free", {}, handlers()[0])
+    res = run(path, {}, handlers()[0])
     assert res.ok and res.output == tmp_path.name
 
 
@@ -113,13 +119,13 @@ def test_stop_ends_the_script_and_what_it_started(tmp_path):
     cancel = threading.Event()
     threading.Timer(1.0, cancel.set).start()
     began = time.monotonic()
-    res = run(path, "free", {}, handlers()[0], cancel=cancel)
+    res = run(path, {}, handlers()[0], cancel=cancel)
     assert not res.ok and res.error == "stopped" and time.monotonic() - began < 15
 
 
 def test_the_time_limit_ends_a_script_that_does_not_finish(tmp_path):
     path = script(tmp_path, "import time\n\ndef main(params):\n    time.sleep(60)\n")
-    res = run(path, "free", {}, handlers()[0], timeout=1.5)
+    res = run(path, {}, handlers()[0], timeout=1.5)
     assert not res.ok and "more than 1.5 seconds" in res.error
 
 
@@ -136,11 +142,11 @@ def main(params):
     except SkillError as e:
         return "no model: " + str(e)
 ''')
-    res = run(path, "restricted", {}, handlers(ai=broken)[0])
+    res = run(path, {}, handlers(ai=broken)[0])
     assert res.ok and res.output == "no model: RuntimeError: the model is not loaded"
 
 
 def test_unicode_goes_through_the_pipes(tmp_path):
     path = script(tmp_path, 'from basalt_skill import ai\n\ndef main(params):\n    print("città — ✓")\n    return ai("{t}", t="perché")\n')
-    res = run(path, "restricted", {}, handlers()[0])
+    res = run(path, {}, handlers()[0])
     assert res.ok and res.output == "AI(perché)" and res.printed == "città — ✓"

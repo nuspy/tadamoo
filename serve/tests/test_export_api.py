@@ -1,5 +1,6 @@
-"""POST /api/export and the held page for the desktop app's PDF: origin, content type, size and secret checks, the selection, the answers."""
+"""POST /api/export and the held page for the desktop app's PDF: size and secret checks, the selection, the answers."""
 import io
+import tempfile
 import json
 import unittest
 import urllib.error
@@ -12,8 +13,9 @@ from unittest import mock
 from serve import export_api
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
+from serve import handler
 from serve.handler import CONTROL_HEADER, serve
-from serve.remote import remote_path_ok
+from serve.remote import ApiKeys
 from serve.service import Service
 from serve.util.text import ByteTokenizer
 
@@ -110,12 +112,9 @@ class Plain(unittest.TestCase):
         self.assertEqual(self.post(None, raw=b"{not json")[0], 400)
         self.assertEqual(self.post(None, raw=b"\xff\xfe")[0], 400)
 
-    def test_the_content_type_and_the_origin_are_checked(self):
-        status, _, _ = self.post(None, raw=json.dumps(body()).encode(), headers={"Content-Type": "text/plain"})
-        self.assertEqual(status, 415)
-        status, _, data = self.post(body(), headers={"Origin": "http://evil.example"})
-        self.assertEqual(status, 403)
-        self.assertIn("own page", self.error(data))
+    def test_any_content_type_and_any_origin_may_export(self):
+        self.assertEqual(self.post(None, raw=json.dumps(body()).encode(), headers={"Content-Type": "text/plain"})[0], 200)
+        self.assertEqual(self.post(body(), headers={"Origin": "http://evil.example"})[0], 200)
         self.assertEqual(self.post(body(), headers={"Origin": self.base})[0], 200)
 
     def test_a_body_over_the_limit_is_refused(self):
@@ -156,9 +155,27 @@ class Plain(unittest.TestCase):
         token = json.loads(data)["token"]
         self.assertEqual(self.get("/api/export/held/" + token)[0], 200)
 
-    def test_a_phone_does_not_have_these_routes(self):
-        self.assertFalse(remote_path_ok("/api/export"))
-        self.assertFalse(remote_path_ok("/api/export/held/" + "a" * 32))
+    def test_a_phone_with_a_key_exports_but_is_never_given_the_held_page(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.svc.keys = ApiKeys(Path(tmp) / "k.json", key=bytes(32))
+            _, key = self.svc.keys.create("Phone")
+            phone = handler._listen(self.svc, "127.0.0.1", 0, remote=True)
+            auth = {"Authorization": "Bearer " + key}
+            try:
+                def call(path, payload=None):
+                    data = None if payload is None else json.dumps(payload).encode("utf-8")
+                    request = urllib.request.Request(f"http://127.0.0.1:{phone.server_address[1]}{path}", data=data, headers={"Content-Type": "application/json", **auth})
+                    try:
+                        with urllib.request.urlopen(request, timeout=20) as r:
+                            return r.status
+                    except urllib.error.HTTPError as e:
+                        return e.code
+                self.assertEqual(call("/api/export", body()), 200)
+                self.assertEqual(call("/api/export", body(format="pdf", hold=True)), 403)
+                self.assertEqual(call("/api/export/held/" + "a" * 32), 404)
+            finally:
+                phone.shutdown()
+                phone.server_close()
 
 
 class HoldTest(unittest.TestCase):

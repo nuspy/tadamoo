@@ -21,7 +21,7 @@
   }
   const errText = r => {
     const e = r.json && r.json.error;
-    const known = e && e.code && ["folder_missing", "folder_relative", "folder_not_found", "folder_drive", "folder_readonly"].includes(e.code);
+    const known = e && e.code && ["folder_missing", "folder_relative", "folder_not_found", "folder_readonly"].includes(e.code);
     return known ? T("ag.add.e." + e.code) : (e && e.message) || `HTTP ${r.status}`;
   };
 

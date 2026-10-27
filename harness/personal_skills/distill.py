@@ -305,9 +305,8 @@ Rules:
 - Use code, not the model, for everything that can be code: parsing, filtering, sorting, counting, formatting, dates, joining text. Call `ai()`
   only where the language itself has to be understood or written (summarising, classifying, writing prose), and give it exactly the text it needs.
 - A step that only passed on a value the person gave becomes code that uses it.
-- Imports: only re, json, math, datetime, calendar, itertools, functools, collections, textwrap, string, statistics, csv, html, difflib,
-  decimal, fractions, base64, hashlib, unicodedata, operator, typing, dataclasses, enum, copy, urllib.parse, random, uuid. No files, no
-  programs, no network except through tool().
+- Do the actions on files, programs and the network through tool(), so the permissions and the audit record apply; use the standard library
+  for everything else.
 - Answer with the program in one ```python block, nothing else.'''
 
 

@@ -77,7 +77,7 @@ class PersonalSkills:
         spec["slug"] = slug
         spec["script"] = script
         spec["status"] = "approved" if self._approvals().get(slug) == digest(spec_without(spec), script) else "pending"
-        spec["problems"] = script_check.check(script, spec.get("mode", "restricted"))
+        spec["problems"] = script_check.check(script)
         return spec
 
     def get(self, slug: str) -> Dict[str, Any]:
@@ -100,9 +100,6 @@ class PersonalSkills:
         name = " ".join(str(spec.get("name", "")).split())
         if not name or len(name) > MAX_NAME:
             raise SkillError(f"Give the skill a name of up to {MAX_NAME} characters.")
-        mode = spec.get("mode", "restricted")
-        if mode not in ("restricted", "free"):
-            raise SkillError("The mode of a skill is restricted or free.")
         params = spec.get("params") or []
         if not isinstance(params, list) or len(params) > 40:
             raise SkillError("A skill has up to 40 parameters.")
@@ -113,11 +110,11 @@ class PersonalSkills:
             problems = check_spec(p)
             if problems:
                 raise SkillError("; ".join(problems))
-        problems = script_check.check(script, mode)
+        problems = script_check.check(script)
         if problems:
             raise SkillError("The script cannot be saved: " + "; ".join(f"line {p['line']}: {p['message']}" for p in problems[:5]))
         clean_params = [{k: v for k, v in p.items() if k in ("name", "label", "explanation", "type", "default", "required", "choices", "item_type", "format")} for p in params]
-        return {"name": name, "description": " ".join(str(spec.get("description", "")).split())[:500], "mode": mode, "params": clean_params,
+        return {"name": name, "description": " ".join(str(spec.get("description", "")).split())[:500], "params": clean_params,
                 "tools": script_check.tools_used(script), "timeout": _timeout(spec.get("timeout"))}
 
     def save(self, spec: Dict[str, Any], script: str, slug: Optional[str] = None, approve: bool = True) -> Dict[str, Any]:
@@ -258,8 +255,9 @@ class PersonalSkills:
 
 
 def _timeout(value: Any) -> int:
+    """The seconds a run may take; 0 is no limit."""
     try:
-        return min(max(int(value or 1800), 5), 86400)
+        return max(int(value or 0), 0)
     except (TypeError, ValueError):
         raise SkillError("The time limit is a number of seconds.") from None
 

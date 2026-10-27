@@ -33,8 +33,6 @@ ORIGINS = ("said", "inferred", "confirmed", "manual")
 RANK = {"manual": 3, "confirmed": 3, "said": 2, "inferred": 1}
 SETTINGS_FILE = "memory-settings.json"
 STORE_FILE = "memories.bin"
-MAX_TEXT = 400
-MAX_ITEMS = 5000
 MAX_LOG = 100
 MAX_QUEUE = 200
 MESSAGE_CHARS = 1800                            # most text one answer's notes may take
@@ -79,8 +77,6 @@ def clean_text(text: Any) -> str:
     value = " ".join(str(text or "").split())
     if not value:
         raise PersonalMemoryError("a note needs some text")
-    if len(value) > MAX_TEXT:
-        raise PersonalMemoryError(f"a note is a short sentence (at most {MAX_TEXT} characters)")
     return value
 
 
@@ -249,8 +245,6 @@ class PersonalMemory:
                 data["items"] = items
                 self._write(data)
                 return dict(item)
-            if len(items) >= MAX_ITEMS:
-                raise PersonalMemoryError("the memories are full: delete notes that no longer matter first")
             if section == "card":                                     # one card: a new one replaces the old
                 for old in [i for i in items.values() if i["kind"] == kind and i["section"] == "card"]:
                     del items[old["id"]]

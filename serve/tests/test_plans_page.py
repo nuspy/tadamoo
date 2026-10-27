@@ -73,6 +73,16 @@ class PlansPageTest(unittest.TestCase):
         for key in keys:
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
 
+    def test_the_settings_page_has_the_key_field_the_threshold_the_timeout_and_the_chunk_with_their_explanations(self):
+        self.assertIn('id: "pl-s-key", type: "password", autocomplete: "new-password"', JS)         # the key is typed, never filled back in
+        self.assertIn("clear_jev_key: true", JS)
+        self.assertIn("body.jev_key = newKey", JS)
+        for field in ("blocker_threshold", "cloud_timeout", "max_events"):
+            self.assertIn(field + ":", JS)
+        for key in ("pl.set.key.field", "pl.set.key.remove", "pl.set.threshold", "pl.set.timeout", "pl.set.chunk"):
+            self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+            self.assertEqual(I18N.count(f'"{key}.help":'), 2 if key != "pl.set.key.remove" else 0, key)
+
 
 if __name__ == "__main__":
     unittest.main()

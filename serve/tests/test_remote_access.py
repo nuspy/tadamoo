@@ -13,7 +13,7 @@ from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.handler import serve
 from serve.plans import PlanService
-from serve.remote import ApiKeys, RemoteAccess, in_tailscale, remote_path_ok
+from serve.remote import ApiKeys, RemoteAccess, listen_of
 from serve.service import Service
 from serve.tasks import ChangeJournal, TaskJournal
 from serve.util.text import ByteTokenizer
@@ -65,18 +65,12 @@ class KeysTest(unittest.TestCase):
             self.assertIsNone(keys.reveal(row["id"]))
             self.assertEqual(keys.verify(key)["label"], "Old")
 
-    def test_the_addresses_and_paths_a_phone_may_use(self):
-        for ok in ("100.64.0.1", "100.101.102.103", "100.127.255.254", "fd7a:115c:a1e0::1"):
-            self.assertTrue(in_tailscale(ok), ok)
-        for bad in ("100.63.255.255", "100.128.0.1", "192.168.1.5", "127.0.0.1", "8.8.8.8", "nonsense", "::1"):
-            self.assertFalse(in_tailscale(bad), bad)
-        for ok in ("/v1/chat/completions", "/v1/models", "/api/agent/sessions", "/api/agent/sessions/ab12/events", "/api/agent/place/forget", "/api/attachments", "/api/outputs/s/i/file", "/api/routines",
-                   "/api/routines/ab/run", "/api/plans", "/api/personal-skills", "/api/remote/hello"):
-            self.assertTrue(remote_path_ok(ok), ok)
-        self.assertTrue(remote_path_ok("/api/remote/peers"))
-        for bad in ("/", "/web/app.js", "/api/wallet/state", "/api/vault", "/api/settings", "/api/loader/load", "/api/remote", "/api/remote/keys/create", "/api/models",
-                    "/api/control/stop", "/api/profiles/export", "/metrics", "/api/agentx", "/v1x", "/api/memories", "/api/memories/item"):
-            self.assertFalse(remote_path_ok(bad), bad)
+    def test_the_address_to_listen_on_is_tailscale_every_interface_or_one_ipv4_address(self):
+        self.assertEqual([listen_of(v) for v in (None, "", " Tailscale ", "0.0.0.0", "192.168.1.20", " 10.0.0.7 ")],
+                         ["tailscale", "tailscale", "tailscale", "0.0.0.0", "192.168.1.20", "10.0.0.7"])
+        for bad in ("localhost", "192.168.1", "300.1.1.1", "::", "fd7a::1", "1.2.3.4:80"):
+            with self.assertRaises(ValueError, msg=bad):
+                listen_of(bad)
 
 
 class Remote(unittest.TestCase):
@@ -89,8 +83,7 @@ class Remote(unittest.TestCase):
         cls.svc.keys = ApiKeys(base / "keys.json", key=bytes(32))
         cls.svc.remote = RemoteAccess(base / "remote.json", 0, lambda ip, port: None)
         cls.patches = [mock.patch.object(handler, "_TASKS", TaskJournal(base / "j")), mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
-                       mock.patch.object(handler, "_PLANS", PlanService(base / "planner")),
-                       mock.patch.object(handler, "in_tailscale", lambda address: True)]
+                       mock.patch.object(handler, "_PLANS", PlanService(base / "planner"))]
         for p in cls.patches:
             p.start()
         cls.httpd = serve(cls.svc, port=0)
@@ -113,16 +106,18 @@ class Remote(unittest.TestCase):
         self.svc.remote._httpd = None
         self.svc.api_key = ""
 
-    def call(self, method, path, payload=None, key=None, outside=False):
+    def call(self, method, path, payload=None, key=None, outside=False, away=False):
+        """`away`: the request comes from a phone's address, not from this PC (the test's own connection is on this PC)."""
         base = self.phone_base if outside else self.base
         headers = {"Content-Type": "application/json"} if method == "POST" else {}
         if key:
             headers["Authorization"] = "Bearer " + key
         data = None if payload is None else json.dumps(payload).encode("utf-8")
         try:
-            with urllib.request.urlopen(urllib.request.Request(base + path, data=data, headers=headers, method=method), timeout=10) as r:
-                body = r.read()
-                return r.status, (json.loads(body) if body[:1] in (b"{", b"[") else body)
+            with mock.patch.object(handler.settings, "is_loopback", (lambda address: False) if away else handler.settings.is_loopback):
+                with urllib.request.urlopen(urllib.request.Request(base + path, data=data, headers=headers, method=method), timeout=10) as r:
+                    body = r.read()
+                    return r.status, (json.loads(body) if body[:1] in (b"{", b"[") else body)
         except urllib.error.HTTPError as e:
             body = e.read()
             return e.code, (json.loads(body) if body[:1] in (b"{", b"[") else body)
@@ -139,46 +134,47 @@ class Remote(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/agent/sessions", key=self.key, outside=True)[0], 200)
         self.assertEqual(self.call("GET", "/api/agent/sessions", key="master", outside=True)[0], 200)
 
-    def test_a_client_from_outside_needs_one_of_the_keys_and_sees_nothing_else_of_this_pc(self):
-        self.assertEqual(self.call("GET", "/api/agent/sessions", outside=True)[0], 401)
-        self.assertEqual(self.call("GET", "/api/agent/sessions", key="bsk_wrong", outside=True)[0], 401)
+    def test_every_request_to_the_listener_for_phones_needs_one_of_the_keys(self):
+        for path in ("/api/agent/sessions", "/", "/web/i18n.js", "/metrics", "/api/models", "/api/settings"):
+            self.assertEqual(self.call("GET", path, outside=True)[0], 401, path)
+            self.assertEqual(self.call("GET", path, key="bsk_wrong", outside=True)[0], 401, path)
         code, hello = self.call("GET", "/api/remote/hello", key=self.key, outside=True)
         self.assertEqual((code, hello["device"]), (200, "Phone"))
-        self.assertEqual(self.call("GET", "/api/agent/sessions", key=self.key, outside=True)[0], 200)
-        for path in ("/", "/web/app.js", "/api/wallet/state", "/api/settings", "/api/remote", "/api/models", "/metrics"):
-            self.assertEqual(self.call("GET", path, key=self.key, outside=True)[0], 403, path)                # not even with a key
-        self.assertEqual(self.call("GET", "/api/remote", outside=True)[0], 403)
 
-    def test_a_phone_may_write_only_what_a_phone_needs_and_only_while_the_listener_is_on(self):
+    def test_a_phone_with_a_key_reaches_every_route_a_client_on_this_pc_reaches_with_the_same_credentials(self):
+        for path in ("/api/agent/sessions", "/", "/web/i18n.js", "/metrics", "/api/models", "/api/settings", "/api/plans", "/api/knowledge"):
+            self.assertEqual(self.call("GET", path, key=self.key, outside=True)[0], 200, path)
+        self.assertEqual(self.call("GET", "/api/remote", key=self.key, outside=True)[0], 200)             # the test's own connection is on this PC
+
+    def test_what_answers_only_to_this_pc_stays_closed_to_a_phone_from_away(self):
+        for path in ("/api/remote", "/api/memories", "/api/wallet"):
+            self.assertEqual(self.call("GET", path, key=self.key, outside=True, away=True)[0], 403, path)
+
+    def test_a_phone_may_write_only_while_the_listener_is_on(self):
         work = Path(self.tmp.name) / "work"
         work.mkdir(exist_ok=True)
-        self.call("POST", "/api/agent/projects", {"path": str(work)})                                                   # added on this PC
         body = {"workspace": str(work), "mode": "read_only", "ask_only": True}
         self.assertEqual(self.call("POST", "/api/agent/sessions", body, key=self.key, outside=True)[0], 403)          # phones are not turned on
         self.listen()
         code, made = self.call("POST", "/api/agent/sessions", body, key=self.key, outside=True)
         self.assertEqual(code, 200)
         self.assertEqual(self.call("POST", "/api/agent/sessions", body, outside=True)[0], 401)
-        for path in ("/api/wallet/payments", "/api/vault/x", "/api/settings", "/api/loader/load", "/api/control/stop", "/api/remote/keys/create"):
-            self.assertEqual(self.call("POST", path, {}, key=self.key, outside=True)[0], 403, path)
+        for path in ("/api/control/load", "/api/remote/keys/create"):
+            self.assertEqual(self.call("POST", path, {}, key=self.key, outside=True, away=True)[0], 403, path)
         self.call("POST", f"/api/agent/sessions/{made['session']['id']}/delete", {}, key=self.key, outside=True)
 
-    def test_a_phone_cannot_add_a_folder_or_start_the_agent_in_one_that_was_not_added_on_the_pc(self):
+    def test_a_phone_adds_a_folder_and_works_in_any_folder(self):
         self.listen()
         folder = Path(self.tmp.name) / "added"
         folder.mkdir()
         elsewhere = Path(self.tmp.name) / "elsewhere"
         elsewhere.mkdir()
-        self.assertEqual(self.call("POST", "/api/agent/projects", {"path": str(folder)}, key=self.key, outside=True)[0], 403)
-        self.assertEqual(self.call("POST", "/api/agent/projects", {"path": str(folder)})[0], 200)                      # this PC adds it
+        self.assertEqual(self.call("POST", "/api/agent/projects", {"path": str(folder)}, key=self.key, outside=True)[0], 200)
         body = {"mode": "read_only", "ask_only": True}
-        self.assertEqual(self.call("POST", "/api/agent/sessions", {**body, "workspace": str(elsewhere)}, key=self.key, outside=True)[0], 403)
-        self.assertEqual(self.call("POST", "/api/agent/sessions", {**body, "workspace": str(folder / ".." / "elsewhere")}, key=self.key, outside=True)[0], 403)
-        code, made = self.call("POST", "/api/agent/sessions", {**body, "workspace": str(folder)}, key=self.key, outside=True)
-        self.assertEqual(code, 200)
+        self.assertEqual(self.call("POST", "/api/agent/sessions", {**body, "workspace": str(elsewhere)}, key=self.key, outside=True)[0], 200)
+        self.assertEqual(self.call("POST", "/api/agent/sessions", {**body, "workspace": str(folder / ".." / "elsewhere")}, key=self.key, outside=True)[0], 200)
         routine = {"name": "n", "prompt": "p", "schedule": "daily 08:30"}
-        self.assertEqual(self.call("POST", "/api/routines", {**routine, "workspace": str(elsewhere)}, key=self.key, outside=True)[0], 403)
-        self.assertEqual(self.call("POST", "/api/routines", {**routine, "workspace": str(folder)}, key=self.key, outside=True)[0], 200)
+        self.assertEqual(self.call("POST", "/api/routines", {**routine, "workspace": str(elsewhere)}, key=self.key, outside=True)[0], 200)
         self.call("POST", "/api/agent/projects/remove", {"path": str(folder)})
 
     def test_a_key_that_was_taken_away_stops_working_at_once(self):
@@ -197,12 +193,17 @@ class Remote(unittest.TestCase):
             self.assertNotIn(made["key"], json.dumps(self.call("GET", "/api/remote")[1]))                           # the status never carries it
             code, again = self.call("POST", "/api/remote/keys/show", {"id": made["row"]["id"]})                      # but its code can be asked for again
             self.assertEqual((code, again["key"], again["row"]["label"]), (200, made["key"], "Tablet"))
-            self.assertEqual(self.call("POST", "/api/remote/keys/show", {"id": made["row"]["id"]}, outside=True)[0], 403)
+            self.assertEqual(self.call("POST", "/api/remote/keys/show", {"id": made["row"]["id"]}, key=self.key, outside=True, away=True)[0], 403)
             self.assertEqual(self.call("POST", "/api/remote/keys/show", {"id": "nope"})[0], 404)
             self.assertEqual(self.call("POST", "/api/remote/keys/create", {"label": ""})[0], 400)
             self.assertEqual(self.call("POST", "/api/remote/keys/revoke", {"id": made["row"]["id"]})[0], 200)
             self.assertEqual(self.call("POST", "/api/remote/keys/revoke", {"id": "nope"})[0], 404)
-            self.assertEqual(self.call("POST", "/api/remote/keys/create", {"label": "x"}, outside=True)[0], 403)
+            self.assertEqual(self.call("POST", "/api/remote/keys/create", {"label": "x"}, key=self.key, outside=True, away=True)[0], 403)
+            self.assertEqual(self.call("GET", "/api/remote")[1]["listen"], "tailscale")
+            self.assertEqual(self.call("POST", "/api/remote/listen", {"listen": "0.0.0.0"})[1]["listen"], "0.0.0.0")
+            self.assertEqual(self.call("POST", "/api/remote/listen", {"listen": "nowhere"})[0], 400)
+            self.assertEqual(self.call("POST", "/api/remote/listen", {"listen": "0.0.0.0"}, key=self.key, outside=True, away=True)[0], 403)
+            self.assertEqual(self.call("POST", "/api/remote/listen", {"listen": "tailscale"})[1]["listen"], "tailscale")
         with mock.patch.object(remote, "tailscale_status", lambda: {"ip": ""}):
             code, status = self.call("POST", "/api/remote/enable", {})
             self.assertEqual((code, status["enabled"], status["listening"]), (200, True, False))
@@ -255,6 +256,41 @@ class ListenerTest(unittest.TestCase):
                 access.set_enabled(False)
             self.assertFalse(RemoteAccess(Path(tmp) / "r.json", 7232, lambda ip, port: None).enabled)         # the setting is kept
             ip["v"] = "100.64.0.9"
+
+    def test_the_listener_binds_where_the_person_chose_and_that_is_kept(self):
+        started = []
+
+        class Fake:
+            def __init__(self, host):
+                self.server_address = (host, 1)
+
+            def shutdown(self):
+                pass
+
+            def server_close(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            access = RemoteAccess(Path(tmp) / "r.json", 7232, lambda ip, port: started.append(ip) or Fake(ip))
+            self.assertEqual(access.listen, "tailscale")
+            with mock.patch.object(remote, "tailscale_status", lambda: {"ip": ""}):          # Tailscale is not connected: nothing needs it
+                access.set_enabled(True)
+                self.assertEqual((access.listening, started), (False, []))
+                access.set_listen("0.0.0.0")
+                self.assertEqual((access.listening, started, access.error), (True, ["0.0.0.0"], ""))
+                with mock.patch.object(remote, "lan_addresses", lambda: ["192.168.1.20"]):
+                    self.assertEqual(access.address(), "192.168.1.20:7232")                  # a phone cannot connect to 0.0.0.0
+                self.assertEqual(access.address("100.64.0.9"), "100.64.0.9:7232")
+                access.set_listen(" 192.168.1.20 ")
+                self.assertEqual((started[-1], access.address()), ("192.168.1.20", "192.168.1.20:7232"))
+                with self.assertRaises(ValueError):
+                    access.set_listen("not an address")
+                self.assertEqual(access.listen, "192.168.1.20")
+                saved = RemoteAccess(Path(tmp) / "r.json", 7232, lambda ip, port: None)
+                self.assertEqual((saved.listen, saved.enabled), ("192.168.1.20", True))
+                access.set_listen("tailscale")
+                self.assertEqual(access.listening, False)                                    # back to Tailscale, which has no address now
+                self.assertIn("Tailscale is not connected", access.error)
 
 
 if __name__ == "__main__":

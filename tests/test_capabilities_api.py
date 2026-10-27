@@ -74,8 +74,8 @@ def test_moving_and_turning_off_and_looking_again(api, tmp_path):
     assert "skill:new-one" in {e["id"] for e in view["entries"]}
 
 
-def test_only_the_pages_own_origin_can_change_anything(api):
+def test_the_settings_do_not_look_at_the_origin(api):
     code, body = api("POST", "/api/capabilities/settings", {"visual": "none"}, headers={"Origin": "http://evil.example"})
-    assert code == 403
-    assert api("GET", "/api/capabilities")[1]["settings"]["visual"] == "builtin"
+    assert code == 200
+    assert api("GET", "/api/capabilities")[1]["settings"]["visual"] == "none"
     assert api("POST", "/api/capabilities/nothing", {})[0] == 404

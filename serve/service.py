@@ -16,7 +16,6 @@ from serve.frontend import ChatTemplate, Event, OutputParser, images_of, literal
 from serve.util.logbuf import LogBuffer
 from serve.util.reqlog import RequestLog
 from serve.util.reqtrace import GpuTicker
-from serve.security import LOOPBACK_NAMES
 from serve.prompt import CTX_SLACK, PromptText, overflow_error, room_error
 from serve.util.text import Detokenizer, IM_END, StopMatcher, control_literals, stop_strings
 from serve.engine.vision import Vision
@@ -84,13 +83,6 @@ class Service:
         self.reqlog = RequestLog()                      # what each request sent, the model wrote and the server did
         self.gpu_ticker = GpuTicker(self)               # hardware figures into reqlog while requests run
         self.logs = LogBuffer()                         # server and engine output
-        # origins allowed to call /v1/* (CORS; "*" = any); empty: no CORS headers
-        self.cors_origins: list[str] = []
-        # origins treated as the server's own page for the load/unload/VRAM controls (no wildcard)
-        self.trusted_origins: list[str] = []
-        # DNS-rebinding guard: extra Host names ("*" = any) and all names answered, set by serve()
-        self.allowed_hosts: list[str] = []
-        self.host_names: set[str] = set(LOOPBACK_NAMES)
         self.status = {"busy": False, "queued": 0}      # what the model is doing now
         self.rate = collections.deque(maxlen=RATE_SAMPLES)   # (time, generated) samples
         # parallel mode: each running request's own status and rate window; self.status shows the newest

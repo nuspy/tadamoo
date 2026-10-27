@@ -61,7 +61,7 @@ def test_two_messages_through_the_api_the_second_sees_the_first(setup, ws):
 def test_a_tool_runs_inside_the_conversation_and_the_page_sees_it(setup, ws):
     s = setup([tool_call("write_file", path="nota.txt", content="ciao"), answer("Scritto.")])
     api = s["api"]
-    sid = api("POST", "/api/agent/sessions", {"workspace": str(ws), "mode": "auto", "confirm_auto": True})[1]["session"]["id"]
+    sid = api("POST", "/api/agent/sessions", {"workspace": str(ws), "mode": "auto"})[1]["session"]["id"]
     api("POST", f"/api/agent/sessions/{sid}/send", {"text": "scrivi nota.txt"})
     wait_for(lambda: any(e["event"] == "done" for e in events(api, sid)["events"]), seconds=60)
     assert (Path(ws) / "nota.txt").read_text(encoding="utf-8") == "ciao"
@@ -85,13 +85,11 @@ def test_what_the_api_refuses(setup, ws):
     s = setup([answer("x")])
     api = s["api"]
     assert api("POST", "/api/agent/sessions", {"workspace": "relativo"})[0] == 400
-    assert api("POST", "/api/agent/sessions", {"workspace": str(ws), "mode": "auto"})[1]["error"]["code"] == "auto_confirm"
+    assert api("POST", "/api/agent/sessions", {"workspace": str(ws), "mode": "auto"})[0] == 200
     assert api("GET", "/api/agent/sessions/nope/events")[0] == 404
     sid = api("POST", "/api/agent/sessions", {"workspace": str(ws)})[1]["session"]["id"]
     assert api("POST", f"/api/agent/sessions/{sid}/send", {"text": "   "})[0] == 400
     assert api("POST", f"/api/agent/sessions/{sid}/resume", {})[0] == 409
-    code, _ = api("POST", "/api/agent/sessions", {"workspace": str(ws)}, headers={"Origin": "http://evil.example"})
-    assert code == 403
 
 
 def test_a_confirmation_in_the_conversation_is_answered_through_the_api(setup, ws):
@@ -128,7 +126,7 @@ def test_a_conversation_works_in_its_own_copy_and_the_person_applies_what_it_mad
     git("commit", "-q", "-m", "first")
     s = setup([tool_call("write_file", path="nota.txt", content="dal compito"), answer("Scritto.")])
     api = s["api"]
-    session = api("POST", "/api/agent/sessions", {"workspace": str(repo), "mode": "auto", "confirm_auto": True, "worktree": "always"})[1]["session"]
+    session = api("POST", "/api/agent/sessions", {"workspace": str(repo), "mode": "auto", "worktree": "always"})[1]["session"]
     sid = session["id"]
     assert session["worktree"] and session["workdir"] != str(repo)
     assert api("POST", f"/api/agent/sessions/{sid}/send", {"text": "scrivi una nota"})[0] == 200
@@ -161,7 +159,7 @@ def test_going_back_over_a_command_asks_first_and_the_tree_and_a_comparison_are_
     s = setup([tool_call("write_file", path="nota.txt", content="uno"), answer("Scritto."), tool_call("shell_command", command="python -c \"print(1)\""), answer("Eseguito."),
                answer("Risposta A."), answer("Risposta B.")])
     api = s["api"]
-    sid = api("POST", "/api/agent/sessions", {"workspace": str(repo), "mode": "auto", "confirm_auto": True, "worktree": "always"})[1]["session"]["id"]
+    sid = api("POST", "/api/agent/sessions", {"workspace": str(repo), "mode": "auto", "worktree": "always"})[1]["session"]["id"]
     for n, text in enumerate(("scrivi una nota", "esegui un comando"), 1):
         assert api("POST", f"/api/agent/sessions/{sid}/send", {"text": text})[0] == 200
         wait_for(lambda: sum(e["event"] == "done" for e in events(api, sid)["events"]) == n, seconds=60)

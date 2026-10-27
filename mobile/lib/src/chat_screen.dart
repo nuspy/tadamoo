@@ -100,8 +100,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<bool> _ensure() async {
     if (ctl.ready) return true;
     try {
-      final auto = widget.settings.mode == 'auto';
-      await ctl.create(workspace: widget.workspace, mode: widget.settings.mode, confirmAuto: auto);
+      await ctl.create(workspace: widget.workspace, mode: widget.settings.mode);
       return true;
     } on ApiError catch (e) {
       _say(e.message);
@@ -252,27 +251,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ),
     );
     if (picked == null || picked == now) return;
-    var confirm = false;
-    if (picked == 'auto') {
-      if (!await _sure(Texts.t('mode.auto.risk')) || !await _sure(Texts.t('mode.auto.risk2'))) return;
-      confirm = true;
-    }
     try {
-      await ctl.setMode(picked, confirmAuto: confirm);
+      await ctl.setMode(picked);
     } on ApiError catch (e) {
       _say(e.message);
     }
   }
-
-  Future<bool> _sure(String text) async =>
-      await showDialog<bool>(
-        context: context,
-        builder: (c) => AlertDialog(content: Text(text), actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: Text(Texts.t('conv.cancel'))),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(Texts.t('chat.yes'))),
-        ]),
-      ) ??
-      false;
 
   // ---- drawing ----
   @override

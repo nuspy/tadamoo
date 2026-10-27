@@ -1,6 +1,6 @@
 """Asks the person through the server's pages: posts an approval request and waits for the answer.
 
-Whatever goes wrong (the server is gone, the answer never comes, the run is cancelled) is a refusal.
+Whatever goes wrong (the server is gone, the run is cancelled) is a refusal; the answer is waited for as long as it takes.
 """
 from __future__ import annotations
 
@@ -14,18 +14,16 @@ from typing import Any, Dict, Optional
 from harness import control_secret
 
 POLL_SECONDS = 1.0
-WAIT_SECONDS = 900.0
 FAILURES_BEFORE_REFUSING = 3
 
 
 class ServerApprover:
     def __init__(self, base_url: str, api_key: Optional[str], run_id: str, cancel: Optional[threading.Event] = None,
-                 wait: float = WAIT_SECONDS, poll: float = POLL_SECONDS, effect_of=None) -> None:
+                 poll: float = POLL_SECONDS, effect_of=None) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.run_id = run_id
         self.cancel = cancel
-        self.wait = wait
         self.poll = poll
         self.effect_of = effect_of
 
@@ -46,9 +44,8 @@ class ServerApprover:
             approval_id = made["id"]
         except (urllib.error.URLError, OSError, ValueError, KeyError):
             return False
-        deadline = time.monotonic() + self.wait
         failures = 0
-        while time.monotonic() < deadline:
+        while True:
             if self.cancel is not None and self.cancel.is_set():
                 return False
             try:
@@ -64,4 +61,3 @@ class ServerApprover:
             if status != "pending":
                 return False
             time.sleep(self.poll)
-        return False

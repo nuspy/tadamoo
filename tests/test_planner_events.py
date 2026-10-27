@@ -97,9 +97,16 @@ class FakeImap:
                         w(f"* SEARCH {' '.join(str(u) for u in sorted(outer.messages))}\r\n{tag} OK done\r\n")
                     elif rest.upper().startswith("UID FETCH"):
                         uid = int(rest.split(" ")[2])
-                        sender, subject = outer.messages[uid]
-                        head = f"From: {sender}\r\nSubject: {subject}\r\n\r\n".encode()
-                        w(b"* %d FETCH (UID %d BODY[HEADER.FIELDS (FROM SUBJECT)] {%d}\r\n" % (uid, uid, len(head)) + head + b")\r\n" + f"{tag} OK done\r\n".encode())
+                        sender, subject, *more = outer.messages[uid]
+                        head = f"From: {sender}\r\nSubject: {subject}\r\n".encode()
+                        whole = head + (more[0] if more else b"\r\n").replace(b"\n", b"\r\n").replace(b"\r\r\n", b"\r\n")
+                        if "RFC822.SIZE" in rest:
+                            w(b"* %d FETCH (UID %d RFC822.SIZE %d)\r\n" % (uid, uid, len(whole)) + f"{tag} OK done\r\n".encode())
+                        elif "BODY.PEEK[])" in rest:
+                            w(b"* %d FETCH (UID %d BODY[] {%d}\r\n" % (uid, uid, len(whole)) + whole + b")\r\n" + f"{tag} OK done\r\n".encode())
+                        else:
+                            head += b"\r\n"
+                            w(b"* %d FETCH (UID %d BODY[HEADER.FIELDS (FROM SUBJECT)] {%d}\r\n" % (uid, uid, len(head)) + head + b")\r\n" + f"{tag} OK done\r\n".encode())
                     elif cmd == "LOGOUT":
                         w(f"* BYE\r\n{tag} OK bye\r\n")
                         return
@@ -191,7 +198,7 @@ def test_a_feed_that_cannot_be_reached_is_an_error_not_a_crash(web):
 
 # -- a mailbox -------------------------------------------------------------------------------------------
 
-def test_the_mailbox_is_read_only_and_only_sender_and_subject_are_asked_for(imap):
+def test_the_mailbox_is_read_only_and_the_text_of_a_message_is_read_without_marking_it(imap):
     imap.messages = {1: ("Vecchio <old@x.org>", "Roba vecchia")}
     src = ImapSource("posta", "127.0.0.1", lambda: (imap.user, imap.password), imap.port, ssl=False)
     assert src.poll() == []                                                         # the mail already there is learned, not announced
@@ -203,9 +210,55 @@ def test_the_mailbox_is_read_only_and_only_sender_and_subject_are_asked_for(imap
     assert src.poll() == []
     used = " | ".join(imap.commands)
     assert "EXAMINE" in used and "SELECT" not in used                               # opened read-only
-    assert "BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)]" in used
-    for forbidden in ("STORE", "EXPUNGE", "APPEND", "DELETE", "COPY", "RFC822", "BODY[]", "BODY.PEEK[]", "BODY[TEXT]"):
+    assert "BODY.PEEK[]" in used
+    for forbidden in ("STORE", "EXPUNGE", "APPEND", "DELETE", "COPY"):
         assert forbidden not in used, forbidden
+    assert "BODY[" not in used.replace("BODY.PEEK[", "")                              # nothing is fetched in a way that sets \Seen
+
+
+def _mail(imap, *messages):
+    imap.messages = {1: ("Vecchio <old@x.org>", "Roba vecchia")}
+    src = ImapSource("posta", "127.0.0.1", lambda: (imap.user, imap.password), imap.port, ssl=False)
+    src.poll()
+    imap.messages.update({i + 2: m for i, m in enumerate(messages)})
+    return src.poll()
+
+
+def test_the_plain_text_of_a_message_is_the_events_text_decoded_and_whole(imap):
+    long = "Il treno è soppresso. " * 400
+    events = _mail(imap, ("Gianni <g@x.org>", "Sciopero", b"Content-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: quoted-printable\n\nCaff=C3=A8 e sciopero.\n" + long.encode()),
+                   ("Anna <a@x.org>", "Doppia", b"Content-Type: multipart/alternative; boundary=XX\n\n--XX\nContent-Type: text/html\n\n<p>solo html</p>\n--XX\nContent-Type: text/plain\n\nsolo testo\n--XX--\n"),
+                   ("Luca <l@x.org>", "Solo html", b"Content-Type: text/html\n\n<p>niente testo</p>\n"))
+    assert events[0].text.startswith("Email from Gianni: Sciopero. Caffè e sciopero. Il treno è soppresso.") and len(events[0].text) > 8000
+    assert events[1].text == "Email from Anna: Doppia. solo testo"
+    assert events[2].text == "Email from Luca: Solo html"
+
+
+def test_a_message_over_the_memory_guard_gives_its_sender_and_subject_only(imap, monkeypatch):
+    monkeypatch.setattr(sources, "MAX_MESSAGE_BYTES", 100)
+    events = _mail(imap, ("Gianni <g@x.org>", "Grande", b"Content-Type: text/plain\n\n" + b"x" * 500))
+    assert [e.text for e in events] == ["Email from Gianni: Grande"]
+    assert "BODY.PEEK[]" not in " | ".join(imap.commands[-4:])
+
+
+def test_nothing_caps_the_new_messages_of_a_poll_nor_the_length_of_an_event(imap, web):
+    events = _mail(imap, *[("a <a@x.org>", f"n{i}") for i in range(80)])
+    assert len(events) == 80
+    w = web()
+    w.routes["/f.xml"] = (200, rss(*[{"id": str(i), "title": f"t{i}", "text": "y" * 3000} for i in range(60)]))
+    src = RssSource("f", f"{w.url}/f.xml")
+    assert src.poll() == []
+    w.routes["/f.xml"] = (200, rss(*[{"id": str(i), "title": f"t{i}", "text": "y" * 3000} for i in range(120)]))
+    fresh = src.poll()
+    assert len(fresh) == 60 and all(len(e.text) > 3000 for e in fresh)
+
+
+def test_there_is_no_limit_on_the_number_of_sources_nor_their_interval():
+    many = [{"kind": "rss", "id": f"f{i}", "url": "http://example.org/x.xml", "interval_seconds": 100000} for i in range(15)]
+    assert len(sources.clean_sources(many)) == 15
+    assert clean_source({"kind": "rss", "url": "http://example.org/x.xml", "interval_seconds": 0.5})["interval_seconds"] == 0.5
+    with pytest.raises(ValueError):
+        clean_source({"kind": "rss", "url": "http://example.org/x.xml", "interval_seconds": 0})
 
 
 def test_a_new_uid_validity_starts_the_mailbox_over_and_a_bad_login_never_shows_the_password(imap):
@@ -267,8 +320,8 @@ def test_a_sources_settings_are_checked_and_hold_no_credentials():
             clean_source(bad)
     with pytest.raises(ValueError, match="same id"):
         clean_sources([{"kind": "rss", "url": "https://x", "id": "a"}, {"kind": "rss", "url": "https://y", "id": "a"}])
-    with pytest.raises(ValueError, match="at most"):
-        clean_sources([{"kind": "rss", "url": "https://x", "id": f"s{i}"} for i in range(11)])
+    with pytest.raises(ValueError, match="a list"):
+        clean_sources("rss")
 
 
 def test_the_runner_polls_on_threads_delivers_what_is_new_and_stops_cleanly():
@@ -343,10 +396,10 @@ def test_the_pump_runs_on_its_own_thread_survives_a_failing_handler_and_stops_wh
     assert inbox.pending() == {"a": 1}                                                  # nobody takes it any more
 
 
-def test_an_events_text_is_capped_in_the_buffer():
-    buf = EventBuffer(max_event_chars=50)
-    buf.add_event("x" * 5000)
-    assert len(buf.flush()[0]) == 50
+def test_an_events_text_is_kept_whole_in_the_buffer():
+    buf = EventBuffer()
+    buf.add_event("x" * 50000)
+    assert len(buf.flush()[0]) == 50000
 
 
 # -- the service ------------------------------------------------------------------------------------------

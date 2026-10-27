@@ -79,12 +79,12 @@ def test_gaps_are_what_a_trip_needs_to_be_judged_and_a_routine_needs_nothing():
     assert card_gaps(full, "occasional") == []
 
 
-def test_steps_with_the_same_title_keep_both_and_a_long_plan_keeps_the_card_small():
+def test_steps_with_the_same_title_keep_both_and_a_long_plan_keeps_every_step():
     dag = PlanDAG(plan_id="p", title="t", target_type="occasional")
     for i in range(60):
         dag.add_node(node(f"n{i}", title="Telefona"))
     card = derive_card(dag)
-    assert len(card.logistica_e_prenotazioni) == 30 and "Telefona (2)" in card.logistica_e_prenotazioni
+    assert len(card.logistica_e_prenotazioni) == 60 and "Telefona (2)" in card.logistica_e_prenotazioni and "Telefona (60)" in card.logistica_e_prenotazioni
 
 
 def test_a_finished_short_plan_has_nothing_left_to_protect_and_a_routine_is_always_open(tmp_path):

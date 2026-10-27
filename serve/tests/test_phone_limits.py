@@ -80,8 +80,7 @@ class PhoneLimitsTest(unittest.TestCase):
         cls.svc.keys = ApiKeys(base / "keys.json", key=bytes(32))
         cls.svc.remote = RemoteAccess(base / "remote.json", 0, lambda ip, port: None)
         cls.patches = [mock.patch.object(handler, "_TASKS", TaskJournal(base / "j")), mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
-                       mock.patch.object(handler, "_PLANS", PlanService(base / "planner")),
-                       mock.patch.object(handler, "in_tailscale", lambda address: True)]
+                       mock.patch.object(handler, "_PLANS", PlanService(base / "planner"))]
         for p in cls.patches:
             p.start()
         cls.httpd = serve(cls.svc, port=0)
@@ -124,11 +123,16 @@ class PhoneLimitsTest(unittest.TestCase):
     def phone_post(self, path, payload):
         return self.call("POST", path, payload, key=self.key, outside=True)
 
+    def phone_post_from_away(self, path, payload):
+        """A phone is never on this PC; the test's own connection is, so the PC-only check is told otherwise."""
+        with mock.patch.object(handler.settings, "is_loopback", lambda address: False):
+            return self.phone_post(path, payload)
+
     def session(self, **extra):
         return {"workspace": str(self.work), "ask_only": True, **extra}
 
     def test_a_phone_cannot_start_a_conversation_in_a_mode_above_the_limit_the_pc_set(self):
-        code, body = self.phone_post("/api/agent/sessions", self.session(mode="auto", confirm_auto=True))
+        code, body = self.phone_post("/api/agent/sessions", self.session(mode="auto"))
         self.assertEqual((code, body["error"]["code"]), (403, "phone_mode_limit"))
         self.assertIn("Settings > Phones", body["error"]["message"])
         code, made = self.phone_post("/api/agent/sessions", self.session(mode="default"))
@@ -137,15 +141,15 @@ class PhoneLimitsTest(unittest.TestCase):
         self.svc.remote.set_limits("read_only", [])
         self.assertEqual(self.phone_post("/api/agent/sessions", self.session(mode="default"))[1]["error"]["code"], "phone_mode_limit")
         self.svc.remote.set_limits("auto", [])
-        self.assertEqual(self.phone_post("/api/agent/sessions", self.session(mode="auto", confirm_auto=True))[0], 200)
+        self.assertEqual(self.phone_post("/api/agent/sessions", self.session(mode="auto"))[0], 200)
 
     def test_switching_a_conversation_to_automatic_from_a_phone_is_refused_too(self):
         code, made = self.phone_post("/api/agent/sessions", self.session(mode="default", ask_only=False))
         sid = made["session"]["id"]
-        code, body = self.phone_post(f"/api/agent/sessions/{sid}/mode", {"mode": "auto", "confirm_auto": True})
+        code, body = self.phone_post(f"/api/agent/sessions/{sid}/mode", {"mode": "auto"})
         self.assertEqual((code, body["error"]["code"]), (403, "phone_mode_limit"))
         self.assertEqual(self.phone_post(f"/api/agent/sessions/{sid}/mode", {"mode": "read_only"})[0], 200)
-        self.assertEqual(self.call("POST", f"/api/agent/sessions/{sid}/mode", {"mode": "auto", "confirm_auto": True})[0], 200)       # this PC may
+        self.assertEqual(self.call("POST", f"/api/agent/sessions/{sid}/mode", {"mode": "auto"})[0], 200)       # this PC may
 
     def test_a_phone_cannot_attach_permission_rules_and_the_conversation_gets_the_rules_of_the_pc(self):
         code, body = self.phone_post("/api/agent/sessions", self.session(allow=["shell_command:*"]))
@@ -162,22 +166,22 @@ class PhoneLimitsTest(unittest.TestCase):
     def test_when_the_person_lets_phones_choose_the_phone_picks_its_mode_and_rules(self):
         code, view = self.call("POST", "/api/remote/limits", {"phone_chooses": True, "max_mode": "plan", "rules": []})
         self.assertEqual((code, view["limits"]["phone_chooses"]), (200, True))
-        code, made = self.phone_post("/api/agent/sessions", self.session(mode="auto", ask_only=False, confirm_auto=True, allow=["shell_command:git *"]))
+        code, made = self.phone_post("/api/agent/sessions", self.session(mode="auto", ask_only=False, allow=["shell_command:git *"]))
         self.assertEqual((code, made["session"]["mode"], made["session"]["allow"]), (200, "auto", ["shell_command:git *"]))
         self.assertEqual(self.phone_post("/api/agent/sessions", self.session(mode="root", ask_only=False))[0], 400)
         self.assertTrue(RemoteAccess(Path(self.tmp.name) / "remote.json", 0, lambda ip, port: None).phone_chooses)
 
     def test_runs_and_routines_started_from_a_phone_follow_the_same_limits(self):
-        run = {"workspace": str(self.work), "goal": "x", "mode": "auto", "confirm_auto": True}
+        run = {"workspace": str(self.work), "goal": "x", "mode": "auto"}
         self.assertEqual(self.phone_post("/api/agent/runs", run)[1]["error"]["code"], "phone_mode_limit")
         self.assertEqual(self.phone_post("/api/agent/runs", {**run, "mode": "default", "allow": ["shell_command:*"]})[1]["error"]["code"], "phone_rules")
         routine = {"name": "n", "prompt": "p", "schedule": "daily 08:30", "workspace": str(self.work)}
-        self.assertEqual(self.phone_post("/api/routines", {**routine, "mode": "auto", "confirm_auto": True})[1]["error"]["code"], "phone_mode_limit")
+        self.assertEqual(self.phone_post("/api/routines", {**routine, "mode": "auto"})[1]["error"]["code"], "phone_mode_limit")
         self.assertEqual(self.phone_post("/api/routines", {**routine, "allow": ["shell_command:*"]})[1]["error"]["code"], "phone_rules")
         code, made = self.phone_post("/api/routines", routine)
         self.assertEqual(code, 200)
         rid = made["routine"]["id"]
-        self.assertEqual(self.phone_post(f"/api/routines/{rid}/update", {"mode": "auto", "confirm_auto": True})[1]["error"]["code"], "phone_mode_limit")
+        self.assertEqual(self.phone_post(f"/api/routines/{rid}/update", {"mode": "auto"})[1]["error"]["code"], "phone_mode_limit")
         self.assertEqual(self.phone_post(f"/api/routines/{rid}/update", {"allow": ["shell_command:*"]})[1]["error"]["code"], "phone_rules")
         self.call("POST", f"/api/routines/{rid}/remove", {})
 
@@ -187,7 +191,7 @@ class PhoneLimitsTest(unittest.TestCase):
         self.assertEqual(view["limits"]["modes"], ["plan", "read_only", "default", "auto"])
         self.assertEqual(self.call("POST", "/api/remote/limits", {"max_mode": "root", "rules": []})[0], 400)
         self.assertEqual(self.call("POST", "/api/remote/limits", {"max_mode": "auto", "rules": ["x"] * 11})[0], 400)
-        self.assertEqual(self.phone_post("/api/remote/limits", {"max_mode": "auto", "rules": []})[0], 403)
+        self.assertEqual(self.phone_post_from_away("/api/remote/limits", {"max_mode": "auto", "rules": []})[0], 403)
         self.assertEqual(RemoteAccess(Path(self.tmp.name) / "remote.json", 0, lambda ip, port: None).max_mode, "read_only")
         self.assertEqual(self.svc.remote.max_mode, "read_only")
 
@@ -209,7 +213,7 @@ class PhoneLimitsTest(unittest.TestCase):
         self.assertEqual((code, renewed["row"]["expired"]), (200, False))
         self.assertEqual(self.call("GET", "/api/remote/hello", key=key, outside=True)[0], 200)
         self.assertEqual(self.call("POST", "/api/remote/keys/renew", {"id": "nope", "days": 30})[0], 404)
-        self.assertEqual(self.phone_post("/api/remote/keys/renew", {"id": tablet, "days": 0})[0], 403)             # a phone cannot renew its own key
+        self.assertEqual(self.phone_post_from_away("/api/remote/keys/renew", {"id": tablet, "days": 0})[0], 403)             # a phone cannot renew its own key
 
 
 if __name__ == "__main__":

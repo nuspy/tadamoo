@@ -185,14 +185,12 @@ class Lifecycle(unittest.TestCase):
                         self.assertIsNone(engine.proc)
                         self.assertFalse(engine.starting)
 
-    def test_busy_auth_and_foreign_origin_cannot_unload(self):
+    def test_busy_and_auth_cannot_unload(self):
         self.engine.loaded = True
         with self.svc.fifo:
             self.assertEqual(self.request("/api/control/unload", {})[0], 409)
         self.svc.api_key = "local-secret"
         self.assertEqual(self.request("/api/control/unload", {})[0], 401)
-        self.assertEqual(self.request("/api/control/unload", {}, {"Authorization": "Bearer local-secret",
-                                                        "Origin": "https://other.example"})[0], 403)
         self.assertEqual(self.engine.closes, 0)
         self.assertTrue(self.engine.loaded)
         self.assertEqual(self.request("/api/control/unload", {}, {"Authorization": "Bearer local-secret"})[0], 200)
@@ -211,7 +209,6 @@ class Lifecycle(unittest.TestCase):
         code, status = self.request("/api/control/load", {})
         self.assertEqual((code, status), (200, {"status": "loaded"}))
         self.assertEqual(self.engine.starts, 1)
-        self.assertEqual(self.request("/api/control/load", {}, {"Content-Type": "text/plain"})[0], 415)
         for headers in ({"X-Basalt-Control": "wrong"}, {"X-Basalt-Control": ""}):
             self.assertEqual(self.request("/api/control/unload", {}, headers)[0], 403, headers)
         self.svc.control_token = ""                                  # a server that wrote no secret has the routes off

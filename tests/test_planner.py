@@ -287,8 +287,7 @@ def test_the_card_validates_and_pseudonymizes_names_whole_word():
         share_card(card, fields=["segreto"])
     with pytest.raises(ValueError):
         PlanInsightCard.from_dict({"titolo": "  "})
-    with pytest.raises(ValueError, match="larger than"):
-        PlanInsightCard.from_dict({"titolo": "x", "logistica_e_prenotazioni": {"k": "y" * 20000}})
+    assert len(PlanInsightCard.from_dict({"titolo": "x", "logistica_e_prenotazioni": {"k": "y" * 20000}}).logistica_e_prenotazioni["k"]) == 20000
 
 
 class FakeJev:
@@ -445,12 +444,12 @@ def test_long_batches_go_in_chunks_and_the_worst_answer_wins(jev):
     assert g.telemetry.summary()["calls"] == 1 and g.telemetry.summary()["tokens"] == 3 * 1264
 
 
-def test_events_are_truncated_and_empty_batches_cost_nothing(jev):
+def test_events_are_sent_whole_and_empty_batches_cost_nothing(jev):
     fake = jev(answer=jev_answer(0.1, "ZERO_EVENTS_IMPACTFUL"))
     g = gate(fake)
     assert not g.triage_event_batch(CARD, ["", "   "]).wake_system_2 and fake.requests == []
     g.triage_event_batch(CARD, ["x" * 5000])
-    assert len(fake.requests[0]["body"]["state"]["events_digest"]) < 600
+    assert len(fake.requests[0]["body"]["state"]["events_digest"]) > 5000
 
 
 def test_telemetry_counts_sources(jev):

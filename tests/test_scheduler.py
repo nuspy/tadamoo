@@ -29,12 +29,12 @@ def ts(*args):
 
 # -- schedule text -----------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("text,seconds", [("every 30m", 1800), ("Every 2h", 7200), ("every  1d", 86400), ("every 1m", 60)])
+@pytest.mark.parametrize("text,seconds", [("every 30m", 1800), ("Every 2h", 7200), ("every  1d", 86400), ("every 1m", 60), ("every 30s", 30), ("every 1s", 1), ("every 20000h", 72000000)])
 def test_intervals(text, seconds):
     assert Schedule.parse(text).interval_s == seconds
 
 
-@pytest.mark.parametrize("text", ["", "every 30s", "every 0m", "every 5x", "daily 25:00", "daily 08:61", "someday 08:00", "mon,xyz 08:00",
+@pytest.mark.parametrize("text", ["", "every 0s", "every 0m", "every 5x", "daily 25:00", "daily 08:61", "someday 08:00", "mon,xyz 08:00",
                                   "08:00", "cron * * * * *", None, 5])
 def test_bad_schedules_say_how_to_write_them(text):
     with pytest.raises(RoutineError) as e:
@@ -117,13 +117,14 @@ def test_validation_messages(tmp_path, folder):
     sched, _ = make(tmp_path)
     for kw, code in [({"name": ""}, "bad_name"), ({"prompt": " "}, "bad_prompt"), ({"workspace": "relative"}, "bad_folder"),
                      ({"workspace": str(tmp_path / "nope")}, "bad_folder"), ({"schedule": "never"}, "bad_schedule"),
-                     ({"mode": "root"}, "bad_mode"), ({"mode": "auto"}, "auto_confirm"), ({"allow": ["a\nb"]}, "bad_rules"),
+                     ({"mode": "root"}, "bad_mode"), ({"allow": ["a\nb"]}, "bad_rules"),
                      ({"max_turns": 0}, "bad_steps")]:
         args = {"name": "n", "prompt": "p", "workspace": folder, "schedule": "every 1h", **kw}
         with pytest.raises(RoutineError) as e:
             sched.add(**args)
         assert e.value.code == code
-    assert add(sched, folder, mode="auto", confirm_auto=True)["confirm_auto"] is True
+    assert add(sched, folder, mode="auto")["mode"] == "auto"
+    assert len(add(sched, folder, allow=[f"shell_command:c{i}" for i in range(30)], max_turns=500)["allow"]) == 30
 
 
 def test_an_enabled_interval_routine_runs_when_due_once_and_the_result_is_recorded(tmp_path, folder):

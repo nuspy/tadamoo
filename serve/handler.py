@@ -30,7 +30,7 @@ from serve.api.openai import (openai_chunks, openai_collect, retry_messages, str
                               structured_retry_chunks)
 from serve.api.responses import ResponsesError
 from serve.prompt import primed
-from serve.security import host_allowed, host_names_for, key_matches, origin_allowed
+from serve.security import key_matches
 from serve.service import LOG_FIRST_LINES, LOG_MAX_LINES, Service, _debug_req
 from serve.api.structured import StructuredOutputError, anthropic_format, check_format, json_validator
 from serve.util.redact import LEVELS as MASK_LEVELS, ExportMask, clean_words
@@ -47,7 +47,7 @@ from harness.vault import Vault, VaultError
 from serve.agent_sessions import SessionManager
 from serve.files_api import FilesApi, FilesError
 from serve.projects import ProjectStore
-from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAccess, in_tailscale, remote_path_ok, tailscale_peers, tailscale_status, tailscale_up
+from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAccess, tailscale_peers, tailscale_status, tailscale_up
 from serve.personal_skills_api import PersonalSkillsApi
 from harness.personal_memory import PersonalMemory, PersonalMemoryError
 from serve.memories_api import MemoriesApi
@@ -143,7 +143,7 @@ def _size_text(n: int) -> str:
 
 
 def make_handler(svc: Service, remote: bool = False):
-    """`remote`: the handler of the listener on the Tailscale address, which serves phones: device keys count only there, and only what a phone needs is served."""
+    """`remote`: the handler of the listener for phones: device keys count only there, and every request needs a key."""
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.0"                       # SSE ends by closing the connection
         remote_listener = remote
@@ -153,25 +153,6 @@ def make_handler(svc: Service, remote: bool = False):
 
         def log_message(self, fmt, *args):
             pass
-
-        def parse_request(self):
-            """Without an API key, check the Host header (DNS-rebinding protection); a key makes the check moot."""
-            if not super().parse_request():
-                return False
-            if self.remote_listener and not remote_path_ok(self.path.split("?")[0].rstrip("/") or "/"):
-                self._json(403, {"error": {"type": "forbidden", "message": "this address does not serve that to a client away from the PC"}})
-                return False
-            host = self.headers.get("Host")
-            if svc.api_key or host_allowed(host, svc.host_names, "*" in svc.allowed_hosts):
-                return True
-            print(f"[server] error: refused Host {host!r} from {self.client_address[0]} "
-                  f"(--api-key KEY, or --allowed-host)",
-                  flush=True)
-            self._json(403, {"error": {"type": "forbidden", "message":
-                             f"Host {host!r} is not allowed (DNS rebinding protection). Reaching the server under this "
-                             f"name on purpose? Start the server with --allowed-host NAME, "
-                             f"or with --api-key KEY, which turns this check off"}})
-            return False
 
         def _chunked(self) -> bool:
             """The body is sent as Transfer-Encoding: chunked (it wins over a Content-Length, RFC 9112)."""
@@ -228,27 +209,6 @@ def make_handler(svc: Service, remote: bool = False):
                 raise BadBody(413, f"the request body is larger than {_size_text(limit)}")
             return self.rfile.read(length)
 
-        def _foreign_page(self) -> bool:
-            """Without an API key, refuse a /v1 POST from another site's page: its Origin must be allowed (no Origin
-            is fine) and, with one, the body must be JSON."""
-            origin = self.headers.get("Origin")
-            if svc.api_key or not origin:
-                return False
-            if not origin_allowed(origin, self.headers.get("Host"), svc.host_names,
-                                  [*svc.trusted_origins, *svc.cors_origins]):
-                print(f"[server] error: refused a request from web page {origin!r} "
-                      f"(--api-key KEY, --allowed-host, --cors-origin)", flush=True)
-                self._discard_body()                         # an unread body would reset the connection on Windows
-                self._json(403, {"error": {"type": "forbidden", "message":
-                                 f"web pages of {origin} may not use this server without an API key; start the server with --api-key KEY, "
-                                 f"or add the page's host with --allowed-host (or its origin with --cors-origin)"}})
-                return True
-            if not self.headers.get("Content-Type", "").startswith("application/json"):
-                self._discard_body()
-                self._json(415, {"error": {"message": "send application/json"}})
-                return True
-            return False
-
         def _watch_client(self, cancel: threading.Event) -> None:
             """Cancel the request when its client hangs up, polling every 0.5 s: a readable socket with nothing to
             read is EOF (the request is fully read, so data is not a hang-up)."""
@@ -271,18 +231,10 @@ def make_handler(svc: Service, remote: bool = False):
             threading.Thread(target=watch, daemon=True, name="client-watch").start()
 
         def _cors(self):
-            """CORS headers, only for /v1/* and a listed origin."""
-            if not svc.cors_origins or not self.path.split("?")[0].startswith("/v1/"):
+            """CORS headers for /v1/*: any web page may use it."""
+            if not self.path.split("?")[0].startswith("/v1/"):
                 return
-            origin = (self.headers.get("Origin") or "").rstrip("/")
-            if "*" in svc.cors_origins:
-                allow = "*"
-            elif origin and origin in svc.cors_origins:
-                allow = origin
-                self.send_header("Vary", "Origin")
-            else:
-                return
-            self.send_header("Access-Control-Allow-Origin", allow)
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
             # echo the requested headers: "*" does not cover Authorization
             asked = self.headers.get("Access-Control-Request-Headers")
@@ -315,22 +267,12 @@ def make_handler(svc: Service, remote: bool = False):
             """A request that came through the listener for phones."""
             return self.remote_listener
 
-        def _folder_ok(self, workspace) -> bool:
-            """A phone works only in the folders added on this PC (or the Chat's own, when it names none): it cannot point the agent at any folder of the disk."""
-            if not self.remote_listener or workspace in (None, ""):
-                return True
-            try:
-                want = os.path.normcase(str(Path(str(workspace)).resolve()))
-            except (OSError, ValueError):
-                return False
-            return any(os.path.normcase(str(Path(p["path"]).resolve())) == want for p in self._projects().list())
-
         def _local_or_device(self) -> bool:
-            """This PC, or a phone that came through Tailscale with one of the keys: for the few writes a phone may make."""
+            """This PC, or a phone that came through the listener for phones with one of the keys."""
             if not self.remote_listener:
                 return settings.is_loopback(self.client_address[0])
             remote = getattr(svc, "remote", None)
-            return self._via_key and in_tailscale(self.client_address[0]) and remote is not None and remote.listening
+            return self._via_key and remote is not None and remote.listening
 
         def _authorized(self) -> bool:
             auth = self.headers.get("Authorization", "")
@@ -380,6 +322,8 @@ def make_handler(svc: Service, remote: bool = False):
             return True
 
         def do_GET(self):
+            if self.remote_listener and not self._authorized():          # every request to the listener for phones needs a key
+                return
             path = self.path.split("?")[0].rstrip("/")
             if path.startswith("/fonts/"):
                 name = path[len("/fonts/"):]
@@ -433,7 +377,7 @@ def make_handler(svc: Service, remote: bool = False):
                     self._settings_get()
             elif path == "/api/loader":
                 if self._authorized():
-                    self._json(200, loader_api.info(svc, settings.is_loopback(self.client_address[0])))
+                    self._json(200, loader_api.info(svc))
             elif path == "/api/wizard":
                 if self._authorized():
                     model = parse_qs(urlsplit(self.path).query).get("model", [None])[0]
@@ -657,8 +601,6 @@ def make_handler(svc: Service, remote: bool = False):
                 self._settings_post()
                 return
             if path == "/api/tasks":
-                if not self._own_page("tasks can be changed"):
-                    return
                 try:
                     req = json.loads(self._body(1 << 16) or b"{}")
                     if not isinstance(req, dict):
@@ -721,8 +663,6 @@ def make_handler(svc: Service, remote: bool = False):
                     self._json(403, {"error": {"type": "forbidden",
                                                "message": "changes can be reviewed only from the PC the server runs on"}})
                     return
-                if not self._own_page("changes can be reviewed"):
-                    return
                 try:
                     req = json.loads(self._body(1 << 12) or b"{}")
                     if not isinstance(req, dict) or not isinstance(req.get("id"), str):
@@ -736,8 +676,6 @@ def make_handler(svc: Service, remote: bool = False):
                     self._json(400, {"error": {"message": str(e)}})
                 return
             if path == "/api/changes":
-                if not self._own_page("changes can be recorded"):
-                    return
                 try:
                     req = json.loads(self._body(4 << 20) or b"{}")
                     if not isinstance(req, dict):
@@ -775,8 +713,6 @@ def make_handler(svc: Service, remote: bool = False):
                     self._json(403, {"error": {"type": "forbidden",
                                                "message": "preferences can be changed only from the PC the server runs on"}})
                     return
-                if not self._own_page("preferences can be changed"):
-                    return
                 try:
                     req = json.loads(self._body(1 << 16) or b"{}")
                     if not isinstance(req, dict):
@@ -801,14 +737,10 @@ def make_handler(svc: Service, remote: bool = False):
             if path.startswith("/api/bench/"):
                 self._bench_post(path[len("/api/bench/"):])
                 return
-            if path.startswith("/v1/") and self._foreign_page():
-                return
             if path in CONTROL_PATHS and not self._control_body():
                 return
-            # this PC, own page and JSON only, and the secret of this server: a form POST from any site, or an application
-            # that only knows the API key, must not control the model
-            if path in CONTROL_PATHS and not (self._control_local() and self._own_page("the model can be loaded or unloaded")
-                                              and self._control_secret()):
+            # this PC and the secret of this server: an application that only knows the API key must not control the model
+            if path in CONTROL_PATHS and not (self._control_local() and self._control_secret()):
                 return
             if path == "/api/control/unload":                # unload between requests
                 try:
@@ -846,8 +778,6 @@ def make_handler(svc: Service, remote: bool = False):
                                                          "whole conversation to POST /v1/responses", code="not_found"))
                     return
                 if path == "/v1/vram":                       # resize the VRAM reserve
-                    if not self._own_page("the VRAM reserve can be changed"):
-                        return
                     r = req.get("reserve_mib")
                     if r is not None and (isinstance(r, bool) or not isinstance(r, int) or r < 0):
                         raise ValueError("reserve_mib: a whole number of MiB (0 or more), or null for the start's")
@@ -1040,19 +970,6 @@ def make_handler(svc: Service, remote: bool = False):
                 self._json(400, {"error": {"message": "incomplete control request body"}})
             return complete
 
-        def _own_page(self, what) -> bool:
-            """Require a JSON body and no foreign Origin, so another site's page cannot control the model."""
-            if not self.headers.get("Content-Type", "").startswith("application/json"):
-                self._json(415, {"error": {"message": "send application/json"}})
-                return False
-            # Origin must be this server's address or a trusted origin; proxy-added headers prove nothing
-            origin = (self.headers.get("Origin") or "").rstrip("/")
-            if origin and origin.split("://", 1)[-1] != self.headers.get("Host", "") and \
-                    origin not in svc.trusted_origins:
-                self._json(403, {"error": {"message": f"{what} only from the server's own page"}})
-                return False
-            return True
-
         def _prefs(self) -> dict:
             """GET /api/prefs: the language (serve/lang.py) and the share of the RAM and of the commit limit every
             plan keeps free (loader.free_share: the Settings view's or the wizard's, else 15%)."""
@@ -1091,7 +1008,7 @@ def make_handler(svc: Service, remote: bool = False):
 
         def _settings_post(self):
             """POST /api/settings {"changes": {"engine.spec": 7, "server.port": null, ...}}: validate and write them to
-            the --config file. Only from this PC, only as JSON from the server's own page (the API key too, if set)."""
+            the --config file. Only from this PC (the API key too, if set)."""
             try:                                            # read first: a refusal then reaches the client whole
                 raw = self._body(settings.BODY_MAX)
             except BadBody as e:
@@ -1100,8 +1017,6 @@ def make_handler(svc: Service, remote: bool = False):
             if not settings.is_loopback(self.client_address[0]):
                 self._json(403, {"error": {"type": "forbidden",
                                            "message": "settings can be changed only from the PC the server runs on"}})
-                return
-            if not self._own_page("settings can be changed"):
                 return
             try:
                 req = json.loads(raw or b"{}")
@@ -1127,8 +1042,8 @@ def make_handler(svc: Service, remote: bool = False):
             self._json(200, {"saved": True, **result, "note": settings.RESTART_NOTE})
 
         def _loader_post(self, what: str):
-            """POST /api/loader/plan | load | calibrate. A plan is a computation; a load and a calibration change
-            the engine, so only from this PC, as JSON from the server's own page (and with the API key, if set)."""
+            """POST /api/loader/plan | load | calibrate, as JSON (and with the API key, if set).
+            From any client; the server loads from its own disks."""
             try:                                            # read first: a refusal then reaches the client whole
                 raw = self._body(settings.BODY_MAX)
             except BadBody as e:
@@ -1136,12 +1051,6 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if what not in ("plan", "load", "calibrate"):
                 self._json(404, {"error": {"message": "not found"}})
-                return
-            if what != "plan" and not settings.is_loopback(self.client_address[0]):
-                self._json(403, {"error": {"type": "forbidden",
-                                           "message": "the model can be loaded only from the PC the server runs on"}})
-                return
-            if not self._own_page("the model can be loaded or calibrated"):
                 return
             try:
                 req = json.loads(raw or b"{}")
@@ -1174,8 +1083,7 @@ def make_handler(svc: Service, remote: bool = False):
                 self._json(500, {"error": {"type": "server_error", "message": f"cannot write the config file: {e}"}})
 
         def _wizard_post(self, what: str):
-            """POST /api/wizard/plan | measure | save (serve/loader_api.py). A plan is a computation; a measurement
-            loads the model and a save writes this PC's settings, so only from this PC, as JSON from the own page."""
+            """POST /api/wizard/plan | measure | save (serve/loader_api.py), as JSON."""
             try:
                 raw = self._body(settings.BODY_MAX)
             except BadBody as e:
@@ -1183,12 +1091,6 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if what not in ("plan", "measure", "save"):
                 self._json(404, {"error": {"message": "not found"}})
-                return
-            if what != "plan" and not settings.is_loopback(self.client_address[0]):
-                self._json(403, {"error": {"type": "forbidden",
-                                           "message": "the wizard can save or measure only from the PC the server runs on"}})
-                return
-            if not self._own_page("the configuration wizard"):
                 return
             try:
                 req = json.loads(raw or b"{}")
@@ -1210,13 +1112,7 @@ def make_handler(svc: Service, remote: bool = False):
 
         def _profiles_post(self):
             """POST /api/profiles {"action": "save"|"rename"|"delete"|"default"|"import", "kind": "load"|"inference",
-            ...}: only from this PC, as JSON from the server's own page (serve/profiles.py)."""
-            if not settings.is_loopback(self.client_address[0]):
-                self._json(403, {"error": {"type": "forbidden",
-                                           "message": "profiles can be changed only from the PC the server runs on"}})
-                return
-            if not self._own_page("profiles can be changed"):
-                return
+            ...}: as JSON (serve/profiles.py)."""
             try:
                 req = json.loads(self._body(1 << 20) or b"{}")
                 self._json(200, profiles.change(req))
@@ -1277,7 +1173,7 @@ def make_handler(svc: Service, remote: bool = False):
                                              "problems": [{**x, "text": loader.problem_text(x, "en"), "text_it": loader.problem_text(x, "it")} for x in plan["problems"]]})
 
         def _bench_post(self, what: str):
-            """POST /api/bench/availability | run | cancel: only from this PC, as JSON from the server's own page. A test that was already
+            """POST /api/bench/availability | run | cancel: only from this PC. A test that was already
             made under the same settings is not repeated without asking: `reuse` is "ask" (the default, answered 409), "reuse", "redo" or
             a choice for each step."""
             try:
@@ -1290,8 +1186,6 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if not settings.is_loopback(self.client_address[0]):
                 self._json(403, {"error": {"type": "forbidden", "message": "models can be tested only from the PC the server runs on"}})
-                return
-            if not self._own_page("models can be tested"):
                 return
             try:
                 req = json.loads(raw or b"{}")
@@ -1355,7 +1249,7 @@ def make_handler(svc: Service, remote: bool = False):
 
         def _models_post(self, what: str):
             """POST /api/models/dirs | plan | convert | verify | cancel | default | download-plan | download |
-            download-cancel | hf-token: only from this PC, as JSON from the server's own page (serve/models.py,
+            download-cancel | hf-token: only from this PC (serve/models.py,
             serve/downloads.py). A conversion or a download needs the plan's token and confirm: true."""
             try:                                            # read first: a refusal then reaches the client whole
                 raw = self._body(settings.BODY_MAX)
@@ -1369,8 +1263,6 @@ def make_handler(svc: Service, remote: bool = False):
             if not settings.is_loopback(self.client_address[0]):
                 self._json(403, {"error": {"type": "forbidden",
                                            "message": "the models can be managed only from the PC the server runs on"}})
-                return
-            if not self._own_page("the models can be managed"):
                 return
             try:
                 req = json.loads(raw or b"{}")
@@ -1422,8 +1314,6 @@ def make_handler(svc: Service, remote: bool = False):
 
         def _chat_context(self):
             """POST /api/chat/context: the chat page's context meter and overflow policy (serve/chatctx.py)."""
-            if not self._own_page("the chat context"):
-                return
             try:
                 req = json.loads(self._body() or b"{}")
                 self._json(200, chatctx.fit(svc, req))
@@ -1491,8 +1381,8 @@ def make_handler(svc: Service, remote: bool = False):
                 pass
 
         def _reqlog_clear(self):
-            """POST /api/reqlog/clear: empty the request log. Only as JSON from the server's own page."""
-            if not self._control_body() or not self._own_page("the request log can be cleared"):
+            """POST /api/reqlog/clear: empty the request log."""
+            if not self._control_body():
                 return
             svc.reqlog.clear()
             self._json(200, {"cleared": True})
@@ -1519,23 +1409,15 @@ def make_handler(svc: Service, remote: bool = False):
                                       svc.api_key or "", tasks=_TASKS, board=_APPROVALS)
             return _RUNNER
 
-        def _own_origin(self) -> bool:
-            """No foreign Origin: another site's page cannot use what is on this PC through the browser."""
-            origin = (self.headers.get("Origin") or "").rstrip("/")
-            return not origin or origin.split("://", 1)[-1] == self.headers.get("Host", "") or origin in svc.trusted_origins
-
         def _stores(self):
             from harness.attachments import AttachmentStore, OutputStore
             return AttachmentStore(userdata.path("attachments")), OutputStore(userdata.path("outputs"))
 
         def _attachments_post(self, path):
-            """Upload (the file as the request body) or remove an attached file. Only from this PC and the server's own page."""
+            """Upload (the file as the request body) or remove an attached file. Only from this PC or a phone with a key."""
             if not self._local_or_device():
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "files can be attached only from the PC the server runs on"}})
-            if not self._own_origin():
-                self._discard_body()
-                return self._json(403, {"error": {"message": "files can be attached only from the server's own page"}})
             from harness.attachments import MAX_STORED
             store, _ = self._stores()
             try:
@@ -1652,8 +1534,6 @@ def make_handler(svc: Service, remote: bool = False):
                 raw = self._body(1 << 16)
             except BadBody as e:
                 return self._json(e.status, {"error": {"message": str(e)}})
-            if not self._own_page("capabilities can be changed"):
-                return
             action = path[len("/api/capabilities/"):]
             try:
                 req = json.loads(raw or b"{}")
@@ -1689,8 +1569,6 @@ def make_handler(svc: Service, remote: bool = False):
                 raw = self._body(1 << 14)
             except BadBody as e:
                 return self._json(e.status, {"error": {"message": str(e)}})
-            if not self._own_page("these settings can be changed"):
-                return
             prefs = KnowledgePrefs(userdata.path("knowledge.json"))
             try:
                 req = json.loads(raw or b"{}")
@@ -1771,8 +1649,6 @@ def make_handler(svc: Service, remote: bool = False):
                 raw = self._body(1 << 16)
             except BadBody as e:
                 return self._json(e.status, {"error": {"message": str(e)}})
-            if not self._own_page("the memories can be changed"):
-                return
             try:
                 req = json.loads(raw or b"{}")
                 if not isinstance(req, dict):
@@ -1787,8 +1663,6 @@ def make_handler(svc: Service, remote: bool = False):
                 raw = self._body(export_api.BODY_MAX)
             except BadBody as e:
                 return self._json(e.status, {"error": {"message": str(e)}})
-            if not self._own_page("conversations can be exported"):
-                return
             try:
                 req = json.loads(raw or b"{}")
                 local = not self.remote_listener and settings.is_loopback(self.client_address[0])
@@ -1834,8 +1708,6 @@ def make_handler(svc: Service, remote: bool = False):
                 raw = self._body(10 << 20)                         # a file of logins can be large
             except BadBody as e:
                 return self._json(e.status, {"error": {"message": str(e)}})
-            if not self._own_page("the vault and the payment limits can be changed"):
-                return
             try:
                 req = json.loads(raw or b"{}")
                 if not isinstance(req, dict):
@@ -1885,8 +1757,6 @@ def make_handler(svc: Service, remote: bool = False):
                 raw = self._body(1 << 16)
             except BadBody as e:
                 return self._json(e.status, {"error": {"message": str(e)}})
-            if not self._own_page("signing in"):
-                return
             try:
                 req = json.loads(raw or b"{}")
                 if not isinstance(req, dict):
@@ -1918,8 +1788,6 @@ def make_handler(svc: Service, remote: bool = False):
                 raw = self._body(1 << 16)                              # read first: a refusal must not leave a body unread
             except BadBody as e:
                 return self._json(e.status, {"error": {"message": str(e)}})
-            if not self._own_page("providers can be changed"):
-                return
             parts = path[len("/api/llm/"):].split("/")
             try:
                 req = json.loads(raw or b"{}")
@@ -1995,8 +1863,6 @@ def make_handler(svc: Service, remote: bool = False):
             if not settings.is_loopback(self.client_address[0]):
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "personal skills can be changed only from the PC the server runs on"}})
-            if not self._own_page("personal skills can be changed"):
-                return
             parts = path[len("/api/personal-skills"):].strip("/").split("/")
             try:
                 api = self._pskills()
@@ -2008,7 +1874,7 @@ def make_handler(svc: Service, remote: bool = False):
                 if parts == [""]:
                     return self._json(200, api.save(req))
                 if parts == ["check"]:
-                    return self._json(200, api.check(req.get("script"), req.get("mode", "restricted")))
+                    return self._json(200, api.check(req.get("script")))
                 if parts == ["preview"]:
                     return self._json(200, api.preview(req.get("params"), req.get("values")))
                 if len(parts) == 2 and parts[1] == "delete":
@@ -2038,15 +1904,11 @@ def make_handler(svc: Service, remote: bool = False):
             if not self._local_or_device():
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "routines can be changed only from the PC the server runs on"}})
-            if not self._own_page("routines can be changed"):
-                return
             try:
                 req = json.loads(self._body(1 << 16) or b"{}")
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
                 api, parts = self._routines(), path[len("/api/routines"):].strip("/").split("/")
-                if "workspace" in req and not self._folder_ok(req.get("workspace")):
-                    return self._json(403, {"error": {"type": "forbidden", "message": "a phone works only in the folders added on the PC"}})
                 if parts == [""] and not self._phone_limits(req.get("mode", "read_only"), req.get("allow"), req):
                     return
                 if len(parts) == 2 and parts[1] == "update" and not self._phone_limits(req.get("mode"), req.get("allow"), req if "allow" in req else None):
@@ -2066,7 +1928,7 @@ def make_handler(svc: Service, remote: bool = False):
             self._json(404, {"error": {"message": "not found"}})
 
         def _fs_get(self, path):
-            """The folders of this PC that are shared with a phone: which ones, what is in one, and a file in one."""
+            """The files of this PC a phone browses: where to start, what is in a folder, and a file."""
             api = FilesApi(lambda: [(p["name"], Path(p["path"])) for p in self._projects().list() if p.get("exists")]
                            + [("Chat", userdata.path("chat-workspace"))])
             query = parse_qs(urlsplit(self.path).query)
@@ -2079,13 +1941,14 @@ def make_handler(svc: Service, remote: bool = False):
                     file, name = api.file((query.get("path") or [""])[0])
                     return self._send_file(file, "application/octet-stream", name, inline=False)
             except FilesError as e:
-                return self._json(404 if e.code in ("outside", "hidden", "not_file", "not_folder") else 400, {"error": {"type": "files", "message": str(e), "code": e.code}})
+                return self._json(404 if e.code in ("not_file", "not_folder") else 400, {"error": {"type": "files", "message": str(e), "code": e.code}})
             self._json(404, {"error": {"message": "not found"}})
 
         def _remote_view(self) -> dict:
             remote = svc.remote
-            return {"tailscale": tailscale_status(), "enabled": remote.enabled, "listening": remote.listening, "address": remote.address(), "error": remote.error,
-                    "keys": svc.keys.list(), "install": _INSTALLER.view(), "port": remote.port,
+            tailscale = tailscale_status()
+            return {"tailscale": tailscale, "enabled": remote.enabled, "listening": remote.listening, "address": remote.address(tailscale.get("ip") or ""),
+                    "listen": remote.listen, "error": remote.error, "keys": svc.keys.list(), "install": _INSTALLER.view(), "port": remote.port,
                     "limits": {"phone_chooses": remote.phone_chooses, "max_mode": remote.max_mode, "rules": remote.rules, "modes": list(MODE_ORDER), "key_days": KEY_TTL_DAYS}}
 
         def _remote_get(self):
@@ -2094,12 +1957,10 @@ def make_handler(svc: Service, remote: bool = False):
             self._json(200, self._remote_view())
 
         def _remote_post(self, path):
-            """Set phones up: turn them on or off, make and take away keys, install and connect Tailscale. Only from this PC and its own page."""
+            """Set phones up: turn them on or off, make and take away keys, install and connect Tailscale. Only from this PC."""
             if not settings.is_loopback(self.client_address[0]):
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "phones are set up only from the PC the server runs on"}})
-            if not self._own_page("phones can be set up"):
-                return
             try:
                 req = json.loads(self._body(1 << 14) or b"{}")
                 if not isinstance(req, dict):
@@ -2116,6 +1977,9 @@ def make_handler(svc: Service, remote: bool = False):
                     if row is None:
                         return self._json(404, {"error": {"message": "That key is not there any more."}})
                     return self._json(200, {"row": row, **self._remote_view()})
+                if action == "listen":
+                    svc.remote.set_listen(req.get("listen"))
+                    return self._json(200, self._remote_view())
                 if action == "limits":
                     svc.remote.set_limits(req.get("max_mode"), req.get("rules"), req.get("phone_chooses"))
                     return self._json(200, self._remote_view())
@@ -2237,19 +2101,13 @@ def make_handler(svc: Service, remote: bool = False):
             if not self._local_or_device():
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "the agent can be used only from the PC the server runs on"}})
-            if not self._own_page("the agent can be used"):
-                return
             parts = path[len("/api/agent/"):].split("/")
             try:
-                req = json.loads(self._body(1 << 16) or b"{}")
+                req = json.loads(self._body() or b"{}")
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
                 if parts[0] == "traces":
                     return self._traces_post(parts, req)
-                if parts[0] == "projects" and self.remote_listener:
-                    return self._json(403, {"error": {"type": "forbidden", "message": "folders are added only from the PC the server runs on"}})
-                if parts == ["sessions"] and not self._folder_ok(req.get("workspace")):
-                    return self._json(403, {"error": {"type": "forbidden", "message": "a phone works only in the folders added on the PC"}})
                 if parts == ["sessions"] or parts == ["runs"]:
                     if not self._phone_limits(req.get("mode", "default"), req.get("allow"), req):
                         return
@@ -2267,7 +2125,7 @@ def make_handler(svc: Service, remote: bool = False):
                     if parts == ["sessions"]:
                         return self._json(200, {"session": mgr.create(req.get("workspace"), req.get("mode", "default"), req.get("allow"),
                                                                       req.get("ask_only") is True, req.get("title", ""),
-                                                                      req.get("confirm_auto") is True, req.get("max_turns", -1),
+                                                                      req.get("max_turns", -1),
                                                                       req.get("context_patterns"), req.get("context_policy", "stop"),
                                                                       req.get("context_threshold", 0.8), req.get("end_turn_bias"),
                                                                       req.get("worktree", "auto"), req.get("effort", ""),
@@ -2293,7 +2151,7 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) == 3 and parts[2] == "answer":
                         return self._json(200, {"session": mgr.answer(parts[1], req.get("ask"), req.get("value"))})
                     if len(parts) == 3 and parts[2] == "mode":
-                        return self._json(200, {"session": mgr.set_mode(parts[1], req.get("mode"), req.get("confirm_auto") is True)})
+                        return self._json(200, {"session": mgr.set_mode(parts[1], req.get("mode"))})
                     if len(parts) == 3 and parts[2] == "effort":
                         return self._json(200, {"session": mgr.set_effort(parts[1], req.get("level", ""))})
                     if len(parts) == 3 and parts[2] == "settings":
@@ -2320,7 +2178,7 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, {"session": mgr.close(parts[1])})
                 if parts == ["runs"]:
                     run = self._agent_runner().start(req.get("workspace"), req.get("goal"), req.get("mode", "default"), req.get("allow"),
-                                                     req.get("max_turns", 15), req.get("confirm_auto") is True)
+                                                     req.get("max_turns", 15))
                     return self._json(200, {"run": run})
                 if len(parts) == 3 and parts[0] == "runs" and parts[2] == "stop":
                     return self._json(200, {"run": self._agent_runner().stop(parts[1])})
@@ -2335,7 +2193,7 @@ def make_handler(svc: Service, remote: bool = False):
             except RunBusy as e:
                 return self._json(409, {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except RunError as e:
-                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint", "not_blocked", "closed", "not_asking", "asking", "busy", "folder_busy", "copy_conflict") else 400,
+                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint", "not_blocked", "closed", "not_asking", "asking", "busy", "copy_conflict") else 400,
                                   {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except ApprovalError as e:
                 return self._json(409 if "already" in str(e) or "not there" in str(e) else 400,
@@ -2437,8 +2295,6 @@ def make_handler(svc: Service, remote: bool = False):
                 unsubscribe()
 
         def _plans_post(self, path):
-            if not self._own_page("plans can be changed"):
-                return
             try:
                 service = self._plan_service()
                 req = json.loads(self._body(1 << 20) or b"{}")
@@ -2755,7 +2611,6 @@ def _listen(svc: Service, host: str, port: int, remote: bool = False) -> Threadi
 
 
 def serve(svc: Service, host="127.0.0.1", port=7232) -> ThreadingHTTPServer:
-    svc.host_names = host_names_for(host, svc.allowed_hosts, svc.trusted_origins)
     svc.start_telemetry()
     httpd = _listen(svc, host, port)
     threading.Thread(target=_start_planner, args=(svc, httpd.server_address[1]), daemon=True, name="planner-start").start()

@@ -195,12 +195,6 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/settings", b"{nope", {"Content-Type": "application/json"})[0], 400)
         self.assertEqual(Path(self.path).read_bytes(), before)
 
-    def test_another_site_s_page_or_a_form_cannot_save(self):
-        self.assertEqual(self.post({"engine.spec": 2}, Origin="http://evil.example.com")[0], 403)
-        self.assertEqual(self.req("POST", "/api/settings", {"changes": {"engine.spec": 2}},
-                                  {"Content-Type": "text/plain"})[0], 415)
-        self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8"))["engine"]["spec"], 7)
-
     def test_only_from_this_pc(self):
         with mock.patch("serve.settings.is_loopback", return_value=False):
             code, body, _ = self.req("GET", "/api/settings")

@@ -57,20 +57,20 @@ def test_mistakes_are_answered_with_a_message_and_a_code(api, ws):
     code, data = api("POST", "/api/routines", body(ws, schedule="whenever"))
     assert code == 400 and data["error"]["code"] == "bad_schedule"
     code, data = api("POST", "/api/routines", body(ws, mode="auto"))
-    assert code == 400 and data["error"]["code"] == "auto_confirm"
+    assert code == 200 and data["routine"]["mode"] == "auto" and "confirm_auto" not in data["routine"]
     code, data = api("POST", "/api/routines/nope/enable", {})
     assert code == 404 and data["error"]["code"] == "gone"
     assert api("POST", "/api/routines/abc/explode", {})[0] == 400
     assert api("GET", "/api/routines/runs?limit=x")[0] == 400
 
 
-def test_a_form_that_is_not_json_is_refused(api, ws):
+def test_a_form_that_is_not_json_is_a_bad_request(api, ws):
     import urllib.error
     import urllib.request
     req = urllib.request.Request(api.url + "/api/routines", data=b"name=x", method="POST", headers={"Content-Type": "text/plain"})
     with pytest.raises(urllib.error.HTTPError) as e:
         urllib.request.urlopen(req, timeout=10)
-    assert e.value.code in (403, 415)
+    assert e.value.code == 400
 
 
 SKILL_SPEC = {"name": "Daily report", "description": "writes the report of a day",
