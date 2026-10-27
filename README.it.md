@@ -284,7 +284,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
   [manuale](docs/harness-manual.it.md#17-skill-personali).
 - **Un messaggio mentre lavora** viene indirizzato nel compito, messo in coda o trattato come urgente; **Ferma** vuol dire ferma.
 - **Rami, tornare indietro, confrontare**: un albero di conversazioni, *Torna qui* su ogni richiesta (le azioni che restano avvenute
-  sono elencate prima) e due continuazioni della stessa richiesta affiancate.
+  sono elencate prima) e due continuazioni della stessa richiesta affiancate. I messaggi sono nodi immutabili condivisi, quindi un ramo non copia nulla; la vista dei nodi mostra, prima di cambiare ramo, quanto costa al modello, e *Unisci e sintetizza* fa scrivere al modello una sintesi di due rami in una nuova conversazione.
 - **Una copia tutta sua** (non offerta dalla pagina Chat, che non ha una cartella di progetto da copiare): in una cartella git una conversazione può lavorare in un suo worktree, e le modifiche che scegli le
   applichi come modifiche in staging, mai come commit.
 - **I guasti si gestiscono, non si nascondono**: un server occupato o irraggiungibile si riprova; un processo che muore riparte dalla

@@ -2011,6 +2011,12 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, mgr.view())
                     if parts == ["sessions", "tree"]:
                         return self._json(200, mgr.tree())
+                    # --- conversation nodes: begin ---
+                    if parts == ["sessions", "nodes"]:
+                        return self._json(200, mgr.node_tree())
+                    if len(parts) == 3 and parts[2] == "switch-cost":
+                        return self._json(200, mgr.switch_cost(parts[1], (parse_qs(urlsplit(self.path).query).get("current") or [""])[0]))
+                    # --- conversation nodes: end ---
                     if parts == ["sessions", "compares"]:
                         return self._json(200, mgr.compare_list())
                     if len(parts) == 3 and parts[1] == "compares":
@@ -2100,6 +2106,10 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, {"compare": mgr.compare_start(parts[1], req.get("turn"), req.get("variants"))})
                     if len(parts) == 3 and parts[2] == "branch":
                         return self._json(200, {"session": mgr.branch(parts[1], req.get("turn"))})
+                    # --- conversation nodes: begin ---
+                    if parts == ["sessions", "merge"]:
+                        return self._json(200, {"session": mgr.merge(req.get("a"), req.get("b"), req.get("instruction", ""))})
+                    # --- conversation nodes: end ---
                     if len(parts) == 3 and parts[2] == "send":
                         return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place")))
                     if len(parts) == 3 and parts[2] in ("promote", "drop"):

@@ -260,7 +260,9 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   skill moves to another PC as one `.pskill` file and arrives *to approve*. See the [manual](docs/harness-manual.md#17-personal-skills).
 - **A message while it works** is steered into the task, queued, or treated as urgent; **Stop** means stop.
 - **Branches, going back, comparing**: a tree of conversations, *Back to here* on any request (actions that stay done are listed
-  first), and two continuations of one request side by side.
+  first), and two continuations of one request side by side. Messages are shared immutable nodes, so a branch copies nothing; the
+  node view shows what switching to a branch costs the model before you switch, and *Merge and summarize* has the model write one
+  synthesis of two branches into a new conversation.
 - **A copy of its own** (not offered from the Chat page, which has no project folder to copy): in a git folder a conversation can work in its own worktree, and you apply the changes you choose as staged
   changes, never a commit.
 - **Failures are handled, not hidden**: a busy or unreachable server is retried; a process that dies is started again from its history;
