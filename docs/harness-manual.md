@@ -249,6 +249,11 @@ you the address and the number to call.
 - **Long conversations.** Old tool results are replaced by a short placeholder only when the context nears its budget, oldest first,
   with the full text saved and named; errors are never cut. `/context` shows the use; `/compact` summarises the older half on demand.
   The Chat settings choose the policy for a full context: *Stop at the limit*, *Sliding window* or *Compact*.
+- **Reading files and long output.** `read_file` returns what is asked: the whole file, or lines `offset` to `offset + limit - 1`; a file
+  that does not fit in one answer ends with a line giving the lines shown, the total and the offset to go on with. Noisy results (a
+  command's output, searches) are shortened to their first and last lines and every error line, with the number of hidden lines and the
+  saved full text named; a very long line is cut in the middle with the number of characters hidden. A file read on purpose, a skill
+  and a saved result read again are never shortened.
 - **Context patterns.** The Chat settings have six switches (injection, rewriting, pruning, summary, branches, versioning), each with a
   description of what it does, its advantages, drawbacks and what it does to the server's cache of the start. Leave them as they are
   until you have a reason.
