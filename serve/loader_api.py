@@ -166,7 +166,7 @@ def clean(values) -> dict:
     return out
 
 
-def info(svc, local: bool, lang: str = "en") -> dict:
+def info(svc, lang: str = "en") -> dict:
     sup = sup_of(svc)
     path = _config(svc)
     si = getattr(svc, "settings_info", None) or {}
@@ -211,8 +211,6 @@ def info(svc, local: bool, lang: str = "en") -> dict:
                                   for fp, r in runs.items()), key=lambda r: r["at"] or "", reverse=True)
     if not path:
         out["reason"] = "no_config"
-    elif not local:
-        out["reason"] = "not_local"
     elif not os.access(path, os.W_OK):
         out["reason"] = "read_only"
     else:

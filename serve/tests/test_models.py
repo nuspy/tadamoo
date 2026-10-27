@@ -571,7 +571,7 @@ class WithModel(Base):
                 contextlib.redirect_stdout(io.StringIO()):
             p = loader_api.evaluate(svc, {}, model=str(self.b))
             self.assertEqual(p["model"]["name"], "Modello B")
-            self.assertEqual(loader_api.info(svc, True)["config_model"], self.a.as_posix())
+            self.assertEqual(loader_api.info(svc)["config_model"], self.a.as_posix())
             with self.assertRaises(loader_api.Refused) as e:
                 loader_api.load(svc, {"values": {}, "model": str(self.models / "nope.basalt")})
             self.assertEqual(e.exception.status, 400)
@@ -693,9 +693,6 @@ class OverHttp(Base):
         code, body = self.req("POST", "/api/models/dirs", {"dirs": [str(self.root / "nope")]}, js)
         self.assertEqual(code, 400)
         self.assertIn("non esiste", body["fields"]["0"]["it"])
-        self.assertEqual(self.req("POST", "/api/models/dirs", {"dirs": [str(self.models)]})[0], 415)
-        self.assertEqual(self.req("POST", "/api/models/dirs", {"dirs": [str(self.models)]},
-                                  {**js, "Origin": "http://evil.example.com"})[0], 403)
         with mock.patch("serve.settings.is_loopback", return_value=False):
             self.assertEqual(self.req("POST", "/api/models/dirs", {"dirs": [str(self.models)]}, js)[0], 403)
         tiny_basalt(self.models / "m.basalt")

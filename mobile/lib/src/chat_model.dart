@@ -115,12 +115,11 @@ class ChatController extends ChangeNotifier {
   }
 
   /// A new conversation, made in a folder (empty: the Chat's own).
-  Future<void> create({String workspace = '', String mode = 'default', bool confirmAuto = false}) async {
+  Future<void> create({String workspace = '', String mode = 'default'}) async {
     final r = await api.post('/api/agent/sessions', {
       if (workspace.isNotEmpty) 'workspace': workspace,
       'mode': mode,
       'allow': <String>[],
-      'confirm_auto': confirmAuto,
       'ask_only': false,
       'effort': '',
       'worktree': 'auto',
@@ -396,8 +395,8 @@ class ChatController extends ChangeNotifier {
     await api.post('/api/agent/sessions/$sid/cancel');
   }
 
-  Future<void> setMode(String mode, {bool confirmAuto = false}) async {
-    final r = await api.post('/api/agent/sessions/$sid/mode', {'mode': mode, 'confirm_auto': confirmAuto});
+  Future<void> setMode(String mode) async {
+    final r = await api.post('/api/agent/sessions/$sid/mode', {'mode': mode});
     info = SessionInfo(Map<String, dynamic>.from(r['session'] as Map));
     notifyListeners();
   }

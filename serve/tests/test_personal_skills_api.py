@@ -73,16 +73,16 @@ def test_a_skill_is_saved_listed_read_and_deleted_from_the_page(server):
 
 
 def test_what_cannot_be_saved_is_said(server):
-    for body, word in (({"skill": DEFINITION, "script": "import os\ndef main(params): pass"}, "import os"), ({"skill": {"name": ""}, "script": SCRIPT}, "name"),
-                       ({"skill": {**DEFINITION, "mode": "free"}, "script": SCRIPT}, "two confirmations"), ({"script": SCRIPT}, "definition")):
+    for body, word in (({"skill": DEFINITION, "script": "import os"}, "main"), ({"skill": {"name": ""}, "script": SCRIPT}, "name"),
+                       ({"script": SCRIPT}, "definition")):
         code, data, _ = call(server, "POST", "/api/personal-skills", body)
         assert code == 400 and word in data["error"]["message"], data
-    code, data, _ = call(server, "POST", "/api/personal-skills", {"skill": {**DEFINITION, "mode": "free"}, "script": "import os\ndef main(params): return os.getcwd()", "confirm_free": True})
-    assert code == 200 and data["skill"]["mode"] == "free"
+    code, data, _ = call(server, "POST", "/api/personal-skills", {"skill": DEFINITION, "script": "import os\ndef main(params): return os.getcwd()"})
+    assert code == 200 and "mode" not in data["skill"]
 
 
 def test_the_script_is_checked_as_it_is_written_and_the_form_is_read_as_it_is_filled(server):
-    code, data, _ = call(server, "POST", "/api/personal-skills/check", {"script": "import os\ndef main(params): pass"})
+    code, data, _ = call(server, "POST", "/api/personal-skills/check", {"script": "import os"})
     assert code == 200 and data["problems"][0]["line"] == 1 and data["tools"] == []
     code, data, _ = call(server, "POST", "/api/personal-skills/check", {"script": SCRIPT})
     assert data["problems"] == [] and data["tools"] == ["read_file"]
@@ -104,8 +104,7 @@ def test_a_skill_goes_to_another_pc_as_a_file_and_comes_back_to_approve(server):
         assert call(server, "POST", "/api/personal-skills/import", {"data": bad})[0] == 400
 
 
-def test_only_the_servers_own_page_may_change_skills(server):
-    assert call(server, "POST", "/api/personal-skills", {"skill": DEFINITION, "script": SCRIPT}, {"Origin": "http://evil.example"})[0] == 403
+def test_skills_are_changed_only_with_the_servers_secret(server):
     assert call(server, "POST", "/api/personal-skills", {"skill": DEFINITION, "script": SCRIPT}, {"X-Basalt-Control": "wrong"})[0] == 403
 
 
@@ -224,7 +223,7 @@ def test_the_script_is_written_from_the_parameters_the_person_kept(manager, tmp_
     monkeypatch.setattr(manager, "_skill_client", lambda: model)
     got = manager.skill_script(sid, [1], "Leggi", "reads a file", [{"name": "file", "type": "path", "value_seen": "notes.txt", "label": "File"}])
     assert got["problems"] == [] and got["unused"] == [] and "params.file" in got["script"]
-    assert got["skill"]["name"] == "Leggi" and got["skill"]["mode"] == "restricted" and got["skill"]["source"] == {"conversation": sid, "requests": [1]}
+    assert got["skill"]["name"] == "Leggi" and got["skill"]["source"] == {"conversation": sid, "requests": [1]}
     assert "<<params.file>>" in model.sent[0][1]["content"]
     saved = manager.skills.save(got["skill"], got["script"])                             # and it can be saved as it came
     assert saved["status"] == "approved" and saved["params"][0]["name"] == "file"

@@ -6,7 +6,6 @@ list of conversations, starts and stops the processes, buffers their events for 
 * a process that dies or stops giving signs of life is started again from its saved history, and the turn it was in goes
   on; a message it never confirmed is sent again; at most `restart_cap` restarts in `restart_window_s`, then the
   conversation is blocked and waits for the person;
-* a process whose turn makes no progress for `hang_s` is ended and started again;
 * a conversation idle for `idle_s` has its process closed (it is dormant: the history stays, the next message wakes it);
 * a confirmation the process asks (a change to a plan, a risky action) is kept with its buttons until the person answers; the
   conversation is `asking` meanwhile and a turn waiting for the person is never taken for a stuck one;
@@ -39,14 +38,13 @@ from harness.vault import valid_code
 from harness.worktrees import WorktreeError, Worktrees
 from serve import ROOT
 from serve.api import logit_bias
-from serve.agent_runs import MAX_ALLOW, MODES, SAFE_ENV_KEYS, RunBusy, RunError
+from serve.agent_runs import MODES, SAFE_ENV_KEYS, RunBusy, RunError
 from serve.approvals import ApprovalBoard
 from serve.conv_nodes import NodeStore
 from serve.tasks import _write_json
 from serve.util import peer
 from serve.util.winjob import contain
 
-TEXT_CHARS = 20_000
 EVENTS_KEPT = 3000
 SESSIONS_FILE = "agent_sessions.json"
 TITLE_CHARS = 80
@@ -63,7 +61,6 @@ MERGE_TOKENS = 1_500
 COMPARE_SETTINGS = ("mode", "max_turns", "ask_only", "end_turn_bias")      # what the two sides of a comparison may differ in
 EFFECTS_FILE = "tool_effects.json"                                          # the effect class of each tool this conversation has used
 SNIPPET_CHARS = 80
-MAX_SAVED_FILE = 200 * 1024 * 1024                                          # the largest file of the folder the page offers to save
 LEVELS = ("", "very_low", "low", "normal", "high", "very_high", "highest")     # how much of pictures or diagrams the person wants; empty is none
 EFFORTS = ("", "none", "low", "medium", "high")                             # how long the model thinks; empty is its own default
 SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact", "audit")     # harness/commands.py
@@ -96,7 +93,6 @@ class Live:
         self.ready = threading.Event()
         self.pid = 0                                # the agent's own process id, as it reported it (a launcher may stand between)
         self.last_seen = time.monotonic()           # any line from the process
-        self.idle_s = 0.0                           # how long its turn has gone without news, from its heartbeat
         self.ending = False                         # the manager is ending it on purpose
         self.after_ready: List[Dict[str, Any]] = []   # commands to give it as soon as it says ready
 
@@ -104,7 +100,7 @@ class Live:
 class SessionManager:
     def __init__(self, directory: str | Path, endpoint: str, api_key: str = "", board: Optional[ApprovalBoard] = None,
                  python: Optional[str] = None, root: Path = ROOT, command: Optional[Callable[[str, Dict[str, Any], Path], List[str]]] = None,
-                 idle_s: float = 1800.0, hang_s: float = 1200.0, beat_timeout_s: float = 45.0, restart_cap: int = 3,
+                 idle_s: float = 1800.0, beat_timeout_s: float = 45.0, restart_cap: int = 3,
                  restart_window_s: float = 600.0, tick_s: float = 1.0, start_wait_s: float = 60.0,
                  default_workspace: Optional[Path] = None, router: str = "model", pipeline: str = "full",
                  attachments_dir: Optional[Path] = None, outputs_dir: Optional[Path] = None, worktrees: Optional[Worktrees] = None,
@@ -140,7 +136,7 @@ class SessionManager:
         self.default_workspace = Path(default_workspace) if default_workspace else None     # where a conversation works when none is named
         self.python, self.root = python or sys.executable, Path(root)
         self.command = command or self._command
-        self.idle_s, self.hang_s, self.beat_timeout_s = idle_s, hang_s, beat_timeout_s
+        self.idle_s, self.beat_timeout_s = idle_s, beat_timeout_s
         self.restart_cap, self.restart_window_s, self.tick_s, self.start_wait_s = restart_cap, restart_window_s, tick_s, start_wait_s
         self._lock = threading.RLock()
         self._live: Dict[str, Live] = {}
@@ -205,7 +201,7 @@ class SessionManager:
 
     def workspace_file(self, sid: str, path: Any) -> Tuple[Path, str]:
         """A file in the folder the conversation works in (its own copy when it has one), for the person to save: only a regular file inside that folder,
-        never in the agent's own `.basalt` or in `.git`, and not a huge one."""
+        never in the agent's own `.basalt` or in `.git`."""
         rec = self.get(sid)
         root = Path(rec.get("workdir") or rec["workspace"]).resolve()
         text = str(path or "").replace("\\", "/").strip("/")
@@ -218,8 +214,6 @@ class SessionManager:
             raise RunError("That file is not inside the folder this conversation works in.", "bad_path") from None
         if any(part in (".basalt", ".git") for part in inside.parts) or not target.is_file():
             raise RunError("That file is not there, or it is one the agent keeps for itself.", "no_file")
-        if target.stat().st_size > MAX_SAVED_FILE:
-            raise RunError("That file is too large to save from here.", "too_large")
         return target, target.name
 
     def view(self) -> Dict[str, Any]:
@@ -250,7 +244,7 @@ class SessionManager:
             return {"messages": [], "turns": 0, "session": dict(rec)}
         shown = []
         for m in self._transcript(sid, data):
-            shown.append({k: (v[:TEXT_CHARS] if isinstance(v, str) else v) for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts", "raw", "explain", "skipped")})
+            shown.append({k: v for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts", "raw", "explain", "skipped")})
         return {"messages": shown, "turns": data.get("turns", 0), "session": dict(rec)}
 
     def _read_history(self, sid: str) -> Optional[Dict[str, Any]]:
@@ -551,8 +545,6 @@ class SessionManager:
         if not isinstance(sid_a, str) or not isinstance(sid_b, str) or sid_a == sid_b:
             raise RunError("Choose two different conversations to merge.", "bad_merge")
         text = str(instruction or "").strip()
-        if len(text) > TEXT_CHARS:
-            raise RunError(f"The instruction is at most {TEXT_CHARS} characters.", "text_missing")
         recs = []
         for sid in (sid_a, sid_b):
             with self._lock:
@@ -678,8 +670,8 @@ class SessionManager:
         sides = []
         for v in variants:
             text = v.get("text")
-            if not isinstance(text, str) or not text.strip() or len(text) > TEXT_CHARS:
-                raise RunError(f"Each continuation needs a message of at most {TEXT_CHARS} characters.", "text_missing")
+            if not isinstance(text, str) or not text.strip():
+                raise RunError("Each continuation needs a message.", "text_missing")
             settings = {k: v[k] for k in COMPARE_SETTINGS if k in v}
             if settings.get("mode") not in (None, *[m for m in MODES if m != "auto"]):
                 raise RunError("A comparison runs in default, plan or read-only mode: automatic mode is not offered here.", "bad_mode")
@@ -771,7 +763,7 @@ class SessionManager:
         data = self._read_history(sid)
         for m in reversed(self._transcript(sid, data) if data else []):
             if m.get("role") == "assistant" and isinstance(m.get("content"), str) and m["content"].strip():
-                return m["content"][:TEXT_CHARS]
+                return m["content"]
         return ""
 
     def _side_files(self, sid: Optional[str]) -> Optional[Dict[str, str]]:
@@ -862,7 +854,7 @@ class SessionManager:
     # -- creating ----------------------------------------------------------------------------------------
 
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
-               confirm_auto: bool = False, max_turns: Any = UNLIMITED_STEPS, context_patterns: Any = None,
+               max_turns: Any = UNLIMITED_STEPS, context_patterns: Any = None,
                context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
                images: Any = "", charts: Any = "") -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
@@ -872,16 +864,14 @@ class SessionManager:
         path = AgentRunner.check_workspace(workspace)
         if mode not in MODES:
             raise RunError("The mode must be one of: " + ", ".join(MODES) + ".", "bad_mode")
-        if mode == "auto" and confirm_auto is not True:
-            raise RunError("Automatic mode runs commands without asking. Confirm that you want that, in a folder you can lose.", "auto_confirm")
         for name, level in (("images", images), ("charts", charts)):
             if level not in LEVELS:
                 raise RunError(f"How much {name} are wanted is one of: off, " + ", ".join(LEVELS[1:]) + ".", "bad_visuals")
         if effort not in EFFORTS:
             raise RunError("The thinking level is none, low, medium or high; empty is the model's own.", "bad_effort")
         rules = allow if isinstance(allow, list) else []
-        if len(rules) > MAX_ALLOW or any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
-            raise RunError(f"Allow rules are lines of text, at most {MAX_ALLOW}.", "bad_rules")
+        if any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
+            raise RunError("Allow rules are lines of text.", "bad_rules")
         check_steps(max_turns)
         if context_policy not in ("stop", "rolling", "compact"):
             raise RunError("The policy for a full context is stop, rolling or compact.", "bad_policy")
@@ -1042,7 +1032,6 @@ class SessionManager:
             if rec is None or self._live.get(sid) is not live:
                 return
             if kind == "heartbeat":
-                live.idle_s = float(event.get("idle_s") or 0.0)
                 waiting, aside = int(event.get("waiting_requests") or 0), int(event.get("put_aside") or 0)
                 if (rec.get("waiting_requests", 0), rec.get("put_aside", 0)) != (waiting, aside):
                     self._set(rec, waiting_requests=waiting, put_aside=aside)       # what waits behind the task in hand
@@ -1073,7 +1062,7 @@ class SessionManager:
                         self.allow_rules.add(rule)                   # "always": every conversation from now on
                     except ValueError:
                         pass
-                elif rule and len(rule) <= 200 and "\n" not in rule and rule not in rules and len(rules) < MAX_ALLOW:
+                elif rule and len(rule) <= 200 and "\n" not in rule and rule not in rules:
                     self._set(rec, allow=rules + [rule])             # a rule the person chose in the question stays for this conversation's next starts
             elif kind == "rule_of_two_off":
                 if event.get("scope") == "global" and self.rule_of_two_prefs is not None:
@@ -1163,8 +1152,8 @@ class SessionManager:
         """The cards of the files a message names; each must be attached to this conversation."""
         if not ids:
             return []
-        if not isinstance(ids, list) or len(ids) > 20 or any(not isinstance(i, str) for i in ids) or self.attachments_dir is None:
-            raise RunError("Attach up to 20 files that were uploaded to this conversation.", "bad_attachments")
+        if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids) or self.attachments_dir is None:
+            raise RunError("Attach files that were uploaded to this conversation.", "bad_attachments")
         from harness.attachments import AttachmentStore
         store = AttachmentStore(self.attachments_dir)
         try:
@@ -1197,18 +1186,10 @@ class SessionManager:
         if not isinstance(text, str) or not text.strip():
             raise RunError("Write a message.", "text_missing")
         cards = self._check_attachments(sid, attachments)
-        if len(text) > TEXT_CHARS:
-            raise RunError(f"The message is too long ({len(text)} characters; at most {TEXT_CHARS}).", "text_long")
         with self._lock:
             rec = self._record(sid)
             if rec["state"] == "closed":
                 raise RunError("That conversation is closed.", "closed")
-            if rec["state"] not in ("busy", "asking", "starting") and not rec.get("worktree"):
-                other = next((r for r in self.records if r["id"] != sid and r.get("workspace") == rec["workspace"] and not r.get("worktree")
-                              and r["state"] in ("busy", "asking", "starting")), None)
-                if other is not None:
-                    raise RunError("Another conversation is working in this folder. Wait for it, or start this one in a folder under git: "
-                                   "it then works in its own copy.", "folder_busy")
             turn = secrets.token_hex(3)              # a message that comes while the agent works is looked at by the agent itself
             live = self._ensure(sid)
             held = self._place_for(sid, place)
@@ -1309,7 +1290,7 @@ class SessionManager:
         except BasaltError as exc:
             raise RunError(f"The model could not be reached: {exc}", "model") from None
         keep = ("name", "label", "explanation", "type", "default", "required", "choices", "item_type", "format")
-        return {**written, "skill": {"name": str(name or "")[:60], "description": str(description or "")[:500], "mode": "restricted",
+        return {**written, "skill": {"name": str(name or "")[:60], "description": str(description or "")[:500],
                                      "params": [{k: p[k] for k in keep if k in p} for p in params], "source": {"conversation": sid, "requests": sorted(set(turns))}}}
 
     def run_skill(self, sid: str, slug: Any, values: Any = None) -> Dict[str, Any]:
@@ -1334,14 +1315,9 @@ class SessionManager:
                 raise RunError("That conversation is closed.", "closed")
             if rec["state"] in ("busy", "asking", "starting"):
                 raise RunError("Wait for the agent to finish, or stop it, before running a skill.", "busy")
-            if not rec.get("worktree"):
-                other = next((r for r in self.records if r["id"] != sid and r.get("workspace") == rec["workspace"] and not r.get("worktree")
-                              and r["state"] in ("busy", "asking", "starting")), None)
-                if other is not None:
-                    raise RunError("Another conversation is working in this folder. Wait for it.", "folder_busy")
             turn = secrets.token_hex(3)
             live = self._ensure(sid)
-            cmd = {"cmd": "skill", "id": turn, "name": skill["name"], "display": text, "script": skill["script"], "mode": skill.get("mode", "restricted"),
+            cmd = {"cmd": "skill", "id": turn, "name": skill["name"], "display": text, "script": skill["script"],
                    "values": typed, "timeout": skill.get("timeout", 1800), "cache_dir": str(self.skills.dir / slug / ".cache")}
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
@@ -1407,12 +1383,10 @@ class SessionManager:
         live = self._live.get(sid)
         return bool(live is not None and live.ready.is_set() and live.proc.poll() is None and not live.ending and self._write(sid, live, cmd))
 
-    def set_mode(self, sid: str, mode: Any, confirm_auto: bool = False) -> Dict[str, Any]:
-        """Changes what the conversation may do without asking, from its next action on. Automatic needs the person's confirmation, as at the start."""
+    def set_mode(self, sid: str, mode: Any) -> Dict[str, Any]:
+        """Changes what the conversation may do without asking, from its next action on."""
         if mode not in MODES:
             raise RunError("The mode must be one of: " + ", ".join(MODES) + ".", "bad_mode")
-        if mode == "auto" and confirm_auto is not True:
-            raise RunError("Automatic mode runs commands without asking. Confirm that you want that, in a folder you can lose.", "auto_confirm")
         with self._lock:
             rec = self._record(sid)
             if rec["state"] == "closed":
@@ -1642,10 +1616,8 @@ class SessionManager:
             if rec is None or live.ending or live.proc.poll() is not None:
                 continue
             silent = now - live.last_seen
-            hung = rec["state"] == "busy" and live.idle_s >= self.hang_s
-            if silent >= self.beat_timeout_s or hung:
-                self._push(sid, {"event": "stalled", "why": "no sign of life for %d s" % silent if silent >= self.beat_timeout_s
-                                 else f"the turn made no progress for {int(live.idle_s)} s"})
+            if silent >= self.beat_timeout_s:
+                self._push(sid, {"event": "stalled", "why": "no sign of life for %d s" % silent})
                 _kill_tree(live.proc)                            # the reader sees the end and starts it again
             elif rec["state"] == "idle" and time.time() - rec.get("updated", 0) >= self.idle_s:
                 with self._lock:

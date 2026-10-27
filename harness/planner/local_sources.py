@@ -13,7 +13,7 @@ import shutil
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from .sources import SEEN_KEPT, Source, SourceError, SourceEvent, _clip, _interval
+from .sources import SEEN_KEPT, Source, SourceError, SourceEvent, _flat, _interval
 
 MAX_LEAD_DAYS = 366
 LEAD_DAYS = (7, 3, 1, 0)
@@ -68,7 +68,7 @@ class SystemSource(Source):
         self.state["low"] = low
         if not low or was:
             return []
-        return [SourceEvent(_clip(f"Warning: free space on {self.path} is low: {free:.1f} GB left of {total:.0f} GB"), self.label, time.time())]
+        return [SourceEvent(_flat(f"Warning: free space on {self.path} is low: {free:.1f} GB left of {total:.0f} GB"), self.label, time.time())]
 
 
 class DeadlineSource(Source):
@@ -101,7 +101,7 @@ class DeadlineSource(Source):
                     continue
                 fired.extend(keys)
                 when = "today" if left == 0 else f"in {left} day{'s' if left != 1 else ''}"
-                out.append(SourceEvent(_clip(f'The plan "{plan.get("title", "")}" {verb} {when} ({day.isoformat()})'), self.label, time.time(), plan["plan_id"]))
+                out.append(SourceEvent(_flat(f'The plan "{plan.get("title", "")}" {verb} {when} ({day.isoformat()})'), self.label, time.time(), plan["plan_id"]))
         self.state["fired"] = fired[-SEEN_KEPT:]
         return out
 
@@ -137,7 +137,7 @@ class ProviderSource(Source):
             seen.append(ident)
             known.add(ident)
             if text:
-                out.append(SourceEvent(_clip(text), self.label, time.time()))
+                out.append(SourceEvent(_flat(text), self.label, time.time()))
         self.state["seen"] = seen[-SEEN_KEPT:]
         return out
 

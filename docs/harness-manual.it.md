@@ -104,9 +104,8 @@ Quattro modalità, dalla più prudente alla più libera:
 **Cambiarla mentre lavori.** Premi **Maiusc+Tab** nel campo del messaggio: la modalità passa alla successiva (Chiedi prima, Solo un
 piano, Sola lettura, Automatico, e di nuovo) e l'etichetta la mostra, con il modo di un colore suo: grigio per *Sola lettura*, viola per *Chiedi prima*, verde per *Solo un
 piano*, rosso per *Automatico*. Premere l'etichetta fa lo stesso. Con una conversazione aperta cambia solo quella, dalla sua prossima azione; senza conversazione cambia la
-modalità con cui partirà la prossima. Passare ad **Automatico** la prima volta mostra un'etichetta di rischio evidenziata e chiede due volte (*Ho
-capito il rischio*, poi *Ho letto con attenzione il messaggio precedente e ho capito il rischio*); una volta detto sì non lo chiede più
-finché non chiudi l'app, in nessuna conversazione. Se rifiuti, il giro lo salta.
+modalità con cui partirà la prossima. Passare ad **Automatico** non chiede nulla. Finché la modalità è Automatico, le altre impostazioni che comportano un rischio (la loro
+etichetta evidenziata resta) prendono il tuo sì da sole e non fanno le loro due domande.
 
 **Regole per i comandi.** In *Chat → Impostazioni → Cosa può fare l'agente senza chiedere* (per le nuove conversazioni) scrivi una regola per riga, come `shell_command:python -m pytest*`. Un comando che corrisponde si
 esegue senza chiedere. Una regola di **divieto** vince sempre. Una regola non copre mai un comando che ne concatena o reindirizza un
@@ -134,7 +133,7 @@ una nota.
 | `/help` (`/?`) | elenca i comandi |
 | `/clear` (`/new`, `/reset`) | una conversazione nuova e vuota |
 | `/effort [none\|low\|medium\|high\|auto]` | per quanto ragiona il modello; cambia anche l'elenco *Ragionamento* |
-| `/mode [plan\|read\|ask\|auto]` | la modalità (Automatico chiede le sue due conferme) |
+| `/mode [plan\|read\|ask\|auto]` | la modalità |
 | `/plan [cosa]` | modalità piano, poi la tua richiesta |
 | `/permissions` (`/allowed`) | la modalità, le regole e i rifiuti; apre anche le impostazioni |
 | `/settings` (`/config`) | le impostazioni della Chat |
@@ -379,12 +378,12 @@ deployment e interazioni come diagrammi che la pagina disegna; *Sorgente del dia
 ## 12c. Telefoni
 
 *Impostazioni > Telefoni* prepara l'app Basalt per un telefono. 1) **Tailscale** su questo PC: la pagina lo installa (con winget), lo collega e mostra l'indirizzo che questo PC ha nella tua rete privata. 2) **Lascia
-collegare i telefoni**: il server ascolta anche su quell'indirizzo, solo per Tailscale, mai su internet. 3) **Una chiave per ogni telefono**: dai un nome al telefono, premi *Crea una chiave* e inquadra il
-codice QR con l'app (o copia la chiave). La chiave resta su questo PC, cifrata, quindi *Mostra il codice* nell'elenco ne rimostra il QR (per esempio dopo aver reinstallato l'app); il telefono tiene le sue impostazioni negli aggiornamenti, e il backup di Android le ripristina dopo una disinstallazione e una reinstallazione se il backup del telefono è attivo. Per fermare un telefono, togli la sua chiave. Sul telefono installa Tailscale dal Play Store e accedi con lo stesso account. Un telefono può
-usare il modello, le conversazioni, i file e le routine; non raggiunge il portafoglio, la cassaforte, le impostazioni né il caricamento dei modelli.
+collegare i telefoni**: il server ascolta anche per loro, di norma solo sull'indirizzo Tailscale, mai su internet; *Ascolta su* lo cambia in tutte le interfacce di rete (0.0.0.0) o in un solo indirizzo IPv4 che scrivi, per un telefono che raggiunge questo PC sulla rete di casa senza Tailscale (il collegamento è HTTP semplice: usalo solo su una rete di cui ti fidi). 3) **Una chiave per ogni telefono**: dai un nome al telefono, premi *Crea una chiave* e inquadra il
+codice QR con l'app (o copia la chiave). La chiave resta su questo PC, cifrata, quindi *Mostra il codice* nell'elenco ne rimostra il QR (per esempio dopo aver reinstallato l'app); il telefono tiene le sue impostazioni negli aggiornamenti, e il backup di Android le ripristina dopo una disinstallazione e una reinstallazione se il backup del telefono è attivo. Per fermare un telefono, togli la sua chiave. Sul telefono installa Tailscale dal Play Store e accedi con lo stesso account. Un telefono con la sua chiave può
+usare il modello, le conversazioni, qualunque file o cartella di questo PC, le routine e i piani, e il resto che risponde a un client con una chiave; ciò che risponde solo a questo PC stesso (portafoglio, cassaforte, impostazioni, caricamento dei modelli) resta su questo PC, e un telefono lavora in qualunque cartella.
 
-L'app Android (`mobile/`, vedi il suo README) richiede poi solo l'indirizzo e la chiave: inquadra il codice QR nelle sue Impostazioni. Il suo pulsante **+** offre *Immagine*, *Foto* e *Documenti/File* (*Locale*, *Server*: le cartelle aggiunte
-sul PC, e *Rete*: altri dispositivi, via SMB); il microfono scrive ciò che dici e le risposte si possono far leggere ad alta voce, con la voce e il riconoscimento del telefono.
+L'app Android (`mobile/`, vedi il suo README) richiede poi solo l'indirizzo e la chiave: inquadra il codice QR nelle sue Impostazioni. Il suo pulsante **+** offre *Immagine*, *Foto* e *Documenti/File* (*Locale*, *Server*: prima le cartelle aggiunte
+sul PC, poi i dischi, e *Rete*: altri dispositivi, via SMB); il microfono scrive ciò che dici e le risposte si possono far leggere ad alta voce, con la voce e il riconoscimento del telefono.
 
 ## 13. La scheda Agente
 
@@ -494,11 +493,9 @@ da copiare su un altro PC con una chiavetta o per e-mail), *Elimina* (premi due 
 file, o i cui file sono stati cambiati a mano, è **da approvare**: leggi lo script e approvalo prima che possa girare. Una che hai fatto tu è
 approvata.
 
-**Accesso.** *Ristretto* (il solito): lo script usa solo `tool(...)`, `ai(...)`, `ask(...)`, `say(...)` e Python semplice (testo, JSON, date,
-liste…), mai file, programmi o rete direttamente, quindi tutto ciò che fa passa dai permessi, dagli hook e dal registro di audit dell'agente.
-*Libero*: lo script può usare tutto ciò che Python sa fare, con i tuoi diritti, senza quei controlli; si salva solo dopo l'etichetta di rischio e
-le sue due domande. Il controllo su uno script ristretto è una staccionata contro gli errori, non un muro contro chi vuole fare danno: leggi lo
-script di una skill che viene da altri.
+**Accesso.** Lo script gira come un tuo programma: può usare tutto ciò che Python sa fare (file, programmi, rete), con i tuoi diritti. Ciò che chiede
+con `tool(...)` passa dai permessi, dagli hook e dal registro di audit dell'agente; il resto dello script no. Non ci sono limiti di memoria, di output
+o di tempo, a meno che tu non imposti un *limite di tempo* in secondi nell'editor. Leggi lo script di una skill che viene da altri prima di approvarla.
 
 **A un orario:** nella scheda **Cron Jobs** un job può eseguire una delle tue skill invece di un compito scritto da te. Compili i valori una volta; una data in parole come *oggi*
 o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job decidono cosa la skill può fare senza chiedere.

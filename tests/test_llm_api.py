@@ -86,10 +86,8 @@ def test_a_provider_can_be_tried_and_this_server_always_answers(api):
     assert call("POST", f"/api/llm/providers/{nokey}/test", {})[1]["ok"] is False
 
 
-def test_only_this_pc_and_the_pages_own_origin_can_change_anything(api):
+def test_an_unknown_llm_route_is_not_found(api):
     call, reg = api
-    code, body = call("POST", "/api/llm/providers", {"type": "openai"}, headers={"Origin": "http://evil.example"})
-    assert code == 403 and reg.load()["providers"] == []
     assert call("POST", "/api/llm/nothing", {})[0] == 404
 
 
@@ -115,4 +113,3 @@ def test_the_council_roles_and_rounds_are_saved_with_their_cost_and_bad_ones_are
     code, err = call("POST", "/api/llm/council", {"rounds": 99})
     assert code == 400 and err["error"]["code"] == "bad_council" and call("GET", "/api/llm")[1]["council"]["settings"]["rounds"] == 2
     assert call("POST", "/api/llm/council", {"roles": roles[:2]})[0] == 400
-    assert call("POST", "/api/llm/council", {"rounds": 1}, headers={"Origin": "http://evil.example"})[0] in (400, 403)

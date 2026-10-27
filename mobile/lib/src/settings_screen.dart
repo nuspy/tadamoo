@@ -82,22 +82,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _confirmAuto(String value) async {
-    if (value == 'auto') {
-      for (final text in [Texts.t('mode.auto.risk'), Texts.t('mode.auto.risk2')]) {
-        final ok = await showDialog<bool>(
-          context: context,
-          builder: (c) => AlertDialog(content: Text(text), actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: Text(Texts.t('conv.cancel'))),
-            FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(Texts.t('chat.yes'))),
-          ]),
-        );
-        if (ok != true) return;
-      }
-    }
-    await widget.settings.setMode(value);
-  }
-
   /// Switching it on asks Android for the permission; switching it off makes the PC forget the last position it was given.
   Future<void> _switchPlace(bool on) async {
     if (on && !await PlaceFinder.allow()) {
@@ -196,7 +180,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           initialValue: widget.settings.mode,
           decoration: InputDecoration(labelText: Texts.t('set.mode'), border: const OutlineInputBorder()),
           items: [for (final m in const ['plan', 'read_only', 'default', 'auto']) DropdownMenuItem(value: m, child: Text(Texts.t('mode.$m')))],
-          onChanged: (v) => v == null ? null : _confirmAuto(v).then((_) => setState(() {})),
+          onChanged: (v) => v == null ? null : widget.settings.setMode(v).then((_) => setState(() {})),
         ),
       ]),
     );

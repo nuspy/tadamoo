@@ -49,6 +49,13 @@ class PhonesPageTest(unittest.TestCase):
         for key in dynamic + ["mb.keys.ends", "mb.keys.expired", "mb.keys.noend", "mb.keys.renew", "mb.keys.forever", "mb.lim.rules.help", "mb.lim.mode"]:
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
 
+    def test_where_to_listen_is_chosen_from_three_ways_each_explained_in_both_languages(self):
+        self.assertIn("api/remote/listen", JS)
+        for value in ('"tailscale"', '"0.0.0.0"', '"custom"'):
+            self.assertIn(value, JS)
+        for key in ("label", "tailscale", "all", "custom", "ip", "help.tailscale", "help.all", "help.custom", "save", "save.tip", "saved"):
+            self.assertEqual(I18N.count(f'"mb.listen.{key}":'), 2, key)
+
 
 if __name__ == "__main__":
     unittest.main()

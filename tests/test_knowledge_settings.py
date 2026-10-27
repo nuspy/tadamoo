@@ -148,12 +148,6 @@ def test_the_settings_page_reads_saves_and_checks_the_wiki(api, wiki):
     assert found["status"] == "offline" and found["address"] in found["error"]
 
 
-def test_only_the_pages_own_origin_can_change_these_settings(api):
-    code, _ = api("POST", "/api/knowledge", {"memory_notes": 1}, headers={"Origin": "http://evil.example"})
-    assert code == 403
-    assert api("GET", "/api/knowledge")[1]["memory_notes"] == 4
-
-
 def test_every_string_of_the_settings_page_exists_in_english_and_italian():
     import re
     web = Path(__file__).resolve().parents[1] / "serve" / "web"

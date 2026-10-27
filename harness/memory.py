@@ -16,8 +16,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 _OPERATORS = {"AND", "OR", "NOT", "NEAR"}
-MAX_MEMORY_CHARS = 2000
-MAX_MEMORIES = 5000
 CHARS_PER_TOKEN = 3.5
 MAX_QUERY_TERMS = 24
 PREFIX_FROM = 4                    # a query word this long also matches the words that begin with it (build: builds, building)
@@ -284,13 +282,9 @@ def register_memory_tools(registry: Any, store: MemoryStore) -> None:
         text = content.strip()
         if not text:
             raise ValueError("a memory needs some text")
-        if len(text) > MAX_MEMORY_CHARS:
-            raise ValueError(f"a memory is a short note (at most {MAX_MEMORY_CHARS} characters); keep the point and leave the rest out")
         known = store.find(text)
         if known:
             return {"id": known, "saved": False, "note": "this note is already kept"}
-        if store.count() >= MAX_MEMORIES:
-            raise ValueError("the memory of this project is full; forget notes that no longer matter first")
         return {"id": store.add_memory(text, _CATEGORY.sub("-", category.strip().lower()).strip("-")[:32] or "general"), "saved": True}
 
     def recall(query: str, limit: int = 5) -> List[Dict[str, Any]]:

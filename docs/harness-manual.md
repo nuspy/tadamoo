@@ -101,9 +101,8 @@ Four modes, from the most careful to the freest:
 Automatic, and round) and the label shows it, the mode in a colour of its own: grey for *Read only*, violet for *Ask first*, green for
 *Plan only*, red for *Automatic*. Pressing the label does the same. With a
 conversation open it changes that conversation only, from its next action; with none open it changes the mode the next one starts
-with. Going to **Automatic** the first time shows a highlighted risk label and asks twice (*I understand the risk*, then *I read the previous
-message carefully and understand the risk*); once you have said yes it is not asked again until you close the app, in any conversation. If
-you refuse, the cycle passes over it.
+with. Going to **Automatic** asks nothing. While the mode is Automatic, the other settings that carry a risk (their highlighted risk label stays)
+take your yes by themselves and do not ask their two questions.
 
 **Rules for commands.** In *Chat → Settings → What the agent may do without asking* (for new conversations) write one rule per line, such as `shell_command:python -m pytest*`. A matching command runs without asking. A **deny**
 rule always wins. A command of several statements (`cd x && make`) is allowed when a rule covers each statement; a command built at run time (`$(...)`) is covered by no rule. Each question
@@ -130,7 +129,7 @@ argument, **Escape** closes. A message that starts with a space is sent as writt
 | `/help` (`/?`) | lists the commands |
 | `/clear` (`/new`, `/reset`) | a new empty conversation |
 | `/effort [none\|low\|medium\|high\|auto]` | how long the model thinks; also changes the *Thinking* list |
-| `/mode [plan\|read\|ask\|auto]` | the mode (Automatic asks its two confirmations) |
+| `/mode [plan\|read\|ask\|auto]` | the mode |
 | `/plan [what]` | plan mode, then your request |
 | `/permissions` (`/allowed`) | the mode, the rules and the refusals; also opens the settings |
 | `/settings` (`/config`) | the Chat settings |
@@ -359,11 +358,11 @@ interactions as diagrams that the page draws; *Source of the diagram* shows the 
 ## 12c. Phones
 
 *Settings > Phones* sets up the Basalt app for a phone. 1) **Tailscale** on this PC: the page installs it (with winget) and connects it, and shows the address this PC has on your private network. 2) **Let phones connect**:
-the server then also listens on that address, only for Tailscale, never on the internet. 3) **A key for each phone**: give the phone a name, press *Make a key*, and scan the QR code with the app
-(or copy the key). The key stays on this PC, encrypted, so *Show code* in the list shows its QR code again (for example after reinstalling the app); the phone also keeps its settings through an update, and Android's backup restores them after an uninstall and reinstall when the phone's backup is on. To stop a phone, take its key away. On the phone, install Tailscale from the Play Store and sign in with the same account. A phone can use the model, the
-conversations, files and routines; it cannot reach the wallet, the vault, the settings or the loading of models.
+the server then also listens for them, by default only on the Tailscale address, never on the internet; *Listen on* changes that to every network interface (0.0.0.0) or to one IPv4 address you type, for a phone that reaches this PC on your home network without Tailscale (the link is plain HTTP, so use it only on a network you trust). 3) **A key for each phone**: give the phone a name, press *Make a key*, and scan the QR code with the app
+(or copy the key). The key stays on this PC, encrypted, so *Show code* in the list shows its QR code again (for example after reinstalling the app); the phone also keeps its settings through an update, and Android's backup restores them after an uninstall and reinstall when the phone's backup is on. To stop a phone, take its key away. On the phone, install Tailscale from the Play Store and sign in with the same account. A phone with its key can use the model, the
+conversations, any file or folder of this PC, the routines and the plans, and the rest that answers to a client with a key; what answers only to this PC itself (the wallet, the vault, the settings, the loading of models) stays on this PC, and a phone works in any folder.
 
-The Android app (`mobile/`, see its README) then needs only the address and the key: scan the QR code in its Settings. Its **+** button offers *Image*, *Photo* and *Documents/Files* (*Local*, *Server*: the folders added on the PC, and
+The Android app (`mobile/`, see its README) then needs only the address and the key: scan the QR code in its Settings. Its **+** button offers *Image*, *Photo* and *Documents/Files* (*Local*, *Server*: the folders added on the PC first, then the drives, and
 *Network*: other devices, over SMB); the microphone writes what you say and answers can be read aloud, with the phone's own speech.
 
 ## 13. The Agent tab
@@ -466,10 +465,9 @@ appear like the agent's, follow the same permissions and questions, and stay in 
 copy to another PC by pen drive or e-mail), *Delete* (press twice) and *Import personal skills…*. A skill that arrives from a file, or whose
 files were changed by hand, is **to approve**: read its script and approve it before it can run. One you made yourself is approved.
 
-**Access.** *Restricted* (the usual): the script uses only `tool(...)`, `ai(...)`, `ask(...)`, `say(...)` and plain Python (text, JSON, dates, lists…),
-never files, programs or the network directly, so everything it does goes through the agent's permissions, hooks and audit log. *Free*: the script
-may use anything Python can, with your rights, without those controls; it is saved only after the risk label and its two questions. The check
-on a restricted script is a fence against mistakes, not a wall against someone who means harm: read the script of a skill that comes from others.
+**Access.** The script runs as a program of yours: it may use anything Python can (files, programs, the network), with your rights. What it asks through
+`tool(...)` goes through the agent's permissions, hooks and audit log; the rest of the script does not. There is no limit on its memory, its output or
+its time unless you set a *time limit* in seconds in the editor. Read the script of a skill that comes from others before you approve it.
 
 **On a schedule:** in the **Cron Jobs** tab a job can run one of your skills instead of a task you write. Fill in its values once; a date in words such as *today* or
 *tomorrow* is worked out again each time the job runs. The job's mode and rules decide what the skill may do without asking.

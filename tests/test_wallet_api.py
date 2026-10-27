@@ -258,18 +258,11 @@ def test_a_wallet_route_needs_the_control_secret(guarded, route):
 
 
 @pytest.mark.parametrize("route", POST_ROUTES)
-def test_a_wallet_route_refuses_the_page_of_another_site(guarded, route):
+def test_a_wallet_route_does_not_look_at_the_origin_or_the_content_type(guarded, route):
     base, spy = guarded
-    code, body = post(base, route, {"X-Basalt-Control": SECRET, "Origin": "http://evil.example"})
-    assert code == 403 and "own page" in body["error"]["message"]
-    assert spy.calls == []
-
-
-@pytest.mark.parametrize("route", POST_ROUTES)
-def test_a_wallet_route_refuses_what_is_not_json(guarded, route):
-    base, spy = guarded
-    assert post(base, route, {"X-Basalt-Control": SECRET, "Content-Type": "text/plain"})[0] == 415
-    assert spy.calls == []
+    assert post(base, route, {"X-Basalt-Control": SECRET, "Origin": "http://evil.example"})[0] == 200
+    assert post(base, route, {"X-Basalt-Control": SECRET, "Content-Type": "text/plain"})[0] == 200
+    assert len(spy.calls) == 2
 
 
 @pytest.mark.parametrize("route", POST_ROUTES)

@@ -61,8 +61,7 @@ def test_notes_are_checked(tmp_path):
         memory.add("middle", "facts", "x y z")
     with pytest.raises(PersonalMemoryError, match="some text"):
         memory.add("long", "place", "   ")
-    with pytest.raises(PersonalMemoryError, match="at most"):
-        memory.add("long", "place", "x" * 401)
+    assert len(memory.add("long", "place", "x" * 5000)["text"]) == 5000                  # a note has no length limit
     with pytest.raises(PersonalMemoryError, match="origin"):
         memory.add("long", "place", "Lives in Rome", origin="guessed")
 

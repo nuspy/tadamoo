@@ -15,7 +15,7 @@ def _no_clock(monkeypatch):
 
 
 def skill(script, **over):
-    return {"name": "Test skill", "display": "Skill “Test skill”: n = 3", "script": script, "mode": "restricted",
+    return {"name": "Test skill", "display": "Skill “Test skill”: n = 3", "script": script,
             "values": {"n": {"type": "number", "value": 3}}, "timeout": 60, **over}
 
 
@@ -99,7 +99,7 @@ def test_a_question_to_the_person_waits_for_the_button(tmp_path):
 def test_stop_ends_a_skill_that_is_running(tmp_path):
     session, ev, *_ = make(tmp_path, Scripted())
     script = "import time\n\ndef main(params):\n    time.sleep(60)\n"
-    session.run_skill("t1", skill(script, mode="free"))
+    session.run_skill("t1", skill(script))
     ev.wait("skill")
     time.sleep(0.5)
     session.cancel()
@@ -111,8 +111,8 @@ def test_a_second_skill_is_refused_while_one_runs_and_a_message_goes_on_afterwar
     client = Scripted(say("hello again"))
     session, ev, store, built = make(tmp_path, client)
     slow = "import time\n\ndef main(params):\n    time.sleep(1.5)\n    return 'slept'\n"
-    session.run_skill("t1", skill(slow, mode="free"))
-    assert session.run_skill("t2", skill(slow, mode="free")) is False
+    session.run_skill("t1", skill(slow))
+    assert session.run_skill("t2", skill(slow)) is False
     assert ev.wait("error")["code"] == "busy"
     assert done(ev)["final"] == "slept"
     session.send("m1", "and now?")

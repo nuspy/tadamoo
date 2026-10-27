@@ -25,23 +25,16 @@ def test_a_script_that_only_uses_the_harness_and_plain_python_is_fine():
     assert check.tools_used(GOOD) == ["read_file"]
 
 
-@pytest.mark.parametrize("source,word", [
-    ("import os\ndef main(params): pass", "import os"),
-    ("import subprocess\ndef main(params): pass", "subprocess"),
-    ("from urllib import request\ndef main(params): pass", "urllib"),
-    ("import urllib.request\ndef main(params): pass", "urllib.request"),
-    ("def main(params):\n    open('x').read()", "open"),
-    ("def main(params):\n    eval('1')", "eval"),
-    ("def main(params):\n    return getattr(params, 'x')", "getattr"),
-    ("def main(params):\n    return ().__class__.__bases__", "__class__"),
-    ("def main(params):\n    return __builtins__", "__builtins__"),
-    ("from json import *\ndef main(params): pass", "import *"),
-    ("import io\ndef main(params): return io.open('x')", "import io"),
-    ("def main(params):\n    from pathlib import Path\n    Path('x').read_text()", "pathlib"),
+@pytest.mark.parametrize("source", [
+    "import os\ndef main(params): return os.getcwd()",
+    "import subprocess\ndef main(params): pass",
+    "import urllib.request\ndef main(params): pass",
+    "def main(params):\n    return open('x').read()",
+    "def main(params):\n    return eval('1')",
+    "from pathlib import Path\ndef main(params): return Path('x').read_text()",
 ])
-def test_what_would_reach_files_programs_or_the_interpreter_is_refused(source, word):
-    problems = check.check(source)
-    assert problems and any(word in p["message"] for p in problems), problems
+def test_the_script_may_use_files_programs_and_the_network_like_any_program_of_the_person(source):
+    assert check.check(source) == []
 
 
 def test_a_script_needs_a_main_with_one_argument_and_valid_syntax():
@@ -50,9 +43,9 @@ def test_a_script_needs_a_main_with_one_argument_and_valid_syntax():
     assert "syntax error" in check.check("def main(:")[0]["message"]
 
 
-def test_the_free_mode_only_needs_a_main():
-    assert check.check("import os\ndef main(params): return os.getcwd()", "free") == []
-    assert check.check("import os", "free")
+def test_only_a_main_is_required():
+    assert check.check("import os") != []
+    assert check.check("x = 'a' * 300000\ndef main(params): return x") == []
 
 
 def test_a_skill_is_saved_in_its_own_folder_and_is_approved_because_the_person_made_it(tmp_path):
@@ -83,7 +76,7 @@ def test_a_new_version_keeps_the_old_and_a_file_changed_by_hand_is_to_approve_ag
 
 def test_what_cannot_work_is_not_saved(tmp_path):
     store = PersonalSkills(tmp_path)
-    for spec, script in (({"name": ""}, GOOD), (SPEC, "import os\ndef main(params): pass"), ({**SPEC, "mode": "wild"}, GOOD),
+    for spec, script in (({"name": ""}, GOOD), (SPEC, "x = 1"),
                          ({**SPEC, "params": [{"name": "A B"}]}, GOOD), ({**SPEC, "params": [{"name": "a"}, {"name": "a"}]}, GOOD),
                          ({**SPEC, "timeout": "soon"}, GOOD)):
         with pytest.raises(SkillError):
@@ -92,6 +85,13 @@ def test_what_cannot_work_is_not_saved(tmp_path):
     for bad in ("../x", "a/b", "", "A"):
         with pytest.raises(SkillError):
             store.get(bad)
+
+
+def test_a_skill_has_no_time_limit_unless_the_person_sets_one(tmp_path):
+    store = PersonalSkills(tmp_path)
+    assert store.save(SPEC, GOOD)["timeout"] == 0
+    assert store.save({**SPEC, "timeout": 1}, GOOD)["timeout"] == 1
+    assert store.save({**SPEC, "timeout": 200000}, GOOD)["timeout"] == 200000
 
 
 def test_delete_removes_the_folder_and_the_approval(tmp_path):

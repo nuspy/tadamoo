@@ -136,7 +136,7 @@ class OverHttp(unittest.TestCase):
         code, body = self.post({"messages": chat(1, 20)})
         self.assertEqual(code, 200)
         self.assertEqual((body["action"], body["limit"]), ("none", 2048))
-        self.assertEqual(self.post({"messages": chat(1)}, Origin="http://evil.example.com")[0], 403)
+        self.assertEqual(self.post({"messages": chat(1)}, Origin="http://other.example.com")[0], 200)       # any page may use the model
         self.assertEqual(self.post({"messages": []})[0], 400)
         self.svc.api_key = "k"
         self.assertEqual(self.post({"messages": chat(1)})[0], 401)

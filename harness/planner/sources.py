@@ -1,7 +1,7 @@
 """Read-only adapters that bring events from the world to the planner: a feed (RSS or Atom), a mailbox (IMAP) and a Telegram bot.
 
-They only read. The feed is fetched, the mailbox is opened read-only and only the sender and the subject of new messages are
-asked for (never the body), the bot's updates are fetched and nothing is ever sent back. Credentials come from the vault through
+They only read. The feed is fetched, the mailbox is opened read-only and the sender, the subject and the plain-text body of new
+messages are read without marking them, the bot's updates are fetched and nothing is ever sent back. Credentials come from the vault through
 a callable the owner of the adapter supplies; they are never stored in the adapter's settings, its state or its messages.
 
 An adapter's `poll()` returns the events that are new since the last poll. The first poll of a feed or a mailbox only learns what
@@ -29,14 +29,11 @@ from typing import Any, Callable, Deque, Dict, Iterable, List, Optional, Tuple
 
 from harness.integrations._http import _OPENER
 
-EVENT_CHARS = 500
-MAX_FEED_BYTES = 2 << 20
-MAX_NEW_PER_POLL = 50
+MAX_FEED_BYTES = 256 << 20         # memory guard for one feed document, not a content limit
+MAX_MESSAGE_BYTES = 64 << 20       # memory guard: a larger message is read by its headers only
 SEEN_KEPT = 500
 SOURCE_ID = re.compile(r"^[a-z0-9][a-z0-9_\-]{0,31}$")
 KINDS = ("rss", "imap", "telegram", "system", "deadlines")
-MIN_INTERVAL, MAX_INTERVAL = 1, 86400
-MAX_SOURCES = 10
 
 
 class SourceError(Exception):
@@ -58,9 +55,8 @@ def redact(message: str, secrets: Iterable[str]) -> str:
     return message
 
 
-def _clip(text: str, n: int = EVENT_CHARS) -> str:
-    text = " ".join(str(text).split())
-    return text if len(text) <= n else text[:n - 1] + "…"
+def _flat(text: str) -> str:
+    return " ".join(str(text).split())
 
 
 class Source:
@@ -133,7 +129,7 @@ def fetch_url(url: str, timeout: float = 10.0, max_bytes: int = MAX_FEED_BYTES) 
     except (urllib.error.URLError, OSError) as exc:
         raise SourceError(f"the feed could not be reached ({type(exc).__name__})") from None
     if len(data) > max_bytes:
-        raise SourceError("the feed is larger than the limit")
+        raise SourceError("the feed is larger than the memory guard")
     return data
 
 
@@ -157,7 +153,7 @@ class RssSource(Source):
         if first:
             return []
         now = time.time()
-        return [SourceEvent(_clip(f"{i['title']}. {i['summary']}" if i["summary"].strip() else i["title"]), self.label, now) for i in fresh[:MAX_NEW_PER_POLL]]
+        return [SourceEvent(_flat(f"{i['title']}. {i['summary']}" if i["summary"].strip() else i["title"]), self.label, now) for i in fresh]
 
 
 # -- a mailbox -----------------------------------------------------------------------------------------
@@ -171,9 +167,28 @@ def _decoded(value: Any) -> str:
         return text
 
 
+def _size(parts: Any) -> Optional[int]:
+    """The RFC822.SIZE of a FETCH answer, when it has one."""
+    for p in parts or []:
+        m = re.search(rb"RFC822\.SIZE\s+(\d+)", p if isinstance(p, bytes) else (p[0] if isinstance(p, tuple) else b""))
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _plain_body(msg: Any) -> str:
+    """The text/plain part of a message, decoded with its charset; empty when it has none."""
+    try:
+        part = msg.get_body(preferencelist=("plain",))
+        return str(part.get_content()).strip() if part is not None else ""
+    except Exception:
+        return ""
+
+
 class ImapSource(Source):
-    """New messages of one mailbox, as "Email from <sender>: <subject>". The mailbox is opened read-only (EXAMINE) and the headers
-    are fetched with BODY.PEEK, so nothing is marked read or changed, and the body is never asked for."""
+    """New messages of one mailbox, as "Email from <sender>: <subject>. <text>". The mailbox is opened read-only (EXAMINE) and the
+    message is fetched with BODY.PEEK, so nothing is marked read or changed. Only the text/plain part is used, decoded; a message
+    with none, or larger than the memory guard, gives its sender and subject alone."""
     kind = "imap"
 
     def __init__(self, source_id: str, host: str, credentials: Callable[[], Tuple[str, str]], port: int = 993, ssl: bool = True,
@@ -205,15 +220,19 @@ class ImapSource(Source):
             if last is None or self.state.get("validity") != validity:
                 self.state.update(last_uid=max(uids, default=0), validity=validity)
                 return []
-            fresh = [u for u in uids if u > last][:MAX_NEW_PER_POLL]
+            fresh = [u for u in uids if u > last]
             out = []
             for uid in fresh:
-                typ, parts = conn.uid("FETCH", str(uid), "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
+                size = _size(conn.uid("FETCH", str(uid), "(RFC822.SIZE)")[1])
+                whole = size is not None and size <= MAX_MESSAGE_BYTES
+                typ, parts = conn.uid("FETCH", str(uid), "(BODY.PEEK[])" if whole else "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
                 raw = next((p[1] for p in parts or [] if isinstance(p, tuple)), b"")
                 msg = email.message_from_bytes(raw, policy=email.policy.default)
                 name, addr = email.utils.parseaddr(_decoded(msg.get("From")))
                 sender = name or addr or "unknown sender"
-                out.append(SourceEvent(_clip(f"Email from {sender}: {_decoded(msg.get('Subject')) or '(no subject)'}"), self.label, time.time()))
+                text = f"Email from {sender}: {_decoded(msg.get('Subject')) or '(no subject)'}"
+                body = _plain_body(msg) if whole else ""
+                out.append(SourceEvent(_flat(f"{text}. {body}" if body else text), self.label, time.time()))
             if fresh:
                 self.state["last_uid"] = fresh[-1]
             return out
@@ -273,7 +292,7 @@ class TelegramSource(Source):
             if (msg.get("chat") or {}).get("id") not in self.allowed:
                 continue
             who = (msg.get("from") or {}).get("first_name") or "someone"
-            out.append(SourceEvent(_clip(f"Telegram from {who}: {msg['text']}"), self.label, float(msg.get("date") or time.time())))
+            out.append(SourceEvent(_flat(f"Telegram from {who}: {msg['text']}"), self.label, float(msg.get("date") or time.time())))
         return out
 
 
@@ -281,8 +300,8 @@ class TelegramSource(Source):
 
 def _interval(cfg: Dict[str, Any], default: float) -> float:
     v = cfg.get("interval_seconds", default)
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or not MIN_INTERVAL <= v <= MAX_INTERVAL:
-        raise ValueError(f"interval_seconds is a number from {MIN_INTERVAL} to {MAX_INTERVAL}")
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not v > 0:
+        raise ValueError("interval_seconds is a number of seconds above 0")
     return float(v)
 
 
@@ -343,8 +362,8 @@ def clean_source(cfg: Any, index: int = 0) -> Dict[str, Any]:
 
 
 def clean_sources(value: Any) -> List[Dict[str, Any]]:
-    if not isinstance(value, list) or len(value) > MAX_SOURCES:
-        raise ValueError(f"sources is a list of at most {MAX_SOURCES}")
+    if not isinstance(value, list):
+        raise ValueError("sources is a list")
     cleaned = [clean_source(c, i) for i, c in enumerate(value)]
     ids = [c["id"] for c in cleaned]
     if len(set(ids)) != len(ids):

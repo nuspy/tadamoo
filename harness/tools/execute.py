@@ -29,7 +29,6 @@ from harness.tools.registry import EffectClass
 RUN_DIR = Path(".basalt") / "run"
 DEFAULT_MAX_OUTPUT = 50_000
 DEFAULT_MAX_MEMORY = 2 << 30
-KEEP_DAYS = 7
 MAX_LISTED_FILES = 20
 CODE_MAX_CHARS = 200_000
 SCRIPT_NAMES = {"python": "main.py", "javascript": "main.js", "typescript": "main.ts"}
@@ -74,17 +73,6 @@ def build_command(runtime: Dict[str, str], script: Path, workdir: Path, workspac
     return [exe, "--no-warnings", str(script)]
 
 
-def _prune(base: Path) -> None:
-    """Working folders that were kept for their files are removed after a while."""
-    cutoff = time.time() - KEEP_DAYS * 86400
-    try:
-        for child in base.iterdir():
-            if child.is_dir() and child.stat().st_mtime < cutoff:
-                shutil.rmtree(child, ignore_errors=True)
-    except OSError:
-        pass
-
-
 def _files_left(workdir: Path, script: Path) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for folder, _, names in os.walk(workdir):
@@ -121,7 +109,6 @@ def run_code(language: str, code: str, workspace: str | Path, runtimes: Dict[str
     workspace = Path(workspace).resolve()
     base = workspace / RUN_DIR
     base.mkdir(parents=True, exist_ok=True)
-    _prune(base)
     workdir = base / secrets.token_hex(4)
     workdir.mkdir()
     script = workdir / SCRIPT_NAMES[language]

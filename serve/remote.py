@@ -2,9 +2,9 @@
 
 Several API keys: each one has a name (the device it was made for), is checked by its hash, and can be revoked on its own. The key itself is kept
 encrypted under the device key (the one that wraps the vault), so its QR code can be shown again for a phone that was reinstalled.
-A client that is not on this PC may reach only the routes a phone needs (the model, conversations, files, routines, plans), never the vault, the
-wallet, the settings or the loading of models. The server listens for such clients on one address only, the PC's Tailscale address, and only after the
-person turned that on; Tailscale itself is installed and connected from here.
+A phone with a valid key reaches every route a client on this PC reaches with the same credentials, except those that answer only to this PC. The
+server listens for phones on the address the person chose (the PC's Tailscale address unless told otherwise), and only after the person turned that
+on; Tailscale itself is installed and connected from here.
 """
 from __future__ import annotations
 
@@ -23,6 +23,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from serve.security import lan_addresses
+
 KEY_PREFIX = "bsk_"
 LABEL_MAX = 60
 TOUCH_EVERY_S = 60                                       # the last use of a key is written at most this often
@@ -31,24 +33,19 @@ KEY_TTL_MAX_DAYS = 3650
 MODE_ORDER = ("plan", "read_only", "default", "auto")    # from the least to the most a conversation may do without asking
 PHONE_MAX_MODE = "default"                               # the most a phone may start a conversation with, unless the person raised it
 PHONE_RULES_MAX = 10
-TAILSCALE_NET = ipaddress.ip_network("100.64.0.0/10")
-TAILSCALE_NET6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
-# what a client from outside this PC may ask for: the model, the conversations and what they hold, the routines, the plans
-REMOTE_PREFIXES = ("/v1/", "/api/agent/", "/api/attachments", "/api/outputs", "/api/routines", "/api/plans", "/api/personal-skills", "/api/files/", "/api/remote/hello", "/api/remote/peers")
+LISTEN_TAILSCALE = "tailscale"                           # the listener for phones follows the PC's Tailscale address
+LISTEN_ALL = "0.0.0.0"
 
 
-def remote_path_ok(path: str) -> bool:
-    return path == "/v1" or any(path == p.rstrip("/") or path.startswith(p) for p in REMOTE_PREFIXES)
-
-
-def in_tailscale(address: str) -> bool:
+def listen_of(value: Any) -> str:
+    """The address the listener for phones binds to: "tailscale", or an IPv4 address ("0.0.0.0" is every interface)."""
+    text = str(value or "").strip().lower()
+    if text in ("", LISTEN_TAILSCALE):
+        return LISTEN_TAILSCALE
     try:
-        ip = ipaddress.ip_address(address.split("%", 1)[0])
+        return str(ipaddress.IPv4Address(text))
     except ValueError:
-        return False
-    if getattr(ip, "ipv4_mapped", None):
-        ip = ip.ipv4_mapped
-    return ip in TAILSCALE_NET or ip in TAILSCALE_NET6
+        raise ValueError("Listen on Tailscale, on every interface (0.0.0.0) or on one IPv4 address, such as 192.168.1.20.") from None
 
 
 def _digest(key: str) -> str:
@@ -331,8 +328,8 @@ def tailscale_up(timeout: float = 12.0) -> Dict[str, Any]:
 # -- the listener on the Tailscale address -----------------------------------------------------------
 
 class RemoteAccess:
-    """Whether phones may reach this server, and the second listener that makes it so. The listener is bound to the PC's Tailscale address and to
-    nothing else, so the network only sees it through Tailscale; every request needs one of the keys."""
+    """Whether phones may reach this server, and the second listener that makes it so. The listener is bound to the address the person chose, the
+    PC's Tailscale address by default; every request needs one of the keys."""
 
     def __init__(self, state_path: str | Path, port: int, start_listener: Callable[[str, int], Any]) -> None:
         self.path = Path(state_path)
@@ -342,12 +339,17 @@ class RemoteAccess:
         self._lock = threading.RLock()
         self.error = ""
         self.enabled = False
+        self.listen = LISTEN_TAILSCALE                         # where the listener binds: "tailscale", "0.0.0.0" or one IPv4 address
         self.phone_chooses = True                              # a phone may pick its own mode and rules; off: the limits below are the PC's
         self.max_mode = PHONE_MAX_MODE                         # the most a phone may start or switch a conversation to, when it may not choose
         self.rules: List[str] = []                             # the allow rules a conversation started from a phone gets: the person's, never the phone's
         try:
             saved = json.loads(self.path.read_text(encoding="utf-8"))
             self.enabled = bool(saved.get("enabled"))
+            try:
+                self.listen = listen_of(saved.get("listen"))
+            except ValueError:
+                pass
             self.phone_chooses = bool(saved.get("phone_chooses", True))
             if saved.get("max_mode") in MODE_ORDER:
                 self.max_mode = saved["max_mode"]
@@ -362,7 +364,7 @@ class RemoteAccess:
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({"enabled": self.enabled, "phone_chooses": self.phone_chooses, "max_mode": self.max_mode, "rules": self.rules}), encoding="utf-8")
+        self.path.write_text(json.dumps({"enabled": self.enabled, "listen": self.listen, "phone_chooses": self.phone_chooses, "max_mode": self.max_mode, "rules": self.rules}), encoding="utf-8")
 
     def set_limits(self, max_mode: Any, rules: Any, phone_chooses: Any = None) -> None:
         """Whether a phone chooses for itself; when it does not, what a conversation started from a phone may do without asking: its most
@@ -381,14 +383,22 @@ class RemoteAccess:
     def mode_allowed(self, mode: Any) -> bool:
         return mode in MODE_ORDER and (self.phone_chooses or MODE_ORDER.index(mode) <= MODE_ORDER.index(self.max_mode))
 
+    def set_listen(self, value: Any) -> None:
+        """Where the listener binds; it moves to the new address at once when phones are on."""
+        listen = listen_of(value)
+        with self._lock:
+            self.listen = listen
+            self._save()
+            self.apply()
+
     def apply(self) -> None:
-        """Brings the listener in line with the setting: on when it is enabled and Tailscale has an address, off otherwise."""
+        """Brings the listener in line with the setting: on when it is enabled and has an address (Tailscale's, or the one chosen), off otherwise."""
         with self._lock:
             self.error = ""
             if not self.enabled:
                 self._stop()
                 return
-            ip = tailscale_status().get("ip") or ""
+            ip = (tailscale_status().get("ip") or "") if self.listen == LISTEN_TAILSCALE else self.listen
             if not ip:
                 self._stop()
                 self.error = "Tailscale is not connected on this PC, so there is no address to listen on."
@@ -417,8 +427,14 @@ class RemoteAccess:
             self._save()
             self.apply()
 
-    def address(self) -> str:
-        return f"{self._httpd.server_address[0]}:{self.port}" if self._httpd is not None else ""
+    def address(self, tailscale_ip: str = "") -> str:
+        """Where a phone reaches the listener; on every interface that is the PC's Tailscale address, else its first LAN address."""
+        if self._httpd is None:
+            return ""
+        host = self._httpd.server_address[0]
+        if host == LISTEN_ALL:
+            host = tailscale_ip or next(iter(lan_addresses()), "") or "127.0.0.1"
+        return f"{host}:{self.port}"
 
     def close(self) -> None:
         with self._lock:

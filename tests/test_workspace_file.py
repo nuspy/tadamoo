@@ -62,12 +62,11 @@ def test_nothing_outside_the_folder_or_in_the_agents_own_files_is_sent(world, pa
     assert code in (400, 404, 409) and b"outside" not in body and b"secret" not in body
 
 
-def test_a_too_large_file_and_an_unknown_conversation_are_refused(world, monkeypatch):
+def test_a_big_file_is_saved_and_an_unknown_conversation_is_refused(world):
     url, mgr, sid, folder = world
-    (folder / "big.bin").write_bytes(b"0" * 10)
-    monkeypatch.setattr("serve.agent_sessions.MAX_SAVED_FILE", 5)
+    (folder / "big.bin").write_bytes(b"0" * 3_000_000)
     code, _, body = get(url, sid, "big.bin")
-    assert code == 404 and b"too_large" in body
+    assert code == 200 and len(body) == 3_000_000
     assert get(url, "nosuch", "src/app.py")[0] in (404, 409)
     with pytest.raises(RunError):
         mgr.workspace_file(sid, "../outside.txt")

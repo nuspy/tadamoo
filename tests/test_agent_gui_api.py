@@ -125,13 +125,14 @@ def test_stopping_a_run_that_waits_ends_it_and_leaves_nothing_open(setup, ws):  
     assert s["api"]("POST", f"/api/agent/runs/{run_id}/stop", {})[0] == 409                 # nothing left to stop
 
 
-def test_one_run_at_a_time(setup, ws):  # noqa: F811
+def test_a_second_run_may_start_while_the_first_one_works(setup, ws):  # noqa: F811
     s = setup([tool_call("shell_command", command="echo hi"), answer("x")])
     first = start(s["api"], ws, "first", mode="default")[1]["run"]["id"]
     wait_for(lambda: s["api"]("GET", "/api/agent/approvals")[1]["pending"])
     status, body = start(s["api"], ws, "second")
-    assert status == 409 and "already running" in body["error"]["message"]
-    s["api"]("POST", f"/api/agent/runs/{first}/stop", {})
+    assert status == 200 and body["run"]["id"] != first
+    for run_id in (first, body["run"]["id"]):
+        s["api"]("POST", f"/api/agent/runs/{run_id}/stop", {})
 
 
 @pytest.mark.parametrize("payload,fragment", [
@@ -140,13 +141,9 @@ def test_one_run_at_a_time(setup, ws):  # noqa: F811
     ({"workspace": "Z:\\nowhere\\at\\all", "goal": "x"}, "does not exist"),
     ({"goal": "x"}, "Choose the folder"),
     ({"workspace": "@WS", "goal": "   "}, "Write what"),
-    ({"workspace": "@WS", "goal": "x" * 5000}, "too long"),
     ({"workspace": "@WS", "goal": "x", "mode": "yolo"}, "mode must be"),
-    ({"workspace": "@WS", "goal": "x", "mode": "auto"}, "Confirm that you want that"),
-    ({"workspace": "@WS", "goal": "x", "mode": "auto", "confirm_auto": "yes"}, "Confirm that you want that"),
-    ({"workspace": "@WS", "goal": "x", "max_turns": 0}, "between 1 and 50"),
+    ({"workspace": "@WS", "goal": "x", "max_turns": 0}, "number of steps"),
     ({"workspace": "@WS", "goal": "x", "allow": ["a\nb"]}, "Allow rules"),
-    ({"workspace": "C:\\", "goal": "x"}, "not a whole drive"),
 ])
 def test_what_cannot_be_started_is_refused_in_words(setup, ws, payload, fragment):  # noqa: F811
     s = setup([answer("x")])
@@ -156,11 +153,20 @@ def test_what_cannot_be_started_is_refused_in_words(setup, ws, payload, fragment
     assert s["api"]("GET", "/api/agent/runs")[1]["runs"] == []
 
 
-def test_automatic_mode_needs_the_confirmation_and_then_runs(setup, ws):  # noqa: F811
+def test_automatic_mode_starts_without_a_confirmation_and_runs(setup, ws):  # noqa: F811
     s = setup([tool_call("shell_command", command=f'{PY} -c "open(\'auto.txt\',\'w\').write(\'x\')"'), answer("Done.")])
-    run_id = start(s["api"], ws, "do it", mode="auto", confirm_auto=True)[1]["run"]["id"]
+    run_id = start(s["api"], ws, "do it", mode="auto")[1]["run"]["id"]
     assert wait_for(lambda: finished(s["api"], run_id))["status"] == "done" and (ws / "auto.txt").exists()
     assert s["api"]("GET", "/api/agent/approvals")[1]["pending"] == []                      # nothing was asked
+
+
+def test_a_long_task_many_rules_many_steps_and_a_drive_root_are_not_refused(setup, ws):  # noqa: F811
+    s = setup([answer("x")])
+    status, body = start(s["api"], ws, "x" * 5000, allow=[f"shell_command:cmd{i}" for i in range(30)], max_turns=500)
+    assert status == 200 and len(body["run"]["allow"]) == 30
+    wait_for(lambda: finished(s["api"], body["run"]["id"]))
+    anchor = Path(ws).resolve().anchor
+    assert AgentRunner.check_workspace(anchor) == Path(anchor).resolve()
 
 
 def test_plan_mode_changes_nothing(setup, ws):  # noqa: F811
@@ -170,12 +176,10 @@ def test_plan_mode_changes_nothing(setup, ws):  # noqa: F811
     assert not (ws / "x.txt").exists()
 
 
-def test_only_this_pc_and_this_page_can_use_it_and_the_key_is_needed(setup, ws):  # noqa: F811
+def test_the_key_is_needed(setup, ws):  # noqa: F811
     s = setup([answer("x")], api_key="k")
     api = s["api"]
     assert api("GET", "/api/agent/runs", key="")[0] == 401 and api("POST", "/api/agent/runs", {"workspace": str(ws), "goal": "x"}, key="bad")[0] == 401
-    assert api("POST", "/api/agent/runs", {"workspace": str(ws), "goal": "x"}, headers={"Origin": "http://evil.example"})[0] == 403
-    assert api("POST", "/api/agent/approvals/abc", {"decision": "approve"}, headers={"Origin": "http://evil.example"})[0] == 403
     assert api("GET", "/api/agent/approvals", key="")[0] == 401
     assert api("GET", "/api/agent/nothing")[0] == 404
     assert api("GET", "/api/agent/runs/zzz/log")[0] == 404
@@ -189,39 +193,33 @@ def test_a_run_that_was_going_when_the_server_ended_is_marked_interrupted(tmp_pa
     assert again.view()["runs"][0]["status"] == "interrupted" and again.view()["active"] is None
 
 
-def test_the_approval_board_expires_and_answers_once():
+def test_the_approval_board_answers_once_and_keeps_requests_waiting():
     now = [1000.0]
-    board = ApprovalBoard(ttl=10, clock=lambda: now[0])
+    board = ApprovalBoard(clock=lambda: now[0])
     a = board.request("r1", "shell_command", {"command": "x" * 5000}, "irreversible")
     assert len(a["arguments"]) <= 2000
     board.decide(a["id"], True)
     with pytest.raises(ApprovalError, match="already answered"):
         board.decide(a["id"], False)
     b = board.request("r1", "write_file", {})
-    now[0] += 11
-    assert board.get(b["id"])["status"] == "expired"
-    with pytest.raises(ApprovalError):
-        board.decide(b["id"], True)
+    now[0] += 10 * 86400
+    assert board.get(b["id"])["status"] == "pending"
+    assert board.decide(b["id"], True)["status"] == "approved"
     with pytest.raises(ApprovalError):
         board.request("r1", "  ", {})
     c = board.request("r2", "t", {})
     board.refuse_all("r2")
     assert board.get(c["id"])["status"] == "expired" and board.view()["pending"] == []
     for _ in range(60):
-        try:
-            board.request("r3", "t", {})
-        except ApprovalError as e:
-            assert "too many" in str(e)
-            break
-    else:
-        raise AssertionError("pending approvals are not capped")
+        board.request("r3", "t", {})
+    assert len(board.view()["pending"]) == 60
 
 
 def test_going_back_from_the_page_restores_files_and_asks_before_leaving_actions_done(setup, ws):  # noqa: F811
     (ws / "a.txt").write_text("one\n", encoding="utf-8")
     s = setup([tool_call("write_file", path="a.txt", content="two\n"),
                tool_call("shell_command", command=f'{PY} -c "print(1)"'), answer("Done.")])
-    run_id = start(s["api"], ws, "change and run", mode="auto", confirm_auto=True)[1]["run"]["id"]
+    run_id = start(s["api"], ws, "change and run", mode="auto")[1]["run"]["id"]
     wait_for(lambda: finished(s["api"], run_id))
     status, body = s["api"]("GET", f"/api/agent/runs/{run_id}/checkpoints")
     first = body["checkpoints"][0]
@@ -247,4 +245,3 @@ def test_going_back_is_refused_while_the_agent_runs_and_for_unknown_things(setup
     assert s["api"]("POST", f"/api/agent/runs/{run_id}/rewind", {"checkpoint": "cp_9_9"})[1]["error"]["code"] == "no_checkpoint"
     assert s["api"]("POST", f"/api/agent/runs/nope/rewind", {"checkpoint": "cp_1_1"})[1]["error"]["code"] == "gone"
     assert s["api"]("GET", "/api/agent/runs/nope/checkpoints")[0] == 404
-    assert s["api"]("POST", f"/api/agent/runs/{run_id}/rewind", {"checkpoint": "cp_1_1"}, headers={"Origin": "http://evil.example"})[0] == 403

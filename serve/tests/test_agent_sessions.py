@@ -204,9 +204,7 @@ def test_what_the_page_can_ask_is_checked(make, ws, tmp_path):
         mgr.create("relativo/cartella")
     with pytest.raises(RunError):
         mgr.create(ws, mode="root")
-    with pytest.raises(RunError, match="Automatic"):
-        mgr.create(ws, mode="auto")
-    sid = mgr.create(ws, mode="auto", confirm_auto=True)["id"]
+    sid = mgr.create(ws, mode="auto")["id"]
     for bad in ("", "   ", None, 5):
         with pytest.raises(RunError):
             mgr.send(sid, bad)
@@ -514,15 +512,13 @@ def test_a_copy_can_be_asked_for_and_a_folder_that_cannot_be_copied_says_so(make
     assert "worktree" not in mgr.create(ws)                                       # auto, and not a git folder: in place
 
 
-def test_two_conversations_do_not_work_in_one_folder_at_once_when_it_cannot_be_copied(make, ws):
+def test_two_conversations_work_in_one_folder_at_once_when_it_cannot_be_copied(make, ws):
     mgr = make()
     a, b = mgr.create(ws)["id"], mgr.create(ws)["id"]
     mgr.send(a, "hang")
     until(lambda: mgr.get(a)["state"] == "busy")
-    with pytest.raises(RunError) as e:
-        mgr.send(b, "ciao")
-    assert e.value.code == "folder_busy" and "own copy" in str(e.value)
-    assert mgr.send(a, "ancora")["turn"]                                          # the one that works may be told more
+    assert mgr.send(b, "ciao")["turn"]
+    assert mgr.send(a, "ancora")["turn"]
 
 
 def test_what_a_conversation_changed_in_its_copy_waits_until_the_person_applies_it(make, repo):
@@ -831,17 +827,14 @@ def test_the_allowed_rules_are_kept_added_and_taken_away(tmp_path):
             rules.add(bad)
 
 
-def test_the_mode_is_changed_while_the_conversation_lives_and_automatic_needs_the_confirmation(make, ws):
+def test_the_mode_is_changed_while_the_conversation_lives_and_automatic_needs_no_confirmation(make, ws):
     mgr = make()
     sid = mgr.create(ws)["id"]
     mgr.send(sid, "primo")
     until(lambda: "done" in kinds(mgr, sid))
     assert mgr.set_mode(sid, "plan")["mode"] == "plan"
     until(lambda: any(e["event"] == "mode" and e["mode"] == "plan" for e in mgr.events(sid)["events"]))      # the process was told
-    with pytest.raises(RunError) as e:
-        mgr.set_mode(sid, "auto")
-    assert e.value.code == "auto_confirm" and mgr.get(sid)["mode"] == "plan"
-    assert mgr.set_mode(sid, "auto", confirm_auto=True)["mode"] == "auto"
+    assert mgr.set_mode(sid, "auto")["mode"] == "auto"
     with pytest.raises(RunError) as e:
         mgr.set_mode(sid, "everything")
     assert e.value.code == "bad_mode"
@@ -974,3 +967,15 @@ def test_a_position_older_than_a_day_is_not_handed_over(make, ws):
     sid = mgr.create(ws)["id"]
     assert mgr._place_for(sid, {**HOME, "fix_age_s": 90_000}) is None
     assert mgr._place_for(sid, HOME) is not None
+
+
+def test_nothing_caps_the_length_of_a_message_the_allow_rules_or_the_attachments_of_a_conversation(make, ws):
+    mgr = make()
+    rules = [f"shell_command:cmd{i}*" for i in range(30)]
+    sid = mgr.create(ws, allow=rules)["id"]
+    assert len(mgr.get(sid)["allow"]) == 30
+    long_text = "parola " * 10_000
+    assert mgr.send(sid, long_text)["turn"]
+    until(lambda: "done" in kinds(mgr, sid))
+    shown = [m for m in mgr.history(sid)["messages"] if m.get("role") == "user"]
+    assert any(len(m["content"]) >= len(long_text) for m in shown)

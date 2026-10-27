@@ -363,7 +363,7 @@ class GpuNames(unittest.TestCase):
             with mock.patch.dict(os.environ, {"BASALT_CACHE": dirs.name, "BASALT_DATA": dirs.name}), \
                     mock.patch.object(hardware, "_read_gpu_list", return_value=self.GPUS), \
                     mock.patch.object(loader, "system_now", return_value=dict(ROOMY)):
-                body = loader_api.info(svc, True)
+                body = loader_api.info(svc)
                 self.assertEqual(body["limits"]["gpus"], self.GPUS)
                 self.assertEqual(body["limits"]["vision"], ["off", "dynamic", "cpu"])
                 self.assertEqual(body["limits"]["windows"], os.name == "nt")
@@ -376,7 +376,7 @@ class GpuNames(unittest.TestCase):
             with mock.patch.dict(os.environ, {"BASALT_CACHE": dirs.name, "BASALT_DATA": dirs.name}), \
                     mock.patch.object(hardware, "_read_gpu_list", return_value=[]), \
                     mock.patch.object(loader, "system_now", return_value=dict(ROOMY)):
-                self.assertEqual(loader_api.info(svc, True)["limits"]["gpus"], [])
+                self.assertEqual(loader_api.info(svc)["limits"]["gpus"], [])
                 self.assertEqual(loader_api.evaluate(svc, {"server.vision": "3"})["vision_gpu"], {"index": 3, "name": None})
         finally:
             dirs.cleanup()

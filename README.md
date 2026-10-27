@@ -245,8 +245,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   the mode label at the left, and the kind of conversation, *Thinking* and *Settings* at the right.
 - **Mode, with a label**: *Plan only*, *Read only*, *Ask first* or *Automatic*. A two-line label in the top row says which is on
   (*Shift + TAB to change mode:* in grey, the mode under it in bold and in its own colour, as Claude Code does); **Shift+Tab** in the
-  message box goes to the next, with a conversation open it changes that one only, and *Automatic* asks the two confirmations of the
-  risk dialog the first time only, until the app is closed.
+  message box goes to the next, with a conversation open it changes that one only, and *Automatic* asks nothing.
 - **Thinking level** per conversation (the *Thinking* list, or `/effort`).
 - **Slash commands**: typing `/` opens a menu of 31: on the page (`/clear`, `/mode`, `/plan`, `/copy`, `/export`, `/branch`, `/rewind`,
   `/stop`, `/diff`…), answered by the conversation's process (`/status`, `/context`, `/compact`, `/tools`, `/hooks`, `/mcp`,
@@ -518,7 +517,7 @@ be mixed). The model picker shows the same one-line hint for a model it knows.
 - **Uncensored** versions are marked and carry the author's warning. OrcaRouter's repository is **gated**: the panel
   explains how to get a Hugging Face account, accept the terms and make a read token, and takes the token for the
   session only (`HF_TOKEN` or the file `huggingface-cli login` writes are read too). Basalt never saves, shows or logs
-  a token, and sends it only to Hugging Face, never along a redirect to another host.
+  a token, and sends it only to Hugging Face; a redirect to any other http or https host is followed without it.
 - **A download starts only from its plan**: the files at a pinned revision with their sizes and SHA-256 as Hugging Face
   reports them, the disk and its free space, the access, and the license to accept (Qwen Community License 1.0, plus
   the Swift Open License for Swift files; the repositories that tag themselves Apache-2.0 are treated as the base
@@ -531,7 +530,7 @@ be mixed). The model picker shows the same one-line hint for a model it knows.
 
 Entries marked "Not tried in Basalt" have expert formats the engine's lists accept but have not been run through Basalt.
 The catalog was read from the repositories on 2026-10-17 (`serve/catalog.py`); sizes are read again when a download is
-planned. The routes (this PC and the server's own page only): `GET /api/models/catalog | download | hf`, `POST
+planned. The routes (this PC only): `GET /api/models/catalog | download | hf`, `POST
 /api/models/download-plan | download | download-cancel | hf-token`.
 
 ### Model converter (Models > Model converter)
@@ -670,8 +669,8 @@ listed model; it only says how to load it. Loading the asked model on request is
 
 **API key.** The server listens on 127.0.0.1 only and needs no key: clients that insist on one can send any value.
 `--api-key KEY` (command line only, never in a config file) makes `/v1/*` require it as `Authorization: Bearer KEY`
-or `x-api-key: KEY`; it is needed to listen on another address (`--host 0.0.0.0`) and to let web pages of other
-origins use the server. The scripts and the app start the server on 127.0.0.1 without a key.
+or `x-api-key: KEY`; it is needed to listen on another address (`--host 0.0.0.0`). The server answers to any `Host` name
+and any web page's `Origin`, and `/v1/*` carries `Access-Control-Allow-Origin: *`. The scripts and the app start the server on 127.0.0.1 without a key.
 
 **Streaming.** `"stream": true` streams server-sent events in each API's own format (OpenAI `chat.completion.chunk`,
 Responses events, Anthropic `message_start` / `content_block_delta` / ...), reasoning included as
@@ -990,7 +989,7 @@ entries are dropped and the page is told how many. `GET /v1/status` reports `req
 |---|---|
 | `GET /api/reqlog?after=<id>&max_chars=<n>` | the events with an id above `after`, oldest first: `{"enabled", "epoch", "last", "events": [{"id", "t", "req", "kind", "data", "text"}], "skipped", "dropped": {"events", "chars"}, "capacity_chars", "held_chars"}`. With the log off: `enabled: false` and no events (HTTP 200). `kind` is `request`, `reasoning`, `content`, `attempt`, `repair`, `timing`, `finish`, `cancel`, `error`, `gpu`, `engine` or `server` |
 | `GET /api/reqlog/export?format=text\|jsonl&mask=secrets\|personal&hide=words` | the whole log as a downloaded file, `basalt-requests-YYYYmmdd-HHMMSS.log` or `.jsonl`. Secrets (private keys, tokens, passwords, card numbers, the vault's values, the server's key) are always hidden in the file, never in the page; `mask=personal` also hides e-mail addresses, phone numbers, IBANs and tax codes, and `hide` lists words (comma-separated, at most 20) |
-| `POST /api/reqlog/clear` | empties the log, `{"cleared": true}`; JSON from the server's own page only |
+| `POST /api/reqlog/clear` | empties the log, `{"cleared": true}` |
 
 Every setting, with its type, default and example configs: [docs/configuration.md](docs/configuration.md).
 
@@ -1033,7 +1032,7 @@ the slots that did fit; if fewer than two fit, `--batch is off` and the server r
 
 - `server` holds the server's options (`python -m serve.server --help`), named as the flags without the dashes:
   strings or numbers, `true`/`false` for a switch (`lazy`, ...), a list for the repeatable ones
-  (`allowed-host`, `cors-origin`). `model` and `tokenizer` paths are relative to the file.
+  (`script`). `model` and `tokenizer` paths are relative to the file.
 - `engine` holds engine flags (`bin/basalt --help`), the same way: a string or number, `true` for a switch, `false`
   to leave it off, a list for a flag with several values (`"control-vector-layer-range": [4, 44]`). Any flag the engine accepts works, on the command line as well (`--kv int8`, `--resident-experts`).
   A name the engine does not accept stops the server at startup, as does one in the wrong section.

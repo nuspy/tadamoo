@@ -28,7 +28,6 @@ DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 HIGH_IMPACT = ("MOLTO", "CRITICAL")
 GATE_MODES = ("or", "and")        # or: any strong sign wakes the model; and: a strong blocker probability must also come with a high impact or a total scope
 SCOPE_ORDER = ("ZERO_EVENTS_IMPACTFUL", "MIXED_SOME_IMPACTFUL", "ALL_EVENTS_IMPACTFUL")
-MAX_EVENT_CHARS = 500
 CRITICAL_KEYWORDS = ["blocco", "sciopero", "precettat", "ricoverat", "chiusa", "interrotta", "valanga", "emergenza",
                      "annullat", "cancellat", "alluvione", "frana"]
 
@@ -50,8 +49,7 @@ class EventBuffer:
     """Thread-safe event accumulator: a batch is due at `max_batch_size` events or `max_interval_seconds` after the first."""
 
     def __init__(self, max_batch_size: int = 10, max_interval_seconds: float = 300.0, max_pending: int = 1000,
-                 clock: Callable[[], float] = time.monotonic, max_event_chars: int = 2000) -> None:
-        self.max_event_chars = max_event_chars
+                 clock: Callable[[], float] = time.monotonic) -> None:
         self.max_batch_size = max_batch_size
         self.max_interval = max_interval_seconds
         self.max_pending = max_pending
@@ -62,8 +60,9 @@ class EventBuffer:
         self.dropped = 0
 
     def add_event(self, event_text: str) -> bool:
-        """Adds an event; True when a batch is due. Beyond `max_pending` the oldest events are dropped and counted."""
-        text = event_text.strip()[:self.max_event_chars]
+        """Adds an event whole; True when a batch is due. Beyond `max_pending` the oldest events are dropped and counted (a buffer
+        guard against unbounded memory when nothing consumes them)."""
+        text = event_text.strip()
         if not text:
             return False
         with self._lock:
@@ -207,7 +206,7 @@ class JevTriageGatekeeper:
         card = plan_card if isinstance(plan_card, PlanInsightCard) else PlanInsightCard.from_dict(plan_card)
         shared = share_card(card, self.card_fields, self.pseudonymize)
         pseudo = Pseudonymizer(card.people() + sender_names(events)) if self.pseudonymize else None       # the plan's people and who wrote to them
-        lines = [(pseudo.apply(scrub_contacts(e)) if pseudo else e)[:MAX_EVENT_CHARS] for e in events]
+        lines = [(pseudo.apply(scrub_contacts(e)) if pseudo else e) for e in events]
         return {
             "model": self.model,
             "state": {"active_plan": shared, "events_digest": "\n".join(f"{i + 1}. {e}" for i, e in enumerate(lines))},

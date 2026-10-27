@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from harness.client import BasaltError, extract_reasoning_and_content
-from harness.personal_skills.runner import DEFAULT_TIMEOUT, Handlers, RunResult, run
+from harness.personal_skills.runner import Handlers, RunResult, run
 
 AI_SYSTEM = ("You are one step of a program. Do exactly what the text asks and answer with the result only: no greeting, no explanation, "
              "no markdown fence unless the text asks for one. If the text gives data, work only on that data.")
@@ -106,8 +106,8 @@ class SkillRun:
             self.session.emit({"event": "skill", "turn": self.task.turn, "phase": "start", "name": self.skill.get("name")})
             handlers = Handlers(self._tool, self._ai, self._ask, self._say)
             workspace = Path(self.session.built.sandbox.root)
-            result = run(script, self.skill.get("mode", "restricted"), self.skill.get("values") or {}, handlers, self.agent.cancel,
-                         float(self.skill.get("timeout") or DEFAULT_TIMEOUT), workspace if workspace.is_dir() else None)
+            result = run(script, self.skill.get("values") or {}, handlers, self.agent.cancel,
+                         float(self.skill.get("timeout") or 0) or None, workspace if workspace.is_dir() else None)
             self.session.emit({"event": "skill", "turn": self.task.turn, "phase": "end", "name": self.skill.get("name"), "ok": result.ok,
                                "seconds": result.seconds, "calls": len(result.calls)})
             return result

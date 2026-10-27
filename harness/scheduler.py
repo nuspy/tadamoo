@@ -8,7 +8,7 @@ ones of any conversation. The profile is small by default: read-only, with the a
 agent cannot put to anyone ends the run with the status "asked"; nothing is decided for the person.
 
 Schedules are written as text:
-  every 30m | every 2h | every 1d       an interval (at least one minute)
+  every 30s | every 30m | every 2h | every 1d       an interval
   daily 08:30 | weekdays 08:30 | weekends 10:00 | mon,wed,fri 18:15       fixed local times
 
 A routine never runs unless it is enabled, and it is created disabled. Overdue interval routines run once when the program
@@ -36,11 +36,10 @@ NAME_MAX, PROMPT_MAX, SUMMARY_MAX = 80, 4000, 4000
 YIELD_MAX_S = 3600                  # the longest a routine may go on once a conversation of the person's is at work
 VALUES_MAX = 8000                                                     # what is kept of a skill's values: names and short values
 _SKILL = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
-MIN_INTERVAL_S = 60
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-_INTERVAL = re.compile(r"^every\s+(\d{1,4})\s*([mhd])$")
+_INTERVAL = re.compile(r"^every\s+(\d+)\s*([smhd])$")
 _FIXED = re.compile(r"^([a-z,\s]+?)\s+(\d{1,2}):(\d{2})$")
-_UNITS = {"m": 60, "h": 3600, "d": 86400}
+_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
 class RoutineError(ValueError):
@@ -65,8 +64,8 @@ class Schedule:
         m = _INTERVAL.match(norm)
         if m:
             seconds = int(m.group(1)) * _UNITS[m.group(2)]
-            if seconds < MIN_INTERVAL_S:
-                raise RoutineError("An interval is at least one minute.", "bad_schedule")
+            if seconds < 1:
+                raise RoutineError("An interval is at least one second.", "bad_schedule")
             return cls(norm, interval_s=seconds)
         m = _FIXED.match(norm)
         if m:
@@ -180,10 +179,10 @@ class Scheduler:
         return r
 
     def add(self, name: Any, prompt: Any, workspace: Any, schedule: Any, mode: Any = "read_only", allow: Any = None,
-            max_turns: Any = 10, confirm_auto: bool = False, skill: Any = "", values: Any = None, yield_s: Any = None) -> Dict[str, Any]:
+            max_turns: Any = 10, skill: Any = "", values: Any = None, yield_s: Any = None) -> Dict[str, Any]:
         """A new routine, disabled: the person turns it on. With a `skill` it runs that personal skill with `values` instead of a prompt.
         `yield_s` is how long it may go on once a conversation of the person's is at work (empty: it is never stopped for one)."""
-        routine = self._check(None, name, prompt, workspace, schedule, mode, allow, max_turns, confirm_auto, skill, values, yield_s)
+        routine = self._check(None, name, prompt, workspace, schedule, mode, allow, max_turns, skill, values, yield_s)
         routine.update(id=secrets.token_hex(3), enabled=False, created=self.clock(), last_run=0, last_status="")
         with self._lock:
             self.routines.append(routine)
@@ -194,9 +193,9 @@ class Scheduler:
     def update(self, routine_id: str, **fields: Any) -> Dict[str, Any]:
         with self._lock:
             current = self._find(routine_id)
-            merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "mode", "allow", "max_turns", "confirm_auto", "skill", "values", "yield_s")}}
+            merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "mode", "allow", "max_turns", "skill", "values", "yield_s")}}
             checked = self._check(routine_id, merged["name"], merged["prompt"], merged["workspace"], merged["schedule"], merged["mode"],
-                                  merged.get("allow"), merged["max_turns"], merged.get("confirm_auto") is True, merged.get("skill", ""), merged.get("values"),
+                                  merged.get("allow"), merged["max_turns"], merged.get("skill", ""), merged.get("values"),
                                   merged.get("yield_s"))
             current.update(checked)
             self._due[routine_id] = self._advance(current, self.clock())
@@ -205,7 +204,7 @@ class Scheduler:
 
     @staticmethod
     def _check(routine_id: Optional[str], name: Any, prompt: Any, workspace: Any, schedule: Any, mode: Any, allow: Any,
-               max_turns: Any, confirm_auto: bool, skill: Any = "", values: Any = None, yield_s: Any = None) -> Dict[str, Any]:
+               max_turns: Any, skill: Any = "", values: Any = None, yield_s: Any = None) -> Dict[str, Any]:
         if not isinstance(name, str) or not name.strip() or len(name) > NAME_MAX:
             raise RoutineError(f"Give the routine a name of at most {NAME_MAX} characters.", "bad_name")
         if skill:
@@ -226,18 +225,16 @@ class Scheduler:
         Schedule.parse(schedule)
         if mode not in MODES:
             raise RoutineError("The mode must be one of: " + ", ".join(MODES) + ".", "bad_mode")
-        if mode == "auto" and confirm_auto is not True:
-            raise RoutineError("Automatic mode runs commands without asking. Confirm that you want that.", "auto_confirm")
         rules = allow if isinstance(allow, list) else []
-        if len(rules) > 10 or any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
-            raise RoutineError("Allow rules are lines of text, at most 10.", "bad_rules")
-        if not isinstance(max_turns, int) or isinstance(max_turns, bool) or not 1 <= max_turns <= 50:
-            raise RoutineError("The number of steps must be between 1 and 50.", "bad_steps")
+        if any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
+            raise RoutineError("Allow rules are lines of text.", "bad_rules")
+        if not isinstance(max_turns, int) or isinstance(max_turns, bool) or max_turns == 0 or max_turns < -1:
+            raise RoutineError("The number of steps is -1 for no limit, or a whole number from 1.", "bad_steps")
         if yield_s is not None and (not isinstance(yield_s, int) or isinstance(yield_s, bool) or not 0 <= yield_s <= YIELD_MAX_S):
             raise RoutineError(f"The time to go on once a conversation of yours is at work is from 0 to {YIELD_MAX_S} seconds, or empty for never.", "bad_yield")
         return {"yield_s": yield_s, "name": name.strip(), "prompt": prompt.strip(), "workspace": str(Path(workspace.strip()).resolve()),
                 "schedule": " ".join(str(schedule).lower().split()), "mode": mode, "allow": [r.strip() for r in rules],
-                "max_turns": max_turns, "confirm_auto": bool(confirm_auto and mode == "auto"),
+                "max_turns": max_turns,
                 **({"skill": skill, "values": dict(values or {})} if skill else {"skill": "", "values": {}})}
 
     def set_enabled(self, routine_id: str, enabled: bool) -> Dict[str, Any]:
@@ -415,7 +412,7 @@ class SessionRoutineRunner:
         mgr = self.manager
         started = time.monotonic()
         sid = mgr.create(routine["workspace"], routine["mode"], routine.get("allow"), False, f"Routine: {routine['name']}"[:80],
-                         routine.get("confirm_auto") is True, routine.get("max_turns", 10), worktree="off")["id"]
+                         routine.get("max_turns", 10), worktree="off")["id"]
         self._own.add(sid)
         getattr(mgr, "keep_out_of_memory", lambda _sid: None)(sid)          # a routine is not the person talking: nothing in it is learned
         try:

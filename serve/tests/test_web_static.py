@@ -60,7 +60,7 @@ DYNAMIC = {
     "pl.h.": ["create", "archive", "restore", "update_node", "move", "mark", "rewind", "apply", "fallback", "update_meta", "sensor"],
     "pl.tab.": ["aims", "details", "events", "define", "aims.tip", "details.tip", "events.tip", "define.tip"],
     "ag.mode.": ["plan", "read_only", "default", "auto"],
-    "ag.add.e.": ["folder_missing", "folder_relative", "folder_not_found", "folder_drive", "folder_readonly"],
+    "ag.add.e.": ["folder_missing", "folder_relative", "folder_not_found", "folder_readonly"],
     "ch.state.": ["pending", "partial", "kept", "reverted", "superseded"],
     "br.cmp.state.": ["running", "done", "interrupted"],
     "br.side.state.": ["waiting", "running", "done", "needs_you", "ended", "timeout", "failed", "interrupted"],

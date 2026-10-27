@@ -264,13 +264,13 @@ class OverHttp(Server):
         self.assertEqual(code, 400)
         self.assertEqual(r["error"]["code"], "context_length_exceeded")
 
-    def test_api_key_and_foreign_pages(self):
+    def test_api_key_and_any_page(self):
         self.svc.api_key = "s3cret"
         self.assertEqual(self.post({"model": "qwen3.8-flash-next", "input": "hi"})[0], 401)
         self.assertEqual(self.post({"model": "qwen3.8-flash-next", "input": "hi"}, headers={"Authorization": "Bearer s3cret"})[0], 200)
         self.svc.api_key = None
         code, r = self.post({"model": "qwen3.8-flash-next", "input": "hi"}, headers={"Origin": "https://evil.example.com"})
-        self.assertEqual(code, 403)
+        self.assertEqual(code, 200)
 
     def test_json_schema_text_format(self):
         self.engine.scripts = [self.tok.encode("</think>\n\n{\"n\": 3}<|im_end|>", parse_special=True)]

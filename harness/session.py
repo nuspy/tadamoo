@@ -8,7 +8,7 @@ Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd
 {"cmd": "promote", "id"}, {"cmd": "drop", "id"}, {"cmd": "ping"}, {"cmd": "mode", "mode"} (the permission mode of the conversation),
 {"cmd": "effort", "level"} (how long the model thinks), {"cmd": "settings", "max_turns", "end_turn_bias"} (the steps one answer may take,
 -1 for no limit, and the end-of-turn bias; either or both), {"cmd": "command", "id", "name", "args"} (a slash command: harness/commands.py),
-{"cmd": "skill", "id", "name", "display", "script", "mode", "values", "timeout", "cache_dir"} (runs a personal skill in the conversation).
+{"cmd": "skill", "id", "name", "display", "script", "values", "timeout", "cache_dir"} (runs a personal skill in the conversation).
 Events: ready, accepted, queued, routed, started, suspended, resumed, agent (an assistant text or a tool start or end), delta
 (text as it is written), ask (a question with buttons: a confirmation the task waits for, or a question that ends the turn),
 retrying, done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, effort, settings, command, skill, skill_say, heartbeat, error.
@@ -1082,7 +1082,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                 continue
             name = cmd.get("cmd") if isinstance(cmd, dict) else None
             if name == "send" and isinstance(cmd.get("text"), str) and cmd["text"].strip():
-                ids = [i for i in cmd.get("attachments", []) if isinstance(i, str)][:20] if isinstance(cmd.get("attachments"), list) else []
+                ids = [i for i in cmd.get("attachments", []) if isinstance(i, str)] if isinstance(cmd.get("attachments"), list) else []
                 if cmd.get("place") is not None and built.take_place:
                     built.take_place(cmd["place"])                  # before the message, so the tool is there from this turn on
                 session.send(str(cmd.get("id") or uuid.uuid4().hex[:8]), cmd["text"], attachments=ids or None)
@@ -1114,7 +1114,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                                  name="session-command", daemon=True).start()           # a command may take a model call; the others go on meanwhile
             elif name == "skill" and isinstance(cmd.get("script"), str) and isinstance(cmd.get("values"), dict):
                 session.run_skill(str(cmd.get("id") or uuid.uuid4().hex[:8]),
-                                  {k: cmd.get(k) for k in ("name", "display", "script", "mode", "values", "timeout", "cache_dir")})
+                                  {k: cmd.get(k) for k in ("name", "display", "script", "values", "timeout", "cache_dir")})
             elif name == "resume":
                 session.resume()
             elif name == "ping":

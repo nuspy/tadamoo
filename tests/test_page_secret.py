@@ -78,11 +78,15 @@ def test_the_browsers_own_navigation_gets_the_cookie(server):
     {**NAV, "Sec-Fetch-Site": "cross-site"},                       # a link from another site
     {**NAV, "Sec-Fetch-Dest": "empty", "Sec-Fetch-Mode": "cors"},    # a script's fetch
     {"Sec-Fetch-Dest": "document"},                                 # half of the headers
-    {**NAV, "Host": "evil.example"},                                # DNS rebinding
 ])
 def test_a_request_that_is_not_the_page_gets_no_cookie(server, headers):
     code, cookie, _ = call(server, "GET", "/", headers=headers)
     assert cookie is None
+
+
+def test_the_cookie_does_not_depend_on_the_host_name(server):
+    code, cookie, _ = call(server, "GET", "/", headers={**NAV, "Host": "box.lan"})
+    assert code == 200 and cookie.startswith(f"basalt_control_{server}={SECRET}")
 
 
 def test_with_an_api_key_the_page_gets_the_cookie_only_through_the_key(keyed):

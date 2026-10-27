@@ -123,7 +123,7 @@
     folders.replaceChildren(...((window.agentProjects && window.agentProjects.list()) || []).map(p => { const o = el("option"); o.value = p.path; return o; }));
     const schedule = el("input"); schedule.id = "cj-schedule"; schedule.value = v.schedule || ""; schedule.autocomplete = "off"; schedule.spellcheck = false;
     const presets = el("div", "cj-presets"); presets.append(...PRESETS.map(p => btn(p, "ghost", () => { schedule.value = p; schedule.focus(); })));
-    const steps = el("input"); steps.id = "cj-steps"; steps.type = "number"; steps.min = "1"; steps.max = "50"; steps.value = String(v.max_turns || 10);
+    const steps = el("input"); steps.id = "cj-steps"; steps.type = "number"; steps.min = "-1"; steps.value = String(v.max_turns || 10);
     const yieldS = el("input"); yieldS.id = "cj-yield"; yieldS.type = "number"; yieldS.min = "0"; yieldS.max = "3600"; yieldS.inputMode = "numeric"; yieldS.placeholder = T("cj.yield.never");
     yieldS.value = Number.isInteger(v.yield_s) ? String(v.yield_s) : (existing ? "" : "60");
     const allow = el("textarea"); allow.id = "cj-allow"; allow.rows = 3; allow.spellcheck = false; allow.value = (v.allow || []).join("\n");
@@ -177,7 +177,7 @@
         f.append(field("cj-name", T("cj.name"), name), kinds, skillWrap, valuesBox, promptWrap,
           field("cj-folder", T("cj.folder"), folder, T("cj.folder.help")),
           field("cj-schedule", T("cj.schedule"), schedule, T("cj.schedule.help")), presets, modes, risk,
-          field("cj-steps", T("cj.steps"), steps), field("cj-yield", T("cj.yield"), yieldS, T("cj.yield.help")), field("cj-allow", T("cj.allow"), allow, T("cj.allow.help")),
+          field("cj-steps", T("cj.steps"), steps, T("cj.steps.help")), field("cj-yield", T("cj.yield"), yieldS, T("cj.yield.help")), field("cj-allow", T("cj.allow"), allow, T("cj.allow.help")),
           existing ? el("p", "help", T(existing.enabled ? "cj.is.on" : "cj.is.off")) : el("p", "help", T("cj.new.off")), msg, el("div", "cj-buttons", save)); return f; })());
     host.firstChild.append(el("b", "", existing ? T("cj.edit", existing.name) : T("cj.new")));
     paintKind();
@@ -188,13 +188,9 @@
     const f = form;
     const skill = f.kindNow() === "skill";
     const body = { name: f.name.value.trim(), prompt: skill ? "" : f.prompt.value.trim(), workspace: f.folder.value.trim(), schedule: f.schedule.value.trim(), mode: f.modeNow(),
-      allow: f.allow.value.split("\n").map(s => s.trim()).filter(Boolean), max_turns: Number(f.steps.value) || 10,
+      allow: f.allow.value.split("\n").map(s => s.trim()).filter(Boolean), max_turns: Math.trunc(Number(f.steps.value)) || 10,
       yield_s: f.yieldS.value.trim() === "" ? null : Number(f.yieldS.value),
       skill: skill ? f.skillSel.value : "", values: skill ? f.valuesNow() : {} };
-    if (body.mode === "auto") {
-      if (!(await riskConfirm([T("cj.risk")]))) return;
-      body.confirm_auto = true;
-    }
     const r = existing ? await api("POST", `api/routines/${existing.id}/update`, body) : await api("POST", "api/routines", body);
     if (!r.ok) { f.msg.textContent = errText(r); f.msg.classList.add("bad"); return; }
     say(T(existing ? "cj.saved" : "cj.created", r.data.routine.name));
@@ -221,7 +217,7 @@
     const skills = S.skills.filter(s => s.status === "approved").map(s => `- ${s.slug}: ${(s.params || []).map(p => `${p.name} (${p.type})`).join(", ") || "no parameters"}`).join("\n") || "(none)";
     return ["You help the person plan the recurring jobs of their local agent. Answer briefly, in the person's language.",
       "A job has: name (at most 80 characters), prompt (what the agent does each time, written as an instruction), workspace (the full path of an existing folder),",
-      "schedule, mode and max_turns. Schedules are only `every 30m`, `every 2h`, `every 1d` (at least a minute) or fixed local times: `daily 08:30`, `weekdays 08:30`,",
+      "schedule, mode and max_turns. Schedules are only `every 30s`, `every 30m`, `every 2h`, `every 1d` or fixed local times: `daily 08:30`, `weekdays 08:30`,",
       "`weekends 10:00`, `mon,wed,fri 18:15`. There is no cron syntax: if the person gives one, convert it. Modes: plan, read_only (the default), default (edits files, asks",
       "before commands) and auto (runs commands without asking: suggest it only if the person asks for it). A job runs by itself, so its prompt must not need an answer",
       "from the person. When you propose a new job or a change, write it in one fenced block with the language job holding JSON with those fields (add \"id\" with the id of the",
@@ -238,7 +234,7 @@
       if (!p || typeof p !== "object" || Array.isArray(p)) return null;
       return { skill: typeof p.skill === "string" ? p.skill : "", values: p.values && typeof p.values === "object" && !Array.isArray(p.values) ? p.values : {},
         id: typeof p.id === "string" ? p.id : "", name: String(p.name || "").slice(0, 80), prompt: String(p.prompt || "").slice(0, 4000), workspace: String(p.workspace || ""),
-        schedule: String(p.schedule || ""), mode: MODES.includes(p.mode) ? p.mode : "read_only", allow: Array.isArray(p.allow) ? p.allow.filter(x => typeof x === "string").slice(0, 10) : [],
+        schedule: String(p.schedule || ""), mode: MODES.includes(p.mode) ? p.mode : "read_only", allow: Array.isArray(p.allow) ? p.allow.filter(x => typeof x === "string") : [],
         max_turns: Number.isInteger(p.max_turns) ? p.max_turns : 10 };
     } catch (e) { return null; }
   }

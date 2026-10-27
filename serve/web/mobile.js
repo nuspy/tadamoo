@@ -7,7 +7,7 @@
   if (!host) return;
 
   const POLL_MS = 3000;
-  let S = null, shown = null, armed = "", timer = 0, note = "", upInfo = null, armTimer = 0, days = "", neverAck = false, limitsNote = "";
+  let S = null, shown = null, armed = "", timer = 0, note = "", upInfo = null, armTimer = 0, days = "", neverAck = false, limitsNote = "", listenNote = "", listenDraft = null;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, tip) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (tip) b.title = tip; return b; };
   const errText = r => (r.data && r.data.error && r.data.error.message) || `HTTP ${r.status}`;
@@ -37,7 +37,8 @@
   function poll() {
     clearTimeout(timer);
     if (!active() || document.hidden) return;
-    timer = setTimeout(async () => { await refresh(); poll(); }, POLL_MS);
+    // a box being typed in is not redrawn under the hands of the person
+    timer = setTimeout(async () => { if (!host.contains(document.activeElement) || !document.activeElement.matches("input[type=text],textarea,select")) await refresh(); poll(); }, POLL_MS);
   }
 
   /* ---- the pieces ---- */
@@ -72,13 +73,36 @@
     const box = el("div", "mb-block");
     box.append(el("h3", "", T("mb.allow.title")));
     const label = el("label", "mb-check"), cb = el("input");
-    cb.type = "checkbox"; cb.checked = S.enabled; cb.disabled = S.tailscale.state !== "Running";
+    cb.type = "checkbox"; cb.checked = S.enabled; cb.disabled = S.listen === "tailscale" && S.tailscale.state !== "Running";
     if (cb.disabled) cb.title = T("mb.allow.needts");
     cb.onchange = async () => { const r = await api("POST", `api/remote/${cb.checked ? "enable" : "disable"}`, {}); if (!r.ok) note = errText(r); await refresh(); };
     label.append(cb, el("span", "", T("mb.allow.label")));
     box.append(label, el("p", "help", T("mb.allow.help")));
     if (S.listening) box.append(el("p", "mb-ok", T("mb.allow.on", S.address)));
     else if (S.enabled && S.error) box.append(el("p", "mb-bad", S.error));
+    box.append(listenBlock());
+    return box;
+  }
+
+  function listenBlock() {
+    const box = el("div", "mb-listen"), cur = S.listen || "tailscale";
+    const draft = listenDraft || { kind: cur === "tailscale" || cur === "0.0.0.0" ? cur : "custom", ip: cur === "tailscale" || cur === "0.0.0.0" ? "" : cur };
+    const sel = el("select"), lab = el("label", "", T("mb.listen.label")), ip = el("input"), ipLab = el("label", "", T("mb.listen.ip"));
+    sel.id = "mb-listen"; lab.htmlFor = sel.id; ip.id = "mb-listen-ip"; ipLab.htmlFor = ip.id;
+    [["tailscale", "mb.listen.tailscale"], ["0.0.0.0", "mb.listen.all"], ["custom", "mb.listen.custom"]].forEach(([v, key]) => { const o = el("option", "", T(key)); o.value = v; sel.append(o); });
+    sel.value = draft.kind; ip.type = "text"; ip.value = draft.ip; ip.placeholder = "192.168.1.20"; ip.inputMode = "decimal"; ip.autocomplete = "off"; ip.spellcheck = false;
+    const HELP = { "tailscale": "mb.listen.help.tailscale", "0.0.0.0": "mb.listen.help.all", "custom": "mb.listen.help.custom" };
+    const help = el("p", "help");
+    const sync = () => { ip.hidden = ipLab.hidden = sel.value !== "custom"; help.textContent = T(HELP[sel.value]); listenDraft = { kind: sel.value, ip: ip.value }; };
+    sel.onchange = () => { listenNote = ""; sync(); }; ip.oninput = () => { listenNote = ""; sync(); }; sync();
+    const save = btn(T("mb.listen.save"), "primary", async () => {
+      const r = await api("POST", "api/remote/listen", { listen: sel.value === "custom" ? ip.value : sel.value });
+      listenNote = r.ok ? T("mb.listen.saved") : errText(r);
+      if (r.ok) { S = r.data; listenDraft = null; }
+      paint();
+    }, T("mb.listen.save.tip"));
+    box.append(lab, sel, help, ipLab, ip, save);
+    if (listenNote) { box.append(el("p", listenNote === T("mb.listen.saved") ? "mb-ok" : "mb-bad", listenNote)); }
     return box;
   }
 

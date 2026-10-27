@@ -208,7 +208,7 @@ class PlansApiTest(PlansApiBase):
         code, res = self.call("POST", "/api/plans/nocard/triage", {"events": ["Sciopero"]})
         self.assertEqual((code, res["source"], res["sent_to_cloud"]), (200, "offline", False))
 
-    def test_settings_need_the_own_page_and_never_reveal_the_key(self):
+    def test_settings_never_reveal_the_key(self):
         _, s = self.call("GET", "/api/planner/settings")
         self.assertEqual((s["cloud_triage"], s["pseudonymize"]), (False, True))
         self.assertNotIn("sk-", json.dumps(s))
@@ -222,10 +222,6 @@ class PlansApiTest(PlansApiBase):
         self.assertNotIn("profilo_e_vincoli_partecipanti", s["card_fields_default"])               # health and allergies stay home unless chosen
         self.assertEqual(s["card_fields_personal"], ["profilo_e_vincoli_partecipanti"])
         self.assertIsNone(s["card_fields"])
-        self.assertEqual(self.call("POST", "/api/planner/settings", {"cloud_triage": True},
-                                   headers={"Origin": "http://evil.example"})[0], 403)
-        self.assertEqual(self.call("POST", "/api/planner/settings", {"cloud_triage": True},
-                                   headers={"Content-Type": "text/plain"})[0], 415)
         code, s = self.call("POST", "/api/planner/settings", {"cloud_triage": True, "card_fields": ["titolo"]})
         self.assertEqual((code, s["cloud_triage"], s["card_fields"]), (200, True, ["titolo"]))
         try:
@@ -251,7 +247,6 @@ class PlansApiTest(PlansApiBase):
         self.assertEqual(self.call("GET", "/api/plans/snow-http")[1]["plan"]["shared_state"], {"neve": True})
         self.assertEqual(self.call("POST", "/api/plans/events", {"text": ""})[0], 400)
         self.assertEqual(self.call("POST", "/api/plans/events", {"text": "x", "plan_id": "nonesiste"})[0], 404)
-        self.assertEqual(self.call("POST", "/api/plans/events", {"text": "x"}, headers={"Origin": "http://evil.example"})[0], 403)
         code, tele = self.call("GET", "/api/plans/telemetry")
         self.assertEqual(code, 200)
         self.assertEqual(set(tele), {"triage", "replanning", "events"})
@@ -272,7 +267,6 @@ class PlansApiTest(PlansApiBase):
         for bad in ({"edits": [{"kind": "added"}]}, {"edits": [{"file": "a", "kind": "renamed"}]},
                     {"edits": [{"file": "a", "added": "many"}]}, {"edits": "x"}):
             self.assertEqual(self.call("POST", "/api/changes", bad)[0], 400)
-        self.assertEqual(self.call("POST", "/api/changes", {"edits": [edit]}, headers={"Origin": "http://evil.example"})[0], 403)
         self.call("POST", "/api/changes", {"clear": True})
         self.assertEqual(self.call("GET", "/api/changes")[1]["edits"], [])
 
@@ -282,7 +276,6 @@ class PlansApiTest(PlansApiBase):
         code, snap = self.call("POST", "/api/plans", {"plan": plan, "card": CARD, "actor": "chat"})
         self.assertEqual((code, snap["rev"], snap["history"][0]["actor"], snap["history"][0]["type"]), (201, 1, "chat", "create"))
         self.assertEqual(self.call("POST", "/api/plans/arch1/archive", {"actor": "root"})[0], 400)
-        self.assertEqual(self.call("POST", "/api/plans/arch1/archive", {}, headers={"Origin": "http://evil.example"})[0], 403)
         self.assertEqual(self.call("POST", "/api/plans/arch1/archive", {})[1]["archived"], "arch1")
         self.assertNotIn("arch1", [p["plan_id"] for p in self.call("GET", "/api/plans")[1]["plans"]])
         self.assertIn("arch1", [p["plan_id"] for p in self.call("GET", "/api/plans?archived=1")[1]["plans"]])

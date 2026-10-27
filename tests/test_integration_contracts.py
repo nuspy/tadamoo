@@ -57,6 +57,25 @@ def test_wikibridge_rejects_paths_outside_the_wiki(wiki, bad):
     assert len(wiki.requests) == before
 
 
+def test_wikibridge_follows_a_dotdot_that_stays_inside_the_wiki(wiki):
+    c = WikiBridgeClient(wiki.url, api_key="k3y")
+    c.get_page("cervinia", "entities/../entities/diana.md")
+    assert "path=entities%2Fdiana.md" in wiki.requests[-1][1]
+
+
+def test_wiki_tools_pass_the_limit_and_the_size_as_asked(wiki):
+    from harness.integrations.wiki_tools import register_wiki_tools
+    from harness.tools.registry import ToolRegistry
+    registry = ToolRegistry()
+    register_wiki_tools(registry, WikiBridgeClient(wiki.url, api_key="k3y"), default_project="cervinia")
+    registry.execute("wiki_search", {"query": "diana", "limit": 500})
+    assert "limit=500" in wiki.requests[-1][1]
+    registry.execute("wiki_context", {"query": "allergie", "max_chars": 100000})
+    assert wiki.requests[-1][3]["max_chars"] == 100000
+    registry.execute("wiki_context", {"query": "allergie", "max_chars": 100})
+    assert wiki.requests[-1][3]["max_chars"] == 100
+
+
 def test_wikibridge_environment_configuration(monkeypatch, wiki):
     monkeypatch.setenv("BASALT_WIKIBRIDGE_URL", wiki.url)
     monkeypatch.setenv("BASALT_WIKIBRIDGE_KEY", "k3y")

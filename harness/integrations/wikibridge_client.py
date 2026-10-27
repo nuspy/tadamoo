@@ -14,6 +14,8 @@ Page text can come from imported web sources, so callers must treat it as untrus
 from __future__ import annotations
 
 import os
+import posixpath
+import re
 import urllib.parse
 from typing import Any, Dict, List, Optional
 
@@ -81,11 +83,11 @@ class WikiBridgeClient:
 
     def get_page(self, project_slug: str, doc_path: str) -> Optional[str]:
         """Markdown body of a wiki page; None when absent, hidden or unreachable."""
-        parts = doc_path.replace("\\", "/").split("/")
-        if doc_path.startswith("/") or ".." in parts or not doc_path:
+        path = posixpath.normpath(doc_path.replace("\\", "/")) if doc_path.strip() else ""
+        if not path or path == "." or path.startswith("/") or path == ".." or path.startswith("../") or re.match(r"^[A-Za-z]:", path):
             self.last_error = "wikibridge page path must be relative and inside the wiki"
             return None
-        qs = urllib.parse.urlencode({"project": project_slug, "path": doc_path})
+        qs = urllib.parse.urlencode({"project": project_slug, "path": path})
         try:
             data = self._call("GET", f"/wiki/page?{qs}")
         except ServiceError:

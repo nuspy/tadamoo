@@ -403,8 +403,7 @@ class Access(Base):
         cdn = self.hf(files=self.FILES)
         origin = self.hf(redirect=cdn.url, files=self.FILES)
         self.use(origin, gated=True)
-        host = "127.0.0.1"
-        with mock.patch.dict(os.environ, {"HF_TOKEN": GOOD}), mock.patch.object(downloads, "TRUSTED_SUFFIXES", (host,)):
+        with mock.patch.dict(os.environ, {"HF_TOKEN": GOOD}):
             dl = downloads.Downloader()
             p = downloads.plan("t-1", str(self.dest), folders=[])
             self.assertTrue(p["ok"], p["problems"])
@@ -415,8 +414,21 @@ class Access(Base):
         self.assertTrue(cdn_gets)
         self.assertEqual([x["auth"] for x in cdn_gets], [None] * len(cdn_gets))
 
-    def test_a_redirect_to_another_host_is_refused_and_not_retried(self):
-        origin = self.hf(redirect="http://203.0.113.9", files=self.FILES)
+    def test_a_redirect_to_another_host_is_followed_without_the_token(self):
+        cdn = self.hf(files=self.FILES)
+        origin = self.hf(redirect=cdn.url.replace("127.0.0.1", "localhost"), files=self.FILES)
+        self.use(origin, gated=True)
+        with mock.patch.dict(os.environ, {"HF_TOKEN": GOOD}):
+            dl = downloads.Downloader()
+            p = downloads.plan("t-1", str(self.dest), folders=[])
+            dl.start("t-1", str(self.dest), p["token"], True, True, folders=[])
+            self.assertEqual(wait(dl)["phase"], "done")
+        cdn_gets = [x for x in cdn.seen if x["path"].startswith("/cdn/")]
+        self.assertTrue(cdn_gets)
+        self.assertEqual([x["auth"] for x in cdn_gets], [None] * len(cdn_gets))
+
+    def test_a_redirect_to_something_that_is_not_http_is_refused_and_not_retried(self):
+        origin = self.hf(redirect="ftp://203.0.113.9", files=self.FILES)
         self.use(origin)
         dl = downloads.Downloader()
         p = downloads.plan("t-1", str(self.dest), folders=[])
@@ -493,11 +505,8 @@ class OverHttp(Base):
         self.assertIn("qwen", body["licenses"])
         self.assertNotIn("revision", json.dumps(body["entries"][0]))
 
-    def test_the_routes_are_for_this_pc_and_its_own_page(self):
+    def test_the_routes_are_for_this_pc(self):
         for path in ("download-plan", "download", "download-cancel", "hf-token"):
-            self.assertEqual(self.req("POST", f"/api/models/{path}", {})[0], 415, path)
-            self.assertEqual(self.req("POST", f"/api/models/{path}", {}, {**self.JS, "Origin": "http://evil.example.com"})[0],
-                             403, path)
             with mock.patch("serve.settings.is_loopback", return_value=False):
                 self.assertEqual(self.req("POST", f"/api/models/{path}", {}, self.JS)[0], 403, path)
         with mock.patch("serve.settings.is_loopback", return_value=False):

@@ -1,8 +1,9 @@
 """The server's side of the planner: stored plans, the user's planner settings and the triage entry point.
 
 The planner itself lives in harness/planner and is imported only when used, so the server starts
-without it. The Jev API key is never read from a request or a setting: it comes from the
-TYPESAFE_API_KEY environment variable of the server process, and using it needs the user's explicit
+without it. The Jev API key is not kept among these settings: it comes from the TYPESAFE_API_KEY
+environment variable of the server process or from the Jev provider of the providers registry (where
+`update_settings` saves it, in the credential store), and using it needs the user's explicit
 cloud-triage consent saved here.
 """
 from __future__ import annotations
@@ -18,9 +19,10 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-DEFAULTS = {"cloud_triage": False, "pseudonymize": True, "card_fields": None, "gate_mode": "or", "event_pump": True, "sources": []}
+DEFAULTS = {"cloud_triage": False, "pseudonymize": True, "card_fields": None, "gate_mode": "or", "event_pump": True, "sources": [],
+            "blocker_threshold": 0.8, "cloud_timeout": 5.0, "max_events": 20}
+KEY_FIELDS = ("jev_key", "clear_jev_key")                 # acts on the key, which is not stored among the settings
 EVENTS_MAX = 100
-EVENT_CHARS = 2000
 
 
 def _short(c: Dict[str, Any]) -> Dict[str, Any]:
@@ -84,13 +86,14 @@ class PlanService:
             saved = {}
         merged = {**DEFAULTS, **{k: v for k, v in saved.items() if k in DEFAULTS}}
         card = _planner().card
-        return {**merged, "key_present": bool(os.environ.get("TYPESAFE_API_KEY")) or self._jev_from_registry() is not None,
+        usable = bool(os.environ.get("TYPESAFE_API_KEY")) or self._jev_from_registry() is not None
+        return {**merged, "key_present": usable, "key_saved": usable or self._saved_jev_key(),
                 "card_fields_default": list(card.DEFAULT_SHARED_FIELDS), "card_fields_personal": list(card.PERSONAL_FIELDS)}
 
     def update_settings(self, changes: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(changes, dict):
             raise ValueError("send a JSON object")
-        unknown = [k for k in changes if k not in DEFAULTS]
+        unknown = [k for k in changes if k not in DEFAULTS and k not in KEY_FIELDS]
         if unknown:
             raise ValueError(f"unknown settings: {', '.join(unknown)}")
         current = {k: v for k, v in self.settings().items() if k in DEFAULTS}
@@ -109,6 +112,23 @@ class PlanService:
             if changes["gate_mode"] not in _planner().triage.GATE_MODES:
                 raise ValueError(f"gate_mode must be one of: {', '.join(_planner().triage.GATE_MODES)}")
             current["gate_mode"] = changes["gate_mode"]
+        if "blocker_threshold" in changes:
+            v = changes["blocker_threshold"]
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0.0 <= v <= 1.0:
+                raise ValueError("blocker_threshold must be a number from 0 to 1")
+            current["blocker_threshold"] = float(v)
+        if "cloud_timeout" in changes:
+            v = changes["cloud_timeout"]
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not v > 0:
+                raise ValueError("cloud_timeout must be a number of seconds above 0")
+            current["cloud_timeout"] = float(v)
+        if "max_events" in changes:
+            v = changes["max_events"]
+            if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+                raise ValueError("max_events must be a whole number from 1")
+            current["max_events"] = v
+        if "jev_key" in changes and (not isinstance(changes["jev_key"], str) or not changes["jev_key"].strip()):
+            raise ValueError("jev_key must be the key, as text")
         if "card_fields" in changes:
             fields = changes["card_fields"]
             allowed = _planner().card.CARD_FIELDS
@@ -118,6 +138,10 @@ class PlanService:
         tmp = self._settings_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(current), encoding="utf-8")
         os.replace(tmp, self._settings_path)
+        if changes.get("clear_jev_key") is True:
+            self._clear_jev_key()
+        if "jev_key" in changes:
+            self._set_jev_key(changes["jev_key"])
         if "event_pump" in changes or "sources" in changes:
             self.sync_events()
         return self.settings()
@@ -135,13 +159,56 @@ class PlanService:
                 self._gate = planner.JevTriageGatekeeper()
             key, endpoint, model = found if found else (os.environ.get("TYPESAFE_API_KEY") or None, planner.triage.DEFAULT_ENDPOINT, "jev-latest")
             self._gate.reconfigure(api_key=key, endpoint=endpoint, model=model, cloud_consent=bool(s["cloud_triage"]),
-                                   pseudonymize=bool(s["pseudonymize"]), card_fields=s["card_fields"], gate_mode=s["gate_mode"])
+                                   pseudonymize=bool(s["pseudonymize"]), card_fields=s["card_fields"], gate_mode=s["gate_mode"],
+                                   blocker_threshold=s["blocker_threshold"], timeout=s["cloud_timeout"], max_events=s["max_events"])
             return self._gate
 
     def telemetry(self) -> Dict[str, Any]:
         """What the filter has done since the server started: judgements, where they were answered (the cloud, the local filter by
         choice, the local filter because the cloud failed), tokens, and which plans are being re-planned."""
         return {"triage": self.gatekeeper().telemetry.summary(), "replanning": sorted(self._replanning), "events": self.events_status()}
+
+    def _providers(self):
+        from harness import llm
+        return self.registry if self.registry is not None else llm.registry()
+
+    def _saved_jev_key(self) -> bool:
+        """Whether the providers registry holds a key for Jev, used or not."""
+        try:
+            return any(p.get("type") == "jev" and (p.get("api_key") or "").strip() for p in self._providers().load().get("providers", []))
+        except Exception:
+            return False
+
+    def _set_jev_key(self, key: str) -> None:
+        """Keeps the key where the providers registry keeps every key (the credential store) and, when the triage has no provider yet,
+        points it at Jev. If the registry asks for the person's yes for this function first, the key stays saved and unused until it is given."""
+        try:
+            reg = self._providers()
+            prov = reg.set_api_key_for("jev", key.strip())
+            if not (reg.load().get("assignments") or {}).get("triage"):
+                try:
+                    reg.assign_checked("triage", prov["id"])
+                except ValueError:
+                    pass
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError(f"the key could not be saved ({type(exc).__name__})") from None
+
+    def _clear_jev_key(self) -> None:
+        try:
+            reg = self._providers()
+            data = reg.load()
+            refs = []
+            for prov in data.get("providers", []):
+                if prov.get("type") == "jev":
+                    refs.append(prov.pop("key_ref", None))
+                    prov["api_key"] = ""
+            reg.save(data)
+            for ref in filter(None, refs):
+                reg.credentials.delete(ref)
+        except Exception as exc:
+            raise ValueError(f"the key could not be removed ({type(exc).__name__})") from None
 
     def _jev_from_registry(self):
         """(key, address, model) of the Jev provider the person pointed the triage at, when the registry allows it."""
@@ -307,7 +374,7 @@ class PlanService:
         model re-plans in the background and the outcome arrives as events on the plan's stream."""
         if not isinstance(events, list) or not events or len(events) > EVENTS_MAX:
             raise ValueError(f"send between 1 and {EVENTS_MAX} events as a list of strings")
-        texts = [str(e)[:EVENT_CHARS] for e in events if isinstance(e, (str, int, float))]
+        texts = [str(e) for e in events if isinstance(e, (str, int, float))]
         bridge = self.bridge(plan_id)
         result = self.gatekeeper().triage_event_batch(bridge.card, texts)
         return self._report(plan_id, bridge, result, texts, replan)
@@ -349,7 +416,7 @@ class PlanService:
             if plan is not None:
                 self.store._path(plan)                       # a malformed id is refused here
                 self.store.get(plan)                         # and an unknown one is a 404
-            events.append({"text": e["text"].strip()[:EVENT_CHARS], "source": str(e.get("source") or "api")[:100], "at": at, "plan_id": plan})
+            events.append({"text": e["text"].strip(), "source": str(e.get("source") or "api")[:100], "at": at, "plan_id": plan})
         return self._deliver(events)
 
     def _deliver(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:

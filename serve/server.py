@@ -34,8 +34,7 @@ from serve.engine.vision import (EngineVision, Vision, check_gpu, child_env, eng
                                  gpu_text, gpus_in_play, vision_card, vision_env, vision_line)
 from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import Server, serve, stop_sessions  # noqa: E402
-from serve.security import (LOOPBACK_NAMES, allowed_hosts_of, api_key_of, exposed_without_key,  # noqa: E402
-                            lan_addresses, origins_of)
+from serve.security import LOOPBACK_NAMES, api_key_of, exposed_without_key, lan_addresses  # noqa: E402
 from serve.service import Service  # noqa: E402
 from serve.util.logbuf import ColorStream, LogBuffer, TeeStream, tail_file  # noqa: E402
 from serve.util.reqlog import RequestLog  # noqa: E402
@@ -263,18 +262,6 @@ def main() -> int:
     except ValueError as e:
         print(f"[server] error: {e}: give a key, or leave --api-key out", file=sys.stderr)
         return 2
-    try:
-        svc.cors_origins = origins_of(a.cors_origin, "--cors-origin", wildcard=True)
-        svc.allowed_hosts = allowed_hosts_of(a.allowed_host)
-    except (ValueError, SystemExit) as e:
-        fail(str(e).removeprefix("[server] error: "))
-    if svc.allowed_hosts:
-        print(tagged("warning", "Host check off, any name is accepted (--allowed-host *)") if "*" in svc.allowed_hosts
-              else tagged("hosts", ",".join(svc.allowed_hosts)), flush=True)
-    if svc.cors_origins:
-        print(tagged("cors", ",".join(svc.cors_origins)), flush=True)
-        if "*" in svc.cors_origins and not svc.api_key:
-            print(tagged("warning", "any web page can use the model (--api-key KEY)"), flush=True)
     svc.idle_unload_s = a.idle_unload or 0
     svc.min_free_vram_mib = a.min_free_vram_mib or 0
     svc.reasoning_budget_tokens = a.reasoning_budget_tokens or 0

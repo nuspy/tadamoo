@@ -24,9 +24,10 @@ class CronPageTest(unittest.TestCase):
             self.assertIn(call, JS)
         self.assertIn("S.armed !== j.id", JS)                                            # a delete asks twice
 
-    def test_automatic_asks_the_two_questions_and_a_new_job_starts_off(self):
-        self.assertIn('if (!(await riskConfirm([T("cj.risk")]))) return;', JS)
-        self.assertIn("body.confirm_auto = true;", JS)
+    def test_automatic_asks_nothing_and_a_new_job_starts_off(self):
+        self.assertNotIn("riskConfirm", JS)
+        self.assertNotIn("confirm_auto", JS)
+        self.assertNotIn('steps.max', JS)
         self.assertIn("cj.new.off", JS)
 
     def test_the_chat_only_proposes_and_the_proposal_fills_the_editor(self):

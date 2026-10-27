@@ -3,7 +3,8 @@
    then that the message just read was read carefully and the risk understood. Nothing else: the person decides. Text is put in the page as text.
 
      riskLabel("what can happen")  -> an element to put beside the setting
-     riskConfirm(["what can happen", ...]) -> a promise: true when both questions were answered yes */
+     riskConfirm(["what can happen", ...]) -> a promise: true when both questions were answered yes; true at once, with nothing shown,
+                                              while the chat's permission mode is Automatic (window.basaltAutoMode) */
 (() => {
   const h = (tag, cls, ...kids) => {
     const e = document.createElement(tag);
@@ -15,6 +16,7 @@
   window.riskLabel = text => h("p", "risk-label", h("b", "", T("rk.label")), h("span", "", text));
 
   window.riskConfirm = lines => new Promise(resolve => {
+    if (typeof window.basaltAutoMode === "function" && window.basaltAutoMode()) { resolve(true); return; }
     const dlg = h("dialog", "risk-dialog");
     dlg.setAttribute("aria-labelledby", "rk-title");
     let answered = false;

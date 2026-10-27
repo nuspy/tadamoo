@@ -183,7 +183,6 @@ EDITABLE = ("title", "description", "assignee", "conditions", "state_variables",
 # -- what a node may carry ---------------------------------------------------------------------------------
 
 MAX_ATTEMPTS, MAX_WAIT_SECONDS, MAX_BACKOFF = 10, 7 * 86400, 10
-EVENT_TEXT_CHARS = 2000
 POSITION_LIMIT = 1_000_000
 _NUMBER = re.compile(r"^\+?[0-9][0-9 ()\-]{5,19}$")
 CALL_REASON_CHARS, CALL_TEXT_CHARS, WIKI_QUERY_CHARS = 300, 500, 300
@@ -790,7 +789,7 @@ class PlanDAG:
         """Offers an event ({"text", "source", "at"}) to the sensors that are listening. A sensor whose `when` condition
         holds is completed, and what its `set` names is written into the plan's values; its condition reads `text` (in lower
         case), `source`, `at` and the plan's values. Returns the ids of the sensors that resolved."""
-        text = str(event.get("text", ""))[:EVENT_TEXT_CHARS]
+        text = str(event.get("text", ""))
         at = event.get("at")
         seen = {"text": text.lower(), "source": str(event.get("source", ""))[:100],
                 "at": float(at) if isinstance(at, (int, float)) and not isinstance(at, bool) and math.isfinite(at) else time.time()}
