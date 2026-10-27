@@ -883,17 +883,21 @@ the server runs on, and the other transports' own sign-ins.
 
 ## A council for hard questions
 
-`ask_council(question, context)` asks three advisers and a chair (`harness/council.py`). The advisers are the functions *Council member 1, 2, 3* on the
-Providers page, the chair is *Council chair*, so each can be a different model, local or in the cloud; they get different jobs (answer, find what is wrong
-or risky, propose another way). They answer at the same time, a member that fails is reported and the others go on, and the chair, told that the answers are
-untrusted text, writes where they agree, where they differ and what to do (at most 250 words). It costs several model calls and is meant for a decision that is
-worth it.
+`ask_council(question, context)` starts a debate between three advisers and a moderator (`harness/council.py`). The advisers are the functions *Council member
+1, 2, 3* on the Providers page, the moderator is *Council chair*, so each can be a different model, local or in the cloud. Each adviser has a role, a name and a
+job the person edits under *Council* on that page (the defaults are a proposer, a critic and an engineer; the moderator has a job too), and a number of rounds
+at most (1 to 6, default 3). A round is every adviser speaking in turn, each having read what was said before, then the moderator summing up in at most 250
+words (agreement, disagreement, recommendation) and ending with `CONSENSUS: YES` or `CONSENSUS: NO`. The debate stops when the moderator says yes, or at the
+last round, where the moderator gives a recommendation anyway; a missing or unclear line counts as no. The speakers run one after the other, never together:
+each answers the others, and a local model has one GPU. An adviser that fails is reported and the others go on; with fewer than two answers in a round the
+debate ends. What the advisers wrote is untrusted text for the others, the moderator and the agent. The cost is worked out before it runs (calls, tokens read
+and written, calls that go outside this PC) and is shown on the Providers page and in the tool's description; it is meant for a decision that is worth it.
 
 The tool exists only when the person pointed at least one of those functions somewhere (a provider, or "Basalt (this server)" for the loaded model in
 several roles); with nothing chosen it is not offered, and what leaves this PC follows the rules of any other function (personal data to a cloud provider only
 where the person said yes for that function, daily caps, fallback only to a route that is as local or more).
 
-Whether it helps has not been measured: `python -m harness.eval --set council` runs six decisions about code (five with a flaw a reviewer finds, one sound);
+Whether it helps, and whether a debate beats one round, has not been measured: `python -m harness.eval --set council` runs six decisions about code (five with a flaw a reviewer finds, one sound);
 run it without `--council` and with it, after setting a council up, and compare (a difference under 3 points is noise until it repeats).
 
 ## Language servers
