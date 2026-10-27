@@ -652,4 +652,4 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
                       obj({"id": {"type": "string"}, "tool": {"type": "string"}, "arguments": {"type": "object"},
                            "describe": {"type": "boolean", "description": "Return the tool's definition instead of calling it"},
                            "query": {"type": "string", "description": "With no `tool`: words to find tools of this server"}}, ["id"]),
-                      EffectClass.IRREVERSIBLE, call_capability, untrusted=True)
+                      EffectClass.IRREVERSIBLE, call_capability, untrusted=True, outward=True)

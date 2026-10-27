@@ -17,7 +17,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from harness import environment
 from harness.sandbox import MAX_TIMEOUT, ProcessSandbox, command_words, guard
-from harness.secrets_broker import NETWORK_TOOLS, SecretsBroker, command_hosts
+from harness.secret_scan import PROGRAM_THAT_USES_THE_NETWORK, scripts_run, uses_network
+from harness.secrets_broker import NETWORK_TOOLS, SecretsBroker, command_hosts, url_hosts
 from harness.vault import VaultError
 
 SHELLS = ("cmd", "powershell")
@@ -151,7 +152,12 @@ def execute_shell_command(
     if secrets and secrets.has_references(command):
         try:
             tools = [w for w in command_words(command) if w in NETWORK_TOOLS]
-            secrets.check_destinations(command, command_hosts(command, tools), tools)
+            hosts = set(command_hosts(command, tools))
+            scripts = scripts_run(command, cwd)                              # the sites the scripts it runs name count as the command's own
+            hosts |= set(url_hosts(scripts))
+            if not tools and uses_network(command + " " + scripts):
+                tools.append(PROGRAM_THAT_USES_THE_NETWORK)                # an address built at run time is not visible: a secret with limited sites is not given to it
+            secrets.check_destinations(command, sorted(hosts), tools)
         except PermissionError as exc:
             return _refused(str(exc), True)
     try:

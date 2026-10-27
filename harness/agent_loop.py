@@ -21,6 +21,7 @@ from harness.checkpoints import CheckpointManager
 from harness.client import BasaltClient, BasaltError, StreamCancelled, extract_reasoning_and_content
 from harness.context import ContextManager, fence_untrusted, wire_messages
 from harness.repeat_guard import RepeatGuard
+from harness.rule_of_two import RuleOfTwo, blocked_message
 from harness.hooks import HookManager
 from harness.permissions import PermissionManager
 from harness.pipeline import Card, Pipeline, feedback
@@ -209,7 +210,8 @@ class AgentLoop:
             self.append({"role": "user", "content": local_time_line(self.clock()), "note": True})
         if origin != "user":
             self.append({"role": "user", "content": text})
-            self.last_user_text, self.untrusted_since_user = "", True
+            self.last_user_text = ""
+            self.taint(f"{origin} note")                                       # text made from an event is no one's instruction
             return
         self.loop_detector = LoopDetector()                              # a request of the person starts the count again: asking for the same thing twice is not a loop
         self.repeat_guard.restart(len(self.turns))
@@ -223,6 +225,15 @@ class AgentLoop:
                 have = {(c.kind, str(c.value)) for c in self._card.constraints}
                 card.constraints = self._card.constraints + [c for c in card.constraints if (c.kind, str(c.value)) not in have]
             self._card, self._retried = card, False
+
+    def taint(self, source: str, private: bool = False) -> None:
+        """Content from outside the person's control came into the conversation (`private`: it is also the person's own data): the Rule of Two
+        counts it, and nothing the person said earlier stands for what follows."""
+        self.untrusted_since_user = True
+        if self.permissions:
+            self.permissions.note_untrusted_input(source)
+            if private:
+                self.permissions.note_private_data(source)
 
     def request_end_turn(self) -> None:
         """For a tool: end this run when the tools of the current model turn are done (a question was put to the person)."""
@@ -396,12 +407,16 @@ class AgentLoop:
             return refused("loop", f"Loop detected: '{name}' was called repeatedly with identical arguments. "
                                    "Stop repeating it and change your approach.", "tool_loop")
 
+        if tool.outward and (self.secrets or self.permissions):
+            held = (self.permissions.two if self.permissions else RuleOfTwo()).leak(args, self.secrets)
+            if held:
+                return refused("blocked", blocked_message(held), "tool_blocked")
         if self.hooks:
             blocked = self.hooks.trigger_pre_tool(name, args)
             if blocked:
                 return refused("blocked", blocked, "tool_blocked")
         if self.permissions:
-            allowed, reason = self.permissions.evaluate(name, tool.effect, args)
+            allowed, reason = self.permissions.evaluate(name, tool.effect, args, outward=tool.outward)
             permission = "allowed" if allowed else "denied"
             if not allowed:
                 return refused("denied", f"Permission denied: {reason}", "permission_denied")
@@ -421,8 +436,8 @@ class AgentLoop:
         except Exception as exc:
             output, is_error = f"Tool execution error: {type(exc).__name__}: {exc}", True
         cancelled = scope.cancelled or (is_error and self.cancel.is_set())
-        if tool.untrusted and self.permissions:
-            self.permissions.note_untrusted_input()
+        if self.permissions:
+            self.permissions.two.observe(name, args, output, untrusted=tool.untrusted, secrets=self.secrets)
         if self.hooks:
             self.hooks.trigger_post_tool(name, args, output)
         self._audit_call("tool_cancelled" if cancelled else "tool_error" if is_error else "tool_executed", name, args, permission,
@@ -466,7 +481,7 @@ class AgentLoop:
             self.add_user_message(user_goal)
         if retrieved:
             self.append(retrieved)     # memories and wiki text go after the goal, at the tail
-            self.untrusted_since_user = True
+            self.taint("memories", private=bool(retrieved.get("private")))
         run_turns: List[AgentTurn] = []
 
         turn_idx = 0

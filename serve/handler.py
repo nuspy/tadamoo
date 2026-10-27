@@ -33,11 +33,13 @@ from serve.prompt import primed
 from serve.security import host_allowed, host_names_for, key_matches, origin_allowed
 from serve.service import LOG_FIRST_LINES, LOG_MAX_LINES, Service, _debug_req
 from serve.api.structured import StructuredOutputError, anthropic_format, check_format, json_validator
+from serve.util.redact import LEVELS as MASK_LEVELS, ExportMask, clean_words
 from serve.util.reqlog import export_jsonl, export_text
 from serve import plans as plans_mod, userdata
 from serve import review as review_mod
 from serve.agent_runs import AgentRunner, RunBusy, RunError
 from harness.browser import BrowserPrefs
+from harness.rule_of_two import RuleOfTwoPrefs
 from harness.payments_broker import PaymentsBroker
 from harness.waiver.dossier import sntp_offset
 from harness.vault import Vault, VaultError
@@ -1454,11 +1456,19 @@ def make_handler(svc: Service, remote: bool = False):
             self._json(200, svc.reqlog.since(after, max(1024, number("max_chars", 2 << 20, REQLOG_CHARS_MAX))))
 
         def _reqlog_export(self):
-            """GET /api/reqlog/export?format=text|jsonl: everything the request log holds, as a downloaded file."""
-            fmt = parse_qs(urlsplit(self.path).query).get("format", ["text"])[0]
+            """GET /api/reqlog/export?format=text|jsonl[&mask=secrets|personal][&hide=word,word]: everything the request log holds, as a downloaded
+            file. Secrets are always hidden; `personal` also hides e-mail addresses, phone numbers, IBANs and tax codes, and `hide` lists words to hide."""
+            query = parse_qs(urlsplit(self.path).query)
+            fmt = query.get("format", ["text"])[0]
             if fmt not in ("text", "jsonl"):
                 self._json(400, {"error": {"type": "invalid_request_error", "message": "format: text or jsonl"}})
                 return
+            level = query.get("mask", ["secrets"])[0]
+            if level not in MASK_LEVELS:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": "mask: " + " or ".join(MASK_LEVELS)}})
+                return
+            mask = ExportMask(level, clean_words(query.get("hide", [""])[0]), known=[svc.api_key or "", os.environ.get("BASALT_API_KEY", "")],
+                              vault_mask=Vault(userdata.path("vault")).mask)
             name = f"basalt-requests-{time.strftime('%Y%m%d-%H%M%S')}." + ("log" if fmt == "text" else "jsonl")
             self.send_response(200)
             self.send_header("Content-Type", ("text/plain" if fmt == "text" else "application/x-ndjson") + "; charset=utf-8")
@@ -1466,7 +1476,7 @@ def make_handler(svc: Service, remote: bool = False):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()                                  # the length is not known: the connection ends it
             try:
-                for piece in (export_text if fmt == "text" else export_jsonl)(svc.reqlog):
+                for piece in (export_text if fmt == "text" else export_jsonl)(svc.reqlog, mask):
                     self.wfile.write(piece.encode("utf-8"))
             except OSError:
                 pass
@@ -1716,7 +1726,8 @@ def make_handler(svc: Service, remote: bool = False):
         def _wallet(self) -> WalletApi:
             global _WALLET
             if _WALLET is None:
-                _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments"), app_root=Path(__file__).resolve().parents[1], network_time=sntp_offset), BrowserPrefs(userdata.path("browser.json")), userdata.path("browser-profile"))
+                _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments"), app_root=Path(__file__).resolve().parents[1], network_time=sntp_offset), BrowserPrefs(userdata.path("browser.json")), userdata.path("browser-profile"),
+                                     RuleOfTwoPrefs(userdata.path("rule_of_two.json")))
             return _WALLET
 
         def _personal(self) -> PersonalMemory:
@@ -1845,6 +1856,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.revoke(req.get("id")))
                 if action == "browser":
                     return self._json(200, api.set_browser(req))
+                if action == "rule-of-two":
+                    return self._json(200, api.set_rule_of_two(req))
                 if action == "browser/signin":
                     return self._json(200, api.signin_window(req))
                 if action == "browser/forget":
@@ -2129,6 +2142,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
                                            browser_prefs=BrowserPrefs(userdata.path("browser.json")).read, knowledge_flags=KnowledgePrefs(userdata.path("knowledge.json")).flags,
+                                           rule_of_two=RuleOfTwoPrefs(userdata.path("rule_of_two.json")).read,
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
                                            skills_dir=userdata.path("personal-skills"), projects=self._projects(),
                                            personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer)

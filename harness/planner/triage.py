@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 
 from harness.integrations._http import _OPENER
 
-from .card import PlanInsightCard, Pseudonymizer, scrub_contacts, share_card
+from .card import PlanInsightCard, Pseudonymizer, scrub_contacts, sender_names, share_card
 
 DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 HIGH_IMPACT = ("MOLTO", "CRITICAL")
@@ -206,7 +206,7 @@ class JevTriageGatekeeper:
     def build_payload(self, plan_card: Any, events: List[str]) -> Dict[str, Any]:
         card = plan_card if isinstance(plan_card, PlanInsightCard) else PlanInsightCard.from_dict(plan_card)
         shared = share_card(card, self.card_fields, self.pseudonymize)
-        pseudo = Pseudonymizer(card.people()) if self.pseudonymize else None
+        pseudo = Pseudonymizer(card.people() + sender_names(events)) if self.pseudonymize else None       # the plan's people and who wrote to them
         lines = [(pseudo.apply(scrub_contacts(e)) if pseudo else e)[:MAX_EVENT_CHARS] for e in events]
         return {
             "model": self.model,

@@ -379,6 +379,7 @@ class _Client:
                 effect=EffectClass.IRREVERSIBLE,
                 handler=lambda _t=target, **kwargs: self.call_tool(_t, kwargs),
                 untrusted=True,
+                outward=True,
             )
             names.append(name)
         return names
@@ -752,7 +753,7 @@ class MCPHub:
             "mcp_call", "Calls a tool of an MCP server found with mcp_search.",
             {"type": "object", "properties": {"server": {"type": "string"}, "tool": {"type": "string"},
                                               "arguments": {"type": "object"}},
-             "required": ["server", "tool", "arguments"]}, EffectClass.IRREVERSIBLE, mcp_call, untrusted=True)
+             "required": ["server", "tool", "arguments"]}, EffectClass.IRREVERSIBLE, mcp_call, untrusted=True, outward=True)
 
     def register_eager(self, registry: ToolRegistry) -> None:
         for name, client in self.servers.items():

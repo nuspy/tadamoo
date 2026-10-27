@@ -1052,7 +1052,7 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
     ref_prop = {"ref": {"type": "integer", "description": "the number of the element, from the last reading of the page"}}
     registry.register("browser_open", "Opens a web page in the browser and reads it: numbered elements (links, buttons, fields) and the text.",
                       {"type": "object", "properties": shot_prop({"url": {"type": "string"}}), "required": ["url"]}, EffectClass.PURE,
-                      with_shot(guard(lambda url: shown(b.open(url)))), untrusted=True)
+                      with_shot(guard(lambda url: shown(b.open(url)))), untrusted=True, outward=True)
     if screenshots is not None:
         registry.register("browser_screenshot", "Takes a picture of the page that is open and keeps it as a file of the conversation; returns its path and how to look at it. Refused in a "
                           "browser where a value from the vault was typed.",
@@ -1061,7 +1061,16 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
     registry.register("browser_read", "Reads the page that is open again, with its numbered elements.", {"type": "object", "properties": {}},
                       EffectClass.PURE, guard(lambda: shown(b.snapshot())), untrusted=True)
     registry.register("browser_click", "Clicks an element of the page (a link, a button, a box to tick) and reads the page that follows.",
-                      {"type": "object", "properties": shot_prop(ref_prop), "required": ["ref"]}, EffectClass.IRREVERSIBLE, with_shot(guard(lambda ref: shown(b.click(ref)))), untrusted=True)
+                      {"type": "object", "properties": shot_prop(ref_prop), "required": ["ref"]}, EffectClass.IRREVERSIBLE, with_shot(guard(lambda ref: shown(b.click(ref)))), untrusted=True, outward=True)
+
+    def page_payable(currency: str) -> Any:
+        """What the page asks for, read from its text now: a card approved for an amount goes only into a page that asks for no more."""
+        from harness.page_money import payable
+        from harness.vault import VaultError
+        cents, why = payable(b.snapshot()["text"], currency)
+        if cents is None:
+            raise VaultError(f"{why}; the card is typed only into a page that shows the amount to pay")
+        return cents, currency
 
     def type_into(ref: int, text: str, submit: bool = False, clear: bool = True) -> Any:
         from_vault = secrets is not None and secrets.has_references(text)
@@ -1070,7 +1079,7 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
             if b.insecure_public(host):
                 return {"error": f"this page is not encrypted (http) and {host} is on the internet: a value from the vault is not typed where it would cross the network in the clear"}
             try:
-                text = secrets.resolve_tokens(text, destinations=[host])
+                text = secrets.resolve_tokens(text, destinations=[host], payable=page_payable)
                 b.hidden.add(_squeeze(text[:60]))                            # the page lists a field's value cut to 60 characters
             except Exception as e:                                          # the site is not one the entry names, the card is guarded, a code is missing
                 return {"error": str(e)}
@@ -1081,7 +1090,7 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
                       "it is filled in only on a site its entry names, and you never see it.",
                       {"type": "object", "properties": {**ref_prop, "text": {"type": "string"}, "submit": {"type": "boolean", "description": "press Enter after"},
                                                         "clear": {"type": "boolean", "description": "replace what is in the field (default true)"}},
-                       "required": ["ref", "text"]}, EffectClass.IRREVERSIBLE, guard(type_into), untrusted=True)
+                       "required": ["ref", "text"]}, EffectClass.IRREVERSIBLE, guard(type_into), untrusted=True, outward=True)
     def sign_in(entry: str, submit: bool = False) -> Any:
         """Fills the sign-in fields of the page from a login in the vault: the user name in the field before the password, the password in
         the password field. Only on a site the entry names. A page that asks for the user name first shows just that field: it is filled and
@@ -1126,13 +1135,13 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
                       "Only on a site the entry names. If the page asks for a code, write {{vault:ENTRY.totp}} in the field with browser_type.",
                       {"type": "object", "properties": {"entry": {"type": "string", "description": "the name of the login in the vault"},
                                                         "submit": {"type": "boolean", "description": "press Enter after the password"}}, "required": ["entry"]},
-                      EffectClass.IRREVERSIBLE, guard(sign_in), untrusted=True)
+                      EffectClass.IRREVERSIBLE, guard(sign_in), untrusted=True, outward=True)
     registry.register("browser_select", "Chooses an option in a list of the page, by its value or its visible text.",
                       {"type": "object", "properties": shot_prop({**ref_prop, "value": {"type": "string"}}), "required": ["ref", "value"]}, EffectClass.IRREVERSIBLE,
-                      with_shot(guard(lambda ref, value: shown(b.select(ref, value)))), untrusted=True)
+                      with_shot(guard(lambda ref, value: shown(b.select(ref, value)))), untrusted=True, outward=True)
     registry.register("browser_press", "Presses a key: Enter, Tab, Escape, Backspace, the arrows or Space.",
                       {"type": "object", "properties": shot_prop({"key": {"type": "string", "enum": list(KEYS)}}), "required": ["key"]}, EffectClass.IRREVERSIBLE,
-                      with_shot(guard(lambda key: shown(b.press(key)))), untrusted=True)
+                      with_shot(guard(lambda key: shown(b.press(key)))), untrusted=True, outward=True)
     registry.register("browser_back", "Goes back to the page before.", {"type": "object", "properties": shot_prop({})}, EffectClass.IRREVERSIBLE,
                       with_shot(guard(lambda: shown(b.back()))), untrusted=True)
     return b

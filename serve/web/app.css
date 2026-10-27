@@ -816,7 +816,8 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .rl-iconbtn { width: 44px; padding: 0; }
 .rl-pause { min-width: 112px; }
 .rl-pill { padding: 0 8px; border-radius: 999px; background: var(--accent); color: var(--basalt-950); font: 600 14px/1.5 var(--font-mono); white-space: nowrap; }
-.rl-save { display: flex; align-items: center; gap: 8px; }
+.rl-save { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rl-save #rl-hide { flex: 1 1 200px; }
 .rl-tools select, .rl-tools input { min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--rl-edge); border-radius: 6px; padding: 8px 12px; }
 .rl-tools input { flex: 1 1 100px; min-width: 0; }
 .rl-tools input::placeholder { color: var(--fg-3); opacity: 1; }
@@ -894,6 +895,7 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
   .rl-save { display: contents; }
   .rl-save .btn { grid-column: 1; }
   .rl-save select { grid-column: 2; }
+  .rl-save #rl-mask, .rl-save #rl-hide { grid-column: 1 / -1; }
   .rl-find { grid-column: 1 / -1; flex-basis: auto; }
   .rl-tools { padding: 8px 12px; }
   .rl-status { padding-inline: 12px; }

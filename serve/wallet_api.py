@@ -5,10 +5,11 @@ The three dialogs of a waiver are the ones the dossier records; the declaration 
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from harness.browser import BrowserError, BrowserPrefs, find_browser, forget_signins, open_signin_window
 from harness.browser_consent import CONSENT_POLICIES, PERMISSION_POLICIES
+from harness.rule_of_two import LEVELS as RULE_OF_TWO_LEVELS, RuleOfTwoPrefs
 from harness.payments_broker import PaymentsBroker
 from harness.vault import CARD_KINDS, KINDS, SECOND_FACTORS, Vault, VaultError
 from harness.vault_import import parse_logins
@@ -22,8 +23,10 @@ class WalletError(ValueError):
 
 
 class WalletApi:
-    def __init__(self, vault: Callable[[], Vault], payments: Callable[[], PaymentsBroker], browser: BrowserPrefs, profile: Any = None) -> None:
+    def __init__(self, vault: Callable[[], Vault], payments: Callable[[], PaymentsBroker], browser: BrowserPrefs, profile: Any = None,
+                 rule_of_two: Optional[RuleOfTwoPrefs] = None) -> None:
         self._vault, self._payments, self._browser, self._profile = vault, payments, browser, profile
+        self._two = rule_of_two                         # how strict the Rule of Two is for the conversations started from now on
 
     # -- what the page shows ---------------------------------------------------------------------
 
@@ -31,6 +34,8 @@ class WalletApi:
         out: Dict[str, Any] = {"kinds": KINDS, "second_factors": list(SECOND_FACTORS), "card_kinds": list(CARD_KINDS),
                                "credential_kinds": sorted(CREDENTIAL_KINDS), "texts": DIALOG_TEXTS, "entries": [], "systems": [], "ledger": [],
                                "problems": [], "browser": {"found": bool(find_browser()), **self._browser.read()}}
+        if self._two is not None:
+            out["rule_of_two"] = {"level": self._two.read(), "levels": list(RULE_OF_TWO_LEVELS)}
         try:
             out["entries"] = self._vault().entries()
         except VaultError as e:
@@ -54,6 +59,14 @@ class WalletApi:
                 raise WalletError(f"{key} is one of: {', '.join(allowed)}")
         return {"browser": {"found": bool(find_browser()), **self._browser.write(req["enabled"], req["headless"], req.get("private", False), req.get("persistent", False),
                                                                                  req.get("consent"), req.get("permissions"))}}
+
+    def set_rule_of_two(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """How strict the Rule of Two is in the conversations the person starts from now on."""
+        if self._two is None:
+            raise WalletError("the Rule of Two setting is not available here")
+        if req.get("level") not in RULE_OF_TWO_LEVELS:
+            raise WalletError(f"level is one of: {', '.join(RULE_OF_TWO_LEVELS)}")
+        return {"rule_of_two": {"level": self._two.write(req["level"]), "levels": list(RULE_OF_TWO_LEVELS)}}
 
     def signin_window(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """The browser that keeps sign-ins, in a window, for the person to sign in to an account (Google, a bank, a shop) themselves."""
