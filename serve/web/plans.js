@@ -821,8 +821,9 @@
   }
   async function userDiff(diff, title) {
     const p = await api(planPath("/events"), { type: "plan:propose_diff", title, source: "user", diff });
-    if (!p.ok) { say(errText(p.data) || T("pl.failed"), true); return; }
-    await event({ type: "plan:approve", proposal_id: p.data.proposal_id }, T("pl.ev.applied"));
+    if (!p.ok) { say(errText(p.data) || T("pl.failed"), true); return false; }
+    const r = await event({ type: "plan:approve", proposal_id: p.data.proposal_id }, T("pl.ev.applied"));
+    return !!(r && r.ok);
   }
 
   /* ---- proposals and offers ---- */
@@ -876,12 +877,32 @@
     ui.addForm.replaceChildren(
       el("label", { for: "pl-a-title", text: T("pl.f.title") }), el("input", { id: "pl-a-title", required: true, maxlength: "200", autocomplete: "off" }),
       el("label", { for: "pl-a-desc", text: T("pl.f.desc") }), el("textarea", { id: "pl-a-desc", rows: "2" }),
-      el("label", { for: "pl-a-type", text: T("pl.f.type") }), el("select", { id: "pl-a-type" }, TYPES.map(t => el("option", { value: t, text: T("pl.type." + t) }))),
+      el("label", { for: "pl-a-type", text: T("pl.f.type") }),
+      el("select", { id: "pl-a-type", onchange: () => { document.getElementById("pl-a-exits").hidden = document.getElementById("pl-a-type").value !== "decision"; } },
+        TYPES.map(t => el("option", { value: t, text: T("pl.type." + t) }))),
+      exitsBox(),
       el("label", { for: "pl-a-assignee", text: T("pl.f.assignee") }),
       el("select", { id: "pl-a-assignee" }, ["agent", "user", "third_party"].map(a => el("option", { value: a, text: T("pl.assignee." + a) }))),
       nodes.length ? el("fieldset", { class: "pl-parents" }, el("legend", { text: T("pl.f.parents") }),
         nodes.map(n => el("label", { class: "pl-check" }, el("input", { type: "checkbox", name: "parent", value: n.id }), el("span", { text: n.title })))) : [],
       el("button", { class: "btn primary pl-btn", text: T("pl.add.btn") }));
+  }
+  /* A decision is made with its exits: at least two steps, each with the condition that picks it. */
+  const MAX_EXITS = 6;
+  function exitRow(n) {
+    return el("div", { class: "pl-exit" },
+      el("label", { for: "pl-a-xt" + n, text: T("pl.dec.exit.title", n) }), el("input", { id: "pl-a-xt" + n, name: "exit-title", maxlength: "200", autocomplete: "off" }),
+      el("label", { for: "pl-a-xc" + n, text: T("pl.dec.exit.cond", n) }), el("input", { id: "pl-a-xc" + n, name: "exit-cond", maxlength: "300", autocomplete: "off", spellcheck: "false", placeholder: "len(invitati_confermati) >= 2" }));
+  }
+  function exitsBox() {
+    const box = el("fieldset", { id: "pl-a-exits", class: "pl-parents", hidden: true }, el("legend", { text: T("pl.dec.exits") }), el("p", { class: "help", text: T("pl.dec.help") }), exitRow(1), exitRow(2));
+    const more = el("button", { type: "button", class: "btn pl-btn", text: T("pl.dec.add"), onclick: () => {
+      const n = box.querySelectorAll(".pl-exit").length + 1;
+      if (n <= MAX_EXITS) box.insertBefore(exitRow(n), more);
+      more.hidden = n >= MAX_EXITS;
+    } });
+    box.append(more);
+    return box;
   }
   async function addNode(e) {
     e.preventDefault();
@@ -890,8 +911,22 @@
     if (!title) return;
     const id = "n_" + Math.random().toString(36).slice(2, 8);
     const parents = [...f.querySelectorAll("input[name=parent]:checked")].map(i => i.value);
-    await userDiff({ add_nodes: [{ id, type: f.querySelector("#pl-a-type").value, title, description: f.querySelector("#pl-a-desc").value,
-      assignee: f.querySelector("#pl-a-assignee").value, dependencies: parents, outputs: [] }] }, T("pl.add"));
+    const type = f.querySelector("#pl-a-type").value;
+    const base = { description: f.querySelector("#pl-a-desc").value, assignee: f.querySelector("#pl-a-assignee").value };
+    const add = [{ id, type, title, ...base, dependencies: parents, outputs: [] }];
+    if (type === "decision") {
+      const rows = [...f.querySelectorAll("#pl-a-exits .pl-exit")].map(r => ({ title: r.querySelector("[name=exit-title]").value.trim(), cond: r.querySelector("[name=exit-cond]").value.trim() }))
+        .filter(r => r.title || r.cond);
+      if (rows.length < 2 || rows.some(r => !r.title || !r.cond)) { say(T("pl.dec.need"), true); return; }
+      add[0].conditions = {};
+      rows.forEach((r, i) => {
+        const xid = `${id}_x${i + 1}`;
+        add[0].outputs.push(xid);
+        add[0].conditions[xid] = r.cond;
+        add.push({ id: xid, type: "action", title: r.title, description: "", assignee: "agent", dependencies: [], outputs: [] });
+      });
+    }
+    if (!(await userDiff({ add_nodes: add }, T("pl.add")))) return;
     f.reset();
     S.adding = false;
     S.selected = id;
