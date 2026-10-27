@@ -269,7 +269,9 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
 ### What you control
 
 - **What it may do without asking**: the four modes; command rules (`shell_command:pytest*`, a deny always wins, and a rule never
-  covers a command that chains or redirects); the *Always allow* button in a question. In *Automatic*, an irreversible action still asks
+  covers a command that chains or redirects); the *Always allow* button in a question. An answer covers that one call (the same tool with
+  the same arguments), not the whole tool, and *Always allow* is never offered as a wide rule for `python`, `powershell`, `curl` and the
+  like (only for that exact command) or for `run_code`: a rule for those is one you write yourself. In *Automatic*, an irreversible action still asks
   once the conversation has read outside content and can reach a secret or a vault entry (the Rule of Two).
 - **Hooks you write** (`hooks.json`): commands or fixed blocks on tool calls, turns and the session; a hook that cannot decide blocks.
 - **Checkpoints and rewind**: the workspace is saved before the first change of a turn, outside the project and within size limits;
