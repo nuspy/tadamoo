@@ -203,6 +203,11 @@ class PlanCanvasBridge:
     def _mark(self, e: Dict[str, Any]) -> Dict[str, Any]:
         retry = self.dag.mark(e["node_id"], e["status"], e.get("outputs"))
         node = self.dag.nodes[e["node_id"]]
+        if retry and "no_route" in retry:                  # a decision with no exit that holds: not taken, the person decides
+            self._bump("no_route", f"{node.title}: no exit holds, passed to the user")
+            self._emit("plan:graph", {"seq_graph": True, "no_route": {"node_id": node.id, **retry["no_route"]}})
+            return {"ready": self.dag.ready_nodes(), "shared_state": self.dag.shared_state, "status": node.status, "completed": False,
+                    "no_route": retry["no_route"], "message": retry["message"]}
         self._bump("mark", f"{node.title}: {node.status}" + (f", try {retry['attempt']} of {retry['of']} failed, tries again" if retry else ""))
         self._emit("plan:graph", {"seq_graph": True, **({"retry": {"node_id": node.id, **retry}} if retry else {})})
         return {"ready": self.dag.ready_nodes(), "shared_state": self.dag.shared_state, "status": node.status, **({"retry": retry} if retry else {})}
@@ -401,6 +406,7 @@ class PlanStore:
             if self._archived_path(dag.plan_id).exists():
                 raise ValueError(f"plan '{dag.plan_id}' is in the archive; restore it or choose another id")
             dag.validate_acyclic()
+            dag.enforce_decisions()
             bridge = PlanCanvasBridge(dag, card, replanner, profile)
             self._bridges[dag.plan_id] = bridge
             self.save(dag.plan_id)

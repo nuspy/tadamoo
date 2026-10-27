@@ -488,7 +488,11 @@ and the bridge the page talks to.
   as fact. Plans are not compared for overlap with each other, only short ones with long ones. Not done: aims that are numbers to
   measure (KPIs, habits), a review that records what was found, and reading conflicts between two long-term plans by arithmetic.
 - A plan is a graph of action, sensor, decision and merge nodes with shared values. Decisions route by simple conditions
-  (`len(guests) >= 2`; never code); merges wait for their inputs; a task the software cannot do is offered to you with an
+  (`len(guests) >= 2`; never code) and need at least two exits, each with a condition: a plan or a change that breaks this is refused, and a
+  stored decision that breaks it cannot be completed. When a decision is completed and no exit holds (or a condition cannot be read yet) it is
+  not taken: the step becomes the user's, nothing below it is skipped, and the step shows which conditions were read and with which values
+  (`state_variables.no_route`; the Chat is told and `plan_mark` says so). A step writes the plan's values when it is completed (`outputs` of
+  `plan:mark` and of `plan_mark`: names a condition can read, plain data up to 4,000 characters each and 50,000 in all); merges wait for their inputs; a task the software cannot do is offered to you with an
   alternative and, if you decline, becomes yours and blocks what depends on it. You can rewind a step. A rewind says first which recorded actions of those steps stay done (see *Branches, going back and comparing*).
 - Incoming events wait in a buffer (10 events or 5 minutes after the first) and are judged by the filter. **The cloud filter
   (TypeSafe Jev) is off.** It needs your consent in Settings *and* a key in the server's `TYPESAFE_API_KEY`; only the plan

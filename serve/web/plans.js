@@ -697,6 +697,7 @@
     if (n.state_variables.retry_at) facts.push(T("pl.fact.retry", n.state_variables.attempts || 1, new Date(n.state_variables.retry_at * 1000).toLocaleTimeString()));
     if (n.state_variables.matched) facts.push(T("pl.fact.matched", n.state_variables.matched.text));
     if (n.state_variables.sensor_error) facts.push(T("pl.fact.sensorerr", n.state_variables.sensor_error));
+    if (n.state_variables.no_route) facts.push(T("pl.fact.noroute", noRouteText(n.state_variables.no_route)));
     if (n.call_request) facts.push(T("pl.fact.call", n.call_request.number, n.call_request.reason));
     if (n.wiki_query) facts.push(T("pl.fact.wiki", n.wiki_query));
     const isReady = S.snap.ready.includes(n.id);
@@ -778,13 +779,18 @@
     changes.retry_policy = tries > 1 ? { max_attempts: tries, wait_seconds: wait, backoff: old.backoff || 1 } : null;
     await event({ type: "plan:update_node", node_id: id, changes }, T("pl.saved"));
   }
+  function noRouteText(f) {
+    const exits = (f.exits || []).map(x => x.condition + " → " + (x.holds === true ? T("pl.nr.holds") : x.holds === false ? T("pl.nr.not") : T("pl.nr.unreadable", x.error || "")));
+    return exits.join("; ") + " · " + JSON.stringify(f.values || {});
+  }
   async function mark(id, status, outBox) {
     let outputs;
     if (outBox && outBox.value.trim()) {
       try { outputs = JSON.parse(outBox.value); } catch (e) { say(T("pl.badjson"), true); return; }
       if (!outputs || typeof outputs !== "object" || Array.isArray(outputs)) { say(T("pl.badjson"), true); return; }
     }
-    await event({ type: "plan:mark", node_id: id, status, ...(outputs ? { outputs } : {}) }, T("pl.marked"));
+    const r = await event({ type: "plan:mark", node_id: id, status, ...(outputs ? { outputs } : {}) }, null);
+    if (r && r.ok) say(r.data.no_route ? T("pl.noroute.say") : T("pl.marked"), !!r.data.no_route);
   }
   /* Going back does not undo what already happened outside (a call, a payment, a command): the page asks the server what would stay done,
      and when something would, lists it and waits for an explicit "Rewind anyway". */
