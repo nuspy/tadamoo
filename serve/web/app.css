@@ -482,6 +482,15 @@ fieldset:disabled input, fieldset:disabled select { opacity: .7; }
 .csgroup > label, .csnum label { font: 500 15px/1.4 var(--font-sans); }
 .csgroup textarea, .csgroup input[type=text], .csnum input, .csgroup select { width: 100%; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 44px; }
 .csgroup textarea { resize: vertical; min-height: 88px; }
+.kn-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.kn-field label, .kn-check { font: 500 15px/1.4 var(--font-sans); }
+.kn-field input, .kn-field select { width: 100%; max-width: 32rem; min-height: 44px; box-sizing: border-box; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+.kn-help.setnote { padding: 0; font-size: 14px; }
+.kn-check { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+.kn-check input { width: 24px; height: 24px; flex: none; }
+.kn-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 18px 0; }
+.kn-status, .kn-check.setnote { padding: 8px 18px 0; }
+.kn-status[data-bad="1"] { color: var(--warn); }
 .csnum input { font-family: var(--font-mono); }
 .csrow { display: flex; gap: 8px; align-items: center; min-width: 0; }
 .csrow > select, .csrow > input { flex: 1; min-width: 0; }
