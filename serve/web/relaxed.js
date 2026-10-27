@@ -4,19 +4,18 @@
    gives back what it changed, unless the person changed that setting since. Pure functions on the form's values; loader.js does
    the reading and writing of the form. */
 (function (root) {
-  const SPEC = "engine.spec", MTP = "mtp", PARALLEL = "server.parallel", FULL = "server.slot-full-context", MINP = "engine.spec-min-p";
-  const NAMES = [MTP, SPEC, PARALLEL, FULL, MINP];
-  const SPEC_ON = "7", MINP_ON = "0.5";                       // the window and the drafter's cutoff the measurements used
+  const SPEC = "engine.spec", MTP = "mtp", PARALLEL = "server.parallel", FULL = "server.slot-full-context";
+  const NAMES = [MTP, SPEC, PARALLEL, FULL];
+  const SPEC_ON = "7";                                        // the window the measurements used
   const num = v => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
 
-  /* `cur`: the form's values {mtp: bool, engine.spec: "", server.parallel: "", server.slot-full-context: bool, engine.spec-min-p: ""}.
+  /* `cur`: the form's values {mtp: bool, engine.spec: "", server.parallel: "", server.slot-full-context: bool}.
      Returns what to change: `set` (name -> new value) and `before` (name -> the value it had). */
   function enter(cur) {
     const before = {}, set = {};
     if (!cur[MTP] || num(cur[SPEC]) < 2) { before[MTP] = !!cur[MTP]; before[SPEC] = cur[SPEC] ?? ""; set[MTP] = true; set[SPEC] = SPEC_ON; }
     if (num(cur[PARALLEL] || 1) > 1) { before[PARALLEL] = cur[PARALLEL]; set[PARALLEL] = "1"; }
     if (cur[FULL]) { before[FULL] = true; set[FULL] = false; }
-    if (!num(cur[MINP])) { before[MINP] = cur[MINP] ?? ""; set[MINP] = MINP_ON; }
     return { before, set };
   }
 

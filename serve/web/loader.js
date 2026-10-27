@@ -15,14 +15,13 @@
     { group: "speed", name: "engine.prefill", kind: "text", list: ["auto", "auto:8192", "auto:16384", "auto:32768", "2048", "512"] },
     { group: "speed", name: "mtp", kind: "bool", virtual: true },
     { group: "speed", name: "engine.spec", kind: "int", min: 2, max: 8, step: 1 },
-    { group: "speed", name: "engine.spec-min-p", kind: "float", min: 0, max: 1, step: 0.05 },
     { group: "speed", name: "engine.relaxed-drafting", kind: "choice", options: ["0.5", "0.3", "0.2"] },
     { group: "memory", name: "engine.expert-cache", kind: "text", list: ["auto"] },
     { group: "memory", name: "engine.resident-experts", kind: "bool" },
     { group: "memory", name: "engine.ple-io", kind: "choice", options: ["direct", "mmap", "ram"] },
     { group: "memory", name: "engine.pool-workers", kind: "int", min: 1, max: 256, step: 1 },
     { group: "server", name: "server.port", kind: "int", min: 1, max: 65535, step: 1 },
-    { group: "server", name: "server.vision", kind: "choice", options: ["off", "dynamic", "on", "peer", "cpu"] },
+    { group: "server", name: "server.vision", kind: "choice", options: ["off", "dynamic", "cpu", "0"] },
     { group: "server", name: "server.vision-projector", kind: "choice", options: ["embedded"] },   // the options come with each plan
     { group: "server", name: "server.vision-hold", kind: "choice", options: ["keep", "release"] },
   ];
@@ -65,7 +64,7 @@
           const list = f.list ? `<datalist id="${id}-l">${f.list.map(o => `<option value="${o}"></option>`).join("")}</datalist>` : "";
           const num = f.kind !== "text";
           d.innerHTML = `<label for="${id}">${esc(T("f." + key))}</label>` +
-            `<input id="${id}" type="${num ? "number" : "text"}" ${num ? `inputmode="${f.kind === "int" ? "numeric" : "decimal"}" min="${f.min}" max="${f.max}" step="${f.step}"` : 'autocapitalize="off" spellcheck="false"'}` +
+            `<input id="${id}" type="${num ? "number" : "text"}" ${num ? `inputmode="numeric" min="${f.min}" max="${f.max}" step="${f.step}"` : 'autocapitalize="off" spellcheck="false"'}` +
             `${f.list ? ` list="${id}-l"` : ""} aria-describedby="${help}">${list}`;
         }
         d.insertAdjacentHTML("beforeend", `<p class="help" id="${help}">${esc(T("h." + key))}</p>`);
@@ -143,7 +142,7 @@
       if (f.kind === "reserve") { out[f.name] = toMiB(e.value.trim()); continue; }
       const raw = e.value.trim();
       if (raw === "") { out[f.name] = null; continue; }
-      if (f.kind === "int" || f.kind === "float") { const n = Number(raw); out[f.name] = Number.isFinite(n) ? n : raw; continue; }
+      if (f.kind === "int") { const n = Number(raw); out[f.name] = Number.isFinite(n) ? n : raw; continue; }
       out[f.name] = /^\d+$/.test(raw) ? Number(raw) : raw;
     }
     if (!el("mtp").checked) out["engine.spec"] = 0;
@@ -222,7 +221,6 @@
   function syncMtp() {
     const on = el("mtp").checked;
     el("engine.spec").disabled = !on;
-    el("engine.spec-min-p").disabled = !on;
     const par = Number(el("server.parallel").value || 1);
     el("server.slot-full-context").disabled = par < 2;
     // the projector and its hold matter only when images are read: any mode for the projector, in-engine ("dynamic") for the hold

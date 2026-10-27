@@ -1,8 +1,7 @@
 // include/basalt/core/draft_cum.hpp - the cumulative draft-length rule.
 //
-// With a min_p the MTP chain stops after the first draft whose own probability is below min_p.  This rule instead
-// keeps draft j while the estimated chance that drafts 0..j are ALL accepted stays at or above the threshold: the
-// product over i <= j of acc(p_i), where acc maps a draft probability to the observed acceptance rate of drafts in
+// The MTP chain keeps draft j while the estimated chance that drafts 0..j are ALL accepted stays at or above the
+// threshold: the product over i <= j of acc(p_i), where acc maps a draft probability to the observed acceptance rate of drafts in
 // that probability bin.  A middling first draft is cheap to verify and still often right, so it is proposed; a long
 // run of merely high probabilities stops once the joint chance decays.  The host (the window size, the draft loop)
 // and the device (the conditional draft graph) evaluate the same products in the same order, so they agree exactly.
@@ -27,23 +26,33 @@ DRAFT_CUM_HD inline float draft_cum_acc(float p) {
          : p < 0.90f ? 0.59f : p < 0.95f ? 0.66f : p < 0.99f ? 0.79f : 0.96f;
 }
 
-/// Whether draft j stays in the window: with the rule on, prod_{i <= j} acc(probs[i]) >= th; else probs[j] >= min_p.
-DRAFT_CUM_HD inline bool draft_keep(const float* probs, int j, float min_p, float th) {
-    if (!(th > 0.0f)) return probs[j] >= min_p;
+/// Whether draft j stays in the window: prod_{i <= j} acc(probs[i]) >= th.
+DRAFT_CUM_HD inline bool draft_keep(const float* probs, int j, float th) {
     float c = 1.0f;
     for (int i = 0; i <= j; ++i) c = c * draft_cum_acc(probs[i]);
     return c >= th;
 }
 
 /// The rule's base threshold: what a request starts from and the device graph's default.
-constexpr float kDraftCumBase = 0.35f;
+constexpr float kDraftCumBase0 = 0.35f;
+
+/// The CPU-served expert bytes per expert slot, in MB, set once when the expert tiers are final.  Each extra verified
+/// token adds distinct experts the CPU must read from RAM, so a pack that leaves more bytes in RAM pays more per extra
+/// token; the rule's threshold rises with it.  Fixed by the pack and its placement, never by timing.
+inline float& draft_cum_cpu_mb() { static float v = 0.0f; return v; }
+inline float draft_cum_scale() {
+    constexpr float kLoMb = 1.1f, kHiMb = 3.5f, kMax = 1.5f;
+    const float t = (draft_cum_cpu_mb() - kLoMb) / (kHiMb - kLoMb);
+    return 1.0f + (kMax - 1.0f) * (t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t);
+}
+inline float draft_cum_base() { return kDraftCumBase0 * draft_cum_scale(); }
 
 /// Per-request threshold.  The threshold falls from the base toward kLo as the
 /// request's drafts are accepted more often than the bin table predicts: when they run well, longer windows pay.  The
 /// observed and expected accepted counts decay per window; the ratio sets the threshold along a linear ramp.  The
 /// window's value is fixed before its drafts are made and shared by the host rule and the device graph.
 struct DraftCumAdapt {
-    float base = kDraftCumBase;   ///< the threshold while nothing is known
+    float base = draft_cum_base();   ///< the threshold while nothing is known
     double obs = 0.0, exp = 0.0;
     float cur = base;
 
@@ -53,7 +62,7 @@ struct DraftCumAdapt {
     void observe(const float* probs, int n, int acc) {
         if (n <= 0) return;
         constexpr double kDecay = 0.97, kRlo = 0.9, kRhi = 1.1;
-        constexpr float kLo = 0.25f;
+        const float kLo = 0.25f * draft_cum_scale();
         double c = 1.0, e = 0.0;
         for (int j = 0; j < n; ++j) { c *= (double) draft_cum_acc(probs[j]); e += c; }
         obs = obs * kDecay + (double) acc;

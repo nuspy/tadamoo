@@ -23,13 +23,6 @@ from serve.util.reqlog import GATHER_CHARS, RequestLog, export_jsonl, export_tex
 from serve.util.reqtrace import request_params
 from serve.util.text import ByteTokenizer
 
-try:
-    import jsonschema  # noqa: F401
-    HAVE_JSONSCHEMA = True
-except ImportError:
-    HAVE_JSONSCHEMA = False
-
-
 class Clock:
     def __init__(self, t=1_700_000_000.0):
         self.t = t
@@ -289,66 +282,14 @@ class ChatRequests(Http):
         self.assertEqual([e["kind"] for e in later["events"]][0], "request")
         self.assertNotEqual(later["events"][0]["req"], first["events"][0]["req"])
 
-    @unittest.skipUnless(HAVE_JSONSCHEMA, "jsonschema is not installed")
-    def test_a_structured_retry_logs_every_try_and_the_repair_message(self):
-        entries = ",".join(json.dumps(x) for x in ["one"] + ["same entry here"] * 5)
-        bad = '{"items": [' + entries + ', "cut'
-        good = '{"items": ["a", "b"]}'
-        self.start(["Try one thoughts.</think>\n" + bad, "Try two thoughts.</think>\n" + good], telemetry=False)
-        schema = {"type": "object", "properties": {"items": {"type": "array", "items": {"type": "string"}}},
-                  "required": ["items"]}
-        body = {**self.CHAT, "response_format": {"type": "json_schema", "json_schema": {"name": "s", "schema": schema}}}
-        code, reply, _ = self.call("/v1/chat/completions", body)
-        self.assertEqual(code, 200, reply)
-        events = self.log()["events"]
-        self.assertEqual([e["kind"] for e in events],
-                         ["request", "timing", "reasoning", "content", "timing", "attempt", "repair",
-                          "timing", "reasoning", "content", "timing", "attempt", "finish"])
-        by = {}
-        for e in events:
-            by.setdefault(e["kind"], []).append(e)
-        self.assertEqual([e["data"]["attempt"] for e in by["reasoning"]], [1, 2])
-        self.assertEqual(by["content"][0]["text"], bad)                       # the discarded try's text is in the log
-        self.assertEqual(by["content"][1]["text"], good)
-        first, second = by["attempt"]
-        self.assertEqual((first["data"]["ok"], first["data"]["discarded"], first["data"]["retrying"]), (False, True, True))
-        self.assertIn("Unterminated string", first["data"]["error"])
-        self.assertEqual(first["data"]["finish_reason"], "stop")
-        self.assertEqual((second["data"]["ok"], second["data"]["discarded"]), (True, False))
-        repair = by["repair"][0]
-        self.assertEqual(repair["data"]["attempt"], 1)
-        self.assertEqual(repair["data"]["path"], "/items/6")
-        self.assertEqual(repair["data"]["repeated"]["count"], 5)
-        self.assertEqual((repair["data"]["repeated"]["first"], repair["data"]["repeated"]["last"]), (2, 6))
-        self.assertTrue(repair["text"].startswith("Your previous answer was rejected: model did not return valid JSON"))
-        self.assertIn(repair["text"], self.tok.decode(self.engine.requests[1][0]))     # exactly what was sent
-        self.assertNotIn(bad, repair["text"])
-        self.assertEqual(events[-1]["data"]["attempts"], 2)
-        self.assertEqual(events[0]["data"]["params"]["response_format"], {"type": "json_schema", "name": "s"})
-
-    @unittest.skipUnless(HAVE_JSONSCHEMA, "jsonschema is not installed")
-    def test_a_structured_failure_ends_with_the_error(self):
-        self.start('{"not": "a list"}', telemetry=False)
-        fmt = {"type": "json_schema", "json_schema": {"name": "s", "schema": {
-            "type": "object", "properties": {"items": {"type": "array"}}, "required": ["items"]}}}
-        code, reply, _ = self.call("/v1/chat/completions", {**self.CHAT, "response_format": fmt, "structured_retries": 0})
-        self.assertEqual(code, 502)
-        kinds = self.kinds()
-        self.assertEqual(kinds[-3:], ["attempt", "error", "finish"])
-        error = self.events("error")[0]["data"]
-        self.assertEqual(error["type"], "structured_output_failed")
-        self.assertTrue(error["message"].startswith("502: "))
-        self.assertFalse(self.events("attempt")[0]["data"]["retrying"])
-
     def test_a_refused_request_is_logged_with_its_error(self):
         self.start(telemetry=False)
+        tool = {"type": "function", "function": {"name": "f", "parameters": {"type": "object", "properties": {}}}}
         code, reply, _ = self.call("/v1/chat/completions", {**self.CHAT, "response_format": {"type": "json_object"},
-                                                           "structured_retries": 9})
+                                                           "tools": [tool]})
         self.assertEqual(code, 400)
         self.assertEqual(self.kinds(), ["request", "error", "finish"])
-        self.assertEqual(self.events("request")[0]["data"]["params"]["structured_retries"], 9)
-        self.assertIn("structured_retries", self.events("error")[0]["data"]["message"])
-        self.assertIsNone(self.events("finish")[0]["data"]["finish_reason"])
+        self.assertIn("response_format", self.events("error")[0]["data"]["message"])
 
     def test_a_body_that_is_not_json_is_kept_as_it_came(self):
         self.start(telemetry=False)
@@ -455,7 +396,7 @@ class Hardware(Http):
     def test_the_servers_own_lines_and_the_engines(self):
         self.start(telemetry=False)
         self.svc.logs.add("srv", "model unloaded after 60 s idle, the next request loads it")
-        self.svc.logs.add("eng", "CUDA error: out of memory")
+        self.svc.logs.add("eng", "basalt generate: error: CUDA error: out of memory")
         buffer = LogBuffer()
         self.svc.logs = buffer                                            # a new buffer is wired too
         tee = TeeStream(io.StringIO(), buffer, "srv")
@@ -464,7 +405,7 @@ class Hardware(Http):
         events = self.log()["events"]
         self.assertEqual([(e["kind"], e["data"]["level"], e["text"], e["req"]) for e in events], [
             ("server", "info", "model unloaded after 60 s idle, the next request loads it", None),
-            ("engine", "err", "CUDA error: out of memory", None),
+            ("engine", "err", "basalt generate: error: CUDA error: out of memory", None),
             ("server", "warn", "warning: the reply repeated one token", None),
             ("server", "info", "half a line", None)])
         self.assertEqual([x["msg"] for x in buffer.since(0)[0]][0], "warning: the reply repeated one token")   # /api/logs as before

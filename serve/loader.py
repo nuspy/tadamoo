@@ -66,7 +66,7 @@ MTP_EXPERT_BLOB = 1382400
 
 # what the engine does without the key (generate.cpp option defaults)
 ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.prefill": None, "engine.spec": 0,
-                   "engine.spec-min-p": 0, "engine.expert-cache": 0, "engine.resident-experts": False,
+                   "engine.expert-cache": 0, "engine.resident-experts": False,
                    "engine.vram-reserve-mib": 700, "engine.ple-io": "direct", "engine.pool-workers": None,
                    "server.parallel": 1, "server.slot-full-context": False, "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep", "engine.relaxed-drafting": None,
                    "server.port": 7232}
@@ -75,7 +75,7 @@ ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.pref
 # 5090 with 32 GiB, 128 GiB of RAM, a processor with 8 performance and 16 efficiency cores, the IQ3_XXS file with its
 # drafter and vision projector), kept as a documented example and for the tests
 SAFE = {"engine.max-context": 262144, "engine.kv": "q4_0", "engine.prefill": "auto", "engine.spec": 7,
-        "engine.spec-min-p": 0.5, "engine.expert-cache": "auto", "engine.resident-experts": True,
+        "engine.expert-cache": "auto", "engine.resident-experts": True,
         "engine.vram-reserve-mib": 1536, "engine.ple-io": "direct", "engine.pool-workers": 15,
         "server.parallel": 1, "server.slot-full-context": False, "server.vision": "dynamic"}
 
@@ -399,7 +399,7 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
         cell = KV_CELL_BYTES["int8" if kvf == "k8v4" else kvf] + 128
         drafter = facts["mtp_bytes"] + par * cell * ctx + spec * facts.get("n_vocab", 0) * 4
     projector = pick_projector(v["server.vision-projector"], facts)
-    vision_vram = VISION_SIDECAR if mode == "on" else (ctx + 64) * 12 if mode == "dynamic" else 0
+    vision_vram = VISION_SIDECAR if str(mode).isdigit() else (ctx + 64) * 12 if mode == "dynamic" else 0
     buffers = VERIFY_WINDOWS + LATE_DEVICE
     if not facts.get("has_profile"):                    # without a profile the prompt buffers are not borrowed
         buffers += (160 + prefill_chunk(v) * 680 // 1024) * MiB
@@ -586,7 +586,7 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
     the RAM and of the commit limit stays free (`keep_share`, else the saved one, else 15%); the VRAM reserve is
     `reserve_mib`, else the one the wizard saved, else reserve_proposal() for where the monitor is (`monitor`, else
     the wizard's answer); the KV cache is the smallest (q4_0) and the context the longest that fits; the drafter is
-    on (spec 7, spec-min-p 0.5) when the file has one; prefill auto; the experts are resident in RAM and the PLE table
+    on (spec 7) when the file has one; prefill auto; the experts are resident in RAM and the PLE table
     in RAM when they fit; the CPU workers follow the cores (hardware.pool_workers). `why`, when given, is filled with
     each value's reason {key: (English, Italian)}."""
     from serve import hardware
@@ -611,7 +611,7 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
     picked = pick_projector("auto", facts)
     vision = "dynamic" if picked and not picked["problem"] else "off"
     out = {"engine.max-context": CONTEXT_STEPS[-1], "engine.kv": "q4_0", "engine.prefill": "auto",
-           "engine.spec": 7 if mtp else 0, "engine.spec-min-p": 0.5 if mtp else None, "engine.expert-cache": "auto",
+           "engine.spec": 7 if mtp else 0, "engine.expert-cache": "auto",
            "engine.resident-experts": True, "engine.vram-reserve-mib": reserve, "engine.ple-io": "direct",
            "engine.pool-workers": workers, "server.parallel": 1, "server.slot-full-context": False,
            "server.vision": vision}
@@ -654,10 +654,6 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
                          "0: this model file has no MTP drafter."),
                         ("7: il drafter propone fino a 6 token per passo; di solito la velocità migliore." if mtp else
                          "0: questo file non ha il drafter MTP.")),
-        "engine.spec-min-p": (("0.5: drafting stops when the drafter is unsure, so fewer wasted checks." if mtp else
-                               "Not used without a drafter."),
-                              ("0.5: il drafter si ferma quando è incerto, meno verifiche sprecate." if mtp else
-                               "Non serve senza drafter.")),
         "engine.expert-cache": ("auto: every MiB of VRAM left after the reserve holds experts.",
                                 "auto: tutta la VRAM che resta oltre la riserva contiene esperti."),
         "engine.resident-experts": (
@@ -722,7 +718,7 @@ def reserve_warnings(values: dict, gpu: dict | None, monitor: str | None = ...) 
 
 
 # ------------------------------------------------------------------------------------------------ speed
-SPEED_KEYS = ("engine.kv", "engine.max-context", "engine.prefill", "engine.spec", "engine.spec-min-p",
+SPEED_KEYS = ("engine.kv", "engine.max-context", "engine.prefill", "engine.spec",
               "engine.expert-cache", "engine.resident-experts", "engine.vram-reserve-mib", "engine.ple-io",
               "engine.pool-workers", "server.parallel", "server.slot-full-context", "server.vision")
 

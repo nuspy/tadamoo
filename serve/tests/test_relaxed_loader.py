@@ -71,26 +71,36 @@ class ThePageRule(unittest.TestCase):
         return json.loads(out.stdout)
 
     def test_switching_on_sets_what_it_needs_and_remembers_what_there_was(self):
-        got = self.run_js('''const cur={mtp:false,"engine.spec":"","server.parallel":"3","server.slot-full-context":true,"engine.spec-min-p":""};
+        got = self.run_js('''const cur={mtp:false,"engine.spec":"","server.parallel":"3","server.slot-full-context":true};
           console.log(JSON.stringify(R.enter(cur)))''')
-        self.assertEqual(got["set"], {"mtp": True, "engine.spec": "7", "server.parallel": "1", "server.slot-full-context": False, "engine.spec-min-p": "0.5"})
-        self.assertEqual(got["before"], {"mtp": False, "engine.spec": "", "server.parallel": "3", "server.slot-full-context": True, "engine.spec-min-p": ""})
+        self.assertEqual(got["set"], {"mtp": True, "engine.spec": "7", "server.parallel": "1", "server.slot-full-context": False})
+        self.assertEqual(got["before"], {"mtp": False, "engine.spec": "", "server.parallel": "3", "server.slot-full-context": True})
+
+    def test_it_no_longer_touches_the_drafting_floor(self):
+        got = self.run_js('''const cur={mtp:false,"engine.spec":"","server.parallel":"3","server.slot-full-context":true,"engine.spec-min-p":""};
+          const u=R.enter(cur);
+          console.log(JSON.stringify({names:R.NAMES,u,l:R.leave({mtp:true,"engine.spec":"7","server.parallel":"1","server.slot-full-context":false,"engine.spec-min-p":"0.5"},u)}))''')
+        self.assertNotIn("engine.spec-min-p", got["names"])
+        self.assertNotIn("engine.spec-min-p", got["u"]["set"])
+        self.assertNotIn("engine.spec-min-p", got["u"]["before"])
+        self.assertNotIn("engine.spec-min-p", got["l"]["restore"])
+        self.assertNotIn("engine.spec-min-p", got["l"]["kept"])
 
     def test_what_already_fits_is_left_alone(self):
-        got = self.run_js('''const cur={mtp:true,"engine.spec":"5","server.parallel":"","server.slot-full-context":false,"engine.spec-min-p":"0.3"};
+        got = self.run_js('''const cur={mtp:true,"engine.spec":"5","server.parallel":"","server.slot-full-context":false};
           console.log(JSON.stringify(R.enter(cur)))''')
         self.assertEqual(got, {"before": {}, "set": {}})
 
     def test_switching_off_gives_back_what_it_changed_and_keeps_what_was_changed_since(self):
-        got = self.run_js('''const cur={mtp:false,"engine.spec":"","server.parallel":"3","server.slot-full-context":true,"engine.spec-min-p":""};
+        got = self.run_js('''const cur={mtp:false,"engine.spec":"","server.parallel":"3","server.slot-full-context":true};
           const u=R.enter(cur);
-          const now={mtp:true,"engine.spec":"7","server.parallel":"1","server.slot-full-context":false,"engine.spec-min-p":"0.5"};
+          const now={mtp:true,"engine.spec":"7","server.parallel":"1","server.slot-full-context":false};
           const a=R.leave(now,u);
-          const b=R.leave({...now,"engine.spec":"6","engine.spec-min-p":"0.4"},u);
+          const b=R.leave({...now,"engine.spec":"6"},u);
           console.log(JSON.stringify({a,b,holds:R.holds(now,u),gone:R.holds({...now,"server.parallel":"2"},u),none:R.holds(now,null)}))''')
-        self.assertEqual(got["a"]["restore"], {"mtp": False, "engine.spec": "", "server.parallel": "3", "server.slot-full-context": True, "engine.spec-min-p": ""})
+        self.assertEqual(got["a"]["restore"], {"mtp": False, "engine.spec": "", "server.parallel": "3", "server.slot-full-context": True})
         self.assertEqual(got["a"]["kept"], [])
-        self.assertEqual(sorted(got["b"]["kept"]), ["engine.spec", "engine.spec-min-p"])
+        self.assertEqual(got["b"]["kept"], ["engine.spec"])
         self.assertNotIn("engine.spec", got["b"]["restore"])
         self.assertEqual(got["b"]["restore"]["server.parallel"], "3")
         self.assertEqual((got["holds"], got["gone"], got["none"]), (True, False, False))
@@ -104,12 +114,14 @@ class ThePage(unittest.TestCase):
         self.assertIn('name: "engine.relaxed-drafting", kind: "choice"', js)
         for part in ("rxChanged", "rxResync", "BasaltRelaxed.enter", "BasaltRelaxed.leave", 'id="rx-note"'):
             self.assertIn(part, js, part)
+        for name in ("loader.js", "relaxed.js", "wizard.js", "i18n.js"):
+            self.assertNotIn("spec-min-p", (WEB / name).read_text(encoding="utf-8"), name)
 
     def test_every_text_it_shows_is_in_english_and_italian(self):
         js = (WEB / "loader.js").read_text(encoding="utf-8") + (WEB / "relaxed.js").read_text(encoding="utf-8")
         i18n = (WEB / "i18n.js").read_text(encoding="utf-8")
         en, it = i18n.index("  en: {"), i18n.index("  it: {")
-        keys = {k for k in re.findall(r'T\("(rx\.[a-z.-]+)"', js) if not k.endswith(".")} | {f"rx.why.{n}" for n in ("mtp", "engine.spec", "server.parallel", "server.slot-full-context", "engine.spec-min-p")}
+        keys = {k for k in re.findall(r'T\("(rx\.[a-z.-]+)"', js) if not k.endswith(".")} | {f"rx.why.{n}" for n in ("mtp", "engine.spec", "server.parallel", "server.slot-full-context")}
         keys |= {"rx.no.spec", "rx.no.mtp", "rx.no.parallel", "f.engine.relaxed-drafting", "h.engine.relaxed-drafting"}
         keys |= {f"o.engine.relaxed-drafting.{v}" for v in ("0.5", "0.3", "0.2")}
         self.assertGreater(len(keys), 15)

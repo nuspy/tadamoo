@@ -5,13 +5,16 @@
 #include "basalt/kernels/dp4a.hpp"
 #include "basalt/kernels/pdl.hpp"
 #include "head_proxy.cuh"
+#include "smem_opt_in.cuh"
 
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include "basalt/log.hpp"
 
 namespace basalt::kernels {
 namespace {
@@ -250,19 +253,20 @@ template <int NC>
 void launch_nc(const void* w, const void* x, float* y, int n_out, cudaStream_t s) {
     // one resident wave: every warp walks rows with the grid's stride
     static int grid_max[64] = {};
-    int dev = 0;
-    if (cudaGetDevice(&dev) != cudaSuccess || dev < 0 || dev >= 64) dev = 0;
+    static std::atomic<bool> ready[64];
+    const int dev = opt_in_device("q6k_head");
     const size_t smem = (size_t) NC * XBLK * 8 * sizeof(int2);
-    static bool set[64] = {};
-    if (!set[dev]) {
-        cudaFuncSetAttribute(q6k_head_kernel<NC>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int) smem);
-        set[dev] = true;
-    }
-    if (grid_max[dev] == 0) {
-        int sms = 0, per_sm = 0;
-        cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, dev);
-        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&per_sm, q6k_head_kernel<NC>, WPB * WARP, smem);
-        grid_max[dev] = (sms > 0 ? sms : 1) * (per_sm > 0 ? per_sm : 1);
+    if (!ready[dev].load(std::memory_order_acquire)) {
+        std::lock_guard<std::mutex> lk(opt_in_mutex());
+        if (!ready[dev].load(std::memory_order_relaxed)) {
+            opt_in_check(cudaFuncSetAttribute(q6k_head_kernel<NC>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int) smem),
+                         "q6k_head");
+            int sms = 0, per_sm = 0;
+            cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, dev);
+            cudaOccupancyMaxActiveBlocksPerMultiprocessor(&per_sm, q6k_head_kernel<NC>, WPB * WARP, smem);
+            grid_max[dev] = (sms > 0 ? sms : 1) * (per_sm > 0 ? per_sm : 1);
+            ready[dev].store(true, std::memory_order_release);
+        }
     }
     const long long want = ((long long) n_out + WPB - 1) / WPB;
     const unsigned grid = (unsigned) (want < grid_max[dev] ? want : grid_max[dev]);
@@ -666,7 +670,7 @@ bool q6k_head_top1(const void* weights, const void* x_q8_1, float* y, int n_in, 
                                                                          out_prob, part, count);
     const cudaError_t e = cudaGetLastError();
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "q6k_head_top1: %s\n", cudaGetErrorString(e));
+        basalt::log::error("basalt", "q6k_head_top1: %s", cudaGetErrorString(e));
         std::exit(1);
     }
     return true;
@@ -674,7 +678,7 @@ bool q6k_head_top1(const void* weights, const void* x_q8_1, float* y, int n_in, 
 
 void q6k_head_mmvq(const void* weights, const void* x_q8_1, float* y, int n_in, int n_out, int ncols, void* stream) {
     if (!q6k_head_supported(n_in, ncols) || n_out <= 0 || !weights || !x_q8_1 || !y) {
-        std::fprintf(stderr, "q6k_head_mmvq: unsupported shape (n_in %d, ncols %d)\n", n_in, ncols);
+        basalt::log::error("basalt", "q6k_head_mmvq: unsupported shape (n_in %d, ncols %d)", n_in, ncols);
         std::exit(1);
     }
     const auto s = (cudaStream_t) stream;
@@ -690,7 +694,7 @@ void q6k_head_mmvq(const void* weights, const void* x_q8_1, float* y, int n_in, 
     }
     const cudaError_t e = cudaGetLastError();
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "q6k_head_mmvq: %s\n", cudaGetErrorString(e));
+        basalt::log::error("basalt", "q6k_head_mmvq: %s", cudaGetErrorString(e));
         std::exit(1);
     }
 }
@@ -702,7 +706,7 @@ void q6k_proxy_pack(const void* q6k_rows, int64_t row0, int64_t n, void* proxy, 
         (const Q6KBlock*) q6k_rows, row0, n, (uint4*) proxy, px::scales(proxy, n_cap));
     const cudaError_t e = cudaGetLastError();
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "q6k_proxy_pack: %s\n", cudaGetErrorString(e));
+        basalt::log::error("basalt", "q6k_proxy_pack: %s", cudaGetErrorString(e));
         std::exit(1);
     }
 }
@@ -722,7 +726,7 @@ bool q6k_proxy_top1(const void* proxy, const void* q6k_rows, const void* x_q8_1,
                (const Q81Block*) x_q8_1, tiles, map, (const float2*) cand, (const float2*) part, out_id, out_prob);
     const cudaError_t e = cudaGetLastError();
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "q6k_proxy_top1: %s\n", cudaGetErrorString(e));
+        basalt::log::error("basalt", "q6k_proxy_top1: %s", cudaGetErrorString(e));
         std::exit(1);
     }
     return true;
@@ -732,7 +736,7 @@ size_t q6k_vproxy_bytes(int64_t n) { return n > 0 && n % 16 == 0 ? vlevels_bytes
 
 void q6k_vproxy_pack(const void* q6k_rows, int64_t n, void* proxy, void* stream) {
     if (n <= 0 || n % 16 != 0) {
-        std::fprintf(stderr, "q6k_vproxy_pack: %lld rows (a positive multiple of 16)\n", (long long) n);
+        basalt::log::error("basalt", "q6k_vproxy_pack: %lld rows (a positive multiple of 16)", (long long) n);
         std::exit(1);
     }
     const auto s = (cudaStream_t) stream;
@@ -742,7 +746,7 @@ void q6k_vproxy_pack(const void* q6k_rows, int64_t n, void* proxy, void* stream)
         (const Q6KBlock*) q6k_rows, n, (uint32_t*) proxy, (__half*) ((char*) proxy + vlevels_bytes(n)));
     const cudaError_t e = cudaGetLastError();
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "q6k_vproxy_pack: %s\n", cudaGetErrorString(e));
+        basalt::log::error("basalt", "q6k_vproxy_pack: %s", cudaGetErrorString(e));
         std::exit(1);
     }
 }
@@ -756,7 +760,7 @@ bool q6k_vhead_supported(int n_in, int n_out, int ncols) {
 void q6k_vhead(const void* proxy, const void* weights, const void* x_q8_1, float* y, int n_in, int n_out, int ncols,
                void* scratch, void* stream) {
     if (!q6k_vhead_supported(n_in, n_out, ncols) || !proxy || !weights || !x_q8_1 || !y || !scratch) {
-        std::fprintf(stderr, "q6k_vhead: unsupported shape (n_in %d, n_out %d, ncols %d)\n", n_in, n_out, ncols);
+        basalt::log::error("basalt", "q6k_vhead: unsupported shape (n_in %d, n_out %d, ncols %d)", n_in, n_out, ncols);
         std::exit(1);
     }
     const auto s = (cudaStream_t) stream;
@@ -773,12 +777,18 @@ void q6k_vhead(const void* proxy, const void* weights, const void* x_q8_1, float
         default: vscore_launch<8>(proxy, x_q8_1, y, n_out, vs, s); break;
     }
     static int sms[64] = {};
-    int dev = 0;
-    if (cudaGetDevice(&dev) != cudaSuccess || dev < 0 || dev >= 64) dev = 0;
-    if (sms[dev] == 0) {
-        cudaDeviceGetAttribute(&sms[dev], cudaDevAttrMultiProcessorCount, dev);
-        cudaFuncSetAttribute(q6k_vrescore_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 8 * XBLK * 8 * (int) sizeof(int2));
-        if (sms[dev] <= 0) sms[dev] = 1;
+    static std::atomic<bool> ready[64];
+    const int dev = opt_in_device("q6k_vhead");
+    if (!ready[dev].load(std::memory_order_acquire)) {
+        std::lock_guard<std::mutex> lk(opt_in_mutex());
+        if (!ready[dev].load(std::memory_order_relaxed)) {
+            cudaDeviceGetAttribute(&sms[dev], cudaDevAttrMultiProcessorCount, dev);
+            opt_in_check(cudaFuncSetAttribute(q6k_vrescore_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                              8 * XBLK * 8 * (int) sizeof(int2)),
+                         "q6k_vhead");
+            if (sms[dev] <= 0) sms[dev] = 1;
+            ready[dev].store(true, std::memory_order_release);
+        }
     }
     launch_pdl(q6k_vselect_kernel, dim3((unsigned) sms[dev] * 2), dim3(256), 0, s, (const float*) y, n_out, ncols, vs,
                list);
@@ -786,7 +796,7 @@ void q6k_vhead(const void* proxy, const void* weights, const void* x_q8_1, float
                (const Q6KBlock*) weights, (const Q81Block*) x_q8_1, y, n_out, ncols, vs, (const uint32_t*) list);
     const cudaError_t e = cudaGetLastError();
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "q6k_vhead: %s\n", cudaGetErrorString(e));
+        basalt::log::error("basalt", "q6k_vhead: %s", cudaGetErrorString(e));
         std::exit(1);
     }
 }

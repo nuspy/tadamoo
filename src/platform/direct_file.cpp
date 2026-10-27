@@ -1,6 +1,8 @@
 // src/platform/direct_file.cpp - see include/basalt/platform/direct_file.hpp.
 #include "basalt/platform/direct_file.hpp"
 
+#include "basalt/platform/file.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
@@ -12,7 +14,7 @@
 #include <vector>
 
 #if defined(_WIN32)
-#include "basalt/platform/compat.hpp"   // windows.h, widen()
+#include "basalt/platform/win.hpp"
 #else
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -28,7 +30,9 @@ double now_us() {
 
 void* DirectFile::alloc_aligned(size_t bytes) {
 #if defined(_WIN32)
-    return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);   // page-aligned
+    // A fresh VirtualAlloc block starts at an allocation granularity boundary, so it satisfies the unbuffered
+    // contract without the cache manager ever having held these pages.
+    return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 #else
     void* p = nullptr;
     return posix_memalign(&p, alignment(), bytes) == 0 ? p : nullptr;
@@ -55,35 +59,41 @@ struct Pending {
     uint64_t tag;
 };
 
-/// The number of issuing threads, clamped to 1..64 (each thread does one blocking pread, so the thread count is
-/// the queue depth).
-int io_threads(int dflt) { return std::clamp(dflt, 1, 64); }
+/// The number of issuing threads, clamped to 1..256. On Linux each thread does one blocking pread, so the thread
+/// count is the queue depth. On Windows a read stays in flight after its issuing thread moves on, so the count
+/// only bounds how fast the submitted queue reaches the drive; the depth itself is what the caller queued.
+int io_threads(int dflt) { return std::clamp(dflt, 1, 256); }
 }  // namespace
 
 #if defined(_WIN32)
 // ------------------------------------------------------------------------------------------------ Windows
-// FILE_FLAG_NO_BUFFERING + FILE_FLAG_OVERLAPPED: the cache manager never holds these pages and many reads are in
-// flight at once, completed through an I/O completion port.  A few threads only issue the overlapped reads (an
-// overlapped ReadFile can still spend kernel time before it returns), so the queue depth is not the thread count.
 namespace {
-/// One in-flight request.  The OVERLAPPED is the first member, so a completion packet's OVERLAPPED* converts back.
+/// One in-flight request. The OVERLAPPED is the first member so that a completion packet's OVERLAPPED* converts
+/// back to the request it belongs to.
 struct Req {
     OVERLAPPED ov;
     uint64_t tag;
 };
+
+/// The completion key of a posted packet that carries no request. A `wake` is turned into a WAKE_TAG completion
+/// for the caller; the nudge of an immediate completion only says the internal buffer has something in it, and
+/// never reaches the caller, so `wake()` keeps its meaning. The key of a real read is the one the file was
+/// associated with (0) and it always carries an OVERLAPPED.
+constexpr ULONG_PTR WAKE_KEY = 1;
+constexpr ULONG_PTR NUDGE_KEY = 2;
 }  // namespace
 
 struct DirectFile::Impl {
     HANDLE file = INVALID_HANDLE_VALUE;
     HANDLE port = nullptr;
     uint64_t size = 0;
-    std::mutex mu;                      // everything below
+    std::mutex mu;                      // guards everything below
     std::deque<Req*> free_reqs;
     std::vector<Req*> all_reqs;
-    std::deque<Completion> immediate;   // requests that completed without a port packet (EOF) or failed to issue
+    std::deque<Completion> immediate;   // completions ready to hand out: a read that hit end of file or failed
+                                        // without a port packet, a wake, and any that did not fit the last wait
     std::deque<Pending> queue;          // submitted, not yet issued
-    int wakes = 0;                      // wake() calls not yet delivered as a WAKE_TAG completion
-    int64_t inflight = 0;               // reads issued whose port packet has not been taken yet
+    size_t inflight = 0;                // reads whose completion packet has not been retrieved yet
     std::condition_variable cv;
     bool stop = false;
     std::vector<std::thread> pool;
@@ -104,50 +114,49 @@ struct DirectFile::Impl {
         {
             std::lock_guard<std::mutex> lk(mu);
             r = take();
+            // Counted before the read starts: a read that finishes at once can have its packet retrieved by a
+            // waiter before this thread would get the chance to record it, and a count that goes past zero leaves
+            // close() waiting for a packet that has already been taken.
+            ++inflight;
         }
         std::memset(&r->ov, 0, sizeof r->ov);
         r->ov.Offset = (DWORD) (p.offset & 0xFFFFFFFFull);
         r->ov.OffsetHigh = (DWORD) (p.offset >> 32);
         r->tag = p.tag;
-        {
-            std::lock_guard<std::mutex> lk(mu);
-            ++inflight;   // before the read: its packet may be taken before ReadFile returns
-        }
         if (!ReadFile(file, p.buffer, p.length, nullptr, &r->ov)) {
             const DWORD e = GetLastError();
             if (e != ERROR_IO_PENDING) {
                 std::lock_guard<std::mutex> lk(mu);
-                --inflight;   // no packet will come for it
                 free_reqs.push_back(r);
+                --inflight;   // a read the kernel never took produces no packet
                 // at or past end of file: a zero-byte completion; anything else: a failed one
                 immediate.push_back(Completion{p.tag, 0, e == ERROR_HANDLE_EOF});
-                PostQueuedCompletionStatus(port, 0, 0, nullptr);   // wake a waiter to collect it
+                PostQueuedCompletionStatus(port, 0, NUDGE_KEY, nullptr);   // tell a waiter the buffer has work
+                return;
             }
         }
     }
 
-    // After the issuing threads stopped: cancel what is in flight and take every read's packet, so no read writes
-    // into a caller's buffer after close() returned (the caller frees it next).
+    /// Retrieve the packet of every read still in flight and hand its request back to the free list. A packet is
+    /// queued only once the kernel has stopped writing the OVERLAPPED and the caller's buffer, so after this no
+    /// late completion can land in memory the caller has released. Cancelling keeps a teardown from waiting out
+    /// reads nobody wants any more; a cancelled read still produces a packet.
     void drain() {
-        if (file == INVALID_HANDLE_VALUE || port == nullptr) return;
-        (void) CancelIoEx(file, nullptr);
+        if (file != INVALID_HANDLE_VALUE) CancelIoEx(file, nullptr);
+        if (port == nullptr) return;
         for (;;) {
             {
                 std::lock_guard<std::mutex> lk(mu);
-                if (inflight <= 0) return;
+                if (inflight == 0) return;
             }
-            OVERLAPPED_ENTRY e[64];
-            ULONG got = 0;
-            if (!GetQueuedCompletionStatusEx(port, e, 64, &got, 5000, FALSE)) {
-                if (GetLastError() == WAIT_TIMEOUT) continue;   // a read the drive still holds
-                return;
-            }
+            DWORD bytes = 0;
+            ULONG_PTR key = 0;
+            OVERLAPPED* ov = nullptr;
+            if (!GetQueuedCompletionStatus(port, &bytes, &key, &ov, INFINITE)) return;
+            if (ov == nullptr) continue;   // a posted wake or nudge: it carries no request
             std::lock_guard<std::mutex> lk(mu);
-            for (ULONG i = 0; i < got; ++i) {
-                if (e[i].lpOverlapped == nullptr) continue;
-                free_reqs.push_back((Req*) e[i].lpOverlapped);
-                --inflight;
-            }
+            free_reqs.push_back((Req*) ov);
+            --inflight;
         }
     }
 
@@ -174,15 +183,6 @@ struct DirectFile::Impl {
         pool.clear();
         stop = false;
     }
-
-    // the queued immediate completions, up to `max` (under `mu`)
-    int drain_immediate(Completion* out, int n, int max) {
-        while (n < max && !immediate.empty()) {
-            out[n++] = immediate.front();
-            immediate.pop_front();
-        }
-        return n;
-    }
 };
 
 DirectFile::DirectFile() : impl_(new Impl) {}
@@ -194,9 +194,9 @@ DirectFile::~DirectFile() {
 
 bool DirectFile::open(const std::string& path, std::string& err) {
     close();
-    const std::wstring wpath = widen(path);
-    // RANDOM_ACCESS: no read-ahead (the table is read at random)
-    impl_->file = CreateFileW(wpath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+    // NO_BUFFERING: the cache manager never holds these pages, so the table cannot grow into RAM.
+    // RANDOM_ACCESS: no read-ahead. OVERLAPPED: many reads in flight, completed through the port below.
+    impl_->file = CreateFileW(to_wide(path).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                               FILE_FLAG_NO_BUFFERING | FILE_FLAG_OVERLAPPED | FILE_FLAG_RANDOM_ACCESS, nullptr);
     if (impl_->file == INVALID_HANDLE_VALUE) {
         err = "DirectFile: cannot open " + path + " (error " + std::to_string(GetLastError()) + ")";
@@ -215,25 +215,23 @@ bool DirectFile::open(const std::string& path, std::string& err) {
         close();
         return false;
     }
-    // Completions of reads that finish synchronously are still queued to the port, so every issued read produces
-    // exactly one packet; `wait` is the only completion path.
-    const int n = io_threads(4);
+    const int n = io_threads(16);
     for (int i = 0; i < n; ++i) impl_->pool.emplace_back([this] { impl_->worker(); });
     return true;
 }
 
 void DirectFile::close() {
-    impl_->stop_pool();
-    impl_->drain();
+    impl_->stop_pool();   // after this no thread is left that could issue another read
+    impl_->drain();       // ... and every read already in flight has finished writing
     if (impl_->port != nullptr) CloseHandle(impl_->port);
     if (impl_->file != INVALID_HANDLE_VALUE) CloseHandle(impl_->file);
     impl_->port = nullptr;
     impl_->file = INVALID_HANDLE_VALUE;
     impl_->size = 0;
+    std::lock_guard<std::mutex> lk(impl_->mu);
     impl_->immediate.clear();
     impl_->queue.clear();
-    impl_->wakes = 0;
-    impl_->inflight = 0;
+    impl_->inflight = 0;   // the port is gone, so no packet is left to retrieve
 }
 
 bool DirectFile::is_open() const { return impl_->file != INVALID_HANDLE_VALUE; }
@@ -255,51 +253,62 @@ bool DirectFile::submit(uint64_t offset, void* buffer, uint32_t length, uint64_t
 
 int DirectFile::wait(Completion* out, int max, int timeout_ms) {
     if (max <= 0) return 0;
+    using clock = std::chrono::steady_clock;
+    const bool timed = timeout_ms >= 0;
+    const auto deadline = clock::now() + std::chrono::milliseconds(timed ? timeout_ms : 0);
+    int n = 0;
     for (;;) {
-        int n = 0;
         {
             std::lock_guard<std::mutex> lk(impl_->mu);
-            n = impl_->drain_immediate(out, 0, max);
+            while (n < max && !impl_->immediate.empty()) {
+                out[n++] = impl_->immediate.front();
+                impl_->immediate.pop_front();
+            }
         }
-        if (n == max || !is_open()) return n;
+        if (n > 0 || !is_open()) return n;   // hand out whatever is ready rather than waiting to fill `max`
+        DWORD t = INFINITE;
+        if (timed) {
+            const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - clock::now()).count();
+            t = (DWORD) (left > 0 ? left : 0);
+        }
+        // Packets are taken in batches of up to 64 whatever `max` is: a completion that does not fit the caller's
+        // array goes into the buffer for the next call, so `out` never holds more than `max` and one call leaves
+        // at most one batch behind in the buffer.
         OVERLAPPED_ENTRY entries[64];
-        const ULONG want = (ULONG) (max - n < 64 ? max - n : 64);
         ULONG got = 0;
-        const DWORD t = timeout_ms < 0 ? INFINITE : (DWORD) timeout_ms;
-        if (!GetQueuedCompletionStatusEx(impl_->port, entries, want, &got, n > 0 ? 0 : t, FALSE)) return n;
+        if (!GetQueuedCompletionStatusEx(impl_->port, entries, 64, &got, t, FALSE)) return n;
         std::lock_guard<std::mutex> lk(impl_->mu);
         for (ULONG i = 0; i < got; ++i) {
-            if (entries[i].lpOverlapped == nullptr) {   // a wake() packet, or an immediate completion's nudge
-                n = impl_->drain_immediate(out, n, max);
-                if (impl_->wakes > 0 && n < max) {
-                    --impl_->wakes;
-                    out[n++] = Completion{WAKE_TAG, 0, true};
+            if (entries[i].lpOverlapped == nullptr) {
+                // The nudge of an immediate completion is already represented by the buffered completion, so it
+                // is swallowed here; only a real wake is turned into a completion of its own.
+                if (entries[i].lpCompletionKey == WAKE_KEY) {
+                    Completion w{WAKE_TAG, 0, true};
+                    if (n < max) out[n++] = w;
+                    else impl_->immediate.push_back(w);
                 }
                 continue;
             }
             Req* r = (Req*) entries[i].lpOverlapped;
-            --impl_->inflight;
             const uint32_t status = (uint32_t) r->ov.Internal;   // an NTSTATUS
             Completion c;
             c.tag = r->tag;
             c.bytes = entries[i].dwNumberOfBytesTransferred;
-            // STATUS_END_OF_FILE (0xC0000011) is a legal short read at the table's last page.
+            // STATUS_END_OF_FILE is a legal short read at the table's last page.
             c.ok = status == 0 || status == 0xC0000011u;
-            out[n++] = c;
+            if (n < max) out[n++] = c;
+            else impl_->immediate.push_back(c);
             impl_->free_reqs.push_back(r);
+            --impl_->inflight;
         }
-        // only nudges whose completions an earlier call already took: an infinite wait waits again
-        if (n > 0 || timeout_ms >= 0) return n;
+        // A batch of nothing but nudges hands the caller nothing: keep waiting until the deadline instead of
+        // reporting a completion-less wait that had time left.
+        if (n > 0) return n;
     }
 }
 
 void DirectFile::wake() {
-    if (impl_->port == nullptr) return;
-    {
-        std::lock_guard<std::mutex> lk(impl_->mu);
-        ++impl_->wakes;
-    }
-    PostQueuedCompletionStatus(impl_->port, 0, 0, nullptr);
+    if (impl_->port != nullptr) PostQueuedCompletionStatus(impl_->port, 0, WAKE_KEY, nullptr);
 }
 
 #else
@@ -326,8 +335,10 @@ struct DirectFile::Impl {
             lk.unlock();
             const ssize_t got = pread(fd, p.buffer, p.length, (off_t) p.offset);
             lk.lock();
+            // only a waiter that found the list empty is blocked, so only the first completion needs to wake it
+            const bool was_empty = done.empty();
             done.push_back(Completion{p.tag, got < 0 ? 0u : (uint32_t) got, got >= 0});
-            cv_done.notify_all();
+            if (was_empty) cv_done.notify_all();
         }
     }
 
@@ -353,7 +364,8 @@ bool DirectFile::open(const std::string& path, std::string& err) {
     struct stat st;
     if (fstat(impl_->fd, &st) != 0) { err = "DirectFile: cannot size " + path; close(); return false; }
     impl_->size = (uint64_t) st.st_size;
-    const int n = io_threads(16);
+    // one blocking read per thread: a drive serves random pages at its full rate only with a deep queue
+    const int n = io_threads(256);
     for (int i = 0; i < n; ++i) impl_->pool.emplace_back([this] { impl_->worker(); });
     return true;
 }

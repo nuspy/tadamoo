@@ -1,6 +1,7 @@
 // src/kernels/cuda/pk_moe.cuh - see include/basalt/kernels/pk_moe.hpp.  Included at the end of iq_kernels.cu, after
 // dec_moe.cuh: it runs that file's gate/up items (gu2::pair), SwiGLU (dm_swiglu_q8) and down items (dm_down_item).
 #include "basalt/kernels/pk_moe.hpp"
+#include "basalt/log.hpp"
 
 namespace basalt::kernels {
 namespace {
@@ -162,7 +163,7 @@ __global__ void __launch_bounds__(256, 2) pk_moe_kernel(PkMoeArgs a, NativeExper
 #pragma unroll
         for (int sb = 0; sb < SUB; ++sb)
             dm_down_item<TD>((const uint8_t*) sm.gptr[g] + L.down_off + (size_t) ((sp * SUB + sb) * R) * L.d_row, e0, e1,
-                             sm.hq, L, sp * SUB + sb, sm.out + sb * R, tid, kPkSpan);
+                             sm.hq, L, sp * SUB + sb, sm.out + sb * R, tid, kPkSpan, sm.gptr[g]);
         __syncthreads();
         constexpr int q = kPkSpan / 4;
         const int nq = (e1 - e0) * q;
@@ -247,7 +248,7 @@ void pk_moe_experts(const NativeExpertLayout& L, const PkMoeArgs& a, void* scrat
     float* up = gate + (size_t) kDmCap * L.n_ff;
     const int n = a.n_tok * a.k;
     if (n > kDmCap || a.k != 10 || a.n_tok < 1) {
-        std::fprintf(stderr, "pk_moe_experts: %d tokens, k %d\n", a.n_tok, a.k);
+        basalt::log::error("basalt", "pk_moe_experts: %d tokens, k %d", a.n_tok, a.k);
         std::exit(1);
     }
     const int items = (int) ((2 * L.n_ff + GU2_ROWS - 1) / GU2_ROWS) * n;
@@ -266,7 +267,7 @@ void pk_moe_experts(const NativeExpertLayout& L, const PkMoeArgs& a, void* scrat
         default: break;
     }
     if (!done) {
-        std::fprintf(stderr, "pk_moe_experts: formats %d / %d\n", L.gu_type, L.d_type);
+        basalt::log::error("basalt", "pk_moe_experts: formats %d / %d", L.gu_type, L.d_type);
         std::exit(1);
     }
     check("pk_moe_experts");

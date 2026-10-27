@@ -35,6 +35,10 @@ namespace basalt::core {
 
 class NativeHead;
 
+/// The longest draft chain (the drafter's `max_t`): a verify window holds at most kVerifyMaxT rows, a chain may run on
+/// past it so a window launched ahead has drafts.
+constexpr int kMtpChainMax = 16;
+
 /// The drafter's files: the `mtp/...` sections of a .basalt.
 struct MtpFiles {
     FileRange dense, index, experts, draft_vocab;   ///< dense, dense.index, experts, draft_vocab (optional)
@@ -75,8 +79,18 @@ public:
     /// Captures every conditional draft graph (each draft-head tier, each window width) now rather than at its first
     /// use. After `bind` and `set_max_drafts`.
     bool prewarm(std::string& err);
-    /// The cumulative draft rule's threshold for the next draft() chain (default: the rule's own).
+    /// The cumulative draft rule's threshold for the next draft() chain (default: the rule's own): the device stops the
+    /// chain where the rule fails with it.
     void set_cum_th(float th) { cum_th_ = th; }
+    /// The threshold the host waits by: draft() returns after the drafts this rule keeps while the device (a lower
+    /// `set_cum_th`) goes on with the chain; `draft_more` collects those.  Negative: the same as set_cum_th's.
+    void set_host_th(float th) { host_th_ = th; }
+    /// An event behind everything queued on the drafter's stream so far (a window on this card waits for it: the chain's
+    /// kernels and a window's co-resident kernels must not share the card's SMs).
+    cudaEvent_t done_event();
+    /// After draft(): the chain's later drafts (indices from `have`) that have arrived, and how many there are in all.
+    /// It never waits: the host may be holding up a window on the same card.
+    int draft_more(int have, int32_t* drafts, float* probs);
     uint64_t vram_bytes() const { return vram_; }
     /// The draft layer's K/V state (read-only: the serve state check hashes it)
     const QsaState& kv_state() const { return st_; }
@@ -97,20 +111,20 @@ public:
     /// argmaxes: row t pairs R_{p+t} with the token at p+t+1), then the draft chain from row `a` (the last
     /// accepted row) for T-1 drafts at cells p+a+1 ...  `drafts` gets T-1 tokens.
     bool draft(int T, const int32_t* tokens, int64_t p, int a, int32_t* drafts, std::string& err,
-               float* probs = nullptr, float min_p = 0.0f, int* n_drafts = nullptr);
+               float* probs = nullptr, int* n_drafts = nullptr);
+
+    /// Rows on another GPU brought to the drafter's card now (at most `kRelayRows`): `*staged` is what `prefill` then
+    /// takes in their place, with no copy from the other card left to do.
+    bool stage_rows(const float* R_rows, int n, const float** staged, std::string& err);
+
+    /// `draft` from rows that live elsewhere on the drafter's device: copied into the buffer the graphs read first.
+    bool draft_from(const float* R_rows, int T, const int32_t* tokens, int64_t p, int a, int32_t* drafts, std::string& err,
+                    float* probs = nullptr, int* n_drafts = nullptr);
 
     /// The first round: one cell (`cell`) from `R_row` (device) and `token` -> T-1 drafts.
     bool draft_first(int T, const float* R_row, int32_t token, int64_t cell, int32_t* drafts, std::string& err,
-                     float* probs = nullptr, float min_p = 0.0f, int* n_drafts = nullptr);
+                     float* probs = nullptr, int* n_drafts = nullptr);
 
-    /// COUPLED DRAFT SAMPLING (core/coupled_draft.hpp; set up by bind()): the request's
-    /// sampling.  A sampled request (temperature > 0, not greedy) then drafts by SAMPLING with the target's chain and
-    /// the target's Philox draw for the verifying row, and `probs` is the draft's probability under that chain; a
-    /// greedy one keeps the argmax drafts and their graphs.  A no-op when the switch is off.
-    void set_draft_sampling(const basalt::kernels::SamplerParams& sp);
-    /// Coupled mode with penalties: the history the next draft() chain starts from - what the session holds after the
-    /// window's commit (`tail`) and the window's pick at its last accepted row (`next`, the next window's row 0).
-    void set_draft_history(const int32_t* tail, int64_t n_tail, int32_t next);
     void set_ple_session(SessionState* s) { ple_ss_ = s; }
 
     /// BATCH WINDOWS: one draft K/V per sequence.  `n` stores for the slots (set before `load`); the working state
@@ -129,14 +143,13 @@ public:
     /// `draft_seq` / `defer_rows` reads its own rows intact; null on failure.
     const float* keep_rows(const float* R_rows, int rows, std::string& err);
     bool draft_seq(int id, const float* R_rows, int T, const int32_t* tokens, int64_t p, int a, int32_t* drafts,
-                   std::string& err, float* probs, float min_p, int* n_drafts);
+                   std::string& err, float* probs, int* n_drafts);
     /// The K/V cells [cell0, cell0 + n) of sequence `id` from window rows, no draft (`prefill` on that sequence).
     bool catch_up(int id, const float* R_rows, const int32_t* next_tokens, int64_t n, int64_t cell0, std::string& err);
     /// The same, later: the rows are kept and their cells are computed by the next `draft_seq` (or `flush`) of the
     /// sequence, in one pass.  The copy runs on the drafter's stream: `idle` before the rows' buffer is reused.
     bool defer_rows(int id, const float* R_rows, const int32_t* next_tokens, int64_t n, int64_t cell0, std::string& err);
     bool flush(int id, std::string& err);
-    bool coupled() const { return coupled_active_; }
     /// Diagnostic (gate spec_log): the top-k tokens and softmax probabilities of the last draft's step j, from the
     /// draft head's logits kept per step.  Returns the count written (0 when the diagnostic is off).
     int diag_top(int j, int k, int32_t* ids, float* probs) const;
@@ -166,30 +179,20 @@ private:
     void end_branches();
     bool capture_prefill(int T, std::string& err);
     bool capture_prefill_dev(int T, std::string& err);   ///< without the mapped staging (inputs copied on device)
-    /// all_rows: copy every step / position record (the chain's too) and the min_p bits, for a graph without per-step
+    /// all_rows: copy every step / position record (the chain's too) and the threshold bits, for a graph without per-step
     /// copies
-    bool record_round(int T, bool coupled, bool all_rows, std::string& err);
-    bool record_step(int j, bool coupled, bool copy_records, std::string& err);
-    bool capture_round(int T, bool coupled, std::string& err);
-    bool capture_step(int j, bool coupled, std::string& err);
-    cudaGraphExec_t step_exec_[2][9] = {};   ///< [tier_]
+    bool record_round(int T, bool all_rows, std::string& err);
+    bool record_step(int j, bool copy_records, std::string& err);
+    bool capture_round(int T, std::string& err);
+    bool capture_step(int j, std::string& err);
+    cudaGraphExec_t step_exec_[2][kMtpChainMax + 1] = {};   ///< [tier_][chain step]
     /// The round and `steps - 1` chain steps in one graph, step j an IF node on draft j-1's
-    /// probability >= min_p; false (with the per-step path from then on) where it cannot be built
-    bool capture_cond(int T, bool coupled, int steps);
-    cudaGraphExec_t cond_exec_[2][2][9] = {};   ///< [tier_][coupled]
-    int cond_steps_[2][2][9] = {};
+    /// probability passing the cumulative rule; false (with the per-step path from then on) where it cannot be built
+    bool capture_cond(int T, int steps);
+    cudaGraphExec_t cond_exec_[2][9] = {};   ///< [tier_]
+    int cond_steps_[2][9] = {};
     bool cond_off_ = false;
-    // coupled draft sampling: its own round/step graphs (the argmax ones stay as they were), the request's
-    // parameters and the penalty ring (mapped staging + device copies), the split scratch, token id -> subset index
-    bool setup_coupled(std::string& err);
-    cudaGraphExec_t round_exec_c_[9] = {};
-    cudaGraphExec_t step_exec_c_[9] = {};
-    bool coupled_ok_ = false, coupled_active_ = false;
-    bool coupled_rec_ = false;   ///< record_forward: the full layer ends in the coupled sampler (draft coupled_j_)
-    int coupled_j_ = 0;
-    basalt::kernels::SamplerParams *h_cparams_ = nullptr, *m_cparams_ = nullptr, *cparams_ = nullptr;
-    int32_t *h_chist_ = nullptr, *m_chist_ = nullptr, *cring_ = nullptr, *dinv_ = nullptr;
-    void* cscratch_ = nullptr;
+    int chain_j_ = 0;   ///< record_forward: the chain step being recorded (the diagnostic logits' slot)
     const float* f32(const char* name) const;
     const uint16_t* bf16(const char* name) const;
     const void* q8(const char* name) const;
@@ -208,6 +211,7 @@ private:
     int64_t n_vocab_ = 0;
     uint64_t vram_ = 0;
     cudaStream_t cs_ = nullptr;
+    cudaEvent_t ev_done_ = nullptr;
     // the branch stream of the round and chain graphs, its fork / join events, its Q8_1 input;
     // par_ while those graphs are recorded, pre_next_ / have_pre_ for the next step's hidden input computed beside the
     // head, fork_open_ while that branch is not joined yet
@@ -215,7 +219,7 @@ private:
     cudaEvent_t ev_fork_ = nullptr, ev_join_ = nullptr;
     uint8_t* xq2_ = nullptr;
     bool par_ = false, pre_next_ = false, have_pre_ = false, fork_open_ = false;
-    struct CondTail { unsigned long long h[8]; int n; float cum_th; };
+    struct CondTail { unsigned long long h[kMtpChainMax]; int n; };
     const CondTail* ctail_ = nullptr;   ///< the conditional handles the step being recorded ends with
     bool ctail_done_ = false;           ///< that step's end already set them
     bool step_end(int j);
@@ -261,6 +265,14 @@ private:
     static constexpr int kKeepRows = 16;
     float* rkeep_ = nullptr;    ///< a window's rows, kept while the slots draft one after another
     float* rstage_ = nullptr;   ///< draft_seq's copy of the rows
+    // the window rows live on another GPU than the drafter (a layer split's last stage): `relay_src_` is where
+    // they are, `own_R_` takes the rows a round reads and `relay_` the blocks of a prompt's rows
+    const float* relay_src_ = nullptr;
+    float* own_R_ = nullptr;
+    float* relay_ = nullptr;
+    static constexpr int kRelayRows = 256;
+    bool draft_rows(int T, const int32_t* tokens, int64_t p, int a, int32_t* drafts, std::string& err, float* probs,
+                    int* n_drafts);   ///< `draft` with the rows already in the window buffer
     static constexpr int kPendRows = 32;
     std::vector<float*> pend_R_;                  ///< per sequence: the deferred rows
     std::vector<std::vector<int32_t>> pend_tok_;  ///< their next tokens
@@ -274,6 +286,8 @@ private:
     int32_t *h_pos_ = nullptr, *m_pos_ = nullptr, *h_row_ = nullptr, *m_row_ = nullptr;
     int32_t *h_out_ = nullptr, *m_out_ = nullptr;
     float cum_th_ = -1.0f;   // < 0: the rule's own threshold
+    float host_th_ = -1.0f;  // < 0: cum_th_
+    int chain_steps_ = 0;    ///< the steps the last draft() launched (its graph's)
     float *h_prob_ = nullptr, *m_prob_ = nullptr;   // each draft's probability under the draft layer
     float* diag_ = nullptr;                         ///< spec_log: the draft head's logits per chain step (pinned)
     int64_t diag_stride_ = 0;
@@ -321,7 +335,6 @@ private:
     float* hit_xs_ = nullptr;
     void* hit_scratch_ = nullptr;
     float* sh_scratch_ = nullptr;
-    uint16_t* x_bf16_ = nullptr;
     float* head_logits_ = nullptr;
     float* dummy_inj_ = nullptr;
     int64_t cap_ = 0, attn_scratch_floats_ = 0;

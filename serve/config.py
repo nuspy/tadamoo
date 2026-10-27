@@ -9,8 +9,9 @@ import re
 from pathlib import Path
 
 from serve import ROOT
-from serve.engine.flags import flag_index, flag_value
+from serve.engine.flags import flag_index
 from serve.engine.vision import VISION_MODES, VISION_USAGE, vision_mode
+from serve.util.console import tagged
 
 
 MIN_SLOT_CONTEXT = 256          # the least context a slot is given when --max-context is shared
@@ -18,6 +19,8 @@ ENGINE_DEFAULT_CONTEXT = 4096     # the engine's context without --max-context
 PARALLEL_MAX = 8                            # the engine's batch slots
 CONFIG_PATHS = ("model", "tokenizer")       # relative to the config file
 RELAUNCH_EXIT_CODE = 75                     # --relaunch-on-model-change: start me again (EX_TEMPFAIL)
+GRAMMAR_DEFAULT = True                      # the `grammar` option when neither the file nor the command line sets it
+REMOVED_ENGINE_KEYS = ("spec-min-p",)       # engine flags a saved file may still hold: dropped, the engine no longer has them
 
 
 def engine_flags_of(engine_bin: str) -> set[str] | None:
@@ -34,6 +37,13 @@ def server_options(ap: argparse.ArgumentParser) -> dict:
     """{name: action} of the server's own options (names without the dashes), apart from --config and --help."""
     return {o[2:]: act for act in ap._actions for o in act.option_strings
             if o.startswith("--") and o[2:] not in ("help", "config")}
+
+
+def grammar_words(known: set[str] | None) -> list[str]:
+    """The engine words that make grammar enforcement available: `--grammar on` whenever the engine binary has the
+    flag (a request's grammar key enforces; the server option only decides which requests carry one), so an engine
+    without it still starts."""
+    return ["--grammar", "on"] if known is not None and "--grammar" in known else []
 
 
 def split_engine_extras(extras: list[str]) -> list[str]:
@@ -114,7 +124,7 @@ def load_config_file(path: str, ap: argparse.ArgumentParser) -> tuple[list[str],
         if act.nargs == 0:                                 # a switch
             if not isinstance(value, bool):
                 raise ValueError(f"server.{key}: true or false")
-            argv += [flag] if value else []
+            argv += [flag] if value else (["--no-grammar"] if name == "grammar" else [])
             continue
         items = value if isinstance(value, list) else [value]
         if isinstance(value, list) and not isinstance(act, argparse._AppendAction):
@@ -129,6 +139,8 @@ def load_config_file(path: str, ap: argparse.ArgumentParser) -> tuple[list[str],
     engine: list[str] = []
     for key, value in sections["engine"].items():
         flag = "--" + str(key).strip().lower().replace("_", "-").removeprefix("--")
+        if flag[2:] in REMOVED_ENGINE_KEYS:
+            continue
         if flag[2:] in known:
             raise ValueError(f'engine.{key}: a server option, set it under "server"')
         engine += engine_words(key, value)
@@ -178,6 +190,8 @@ def check_engine_flags(words: list[str], known: set[str] | None, where: str) -> 
     """ValueError naming the first flag (a word starting with `--`) the engine rejects; value words are not names
     (unchecked when the binary is unreadable)."""
     for word in words:
+        if word == "--gpu":
+            raise ValueError(f"{where}: gpu is a server setting (--gpu, or \"gpu\" in the server section)")
         if known is not None and word.startswith("--") and word not in known:
             raise ValueError(f"{where}: {word} is not an engine flag")
 
@@ -193,23 +207,38 @@ def engine_groups(words: list[str]) -> list[list[str]]:
     return groups
 
 
-def engine_line(file_words: list[str], cli_words: list[str], config: bool = True,
-                shared: tuple[int, int] | None = None) -> str:
-    """The startup line listing the engine words from --config and the command line, each flag with its values and
-    origin; without a config file it says the built-in defaults apply. `shared` is (total, slots) when --max-context
-    was divided among the slots."""
+ENGINE_NAMES = {"max-context": "ctx", "pool-workers": "pool"}      # flag -> the console's name
+UNIT_SUFFIXES = {"-mib": "MiB", "-gib": "GiB"}
+
+
+def engine_item(group: list[str]) -> str:
+    """One engine flag with its values as `name=value`; a switch is its bare name."""
+    name, values = group[0][2:], group[1:]
+    for suffix, unit in UNIT_SUFFIXES.items():
+        if name.endswith(suffix) and len(values) == 1:
+            return f"{name[:-len(suffix)]}={values[0]}{unit}"
+    name = ENGINE_NAMES.get(name, name)
+    return f"{name}={','.join(values)}" if values else name
+
+
+def engine_line(file_words: list[str], cli_words: list[str],
+                shared: tuple[int, int] | None = None, grammar: tuple[bool, str] | None = None) -> str:
+    """The startup line listing the engine words from --config and the command line as key=value items, each origin's
+    items followed by `(from config)` or `(from cli)`; with none it says `defaults`. `shared` is (total, slots)
+    when --max-context was divided among the slots. `grammar` is (on, origin) with origin "config" or "cli", None when
+    left at its default (no entry)."""
     groups = [(g, "config") for g in engine_groups(file_words)] + [(g, "cli") for g in engine_groups(cli_words)]
     last_ctx = max((i for i, (g, _) in enumerate(groups) if g[0] == "--max-context"), default=None)
-    def one(i, g, src):
-        note = f"{src}: {shared[0]} / {shared[1]} slots" if shared and i == last_ctx else src
-        return f"{' '.join(g)} ({note})"
-    shown = ", ".join(one(i, g, src) for i, (g, src) in enumerate(groups))
-    if config:
-        return f"[server] engine: {shown}" if shown else "[server] engine: config sets nothing, built-in defaults"
-    words = file_words + cli_words
-    spec = flag_value(words, "--spec") or 0
-    state = f"spec {'off' if not int(spec) else spec}, {flag_value(words, '--max-context') or ENGINE_DEFAULT_CONTEXT} context"
-    return f"[server] engine: built-in defaults (no --config): {state}" + (f"; {shown}" if shown else "")
+    items: dict[str, list[str]] = {"config": [], "cli": []}
+    for i, (g, src) in enumerate(groups):
+        item = engine_item(g)
+        if shared and i == last_ctx:
+            item += f" ({shared[0]}/{shared[1]} slots)"
+        items[src].append(item)
+    if grammar is not None:
+        items[grammar[1]].append(f"grammar={'on' if grammar[0] else 'off'}")
+    shown = "  ".join(f"{' '.join(v)} (from {src})" for src, v in items.items() if v)
+    return tagged("engine", shown or "defaults")
 
 
 def _num(v):
@@ -272,13 +301,17 @@ def sampling_option(key: str):
     return parse
 
 
+SAMPLING_NAMES = {"temperature": "temp", "presence_penalty": "pres", "frequency_penalty": "freq",
+                  "repetition_penalty": "rep"}      # the console's short names
+
+
 def sampling_line(effective: dict, cli: set[str], config: set[str]) -> str:
     """The startup line for the effective sampling defaults, each marked with where it came from: the keys in
     `cli` were typed on the command line, those in `config` come from the config file; the rest are the model
     file's."""
-    mark = lambda k: " (command line)" if k in cli else " (config)" if k in config else ""
-    shown = ", ".join(f"{k}={v}{mark(k)}" for k, v in effective.items())
-    return f"[server] sampling defaults: {shown}"
+    mark = lambda k: "(cli)" if k in cli else "(config)" if k in config else ""
+    shown = " ".join(f"{SAMPLING_NAMES.get(k, k)}={v}{mark(k)}" for k, v in effective.items())
+    return tagged("sampling", shown)
 
 
 def vision_setting(text: str) -> str:
@@ -300,6 +333,17 @@ def parallel_count(text: str) -> int:
     return n
 
 
+def budget_count(text: str) -> int:
+    """argparse type: a thinking budget in tokens, a whole number >= 0 (0: none)."""
+    try:
+        n = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a whole number >= 0, not {text!r}") from None
+    if n < 0:
+        raise argparse.ArgumentTypeError(f"expected a whole number >= 0, not {n}")
+    return n
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
                                  allow_abbrev=False)
@@ -317,14 +361,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="with --parallel, give every slot the whole --max-context instead of an equal part: N slots "
                          "cost N times the KV cache")
     ap.add_argument("--config", metavar="FILE",
-                    help="a JSON object of engine flags, e.g. {\"max-context\": 32768, \"spec\": 7, "
+                    help="a JSON file {\"server\": {...}, \"engine\": {...}}: server options and engine flags named "
+                         "without the dashes, e.g. \"engine\": {\"max-context\": 32768, \"spec\": 7, "
                          "\"resident-experts\": true}; a list gives a flag several values; the command line "
                          "wins over it")
-    ap.add_argument("--vision", nargs="?", const="", default="off", type=vision_setting, choices=VISION_MODES, metavar="MODE",
-                    help="image input: off (default), on (the encoder always on the main GPU, ~2.2 GiB of VRAM), "
-                         "peer (always on the second GPU), dynamic (inside the engine: it borrows expert-cache slots "
-                         "on the main GPU while it reads an image, no standing VRAM) or cpu (no VRAM, slow); a value is "
-                         "required")
+    ap.add_argument("--vision", nargs="?", const="", default="off", type=vision_setting, metavar="MODE|GPU",
+                    help="image input: off (default), dynamic (inside the engine: it borrows expert-cache slots "
+                         "on the main GPU while it reads an image, no standing VRAM), cpu (no VRAM, slow) or a "
+                         "GPU number, as nvidia-smi numbers them: the encoder sidecar, always on that card")
     ap.add_argument("--vision-hold", default="keep", choices=("keep", "release"),
                     help="with --vision dynamic: keep (the projector's weights stay in RAM, the first image is quick) or release (they "
                          "are freed after each batch of images and read from the file at the next: the RAM and commit they held "
@@ -340,13 +384,17 @@ def build_parser() -> argparse.ArgumentParser:
                     help="the mock engine's answer (default: a short greeting); given more than once, requests get "
                          "them in turn and the last one repeats")
     ap.add_argument("--port", type=int, default=7232, help="the port to listen on (default 7232)")
-    ap.add_argument("--gpu", help="the GPUs to use, as nvidia-smi numbers them: the first runs the model, a second is "
-                                  "the peer expert tier (\"0,1\"; default: every visible GPU)")
+    ap.add_argument("--gpu", help="the GPUs to use, as nvidia-smi numbers them: exactly these, the first is the main "
+                                  "card and the engine gives the rest their roles (\"0,1\"); auto = every Blackwell "
+                                  "card, the fastest as main (default: GPU 0 alone)")
     ap.add_argument("--tokenizer", default=str(ROOT / "pack/full/tokenizer"),
                     help="tokenizer directory for the mock engine (a byte tokenizer if absent)")
     ap.add_argument("--open", action="store_true", help="open the local page in the browser once the model is ready")
     ap.add_argument("--fit-max-tokens", action="store_true",
                     help="clamp max_tokens to the remaining context instead of rejecting the request with 400")
+    ap.add_argument("--grammar", action=argparse.BooleanOptionalAction, default=GRAMMAR_DEFAULT,
+                    help="hold every tool call and JSON response format to a grammar in the engine (on by default; a request "
+                         "with strict: true gets it either way); --no-grammar turns it off")
     ap.add_argument("--api-key", default="",
                     help="require this key on /v1/* (Authorization: Bearer ... or x-api-key); command line only, "
                          "not allowed in a --config file")
@@ -391,4 +439,8 @@ def build_parser() -> argparse.ArgumentParser:
                          "unless you save it from the page")
     ap.add_argument("--request-log-mib", type=float, default=32.0, metavar="MIB",
                     help="memory the request log may use (default 32); the oldest entries are dropped beyond it")
+    ap.add_argument("--reasoning-budget-tokens", type=budget_count, default=None, metavar="N",
+                    help="default thinking budget for requests that leave reasoning_budget_tokens out (0 = none): at "
+                         "the budget the thinking is closed and the answer starts, so set it below the request's "
+                         "max_tokens")
     return ap

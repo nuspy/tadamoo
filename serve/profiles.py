@@ -32,7 +32,7 @@ LOAD_FIELDS = [f"{s}.{k}" for s, k in settings.LOADER_FIELDS]
 # the chat settings a preset keeps (serve/web/chatset.js)
 INFERENCE_KEYS = ("system", "stop", "policy", "threshold", "effort", "temperature", "top_p", "top_k", "min_p",
                   "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n", "seed",
-                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias")
+                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "context_patterns", "end_turn_bias")
 
 
 def path() -> Path:
@@ -52,6 +52,9 @@ def _read() -> dict:
             data[kind] = {}
     if not isinstance(data.get("default"), str):
         data["default"] = None                          # none chosen: default_of() picks one
+    for p in data["load"].values():
+        if isinstance(p, dict) and isinstance(p.get("values"), dict):
+            p["values"] = {k: v for k, v in p["values"].items() if k not in settings.REMOVED_KEYS}
     return data
 
 
@@ -104,6 +107,8 @@ def check_load(values) -> dict:
         raise ValueError("values: an object of Loader fields")
     out = {}
     for name, value in values.items():
+        if name in settings.REMOVED_KEYS:
+            continue
         if name not in LOAD_FIELDS:
             raise ValueError(f"{name}: not a field a load profile keeps")
         if value is None or value == "":

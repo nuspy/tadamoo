@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 from model_file import ModelWriter  # noqa: E402
 
 CONFIG = {"server": {"parallel": 1, "vision": "dynamic", "vision-hold": "release"},
-          "engine": {"max-context": 131072, "kv": "int8", "spec": 7, "spec-min-p": 0.5, "prefill": "auto", "resident-experts": True,
+          "engine": {"max-context": 131072, "kv": "int8", "spec": 7, "prefill": "auto", "resident-experts": True,
                      "vram-reserve-mib": 1536, "pool-workers": 15, "ple-io": "direct"}}
 MEM = [{"tag": "before", "ram_used_gib": 27.0, "commit_used_gib": 56.0, "vram_used_mib": 2000},
        {"tag": "loaded", "ram_used_gib": 69.0, "commit_used_gib": 128.0, "vram_used_mib": 30000}]

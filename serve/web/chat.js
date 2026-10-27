@@ -440,7 +440,6 @@
           if (j.error) throw new Error(j.error.message || "the engine reported an error");
           if (j.usage) usage = j.usage;
           if (j.choices && j.choices[0] && j.choices[0].finish_reason) m.finish = j.choices[0].finish_reason;
-          if (j.structured_output) m.structured = j.structured_output;
           const d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
           if (d.reasoning_content) { first = first || performance.now(); thinkStart = thinkStart || performance.now(); m.reasoning += d.reasoning_content; }
           if (d.content) {
@@ -462,8 +461,7 @@
       const secs = (performance.now() - first) / 1000;
       m.meta = `${n.toLocaleString("en-US")} tokens${secs > 0.25 ? ` · ${(n / secs).toFixed(1)} tok/s` : ""}${m.stopped ? " · stopped" : ""}`;
     } else if (m.stopped) m.meta = "Stopped";
-    if (m.structured) {                                 // validated JSON: shown as a code block
-      m.meta = `${m.meta ? m.meta + " · " : ""}${T("cs.validated", m.structured.attempts)}`;
+    if (body.response_format) {                         // JSON held to its schema by the engine: shown as a code block
       try { m.text = "```json\n" + JSON.stringify(JSON.parse(m.text), null, 2) + "\n```"; } catch (e) { /* left as sent */ }
     }
     m.cut = looksCut(m);

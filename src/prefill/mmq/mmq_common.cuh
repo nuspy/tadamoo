@@ -6,6 +6,7 @@
 #pragma once
 
 #include "basalt/ggml/ggml.h"
+#include "basalt/log.hpp"
 
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
@@ -35,7 +36,7 @@
 #define GGML_UNUSED(x) (void) (x)
 #define GGML_UNUSED_VARS(...) do { (void) sizeof((__VA_ARGS__, 0)); } while (0)
 #define GGML_PAD(x, n) (((x) + (n) - 1) & ~((n) - 1))
-#define GGML_ABORT(...) do { std::fprintf(stderr, __VA_ARGS__); std::fputc('\n', stderr); std::abort(); } while (0)
+#define GGML_ABORT(...) do { basalt::log::error("basalt", __VA_ARGS__); std::abort(); } while (0)
 #define GGML_ASSERT(x) if (!(x)) GGML_ABORT("GGML_ASSERT(%s) failed", #x)
 
 [[noreturn]] void ggml_cuda_error(const char * stmt, const char * func, const char * file, int line, const char * msg);
@@ -183,6 +184,7 @@ MMQ_TYPE_TRAITS(GGML_TYPE_Q8_0, QK8_0, QR8_0, QI8_0, block_q8_0);
 MMQ_TYPE_TRAITS(GGML_TYPE_Q5_1, QK5_1, QR5_1, QI5_1, block_q5_1);
 MMQ_TYPE_TRAITS(GGML_TYPE_Q4_K, QK_K, QR4_K, QI4_K, block_q4_K);
 MMQ_TYPE_TRAITS(GGML_TYPE_Q5_K, QK_K, QR5_K, QI5_K, block_q5_K);
+MMQ_TYPE_TRAITS(GGML_TYPE_Q6_K, QK_K, QR6_K, QI6_K, block_q6_K);
 MMQ_TYPE_TRAITS(GGML_TYPE_IQ2_XXS, QK_K, QR2_XXS, QI2_XXS, block_iq2_xxs);
 MMQ_TYPE_TRAITS(GGML_TYPE_IQ2_XS, QK_K, QR2_XS, QI2_XS, block_iq2_xs);
 MMQ_TYPE_TRAITS(GGML_TYPE_IQ2_S, QK_K, QR2_S, QI2_S, block_iq2_s);
@@ -190,6 +192,7 @@ MMQ_TYPE_TRAITS(GGML_TYPE_IQ3_XXS, QK_K, QR3_XXS, QI3_XXS, block_iq3_xxs);
 MMQ_TYPE_TRAITS(GGML_TYPE_IQ3_S, QK_K, QR3_S, QI3_S, block_iq3_s);
 MMQ_TYPE_TRAITS(GGML_TYPE_IQ4_NL, QK4_NL, QR4_NL, QI4_NL, block_iq4_nl);
 MMQ_TYPE_TRAITS(GGML_TYPE_IQ4_XS, QK_K, QR4_XS, QI4_XS, block_iq4_xs);
+MMQ_TYPE_TRAITS(GGML_TYPE_NVFP4, QK_NVFP4, QR_NVFP4, QI_NVFP4, block_nvfp4);
 
 #undef MMQ_TYPE_TRAITS
 

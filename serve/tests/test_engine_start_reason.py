@@ -43,7 +43,6 @@ class FirstStartFails(unittest.TestCase):
             pass
 
     def test_the_engine_reason_reaches_the_user(self):
-        self.assertNotIn("slot_cv", self.engine.__dict__)          # never READY
         with self.assertRaises(EngineStartError) as cm:
             self.engine.restart(tries=1)
         self.assertIn(REASON, str(cm.exception))

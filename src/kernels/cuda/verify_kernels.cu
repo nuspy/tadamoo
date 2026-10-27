@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include "basalt/log.hpp"
 
 namespace basalt::kernels {
 namespace {
@@ -23,7 +24,7 @@ constexpr int RPG = S / RG;
 
 void check(const char* what) {
     const cudaError_t e = cudaGetLastError();
-    if (e != cudaSuccess) { std::fprintf(stderr, "%s: %s\n", what, cudaGetErrorString(e)); std::exit(1); }
+    if (e != cudaSuccess) { basalt::log::error("basalt", "%s: %s", what, cudaGetErrorString(e)); std::exit(1); }
 }
 
 __global__ void __launch_bounds__(S) gdn_conv_l2_multi_kernel(const float* __restrict__ hist,
@@ -354,10 +355,230 @@ __device__ __forceinline__ void commit_layers_body(const GdnCommitLayers& a, int
     }
 }
 
+// ---- the commit's items claimed from a device counter: the commit kernel and the finisher share them.
+// A counter set is four words on four lines: claim, done, started (the epoch whose begin kernel ran), pre (the epoch
+// whose indexer and PLE commits have completed).
+constexpr int kCtlWords = 32;
+__device__ __forceinline__ uint32_t* ctl_word(CommitCtl* c, int set, int which) {
+    return c->w + (size_t) (set * 4 + which) * kCtlWords;
+}
+__device__ __forceinline__ uint32_t ld_acquire(const uint32_t* p) {
+    uint32_t v;
+    asm volatile("ld.acquire.gpu.global.u32 %0, [%1];" : "=r"(v) : "l"(p) : "memory");
+    return v;
+}
+__device__ __forceinline__ void st_release(uint32_t* p, uint32_t v) {
+    asm volatile("st.release.gpu.global.u32 [%0], %1;" ::"l"(p), "r"(v) : "memory");
+}
+__device__ __forceinline__ unsigned long long globaltimer() {
+    unsigned long long t;
+    asm volatile("mov.u64 %0, %%globaltimer;" : "=l"(t));
+    return t;
+}
+// Block-wide wait until *p == want (bounded: a commit that never ran traps instead of hanging).
+__device__ __forceinline__ void spin_until_eq(const uint32_t* p, uint32_t want) {
+    if (threadIdx.x == 0 && threadIdx.y == 0) {
+        const unsigned long long t0 = globaltimer();
+        while (ld_acquire(p) != want) {
+            __nanosleep(64);
+            if (globaltimer() - t0 > 2000000000ull) {
+                printf("basalt: error: commit finisher: block %d waited 2 s for %u (word %u)\n", (int) blockIdx.x, want, ld_acquire(p));
+                __trap();
+            }
+        }
+    }
+    __syncthreads();
+}
+
+// Items claimed one counter step ahead of the loads, which are one item ahead of the run: the next item's loads and the
+// claim after it are in flight while this item computes.  Finished items are added to `done` four at a time (one fence
+// per batch) and at the end.
+__device__ __forceinline__ void commit_drain(const GdnCommitLayers& a, int n, int conv_blocks, uint32_t* claim,
+                                             uint32_t* done) {
+    const int per_state = a.h_v * (S / 32), per_layer = per_state + conv_blocks, total = per_layer * a.n_layers;
+    __shared__ uint32_t s_c[2];
+    const bool lead = threadIdx.x == 0 && threadIdx.y == 0;
+    if (lead) {
+        s_c[0] = atomicAdd(claim, 1u);
+        s_c[1] = atomicAdd(claim, 1u);
+    }
+    __syncthreads();
+    int i = (int) s_c[0], in = (int) s_c[1];
+    __syncthreads();
+    CommitPre cur, nxt;
+    bool cur_state = i < total && i % per_layer < per_state;
+    if (cur_state) commit_pre_load(a, per_layer, n, i, cur);
+    int unpub = 0;
+    while (i < total) {
+        uint32_t nn = 0;
+        if (lead) nn = atomicAdd(claim, 1u);
+        const bool next_state = in < total && in % per_layer < per_state;
+        if (next_state) commit_pre_load(a, per_layer, n, in, nxt);
+        if (cur_state) {
+            commit_pre_run(a, per_layer, n, i, cur);
+        } else {
+            const int l = i / per_layer, j = i - l * per_layer;
+            gdn_conv_commit_n(a.state + (size_t) l * a.state_stride + (size_t) S * a.h_v * S,
+                              a.qkv + (size_t) l * a.h_stride, a.C, n,
+                              (j - per_state) * 32 * RG + threadIdx.y * 32 + threadIdx.x);
+        }
+        const bool flush = ++unpub == 4;
+        if (flush) __syncthreads();
+        if (lead) {
+            if (flush) {
+                __threadfence();
+                atomicAdd(done, 4u);
+            }
+            s_c[0] = nn;
+        }
+        if (flush) unpub = 0;
+        __syncthreads();
+        i = in;
+        in = (int) s_c[0];
+        cur_state = next_state;
+        if (next_state) cur = nxt;
+    }
+    if (unpub > 0) {
+        __syncthreads();
+        if (lead) {
+            __threadfence();
+            atomicAdd(done, (uint32_t) unpub);
+        }
+    }
+}
+
+// The epoch's counters are reset here, before anything of the epoch is claimed; `started` publishes the epoch, and the
+// host word `begun` tells the host that the device side knows it.
+__global__ void gdn_commit_begin_kernel(CommitCtl* ctl, const int32_t* __restrict__ epoch_src,
+                                        volatile uint32_t* begun) {
+    const uint32_t e = (uint32_t) *(const volatile int32_t*) epoch_src;
+    *ctl_word(ctl, (int) (e & 1u), 0) = 0;
+    *ctl_word(ctl, (int) (e & 1u), 1) = 0;
+    ctl->w[kCtlWords * 8] = e;
+    ctl->w[kCtlWords * 10] = 0;   // the lazy layers' claims (gdn_commit_lazy)
+    __threadfence();
+    st_release(ctl_word(ctl, (int) (e & 1u), 2), e);
+    *begun = e;
+}
+
+__global__ void __launch_bounds__(32 * RG) gdn_commit_layers_dyn_kernel(GdnCommitLayers a, int conv_blocks,
+                                                                       CommitCtl* ctl) {
+    const uint32_t e = ctl->w[kCtlWords * 8];
+    const int set = (int) (e & 1u);
+    if (blockIdx.x == 0 && threadIdx.x == 0 && threadIdx.y == 0) st_release(ctl_word(ctl, set, 3), e);
+    commit_drain(a, min(*a.n_keep, kVerifyMaxT), conv_blocks, ctl_word(ctl, set, 0), ctl_word(ctl, set, 1));
+}
+
+// The first node of a window: when the newest epoch has not been finished by a finisher yet, claims what the commit
+// kernel has not and returns once every item of the epoch is done and its indexer and PLE commits have completed; the
+// epoch is then marked finished.  The host has seen the epoch's begin kernel run before it launches the window.
+__global__ void __launch_bounds__(32 * RG) gdn_commit_finish_kernel(GdnCommitLayers a, int conv_blocks, CommitCtl* ctl) {
+    __shared__ uint32_t s_e, s_f;
+    if (threadIdx.x == 0 && threadIdx.y == 0) {
+        s_e = ld_acquire(ctl->w + (size_t) kCtlWords * 8);
+        s_f = ld_acquire(ctl->w + (size_t) kCtlWords * 9);
+    }
+    __syncthreads();
+    const uint32_t e = s_e;
+    if (e == s_f) return;
+    const int set = (int) (e & 1u);
+    spin_until_eq(ctl_word(ctl, set, 2), e);
+    const int n = min(__ldcg(a.n_keep), kVerifyMaxT);
+    commit_drain(a, n, conv_blocks, ctl_word(ctl, set, 0), ctl_word(ctl, set, 1));
+    const int total = (a.h_v * (S / 32) + conv_blocks) * a.n_layers;
+    spin_until_eq(ctl_word(ctl, set, 1), (uint32_t) total);
+    spin_until_eq(ctl_word(ctl, set, 3), e);
+    if (blockIdx.x == 0 && threadIdx.x == 0 && threadIdx.y == 0) {
+        __threadfence();
+        st_release(ctl->w + (size_t) kCtlWords * 9, e);
+    }
+}
+
 __global__ void __launch_bounds__(32 * RG) gdn_commit_layers_pipe_kernel(GdnCommitLayers a, int conv_blocks) {
     const int n = min(*a.n_keep, kVerifyMaxT);
     if (n <= 0) return;
     commit_layers_body(a, n, conv_blocks);
+}
+
+// The lazy layers' items (layer-major), claimed from the epoch's lazy counter (line 10, reset by the begin kernel): every
+// item of the first `must_layers`, then more while *stop != stop_value.  A block claims only after that check, and
+// commits every item it claims.
+constexpr int kLazyPfBlocks = 32;          // the blocks that read ahead into L2
+constexpr uint64_t kLazyPfStep = 128 << 10;  // bytes a block requests before it looks at the stop word again
+__global__ void __launch_bounds__(32 * RG) gdn_commit_lazy_kernel(GdnCommitLayers a, int conv_blocks, CommitCtl* ctl,
+                                                                  int must_layers, const uint32_t* stop,
+                                                                  uint32_t stop_value, GdnLazyPf pf) {
+    const int per_state = a.h_v * (S / 32), per_layer = per_state + conv_blocks, total = per_layer * a.n_layers;
+    const int must = per_layer * must_layers;
+    uint32_t* const claim = ctl->w + (size_t) kCtlWords * 10;
+    __shared__ int s_i;
+    const bool lead = threadIdx.x == 0 && threadIdx.y == 0;
+    const int n = min(__ldcg(a.n_keep), kVerifyMaxT);
+    for (;;) {
+        if (lead) {
+            const int c = (int) min(__ldcg(claim), (uint32_t) total);
+            const bool more = c < must || (stop != nullptr && ld_acquire(stop) != stop_value);
+            s_i = c < total && more ? (int) atomicAdd(claim, 1u) : total;
+        }
+        __syncthreads();
+        const int i = s_i;
+        __syncthreads();
+        if (i >= total) break;
+        const int l = i / per_layer, j = i - l * per_layer;
+        if (j < per_state) {
+            CommitPre p;
+            commit_pre_load(a, per_layer, n, i, p);
+            commit_pre_run(a, per_layer, n, i, p);
+        } else {
+            gdn_conv_commit_n(a.state + (size_t) l * a.state_stride + (size_t) S * a.h_v * S,
+                              a.qkv + (size_t) l * a.h_stride, a.C, n,
+                              (j - per_state) * 32 * RG + threadIdx.y * 32 + threadIdx.x);
+        }
+    }
+    // the next layer's weights into L2 while the combine waits for the pool (only when the layer has entries off CUDA0)
+    if (stop == nullptr || pf.n[0] == 0 || (int) blockIdx.x >= kLazyPfBlocks) return;
+    if (threadIdx.y == 0) {
+        bool off = false;
+        for (int i = threadIdx.x; i < pf.n_ids; i += 32) {
+            const int id = __ldcg(pf.ids + i);
+            off |= id >= 0 && id < pf.n_expert && __ldcg(pf.ptab + id) == 0ull;
+        }
+        off = __any_sync(0xffffffffu, off);
+        if (threadIdx.x == 0) s_i = off ? 1 : 0;
+    }
+    __syncthreads();
+    if (s_i == 0 || !lead) return;
+    const uint32_t waiting = stop_value | 0x80000000u;
+    uint32_t v;
+    while ((v = ld_acquire(stop)) != waiting && v != stop_value) __nanosleep(256);
+    if (v != waiting) return;
+    // step k of every block covers [k * blocks + b, +1) * step of the ranges laid end to end; after its requests a block
+    // reads the step's last word (it lands once that part is in L2), then looks at the stop word again
+    uint64_t total_b = 0;
+    for (int r = 0; r < kLazyPfRanges; ++r) total_b += pf.n[r];
+    uint32_t acc = 0;
+    for (uint64_t o0 = (uint64_t) blockIdx.x * kLazyPfStep; o0 < total_b; o0 += (uint64_t) kLazyPfBlocks * kLazyPfStep) {
+        const uint64_t o1 = min(o0 + kLazyPfStep, total_b);
+        const char* last = nullptr;
+        for (uint64_t o = o0; o < o1;) {
+            int r = 0;
+            uint64_t ro = o;
+            while (r < kLazyPfRanges - 1 && ro >= pf.n[r]) { ro -= pf.n[r]; ++r; }
+            const uint64_t take = min(min(o1 - o, pf.n[r] - ro), (uint64_t) 32768);
+            const char* src = (const char*) pf.p[r] + ro;
+            if (take >= 16) {
+                asm volatile("cp.async.bulk.prefetch.L2.global [%0], %1;" ::"l"(src), "r"((unsigned) (take & ~15ull)) : "memory");
+                last = src + (take & ~15ull) - 16;
+            }
+            o += take;
+        }
+        if (last != nullptr) {
+            const uint4 w = __ldcg((const uint4*) last);
+            acc ^= w.x ^ w.y ^ w.z ^ w.w;
+        }
+        if (ld_acquire(stop) != waiting) break;
+    }
+    if (acc == 0x9e3779b9u) ctl->w[(size_t) kCtlWords * 10 + 1] = acc;   // keeps the reads (never in practice)
 }
 
 // the same over a segmented window: blockIdx.y = the window row whose segment it commits (only a segment's first row)
@@ -609,7 +830,7 @@ __global__ void dense_steps_kernel(const int32_t* __restrict__ cells, int n, int
 
 void fetch_blobs(const unsigned long long* src, const int32_t* n, uint8_t* dst, int64_t blob_bytes, int cap, void* stream) {
     if (cap <= 0) return;
-    if (blob_bytes % 16 != 0) { std::fprintf(stderr, "fetch_blobs: blob size must be a multiple of 16\n"); std::exit(1); }
+    if (blob_bytes % 16 != 0) { basalt::log::error("basalt", "fetch_blobs: blob size must be a multiple of 16"); std::exit(1); }
     fetch_blobs_kernel<<<48 * 8, 256, 0, (cudaStream_t) stream>>>(src, n, (uint4*) dst, (long long) (blob_bytes / 16));
     check("fetch_blobs");
 }
@@ -626,7 +847,7 @@ void add_streams_broadcast(const float* h, const float* e, float* R, int64_t n_e
 }
 
 void ident_hits(const int32_t* ids, int n, int32_t* slot, int32_t* dst, int32_t* count, void* stream) {
-    if (n < 1 || n > 1024) { std::fprintf(stderr, "ident_hits: n out of range\n"); std::exit(1); }
+    if (n < 1 || n > 1024) { basalt::log::error("basalt", "ident_hits: n out of range"); std::exit(1); }
     ident_hits_kernel<<<1, 1024, 0, (cudaStream_t) stream>>>(ids, n, slot, dst, count);
     check("ident_hits");
 }
@@ -677,34 +898,32 @@ void mtp_take_row(float* R, int64_t R_stride, float* inj, int64_t inj_stride, fl
 
 #if defined(CUDART_VERSION) && CUDART_VERSION >= 12040
 namespace {
-struct CondHandles { unsigned long long h[8]; };
+struct CondHandles { unsigned long long h[16]; };
 __global__ void mtp_draft_cond_kernel(CondHandles hs, int n, const float* __restrict__ probs,
-                                      const int32_t* __restrict__ row, const int32_t* __restrict__ min_p_bits,
-                                      float cum_th, const float* hist, int j) {
+                                      const int32_t* __restrict__ row, const int32_t* __restrict__ th_bits,
+                                      const float* hist, int j) {
     const float p = probs[*row];
-    bool keep = p >= __int_as_float(*min_p_bits);
-    if (cum_th > 0.0f) {   // the same products, in the same order, as draft_keep on the host
-        float c = 1.0f;
-        for (int i = 0; i < j; ++i) c = c * basalt::core::draft_cum_acc(((const volatile float*) hist)[i]);
-        c = c * basalt::core::draft_cum_acc(p);
-        keep = c >= __int_as_float(min_p_bits[1]);   // the window's threshold rides beside min_p
-    }
+    // the same products, in the same order, as draft_keep on the host
+    float c = 1.0f;
+    for (int i = 0; i < j; ++i) c = c * basalt::core::draft_cum_acc(((const volatile float*) hist)[i]);
+    c = c * basalt::core::draft_cum_acc(p);
+    const bool keep = c >= __int_as_float(*th_bits);
     cudaGraphSetConditional((cudaGraphConditionalHandle) hs.h[0], keep ? 1u : 0u);
     for (int k = 1; k < n; ++k) cudaGraphSetConditional((cudaGraphConditionalHandle) hs.h[k], 0u);
 }
 }  // namespace
 
 bool mtp_draft_cond(const unsigned long long* h, int n, const float* probs, const int32_t* row,
-                    const int32_t* min_p_bits, void* stream, float cum_th, const float* hist, int j) {
-    if (n < 1 || n > 8) { std::fprintf(stderr, "mtp_draft_cond: n out of range\n"); std::exit(1); }
+                    const int32_t* th_bits, void* stream, const float* hist, int j) {
+    if (n < 1 || n > 16) { basalt::log::error("basalt", "mtp_draft_cond: n out of range"); std::exit(1); }
     CondHandles hs{};
     for (int k = 0; k < n; ++k) hs.h[k] = h[k];
-    mtp_draft_cond_kernel<<<1, 1, 0, (cudaStream_t) stream>>>(hs, n, probs, row, min_p_bits, cum_th, hist, j);
+    mtp_draft_cond_kernel<<<1, 1, 0, (cudaStream_t) stream>>>(hs, n, probs, row, th_bits, hist, j);
     check("mtp_draft_cond");
     return true;
 }
 #else
-bool mtp_draft_cond(const unsigned long long*, int, const float*, const int32_t*, const int32_t*, void*, float, const float*,
+bool mtp_draft_cond(const unsigned long long*, int, const float*, const int32_t*, const int32_t*, void*, const float*,
                     int) { return false; }
 #endif
 
@@ -733,7 +952,7 @@ __global__ void mtp_stage_kernel(MtpStageArgs a) {
 
 void mtp_stage(const MtpStageSeg* segs, int n_segs, float* f_dst, const float* f_src, int64_t n_f, void* stream) {
     if (n_segs < 0 || n_segs > 6 || n_f % 4 != 0 || ((uintptr_t) f_dst | (uintptr_t) f_src) % 16 != 0) {
-        std::fprintf(stderr, "mtp_stage: bad arguments\n");
+        basalt::log::error("basalt", "mtp_stage: bad arguments");
         std::exit(1);
     }
     MtpStageArgs a{};
@@ -748,10 +967,10 @@ void mtp_stage(const MtpStageSeg* segs, int n_segs, float* f_dst, const float* f
 }
 
 namespace {
-struct StepEndCond { unsigned long long h[8]; };
+struct StepEndCond { unsigned long long h[16]; };
 __global__ void mtp_step_end_kernel(const int32_t* __restrict__ ids, const int32_t* __restrict__ row_dev,
                                     int32_t* __restrict__ tok_dst, int32_t* out, int j, const float* probs, float* out_p,
-                                    StepEndCond hs, int n, const int32_t* __restrict__ min_p_bits, float cum_th,
+                                    StepEndCond hs, int n, const int32_t* __restrict__ th_bits,
                                     const float* hist) {
     const int row = *row_dev;
     const int32_t tok = ids[row];
@@ -762,13 +981,11 @@ __global__ void mtp_step_end_kernel(const int32_t* __restrict__ ids, const int32
     ((volatile int32_t*) out)[j] = tok;
 #if defined(CUDART_VERSION) && CUDART_VERSION >= 12040
     if (n <= 0) return;
-    bool keep = p >= __int_as_float(*min_p_bits);
-    if (cum_th > 0.0f) {   // the same products, in the same order, as draft_keep on the host
-        float c = 1.0f;
-        for (int i = 0; i < j; ++i) c = c * basalt::core::draft_cum_acc(((const volatile float*) hist)[i]);
-        c = c * basalt::core::draft_cum_acc(p);
-        keep = c >= __int_as_float(min_p_bits[1]);   // the window's threshold rides beside min_p
-    }
+    // the same products, in the same order, as draft_keep on the host
+    float c = 1.0f;
+    for (int i = 0; i < j; ++i) c = c * basalt::core::draft_cum_acc(((const volatile float*) hist)[i]);
+    c = c * basalt::core::draft_cum_acc(p);
+    const bool keep = c >= __int_as_float(*th_bits);
     cudaGraphSetConditional((cudaGraphConditionalHandle) hs.h[0], keep ? 1u : 0u);
     for (int k = 1; k < n; ++k) cudaGraphSetConditional((cudaGraphConditionalHandle) hs.h[k], 0u);
 #endif
@@ -776,16 +993,16 @@ __global__ void mtp_step_end_kernel(const int32_t* __restrict__ ids, const int32
 }  // namespace
 
 bool mtp_step_end(const int32_t* ids, const int32_t* row_dev, int32_t* tok_dst, int32_t* out, int j, const float* probs,
-                  float* out_p, const unsigned long long* h, int n, const int32_t* min_p_bits, float cum_th,
+                  float* out_p, const unsigned long long* h, int n, const int32_t* th_bits,
                   const float* hist, void* stream) {
 #if !(defined(CUDART_VERSION) && CUDART_VERSION >= 12040)
     if (n > 0) return false;
 #endif
-    if (n > 8) { std::fprintf(stderr, "mtp_step_end: n out of range\n"); std::exit(1); }
+    if (n > 16) { basalt::log::error("basalt", "mtp_step_end: n out of range"); std::exit(1); }
     StepEndCond hs{};
     for (int k = 0; k < n; ++k) hs.h[k] = h[k];
-    mtp_step_end_kernel<<<1, 1, 0, (cudaStream_t) stream>>>(ids, row_dev, tok_dst, out, j, probs, out_p, hs, n, min_p_bits,
-                                                            cum_th, hist);
+    mtp_step_end_kernel<<<1, 1, 0, (cudaStream_t) stream>>>(ids, row_dev, tok_dst, out, j, probs, out_p, hs, n, th_bits,
+                                                            hist);
     check("mtp_step_end");
     return true;
 }
@@ -817,7 +1034,7 @@ void dense_steps(const int32_t* cells, int n, int32_t* steps, void* stream) {
 void gdn_conv_l2_multi(const float* history, const float* qkv, const float* conv_w, float* h, int channels,
                        int qk_heads, float eps, int n_tok, void* stream, int t_begin) {
     if (!history || !qkv || !conv_w || !h || channels % S != 0 || n_tok < 1 || n_tok > kVerifyMaxT) {
-        std::fprintf(stderr, "gdn_conv_l2_multi: invalid arguments\n");
+        basalt::log::error("basalt", "gdn_conv_l2_multi: invalid arguments");
         std::exit(1);
     }
     launch_pdl(gdn_conv_l2_multi_kernel, dim3((unsigned) (channels / S), (unsigned) n_tok), dim3(S), 0,
@@ -828,7 +1045,7 @@ void gdn_conv_l2_multi(const float* history, const float* qkv, const float* conv
 void gdn_conv_l2_seg(const SegRow* rows, size_t hist_off, const float* qkv, const float* conv_w, float* h, int channels,
                      int qk_heads, float eps, int n_rows, void* stream) {
     if (!rows || !qkv || !conv_w || !h || channels % S != 0 || n_rows < 1) {
-        std::fprintf(stderr, "gdn_conv_l2_seg: invalid arguments\n");
+        basalt::log::error("basalt", "gdn_conv_l2_seg: invalid arguments");
         std::exit(1);
     }
     launch_pdl(gdn_conv_l2_seg_kernel, dim3((unsigned) (channels / S), (unsigned) n_rows), dim3(S), 0,
@@ -840,7 +1057,7 @@ void gdn_step_norm_seg(const SegRow* rows, size_t state_off, const float* h, int
                        const float* beta, const float* z, const float* gamma, float eps, float* y, int h_k, int h_v,
                        int n_rows, void* stream) {
     if (!rows || !h || !gate || !beta || !z || !gamma || !y || h_k <= 0 || h_v % h_k || n_rows < 1) {
-        std::fprintf(stderr, "gdn_step_norm_seg: invalid arguments\n");
+        basalt::log::error("basalt", "gdn_step_norm_seg: invalid arguments");
         std::exit(1);
     }
     launch_pdl(gdn_step_norm_seg_kernel, dim3((unsigned) h_v, (unsigned) n_rows), dim3(S, RG), 0, (cudaStream_t) stream,
@@ -856,12 +1073,47 @@ void gdn_commit_layers_seg(const GdnCommitSeg& a, void* stream, int blocks) {
     check("gdn_commit_layers_seg");
 }
 
+void gdn_commit_begin(CommitCtl* ctl, const int32_t* epoch, uint32_t* begun, void* stream) {
+    gdn_commit_begin_kernel<<<1, 1, 0, (cudaStream_t) stream>>>(ctl, epoch, begun);
+    check("gdn_commit_begin");
+}
+
+void gdn_commit_layers_dyn(const GdnCommitLayers& a, CommitCtl* ctl, void* stream, int blocks) {
+    if (a.n_layers <= 0) return;
+    const int conv_blocks = (a.C + 32 * RG - 1) / (32 * RG);
+    gdn_commit_layers_dyn_kernel<<<(unsigned) (blocks > 0 ? blocks : 1), dim3(32, RG), 0, (cudaStream_t) stream>>>(
+        a, conv_blocks, ctl);
+    check("gdn_commit_layers_dyn");
+}
+
+void gdn_commit_finish(const GdnCommitLayers& a, CommitCtl* ctl, void* stream, int blocks) {
+    if (a.n_layers <= 0) return;
+    const int conv_blocks = (a.C + 32 * RG - 1) / (32 * RG);
+    gdn_commit_finish_kernel<<<(unsigned) (blocks > 0 ? blocks : 1), dim3(32, RG), 0, (cudaStream_t) stream>>>(
+        a, conv_blocks, ctl);
+    check("gdn_commit_finish");
+}
+
 void gdn_commit_layers(const GdnCommitLayers& a, void* stream, int blocks) {
     if (a.n_layers <= 0) return;
     const int conv_blocks = (a.C + 32 * RG - 1) / (32 * RG);
     gdn_commit_layers_pipe_kernel<<<(unsigned) (blocks > 0 ? blocks : 1), dim3(32, RG), 0, (cudaStream_t) stream>>>(
         a, conv_blocks);
     check("gdn_commit_layers");
+}
+
+void gdn_commit_lazy(const GdnCommitLayers& a, CommitCtl* ctl, int must_layers, const uint32_t* stop,
+                     uint32_t stop_value, void* stream, int blocks, const GdnLazyPf* pf) {
+    if (a.n_layers <= 0) return;
+    const int conv_blocks = (a.C + 32 * RG - 1) / (32 * RG);
+    gdn_commit_lazy_kernel<<<(unsigned) (blocks > 0 ? blocks : 1), dim3(32, RG), 0, (cudaStream_t) stream>>>(
+        a, conv_blocks, ctl, must_layers, stop, stop_value, pf != nullptr ? *pf : GdnLazyPf{});
+    check("gdn_commit_lazy");
+}
+
+bool gdn_commit_lazy_none(CommitCtl* ctl) {
+    const uint32_t none = 0x40000000u;
+    return cudaMemcpy(ctl->w + (size_t) kCtlWords * 10, &none, 4, cudaMemcpyHostToDevice) == cudaSuccess;
 }
 
 void gdn_conv_commit(float* history, const float* qkv, int channels, const int32_t* n_keep, void* stream) {
@@ -873,7 +1125,7 @@ void gdn_conv_commit(float* history, const float* qkv, int channels, const int32
 void gdn_ab_multi(const float* x, const uint16_t* w_alpha, const uint16_t* w_beta, const float* dt, const float* ssm_a,
                   float* gate, float* beta, int n_embd, int h_v, int n_tok, void* stream) {
     if (n_embd % 8 != 0 || n_tok < 1 || n_tok > kVerifyMaxT) {
-        std::fprintf(stderr, "gdn_ab_multi: invalid arguments\n");
+        basalt::log::error("basalt", "gdn_ab_multi: invalid arguments");
         std::exit(1);
     }
     const unsigned blocks = (unsigned) ((2 * h_v + 1) / 2);
@@ -902,7 +1154,7 @@ void gdn_step_norm_multi(float* state, const float* h, int conv_channels, const 
                          const int32_t* n_keep, void* stream, int t_out_begin) {
     if (!state || !h || !gate || !beta || !z || !gamma || !y || h_k <= 0 || h_v % h_k || n_tok < 1 ||
         n_tok > kVerifyMaxT) {
-        std::fprintf(stderr, "gdn_step_norm_multi: invalid arguments\n");
+        basalt::log::error("basalt", "gdn_step_norm_multi: invalid arguments");
         std::exit(1);
     }
     if (n_keep != nullptr && t_out_begin >= n_tok) {
@@ -1066,6 +1318,32 @@ void copy_or_zero_from_mapped(float* dst, const float* src, long long n, const u
 void wait_flag_ge(const uint32_t* flag, uint32_t value, void* stream) {
     wait_flag_ge_kernel<<<1, 1, 0, (cudaStream_t) stream>>>(flag, value);
     check("wait_flag_ge");
+}
+
+namespace {
+__global__ void signal_flag_kernel(volatile uint32_t* flag, uint32_t value) {
+    __threadfence_system();
+    *flag = value;
+    __threadfence_system();
+}
+}  // namespace
+
+namespace {
+__global__ void word_copy_list_kernel(WordCopyList l) {
+    const WordCopy e = l.e[blockIdx.x];
+    for (int i = threadIdx.x; i < e.n; i += blockDim.x) e.dst[i] = e.src[i];
+}
+}  // namespace
+
+void word_copy_list(const WordCopyList& l, void* stream) {
+    if (l.n <= 0) return;
+    word_copy_list_kernel<<<l.n, 128, 0, (cudaStream_t) stream>>>(l);
+    check("word_copy_list");
+}
+
+void signal_flag(uint32_t* flag, uint32_t value, void* stream) {
+    signal_flag_kernel<<<1, 1, 0, (cudaStream_t) stream>>>(flag, value);
+    check("signal_flag");
 }
 
 void embedding_gather_dev(const uint8_t* codes, const float* scales, const float* offsets, const int32_t* tokens,

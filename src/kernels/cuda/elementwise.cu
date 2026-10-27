@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include "basalt/log.hpp"
 
 namespace basalt::kernels {
 namespace {
@@ -114,7 +115,7 @@ void sync_if_needed(void* stream, const char* what) {
     if (stream != nullptr) return;
     const cudaError_t e = cudaDeviceSynchronize();
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "%s: %s\n", what, cudaGetErrorString(e));
+        basalt::log::error("basalt", "%s: %s", what, cudaGetErrorString(e));
         std::exit(1);
     }
 }
@@ -122,7 +123,7 @@ void sync_if_needed(void* stream, const char* what) {
 bool check_launch(const char* what) {
     const cudaError_t e = cudaGetLastError();
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "%s launch: %s\n", what, cudaGetErrorString(e));
+        basalt::log::error("basalt", "%s launch: %s", what, cudaGetErrorString(e));
         std::exit(1);
     }
     return true;
@@ -183,30 +184,6 @@ void silu_inplace(float* x, int64_t n, void* stream) {
     sync_if_needed(stream, "silu_inplace");
 }
 
-/// THE DOORBELL.  One thread, one INCREMENT - the cost is the launch, and inside a graph that is paid once.
-///
-/// **IT INCREMENTS THE MEMORY, AND IT DOES NOT TAKE THE VALUE AS AN ARGUMENT.**  The first version did -
-/// doorbell_ring(d_seq, *(h_seq) + 1u) - and that is a CLONED LITERAL: the expression is evaluated on the HOST
-/// at CAPTURE time, so the graph rings 1 on every replay and a host waiting for a change waits forever.  It
-/// would have looked like a working doorbell on the first token, which is the worst way for it to be wrong.
-/// **THE FENCE IS NOT DECORATION.**
-///
-/// The ring PUBLISHES three buffers the host is about to read - `h_x_f`, `h_ids`, `h_weights` - so the increment
-/// must be ordered after their writes, or the host can observe the ring and then read a payload that has not
-/// landed.  `__threadfence_system()` is what orders them, and it covers the HOST as well as the device, which is
-/// the whole point: the reader is the CPU.
-///
-/// Without it a memory-only spin never sees the datum flip: the write is not ordered into host-visible memory,
-/// so no amount of reading it shows it, and only a driver call flushing the pipeline makes it appear.  The fence
-/// orders the write; `session_loop` still makes its per-iteration driver call.
-///
-/// **THE STORE IS VOLATILE**, like `doorbell_publish_kernel`'s.  A plain store to mapped pinned
-/// memory may stay in the GPU's L2 until the stream is synchronized, so the host would never see the ring.
-__global__ void doorbell_ring_kernel(uint32_t* seq) {
-    __threadfence_system();
-    *(volatile uint32_t*) seq = *(volatile uint32_t*) seq + 1u;
-}
-
 __global__ void doorbell_wait_kernel(const volatile uint32_t* flag, const volatile uint32_t* seq) {
     const uint32_t want = *seq;
     while (*flag != want) spin_pause();
@@ -259,7 +236,7 @@ __global__ void scatter_rows_kernel(const float4* __restrict__ src, float4* dst,
 void scatter_rows_f32(const float* src, float* dst, const int32_t* rows, int64_t n, int64_t width, void* stream) {
     if (n <= 0) return;
     if ((width & 3) != 0 || ((uintptr_t) dst & 15) != 0 || ((uintptr_t) src & 15) != 0) {
-        std::fprintf(stderr, "scatter_rows_f32: width must be a multiple of 4 and both pointers 16-byte aligned\n");
+        basalt::log::error("basalt", "scatter_rows_f32: width must be a multiple of 4 and both pointers 16-byte aligned");
         std::exit(1);
     }
     scatter_rows_kernel<<<(unsigned) n, 128, 0, (cudaStream_t) stream>>>((const float4*) src, (float4*) dst, rows, width / 4);
@@ -268,7 +245,7 @@ void copy_rows_from_mapped(float* dst, const float* src, int64_t rows, int64_t w
                            const int32_t* count, void* stream) {
     if (rows <= 0) return;
     if ((width & 3) != 0 || ((uintptr_t) dst & 15) != 0 || ((uintptr_t) src & 15) != 0) {
-        std::fprintf(stderr, "copy_rows_from_mapped: width must be a multiple of 4 and both pointers 16-byte aligned\n");
+        basalt::log::error("basalt", "copy_rows_from_mapped: width must be a multiple of 4 and both pointers 16-byte aligned");
         std::exit(1);
     }
     copy_rows_from_mapped_kernel<<<(unsigned) rows, 128, 0, (cudaStream_t) stream>>>((float4*) dst, (const volatile float4*) src,
@@ -277,7 +254,7 @@ void copy_rows_from_mapped(float* dst, const float* src, int64_t rows, int64_t w
 void copy_from_mapped(float* dst, const float* src, int64_t n, void* stream) {
     if (n <= 0) return;
     if ((n & 3) != 0 || ((uintptr_t) dst & 15) != 0 || ((uintptr_t) src & 15) != 0) {
-        std::fprintf(stderr, "copy_from_mapped: n must be a multiple of 4 and both pointers 16-byte aligned\n");
+        basalt::log::error("basalt", "copy_from_mapped: n must be a multiple of 4 and both pointers 16-byte aligned");
         std::exit(1);
     }
     const int64_t n4 = n / 4;
@@ -341,14 +318,14 @@ __global__ void doorbell_publish_value_kernel(const float* __restrict__ x, const
 void doorbell_publish_value(const float* x, const int32_t* ids, const float* weights, int64_t n, int64_t k,
                             float* x_out, int32_t* ids_out, float* weights_out, uint32_t* d_seq, uint32_t value,
                             void* stream) {
-    if (k > 1024) { std::fprintf(stderr, "doorbell_publish: k too large\n"); std::exit(1); }
+    if (k > 1024) { basalt::log::error("basalt", "doorbell_publish: k too large"); std::exit(1); }
     doorbell_publish_value_kernel<<<1, 1024, 0, (cudaStream_t) stream>>>(x, ids, weights, (int) n, (int) k, x_out,
                                                                           ids_out, weights_out, d_seq, value);
 }
 
 void doorbell_publish(const float* x, const int32_t* ids, const float* weights, int64_t n, int64_t k, float* x_out,
                       int32_t* ids_out, float* weights_out, uint32_t* d_seq, void* stream) {
-    if (k > 1024) { std::fprintf(stderr, "doorbell_publish: k too large\n"); std::exit(1); }
+    if (k > 1024) { basalt::log::error("basalt", "doorbell_publish: k too large"); std::exit(1); }
     doorbell_publish_kernel<<<1, 1024, 0, (cudaStream_t) stream>>>(x, ids, weights, (int) n, (int) k, x_out, ids_out,
                                                                     weights_out, d_seq);
     check_launch("doorbell_publish");
@@ -356,7 +333,7 @@ void doorbell_publish(const float* x, const int32_t* ids, const float* weights, 
 
 void doorbell_publish_res(const float* x, const int32_t* ids, const int32_t* d_res, int n_expert, int64_t n, int64_t k,
                           float* x_out, int32_t* ids_out, uint32_t* d_seq, void* stream) {
-    if (k > 1024) { std::fprintf(stderr, "doorbell_publish_res: k too large\n"); std::exit(1); }
+    if (k > 1024) { basalt::log::error("basalt", "doorbell_publish_res: k too large"); std::exit(1); }
     doorbell_publish_res_kernel<<<1, 1024, 0, (cudaStream_t) stream>>>(x, ids, d_res, n_expert, (int) n, (int) k,
                                                                         x_out, ids_out, d_seq);
     check_launch("doorbell_publish_res");
@@ -372,11 +349,24 @@ void copy_i32_from_mapped(int32_t* dst, const int32_t* src, int64_t n, void* str
     check_launch("copy_i32_from_mapped");
 }
 
-void doorbell_ring(uint32_t* d_seq, void* stream) {
-    if (d_seq == nullptr) return;
-    doorbell_ring_kernel<<<1, 1, 0, (cudaStream_t) stream>>>(d_seq);
-    check_launch("doorbell_ring");
-    sync_if_needed(stream, "doorbell_ring");
+// a thread per value, so the reads over the link overlap instead of following each other
+__global__ void copy_i32x3_from_mapped_kernel(int32_t* __restrict__ d0, const volatile int32_t* s0, int n0,
+                                              int32_t* __restrict__ d1, const volatile int32_t* s1, int n1,
+                                              int32_t* __restrict__ d2, const volatile int32_t* s2, int n2) {
+    const int i = (int) (blockIdx.x * blockDim.x + threadIdx.x);
+    if (i < n0) d0[i] = s0[i];
+    else if (i < n0 + n1) d1[i - n0] = s1[i - n0];
+    else if (i < n0 + n1 + n2) d2[i - n0 - n1] = s2[i - n0 - n1];
+}
+
+void copy_i32x3_from_mapped(int32_t* d0, const int32_t* s0, int64_t n0, int32_t* d1, const int32_t* s1, int64_t n1,
+                            int32_t* d2, const int32_t* s2, int64_t n2, void* stream) {
+    const int64_t n = n0 + n1 + n2;
+    if (n <= 0) return;
+    copy_i32x3_from_mapped_kernel<<<(unsigned) ((n + 255) / 256), 256, 0, (cudaStream_t) stream>>>(
+        d0, (const volatile int32_t*) s0, (int) n0, d1, (const volatile int32_t*) s1, (int) n1, d2,
+        (const volatile int32_t*) s2, (int) n2);
+    check_launch("copy_i32x3_from_mapped");
 }
 
 void rms_norm_weighted(float* x, const float* w, int64_t rows, int64_t cols, float eps, void* stream) {

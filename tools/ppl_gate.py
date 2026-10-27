@@ -4,11 +4,12 @@
 The base is `llama-perplexity --kl-divergence-base`'s file (wikitext-2, 512-token chunks, second half scored). The
 engine runs as `--serve` with the model plus --ppl-base and --ppl-out; per chunk it reads the first half as a prompt
 and teacher-forces the rest through verify windows of T tokens (see the engine's ppl_gate.hpp). Flags this tool does
-not know are passed to the engine as they are; it sets only what the measurement needs (--spec 5 --spec-min-p 0.7,
-no adaptive swaps, a second visible GPU as the peer tier), and an engine flag given here replaces that value.
+not know are passed to the engine as they are; it sets only what the measurement needs (--spec 5,
+no adaptive swaps, the first two visible GPUs when there are two: --gpu 0,1), and an engine flag given here replaces
+that value.
 
   python3 tools/ppl_gate.py --model FILE.basalt --base base.kld --out DIR [--engine-bin BIN] [--chunks 20] [--t 3]
-                            [--peer-slots 64 ...]
+                            [--gpu 0 ...]
   python3 tools/ppl_gate.py --report DIR/rows.tsv          # summary of a finished run
   python3 tools/ppl_gate.py --diff A/rows.tsv B/rows.tsv   # row by row: identical rows, largest NLL/KLD change
 """
@@ -107,10 +108,10 @@ def set_args(args: list[str], extra: list[str]) -> list[str]:
 def run(a) -> int:
     n_ctx, n_vocab, n_chunk, chunks = read_base(a.base)
     first = n_ctx // 2
-    args = ["--model", str(Path(a.model).resolve()), "--spec", "5", "--spec-min-p", "0.7",
+    args = ["--model", str(Path(a.model).resolve()), "--spec", "5",
             "--adapt-swaps", "0", "--peer-adapt-swaps", "0", "--max-context", "4096"]
     if gpu_count() > 1:
-        args += ["--peer-device", "1"]
+        args += ["--gpu", "0,1"]
     args = set_args(args, a.engine_args + ["--ppl-base", str(Path(a.base).resolve())])
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)

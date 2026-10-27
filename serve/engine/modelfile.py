@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -17,7 +16,8 @@ VISION_EXE = "basalt-vision"
 
 
 def cache_root() -> Path:
-    return Path(os.environ.get("BASALT_CACHE") or Path.home() / ".cache" / "basalt")
+    """The folder of what can be rebuilt: BASALT_CACHE when set, else ~/.cache/basalt."""
+    return Path(os.environ["BASALT_CACHE"]) if os.environ.get("BASALT_CACHE") else Path.home() / ".cache" / "basalt"
 
 
 def cache_dir(mf: ModelFile) -> Path:
@@ -68,18 +68,6 @@ def extract_tokenizer(mf: ModelFile) -> Path:
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return out
-
-
-def gpu_count(visible_env: str | None = None) -> int:
-    """The NVIDIA GPUs this process can see: CUDA_VISIBLE_DEVICES when set, else what nvidia-smi lists."""
-    v = os.environ.get("CUDA_VISIBLE_DEVICES") if visible_env is None else visible_env
-    if v is not None:
-        return len([x for x in v.split(",") if x.strip() and x.strip() != "-1"])
-    try:
-        out = subprocess.run(["nvidia-smi", "--list-gpus"], capture_output=True, text=True, timeout=10).stdout
-    except (OSError, subprocess.SubprocessError):
-        return 0
-    return sum(1 for line in out.splitlines() if line.startswith("GPU "))
 
 
 def projector_file(mf: ModelFile, vdir: Path, chosen: str | None = None) -> Path:
@@ -136,20 +124,17 @@ def vision_config(mf: ModelFile, engine_bin: str, sidecar: bool = True, projecto
     return {"vision_bin": str(side), "mmproj": str(projector_file(mf, vdir, projector)), "model": str(vocab)}
 
 
-def model_config(path: str, engine_bin: str, gpus: int | None = None, vision: bool | str = False,
-                 engine_words: list[str] | None = None, projector: str | None = None, hold: str = "keep") -> dict:
+def model_config(path: str, engine_bin: str, vision: bool | str = False, engine_words: list[str] | None = None,
+                 projector: str | None = None, hold: str = "keep") -> dict:
     """The engine settings the file implies; `engine_words` follow its arguments as given (the engine's parser lets a
-    later flag win), `vision` (True, "peer"
-    or "cpu") adds the sidecar and "dynamic" the in-engine encoder (ValueError if it cannot be set up), reading `projector`
-    when one is given and, with "dynamic", `hold` "release" (the engine frees the encoder's weights between images). A second visible GPU
-    becomes the peer tier."""
+    later flag win), `vision` (a GPU number as a string, or "cpu") adds the sidecar and "dynamic" the in-engine
+    encoder (ValueError if it cannot be set up), reading `projector` when one is given and, with "dynamic", `hold`
+    "release" (the engine frees the encoder's weights between images)."""
     mf = ModelFile(path)
     meta = json.loads(mf.read("meta"))
     path = os.path.abspath(path)
     words = list(engine_words or [])
     args = ["--model", path]   # settings come from the engine defaults and the server
-    if "--peer-device" not in words and (gpu_count() if gpus is None else gpus) > 1:
-        args += ["--peer-device", "1"]
     args += words
     cdir = cache_dir(mf)
     cdir.mkdir(parents=True, exist_ok=True)
@@ -158,7 +143,7 @@ def model_config(path: str, engine_bin: str, gpus: int | None = None, vision: bo
            "tokenizer": str(extract_tokenizer(mf))}
     v = vision_config(mf, engine_bin, sidecar=vision != "dynamic", projector=projector) if vision else None
     if v:
-        v["mode"] = "on" if vision is True else vision
+        v["mode"] = vision
         v["gpu"] = vision != "cpu"
         cfg["vision"] = v
         if vision == "dynamic":     # the engine encodes: it reads the projector itself
