@@ -248,9 +248,9 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   message box goes to the next, with a conversation open it changes that one only, and *Automatic* asks the two confirmations of the
   risk dialog the first time only, until the app is closed.
 - **Thinking level** per conversation (the *Thinking* list, or `/effort`).
-- **Slash commands**: typing `/` opens a menu of 30: on the page (`/clear`, `/mode`, `/plan`, `/copy`, `/export`, `/branch`, `/rewind`,
+- **Slash commands**: typing `/` opens a menu of 31: on the page (`/clear`, `/mode`, `/plan`, `/copy`, `/export`, `/branch`, `/rewind`,
   `/stop`, `/diff`…), answered by the conversation's process (`/status`, `/context`, `/compact`, `/tools`, `/hooks`, `/mcp`,
-  `/memory`, `/permissions`), requests worded for the model (`/init`, `/review`, `/security-review`, `/research`), and every skill found
+  `/memory`, `/permissions`, `/audit`), requests worded for the model (`/init`, `/review`, `/security-review`, `/research`), and every skill found
   on the PC as `/name text`.
 - **It always knows the time.** Before each request the agent is given the person's local date, time and timezone by the harness
   itself, so it never has to call a tool to ask, and the start of the prompt is not touched (the server keeps its cache). Each message
@@ -279,7 +279,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   covers a command that chains or redirects); the *Always allow* button in a question. An answer covers that one call (the same tool with
   the same arguments), not the whole tool, and *Always allow* is never offered as a wide rule for `python`, `powershell`, `curl` and the
   like (only for that exact command) or for `run_code`: a rule for those is one you write yourself. In *Automatic*, an irreversible action still asks
-  once the conversation has read outside content and can reach a secret or a vault entry (the Rule of Two).
+  once the conversation has read outside content and can reach a secret or a vault entry (the Rule of Two). The web is read freely for news; a web address, a search or a form asks only when the conversation has read outside content, touched private data (a stored credential, a file that holds keys, an attachment, your memories) and the action reaches the outside. Settings > Wallet sets how strict that is. A stored secret is never let into an address or a query, at any setting.
 - **Hooks you write** (`hooks.json`): commands or fixed blocks on tool calls, turns and the session; a hook that cannot decide blocks.
 - **Checkpoints and rewind**: the workspace is saved before the first change of a turn, outside the project and within size limits;
   `python -m harness.rewind`, `/rewind` and *Back to here* on a message restore it. Rewinding does not undo a command it ran, and says so.
@@ -332,7 +332,7 @@ the note.
 - **Notes are stored as written, in plain text, not encrypted and not masked.** Do not ask the agent to remember a password or a key.
 - **A wrong or hostile note stays.** The agent can be talked into keeping a note by a page it read, and `remember` is a reversible
   action that asks nobody in *Ask first* or *Automatic*. It comes back later as data the model is told not to obey, which lowers the
-  risk and does not remove it. The notes added at the end by the retrieval do not set the Rule of Two flag the way `recall` does.
+  risk and does not remove it. The notes added at the end by the retrieval set the Rule of Two flag like `recall`.
 - **No page to browse or edit the notes.** `/memory` reads them (each cut at 300 characters); to remove one, ask the agent to forget
   it, or delete the file. Nothing is shared between folders, users or PCs, and there is no export.
 
@@ -989,7 +989,7 @@ entries are dropped and the page is told how many. `GET /v1/status` reports `req
 | Endpoint | |
 |---|---|
 | `GET /api/reqlog?after=<id>&max_chars=<n>` | the events with an id above `after`, oldest first: `{"enabled", "epoch", "last", "events": [{"id", "t", "req", "kind", "data", "text"}], "skipped", "dropped": {"events", "chars"}, "capacity_chars", "held_chars"}`. With the log off: `enabled: false` and no events (HTTP 200). `kind` is `request`, `reasoning`, `content`, `attempt`, `repair`, `timing`, `finish`, `cancel`, `error`, `gpu`, `engine` or `server` |
-| `GET /api/reqlog/export?format=text\|jsonl` | the whole log as a downloaded file, `basalt-requests-YYYYmmdd-HHMMSS.log` or `.jsonl` |
+| `GET /api/reqlog/export?format=text\|jsonl&mask=secrets\|personal&hide=words` | the whole log as a downloaded file, `basalt-requests-YYYYmmdd-HHMMSS.log` or `.jsonl`. Secrets (private keys, tokens, passwords, card numbers, the vault's values, the server's key) are always hidden in the file, never in the page; `mask=personal` also hides e-mail addresses, phone numbers, IBANs and tax codes, and `hide` lists words (comma-separated, at most 20) |
 | `POST /api/reqlog/clear` | empties the log, `{"cleared": true}`; JSON from the server's own page only |
 
 Every setting, with its type, default and example configs: [docs/configuration.md](docs/configuration.md).

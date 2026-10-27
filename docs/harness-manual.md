@@ -110,7 +110,9 @@ rule always wins. A rule never covers a command that chains or redirects another
 the **Always allow …** button adds a rule for you.
 
 **The Rule of Two.** Even in *Automatic*, an irreversible action asks again once the conversation has read content from outside (a
-web page, an MCP tool, a phone call, a recalled note) *and* can reach a secret or a vault entry. This is checked at every action.
+web page, an MCP tool, a phone call, a recalled note) *and* can reach a secret or a vault entry. This is checked at every action. A web address, a search or a form asks when the
+conversation has read outside content (including files, command output, attachments and notes from the planner), touched private data and
+the action reaches the outside; Settings > Wallet sets how strict that is, and a stored secret never goes into an address at any setting.
 
 **What the modes are not.** They are not an operating-system sandbox. A command runs with your rights on your files and network. The
 agent's commands have a scrubbed environment, no keyboard input, a time limit, capped output and, on Windows, a job object (memory
@@ -135,6 +137,7 @@ argument, **Escape** closes. A message that starts with a space is sent as writt
 | `/context` | how full the context is |
 | `/compact` | turns the older half of the conversation into a summary; only when nothing is under way |
 | `/tools`, `/hooks`, `/mcp` | what the conversation can call, which hooks are active, which MCP servers started |
+| `/audit` | checks that the record of what the agent did (the hash chain and its head file) is whole, reading the file as it is now |
 | `/memory [words]` | the last ten notes, or a search |
 | `/copy [n]` | copies the last answer (or the nth from the end) |
 | `/export` | saves the conversation as a text file |

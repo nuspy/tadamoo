@@ -3,7 +3,7 @@
 The model only ever writes placeholders such as {{secret:github_token}}; the value is substituted at
 the execution boundary and masked again in anything that flows back. A secret may name the hosts it
 can be sent to; a command that would send it anywhere else is refused. This is a check of what the
-command says, not network isolation: a command that builds its address at run time needs a firewall.
+command and the scripts it names say (and a command that uses the network without naming a site is refused), not network isolation.
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ PROTECTED_NAMES = ["vault.bin", "device.key", "payments_state.json", "payments.j
 CONTROL_TOKEN = re.compile(r"control-\d+\.token")
 # files of the user data folder that no tool of the agent opens: the secret of the control routes, the phones' keys, the OAuth tokens
 # and the records that hold each conversation's permission rules
-PROTECTED_FILES = ("control-*.token", "api-keys.json", "mcp_oauth.json", "journal/agent_sessions.json", "journal/agent_runs.json")
+PROTECTED_FILES = ("control-*.token", "api-keys.json", "mcp_oauth.json", "rule_of_two.json", "journal/agent_sessions.json", "journal/agent_runs.json")
 
 
 def _real(path: Any) -> Path:
@@ -202,6 +202,13 @@ class SecretsBroker:
             masked = masked.replace(value, label)
         return self.vault.mask(masked) if self.vault is not None else masked
 
+    def find_secret(self, texts: List[str], present: Callable[[str, List[str]], bool]) -> str:
+        """The name of a secret whose value, in any of the shapes a command can give it, is in one of `texts`; '' if none is."""
+        for name, value in self._secrets.items():
+            if value and any(present(form, texts) for form in shapes(value)):
+                return name
+        return self.vault.find_secret(texts, present) if self.vault is not None else ""
+
     def references(self, text: str) -> List[str]:
         """Names of the secrets a text asks for, known or not."""
         return PLACEHOLDER.findall(text)
@@ -228,7 +235,7 @@ class SecretsBroker:
                     raise SecretDestinationError(
                         f"Secret '{name}' may only be sent to {', '.join(sorted(allowed))}, not to {', '.join(bad)}")
 
-    def resolve_tokens(self, text: str, destinations: Optional[Iterable[str]] = None) -> str:
+    def resolve_tokens(self, text: str, destinations: Optional[Iterable[str]] = None, payable: Optional[Callable[[str], Any]] = None) -> str:
         """Substitutes {{secret:NAME}} with the stored value; unknown names are left as written.
 
         With `destinations` (the hosts the text will reach) a secret is only filled in toward an allowed host."""
@@ -240,4 +247,4 @@ class SecretsBroker:
             return val if val is not None else match.group(0)
 
         out = PLACEHOLDER.sub(repl, text)
-        return self.vault.resolve(out, hosts=destinations, ask_code=self.ask_code) if self.vault is not None else out
+        return self.vault.resolve(out, hosts=destinations, ask_code=self.ask_code, payable=payable) if self.vault is not None else out

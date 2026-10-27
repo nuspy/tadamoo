@@ -57,6 +57,7 @@
     { name: "status", run: rest => server("status", rest) },
     { name: "context", run: rest => server("context", rest) },
     { name: "compact", run: rest => server("compact", rest) },
+    { name: "audit", run: rest => server("audit", rest) },
     { name: "tools", run: rest => server("tools", rest) },
     { name: "hooks", run: rest => server("hooks", rest) },
     { name: "mcp", run: rest => server("mcp", rest) },
@@ -249,6 +250,7 @@
     memory: d => list(T("sl.r.mem.title", d.count), d.items.length ? d.items.map(m => m.category + " · " + m.content) : [d.query ? T("sl.r.mem.nomatch", d.query) : T("sl.r.mem.empty")]),
     permissions: d => list(T("sl.r.perm"), [[T("sl.r.mode"), T("ag.mode." + d.mode)], ...(d.rules.length ? d.rules.map(r => r.action + " " + r.pattern) : [T("sl.r.perm.none")]),
       T("sl.r.perm.denied", d.denied), T("sl.r.perm.edit")]),
+    audit: d => d.valid ? T("sl.r.audit.ok", d.records) : T("sl.r.audit.bad", d.records, d.problem),
     compact: d => d.done ? T("sl.r.compact.done", d.before, d.after) : T("sl.r.compact." + d.reason, d.tokens),
   };
   const effortName = level => { const o = [...sel.options].find(x => x.value === (level || "")); return o ? o.text : String(level); };

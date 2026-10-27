@@ -6,7 +6,9 @@ Effect classes:
 - IRREVERSIBLE: executes external commands, state-changing network requests, or hardware calls
 
 A tool marked `untrusted` returns content from outside the user's control (web pages, mail,
-third-party servers); its results are fenced as data and taint the session's permissions.
+third-party servers); its results are fenced as data and taint the session's permissions. A tool marked
+`outward` sends what the model wrote (an address, a query, a form) out of this PC: the Rule of Two looks at it
+(harness/rule_of_two.py).
 
 Every tool has a time limit: the registry's default, or its own (`timeout=` when it is registered, or
 `set_timeout`; None means no limit). The tool runs in the calling thread, and a watchdog raises
@@ -111,6 +113,7 @@ class ToolDefinition:
     effect: EffectClass
     handler: Callable[..., Any]
     untrusted: bool = False
+    outward: bool = False        # sends something the model wrote (an address, a query, a form) out of this PC
 
 
 def validate_arguments(name: str, schema: Dict[str, Any], arguments: Any) -> Dict[str, Any]:
@@ -187,6 +190,7 @@ class ToolRegistry:
         handler: Callable[..., Any],
         untrusted: bool = False,
         timeout: Optional[float] = _UNSET,
+        outward: bool = False,
     ) -> None:
         if timeout is not _UNSET:
             self.set_timeout(name, timeout)
@@ -197,6 +201,7 @@ class ToolRegistry:
             effect=effect,
             handler=handler,
             untrusted=untrusted,
+            outward=outward,
         )
 
     def unregister(self, name: str) -> bool:

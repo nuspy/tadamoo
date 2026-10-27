@@ -98,6 +98,28 @@ _DATE = re.compile(r"\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,
 PHONE_DIGITS = (8, 15)
 
 
+_SENDER = re.compile(r"\A(Email|Telegram) from ([^:\n]{2,80}): ")
+
+
+def sender_names(events: Iterable[str]) -> List[str]:
+    """The people who sent the events, from the line the planner's own sources write ("Email from <name>: ...", "Telegram from <name>: ..."):
+    a Telegram first name, or an e-mail display name of two or more words. A one-word e-mail sender may be a company, and is left as it is.
+    A name written inside a message is not recognised: no rule finds those reliably."""
+    out: List[str] = []
+    for event in events:
+        m = _SENDER.match(event)
+        if not m:
+            continue
+        who = re.sub(r"\s+", " ", m.group(2)).strip()
+        words = who.split(" ")
+        if "@" in who or not all(w.replace("'", "").replace("-", "").isalpha() for w in words) or len(who) < 3:
+            continue
+        if who.lower() in PRONOUNS or who.lower() in COMMON_WORDS or who.lower() in ("someone", "unknown sender") or (m.group(1) == "Email" and len(words) < 2):
+            continue
+        out.append(who)
+    return list(dict.fromkeys(out))
+
+
 def scrub_contacts(text: str) -> str:
     """Takes e-mail addresses and phone numbers out of a text (a date is not mistaken for a number)."""
     def phone(m: "re.Match[str]") -> str:

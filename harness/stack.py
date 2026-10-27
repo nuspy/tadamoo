@@ -23,6 +23,7 @@ from harness.knowledge import LocalKnowledge, cag_prefix, choose_strategy, regis
 from harness.memory import MemoryStore, default_db_path, register_memory_tools
 from harness.permissions import PermissionLevel, PermissionManager
 from harness.plan_mode import MODES_AFTER_PLAN, PLAN_TOOL, PlanGate, register_plan_tool
+from harness.rule_of_two import LEVELS
 from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
 from harness.skills import ApprovalStore, SkillCatalog, find_project_guidelines, register_skill_tool
 from harness.tools import create_standard_tool_registry
@@ -124,6 +125,9 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = 15) ->
                         help="what the browser does about a cookie banner: reject all or keep only the necessary (accept if that is not possible), accept, reject, or leave it to the model")
     parser.add_argument("--browser-permissions", default="deny", choices=["deny", "ask", "grant-safe"],
                         help="what the browser does when a page asks for a permission (location, camera, notifications...): refuse, ask the person, or allow only what is safe")
+    parser.add_argument("--rule-of-two", default="ask", choices=list(LEVELS),
+                        help="when the agent has read content from outside and touched private data, an outward action (a web address, a query, a form) asks first (ask); "
+                             "strict: it asks after untrusted content alone; off: it never asks. A known secret never leaves inside an address whatever the level")
     parser.add_argument("--vault-dir", default="", help="the person's vault: the model writes {{vault:ENTRY.FIELD}} and the value is filled in for it")
     parser.add_argument("--capabilities", action="store_true", help="offer the search for skills, plugins and MCP servers found on this PC, and the visual analysis")
     parser.add_argument("--images", default="", choices=["", "very_low", "low", "normal", "high", "very_high", "highest"],
@@ -170,7 +174,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         workspace=args.workspace, endpoint=args.endpoint, api_key=args.api_key, max_turns=args.max_turns, permission_mode=args.permission_mode,
         allow=args.allow, deny=args.deny, secret_names=secret_names, secret_hosts=secret_hosts, skill_paths=args.skills,
         payments_dir=args.payments_dir, browser=args.browser, browser_headless=args.browser_headless, browser_private=args.browser_private,
-        browser_profile=args.browser_profile, browser_consent=args.browser_consent, browser_permissions=args.browser_permissions, vault_dir=args.vault_dir, capabilities=args.capabilities, lsp=args.lsp, council=args.council,
+        browser_profile=args.browser_profile, browser_consent=args.browser_consent, browser_permissions=args.browser_permissions, vault_dir=args.vault_dir, rule_of_two=args.rule_of_two, capabilities=args.capabilities, lsp=args.lsp, council=args.council,
         wiki=args.wiki, wiki_url=args.wiki_url, wiki_project=args.wiki_project, phone=args.phone,
         reference_docs=read_reference(args.reference), reference_strategy=args.reference_strategy,
         memory_min_score=args.memory_min_score, memory_notes=args.memory_notes, memory_budget_tokens=args.memory_budget, phone_on_behalf_of=args.on_behalf_of,
@@ -217,6 +221,7 @@ class AgentConfig:
     ask_code: Optional[Callable[[str], str]] = None   # how to ask the person for a second-factor code
     browser: bool = False               # offer the browser tools (Edge or Chrome on this PC): forms, purchases, bookings
     browser_headless: bool = False      # without a window
+    rule_of_two: str = "ask"            # off, ask or strict: when an outward action asks (harness/rule_of_two.py)
     browser_private: bool = False       # may open pages on this PC or its network (off: only sites on the internet)
     browser_profile: str = ""           # a profile folder that keeps the browser's sign-ins between conversations (empty: a new one each time)
     browser_consent: str = "necessary"  # cookie banners: necessary (reject all / only necessary, else accept), accept, reject, off (the model deals with them)
@@ -328,6 +333,7 @@ class BuiltAgent:
         about = self.personal.message(goal) if self.personal is not None else None
         if about:
             message = {**message, "content": message["content"] + "\n" + about} if message else {"role": "user", "content": about}
+            message["private"] = True                    # the person's own memories: the Rule of Two counts them as private data
         return message
 
     def close(self) -> None:
@@ -470,6 +476,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     level, plan = PERMISSION_MODES[cfg.permission_mode]
     permissions = PermissionManager(level=level, plan_mode=plan, confirm_callback=cfg.confirm,
                                     sensitive_data=secrets.sensitive)       # asked at each call: the vault may gain entries later
+    permissions.two.set_level(cfg.rule_of_two)
     for pattern in cfg.deny:
         permissions.add_rule(pattern, "deny")
     for pattern in cfg.allow:
@@ -490,7 +497,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
             if secrets.vault is not None:
                 secrets.vault.attach_gate(broker.still_valid)
             register_payment_tool(registry, broker, permissions, confirm=payment_confirm,
-                                  on_authorized=(lambda entry, payment_id, site: secrets.vault.arm(entry, payment_id=payment_id, site=site))
+                                  on_authorized=(lambda entry, payment_id, site, amount_cents=None, currency="": secrets.vault.arm(entry, payment_id=payment_id, site=site, amount_cents=amount_cents, currency=currency))
                                   if secrets.vault is not None else None)
     audit = AuditLedger(data / "audit.jsonl", redactor=secrets.mask_secrets)
     if cfg.after_plan not in MODES_AFTER_PLAN:

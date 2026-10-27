@@ -393,14 +393,16 @@ class Session:
     def permission_confirm(self, tool: str, arguments: Dict[str, Any]) -> bool:
         """The permission manager's question, put to the person in the conversation."""
         from harness.permissions import suggest_rule
+        two = arguments.get("rule_of_two")                            # set when the Rule of Two is what asks: the question says which facts made it ask
+        arguments = {k: v for k, v in arguments.items() if k != "rule_of_two"}
         shown = json.dumps(arguments, ensure_ascii=False)[:300]
         permissions = self.built.permissions
-        rule = suggest_rule(tool, arguments, permissions.always_ask)
+        rule = None if two else suggest_rule(tool, arguments, permissions.always_ask)    # no rule can answer it: the facts change from call to call
         options = [{"label": "Allow", "value": "confirm"}, {"label": "Deny", "value": "cancel"}]
         if rule:
             options.insert(1, {"label": f"Always allow {rule}", "value": "always", "rule": rule})
         answer = self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments,
-                            "question": f"Allow {tool} {shown}?", "options": options})
+                            "question": f"{two}\n\nAllow {tool} {shown}?" if two else f"Allow {tool} {shown}?", "options": options})
         if answer == "always" and rule:
             permissions.add_rule(rule, "allow")                       # for this conversation from now on; the server keeps it for the next start
             self.emit({"event": "rule_added", "rule": rule})
@@ -442,8 +444,8 @@ class Session:
             agent.append({"role": "user", "content": note})
         self._add_message(agent, text, origin, attachments)
         retrieved = self.built.retrieved_message(text) if origin == "user" else None
-        agent.untrusted_since_user = agent.untrusted_since_user or bool(retrieved)
         if retrieved:
+            agent.taint("memories", private=bool(retrieved.get("private")))
             agent.append(retrieved)
         self._save()                                   # the message is kept before the model sees it
         task = Task(turn, text, agent)
@@ -545,7 +547,7 @@ class Session:
             from harness.attachments import compose_message
             full, inlined = compose_message(self.attachment_store, self.session_id, attachments, text, self.window_tokens())
             agent.add_user_message(full, steer=steer, shown=text)
-            agent.untrusted_since_user = True               # a file can say anything: nothing confirms a change to a plan after it
+            agent.taint("attachment", private=True)         # a file can say anything, and it is the person's own: nothing confirms a change to a plan after it
             return
         agent.add_user_message(text, origin, steer=steer)
 

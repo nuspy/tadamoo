@@ -67,6 +67,13 @@ def permissions(session: Any, args: str) -> Dict[str, Any]:
             "untrusted_input": bool(p.untrusted_input)}
 
 
+def audit(session: Any, args: str) -> Dict[str, Any]:
+    """Whether the record of what this folder's agents did is whole: the hash chain and its head file, read from disk now."""
+    ledger = session.built.audit
+    valid, problem = ledger.verify_integrity()
+    return {"valid": valid, "records": len(ledger.records), "problem": problem or ""}
+
+
 def context(session: Any, args: str) -> Dict[str, Any]:
     return _context(session)
 
@@ -93,7 +100,7 @@ def compact(session: Any, args: str) -> Dict[str, Any]:
 
 
 COMMANDS: Dict[str, Callable[[Any, str], Dict[str, Any]]] = {
-    "status": status, "tools": tools, "hooks": hooks, "mcp": mcp, "memory": memory, "permissions": permissions, "context": context, "compact": compact,
+    "status": status, "tools": tools, "hooks": hooks, "mcp": mcp, "memory": memory, "permissions": permissions, "context": context, "compact": compact, "audit": audit,
 }
 
 

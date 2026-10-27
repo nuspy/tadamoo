@@ -114,7 +114,9 @@ altro (`pytest && rm -rf ~` non è `pytest`). In una domanda, il pulsante **Perm
 
 **La regola dei due.** Anche in *Automatico*, un'azione irreversibile chiede di nuovo quando la conversazione ha letto contenuti
 esterni (una pagina web, uno strumento MCP, una telefonata, un appunto richiamato) *e* può raggiungere un segreto o una voce del vault.
-Si controlla a ogni azione.
+Si controlla a ogni azione. Un indirizzo web, una ricerca o un modulo chiede quando la conversazione ha letto contenuti esterni (anche file,
+output di comandi, allegati e note del pianificatore), ha toccato dati privati e l'azione arriva all'esterno; Impostazioni > Portafoglio
+regola quanto è rigida, e un segreto salvato non entra mai in un indirizzo, con nessuna impostazione.
 
 **Cosa le modalità non sono.** Non sono una sandbox del sistema operativo. Un comando gira con i tuoi diritti sui tuoi file e sulla tua
 rete. I comandi dell'agente hanno un ambiente ripulito, nessun input da tastiera, un limite di tempo, output limitato e, su Windows, un
@@ -141,6 +143,7 @@ una nota.
 | `/context` | quanto è pieno il contesto |
 | `/compact` | trasforma la metà più vecchia della conversazione in un riassunto; solo quando nulla è in corso |
 | `/tools`, `/hooks`, `/mcp` | cosa può chiamare la conversazione, quali hook sono attivi, quali server MCP sono partiti |
+| `/audit` | controlla che il registro di ciò che l'agente ha fatto (catena di hash e file di testa) sia integro, leggendo il file com'è ora |
 | `/memory [parole]` | gli ultimi dieci appunti, oppure una ricerca |
 | `/copy [n]` | copia l'ultima risposta (o l'ennesima dalla fine) |
 | `/export` | salva la conversazione come file di testo |

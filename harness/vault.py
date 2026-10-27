@@ -45,8 +45,8 @@ KINDS: Dict[str, List[str]] = {
 }
 SECRET_FIELDS = frozenset(("password", "totp_secret", "number", "cvc", "expiry", "value", "pin", "token", "secret", "key", "document_number"))   # masked in other forms too
 GUARDED = ("number", "expiry", "cvc")            # the fields of a guarded card, released only by an approved payment
-ARMED_SECONDS = 600
-ARMED_USES = 9                                    # the fields a card form takes, three times over for a page that asks again
+ARMED_SECONDS = 300
+ARMED_USES = 1                                    # how many times each guarded field comes out for one approved payment: one form filled
 MAX_VALUE = 4096
 MAX_ENTRIES = 5000
 
@@ -341,8 +341,11 @@ class Vault:
                 if bad:
                     raise SecretDestinationError(f"'{entry_id}' may only be sent to {', '.join(allowed)}, not to {', '.join(bad)}")
 
-    def resolve(self, text: str, hosts: Optional[Iterable[str]] = None, ask_code: Optional[Callable[[str], str]] = None) -> str:
-        """Fills in the placeholders. With `hosts` (where the text goes) a value only goes to a site its entry names."""
+    def resolve(self, text: str, hosts: Optional[Iterable[str]] = None, ask_code: Optional[Callable[[str], str]] = None,
+                payable: Optional[Callable[[str], Any]] = None) -> str:
+        """Fills in the placeholders. With `hosts` (where the text goes) a value only goes to a site its entry names. `payable(currency)` says what
+        the destination will charge, as (cents, currency), or raises VaultError saying why that cannot be told: a card approved for an amount
+        is released only against it."""
         if hosts is not None:
             self.check_destinations(text, hosts)
         entries = self._read()
@@ -362,34 +365,51 @@ class Vault:
             if value is None:
                 raise VaultError(f"'{entry_id}' has no field '{field}'")
             if e.get("guard") and field in GUARDED:
-                self._release(entry_id, hosts)
+                self._release(entry_id, hosts, field, payable)
             return value
 
         return PLACEHOLDER.sub(one, text)
 
-    def arm(self, entry_id: str, seconds: float = ARMED_SECONDS, *, payment_id: str = "", site: str = "", uses: int = ARMED_USES) -> None:
-        """An approved payment lets the fields of a guarded card out: for a while, a few times, to its site, and only while it still stands."""
+    def arm(self, entry_id: str, seconds: float = ARMED_SECONDS, *, payment_id: str = "", site: str = "", uses: int = ARMED_USES,
+            amount_cents: Optional[int] = None, currency: str = "") -> None:
+        """An approved payment lets the fields of a guarded card out: for a short while, `uses` times each, to its site, only while it still
+        stands and, with an `amount_cents`, only into a page that asks for no more than that."""
         with self._lock:
-            self._armed[entry_id] = {"until": self.clock() + seconds, "payment_id": payment_id, "site": site, "uses": uses}
+            self._armed[entry_id] = {"until": self.clock() + seconds, "payment_id": payment_id, "site": site, "left": {f: max(0, int(uses)) for f in GUARDED},
+                                     "amount_cents": amount_cents, "currency": currency.upper()}
 
     def attach_gate(self, gate: Optional[Callable[[str], bool]]) -> None:
         """`gate(payment_id)` says whether a payment's approval still stands (it is revoked from the GUI, in another process)."""
         self._gate = gate
 
-    def _release(self, entry_id: str, hosts: Optional[Iterable[str]]) -> None:
+    def _release(self, entry_id: str, hosts: Optional[Iterable[str]], field: str, payable: Optional[Callable[[str], Any]] = None) -> None:
         with self._lock:
             armed = self._armed.get(entry_id)
             if armed is None or armed["until"] < self.clock():
                 raise VaultError(f"the card '{entry_id}' is released only by an approved payment: ask for the payment with request_payment first")
-            if armed["uses"] <= 0:
-                raise VaultError(f"the approval of that payment has been used: ask for the payment again with request_payment")
+            if armed["left"].get(field, 0) <= 0:
+                raise VaultError(f"the approval of that payment has been used ({field} was already filled in): ask for the payment again with request_payment")
             if armed["payment_id"] and self._gate is not None and not self._gate(armed["payment_id"]):
                 self._armed.pop(entry_id, None)
                 raise VaultError("the approval of that payment was stopped or has ended: the card is not released")
             site = armed["site"]
             if site and hosts is not None and not any(h == site or h.endswith("." + site) or site.endswith("." + h) for h in hosts):
                 raise VaultError(f"the payment was approved for {site}, not for {', '.join(hosts) or 'this place'}")
-            armed["uses"] -= 1
+            approved, currency = armed.get("amount_cents"), armed.get("currency") or ""
+        if approved is not None:
+            self._check_amount(approved, currency, payable)
+        with self._lock:
+            armed["left"][field] -= 1
+
+    @staticmethod
+    def _check_amount(approved: int, currency: str, payable: Optional[Callable[[str], Any]]) -> None:
+        if payable is None:
+            raise VaultError("the card is released only into a payment page whose amount Basalt can read and compare with the approved payment: "
+                             "use the browser on the merchant's page")
+        asked, shown_currency = payable(currency)                       # raises VaultError when the page shows no amount it can read
+        if shown_currency.upper() != currency or asked > approved:
+            shown = f"{asked / 100:.2f} {shown_currency.upper()}"
+            raise VaultError(f"the page asks for {shown}, not the {approved / 100:.2f} {currency} that was approved: the card is not released")
 
     def _code(self, entry_id: str, e: Dict[str, Any], ask_code: Optional[Callable[[str], str]]) -> str:
         level = e.get("second_factor", "none")
@@ -403,6 +423,26 @@ class Vault:
                 raise VaultError("no code was given")
             return code
         raise VaultError(f"'{entry_id}' has no second factor: choose one in the vault")
+
+    def find_secret(self, texts: List[str], present: Callable[[str, List[str]], bool]) -> str:
+        """The entry and field of a secret value (a password, a card number, a code: not a name or an address) found in one of `texts`, or ''."""
+        try:
+            entries = self._read()
+        except VaultError:
+            return ""
+        for i, e in entries.items():
+            for n, v in e["fields"].items():
+                if not (n in SECRET_FIELDS or e["kind"] == "secret"):
+                    continue
+                forms = set(shapes(v))
+                if n == "number":
+                    forms |= shapes(re.sub(r"[\s\-.]", "", v))
+                if any(present(f, texts) for f in forms if len(f) >= MIN_SECRET_LENGTH):
+                    return f"{i}.{n}"
+        for code, name in self._issued:
+            if len(code) >= MIN_SECRET_LENGTH and present(code, texts):
+                return name
+        return ""
 
     def mask(self, text: str) -> str:
         """Replaces the values in `text` by their names, longest first."""

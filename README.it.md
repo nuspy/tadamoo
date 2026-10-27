@@ -270,9 +270,9 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
   Claude Code); **Maiusc+Tab** nel campo del messaggio passa alla successiva, con una conversazione aperta cambia solo quella, e
   *Automatico* chiede le due conferme della finestra di rischio solo la prima volta, finché non chiudi l'app.
 - **Livello di ragionamento** per conversazione (l'elenco *Ragionamento*, oppure `/effort`).
-- **Comandi con la barra**: scrivendo `/` si apre un menu di 30: sulla pagina (`/clear`, `/mode`, `/plan`, `/copy`, `/export`,
+- **Comandi con la barra**: scrivendo `/` si apre un menu di 31: sulla pagina (`/clear`, `/mode`, `/plan`, `/copy`, `/export`,
   `/branch`, `/rewind`, `/stop`, `/diff`…), risposti dal processo della conversazione (`/status`, `/context`, `/compact`, `/tools`,
-  `/hooks`, `/mcp`, `/memory`, `/permissions`), richieste scritte per il modello (`/init`, `/review`, `/security-review`,
+  `/hooks`, `/mcp`, `/memory`, `/permissions`, `/audit`), richieste scritte per il modello (`/init`, `/review`, `/security-review`,
   `/research`) e ogni skill trovata sul PC come `/nome testo`.
 - **Sa sempre che ora è.** Prima di ogni richiesta l'agente riceve da solo, dall'harness, data, ora e fuso orario locali della
   persona, quindi non deve mai chiamare uno strumento per chiederli, e l'inizio del prompt non viene toccato (il server tiene la sua
@@ -302,7 +302,10 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
   quella chiamata (lo stesso strumento con gli stessi argomenti), non per lo strumento intero, e *Permetti sempre* non propone mai una regola
   larga per `python`, `powershell`, `curl` e simili (solo per quel comando preciso) né per `run_code`: una regola per questi la scrivi tu. In
   *Automatico*, un'azione irreversibile chiede comunque quando la conversazione ha letto contenuti esterni e può raggiungere un segreto
-  o una voce del vault (la regola dei due).
+  o una voce del vault (la regola dei due). Il web si legge liberamente per le notizie; un indirizzo web, una ricerca o un modulo chiede
+  solo quando la conversazione ha letto contenuti esterni, ha toccato dati privati (una credenziale salvata, un file con chiavi, un
+  allegato, le tue memorie) e l'azione arriva all'esterno. Impostazioni > Portafoglio regola quanto è rigida. Un segreto salvato non entra
+  mai in un indirizzo o in una ricerca, con nessuna impostazione.
 - **Hook scritti da te** (`hooks.json`): comandi o blocchi fissi su chiamate di strumenti, turni e sessione; un hook che non riesce a
   decidere blocca.
 - **Checkpoint e ritorno**: l'area di lavoro viene salvata prima della prima modifica di un turno, fuori dal progetto e con limiti di
@@ -365,7 +368,7 @@ nell'appunto.
   password o una chiave.
 - **Un appunto sbagliato o ostile resta.** L'agente può essere indotto a tenere un appunto da una pagina che ha letto, e `remember` è
   un'azione reversibile che non chiede a nessuno in *Chiedi prima* o *Automatico*. Torna poi come dato che il modello ha l'ordine di
-  non eseguire: il rischio si abbassa, non scompare. Gli appunti aggiunti in coda dal recupero non alzano il segnale della regola dei
+  non eseguire: il rischio si abbassa, non scompare. Gli appunti aggiunti in coda dal recupero alzano il segnale della regola dei
   due come fa `recall`.
 - **Nessuna pagina per sfogliare o modificare gli appunti.** `/memory` li legge (ciascuno tagliato a 300 caratteri); per toglierne uno
   chiedi all'agente di dimenticarlo, oppure cancella il file. Nulla è condiviso tra cartelle, utenti o PC, e non c'è esportazione.

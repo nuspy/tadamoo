@@ -39,6 +39,7 @@ the Chat can reach, the others can reach:
 | `--after-plan default\|auto` | the mode the run goes on in when you approve a plan |
 | `--allow PATTERN`, `--deny PATTERN` | rules such as `shell_command:pytest*`; a deny always wins |
 | `--secret-env NAME[=host,host]` | lets the agent write `{{secret:NAME}}`; with hosts, the value can only be sent to them |
+| `--rule-of-two {off,ask,strict}` | when an action that reaches the outside asks (default `ask`; see the Rule of Two below) |
 | `--vault-dir`, `--payments-dir` | the Wallet's vault and payment systems (`{{vault:ENTRY.FIELD}}`, `request_payment`) |
 | `--browser`, `--browser-headless`, `--browser-private`, `--browser-profile DIR` | the browser tools and how they run |
 | `--browser-consent {necessary,accept,reject,off}`, `--browser-permissions {deny,ask,grant-safe}` | what the browser does about cookie banners (default `necessary`) and permission requests (default `deny`) |
@@ -132,7 +133,7 @@ Code that make sense here, plus Basalt's own:
   `/plans` and `/wallet`;
 * **answered by the conversation's process** (`harness/commands.py`, data the page words in its language): `/status`, `/context`,
   `/compact` (the older half of the conversation becomes a summary, only when nothing is under way), `/tools`, `/hooks`, `/mcp`,
-  `/memory [search]`, `/permissions` (the mode, the rules, the refusals);
+  `/memory [search]`, `/permissions` (the mode, the rules, the refusals), `/audit` (whether the audit log is whole);
 * **requests worded for the model**: `/init` (write AGENTS.md), `/review` and `/security-review` (the changes in the folder), and
   `/research question` (also `/search`), which asks to read the sources themselves and to name the pages it could not open;
 * **skills** found on this PC (Settings, Capabilities): `/name text` asks the agent to load the skill with `load_capability` and follow it;
@@ -224,13 +225,28 @@ person's limit, the waiver, and a question to the person above them), whatever t
 (a hook or the config can make git run code later): there the person is asked, once per file, as for an irreversible action (the
 level and the Rule of Two decide it, and with nobody to ask it is refused), and the checkpoint before it holds the hooks and the config.
 
+The Rule of Two is kept as three facts about the conversation (`harness/rule_of_two.py`). **Untrusted**: it read content from outside the
+person's control: a page, a search result, an MCP or A2A answer, a file, a command's output, an attachment, a recalled note, a note the
+planner made from an event. **Private**: it touched a stored credential (`{{secret:}}`, `{{vault:}}`), a file that holds keys (`.env`,
+`id_rsa`, `*.pem`, `.aws/credentials`...) or a command or answer that showed a key, an attachment, or the person's own memories.
+**Outward**: the tool sends what the model wrote out of this PC (`outward=True` on `browse_url`, `search_web`, `browser_open`, the
+browser's click, type, select and key, `page_images`, `show_image`, `find_online_capability`, `call_capability`, MCP and A2A/ACP calls).
+When all three are true the call asks, before an allow rule can pass it, and the question lists the first sources of the first two facts.
+With `--rule-of-two strict` it asks after the first fact alone, with `off` never; at `auto` the same level also decides whether an
+irreversible action asks once the first fact and a stored secret (or the second fact) are there. The Wallet page sets the level for
+the conversations started afterwards. Whatever the level, the arguments of an outward call are searched for the value of a stored
+secret, a vault secret field, or a secret read from a file during the conversation (as written, URL-decoded, reversed, in another case,
+hex or base64; a value under eight characters only as a whole word); a match refuses the call before anything is sent.
+
 What this is **not**: an OS sandbox. A command runs with your files and network rights, with a scrubbed environment, no
 stdin, a time limit and capped output. On Windows each command also runs in its own job object, created before the command
 executes anything: 4 GiB of memory and 64 processes for all of it together, and everything it started is killed when it ends
 or times out (a server a command leaves running does not survive it). The deny list stops the obvious system-changing tools
 wherever they appear as a command word. File and network isolation (a dedicated Windows user, firewall rules, a VM for
 untrusted code) is not provided; until it is, `auto` should only be used in a folder you can lose. Hooks, rules and
-the secrets check read what a command *says*: a command that builds its address at run time needs a firewall.
+the secrets check read what a command *says* and the text of the workspace scripts it names (`harness/secret_scan.py`): a secret limited to some sites
+is not given to a command that uses the network without naming one (an address built at run time), and a script that names another site refuses it. A
+program that hides its address better than that still needs a firewall.
 
 Checkpoints are stored outside the workspace and are bounded: they leave out `node_modules`, `.venv`, `venv`, `__pycache__`, `build`,
 `dist`, `.basalt` and `.git/objects` (change the list with the `exclude` argument or `BASALT_CHECKPOINT_EXCLUDE`, comma separated),
@@ -242,7 +258,8 @@ snapshot of the current state first (it is never the one rotated away). To go ba
 restores the files (`--keep-new` leaves files created since). Restoring files does not undo a command the agent ran, a call
 it placed or an MCP tool, so a rewind over any of those lists them and needs `--yes`; the rewind is written in the audit log
 and its safety snapshot can be rewound to as well. The audit log
-(`audit.jsonl`) is tamper-evident (a hash chain, a head file, secrets masked), not tamper-proof.
+(`audit.jsonl`) is tamper-evident (a hash chain, a head file, secrets masked), not tamper-proof. Conversations of one folder share it: each
+record is appended under a file lock after reading what the others added, so the chain does not fork, and `/audit` verifies the file as it is now.
 
 **The audit log keeps no file contents.** A tool call leaves one record with the tool, `args_sha256` (the SHA-256 of its arguments after
 secrets are masked), `arguments` (a masked preview with every value cut at 60 characters), `permission` (`allowed`, `denied`,
@@ -352,13 +369,24 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   evidence dossier (needs the `cryptography` package, see `harness/requirements.txt`). The agent can only *ask*
   (`request_payment`, offered when a payment system exists, with the `site` that will take the payment); nothing it can call grants or
   widens a waiver. A waiver may name the only sites it covers. An approved payment has an id and lets the fields of the system's card out
-  of the vault, as placeholders, to the site it named, nine times at most and for ten minutes at most, **and only while it still
-  stands**: each time a field is released the vault asks the broker, from the signed state and the ledger on disk, whether the waiver is in
+  of the vault, as placeholders, to the site it named, **once each** (number, expiry and security code: one form) and for five minutes at
+  most, **only into a page that asks for no more than the approved amount**, and **only while it still stands**. Before a card field is typed
+  the browser reads the amount the page shows (`harness/page_money.py`: the amount marked as the total, else the largest, in the payment's
+  currency); a page that shows more, another currency, or no amount it can read gets nothing, and so does a command, since no page is read
+  for it. This reads what the page *shows*: a page that shows one amount and charges another is outside what text can reveal, and the card's own
+  limit remains the last bound. Another try needs another `request_payment`, which counts against the caps again; `Vault.arm(uses=N)` is the
+  explicit choice of more fills.
+  Each time a field is released the vault asks the broker, from the signed state and the ledger on disk, whether the waiver is in
   force and nothing was revoked or removed since, so "Stop" in the page closes a card already released, from another process, and also a
   payment the person confirmed by hand. The question to the person is asked with no lock held, so Stop works while it is open. Changing a
   system's currency, credential or card ends its waiver. The person can turn the guard off for a card. **No payment connector moves money by
   itself**: what is paid is paid when the form is sent through the browser tools; the amount is checked when the payment is asked for, and
-  what a merchant's form then charges is bounded by the card's own limit, not by this check. The dossier holds the hash of each source
+  what a merchant's form then charges is bounded by the amount the page shows (above) and the card's own limit.
+  **The broker runs inside the agent's process**, as the same OS user (the design's §4.8.5 puts it outside). Moving it to a pipe-connected
+  process was weighed and not done: the vault (which holds the card) and the broker's questions to the person would have to move with it,
+  and the files that decide (`device.key`, the signed state, the ledger) stay readable by anything the agent runs as this user, whichever
+  process holds the code. What stands between the model and them is the protected-names fence of the shell and the signature check at each
+  request; a separate OS user for the agent (the design's D5) is what would make the boundary real. The dossier holds the hash of each source
   file of the agent and the server with the version, and the clock's offset from a network time server (one UDP packet; null if none answers);
   it does not hold screenshots of the dialogs, which a page cannot take of itself. Stripe and Google Pay are paid as any web checkout is, in the page, when the person asks the agent to do it: there
   is no connector for them. A Stripe form, hosted by Stripe or embedded in the shop's page, is reached; a Google Pay button needs a browser signed in
@@ -433,7 +461,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   `chat-workspace` of the user data folder and shares one memory between its conversations; notes are stored as written (not masked,
   not encrypted); the model alone decides what to keep (the system prompt does not mention the tools); `remember` and `forget` are
   reversible, so they ask nobody at the `default` and `auto` levels; the notes the retrieval adds at the tail stop a quotation from
-  confirming a plan change (`untrusted_since_user`) but, unlike a `recall` result, do not set the Rule of Two flag; the search is by
+  confirming a plan change (`untrusted_since_user`) but, like a `recall` result, set the Rule of Two flag; the search is by
   words (FTS5, no stemming, no embeddings).
 - `browse_url` reads a web page with the standard library only: http and https, no user name in the address, no address that is
   not a site on the internet (private, loopback, link-local, carrier-grade NAT and multicast ranges are refused) unless you allowed
