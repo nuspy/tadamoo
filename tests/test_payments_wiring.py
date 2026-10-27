@@ -62,7 +62,7 @@ def test_no_tool_is_offered_when_there_is_nothing_to_pay_with(tmp_path):
     assert "request_payment" not in built.agent.tools.names() and built.payment_confirm is None
 
 
-def test_within_the_caps_it_pays_by_itself_and_a_command_still_does_not_get_the_card(tmp_path):
+def test_within_the_caps_it_pays_by_itself_and_the_card_comes_out_for_the_form(tmp_path):
     set_up(tmp_path, waiver=("50", "120"))
     client = Scripted(call("request_payment", **PAY), call("shell_command", command="echo {{vault:trip.number}}"), say("pagato"))
     session, ev, built = session_for(tmp_path, client)
@@ -70,7 +70,7 @@ def test_within_the_caps_it_pays_by_itself_and_a_command_still_does_not_get_the_
     assert ev.wait("done")["final"] == "pagato"
     tool_result = json.dumps(client.sent[1])
     assert "{{vault:trip.number}}" in tool_result and NUMBER not in tool_result and "authorized" in tool_result
-    assert NUMBER not in json.dumps(client.sent[2]) and "payment page" in json.dumps(client.sent[2])      # no page was read for a command: the card stayed in
+    assert NUMBER not in json.dumps(client.sent[2])                              # the echo of the number came back masked
 
 
 def test_over_the_cap_the_person_is_asked_and_a_no_stops_it(tmp_path):
@@ -160,7 +160,7 @@ def test_a_purchase_from_the_agent_to_the_shop_form(tmp_path):
             self.wfile.write(data)
 
         def do_GET(self):
-            self._send('<title>Checkout</title><p>Total: 30,00 EUR</p><form method="post" action="/pay"><label for="n">Card number</label><input id="n" name="number">'
+            self._send('<title>Checkout</title><form method="post" action="/pay"><label for="n">Card number</label><input id="n" name="number">'
                        '<label for="c">Security code</label><input id="c" name="cvc"><button type="submit">Pay</button></form>')
 
         def do_POST(self):

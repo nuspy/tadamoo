@@ -497,7 +497,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
             if secrets.vault is not None:
                 secrets.vault.attach_gate(broker.still_valid)
             register_payment_tool(registry, broker, permissions, confirm=payment_confirm,
-                                  on_authorized=(lambda entry, payment_id, site, amount_cents=None, currency="": secrets.vault.arm(entry, payment_id=payment_id, site=site, amount_cents=amount_cents, currency=currency))
+                                  on_authorized=(lambda entry, payment_id, site: secrets.vault.arm(entry, payment_id=payment_id, site=site))
                                   if secrets.vault is not None else None)
     audit = AuditLedger(data / "audit.jsonl", redactor=secrets.mask_secrets)
     if cfg.after_plan not in MODES_AFTER_PLAN:
