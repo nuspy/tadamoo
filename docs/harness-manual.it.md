@@ -143,6 +143,7 @@ una nota.
 | `/context` | quanto è pieno il contesto |
 | `/compact` | trasforma la metà più vecchia della conversazione in un riassunto; solo quando nulla è in corso |
 | `/tools`, `/hooks`, `/mcp` | cosa può chiamare la conversazione, quali hook sono attivi, quali server MCP sono partiti |
+| `/audit` | controlla che il registro di ciò che l'agente ha fatto (catena di hash e file di testa) sia integro, leggendo il file com'è ora |
 | `/memory [parole]` | gli ultimi dieci appunti, oppure una ricerca |
 | `/copy [n]` | copia l'ultima risposta (o l'ennesima dalla fine) |
 | `/export` | salva la conversazione come file di testo |
