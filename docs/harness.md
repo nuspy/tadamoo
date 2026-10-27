@@ -243,7 +243,9 @@ executes anything: 4 GiB of memory and 64 processes for all of it together, and 
 or times out (a server a command leaves running does not survive it). The deny list stops the obvious system-changing tools
 wherever they appear as a command word. File and network isolation (a dedicated Windows user, firewall rules, a VM for
 untrusted code) is not provided; until it is, `auto` should only be used in a folder you can lose. Hooks, rules and
-the secrets check read what a command *says*: a command that builds its address at run time needs a firewall.
+the secrets check read what a command *says* and the text of the workspace scripts it names (`harness/secret_scan.py`): a secret limited to some sites
+is not given to a command that uses the network without naming one (an address built at run time), and a script that names another site refuses it. A
+program that hides its address better than that still needs a firewall.
 
 Checkpoints are stored outside the workspace and are bounded: they leave out `node_modules`, `.venv`, `venv`, `__pycache__`, `build`,
 `dist`, `.basalt` and `.git/objects` (change the list with the `exclude` argument or `BASALT_CHECKPOINT_EXCLUDE`, comma separated),
