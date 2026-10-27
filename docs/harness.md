@@ -93,6 +93,7 @@ skills, connections) and the history is kept between messages. The server starts
 | `POST .../<id>/effort` | `{"level"}`: `none`, `low`, `medium`, `high` or empty (the model's own); also a field of the create call |
 | `POST .../<id>/settings` | `{"max_turns"?, "end_turn_bias"?}`: changes them for the conversation from its next run |
 | `POST .../<id>/favorite`, `/delete` | `{"favorite": true\|false}`: the page lists favorites apart, above the rest (the conversation's place in time does not change); `delete` takes the conversation away for good: its process, saved messages, attached and made files and its own copy of the folder (branches made from it stay) |
+| `GET .../nodes`, `GET .../<id>/switch-cost?current=<id>`, `POST .../merge` | the messages of every conversation as shared immutable nodes (`serve/conv_nodes.py`, one `nodes.jsonl` beside the conversations; a branch is a pointer to a node and writes no history file until it runs): runs between forks; the tokens to read again on switching (`if_cache_cold`, `if_cache_warm`, system prompt and tool list not counted); `{"a","b","instruction"?}`: the model writes one synthesis of two idle conversations into a new one that continues `a` |
 | `POST .../<id>/rename`, `/command` | `{"title"}`; `{"name", "args"}`: a slash command the process answers (below), whose answer comes as a `command` event |
 
 The history is saved after every model turn, and a message is on disk before the model sees it. Failures are handled in

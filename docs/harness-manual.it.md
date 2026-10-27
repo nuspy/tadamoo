@@ -191,7 +191,9 @@ conversazione ti dice che potrebbe essere già partito. Dopo di che, o quando il
   --workspace D:\proj` li elenca e `--to ID` ne ripristina uno; le conversazioni hanno `/rewind` e *Torna qui*. Il ritorno fa prima uno
   snapshot di sicurezza, quindi si può a sua volta annullare. Non disfa un comando che l'agente ha eseguito, e lo dice.
 - **Rami.** `/branch` copia una conversazione a una richiesta; *Rami* mostra l'albero. *Esegui entrambi e confronta* manda una richiesta lungo due
-  continuazioni, una dopo l'altra, e mostra le due risposte e i file cambiati da ciascuna, affiancati.
+  continuazioni, una dopo l'altra, e mostra le due risposte e i file cambiati da ciascuna, affiancati. *Messaggi come nodi* elenca i tratti di
+  messaggi tra una biforcazione e l'altra, mostra prima di cambiare quanti token il modello dovrebbe rileggere (cache fredda e calda) e
+  *Unisci e sintetizza* scrive, a richiesta, una sola sintesi di due rami in una nuova conversazione.
 - **Una copia tutta sua.** In una cartella git una conversazione può lavorare in un suo worktree. La pagina Chat non lo offre (non ha una cartella di progetto da copiare); esiste per le conversazioni su una cartella git,
   come un ramo di una che ha già una copia. Ciò che cambia resta lì; guardi il diff di ogni file e applichi quelli che scegli, come modifiche **in staging**, mai
   come commit. Scartare la copia toglie la copia e il suo ramo.

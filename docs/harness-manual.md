@@ -181,7 +181,9 @@ you it may already have run. After that, or when the server refuses for good, th
   --workspace D:\proj` lists them and `--to ID` restores one; the conversations have `/rewind` and *Back to here*. A rewind takes a safety snapshot first, so it
   can be undone. It does not undo a command the agent ran, and says so.
 - **Branches.** `/branch` copies a conversation at a request; *Branches* shows the tree. *Run both and compare* sends one request down two
-  continuations, one after the other, and shows the two answers and the files each changed, side by side.
+  continuations, one after the other, and shows the two answers and the files each changed, side by side. *Messages as nodes* lists the
+  runs of messages between forks, shows the tokens a switch to another conversation would make the model read again (cold and warm
+  cache) before it switches, and *Merge and summarize* writes, at your request, one synthesis of two branches into a new conversation.
 - **A copy of its own.** In a git folder, a conversation can work in its own worktree. The Chat page does not offer it (it has no project folder to copy); it exists for conversations on a git folder, such as a branch of one that has a copy. What it changes
   waits there; you look at each file's diff and apply the ones you choose, as **staged** changes, never a commit. Throwing the copy away
   removes it and its branch.
