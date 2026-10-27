@@ -364,13 +364,24 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   evidence dossier (needs the `cryptography` package, see `harness/requirements.txt`). The agent can only *ask*
   (`request_payment`, offered when a payment system exists, with the `site` that will take the payment); nothing it can call grants or
   widens a waiver. A waiver may name the only sites it covers. An approved payment has an id and lets the fields of the system's card out
-  of the vault, as placeholders, to the site it named, nine times at most and for ten minutes at most, **and only while it still
-  stands**: each time a field is released the vault asks the broker, from the signed state and the ledger on disk, whether the waiver is in
+  of the vault, as placeholders, to the site it named, **once each** (number, expiry and security code: one form) and for five minutes at
+  most, **only into a page that asks for no more than the approved amount**, and **only while it still stands**. Before a card field is typed
+  the browser reads the amount the page shows (`harness/page_money.py`: the amount marked as the total, else the largest, in the payment's
+  currency); a page that shows more, another currency, or no amount it can read gets nothing, and so does a command, since no page is read
+  for it. This reads what the page *shows*: a page that shows one amount and charges another is outside what text can reveal, and the card's own
+  limit remains the last bound. Another try needs another `request_payment`, which counts against the caps again; `Vault.arm(uses=N)` is the
+  explicit choice of more fills.
+  Each time a field is released the vault asks the broker, from the signed state and the ledger on disk, whether the waiver is in
   force and nothing was revoked or removed since, so "Stop" in the page closes a card already released, from another process, and also a
   payment the person confirmed by hand. The question to the person is asked with no lock held, so Stop works while it is open. Changing a
   system's currency, credential or card ends its waiver. The person can turn the guard off for a card. **No payment connector moves money by
   itself**: what is paid is paid when the form is sent through the browser tools; the amount is checked when the payment is asked for, and
-  what a merchant's form then charges is bounded by the card's own limit, not by this check. The dossier holds the hash of each source
+  what a merchant's form then charges is bounded by the amount the page shows (above) and the card's own limit.
+  **The broker runs inside the agent's process**, as the same OS user (the design's §4.8.5 puts it outside). Moving it to a pipe-connected
+  process was weighed and not done: the vault (which holds the card) and the broker's questions to the person would have to move with it,
+  and the files that decide (`device.key`, the signed state, the ledger) stay readable by anything the agent runs as this user, whichever
+  process holds the code. What stands between the model and them is the protected-names fence of the shell and the signature check at each
+  request; a separate OS user for the agent (the design's D5) is what would make the boundary real. The dossier holds the hash of each source
   file of the agent and the server with the version, and the clock's offset from a network time server (one UDP packet; null if none answers);
   it does not hold screenshots of the dialogs, which a page cannot take of itself. Stripe and Google Pay are paid as any web checkout is, in the page, when the person asks the agent to do it: there
   is no connector for them. A Stripe form, hosted by Stripe or embedded in the shop's page, is reached; a Google Pay button needs a browser signed in

@@ -1011,6 +1011,15 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
     registry.register("browser_click", "Clicks an element of the page (a link, a button, a box to tick) and reads the page that follows.",
                       {"type": "object", "properties": ref_prop, "required": ["ref"]}, EffectClass.IRREVERSIBLE, guard(lambda ref: shown(b.click(ref))), untrusted=True, outward=True)
 
+    def page_payable(currency: str) -> Any:
+        """What the page asks for, read from its text now: a card approved for an amount goes only into a page that asks for no more."""
+        from harness.page_money import payable
+        from harness.vault import VaultError
+        cents, why = payable(b.snapshot()["text"], currency)
+        if cents is None:
+            raise VaultError(f"{why}; the card is typed only into a page that shows the amount to pay")
+        return cents, currency
+
     def type_into(ref: int, text: str, submit: bool = False, clear: bool = True) -> Any:
         from_vault = secrets is not None and secrets.has_references(text)
         if from_vault:
@@ -1018,7 +1027,7 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
             if b.insecure_public(host):
                 return {"error": f"this page is not encrypted (http) and {host} is on the internet: a value from the vault is not typed where it would cross the network in the clear"}
             try:
-                text = secrets.resolve_tokens(text, destinations=[host])
+                text = secrets.resolve_tokens(text, destinations=[host], payable=page_payable)
                 b.hidden.add(_squeeze(text[:60]))                            # the page lists a field's value cut to 60 characters
             except Exception as e:                                          # the site is not one the entry names, the card is guarded, a code is missing
                 return {"error": str(e)}
