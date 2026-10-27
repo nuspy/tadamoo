@@ -44,7 +44,7 @@ from harness.vault import Vault, VaultError
 from serve.agent_sessions import SessionManager
 from serve.files_api import FilesApi, FilesError
 from serve.projects import ProjectStore
-from serve.remote import ApiKeys, Installer, RemoteAccess, in_tailscale, remote_path_ok, tailscale_peers, tailscale_status, tailscale_up
+from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAccess, in_tailscale, remote_path_ok, tailscale_peers, tailscale_status, tailscale_up
 from serve.personal_skills_api import PersonalSkillsApi
 from harness.personal_memory import PersonalMemory, PersonalMemoryError
 from serve.memories_api import MemoriesApi
@@ -317,8 +317,31 @@ def make_handler(svc: Service, remote: bool = False):
                 return True
             if not svc.api_key and not self.remote_listener:      # no key set: the server's own page works as before
                 return True
+            gone = keys.expired_label(given) if self.remote_listener and keys is not None and given else None
+            if gone is not None:
+                self._json(401, {"error": {"type": "authentication_error", "code": "key_expired",
+                                           "message": f"the key of '{gone}' has expired: renew it in Settings > Phones on the PC"}})
+                return False
             self._json(401, {"error": {"type": "authentication_error", "message": "missing or wrong API key"}})
             return False
+
+        def _phone_limits(self, mode=None, rules=None, req=None) -> bool:
+            """A conversation started or switched from a phone gets the modes and the rules the person fixed on the PC: a mode above the limit
+            or rules of the phone's own are refused (the reply says where to change the limit), and the PC's rules take the place of the phone's."""
+            if not self.remote_listener:
+                return True
+            remote = svc.remote
+            if mode is not None and not remote.mode_allowed(mode):
+                self._json(403, {"error": {"type": "forbidden", "code": "phone_mode_limit",
+                                           "message": f"a phone can use the modes up to '{remote.max_mode}'; the limit is set in Settings > Phones on the PC"}})
+                return False
+            if rules:
+                self._json(403, {"error": {"type": "forbidden", "code": "phone_rules",
+                                           "message": "a phone cannot set permission rules; the rules for phones are set in Settings > Phones on the PC"}})
+                return False
+            if req is not None:
+                req["allow"] = list(remote.rules)
+            return True
 
         def do_GET(self):
             path = self.path.split("?")[0].rstrip("/")
@@ -1948,6 +1971,10 @@ def make_handler(svc: Service, remote: bool = False):
                 api, parts = self._routines(), path[len("/api/routines"):].strip("/").split("/")
                 if "workspace" in req and not self._folder_ok(req.get("workspace")):
                     return self._json(403, {"error": {"type": "forbidden", "message": "a phone works only in the folders added on the PC"}})
+                if parts == [""] and not self._phone_limits(req.get("mode", "read_only"), req.get("allow"), req):
+                    return
+                if len(parts) == 2 and parts[1] == "update" and not self._phone_limits(req.get("mode"), req.get("allow"), req if "allow" in req else None):
+                    return
                 if parts == [""]:
                     return self._json(200, api.create(req))
                 if parts == ["cancel"]:
@@ -1982,7 +2009,8 @@ def make_handler(svc: Service, remote: bool = False):
         def _remote_view(self) -> dict:
             remote = svc.remote
             return {"tailscale": tailscale_status(), "enabled": remote.enabled, "listening": remote.listening, "address": remote.address(), "error": remote.error,
-                    "keys": svc.keys.list(), "install": _INSTALLER.view(), "port": remote.port}
+                    "keys": svc.keys.list(), "install": _INSTALLER.view(), "port": remote.port,
+                    "limits": {"max_mode": remote.max_mode, "rules": remote.rules, "modes": list(MODE_ORDER), "key_days": KEY_TTL_DAYS}}
 
         def _remote_get(self):
             if not settings.is_loopback(self.client_address[0]):
@@ -2005,8 +2033,16 @@ def make_handler(svc: Service, remote: bool = False):
                     svc.remote.set_enabled(action == "enable")
                     return self._json(200, self._remote_view())
                 if action == "keys/create":
-                    row, key = svc.keys.create(req.get("label"))
+                    row, key = svc.keys.create(req.get("label"), req.get("days"))
                     return self._json(200, {"key": key, "row": row, **self._remote_view()})
+                if action == "keys/renew":
+                    row = svc.keys.renew(req.get("id"), req.get("days"))
+                    if row is None:
+                        return self._json(404, {"error": {"message": "That key is not there any more."}})
+                    return self._json(200, {"row": row, **self._remote_view()})
+                if action == "limits":
+                    svc.remote.set_limits(req.get("max_mode"), req.get("rules"))
+                    return self._json(200, self._remote_view())
                 if action == "keys/show":
                     found = svc.keys.reveal(req.get("id"))
                     if found is None:
@@ -2126,6 +2162,11 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(403, {"error": {"type": "forbidden", "message": "folders are added only from the PC the server runs on"}})
                 if parts == ["sessions"] and not self._folder_ok(req.get("workspace")):
                     return self._json(403, {"error": {"type": "forbidden", "message": "a phone works only in the folders added on the PC"}})
+                if parts == ["sessions"] or parts == ["runs"]:
+                    if not self._phone_limits(req.get("mode", "default"), req.get("allow"), req):
+                        return
+                if len(parts) == 3 and parts[:1] == ["sessions"] and parts[2] == "mode" and not self._phone_limits(req.get("mode")):
+                    return
                 if parts == ["place", "forget"]:
                     self._agent_sessions().forget_place()
                     return self._json(200, {"forgotten": True})

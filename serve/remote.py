@@ -26,6 +26,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 KEY_PREFIX = "bsk_"
 LABEL_MAX = 60
 TOUCH_EVERY_S = 60                                       # the last use of a key is written at most this often
+KEY_TTL_DAYS = 90                                        # how long a new key lasts unless the person chose otherwise
+KEY_TTL_MAX_DAYS = 3650
+MODE_ORDER = ("plan", "read_only", "default", "auto")    # from the least to the most a conversation may do without asking
+PHONE_MAX_MODE = "default"                               # the most a phone may start a conversation with, unless the person raised it
+PHONE_RULES_MAX = 10
 TAILSCALE_NET = ipaddress.ip_network("100.64.0.0/10")
 TAILSCALE_NET6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
 # what a client from outside this PC may ask for: the model, the conversations and what they hold, the routines, the plans
@@ -95,24 +100,55 @@ class ApiKeys:
         with self._lock:
             return bool(self._rows)
 
-    def list(self) -> List[Dict[str, Any]]:
-        """The keys without what would let one be used: the name, when it was made and when it last came."""
-        with self._lock:
-            return [{**{k: r.get(k) for k in ("id", "label", "created", "last_used")}, "recoverable": bool(r.get("sealed"))} for r in self._rows]
+    @staticmethod
+    def _expires(ttl_days: Any) -> Optional[float]:
+        """When a key made now stops working: `ttl_days` from now, none (None) for 0, the default for a missing value."""
+        if ttl_days is None or ttl_days == "":
+            ttl_days = KEY_TTL_DAYS
+        try:
+            days = int(ttl_days)
+        except (TypeError, ValueError):
+            raise ValueError("How long the key lasts is a number of days, or 0 for never.") from None
+        if isinstance(ttl_days, bool) or not 0 <= days <= KEY_TTL_MAX_DAYS:
+            raise ValueError(f"How long the key lasts is 1 to {KEY_TTL_MAX_DAYS} days, or 0 for never.")
+        return time.time() + days * 86400 if days else None
 
-    def create(self, label: Any) -> Tuple[Dict[str, Any], str]:
+    @staticmethod
+    def _view(row: Dict[str, Any]) -> Dict[str, Any]:
+        expires = row.get("expires")
+        return {**{k: row.get(k) for k in ("id", "label", "created", "last_used")}, "expires": expires,
+                "expired": bool(expires and expires <= time.time())}
+
+    def list(self) -> List[Dict[str, Any]]:
+        """The keys without what would let one be used: the name, when it was made, when it last came and when it stops working."""
+        with self._lock:
+            return [{**self._view(r), "recoverable": bool(r.get("sealed"))} for r in self._rows]
+
+    def create(self, label: Any, ttl_days: Any = None) -> Tuple[Dict[str, Any], str]:
         text = " ".join(str(label or "").split())[:LABEL_MAX]
         if not text:
             raise ValueError("Give the key a name, such as the phone it is for.")
+        expires = self._expires(ttl_days)
         key = KEY_PREFIX + secrets.token_urlsafe(32)
-        row = {"id": secrets.token_hex(4), "label": text, "hash": _digest(key), "created": time.time(), "last_used": None}
+        row = {"id": secrets.token_hex(4), "label": text, "hash": _digest(key), "created": time.time(), "last_used": None, "expires": expires}
         sealed = self._seal(row["id"], key)
         if sealed:
             row["sealed"] = sealed
         with self._lock:
             self._rows.append(row)
             self._save()
-        return {**{k: row[k] for k in ("id", "label", "created", "last_used")}, "recoverable": bool(sealed)}, key
+        return {**self._view(row), "recoverable": bool(sealed)}, key
+
+    def renew(self, key_id: Any, ttl_days: Any = None) -> Optional[Dict[str, Any]]:
+        """Gives a key a new end from now (or none), expired or not; None when there is no such key."""
+        expires = self._expires(ttl_days)
+        with self._lock:
+            row = next((r for r in self._rows if r["id"] == key_id), None)
+            if row is None:
+                return None
+            row["expires"] = expires
+            self._save()
+            return {**self._view(row), "recoverable": bool(row.get("sealed"))}
 
     def reveal(self, key_id: Any) -> Optional[Tuple[str, str]]:
         """The name and the key of a phone, to show its QR code again; None when there is no such key or it was made without being kept."""
@@ -137,6 +173,8 @@ class ApiKeys:
             for row in self._rows:
                 if secrets.compare_digest(row["hash"], digest):
                     now = time.time()
+                    if row.get("expires") and row["expires"] <= now:
+                        return None                                    # a key past its end is not a key
                     if not row.get("last_used") or now - row["last_used"] > TOUCH_EVERY_S:
                         row["last_used"] = now
                         try:
@@ -144,6 +182,17 @@ class ApiKeys:
                         except OSError:
                             pass
                     return {k: row[k] for k in ("id", "label", "created", "last_used")}
+        return None
+
+    def expired_label(self, given: str) -> Optional[str]:
+        """The name of the phone whose key this is, when it is a key that has run out; None for any other text."""
+        if not given or not given.startswith(KEY_PREFIX) or len(given) > 200:
+            return None
+        digest = _digest(given)
+        with self._lock:
+            for row in self._rows:
+                if secrets.compare_digest(row["hash"], digest) and row.get("expires") and row["expires"] <= time.time():
+                    return row["label"]
         return None
 
     def revoke(self, key_id: Any) -> bool:
@@ -292,10 +341,18 @@ class RemoteAccess:
         self._httpd: Any = None
         self._lock = threading.RLock()
         self.error = ""
+        self.enabled = False
+        self.max_mode = PHONE_MAX_MODE                         # the most a phone may start or switch a conversation to
+        self.rules: List[str] = []                             # the allow rules a conversation started from a phone gets: the person's, never the phone's
         try:
-            self.enabled = bool(json.loads(self.path.read_text(encoding="utf-8")).get("enabled"))
+            saved = json.loads(self.path.read_text(encoding="utf-8"))
+            self.enabled = bool(saved.get("enabled"))
+            if saved.get("max_mode") in MODE_ORDER:
+                self.max_mode = saved["max_mode"]
+            if isinstance(saved.get("rules"), list):
+                self.rules = [r for r in saved["rules"] if isinstance(r, str)][:PHONE_RULES_MAX]
         except (OSError, ValueError, AttributeError):
-            self.enabled = False
+            pass
 
     @property
     def listening(self) -> bool:
@@ -303,7 +360,21 @@ class RemoteAccess:
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({"enabled": self.enabled}), encoding="utf-8")
+        self.path.write_text(json.dumps({"enabled": self.enabled, "max_mode": self.max_mode, "rules": self.rules}), encoding="utf-8")
+
+    def set_limits(self, max_mode: Any, rules: Any) -> None:
+        """What a conversation started from a phone may do without asking: its most permissive mode, and the allow rules it gets."""
+        if max_mode not in MODE_ORDER:
+            raise ValueError("The most a phone may start is one of: " + ", ".join(MODE_ORDER) + ".")
+        lines = [str(r).strip() for r in rules] if isinstance(rules, list) else []
+        if len(lines) > PHONE_RULES_MAX or any(not r or len(r) > 200 or "\n" in r for r in lines):
+            raise ValueError(f"Rules are lines of text, at most {PHONE_RULES_MAX}.")
+        with self._lock:
+            self.max_mode, self.rules = max_mode, lines
+            self._save()
+
+    def mode_allowed(self, mode: Any) -> bool:
+        return mode in MODE_ORDER and MODE_ORDER.index(mode) <= MODE_ORDER.index(self.max_mode)
 
     def apply(self) -> None:
         """Brings the listener in line with the setting: on when it is enabled and Tailscale has an address, off otherwise."""
