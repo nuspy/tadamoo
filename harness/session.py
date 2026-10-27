@@ -967,7 +967,11 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         from harness.approval_client import ServerApprover
         confirm = ServerApprover(args.endpoint, args.api_key, sid)
     history = Path(args.history_dir) if args.history_dir else data_dir_for(Path(args.workspace).resolve()) / "sessions" / sid
-    settings = agent_settings(args)
+    try:
+        settings = agent_settings(args)
+    except FileNotFoundError as exc:                              # the reference folder is gone
+        emit({"event": "error", "code": "start", "message": str(exc)})
+        return 1
     settings["council"] = not args.ask_only                       # the council is offered whenever the person set one up
     if args.ask_only:                                             # answers without tools: nothing that reaches outside is built
         settings.update(capabilities=False, lsp=False, vault_dir="", payments_dir="", browser=False, wiki=False, phone=False)
