@@ -11,6 +11,8 @@ import ast
 import copy
 import enum
 import heapq
+import json
+import keyword
 import math
 import operator
 import re
@@ -41,6 +43,14 @@ class Assignee(str, enum.Enum):
 
 class PlanError(ValueError):
     """The change would leave the plan invalid; the plan is unchanged."""
+
+
+class NoRoute(PlanError):
+    """A decision was completed and none of its exits holds; `facts` says which conditions were read and with what values."""
+
+    def __init__(self, message: str, facts: Dict[str, Any]) -> None:
+        super().__init__(message)
+        self.facts = facts
 
 
 # -- condition expressions -----------------------------------------------------------------------------
@@ -293,6 +303,43 @@ def clean_field(node_type: Any, key: str, value: Any) -> Any:
     return value
 
 
+MAX_OUTPUTS, MAX_VALUE_BYTES, MAX_STATE_BYTES, MAX_NAME = 30, 4000, 50_000, 64
+
+
+def _json_value(value: Any, depth: int = 0) -> bool:
+    if value is None or isinstance(value, (bool, str)):
+        return True
+    if isinstance(value, (int, float)):
+        return math.isfinite(value)
+    if depth >= 3:
+        return False
+    if isinstance(value, list):
+        return all(_json_value(v, depth + 1) for v in value)
+    if isinstance(value, dict):
+        return all(isinstance(k, str) and _json_value(v, depth + 1) for k, v in value.items())
+    return False
+
+
+def _brief(value: Any, limit: int = 120) -> Any:
+    text = json.dumps(value, ensure_ascii=False)
+    return value if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def clean_outputs(outputs: Any) -> Dict[str, Any]:
+    """The plan values a step writes when it completes: names a condition can read, values that are plain data of bounded size."""
+    if not isinstance(outputs, dict):
+        raise PlanError("outputs is an object: variable name -> value")
+    if len(outputs) > MAX_OUTPUTS:
+        raise PlanError(f"a step writes at most {MAX_OUTPUTS} values")
+    for name, value in outputs.items():
+        if (not isinstance(name, str) or not name.isidentifier() or len(name) > MAX_NAME or keyword.iskeyword(name)
+                or name in SENSOR_VARIABLES):
+            raise PlanError(f"'{str(name)[:40]}' is not a name a condition can read: letters, digits and _, not one of {', '.join(SENSOR_VARIABLES)}")
+        if not _json_value(value) or len(json.dumps(value, ensure_ascii=False)) > MAX_VALUE_BYTES:
+            raise PlanError(f"the value of '{name}' must be plain data (text, number, true/false, list, object) of at most {MAX_VALUE_BYTES} characters")
+    return dict(outputs)
+
+
 @dataclass
 class PlanDAG:
     plan_id: str
@@ -424,18 +471,37 @@ class PlanDAG:
             raise PlanError("Cycle detected in PlanDAG; workflow must be strictly acyclic")
         return True
 
-    def validate_decisions(self) -> List[str]:
-        """Problems with decision nodes: fewer than two exits, or an exit without a condition."""
-        problems = []
-        for nid, n in self.nodes.items():
-            if n.type != NodeType.DECISION:
+    def _decision_problems(self, node: PlanNode) -> List[str]:
+        nid, problems = node.id, []
+        if len(node.outputs) < 2:
+            problems.append(f"decision '{nid}' needs at least two exits, it has {len(node.outputs)}")
+        for c in node.outputs:
+            if c not in node.conditions:
+                problems.append(f"decision '{nid}' has no condition for its exit '{c}'")
                 continue
-            if len(n.outputs) < 2:
-                problems.append(f"decision '{nid}' needs at least two exits, it has {len(n.outputs)}")
-            for c in n.outputs:
-                if c not in n.conditions:
-                    problems.append(f"decision '{nid}' has no condition for its exit '{c}'")
+            try:
+                check_expression(node.conditions[c])
+            except PlanError as exc:
+                problems.append(f"decision '{nid}', exit '{c}': {exc}")
         return problems
+
+    def validate_decisions(self) -> List[str]:
+        """Problems with decision nodes: fewer than two exits, an exit without a condition, a condition that is not an expression."""
+        return [p for n in self.nodes.values() if n.type == NodeType.DECISION for p in self._decision_problems(n)]
+
+    def _decision_signature(self) -> Dict[str, Any]:
+        return {nid: (tuple(n.outputs), repr(sorted((k, repr(v)) for k, v in n.conditions.items())))
+                for nid, n in self.nodes.items() if n.type == NodeType.DECISION}
+
+    def enforce_decisions(self, before: Optional[Dict[str, Any]] = None) -> None:
+        """Raises PlanError when a decision is not valid. With `before` (a _decision_signature), only the decisions that are new
+        or whose exits or conditions changed since are checked, so a change elsewhere is not held up by an old plan's decision."""
+        problems, now = [], self._decision_signature()
+        for nid, sig in now.items():
+            if before is None or before.get(nid) != sig:
+                problems += self._decision_problems(self.nodes[nid])
+        if problems:
+            raise PlanError("; ".join(problems))
 
     def topological_order(self) -> List[str]:
         self.validate_acyclic()
@@ -528,6 +594,10 @@ class PlanDAG:
 
     def update_node(self, node_id: str, **changes: Any) -> PlanNode:
         """Edits text, assignee, conditions or variables of a node that has not been completed."""
+        return self._update_node(node_id, changes, True)
+
+    def _update_node(self, node_id: str, changes: Dict[str, Any], enforce: bool) -> PlanNode:
+        """`enforce` checks a decision after its conditions change; a diff turns it off and checks the whole result at its end."""
         node = self.nodes.get(node_id)
         if node is None:
             raise KeyError(f"Node '{node_id}' not found")
@@ -539,6 +609,12 @@ class PlanDAG:
         if "assignee" in changes:
             changes["assignee"] = Assignee(changes["assignee"])
         changes = {k: clean_field(node.type, k, v) for k, v in changes.items()}      # all checked before any is applied
+        if enforce and node.type == NodeType.DECISION and "conditions" in changes:
+            probe = copy.copy(node)
+            probe.conditions = changes["conditions"]
+            problems = self._decision_problems(probe)
+            if problems:
+                raise PlanError("; ".join(problems))
         for key, value in changes.items():
             setattr(node, key, value)
         self.refresh_blocking()
@@ -618,17 +694,38 @@ class PlanDAG:
         if status not in STATUSES:
             raise PlanError(f"status must be one of {STATUSES}")
         retry = None
+        if outputs is not None and status != "completed":
+            raise PlanError("a step writes plan values when it is completed")
         if status == "completed":
             backup = copy.deepcopy((self.nodes, self.shared_state))
             try:
+                if node.type == NodeType.DECISION:
+                    problems = self._decision_problems(node)
+                    if problems:
+                        raise PlanError("; ".join(problems))
                 if outputs:
+                    outputs = clean_outputs(outputs)
+                    merged = {**self.shared_state, **outputs}
+                    if len(json.dumps(merged, ensure_ascii=False)) > MAX_STATE_BYTES:
+                        raise PlanError(f"the plan's values may not be larger than {MAX_STATE_BYTES} characters in all")
                     self.shared_state.update(outputs)
                     node.state_variables["outputs"] = dict(outputs)
                 node.status = "completed"
                 for key in ("attempts", "retry_at", "sensor_error"):
                     node.state_variables.pop(key, None)
                 if node.type == NodeType.DECISION:
+                    node.state_variables.pop("no_route", None)
                     self._route(node)
+            except NoRoute as stop:
+                self.nodes, self.shared_state = backup           # the decision is not taken: it goes to the person with the facts
+                node = self.nodes[node_id]
+                node.state_variables["no_route"] = stop.facts
+                node.state_variables["no_route"]["was"] = node.assignee.value
+                node.assignee = Assignee.USER
+                node.status = "pending"
+                self.refresh_blocking()
+                self._touch()
+                return {"no_route": stop.facts, "message": str(stop)}
             except PlanError:
                 self.nodes, self.shared_state = backup
                 raise
@@ -644,7 +741,27 @@ class PlanDAG:
         return retry
 
     def _route(self, node: PlanNode) -> None:
-        chosen = [c for c in node.outputs if c in node.conditions and safe_eval(node.conditions[c], self.shared_state)]
+        """Chooses the exits whose condition holds and skips the others. When none holds, or a condition cannot be read yet, the
+        decision is not taken: NoRoute says which conditions were read, with which values."""
+        read: List[Dict[str, Any]] = []
+        used: Set[str] = set()
+        chosen: List[str] = []
+        for c in node.outputs:
+            expr = node.conditions[c]
+            used.update(n.id for n in ast.walk(ast.parse(expr.strip(), mode="eval")) if isinstance(n, ast.Name) and n.id not in _FUNCS)
+            try:
+                holds = bool(safe_eval(expr, self.shared_state))
+                read.append({"to": c, "title": self.nodes[c].title, "condition": expr, "holds": holds})
+                if holds:
+                    chosen.append(c)
+            except PlanError as exc:
+                read.append({"to": c, "title": self.nodes[c].title, "condition": expr, "holds": None, "error": str(exc)[:200]})
+        if not chosen or any(r["holds"] is None for r in read):
+            values = {v: _brief(self.shared_state[v]) if v in self.shared_state else None for v in sorted(used - {"True", "False", "None"})}
+            facts = {"exits": read, "values": values, "unset": sorted(v for v in values if v not in self.shared_state), "at": _now()}
+            raise NoRoute(f"no exit of '{node.id}' can be taken: " + "; ".join(
+                f"'{r['condition']}' " + ("holds" if r["holds"] else "does not hold" if r["holds"] is False else f"could not be read ({r['error']})")
+                for r in read) + f"; values: {json.dumps(values, ensure_ascii=False)}", facts)
         node.state_variables["selected"] = chosen
         for c in node.outputs:
             if c not in chosen:
@@ -694,7 +811,13 @@ class PlanDAG:
                 node.state_variables["sensor_error"] = str(exc)[:200]         # a sensor that cannot judge waits for the next event
                 continue
             node.state_variables["matched"] = {"text": text[:200], "source": seen["source"], "at": seen["at"]}
-            self.mark(nid, "completed", outputs or None)
+            try:
+                self.mark(nid, "completed", outputs or None)
+            except PlanError as exc:                       # a failed mark restores copies of the nodes: take the sensor again
+                kept = self.nodes[nid]
+                kept.state_variables.pop("matched", None)
+                kept.state_variables["sensor_error"] = str(exc)[:200]
+                continue
             resolved.append(nid)
         return resolved
 
@@ -743,6 +866,7 @@ class PlanDAG:
                 "add_edges": [[parent, child]], "remove_edges": [[parent, child]]}"""
         backup = copy.deepcopy((self.nodes, self.shared_state, self.updated_at))
         changed: List[str] = []
+        decisions = self._decision_signature()
         try:
             for nid in diff.get("remove_nodes", []):
                 self.remove_node(nid)
@@ -760,7 +884,9 @@ class PlanDAG:
                 for c in children:
                     self.add_edge(nid, c)
             for nid, fields in (diff.get("update_nodes") or {}).items():
-                self.update_node(nid, **fields)
+                if not isinstance(fields, dict):
+                    raise PlanError(f"the changes to '{nid}' are an object")
+                self._update_node(nid, dict(fields), False)
                 changed.append(nid)
             for p, c in diff.get("remove_edges", []):
                 self.remove_edge(p, c)
@@ -769,6 +895,7 @@ class PlanDAG:
                 self.add_edge(p, c)
                 changed.extend([p, c])
             self.validate_acyclic()
+            self.enforce_decisions(decisions)
         except (PlanError, KeyError, ValueError, TypeError) as exc:
             self.nodes, self.shared_state, self.updated_at = backup
             raise PlanError(f"the change was not applied: {exc}") from None

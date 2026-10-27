@@ -116,3 +116,15 @@ def test_a_steering_message_adds_to_the_constraints_already_found(tmp_path):
     assert kinds == {"max_words", "language"}
     session.agent.add_user_message("una nuova richiesta senza limiti")
     assert session.agent._card.constraints == []
+
+
+def test_a_decision_with_no_exit_that_holds_wakes_it_with_the_values_the_conditions_read(tmp_path):
+    model = Model((said_in("[planner]"), lambda: say("ok")))
+    session, ev, plans = quiet(tmp_path, model)
+    plans.add("P1", "Cena")
+    plans.snaps["P1"]["plan"]["nodes"]["d"] = {"id": "d", "title": "Dove si cena", "status": "pending",
+                                                "state_variables": {"no_route": {"at": "t1", "values": {"invitati": ["Anna"]}, "exits": []}}}
+    key = session.poll_plans()
+    assert key == "n:P1:d:t1"
+    ev.wait("done")
+    assert "no exit that holds" in last_user(model.sent[0]) and "Anna" in last_user(model.sent[0])

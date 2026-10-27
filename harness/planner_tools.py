@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from harness.integrations._http import ServiceError
 from harness.integrations.planner_client import PlannerClient
 from harness.planner.bridge import classify_diff
+from harness.planner.dag import PlanError, clean_outputs
 from harness.tools.registry import EffectClass, ToolRegistry
 
 MIN_QUOTE = 6
@@ -98,6 +99,13 @@ def render_alignment(a: Dict[str, Any]) -> str:
     return "\n".join(lines) if lines else "No conflict found between the dates and amounts of the plans."
 
 
+def no_route_text(facts: Dict[str, Any]) -> str:
+    """The conditions a decision read and what each gave, with the values they read."""
+    parts = [f"'{r['condition']}' -> " + ("holds" if r["holds"] else "does not hold" if r["holds"] is False else f"unreadable ({r.get('error', '')})")
+             for r in facts.get("exits", [])]
+    return "; ".join(parts) + f"; values: {json.dumps(facts.get('values', {}), ensure_ascii=False)}"
+
+
 def render_plan(snap: Dict[str, Any]) -> str:
     plan, nodes = snap["plan"], snap["plan"].get("nodes", {})
     done = sum(1 for n in nodes.values() if n.get("status") == "completed")
@@ -114,6 +122,11 @@ def render_plan(snap: Dict[str, Any]) -> str:
             lines.append(f'      wants from the wiki: {n["wiki_query"][:100]}')
         if (n.get("state_variables") or {}).get("retry_at"):
             lines.append(f'      failed {n["state_variables"].get("attempts", 1)} time(s), waits to try again')
+        if (n.get("state_variables") or {}).get("no_route"):
+            lines.append("      NO EXIT HOLDS, it waits for the user: " + no_route_text(n["state_variables"]["no_route"]))
+    state = plan.get("shared_state") or {}
+    if state:
+        lines.append("Plan values: " + "; ".join(f"{k} = {json.dumps(v, ensure_ascii=False)[:120]}" for k, v in list(state.items())[:20]))
     if snap.get("ready"):
         lines.append("Ready now: " + ", ".join(snap["ready"]))
     for p in snap.get("proposals", []):
@@ -255,9 +268,16 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         except Exception as exc:
             return failure(exc)
 
-    def plan_mark(plan_id: str, node_id: str, status: str, quote: str = "") -> str:
+    def plan_mark(plan_id: str, node_id: str, status: str, quote: str = "", outputs: Optional[Dict[str, Any]] = None) -> str:
         if status not in STATUSES:
             return f"status must be one of: {', '.join(STATUSES)}."
+        if outputs is not None:
+            if status != "completed":
+                return "outputs are the plan's values the step writes when it is completed: use status completed."
+            try:
+                outputs = clean_outputs(outputs)
+            except PlanError as exc:
+                return f"Not written: {exc}"
         if (msg := need_read(plan_id)):
             return msg
         try:
@@ -267,18 +287,25 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         node = snap["plan"]["nodes"].get(node_id)
         if node is None:
             return f"The plan has no step '{node_id}'."
-        ok, how = confirmer.check({"kind": "plan_mark", "plan": snap["plan"]["title"], "step": node["title"], "from": node.get("status"), "to": status},
-                                  f'In the plan "{snap["plan"]["title"]}", mark the step "{node["title"]}" as {status} (now {node.get("status")})?', quote)
+        writes = "; ".join(f"{k} = {json.dumps(v, ensure_ascii=False)[:80]}" for k, v in (outputs or {}).items())
+        ok, how = confirmer.check({"kind": "plan_mark", "plan": snap["plan"]["title"], "step": node["title"], "from": node.get("status"), "to": status,
+                                   **({"sets": outputs} if outputs else {})},
+                                  f'In the plan "{snap["plan"]["title"]}", mark the step "{node["title"]}" as {status} (now {node.get("status")})'
+                                  + (f" and set the plan's values: {writes}" if writes else "") + "?", quote)
         if not ok:
             return how
         try:
-            res = client.event(plan_id, {"type": "plan:mark", "node_id": node_id, "status": status, "base_rev": seen[plan_id]})
+            res = client.event(plan_id, {"type": "plan:mark", "node_id": node_id, "status": status, "base_rev": seen[plan_id],
+                                         **({"outputs": outputs} if outputs else {})})
         except Exception as exc:
             return failure(exc)
         try:
             seen[plan_id] = int(client.snapshot(plan_id).get("rev") or seen[plan_id])     # the next change is made on what this one left
         except Exception:
             seen.pop(plan_id, None)                                                       # unknown now: the plan is read again
+        if res.get("no_route"):                                     # a decision no exit of which holds is not taken
+            return (f"Step {node_id} was NOT completed ({how}): no exit of this decision holds, so it now waits for the user. {res.get('message', '')} "
+                    "Tell the user which values or conditions are missing and ask what to do; do not choose an exit yourself.")
         retry = res.get("retry")
         if retry:                                                   # the step has tries left: it is not failed yet
             link_task(plan_id, node, "running")
@@ -286,7 +313,8 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                     f"in {round(retry['wait_seconds'])} seconds. It is not marked failed. Ready now: {', '.join(res.get('ready', [])) or 'nothing'}.")
         if status in ("completed", "failed", "skipped"):
             link_task(plan_id, node, {"completed": "done", "failed": "failed", "skipped": "closed"}[status])
-        return f"Step {node_id} marked {status} ({how}). Ready now: {', '.join(res.get('ready', [])) or 'nothing'}."
+        return (f"Step {node_id} marked {status} ({how})" + (f"; plan values set: {writes}" if writes else "")
+                + f". Ready now: {', '.join(res.get('ready', [])) or 'nothing'}.")
 
     def link_task(plan_id: str, node: Dict[str, Any], status: str, result: str = "") -> None:
         """The Tasks panel shows the step with its plan; a panel that cannot be reached never stops the work."""
@@ -443,8 +471,12 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                       obj({"plan_id": {"type": "string"}, "profile": {"type": "object"}, "quote": quote_param}, ["plan_id", "profile"]), EffectClass.REVERSIBLE, plan_set_profile)
     registry.register("plan_check", "Compares a plan with the user's long-term plans. Conflicts are arithmetic on dates and amounts; with with_model the local model also reads what the plans mean together (a check, not a fact). Use it before a new plan is proposed and when something in the plan changes.",
                       obj({"plan_id": {"type": "string"}, "with_model": {"type": "boolean"}}, ["plan_id"]), EffectClass.REVERSIBLE, plan_check)
-    registry.register("plan_mark", "Marks a step of a plan (pending, in_progress, completed, failed, blocked, skipped). Needs the user's yes.",
-                      obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}, "status": {"type": "string", "enum": list(STATUSES)}, "quote": quote_param},
+    registry.register("plan_mark", "Marks a step of a plan (pending, in_progress, completed, failed, blocked, skipped). Completing a step can also write the plan's values "
+                                   "(outputs), which later decisions and merges read: for example after a call, invitati_confermati = [\"Gianna\"]. A decision with no exit that holds "
+                                   "is not completed; it passes to the user. Needs the user's yes.",
+                      obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}, "status": {"type": "string", "enum": list(STATUSES)}, "quote": quote_param,
+                           "outputs": {"type": "object", "description": "plan values to write when completing: name (letters, digits, _) -> text, number, true/false or a list; "
+                                                                      "a name written again is replaced, so send the whole list"}},
                           ["plan_id", "node_id", "status"]), EffectClass.REVERSIBLE, plan_mark)
     registry.register("plan_step_start", "Starts a step that is ready and is for the agent; the user must say yes. Then do the step with your tools and mark it.",
                       obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}, "quote": quote_param}, ["plan_id", "node_id"]), EffectClass.REVERSIBLE, plan_step_start)

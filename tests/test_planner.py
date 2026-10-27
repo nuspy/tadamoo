@@ -176,11 +176,12 @@ def test_one_friend_accepting_takes_the_small_table():
     assert dag.nodes["scelta"].state_variables["selected"] == ["tavolo_piccolo"] and dag.nodes["terrazza"].status == "skipped"
 
 
-def test_a_decision_with_an_unset_variable_fails_without_half_completing():
+def test_a_decision_with_an_unset_variable_is_not_taken_and_goes_to_the_user():
     dag = cervinia()
-    with pytest.raises(PlanError, match="not set yet"):
-        dag.mark("scelta", "completed")
-    assert dag.nodes["scelta"].status == "pending" and dag.nodes["terrazza"].status == "pending"
+    res = dag.mark("scelta", "completed")
+    assert res["no_route"]["unset"] == ["invitati_confermati"]
+    assert dag.nodes["scelta"].status == "pending" and dag.nodes["scelta"].assignee == Assignee.USER
+    assert dag.nodes["terrazza"].status == "blocked"          # nothing below it moved on, nothing was skipped
 
 
 def test_a_task_the_user_must_do_blocks_what_depends_on_it_until_done():

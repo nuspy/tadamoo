@@ -605,6 +605,9 @@ class Session:
             for node in ((snap.get("plan") or {}).get("nodes") or {}).values() if isinstance((snap.get("plan") or {}).get("nodes"), dict) else (snap.get("plan") or {}).get("nodes") or []:
                 if isinstance(node, dict) and node.get("status") == "failed":
                     news.append((f"f:{pid}:{node.get('id')}", f'the step "{node.get("title")}" failed.'))
+                stuck = (node.get("state_variables") or {}).get("no_route") if isinstance(node, dict) else None
+                if stuck:
+                    news.append((f"n:{pid}:{node.get('id')}:{stuck.get('at')}", f'the decision "{node.get("title")}" has no exit that holds and waits for the person (values: {json.dumps(stuck.get("values", {}), ensure_ascii=False)[:200]}).'))
             fresh = [(k, t) for k, t in news if k not in self._announced]
             if fresh:
                 key, text = fresh[0]
