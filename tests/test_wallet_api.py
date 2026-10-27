@@ -147,7 +147,8 @@ def test_the_browser_choice_is_kept_and_read_by_the_conversations(setup):
     code, body = call(base, "POST", "/api/wallet/browser", {"enabled": False, "headless": True})
     assert code == 200 and body["browser"]["enabled"] is False and body["browser"]["headless"] is True and body["browser"]["private"] is False
     assert call(base, "POST", "/api/wallet/browser", {"enabled": True, "headless": False, "private": True})[1]["browser"]["private"] is True
-    assert BrowserPrefs(tmp / "browser.json").read() == {"enabled": True, "headless": False, "private": True, "persistent": False}
+    assert BrowserPrefs(tmp / "browser.json").read() == {"enabled": True, "headless": False, "private": True, "persistent": False,
+                                                                 "consent": "necessary", "permissions": "deny"}
 
 
 def test_the_owner_can_read_a_value_back_and_an_unknown_one_is_a_clear_error(setup):

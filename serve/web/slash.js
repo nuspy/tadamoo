@@ -238,6 +238,7 @@
   const pct = x => Math.round((x || 0) * 100);
   const SHOW = {
     status: d => list(T("sl.r.status"), [[T("sl.r.mode"), T("ag.mode." + d.mode)], [T("sl.r.effort"), d.effort ? effortName(d.effort) : effortName("")], [T("sl.r.turns"), d.turns],
+      [T("sl.r.steps"), d.max_turns > 0 ? d.max_turns : T("sl.r.steps.none")], [T("sl.r.bias"), d.end_turn_bias || 0],
       [T("sl.r.context"), T("sl.r.ctx", d.tokens, d.window, pct(d.share))], [T("sl.r.messages"), d.messages], [T("sl.r.tools"), d.tools], [T("sl.r.memories"), d.memories],
       [T("sl.r.mcp"), d.mcp_servers], [T("sl.r.spent"), d.model_tokens]]),
     context: d => list(T("sl.r.context"), [T("sl.r.ctx", d.tokens, d.window, pct(d.share)), [T("sl.r.messages"), d.messages], ...(d.summarised ? [T("sl.r.ctx.summary")] : [])]),

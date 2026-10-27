@@ -123,6 +123,9 @@ class RoutedClient:
     def metrics(self, *a: Any, **k: Any) -> Any:
         return self.local.metrics(*a, **k)
 
+    def context_window(self, *a: Any, **k: Any) -> Any:
+        return self.local.context_window(*a, **k)
+
     def stays_local(self) -> bool:
         """Whether every route this function may take is the model loaded in this Basalt (nothing goes to another provider)."""
         data = self.registry.load()

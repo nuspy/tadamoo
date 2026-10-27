@@ -30,7 +30,7 @@ class MessageTimesTest(unittest.TestCase):
         self.assertIn('stampAt = typeof e.t === "number" ? e.t : undefined', AGENT)           # a live event carries its time
         self.assertIn('stampAt = typeof m.ts === "number" ? m.ts : null', AGENT)              # a saved message too; an old one has none
         self.assertIn("stampAt === undefined ? Date.now() / 1000 : stampAt", AGENT)
-        self.assertEqual(len(re.findall(r"ts: stampOf\(\)", AGENT)), 4)                        # user, note, text block, other block
+        self.assertEqual(len(re.findall(r"ts: stampOf\(\)", AGENT)), 5)                        # user, note, text block, other block, the step-limit note
 
     def test_the_model_only_chat_has_it_too_and_shares_the_function(self):
         self.assertIn("row.append(stamp(m.time / 1000), b)", CHAT)

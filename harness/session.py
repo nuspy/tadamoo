@@ -6,11 +6,12 @@ for the start, and saves the history after every model turn, so a process that d
 
 Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd": "cancel"}, {"cmd": "resume"}, {"cmd": "close"},
 {"cmd": "promote", "id"}, {"cmd": "drop", "id"}, {"cmd": "ping"}, {"cmd": "mode", "mode"} (the permission mode of the conversation),
-{"cmd": "effort", "level"} (how long the model thinks), {"cmd": "command", "id", "name", "args"} (a slash command: harness/commands.py),
+{"cmd": "effort", "level"} (how long the model thinks), {"cmd": "settings", "max_turns", "end_turn_bias"} (the steps one answer may take,
+-1 for no limit, and the end-of-turn bias; either or both), {"cmd": "command", "id", "name", "args"} (a slash command: harness/commands.py),
 {"cmd": "skill", "id", "name", "display", "script", "mode", "values", "timeout", "cache_dir"} (runs a personal skill in the conversation).
 Events: ready, accepted, queued, routed, started, suspended, resumed, agent (an assistant text or a tool start or end), delta
 (text as it is written), ask (a question with buttons: a confirmation the task waits for, or a question that ends the turn),
-retrying, done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, effort, command, skill, skill_say, heartbeat, error.
+retrying, done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, effort, settings, command, skill, skill_say, heartbeat, error.
 
 A message that comes while a task is under way is looked at before the task's next model call (harness/router.py): it goes into
 that task (steer), waits its turn (queue), or, when it cannot wait and has nothing to do with the task, the task is put aside where
@@ -315,6 +316,9 @@ class Session:
         """A confirmation: shown with its buttons, and the task waits for the answer ("confirm", "cancel" or "" if it was
         cancelled). A task waiting for the person is not stuck."""
         aid = uuid.uuid4().hex[:8]
+        said = al.current_explanation() if payload.get("mode") == "confirm" else ""
+        if said and "explain" not in payload:
+            payload = {**payload, "explain": said}                    # the model's own sentence for the call that asks, shown as such
         slot = {"event": threading.Event(), "value": "", "values": {o["value"] for o in payload.get("options", [])}, "free": bool(payload.get("free")),
                 "free_prefix": str(payload.get("free_prefix") or "")}
         cancel = self._cur_cancel()
@@ -555,6 +559,17 @@ class Session:
         else:
             self.agent.sampling.pop("reasoning_effort", None)
 
+    def set_max_turns(self, value: int) -> None:
+        """The most model steps one answer may take, from the next step on; below 1 is no limit."""
+        self.agent.max_turns = value
+
+    def set_end_turn_bias(self, value: float) -> None:
+        """How much less ready the model is to end its turn, from the next model call on; 0 is off. Side tasks that start later share it."""
+        if value:
+            self.agent.sampling["end_turn_bias"] = value
+        else:
+            self.agent.sampling.pop("end_turn_bias", None)
+
     def run_command(self, cid: str, name: str, args: str) -> None:
         """A slash command that asks this process something; the answer is an event, so the person's page shows it where it was asked."""
         from harness.commands import run
@@ -774,6 +789,9 @@ class Session:
                 return self._run_skill_task(task)
             finally:
                 task.state_running = False
+        refresh = getattr(self.built, "refresh_budget", None)       # the model may have been loaded or changed since the last request
+        if refresh is not None:
+            refresh()
         while True:
             self.last_progress = time.monotonic()
             task.state_running = True
@@ -831,7 +849,7 @@ class Session:
                 final = next((t.assistant_content for t in reversed(agent.turns) if not t.tool_calls and t.assistant_content), "")
                 self._save()
                 self.emit({"event": "done", "turn": task.turn, "stop_reason": agent.stop_reason, "error": agent.error, "final": final,
-                           "tokens": agent.total_tokens, "more": self._more() and not agent.cancel.is_set(),
+                           "tokens": agent.total_tokens, "max_turns": agent.max_turns, "more": self._more() and not agent.cancel.is_set(),
                            "denied": self.permission_denials["total"]})
                 self.tasks.pop(task.turn, None)
                 task = self._next_after(task)
@@ -893,6 +911,16 @@ class Session:
 
 
 # -- the process ---------------------------------------------------------------------------------------------
+
+def _valid_settings(cmd: Dict[str, Any]) -> bool:
+    """A "settings" command: the steps one answer may take (-1 for no limit, or 1 and more) and/or the end-of-turn bias (-20 to 0)."""
+    steps, bias = cmd.get("max_turns"), cmd.get("end_turn_bias")
+    if "max_turns" not in cmd and "end_turn_bias" not in cmd:
+        return False
+    if "max_turns" in cmd and (not isinstance(steps, int) or isinstance(steps, bool) or not (steps == -1 or steps >= 1)):
+        return False
+    return "end_turn_bias" not in cmd or (isinstance(bias, (int, float)) and not isinstance(bias, bool) and -20.0 <= bias <= 0.0)
+
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m harness session", description="One Chat conversation in a long-lived process")
@@ -1033,6 +1061,15 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
             elif name == "effort" and cmd.get("level", "") in ("", *EFFORT_LEVELS):
                 session.set_effort(cmd.get("level", ""))
                 emit({"event": "effort", "level": cmd.get("level", "")})
+            elif name == "settings" and _valid_settings(cmd):
+                changed = {}
+                if "max_turns" in cmd:
+                    session.set_max_turns(cmd["max_turns"])
+                    changed["max_turns"] = cmd["max_turns"]
+                if "end_turn_bias" in cmd:
+                    session.set_end_turn_bias(float(cmd["end_turn_bias"]))
+                    changed["end_turn_bias"] = float(cmd["end_turn_bias"])
+                emit({"event": "settings", **changed})
             elif name == "command" and isinstance(cmd.get("name"), str):
                 threading.Thread(target=session.run_command, args=(str(cmd.get("id") or ""), cmd["name"], str(cmd.get("args") or "")[:2000]),
                                  name="session-command", daemon=True).start()           # a command may take a model call; the others go on meanwhile

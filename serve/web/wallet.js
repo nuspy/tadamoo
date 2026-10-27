@@ -323,18 +323,22 @@
     const on = h("input"); on.type = "checkbox"; on.id = "wl-br-on"; on.checked = b.enabled; on.disabled = !b.found;
     const hide = h("input"); hide.type = "checkbox"; hide.id = "wl-br-hide"; hide.checked = b.headless; hide.disabled = !b.found;
     const save = async () => {
-      const r = await call("POST", "api/wallet/browser", { enabled: on.checked, headless: hide.checked, private: priv.checked, persistent: keep.checked });
+      const r = await call("POST", "api/wallet/browser", { enabled: on.checked, headless: hide.checked, private: priv.checked, persistent: keep.checked, consent: consent.value, permissions: perms.value });
       if (r.ok) { data.browser = r.data.browser; say(T("wl.saved")); draw(); } else say(why(r), true);
     };
     const priv = h("input"); priv.type = "checkbox"; priv.id = "wl-br-priv"; priv.checked = !!b.private; priv.disabled = !b.found;
     const keep = h("input"); keep.type = "checkbox"; keep.id = "wl-br-keep"; keep.checked = !!b.persistent; keep.disabled = !b.found;
+    const pick = (id, key, values, current) => { const s = select(values.map(v => [v, T("wl.br." + key + "." + v)]), current, !b.found); s.id = id; s.onchange = save; return s; };
+    const consent = pick("wl-br-consent", "consent", ["necessary", "accept", "reject", "off"], b.consent || "necessary");
+    const perms = pick("wl-br-perm", "perm", ["deny", "ask", "grant-safe"], b.permissions || "deny");
+    const policy = (input, key) => { const l = h("label", "", T("wl.br." + key)); l.htmlFor = input.id; return h("div", "wl-pick", l, input, h("p", "help", T("wl.br." + key + ".help"))); };
     keep.onchange = async () => { if (keep.checked && !(await riskConfirm([T("wl.risk.persist")]))) { keep.checked = false; return; } save(); };
     on.onchange = save; hide.onchange = save;
     priv.onchange = async () => { if (priv.checked && !(await riskConfirm([T("wl.risk.private")]))) { priv.checked = false; return; } save(); };
     const row = (input, text) => { const l = h("label", "wl-rm", input, h("span", "", text)); l.htmlFor = input.id; return l; };
     return h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.br"))), h("div", "wl-body", h("p", "help", T("wl.br.help")),
       b.found ? null : h("p", "wl-note", T("wl.br.none")), row(on, T("wl.br.on")), row(hide, T("wl.br.hide")), row(priv, T("wl.br.private")),
-      ...(b.private ? [riskLabel(T("wl.risk.private"))] : []), row(keep, T("wl.br.keep")), ...(b.persistent ? [riskLabel(T("wl.risk.persist"))] : []),
+      ...(b.private ? [riskLabel(T("wl.risk.private"))] : []), row(keep, T("wl.br.keep")), policy(consent, "consent"), policy(perms, "perm"), ...(b.persistent ? [riskLabel(T("wl.risk.persist"))] : []),
       ...(b.persistent ? [h("p", "help", T("wl.br.signin.help")), h("div", "wl-actions", btn(T("wl.br.signin"), "", async () => {
         const r = await call("POST", "api/wallet/browser/signin", {});
         say(r.ok ? T("wl.br.opened") : why(r), !r.ok);

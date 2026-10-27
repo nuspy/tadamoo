@@ -141,6 +141,29 @@ def validate_arguments(name: str, schema: Dict[str, Any], arguments: Any) -> Dic
 
 _UNSET: Any = object()
 
+# The optional argument every tool takes beside its own: one sentence for the person. The first name a tool does not already use is the one offered.
+DESCRIPTION_KEYS = ("description", "explain")
+DESCRIPTION_CHARS = 300
+TOOL_CALL_NOTE = f"The person sees your `{DESCRIPTION_KEYS[0]}` of each tool call beside it."
+_DESCRIPTION_HELP = "One short sentence for the person, in the language they write in, saying what this call does and why."
+
+
+def description_key(parameters: Dict[str, Any]) -> Optional[str]:
+    """The name under which a tool with these parameters takes the person's sentence; None if the tool uses every name."""
+    props = parameters.get("properties") or {}
+    return next((k for k in DESCRIPTION_KEYS if k not in props), None)
+
+
+def split_description(parameters: Dict[str, Any], arguments: Any) -> "tuple[Any, str]":
+    """The arguments without the person's sentence, and the sentence (trimmed, one line, at most DESCRIPTION_CHARS; empty if none).
+    It is display text only: nothing that decides or runs sees it."""
+    key = description_key(parameters)
+    if key is None or not isinstance(arguments, dict) or key not in arguments:
+        return arguments, ""
+    rest = {k: v for k, v in arguments.items() if k != key}
+    text = arguments[key]
+    return rest, " ".join(text.split())[:DESCRIPTION_CHARS] if isinstance(text, str) else ""
+
 
 class ToolRegistry:
     def __init__(self, default_timeout: Optional[float] = DEFAULT_TOOL_TIMEOUT) -> None:
@@ -187,14 +210,20 @@ class ToolRegistry:
         return sorted(self._tools)
 
     def schemas(self) -> List[Dict[str, Any]]:
-        """Standard OpenAI/Basalt tool definitions, in a stable order so the prompt prefix stays identical."""
-        return [
-            {
-                "type": "function",
-                "function": {"name": t.name, "description": t.description, "parameters": t.parameters},
-            }
-            for t in sorted(self._tools.values(), key=lambda t: t.name)
-        ]
+        """Standard OpenAI/Basalt tool definitions, in a stable order so the prompt prefix stays identical. Each tool also offers the
+        optional sentence for the person (see DESCRIPTION_KEYS); the tool's own parameters are not changed."""
+        out = []
+        for t in sorted(self._tools.values(), key=lambda t: t.name):
+            parameters, key = t.parameters, description_key(t.parameters)
+            if key is not None:
+                parameters = {**parameters, "properties": {**(parameters.get("properties") or {}), key: {"type": "string", "description": _DESCRIPTION_HELP}}}
+            out.append({"type": "function", "function": {"name": t.name, "description": t.description, "parameters": parameters}})
+        return out
+
+    def split_description(self, name: str, arguments: Any) -> "tuple[Any, str]":
+        """`split_description` for a registered tool (an unknown name has nothing to split)."""
+        tool = self.get(name)
+        return (arguments, "") if tool is None else split_description(tool.parameters, arguments)
 
     def validate(self, name: str, arguments: Any) -> Dict[str, Any]:
         tool = self.get(name)

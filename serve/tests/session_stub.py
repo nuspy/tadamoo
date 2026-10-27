@@ -142,6 +142,8 @@ for line in sys.stdin:
         emit({"event": "mode", "mode": cmd.get("mode")})
     elif name == "effort":
         emit({"event": "effort", "level": cmd.get("level")})
+    elif name == "settings":
+        emit({"event": "settings", **{k: cmd[k] for k in ("max_turns", "end_turn_bias") if k in cmd}})
     elif name == "command":
         emit({"event": "command", "id": cmd.get("id"), "name": cmd.get("name"), "ok": True, "data": {"args": cmd.get("args")}})
     elif name in ("promote", "drop"):

@@ -59,3 +59,6 @@
 @media (max-width: 700px) { .wl-body { padding: 12px 14px 16px; } .wl-wbody { padding: 14px; } }
 .wl-tools input, .wl-tools select { width: 100%; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 44px; }
 .wl-form .wl-actions .btn { min-height: var(--btn-h); }
+.wl-pick { margin: 10px 0; }
+.wl-pick label { display: block; font-weight: 500; margin-bottom: 4px; }
+.wl-pick select { width: 100%; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 44px; }
