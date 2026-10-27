@@ -41,6 +41,7 @@ from serve import ROOT
 from serve.api import logit_bias
 from serve.agent_runs import MAX_ALLOW, MODES, SAFE_ENV_KEYS, RunBusy, RunError
 from serve.approvals import ApprovalBoard
+from serve.conv_nodes import NodeStore
 from serve.tasks import _write_json
 from serve.util.winjob import contain
 
@@ -52,6 +53,12 @@ PLACE_KEEP_S = 86_400           # a position older than this is no longer handed
 OPTIONS = ("resume", "close")
 ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free", "free_prefix", "explain")
 COMPARES_FILE = "compares.json"
+NODES_FILE = "nodes.jsonl"
+NODES_MIGRATED = "nodes.migrated"
+MERGE_BRANCH_CHARS = 10_000                                                 # how much of each branch the model reads when two are merged
+MERGE_SHARED_CHARS = 3_000
+MERGE_PART_CHARS = 1_500
+MERGE_TOKENS = 1_500
 COMPARE_SETTINGS = ("mode", "max_turns", "ask_only", "end_turn_bias")      # what the two sides of a comparison may differ in
 EFFECTS_FILE = "tool_effects.json"                                          # the effect class of each tool this conversation has used
 SNIPPET_CHARS = 80
@@ -143,6 +150,8 @@ class SessionManager:
         self._compare_lock = threading.Lock()                   # the two sides of a comparison, and two comparisons, run one after the other
         self.compares: List[Dict[str, Any]] = self._load_compares()
         self.records: List[Dict[str, Any]] = self._load()
+        self.nodes = NodeStore(self.directory / NODES_FILE)         # every conversation's messages as shared immutable nodes
+        self._migrate_nodes()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._supervise, name="session-supervisor", daemon=True)
         self._thread.start()
@@ -236,8 +245,16 @@ class SessionManager:
         try:
             data = json.loads((self.history_dir(sid) / "history.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return None
+            return self._history_from_nodes(sid)
         return data if isinstance(data, dict) else None
+
+    def _history_from_nodes(self, sid: str) -> Optional[Dict[str, Any]]:
+        """The history of a conversation that has no file of its own yet (a fork): its chain of nodes."""
+        with self._lock:
+            rec = next((r for r in self.records if r["id"] == sid), None)
+        if not rec or not rec.get("node") or self.nodes.get(rec["node"]) is None:
+            return None
+        return {"session": sid, "turns": rec.get("turns", 0), "saved": time.time(), "messages": self.nodes.chain(rec["node"]), "pending": []}
 
     def _transcript(self, sid: str, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """What the person said and was answered, whole: the turns pruned or summarized away for the model come back first,
@@ -281,6 +298,12 @@ class SessionManager:
             kept.append({k: v for k, v in m.items() if k not in ("masked", "stripped")})
         if users < turn:
             raise RunError(f"That conversation has only {users} requests.", "bad_turn")
+        leaf = self.nodes.ingest(kept)
+        return self._new_child(rec, sid, "(branch)", leaf, turn, {"session": sid, "turn": turn})
+
+    def _new_child(self, rec: Dict[str, Any], sid: str, suffix: str, leaf: Optional[str], turns: int, branched_from: Dict[str, Any],
+                   **more: Any) -> Dict[str, Any]:
+        """A conversation with `rec`'s settings whose history is the chain ending at node `leaf`: no file is written until it runs."""
         new = secrets.token_hex(4)
         copy = None
         if rec.get("worktree"):
@@ -288,14 +311,12 @@ class SessionManager:
                 copy = self.worktrees.create(new, rec["workspace"])
             except WorktreeError as e:
                 raise RunError(f"The branch needs its own copy of the folder: {e}", "no_copy") from None
-        child = {**{k: v for k, v in rec.items() if k not in ("worktree", "workdir")}, "id": new, "title": ((rec.get("title") or "") + " (branch)").strip()[:TITLE_CHARS], "branched_from": {"session": sid, "turn": turn},
-                 "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": turn}
+        child = {**{k: v for k, v in rec.items() if k not in ("worktree", "workdir", "rewinds", "compare", "merged_from")}, "id": new,
+                 "title": ((rec.get("title") or "") + " " + suffix).strip()[:TITLE_CHARS], "branched_from": branched_from, "node": leaf,
+                 "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": turns, **more}
         if copy:
             child["worktree"], child["workdir"] = copy, copy["workdir"]
         with self._lock:
-            target = self.history_dir(new)
-            target.mkdir(parents=True, exist_ok=True)
-            _write_json(target / "history.json", {"session": new, "turns": turn, "saved": time.time(), "messages": kept, "pending": []})
             self.records.append(child)
             self._events[new], self._seq[new] = collections.deque(maxlen=EVENTS_KEPT), 0
             self._save()
@@ -442,6 +463,157 @@ class SessionManager:
                     "compare": r.get("compare"), "children": [build(c) for c in mine if c["id"] not in seen]}
 
         return {"roots": [build(r) for r in sorted(roots, key=lambda r: -(r.get("updated") or 0))], "count": len(records)}
+
+    # -- the messages as nodes: where a conversation stands, what changing to it costs, merging two ---------------------
+
+    def sync_node(self, sid: str) -> Optional[str]:
+        """Puts the conversation's messages in the node store (those it shares with others are found, not added) and notes its leaf."""
+        with self._lock:
+            rec = self._record(sid)
+        data = self._read_history(sid)
+        if data is None:
+            return rec.get("node")
+        leaf = self.nodes.ingest({k: v for k, v in m.items() if k not in ("masked", "stripped")} for m in self._transcript(sid, data))
+        if leaf != rec.get("node"):
+            with self._lock:
+                rec["node"] = leaf
+                self._save()
+        return leaf
+
+    def _migrate_nodes(self) -> None:
+        """Once: every conversation that exists is put in the store, and a branch's file that holds nothing the store does not is dropped
+        (it is rebuilt from the nodes when needed). The ids come from the content, so the result does not depend on the order."""
+        marker = self.directory / NODES_MIGRATED
+        if marker.exists():
+            return
+        try:
+            for rec in sorted(self.records, key=lambda r: (r.get("created") or 0, r["id"])):
+                leaf = self.sync_node(rec["id"])
+                if rec.get("branched_from") and rec.get("state") in ("dormant", "closed"):
+                    self._drop_copy(rec, leaf)
+            marker.write_text("1", encoding="utf-8")
+        except (OSError, KeyError, ValueError):
+            pass                                                # tried again at the next start
+
+    def _drop_copy(self, rec: Dict[str, Any], leaf: Optional[str]) -> None:
+        folder = self.history_dir(rec["id"])
+        data = self._read_history(rec["id"])
+        if not leaf or data is None or not (folder / "history.json").exists() or (folder / "archive.jsonl").exists() or (folder / "inflight.json").exists():
+            return
+        extra = set(data) - {"session", "turns", "saved", "messages", "pending"}
+        plain = [{k: v for k, v in m.items() if k not in ("masked", "stripped")} for m in data.get("messages", []) if isinstance(m, dict)]
+        if not extra and not data.get("pending") and data.get("turns") == rec.get("turns") and plain == self.nodes.chain(leaf):
+            (folder / "history.json").unlink(missing_ok=True)
+
+    def switch_cost(self, sid: str, current: Any = None) -> Dict[str, Any]:
+        """What changing to conversation `sid` would ask of the model: the tokens of its history that have to be read again if the server no
+        longer holds them, and how many of those the conversation `current` (the one last run) shares with it, which the server probably does."""
+        leaf = self.sync_node(sid)
+        other = None
+        if current:
+            with self._lock:
+                self._record(str(current))
+            other = self.sync_node(str(current))
+        total = self.nodes.tokens(leaf)
+        shared = self.nodes.tokens(self.nodes.common_ancestor(leaf, other)) if other else 0
+        return {"session": sid, "messages": len(self.nodes.path_to(leaf)), "tokens": total, "shared_with_current": shared,
+                "if_cache_cold": total, "if_cache_warm": total - shared, "excludes": "system prompt and tool list"}
+
+    @staticmethod
+    def _digest(messages: List[Dict[str, Any]], limit: int) -> str:
+        lines = []
+        for m in messages:
+            text = " ".join(str(m.get("content") or "").split())
+            if m.get("role") in ("user", "assistant") and text:
+                lines.append(f"{'Person' if m['role'] == 'user' else 'Assistant'}: {text[:MERGE_PART_CHARS]}")
+            elif m.get("role") == "assistant" and m.get("tool_calls"):
+                names = ", ".join(str((c.get("function") or {}).get("name") or "?") for c in m["tool_calls"] if isinstance(c, dict))
+                lines.append(f"Assistant used: {names}")
+        out = "\n".join(lines)
+        return out if len(out) <= limit else "...\n" + out[-limit:]
+
+    def merge(self, sid_a: Any, sid_b: Any, instruction: Any = "") -> Dict[str, Any]:
+        """A new conversation that continues the first and ends with a synthesis the model writes, at the person's request, of what the two
+        branches did after the point where they parted. Both are read, neither is changed."""
+        from harness.client import BasaltError, extract_reasoning_and_content
+        if not isinstance(sid_a, str) or not isinstance(sid_b, str) or sid_a == sid_b:
+            raise RunError("Choose two different conversations to merge.", "bad_merge")
+        text = str(instruction or "").strip()
+        if len(text) > TEXT_CHARS:
+            raise RunError(f"The instruction is at most {TEXT_CHARS} characters.", "text_missing")
+        recs = []
+        for sid in (sid_a, sid_b):
+            with self._lock:
+                rec = self._record(sid)
+                if rec["state"] in ("busy", "starting", "asking"):
+                    raise RunError("Wait for the agent to finish, or stop it, before merging.", "busy")
+                recs.append(dict(rec))
+        leaves = [self.sync_node(sid_a), self.sync_node(sid_b)]
+        if not all(leaves):
+            raise RunError("Both conversations need some messages to be merged.", "empty")
+        base = self.nodes.common_ancestor(*leaves)
+        shared = len(self.nodes.path_to(base))
+        branches = [self.nodes.chain(leaf)[shared:] for leaf in leaves]
+        if not any(branches):
+            raise RunError("The two conversations end at the same message: there is nothing to merge.", "bad_merge")
+        titles = [r.get("title") or r["id"] for r in recs]
+        system = ("Two branches of one conversation continued from the same point. Write one answer that combines what both found, says where they "
+                  "disagree and which is better supported, and what to do next. Use the language of the conversation. Add nothing that is in neither branch.")
+        asked = ("The person asks: " + text) if text else "The person asks for the two branches to be merged and summarized."
+        user = (f"The conversation up to where the branches part:\n{self._digest(self.nodes.chain(base), MERGE_SHARED_CHARS) or '(nothing)'}\n\n"
+                f"Branch A, \"{titles[0]}\":\n{self._digest(branches[0], MERGE_BRANCH_CHARS) or '(nothing after that point)'}\n\n"
+                f"Branch B, \"{titles[1]}\":\n{self._digest(branches[1], MERGE_BRANCH_CHARS) or '(nothing after that point)'}\n\n{asked}")
+        try:
+            resp = self._skill_client().chat_completion(messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                                                        temperature=0.2, max_tokens=MERGE_TOKENS, extra={"reasoning_effort": "none"}, timeout=600.0)
+        except BasaltError as exc:
+            raise RunError(f"The model could not be reached: {exc}", "model") from None
+        _, answer = extract_reasoning_and_content((resp.get("choices") or [{}])[0].get("message") or {})
+        if not answer:
+            raise RunError("The model gave no synthesis.", "model")
+        ask = text or f"Merge the branches \"{titles[0]}\" and \"{titles[1]}\" into one."
+        ask_node = self.nodes.add({"role": "user", "content": ask, "ts": time.time()}, leaves)
+        leaf = self.nodes.add({"role": "assistant", "content": answer, "ts": time.time()}, [ask_node])
+        turns = sum(1 for m in self.nodes.chain(leaf) if m.get("role") == "user")
+        return self._new_child(recs[0], sid_a, "(merge)", leaf, turns, {"session": sid_a, "turn": recs[0].get("turns", 0)}, merged_from=[sid_a, sid_b])
+
+    def node_tree(self) -> Dict[str, Any]:
+        """Every message node, in runs: messages that nothing branches from are one entry, and a fork, a merge or a conversation's current
+        leaf ends a run. Runs no conversation reaches any more (what going back took off) are shown too, with no conversation."""
+        with self._lock:
+            ids = [r["id"] for r in self.records]
+        for sid in ids:
+            try:
+                self.sync_node(sid)
+            except (RunError, OSError):
+                pass
+        with self._lock:
+            records = [dict(r) for r in self.records]
+        nodes = {n["id"]: n for n in self.nodes.all()}
+        kids: Dict[str, List[str]] = {}
+        roots: List[str] = []
+        for n in nodes.values():
+            (kids.setdefault(n["parents"][0], []) if n["parents"] and n["parents"][0] in nodes else roots).append(n["id"])
+        at: Dict[str, List[Dict[str, Any]]] = {}
+        for r in records:
+            if r.get("node") in nodes:
+                at.setdefault(r["node"], []).append({"id": r["id"], "title": r.get("title") or r["id"], "state": r.get("state"), "turns": r.get("turns", 0)})
+        merges = {n["id"]: n["parents"][1:] for n in nodes.values() if len(n["parents"]) > 1}
+
+        def request(nid: str) -> str:
+            m = nodes[nid]["message"]
+            return " ".join(str(m.get("content") or "").split())[:SNIPPET_CHARS] if m.get("role") == "user" else ""
+
+        def run(start: str) -> Dict[str, Any]:
+            run_ids, cur = [start], start
+            while len(kids.get(cur, [])) == 1 and cur not in at and kids[cur][0] not in merges:
+                cur = kids[cur][0]
+                run_ids.append(cur)
+            return {"id": start, "last": cur, "messages": len(run_ids), "request": next((request(i) for i in run_ids if request(i)), ""),
+                    "sessions": at.get(cur, []), "merges": [{"node": m, "sessions": at.get(m, [])} for m in merges.get(start, [])],
+                    "children": [run(c) for c in kids.get(cur, [])]}
+
+        return {"nodes": len(nodes), "roots": [run(r) for r in roots]}
 
     def snapshots(self, sid: str) -> Dict[str, Any]:
         with self._lock:
@@ -793,6 +965,10 @@ class SessionManager:
                 raise RunError(f"The copy of the folder for this conversation could not be brought back: {e}", "no_copy") from None
         history = self.history_dir(sid)
         history.mkdir(parents=True, exist_ok=True)
+        if not (history / "history.json").exists():
+            made = self._history_from_nodes(sid)                  # a fork gets its file when it first runs
+            if made is not None:
+                _write_json(history / "history.json", made)
         env = {k: v for k, v in os.environ.items() if k.upper() in SAFE_ENV_KEYS}
         env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root)})
         if self.api_key:
@@ -1301,8 +1477,10 @@ class SessionManager:
             for table in (self._live, self._events, self._seq, self._restarts, self._unconfirmed, self._step, self._calls, self._learned):
                 table.pop(sid, None)
             self._save()
+            leaves = [r["node"] for r in self.records if r.get("node")]
         for folder in folders:
             shutil.rmtree(folder, ignore_errors=True)
+        self.nodes.keep(leaves)                                 # the messages only this conversation had go with it
         self._registry(rec.get("workspace"))
         return {"deleted": sid}
 

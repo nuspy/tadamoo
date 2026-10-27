@@ -93,6 +93,7 @@ skills, connections) and the history is kept between messages. The server starts
 | `POST .../<id>/effort` | `{"level"}`: `none`, `low`, `medium`, `high` or empty (the model's own); also a field of the create call |
 | `POST .../<id>/settings` | `{"max_turns"?, "end_turn_bias"?}`: changes them for the conversation from its next run |
 | `POST .../<id>/favorite`, `/delete` | `{"favorite": true\|false}`: the page lists favorites apart, above the rest (the conversation's place in time does not change); `delete` takes the conversation away for good: its process, saved messages, attached and made files and its own copy of the folder (branches made from it stay) |
+| `GET .../nodes`, `GET .../<id>/switch-cost?current=<id>`, `POST .../merge` | the messages of every conversation as shared immutable nodes (`serve/conv_nodes.py`, one `nodes.jsonl` beside the conversations; a branch is a pointer to a node and writes no history file until it runs): runs between forks; the tokens to read again on switching (`if_cache_cold`, `if_cache_warm`, system prompt and tool list not counted); `{"a","b","instruction"?}`: the model writes one synthesis of two idle conversations into a new one that continues `a` |
 | `POST .../<id>/rename`, `/command` | `{"title"}`; `{"name", "args"}`: a slash command the process answers (below), whose answer comes as a `command` event |
 
 The history is saved after every model turn, and a message is on disk before the model sees it. Failures are handled in
@@ -363,6 +364,9 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   to Google, which is the kept profile above, and its sheet is a window the browser follows. None of these was tried against the real services. Decisions still yours: the default 30-day expiry and a lawyer's review of the three dialogs.
 - **The browser** (`browser.py`, `--browser`): Edge or Chrome on this PC, driven over the DevTools protocol, for forms, purchases and
   bookings (`browser_open`, `browser_read`, `browser_click`, `browser_type`, `browser_select`, `browser_press`, `browser_back`).
+  Where the conversation has a place for files (the Chat), `browser_screenshot` keeps a PNG of the page as a file of the conversation, and `browser_open`, `browser_click`,
+  `browser_select`, `browser_press` and `browser_back` take `screenshot: true` to keep one of the page they lead to. The result names the file (its path, `output:<id>` for
+  `analyze_image`, and the `basalt-file:` link to show it); the call is in the audit log. No picture is taken in a browser where a vault value was typed, because a picture cannot be masked like text.
   A page is read as numbered elements and text, fenced as untrusted. A vault value is typed only if the page's site is one the
   entry names, and a field that holds one is listed as set. Each conversation has its own browser, and the
   browser ends with it, however it ends. By default its profile is thrown away with it; the person can choose to keep one profile, so that
@@ -413,6 +417,10 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   most relevant files first: changed lately (modified time), used by other files (how many mention the names they define), or named
   in `focus`. It stops at a token budget (default 1500, at most 8000) and says how many files it left out; no one file takes the whole
   map. It reads files only, skips dependency, build and hidden folders, and does not use tree-sitter or git.
+- `repo_diagram` (`harness/repodiagram.py`) draws a folder as Mermaid text worked out from the files, with no model, the same on every run: `kind` `imports`
+  (which module imports which: Python, JavaScript/TypeScript and C/C++ imports that resolve to a file in the folder, one node per file or, when there are too
+  many, per folder with the number of imports on each arrow; the least-connected nodes go first past `max_nodes`) or `folders` (the folder tree with the count of
+  source files in each). It reads files only (pure effect), stays inside the workspace and the result carries a `mermaid` block the model puts in its answer.
 - `AGENTS.md` (else `CLAUDE.md`, else `GEMINI.md`), searched from the workspace up to the repository root, is part of the prompt.
 - Memory is SQLite full-text search per workspace, kept in the user data folder (never in the repository); identifiers such as
   `sm_120` are searchable, and a question whose words are not all in a note still finds it. The model keeps notes itself with
@@ -882,17 +890,21 @@ the server runs on, and the other transports' own sign-ins.
 
 ## A council for hard questions
 
-`ask_council(question, context)` asks three advisers and a chair (`harness/council.py`). The advisers are the functions *Council member 1, 2, 3* on the
-Providers page, the chair is *Council chair*, so each can be a different model, local or in the cloud; they get different jobs (answer, find what is wrong
-or risky, propose another way). They answer at the same time, a member that fails is reported and the others go on, and the chair, told that the answers are
-untrusted text, writes where they agree, where they differ and what to do (at most 250 words). It costs several model calls and is meant for a decision that is
-worth it.
+`ask_council(question, context)` starts a debate between three advisers and a moderator (`harness/council.py`). The advisers are the functions *Council member
+1, 2, 3* on the Providers page, the moderator is *Council chair*, so each can be a different model, local or in the cloud. Each adviser has a role, a name and a
+job the person edits under *Council* on that page (the defaults are a proposer, a critic and an engineer; the moderator has a job too), and a number of rounds
+at most (1 to 6, default 3). A round is every adviser speaking in turn, each having read what was said before, then the moderator summing up in at most 250
+words (agreement, disagreement, recommendation) and ending with `CONSENSUS: YES` or `CONSENSUS: NO`. The debate stops when the moderator says yes, or at the
+last round, where the moderator gives a recommendation anyway; a missing or unclear line counts as no. The speakers run one after the other, never together:
+each answers the others, and a local model has one GPU. An adviser that fails is reported and the others go on; with fewer than two answers in a round the
+debate ends. What the advisers wrote is untrusted text for the others, the moderator and the agent. The cost is worked out before it runs (calls, tokens read
+and written, calls that go outside this PC) and is shown on the Providers page and in the tool's description; it is meant for a decision that is worth it.
 
 The tool exists only when the person pointed at least one of those functions somewhere (a provider, or "Basalt (this server)" for the loaded model in
 several roles); with nothing chosen it is not offered, and what leaves this PC follows the rules of any other function (personal data to a cloud provider only
 where the person said yes for that function, daily caps, fallback only to a route that is as local or more).
 
-Whether it helps has not been measured: `python -m harness.eval --set council` runs six decisions about code (five with a flaw a reviewer finds, one sound);
+Whether it helps, and whether a debate beats one round, has not been measured: `python -m harness.eval --set council` runs six decisions about code (five with a flaw a reviewer finds, one sound);
 run it without `--council` and with it, after setting a council up, and compare (a difference under 3 points is noise until it repeats).
 
 ## Language servers
@@ -1151,7 +1163,9 @@ topics, projects). Each note has a section, a text of up to 400 characters, an o
 `mon,wed,fri 18:15`; there is no cron syntax. A routine is created **disabled** and its mode is read-only unless the person
 chooses otherwise (`auto` needs the same confirmation as a conversation). Only one routine runs at a time and only while no
 other conversation is busy or asking; a due routine waits (an hour at most, then the result is `skipped`). A routine that is
-running is not interrupted when the person starts talking. A routine runs as a conversation through the server's
+running is stopped for the person's conversation only if it has a budget, `yield_s` (0 to 3600 seconds, empty for never; the Cron Jobs form offers 60 for a
+new one): once a conversation of the person's has been at work that long the routine is asked to stop and the result is `yielded`; it is not run again
+by itself. A routine runs as a conversation through the server's
 `SessionManager`, which is closed when it ends; if the agent needs an answer nobody can give, the result is `asked` with the
 question, and nothing is decided for the person. Overdue interval routines run once when the program starts; a fixed time that
 passed while it was off is skipped.

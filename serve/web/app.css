@@ -1001,6 +1001,10 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .pv-actions .btn { min-height: var(--btn-h); }
 .pv-form { display: grid; gap: 10px; padding: 8px 0; }
 .pv-field { display: flex; flex-direction: column; gap: 4px; }
+.pv-council { display: grid; gap: 10px; }
+.pv-role { display: grid; gap: 8px; margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+.pv-field textarea { min-height: 64px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; min-width: 0; resize: vertical; }
+.pv-field input[type=number] { max-width: 8em; }
 .pv-field input, .pv-field select { min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; min-width: 0; }
 .pv-add { padding: 0 16px 12px; }
 .pv-add summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
