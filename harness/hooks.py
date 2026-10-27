@@ -22,7 +22,8 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 EVENTS = ("session_start", "turn_end", "session_end")
 CONFIG_EVENTS = ("pre_tool", "post_tool", "turn_end", "session_start", "session_end")
-HOOK_KEYS = {"event", "name", "tool", "match", "command", "action", "reason", "timeout"}
+HOOK_KEYS = {"event", "name", "tool", "match", "command", "action", "reason", "timeout", "text"}
+PLAN_EVENT_CHARS = 300
 HOOK_TIMEOUT, MAX_HOOK_TIMEOUT = 10.0, 120.0
 HOOK_TEXT = 500                    # what of a hook's output goes to the model
 HOOK_PAYLOAD_VALUE = 4000          # each value in the event given to a hook
@@ -66,6 +67,7 @@ class HookManager:
         self.errors: List[str] = []
         self.mask: Callable[[str], str] = lambda text: text        # hides secrets in what a hook is given and what it prints
         self.sources: List[str] = []                               # the hook files that were loaded
+        self.plan_event_sink: Optional[Callable[[str, str], None]] = None      # (text, source): where a "plan_event" hook tells the planner
         if safety_interceptor:
             self.register_pre_tool_hook(self._safety_interceptor)
 
@@ -136,8 +138,9 @@ class HookSpec:
     event: str
     name: str
     command: str = ""
-    action: str = ""                       # "block": refuse a matching call with `reason`, without running anything
+    action: str = ""                       # "block": refuse a matching call with `reason`, without running anything; "plan_event": tell the planner `text`
     reason: str = ""
+    text: str = ""                         # what a "plan_event" action tells the planner; {event} and {tool} are replaced
     tools: List[str] = field(default_factory=lambda: ["*"])
     match: Dict[str, str] = field(default_factory=dict)      # argument name -> pattern; all must match
     timeout: float = HOOK_TIMEOUT
@@ -175,10 +178,20 @@ def parse_hooks(data: Any, source: str) -> List[HookSpec]:
         if command is not None and (not isinstance(command, str) or not command.strip()):
             raise HookConfigError(f"{where}: 'command' must be text or a list of words")
         if action is not None:
-            if action != "block" or event != "pre_tool":
-                raise HookConfigError(f"{where}: the only action is 'block', and only on 'pre_tool'")
-            if not isinstance(raw.get("reason"), str) or not raw["reason"].strip():
-                raise HookConfigError(f"{where}: a 'block' action needs a 'reason'")
+            if action == "block":
+                if event != "pre_tool":
+                    raise HookConfigError(f"{where}: a 'block' action belongs to 'pre_tool'")
+                if not isinstance(raw.get("reason"), str) or not raw["reason"].strip():
+                    raise HookConfigError(f"{where}: a 'block' action needs a 'reason'")
+            elif action == "plan_event":
+                if event == "pre_tool":
+                    raise HookConfigError(f"{where}: a 'plan_event' action cannot be on 'pre_tool': it only tells, it cannot stop a call")
+                if not isinstance(raw.get("text"), str) or not raw["text"].strip() or len(raw["text"]) > PLAN_EVENT_CHARS:
+                    raise HookConfigError(f"{where}: a 'plan_event' action needs a 'text' of 1 to {PLAN_EVENT_CHARS} characters")
+            else:
+                raise HookConfigError(f"{where}: the actions are 'block' (on 'pre_tool') and 'plan_event' (on the other events)")
+        elif "text" in raw:
+            raise HookConfigError(f"{where}: 'text' belongs to a 'plan_event' action")
         timeout = raw.get("timeout", HOOK_TIMEOUT)
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout <= MAX_HOOK_TIMEOUT:
             raise HookConfigError(f"{where}: 'timeout' must be a number of seconds, more than 0 and at most {MAX_HOOK_TIMEOUT:g}")
@@ -191,7 +204,7 @@ def parse_hooks(data: Any, source: str) -> List[HookSpec]:
         name = raw.get("name") or (f"{event}:{action or command}")[:60]
         if not isinstance(name, str):
             raise HookConfigError(f"{where}: 'name' must be text")
-        specs.append(HookSpec(event=event, name=name, command=command or "", action=action or "", reason=raw.get("reason", ""),
+        specs.append(HookSpec(event=event, name=name, command=command or "", action=action or "", reason=raw.get("reason", ""), text=raw.get("text", ""),
                               tools=tools, match=match, timeout=float(timeout), source=source))
     return specs
 
@@ -281,10 +294,21 @@ class _ConfiguredHooks:
             return f"Hook '{spec.name}' failed ({text}); the call was not made"
         return hook
 
+    def tell_planner(self, spec: HookSpec, payload: Dict[str, Any]) -> None:
+        """A "plan_event" hook: its text (with {event} and {tool} filled in; nothing else of the call goes in) is given to the planner as an event."""
+        sink = self.manager.plan_event_sink
+        if sink is None:
+            self.manager.errors.append(f"{spec.event} hook '{spec.name}': there is no planner to tell")
+            return
+        text = spec.text.replace("{event}", spec.event).replace("{tool}", str(payload.get("tool", "")))
+        sink(text, f"hook:{spec.name}")
+
     def post_tool(self, spec: HookSpec) -> Callable[[str, Dict[str, Any], Any], None]:
         def hook(tool: str, arguments: Dict[str, Any], result: Any) -> None:
             if not self.applies(spec, tool, arguments):
                 return
+            if spec.action == "plan_event":
+                return self.tell_planner(spec, {"tool": tool})
             shown = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
             verdict, text = self.run(spec, {"event": "post_tool", "tool": tool, "arguments": arguments,
                                             "result": self.manager.mask(shown), "workspace": str(self.workspace)})
@@ -294,6 +318,8 @@ class _ConfiguredHooks:
 
     def lifecycle(self, spec: HookSpec) -> Callable[[Dict[str, Any]], None]:
         def hook(payload: Dict[str, Any]) -> None:
+            if spec.action == "plan_event":
+                return self.tell_planner(spec, payload)
             verdict, text = self.run(spec, {"event": spec.event, **payload, "workspace": str(self.workspace)})
             if verdict != "pass":
                 self.manager.errors.append(f"{spec.event} hook '{spec.name}': {verdict}: {text}")

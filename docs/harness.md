@@ -301,7 +301,8 @@ from starting with the reason: a policy that is silently dropped protects nothin
 |---|---|
 | `event` | `pre_tool`, `post_tool`, `turn_end`, `session_start` or `session_end` |
 | `command` | what to run (text, or a list of words), in the workspace, with a scrubbed environment and the job limits of any command; the event is given as JSON on its standard input (`event`, `tool`, `arguments`, and for `post_tool` the `result`, masked; for the other events `turn`, `goal`, `stop_reason`, ...) and in `BASALT_HOOK_EVENT` and `BASALT_HOOK_TOOL` |
-| `action` | `block`, instead of a command, only on `pre_tool`: refuses a matching call with `reason`, running nothing |
+| `action` | `block`, instead of a command, only on `pre_tool`: refuses a matching call with `reason`, running nothing; or `plan_event`, on any other event: gives the planner an event whose `text` is the one written here (`{event}` and `{tool}` are filled in, nothing else of the call goes in; only the Chat's conversation has a planner to tell) |
+| `text` | what a `plan_event` action tells the planner, up to 300 characters |
 | `tool` | a pattern or a list of patterns for the tool's name (`*` and `?`); default every tool; `pre_tool` and `post_tool` only |
 | `match` | `{"argument": "pattern"}`: all must match the call's arguments (text, case does not matter); `pre_tool` and `post_tool` only |
 | `timeout` | seconds, more than 0 and at most 120; default 10 |
@@ -545,7 +546,7 @@ and the bridge the page talks to.
   an RSS or Atom feed (the first look only learns what is there, a DTD is refused), a mailbox over IMAP (opened with EXAMINE, headers fetched with
   `BODY.PEEK`, only sender and subject, never the body; the login is a `login` entry of the Wallet, read when needed) and a Telegram bot (long polling
   of `getUpdates`, the token a `secret` entry, only the chats in `allowed_chat_ids`; it never sends anything). Settings hold the names of the Wallet
-  entries, never a password or a token, and an error shown for a source never contains one. SMS is not done: it needs a provider or the modem.
+  entries, never a password or a token, and an error shown for a source never contains one. Two sources need nothing from outside: `system` (`disk_path`, `min_free_gb`: one event when the free space falls below the limit) and `deadlines` (`lead_days`, default 7, 3, 1 and 0: a plan whose profile dates are near gets one event for the nearest lead time, addressed to that plan; plans with nothing left to protect are left out). A hook with the `plan_event` action (see *Hooks*) also feeds the mailbox. SMS and calendar have their interface (`SmsSource`, `CalendarSource` in `harness/planner/local_sources.py`, which take items from a provider function) but nothing connects them to a modem or an account, so a Settings entry cannot name them; an ACP sensor has no schema in this code, and the mailbox takes such events as they are.
 - **A step and a call, or the wiki**: a step can carry `call_request` `{number, reason, text}` prepared by the plan (`plan_prepare_call`, with the
   person's yes). Nothing places it: `plan_step_requests` shows it, and the Chat places the call only with `phone_call`, which asks every time. A step's
   `wiki_query` is shown with `wiki_context` as the way to ask when the conversation has the wiki tools (`--wiki`). When `phone_call` cannot place

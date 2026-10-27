@@ -416,7 +416,19 @@ class PlanService:
             os.replace(tmp, self._state_path())
 
     def _deliver_from(self, cfg: Dict[str, Any], events: List[Any]) -> None:
-        self._deliver([{"text": e.text, "source": e.source, "at": e.at, "plan_id": cfg.get("plan_id")} for e in events])
+        self._deliver([{"text": e.text, "source": e.source, "at": e.at, "plan_id": e.plan_id or cfg.get("plan_id")} for e in events])
+
+    def _plan_dates(self) -> List[Dict[str, Any]]:
+        """The dates of the plans that still have something to protect, for the deadlines source."""
+        out = []
+        for row in self.store.list():
+            try:
+                bridge = self.store.get(row["plan_id"])
+            except Exception:
+                continue
+            if bridge.active() and (bridge.profile.starts_on or bridge.profile.ends_on):
+                out.append({"plan_id": row["plan_id"], "title": row["title"], "starts_on": bridge.profile.starts_on, "ends_on": bridge.profile.ends_on})
+        return out
 
     def sync_events(self) -> None:
         """Starts or stops the event pump and the read-only sources to match the settings. With the pump on and nothing to do its
@@ -431,7 +443,7 @@ class PlanService:
             inbox = p.EventInbox(self.pump_batch, self.pump_window)
             pump = p.InboxPump(inbox, self.gatekeeper, self._card_for, self._pump_result, self.pump_poll)
             saved = self._load_state()
-            built = [(cfg, p.sources.build_source(cfg, self._reveal, saved.get(cfg["id"]))) for cfg in s["sources"] if cfg.get("enabled", True)]
+            built = [(cfg, p.sources.build_source(cfg, self._reveal, saved.get(cfg["id"]), self._plan_dates)) for cfg in s["sources"] if cfg.get("enabled", True)]
             by_id = {src.id: cfg for cfg, src in built}
             runner = p.sources.SourceRunner([src for _, src in built], lambda src, evs: self._deliver_from(by_id[src.id], evs), self._save_state)
             with self._lock:
