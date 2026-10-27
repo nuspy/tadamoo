@@ -605,7 +605,15 @@ top and the four tools cost about 400.
 - **Tools**: `find_capability` (local FTS5/BM25, five results at most, results are untrusted text), `load_capability` (the text of an
   approved skill, read again and checked against its hash; it is the text the person approved, so it is not fenced as outside content
   and does not count towards the Rule of Two), `call_capability` (a tool of an approved MCP server; it asks the person
-  like any action that cannot be undone; the server is started with no environment from the config). The prompt holds one line:
+  like any action that cannot be undone; the server is started with no environment from the config). With no `tool` it lists the
+  server's tools with their arguments (a star marks a required one); `query` finds tools of a large server and returns their whole
+  definitions; `tool` with `describe` returns one definition (input and result schema) without calling it; a call with wrong
+  arguments comes back with the definition. A tool's own failure (`isError`) is told apart from a server that cannot be used, a
+  structured result is kept next to the text, and the pages of `tools/list` (`nextCursor`) are all read. A server that stops in the
+  middle of a call to ask for values (elicitation, form mode; in the stateless revision an `input_required` result) asks the person
+  in the conversation (`harness/mcp_elicit.py`): the values come back after the prefix `elicit:`, only the declared fields are taken
+  and checked against the server's schema. A tool a 2025-11-25 server runs only as a task is called as one and polled to its result;
+  the tasks extension of the stateless revision, sampling and roots are not offered. The prompt holds one line:
   the roots and how many entries each has.
 - **Visual analysis** (Settings): the loaded model's own vision, an approved skill or MCP server from the vision/analysis branch, or
   none. `analyze_image(path, question, crop)` crops and enlarges a region for fine detail, limits the image's size, and says so

@@ -5,8 +5,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 class FakeMcpHttp:
-    def __init__(self, sse: bool = False, token: str = "", version: str = "2025-11-25"):
-        self.sse, self.token, self.version = sse, token, version
+    def __init__(self, sse: bool = False, token: str = "", version: str = "2025-11-25", elicit: bool = False):
+        self.sse, self.token, self.version, self.elicit = sse, token, version, elicit
+        self.answers = []           # the client's answers to the server's own requests
+        self.answered = threading.Event()
         self.session = "sess-123"
         self.requests = []          # (method, headers, body)
         self.deleted = False
@@ -38,6 +40,10 @@ class FakeMcpHttp:
                 method, rid = body.get("method"), body.get("id")
                 if method != "initialize" and self.headers.get("Mcp-Session-Id") != outer.session:
                     return self._send(404, b'{"error": "unknown session"}')
+                if method is None and body.get("id") == "e1":        # the client answering a request of the server
+                    outer.answers.append(body)
+                    outer.answered.set()
+                    return self._send(202)
                 if rid is None:
                     return self._send(202)
                 if method == "initialize":
@@ -46,6 +52,19 @@ class FakeMcpHttp:
                 elif method == "tools/list":
                     result, extra = {"tools": [{"name": "echo", "description": "Echo", "inputSchema": {
                         "type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}]}, {}
+                elif method == "tools/call" and outer.elicit:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.send_header("Mcp-Session-Id", outer.session)
+                    self.end_headers()
+                    ask = {"jsonrpc": "2.0", "id": "e1", "method": "elicitation/create", "params": {"mode": "form", "message": "Name?", "requestedSchema": {"type": "object"}}}
+                    self.wfile.write(b"event: message\ndata: " + json.dumps(ask).encode() + b"\n\n")
+                    self.wfile.flush()
+                    outer.answered.wait(10)
+                    text = "got " + json.dumps(outer.answers[-1].get("result") if outer.answers else None, sort_keys=True)
+                    final = {"jsonrpc": "2.0", "id": rid, "result": {"content": [{"type": "text", "text": text}]}}
+                    self.wfile.write(b"event: message\ndata: " + json.dumps(final).encode() + b"\n\n")
+                    return
                 elif method == "tools/call":
                     result = {"content": [{"type": "text", "text": "echo: " + body["params"]["arguments"]["text"]}]}
                     extra = {}
