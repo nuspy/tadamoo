@@ -86,6 +86,16 @@
     return h("div", "cp-visual", h("label", "", h("b", "", T("cp.visual")), sel), h("p", "setnote", T("cp.visual.help")), vision ? h("p", "setnote", vision) : null);
   }
 
+  function foldersBox() {
+    const area = h("textarea"); area.id = "cp-dirs"; area.rows = 3; area.spellcheck = false; area.value = (state.settings.skill_dirs || []).join("\n");
+    area.placeholder = T("cp.dirs.ph"); area.setAttribute("aria-label", T("cp.dirs"));
+    const save = btn(T("cp.dirs.save"), "", async () => {
+      const dirs = area.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      if (await act("api/capabilities/settings", { skill_dirs: dirs })) say(T("cp.saved")); draw();
+    });
+    return h("div", "cp-visual", h("label", "", h("b", "", T("cp.dirs")), area), h("p", "setnote", T("cp.dirs.help")), save);
+  }
+
   async function saveOnline(changes) {
     const r = await call("POST", "api/capabilities/online", changes);
     if (r.ok) { online = r.data; say(T("cp.saved")); } else say(why(r), true);
@@ -201,7 +211,7 @@
     const search = h("input"); search.type = "search"; search.value = filter; search.placeholder = T("cp.search"); search.setAttribute("aria-label", T("cp.search"));
     search.oninput = () => { filter = search.value; const pos = search.selectionStart; draw(); const s = body.querySelector("input[type=search]"); if (s) { s.focus(); s.setSelectionRange(pos, pos); } };
     const n = h("p", "setnote cp-note", note); n.setAttribute("role", "status"); n.hidden = !note; n.dataset.bad = noteBad ? "1" : "";
-    body.replaceChildren(h("p", "setnote", T("cp.help")), n, visualBox(), online ? onlineBox() : null,
+    body.replaceChildren(h("p", "setnote", T("cp.help")), n, visualBox(), foldersBox(), online ? onlineBox() : null,
       h("div", "cp-bar", search, btn(T("cp.rescan"), "", async () => { const r = await call("POST", "api/capabilities/rescan", {}); if (r.ok) { state = r.data; say(T("cp.rescanned", state.entries.length)); } else say(why(r), true); draw(); }, T("cp.rescan.tip"))),
       h("p", "setnote", T("cp.top", state.tree_top)), h("p", "setnote", T("cp.actions.help")), tree());
   }

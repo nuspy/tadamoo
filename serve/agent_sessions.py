@@ -103,7 +103,7 @@ class SessionManager:
                  browser_prefs: Optional[Callable[[], Dict[str, bool]]] = None, browser_profile: Optional[Path] = None,
                  plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: float = 1800.0,
                  skills_dir: Optional[Path] = None, projects: Any = None, personal_dir: Optional[Path] = None, personal_keys: Optional[Path] = None,
-                 learn: Optional[Callable[[Dict[str, Any]], Any]] = None) -> None:
+                 learn: Optional[Callable[[Dict[str, Any]], Any]] = None, knowledge_flags: Optional[Callable[[], List[str]]] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -119,6 +119,7 @@ class SessionManager:
         self._place_sent: Dict[str, float] = {}                 # per conversation process: the receipt time of the position it was given
         self.browser_profile = browser_profile                  # where the browser keeps its sign-ins when the person chose that
         self.browser_prefs = browser_prefs                      # whether the conversations have a browser, and whether it shows a window
+        self.knowledge_flags = knowledge_flags                  # the options for the project notes, the wiki and the reference documents (Settings, Memories)
         self.payments_dir = payments_dir                        # the person's payment systems and limits, for the agent's request_payment
         self.vault_dir = vault_dir                              # the person's vault: the conversation's process fills placeholders from it
         self.pipeline = pipeline                                # the check of an answer against its request: "off", "light" or "full"
@@ -769,6 +770,8 @@ class SessionManager:
         if not rec.get("ask_only") and prefs.get("enabled"):
             cmd += ["--browser"] + (["--browser-headless"] if prefs.get("headless") else []) + (["--browser-private"] if prefs.get("private") else [])                    + (["--browser-profile", str(self.browser_profile)] if prefs.get("persistent") and self.browser_profile else [])
             cmd += ["--browser-consent", str(prefs.get("consent", "necessary")), "--browser-permissions", str(prefs.get("permissions", "deny"))]
+        if self.knowledge_flags:
+            cmd += self.knowledge_flags()
         if rec.get("context_patterns"):
             cmd += ["--context-patterns", json.dumps(rec["context_patterns"])]
         if rec.get("context_threshold"):
