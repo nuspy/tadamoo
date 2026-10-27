@@ -212,7 +212,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
 ### What it can do
 
 - **Work on a project**: read, list, search, edit and write files; run shell commands; `repo_map` (the definitions of each source file,
-  most relevant first); language-server diagnostics and go-to-definition when a server is installed; run Python, JavaScript or
+  most relevant first) and `repo_diagram` (import and folder diagrams worked out from the files, with no model); language-server diagnostics and go-to-definition when a server is installed; run Python, JavaScript or
   TypeScript snippets; hand a task to a subagent. Files you attach (text, code, CSV, JSON, Word, Excel, PowerPoint, PDF, images; audio
   and video through the callAPIcall service) are read in pieces, and files the agent makes are checked before they are offered to you.
 - **Use the web**: `search_web` (DuckDuckGo unless you set another engine; no key, and the words of each search go to DuckDuckGo) and

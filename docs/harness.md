@@ -414,6 +414,10 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   most relevant files first: changed lately (modified time), used by other files (how many mention the names they define), or named
   in `focus`. It stops at a token budget (default 1500, at most 8000) and says how many files it left out; no one file takes the whole
   map. It reads files only, skips dependency, build and hidden folders, and does not use tree-sitter or git.
+- `repo_diagram` (`harness/repodiagram.py`) draws a folder as Mermaid text worked out from the files, with no model, the same on every run: `kind` `imports`
+  (which module imports which: Python, JavaScript/TypeScript and C/C++ imports that resolve to a file in the folder, one node per file or, when there are too
+  many, per folder with the number of imports on each arrow; the least-connected nodes go first past `max_nodes`) or `folders` (the folder tree with the count of
+  source files in each). It reads files only (pure effect), stays inside the workspace and the result carries a `mermaid` block the model puts in its answer.
 - `AGENTS.md` (else `CLAUDE.md`, else `GEMINI.md`), searched from the workspace up to the repository root, is part of the prompt.
 - Memory is SQLite full-text search per workspace, kept in the user data folder (never in the repository); identifiers such as
   `sm_120` are searchable, and a question whose words are not all in a note still finds it. The model keeps notes itself with

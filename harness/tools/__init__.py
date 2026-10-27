@@ -8,6 +8,7 @@ from .filesystem import WorkspaceSandbox
 from .shell import execute_shell_command
 from .search import browse_url, format_page, offer_search
 from harness.repomap import register_repo_map
+from harness.repodiagram import register_repo_diagram
 
 
 def create_standard_tool_registry(
@@ -120,6 +121,7 @@ def create_standard_tool_registry(
     )
     offer_search(registry, secrets=secrets, hub=mcp_hub)     # search_web exists only when a backend does
     register_repo_map(registry, sandbox.resolve_safe)
+    register_repo_diagram(registry, sandbox.resolve_safe)
 
     return registry, sandbox
 

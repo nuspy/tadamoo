@@ -232,7 +232,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 ### Cosa sa fare
 
 - **Lavorare su un progetto**: leggere, elencare, cercare, modificare e scrivere file; eseguire comandi di shell; `repo_map` (le
-  definizioni di ogni file sorgente, i più rilevanti per primi); diagnostica e «vai alla definizione» dei language server quando ce n'è
+  definizioni di ogni file sorgente, i più rilevanti per primi) e `repo_diagram` (diagrammi degli import e delle cartelle calcolati dai file, senza modello); diagnostica e «vai alla definizione» dei language server quando ce n'è
   uno installato; eseguire frammenti di Python, JavaScript o TypeScript; affidare un compito a un sotto-agente. I file che alleghi
   (testo, codice, CSV, JSON, Word, Excel, PowerPoint, PDF, immagini; audio e video tramite il servizio callAPIcall) sono letti a
   pezzi, e i file che l'agente produce sono controllati prima di esserti offerti.
