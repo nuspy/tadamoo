@@ -1,0 +1,34 @@
+/* LOGS view: the switch between the request log and the session traces, and the traces page (traces.js) */
+.tr-switch { display: flex; gap: 8px; padding: 0 0 8px; flex: none; }
+.tr-switch .btn { min-height: 44px; min-width: 44px; padding: 8px 16px; font-size: 16px; }
+.tr-switch .btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--basalt-950); font-weight: 600; }
+.tr { overflow: auto; }
+.tr-body { display: grid; gap: 16px; padding: 16px; max-width: 1100px; font: 400 16px/1.6 var(--font-sans); }
+.tr-body h2 { margin: 0; font: 600 18px/1.4 var(--font-sans); }
+.tr-body h3 { margin: 0; font: 600 16px/1.4 var(--font-sans); }
+.tr-help { margin: 0; color: var(--fg-2); font-size: 15px; line-height: 1.6; max-width: 75ch; }
+.tr-pick { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }
+.tr-pick .field { flex: 1 1 260px; }
+.tr select { min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; width: 100%; }
+.tr .btn { min-height: 44px; min-width: 44px; padding: 8px 16px; font-size: 16px; }
+.tr-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; align-items: start; }
+.tr-card { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; }
+.tr-check { display: flex; align-items: flex-start; gap: 12px; min-height: 44px; cursor: pointer; }
+.tr-check input { width: 24px; height: 24px; flex: none; accent-color: var(--accent); }
+.tr-act { display: flex; flex-wrap: wrap; gap: 8px; }
+.tr-out { min-width: 0; overflow-wrap: anywhere; }
+.tr-out:empty { display: none; }
+.tr-verdict { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--line); border-left-width: 6px; border-radius: 6px; background: var(--bg); }
+.tr-verdict b { flex: none; padding: 0 8px; border-radius: 4px; background: var(--raised); font: 600 14px/1.6 var(--font-mono); }
+.tr-verdict[data-s="ok"] { border-left-color: #8FD9A8; }
+.tr-verdict[data-s="bad"] { border-left-color: #FF8FA3; }
+.tr-verdict[data-s="note"] { border-left-color: var(--warn); }
+.tr-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 8px; margin-top: 8px; }
+.tr-two pre, .tr-problems { margin: 0; padding: 8px 12px; background: var(--bg); border-radius: 6px; font: 400 14px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tr-two h4, .tr-sub { margin: 8px 0 4px; font: 600 15px/1.4 var(--font-sans); }
+.tr-problems { list-style: none; display: grid; gap: 4px; }
+.tr-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 420px; overflow: auto; }
+.tr-row { padding: 8px 12px; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--bg); }
+.tr-row b { font-weight: 600; overflow-wrap: anywhere; }
+.tr-row small { display: block; color: var(--fg-2); font: 400 14px/1.5 var(--font-mono); overflow-wrap: anywhere; }
+@media (max-width: 640px) { .tr-body { padding: 12px 16px; } .tr-act .btn, .tr-pick .btn { flex: 1 1 auto; } }

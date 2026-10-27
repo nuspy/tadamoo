@@ -57,7 +57,9 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   migliori per questo PC, salvati come profilo.
 - **LOGS**: ogni richiesta come l'ha vista il modello (cosa è arrivato, il ragionamento e la risposta come scritti,
   ogni tentativo strutturato, i tempi, perché è finita) più le righe del server e del motore, tenute in memoria ed
-  esportabili.
+  esportabili. Una seconda sezione, **Tracce delle sessioni**, riproduce una conversazione di Chat o Agente con le sue
+  risposte registrate (non esegue nulla), la salva in JSONL con i segreti mascherati e verifica il registro di audit
+  a catena di impronte della sua cartella.
 - **Scarica modelli**: un catalogo di 23 file scaricabili di Qwen3.8-Flash-Next (`.basalt` pronti, GGUF da convertire,
   versioni uncensored; altri 6 sono mostrati come non compatibili), con ciò che li distingue dalla base, quanto sono vicini al modello pieno e la fonte di quella misura),
   scaricati con ripresa e controllo SHA-256.

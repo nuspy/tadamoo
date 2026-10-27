@@ -410,7 +410,8 @@ run) blocks too. A file with a mistake stops the agent from starting, with the r
 - **Evaluation**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` runs each task k times on a fresh
   folder and reports pass@k, pass^k, cost and cache use. These are development comparisons, not headline numbers.
 - **Replay**: `python -m harness.replay trace.jsonl --mode auto` runs a recorded session again with the recorded model answers and
-  reports the first place where the tool calls differ. It tests the harness, not the model.
+  reports the first place where the tool calls differ. It tests the harness, not the model. The same replay, a masked JSONL export of
+  a conversation and the check of the audit ledger are in the LOGS page, section *Session traces*.
 
 ## 17. Personal skills
 

@@ -49,7 +49,9 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   free now), a **speed prediction**, calibration, load profiles, and loading or reloading the engine inside the running
   server. **Configuration wizard** and **Machine Default**: the best values for this PC, saved as a profile.
 - **LOGS**: every request as the model saw it (what came in, the reasoning and the answer as written, each structured
-  try, times, why it ended) plus the server's and the engine's lines, kept in memory, exportable.
+  try, times, why it ended) plus the server's and the engine's lines, kept in memory, exportable. A second section,
+  **Session traces**, replays a Chat or Agent conversation with its recorded answers (nothing runs), saves it as JSONL with
+  secrets masked, and verifies the hash-chained audit ledger of its folder.
 - **Download models**: a catalog of 23 downloadable Qwen3.8-Flash-Next files (ready `.basalt`, GGUF to convert, uncensored
   versions; 6 more are shown as not compatible), with what differs from the base and how close each is to the full model, and the source of that figure), downloaded
   with resume and SHA-256 checks.
