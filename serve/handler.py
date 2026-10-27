@@ -57,6 +57,7 @@ from harness.scheduler import RoutineError
 from serve.wallet_api import WalletApi, WalletError
 from harness.context_patterns import catalog as context_patterns_catalog
 from serve.capabilities_api import CapabilityApi, CapabilityError
+from serve.knowledge_prefs import KnowledgeError, KnowledgePrefs, check_wiki, clean_url
 from serve.llm_api import LlmApi, LlmError
 from serve.mcp_auth_api import McpAuthApi, McpAuthError, result_page
 from serve.approvals import ApprovalBoard, ApprovalError
@@ -461,6 +462,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online"):
                 if self._authorized():
                     self._capabilities_get(path)
+            elif path == "/api/knowledge":
+                if self._authorized():
+                    self._json(200, KnowledgePrefs(userdata.path("knowledge.json")).view())
             elif path == "/api/memories":
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
@@ -625,6 +629,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/capabilities/"):
                 self._capabilities_post(path)
+                return
+            if path in ("/api/knowledge", "/api/knowledge/wiki-check"):
+                self._knowledge_post(path)
                 return
             if path in ("/api/mcp/auth/start", "/api/mcp/auth/signout"):
                 self._mcp_auth_post(path)
@@ -1562,6 +1569,31 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(400, {"error": {"message": str(e)}})
             self._json(404, {"error": {"message": "not found"}})
 
+        def _knowledge_post(self, path):
+            """The settings of the project notes, the wiki and the reference documents: only from this PC and the page itself."""
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "these settings can be changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 14)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            if not self._own_page("these settings can be changed"):
+                return
+            prefs = KnowledgePrefs(userdata.path("knowledge.json"))
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                if path.endswith("wiki-check"):
+                    return self._json(200, check_wiki(clean_url(req.get("wiki_url", prefs.read()["wiki_url"]))))
+                prefs.write(req)
+                return self._json(200, prefs.view())
+            except KnowledgeError as e:
+                return self._json(400, {"error": {"type": "knowledge", "message": str(e), "field": e.field}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"message": str(e)}})
+
         def _mcp_auth(self) -> McpAuthApi:
             global _MCP_AUTH
             if _MCP_AUTH is None:
@@ -1987,7 +2019,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            svc.api_key or "", board=_APPROVALS, default_workspace=userdata.path("chat-workspace"),
                                            attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
-                                           browser_prefs=BrowserPrefs(userdata.path("browser.json")).read,
+                                           browser_prefs=BrowserPrefs(userdata.path("browser.json")).read, knowledge_flags=KnowledgePrefs(userdata.path("knowledge.json")).flags,
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
                                            skills_dir=userdata.path("personal-skills"), projects=self._projects(),
                                            personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer)
