@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 from serve import ROOT
 from serve.approvals import ApprovalBoard
 from serve.tasks import OPEN_STATES, TaskJournal, _write_json
+from serve.util import peer
 from serve.util.winjob import contain
 
 MODES = ("plan", "read_only", "default", "auto")
@@ -72,6 +73,7 @@ class AgentRunner:
         self._lock = threading.RLock()
         self._procs: Dict[str, "subprocess.Popen[bytes]"] = {}
         self.runs: List[Dict[str, Any]] = self._load()
+        peer.add_provider(self.agent_pids)
 
     # -- records ---------------------------------------------------------------------------------------
 
@@ -95,6 +97,21 @@ class AgentRunner:
 
     def _result_path(self, run_id: str) -> Path:
         return self.directory / "runs" / f"{run_id}.json"
+
+    def _pid_path(self, run_id: str) -> Path:
+        return self.directory / "runs" / f"{run_id}.pid"
+
+    def agent_pids(self) -> List[int]:
+        """The process ids of the agents running now, as each one wrote them."""
+        with self._lock:
+            ids = [rid for rid, proc in self._procs.items() if proc.poll() is None]
+        out: List[int] = []
+        for rid in ids:
+            try:
+                out.append(int(self._pid_path(rid).read_text(encoding="ascii").strip()))
+            except (OSError, ValueError):
+                continue
+        return out
 
     def view(self) -> Dict[str, Any]:
         with self._lock:
@@ -194,7 +211,8 @@ class AgentRunner:
             log_path.parent.mkdir(parents=True, exist_ok=True)
             command = [self.python, "-m", "harness", f"--prompt={goal.strip()}", "--workspace", str(path), "--endpoint", self.endpoint,
                        "--permission-mode", mode, "--max-turns", str(max_turns), "--progress", "--result-file", str(self._result_path(run_id)),
-                       "--run-id", run_id, "--ask-server"]
+                       "--run-id", run_id, "--ask-server",
+                       "--pid-file", str(self._pid_path(run_id))]
             for rule in rules:
                 command += ["--allow", rule.strip()]
             env = {k: v for k, v in os.environ.items() if k.upper() in SAFE_ENV_KEYS}

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import enum
 import fnmatch
+import hashlib
+import json
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set, Tuple
@@ -28,6 +30,17 @@ class PermissionLevel(str, enum.Enum):
 DEFAULT_ALWAYS_ASK = frozenset({"phone_call"})
 _BARE_VERB = re.compile(r"^([^\s*?\[\]]+)(?: \*)?$")      # "rm" or "rm *": the verb alone, whatever its arguments
 _CHAINING = re.compile(r"&&|\|\||[;&|\n\r`<>]|\$\(|\$\{|%[A-Za-z_]+%")
+
+
+# programs that run whatever they are given (`python -c`, `powershell -EncodedCommand`), that fetch and send (`curl`, `scp`), and that start
+# other programs (`env`, `npx`): a rule for the verb alone would allow anything, so only the exact command is offered
+BROAD_VERBS = frozenset((
+    "python python2 python3 py pythonw pypy node nodejs deno bun ruby perl php lua tclsh java dotnet go cargo rustc julia r rscript "
+    "powershell pwsh cmd bash sh zsh fish dash ksh csh wsl wscript cscript mshta rundll32 regsvr32 msiexec forfiles "
+    "curl wget iwr irm invoke-webrequest invoke-restmethod certutil bitsadmin scp sftp ssh ftp telnet nc ncat netcat socat "
+    "env sudo su runas nohup command start call time xargs npx uvx pipx pnpx bunx eval exec invoke-expression iex").split())
+# tools that run code or hand the task to another agent: "always allow this tool" is not offered, a rule is written by hand
+BROAD_TOOLS = frozenset({"run_code", "delegate_to_acp_agent", "ask_a2a_agent"})
 
 
 @dataclass
@@ -58,20 +71,43 @@ def _matches(rule: PermissionRule, targets: List[str], arguments: Dict[str, Any]
     return False
 
 
+def _glob_escape(text: str) -> str:
+    return re.sub(r"[*?\[]", lambda m: f"[{m.group(0)}]", text)
+
+
+def fingerprint(tool_name: str, arguments: Dict[str, Any]) -> str:
+    """What one approval covers: this tool with these arguments. A shell command is its own text; any other tool is its name and a digest of
+    its arguments, so approving `run_code` for one snippet lets that snippet run again and no other."""
+    command = arguments.get("command") if tool_name == "shell_command" else None
+    if isinstance(command, str):
+        return f"shell_command:{command.strip()}"
+    try:
+        body = json.dumps(arguments, sort_keys=True, ensure_ascii=False, default=repr)
+    except (TypeError, ValueError):
+        body = repr(sorted(arguments.items(), key=lambda kv: str(kv[0])))
+    return f"{tool_name}#{hashlib.sha256(body.encode('utf-8', 'replace')).hexdigest()[:24]}"
+
+
 def suggest_rule(tool_name: str, arguments: Dict[str, Any], always_ask: FrozenSet[str] = DEFAULT_ALWAYS_ASK) -> Optional[str]:
     """The allow rule that would let this kind of call run without asking next time, or None when no rule could cover it: a command is
-    allowed by its verb (`pytest *`), any other tool by its name; a command that chains others is covered by no rule, and a tool that
-    always asks, or whose question is its own (payments, the writes inside .git), is never offered."""
+    allowed by its verb (`pytest *`), any other tool by its name; a program that runs what it is given, fetches or starts other programs
+    (`python`, `powershell`, `curl`, `env`) is allowed only as this exact command, and a tool that runs code only by a rule written by hand.
+    A command that chains others is covered by no rule, and a tool that always asks, or whose question is its own (payments, the writes
+    inside .git), is never offered."""
     if tool_name in always_ask or tool_name == "request_payment" or ":" in tool_name:
         return None
     if tool_name != "shell_command":
-        return tool_name
+        return None if tool_name in BROAD_TOOLS else tool_name
     command = arguments.get("command")
     if not isinstance(command, str) or _CHAINING.search(command):
         return None
     words = command.strip().split()
     verb = words[0].strip("\"'").replace("\\", "/").rsplit("/", 1)[-1] if words else ""
-    return f"shell_command:{verb} *" if re.fullmatch(r"[A-Za-z0-9_.\-]+", verb) else None
+    if not re.fullmatch(r"[A-Za-z0-9_.\-]+", verb):
+        return None
+    if verb.lower().removesuffix(".exe").removesuffix(".cmd").removesuffix(".bat").removesuffix(".ps1") in BROAD_VERBS:
+        return f"shell_command:{_glob_escape(' '.join(words))}"
+    return f"shell_command:{verb} *"
 
 
 class PermissionManager:
@@ -170,7 +206,7 @@ class PermissionManager:
         if effect == EffectClass.PURE:
             return True, "Pure read-only operation permitted"
 
-        key = targets[0]
+        key = fingerprint(tool_name, arguments)
         if self.level == PermissionLevel.READ_ONLY:
             if self._ask(tool_name, arguments, key):
                 return True, "User confirmed execution"

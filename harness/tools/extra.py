@@ -79,7 +79,7 @@ def register_extra_tools(registry: Any, config: Any = None, *, workspace: Any = 
 
     if "run_code" in chosen:
         from harness.tools.execute import register_run_code
-        register_run_code(registry, root, sandbox, python=_get(config, "code_python"), cancel=cancel)
+        register_run_code(registry, root, sandbox, python=_get(config, "code_python"), cancel=cancel, broker=secrets)
         added.append("run_code")
 
     if "spawn_subagent" in chosen and client is not None:

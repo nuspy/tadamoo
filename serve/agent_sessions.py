@@ -43,6 +43,7 @@ from serve.agent_runs import MAX_ALLOW, MODES, SAFE_ENV_KEYS, RunBusy, RunError
 from serve.approvals import ApprovalBoard
 from serve.conv_nodes import NodeStore
 from serve.tasks import _write_json
+from serve.util import peer
 from serve.util.winjob import contain
 
 TEXT_CHARS = 20_000
@@ -93,6 +94,7 @@ class Live:
         self.proc = proc
         self.wlock = threading.Lock()
         self.ready = threading.Event()
+        self.pid = 0                                # the agent's own process id, as it reported it (a launcher may stand between)
         self.last_seen = time.monotonic()           # any line from the process
         self.idle_s = 0.0                           # how long its turn has gone without news, from its heartbeat
         self.ending = False                         # the manager is ending it on purpose
@@ -155,6 +157,12 @@ class SessionManager:
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._supervise, name="session-supervisor", daemon=True)
         self._thread.start()
+        peer.add_provider(self.agent_pids)
+
+    def agent_pids(self) -> List[int]:
+        """The process ids of the agents running now: whatever a connection from below one of them runs is the agent's own code."""
+        with self._lock:
+            return [live.pid for live in self._live.values() if live.pid and live.proc.poll() is None]
 
     # -- the list of conversations -----------------------------------------------------------------------
 
@@ -1032,6 +1040,7 @@ class SessionManager:
                     self._set(rec, waiting_requests=waiting, put_aside=aside)       # what waits behind the task in hand
                 return
             if kind == "ready":
+                live.pid = int(event.get("pid") or 0)
                 blocked = event.get("blocked")
                 pending, live.after_ready = live.after_ready, []
                 self._set(rec, state="blocked" if blocked else "busy" if pending else "idle", blocked=blocked)
