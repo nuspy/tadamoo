@@ -369,6 +369,12 @@ def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builde
         if path.startswith("attachment:") and cfg.attachments_dir and cfg.run_id:
             from harness.attachments import AttachmentStore
             return AttachmentStore(Path(cfg.attachments_dir)).path(cfg.run_id, path.split(":", 1)[1])
+        if path.startswith("output:") and cfg.outputs_dir and cfg.run_id:
+            from harness.attachments import OutputStore
+            try:
+                return OutputStore(Path(cfg.outputs_dir)).get(cfg.run_id, path.split(":", 1)[1])[1]
+            except KeyError:
+                raise FileNotFoundError("that output file is not there") from None
         return sandbox.resolve_safe(path)
     register_vision_tool(registry, index, reader, cfg.endpoint, cfg.api_key, client)
     builder.pin("capabilities", index.top_of_tree())
@@ -542,10 +548,18 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     if cfg.browser:
         from harness.browser import find_browser, register_browser_tools
         if find_browser():
+            shots = None
+            if cfg.attachments_dir and cfg.outputs_dir and cfg.run_id:
+                from harness.attachments import OutputStore
+                store = OutputStore(Path(cfg.outputs_dir))
+
+                def shots(data: bytes, name: str) -> Dict[str, Any]:
+                    meta = store.save(cfg.run_id, name, data)
+                    return {"id": meta["id"], "name": meta["name"], "path": str(store.get(cfg.run_id, meta["id"])[1])}
             browser = register_browser_tools(registry, secrets, profile_dir=cfg.browser_profile or data / "browser", headless=cfg.browser_headless,
                                              allow_private=cfg.browser_private, persistent=bool(cfg.browser_profile), consent=cfg.browser_consent,
                                              permissions=cfg.browser_permissions, confirm=lambda tool, args: bool(permissions.confirm_callback and permissions.confirm_callback(tool, args)),
-                                             audit=lambda kind, details: audit.record("browser", kind, details))
+                                             audit=lambda kind, details: audit.record("browser", kind, details), screenshots=shots)
     if cfg.council:
         from harness.council import offer_council
         from harness.llm import client_for as routed_for, registry as llm_registry

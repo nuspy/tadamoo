@@ -364,6 +364,9 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   to Google, which is the kept profile above, and its sheet is a window the browser follows. None of these was tried against the real services. Decisions still yours: the default 30-day expiry and a lawyer's review of the three dialogs.
 - **The browser** (`browser.py`, `--browser`): Edge or Chrome on this PC, driven over the DevTools protocol, for forms, purchases and
   bookings (`browser_open`, `browser_read`, `browser_click`, `browser_type`, `browser_select`, `browser_press`, `browser_back`).
+  Where the conversation has a place for files (the Chat), `browser_screenshot` keeps a PNG of the page as a file of the conversation, and `browser_open`, `browser_click`,
+  `browser_select`, `browser_press` and `browser_back` take `screenshot: true` to keep one of the page they lead to. The result names the file (its path, `output:<id>` for
+  `analyze_image`, and the `basalt-file:` link to show it); the call is in the audit log. No picture is taken in a browser where a vault value was typed, because a picture cannot be masked like text.
   A page is read as numbered elements and text, fenced as untrusted. A vault value is typed only if the page's site is one the
   entry names, and a field that holds one is listed as set. Each conversation has its own browser, and the
   browser ends with it, however it ends. By default its profile is thrown away with it; the person can choose to keep one profile, so that
