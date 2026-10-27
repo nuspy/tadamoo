@@ -474,7 +474,7 @@ on a restricted script is a fence against mistakes, not a wall against someone w
 ## 19. What it does not do
 
 - It does not isolate files and network for commands: *Automatic* belongs in a folder you can lose.
-- Basalt is an A2A **client** only; it does not receive tasks from other agents. ACP has no `fs/*` and no `session/load`.
+- Basalt is an A2A **client** only; it does not receive tasks from other agents. The ACP agent has no `terminal/*` and was not tried in a real editor; it does have `session/load`, `authenticate` and `fs/*`.
 - It does not read bank accounts through an aggregator, and Stripe and Google Pay checkouts were not tried on live services.
 - Audio and video need the callAPIcall service; without it the file is kept and the agent says so.
 - Nothing here measures which context strategy is best; that needs the real model.
