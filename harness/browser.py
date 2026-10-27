@@ -36,6 +36,9 @@ from harness import browser_consent as bc
 PAGE_TEXT_CHARS = 5000
 MAX_ELEMENTS = 120
 NAVIGATION_SECONDS = 20.0
+SHOT_MAX_WIDTH = 2400
+SHOT_MAX_HEIGHT = 8000
+SHOT_MAX_BYTES = 8_000_000
 CANDIDATES = (
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
@@ -931,6 +934,23 @@ class Browser:
         self.settle(since)
         return self.snapshot()
 
+    def screenshot(self, full_page: bool = False) -> bytes:
+        """A PNG of the page as it is now. Refused once a value from the vault has been typed in this browser: the picture could show it, and a
+        picture cannot be masked the way the text of a page is."""
+        self.start()
+        if self.hidden:
+            raise BrowserError("no screenshot is taken in a browser where a value from the vault was typed, because the picture could show it: read the page as text")
+        params: Dict[str, Any] = {"format": "png"}
+        if full_page:
+            size = self.cdp.call("Page.getLayoutMetrics").get("cssContentSize") or {}
+            width, height = int(size.get("width") or 0), int(size.get("height") or 0)
+            if width > 0 and height > 0:
+                params.update(captureBeyondViewport=True, clip={"x": 0, "y": 0, "width": min(width, SHOT_MAX_WIDTH), "height": min(height, SHOT_MAX_HEIGHT), "scale": 1})
+        data = base64.b64decode(self.cdp.call("Page.captureScreenshot", params, timeout=60.0)["data"])
+        if len(data) > SHOT_MAX_BYTES:
+            raise BrowserError("the screenshot is too large to keep: take it without full_page")
+        return data
+
     def back(self) -> Dict[str, Any]:
         self.start()
         since = len(self.cdp.events)
@@ -980,8 +1000,10 @@ def describe(page: Dict[str, Any], hidden: Optional[set] = None) -> str:
 def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path = "", headless: bool = False, executable: str = "",
                            allow_private: bool = False, browser: Optional[Browser] = None, persistent: bool = False, consent: str = bc.DEFAULT_CONSENT,
                            permissions: str = bc.DEFAULT_PERMISSIONS, confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None,
-                           audit: Optional[Callable[[str, Dict[str, Any]], None]] = None) -> Browser:
-    """Adds the browser tools. The browser starts at the first use and is closed with the conversation."""
+                           audit: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+                           screenshots: Optional[Callable[[bytes, str], Dict[str, Any]]] = None) -> Browser:
+    """Adds the browser tools. The browser starts at the first use and is closed with the conversation. With `screenshots` (it keeps a picture as a file of the
+    conversation and returns its card) the model can take a picture of the page: on its own, or after an action that changes the page."""
     from harness.tools.registry import EffectClass
 
     mask = secrets.mask_secrets if secrets is not None else (lambda t: t)
@@ -1002,14 +1024,44 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
                 return {"error": str(e)}
         return run
 
+    def take(full_page: bool = False) -> str:
+        """The picture of the page kept as a file, and how to use it; or why there is none."""
+        try:
+            data = b.screenshot(full_page)
+        except BrowserError as e:
+            return f"Screenshot not taken: {e}"
+        name = re.sub(r"[^A-Za-z0-9_-]+", "_", urlparse(b.page_url).hostname or "page").strip("_")[:30] or "page"
+        card = screenshots(data, f"screenshot_{name}_{time.strftime('%H%M%S')}.png")
+        b._record("browser_screenshot", {"site": b.page_url[:100], "file": card.get("name", ""), "bytes": len(data), "full_page": bool(full_page)})
+        where = f" Path: {card['path']}." if card.get("path") else ""
+        return (f"Screenshot of {b.page_url[:100]} kept as [file:{card['id']}:{card['name']}] ({len(data) // 1000} kB).{where} Look at it with analyze_image "
+                f"(path output:{card['id']}); show it in your answer with ![caption](basalt-file:{card['id']}).")
+
+    def with_shot(fn: Callable[..., Any]) -> Callable[..., Any]:
+        """The action, and when `screenshot` is true the picture of the page it led to."""
+        def run(screenshot: bool = False, **kw: Any) -> Any:
+            out = fn(**kw)
+            return out + "\n" + take(False) if screenshot and isinstance(out, str) else out
+        return run
+
+    def shot_prop(props: Dict[str, Any]) -> Dict[str, Any]:
+        if screenshots is None:
+            return props
+        return {**props, "screenshot": {"type": "boolean", "description": "also keep a picture of the page this leads to (a file of the conversation, its path is returned)"}}
+
     ref_prop = {"ref": {"type": "integer", "description": "the number of the element, from the last reading of the page"}}
     registry.register("browser_open", "Opens a web page in the browser and reads it: numbered elements (links, buttons, fields) and the text.",
-                      {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}, EffectClass.PURE,
-                      guard(lambda url: shown(b.open(url))), untrusted=True)
+                      {"type": "object", "properties": shot_prop({"url": {"type": "string"}}), "required": ["url"]}, EffectClass.PURE,
+                      with_shot(guard(lambda url: shown(b.open(url)))), untrusted=True)
+    if screenshots is not None:
+        registry.register("browser_screenshot", "Takes a picture of the page that is open and keeps it as a file of the conversation; returns its path and how to look at it. Refused in a "
+                          "browser where a value from the vault was typed.",
+                          {"type": "object", "properties": {"full_page": {"type": "boolean", "description": "the whole page, not only what the window shows (default false)"}}},
+                          EffectClass.REVERSIBLE, guard(lambda full_page=False: take(bool(full_page))), untrusted=True)
     registry.register("browser_read", "Reads the page that is open again, with its numbered elements.", {"type": "object", "properties": {}},
                       EffectClass.PURE, guard(lambda: shown(b.snapshot())), untrusted=True)
     registry.register("browser_click", "Clicks an element of the page (a link, a button, a box to tick) and reads the page that follows.",
-                      {"type": "object", "properties": ref_prop, "required": ["ref"]}, EffectClass.IRREVERSIBLE, guard(lambda ref: shown(b.click(ref))), untrusted=True)
+                      {"type": "object", "properties": shot_prop(ref_prop), "required": ["ref"]}, EffectClass.IRREVERSIBLE, with_shot(guard(lambda ref: shown(b.click(ref)))), untrusted=True)
 
     def type_into(ref: int, text: str, submit: bool = False, clear: bool = True) -> Any:
         from_vault = secrets is not None and secrets.has_references(text)
@@ -1076,11 +1128,11 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
                                                         "submit": {"type": "boolean", "description": "press Enter after the password"}}, "required": ["entry"]},
                       EffectClass.IRREVERSIBLE, guard(sign_in), untrusted=True)
     registry.register("browser_select", "Chooses an option in a list of the page, by its value or its visible text.",
-                      {"type": "object", "properties": {**ref_prop, "value": {"type": "string"}}, "required": ["ref", "value"]}, EffectClass.IRREVERSIBLE,
-                      guard(lambda ref, value: shown(b.select(ref, value))), untrusted=True)
+                      {"type": "object", "properties": shot_prop({**ref_prop, "value": {"type": "string"}}), "required": ["ref", "value"]}, EffectClass.IRREVERSIBLE,
+                      with_shot(guard(lambda ref, value: shown(b.select(ref, value)))), untrusted=True)
     registry.register("browser_press", "Presses a key: Enter, Tab, Escape, Backspace, the arrows or Space.",
-                      {"type": "object", "properties": {"key": {"type": "string", "enum": list(KEYS)}}, "required": ["key"]}, EffectClass.IRREVERSIBLE,
-                      guard(lambda key: shown(b.press(key))), untrusted=True)
-    registry.register("browser_back", "Goes back to the page before.", {"type": "object", "properties": {}}, EffectClass.IRREVERSIBLE,
-                      guard(lambda: shown(b.back())), untrusted=True)
+                      {"type": "object", "properties": shot_prop({"key": {"type": "string", "enum": list(KEYS)}}), "required": ["key"]}, EffectClass.IRREVERSIBLE,
+                      with_shot(guard(lambda key: shown(b.press(key)))), untrusted=True)
+    registry.register("browser_back", "Goes back to the page before.", {"type": "object", "properties": shot_prop({})}, EffectClass.IRREVERSIBLE,
+                      with_shot(guard(lambda: shown(b.back()))), untrusted=True)
     return b
