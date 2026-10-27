@@ -10,7 +10,8 @@ from __future__ import annotations
 import base64
 import os
 import re
-from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Mapping, Optional
+from pathlib import Path
+from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Mapping, Optional, Tuple
 from urllib.parse import quote, quote_plus
 
 PLACEHOLDER = re.compile(r"\{\{secret:([A-Za-z0-9_]+)\}\}")
@@ -24,8 +25,18 @@ NETWORK_TOOLS = {"curl", "wget", "iwr", "irm", "invoke-webrequest", "invoke-rest
                  "ssh", "scp", "sftp", "ftp", "telnet", "certutil", "bitsadmin"}
 
 
-PROTECTED_NAMES = ["vault.bin", "device.key", "payments_state.json", "payments.jsonl", "browser-profile"]
+PROTECTED_NAMES = ["vault.bin", "device.key", "payments_state.json", "payments.jsonl", "browser-profile", "api-keys.json", "mcp_oauth.json"]
 CONTROL_TOKEN = re.compile(r"control-\d+\.token")
+# files of the user data folder that no tool of the agent opens: the secret of the control routes, the phones' keys, the OAuth tokens
+# and the records that hold each conversation's permission rules
+PROTECTED_FILES = ("control-*.token", "api-keys.json", "mcp_oauth.json", "journal/agent_sessions.json", "journal/agent_runs.json")
+
+
+def _real(path: Any) -> Path:
+    try:
+        return Path(os.path.realpath(str(path)))
+    except (OSError, ValueError):
+        return Path(str(path))
 
 
 def _flat(text: str) -> str:
@@ -109,6 +120,8 @@ class SecretsBroker:
         self._hosts: Dict[str, FrozenSet[str]] = {k: frozenset(h.lower() for h in v)
                                                   for k, v in (allowed_hosts or {}).items()}
         self._protected: List[str] = []                 # places the agent's own commands must not name: the vault, the payment files, the browser's sign-ins
+        self._places: List[Path] = []                   # the same places as real paths, for the tools that open files and for the guard
+        self._in_folders: List[Tuple[Path, Tuple[str, ...]]] = []   # (folder, name patterns) whose matching files are protected
         self.vault: Any = None                          # the person's vault (harness.vault.Vault), when there is one
         self.ask_code: Optional[Callable[[str], str]] = None   # how to ask the person for a second-factor code
 
@@ -133,6 +146,32 @@ class SecretsBroker:
                 needle = _flat(str(place))
                 if needle not in self._protected:
                     self._protected.append(needle)
+                    self._places.append(_real(place))
+
+    def protect_in(self, folder: Any, *patterns: str) -> None:
+        """Protects the files of `folder` that match the name patterns (looked up at each use: the files may appear later)."""
+        if folder:
+            self._in_folders.append((_real(folder), patterns))
+
+    def places(self) -> List[str]:
+        """The real paths of everything protected, files of the protected folders included."""
+        out = [str(p) for p in self._places]
+        for folder, patterns in self._in_folders:
+            for pattern in patterns:
+                out += [str(_real(p)) for p in folder.glob(pattern)]
+        return list(dict.fromkeys(out))
+
+    def path_hit(self, path: Any) -> str:
+        """The protected place a file path is or lies in (links followed), or ''. For the tools that open a file the model names."""
+        real = _flat(str(_real(path)))
+        for place in self.places():
+            flat = _flat(place)
+            if real == flat or real.startswith(flat + "/"):
+                return place
+        name = real.rsplit("/", 1)[-1]
+        if name in PROTECTED_NAMES or CONTROL_TOKEN.fullmatch(name):
+            return name
+        return ""
 
     def protected_hit(self, command: str) -> str:
         """The protected place a command names, or ''."""

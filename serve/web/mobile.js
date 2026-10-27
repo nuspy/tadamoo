@@ -7,11 +7,16 @@
   if (!host) return;
 
   const POLL_MS = 3000;
-  let S = null, shown = null, armed = "", timer = 0, note = "", upInfo = null, armTimer = 0;
+  let S = null, shown = null, armed = "", timer = 0, note = "", upInfo = null, armTimer = 0, days = "", neverAck = false, limitsNote = "";
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, tip) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (tip) b.title = tip; return b; };
   const errText = r => (r.data && r.data.error && r.data.error.message) || `HTTP ${r.status}`;
   const when = ts => (ts ? new Date(ts * 1000).toLocaleString(LANG === "it" ? "it-IT" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "-");
+
+  const endText = k => (!k.expires ? T("mb.keys.noend") : k.expired ? T("mb.keys.expired", when(k.expires)) : T("mb.keys.ends", when(k.expires)));
+  const DURATIONS = [30, 90, 365, 0];
+  // choosing "never" is allowed, with the risk said once before the first key or renewal that has no end
+  const okNever = n => n !== 0 || neverAck || (neverAck = window.confirm(T("mb.keys.neverconfirm")));
 
   async function api(method, path, body) {
     try {
@@ -84,6 +89,13 @@
     S.keys.forEach(k => {
       const li = el("li", "mb-key"), sure = armed === k.id;
       li.append(el("span", "mb-kname", k.label), el("span", "mb-kmeta", T("mb.keys.meta", when(k.created), k.last_used ? when(k.last_used) : T("mb.keys.never")) + (k.recoverable ? "" : " · " + T("mb.keys.noshow"))));
+      const end = el("span", k.expired ? "mb-kmeta mb-bad" : "mb-kmeta", endText(k));
+      li.append(end);
+      li.append(btn(T("mb.keys.renew"), "ghost", async () => {
+        const n = Number(days === "" ? S.limits.key_days : days);
+        if (!okNever(n)) return;
+        const r = await api("POST", "api/remote/keys/renew", { id: k.id, days: n }); if (!r.ok) note = errText(r); await refresh();
+      }, T("mb.keys.renew.tip")));
       if (k.recoverable) li.append(btn(T("mb.keys.show"), "ghost", async () => {
         const r = await api("POST", "api/remote/keys/show", { id: k.id });
         if (!r.ok) { note = errText(r); paint(); return; }
@@ -97,19 +109,44 @@
     });
     box.append(S.keys.length ? list : el("p", "dim", T("mb.keys.none")));
     const form = el("form", "mb-new"), name = el("input"), go = btn(T("mb.keys.make"), "primary", () => form.requestSubmit(), T("mb.keys.make.tip"));
+    const len = el("select"), lenLab = el("label", "sr", T("mb.keys.len")), warn = el("p", "mb-bad", T("mb.keys.neverwarn"));
+    len.id = "mb-len"; lenLab.htmlFor = "mb-len"; len.title = T("mb.keys.len.tip");
+    DURATIONS.forEach(n => { const o = el("option", "", n ? T("mb.keys.days", n) : T("mb.keys.forever")); o.value = String(n); len.append(o); });
+    len.value = days === "" ? String(S.limits.key_days) : String(days);
+    warn.hidden = len.value !== "0";
+    len.onchange = () => { days = len.value; warn.hidden = len.value !== "0"; };
     name.id = "mb-name"; name.maxLength = 60; name.autocomplete = "off"; name.placeholder = T("mb.keys.ph");
     const lab = el("label", "sr", T("mb.keys.name")); lab.htmlFor = "mb-name";
     form.onsubmit = async e => {
       e.preventDefault();
-      const r = await api("POST", "api/remote/keys/create", { label: name.value });
+      if (!okNever(Number(len.value))) return;
+      const r = await api("POST", "api/remote/keys/create", { label: name.value, days: Number(len.value) });
       if (!r.ok) { note = errText(r); paint(); return; }
       shown = { key: r.data.key, label: r.data.row.label, again: !!r.data.row.recoverable };
       note = "";
       S = r.data;
       paint();
     };
-    form.append(lab, name, go);
-    box.append(form);
+    form.append(lab, name, lenLab, len, go);
+    box.append(form, el("p", "help", T("mb.keys.len.help", S.limits.key_days)), warn);
+    return box;
+  }
+
+  function limitsBlock() {
+    const box = el("div", "mb-block mb-limits"), L = S.limits;
+    box.append(el("h3", "", T("mb.lim.title")), el("p", "help", T("mb.lim.help")));
+    const mode = el("select"), modeLab = el("label", "", T("mb.lim.mode")), rules = el("textarea"), rulesLab = el("label", "", T("mb.lim.rules"));
+    mode.id = "mb-maxmode"; modeLab.htmlFor = mode.id; rules.id = "mb-rules"; rulesLab.htmlFor = rules.id;
+    L.modes.forEach(m => { const o = el("option", "", T("mb.mode." + m)); o.value = m; mode.append(o); });
+    mode.value = L.max_mode; rules.value = L.rules.join("\n"); rules.rows = 3; rules.spellcheck = false; rules.placeholder = "shell_command:pytest *";
+    const help = el("p", "help", T("mb.lim.mode.help." + L.max_mode));
+    mode.onchange = () => { help.textContent = T("mb.lim.mode.help." + mode.value); };
+    const save = btn(T("mb.lim.save"), "primary", async () => {
+      const r = await api("POST", "api/remote/limits", { max_mode: mode.value, rules: rules.value.split("\n").map(x => x.trim()).filter(Boolean) });
+      limitsNote = r.ok ? T("mb.lim.saved") : errText(r); if (r.ok) S = r.data; paint();
+    }, T("mb.lim.save.tip"));
+    box.append(modeLab, mode, help, rulesLab, rules, el("p", "help", T("mb.lim.rules.help")), save);
+    if (limitsNote) box.append(el("p", "mb-ok", limitsNote));
     return box;
   }
 
@@ -146,7 +183,7 @@
 
   function paint() {
     if (!S) { host.replaceChildren(el("p", "dim", note || T("mb.loading"))); return; }
-    const parts = [el("p", "help", T("mb.intro")), tailscaleBlock(), switchBlock(), keysBlock()];
+    const parts = [el("p", "help", T("mb.intro")), tailscaleBlock(), switchBlock(), keysBlock(), limitsBlock()];
     if (shown) parts.splice(3, 0, el("div", "mb-slot"));
     if (note) parts.push(el("p", "mb-bad", note));
     parts.push(el("p", "help", T("mb.phone.help")));

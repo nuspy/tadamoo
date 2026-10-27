@@ -332,7 +332,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   however its digits are spaced. **A cipher, or a value cut in pieces, cannot be recognised in text**: what keeps the model from deriving
   a value is that it never has one, and a model that can run commands as this same user on this PC can reach more than the vault can
   hide. For that reason a command cannot name the vault, the payment files, the control token or the browser's profile (a fence for a model
-  led astray, not a wall), and the real separation is to run the agent as another user. On Linux and macOS there is no DPAPI: the device key
+  led astray; programs the agent runs are held back by the hook described under Running code, and the file tools never open these places), and the real separation is to run the agent as another user. On Linux and macOS there is no DPAPI: the device key
   sits beside the vault, readable only by its owner, so the file is protected from a copy of itself and from other users, not from this user.
   A **backup** (Wallet view) is the entries under a key made from a passphrase the person chooses (scrypt, AES-GCM), to keep or to open on
   another PC; making one and reading a value (`vault_revealed`, by name) are written to the payment ledger.
@@ -1108,10 +1108,15 @@ bytes per stream. Files the code leaves in its working folder are listed in the 
 none leaves nothing behind. Edits the code makes to workspace text files are recorded for review like a shell command's.
 
 It is an irreversible action for the permission layer (it can write anywhere the user can), so it asks at the default level,
-is refused in plan mode, and can be allowed or denied with a rule named `run_code`. **There is no network or file isolation
-beyond the working folder** (open decision D5): Python and node run with the user's rights. Only deno narrows things (read
-access to the working folder and the workspace, write access to the working folder, no network); that path was built from
-Deno's documented flags and not run here, because deno is not installed on the development PC. The memory and process caps
+is refused in plan mode, and can be allowed or denied with a rule named `run_code`. **There is no network isolation, and Python can read what
+the user can, except the person's secrets.** Python and every Python program it starts load an audit hook
+(`harness/sandbox/guard/`) that refuses to open, copy, link, rename, delete or hand to sqlite the vault, the payment files, the
+browser profile, the control-token file, the phone keys, the OAuth tokens and the conversations' records, whatever way the path was built
+at run time, and refuses `ctypes` libraries and any command that names those places. The shell's Python programs get the same hook. It
+does not stop a program in another language that builds the path itself (a PowerShell script started by Python, say), or code written
+to defeat the hook: the real separation stays running the agent as another user. JavaScript and TypeScript are narrower: deno and node
+(with its permission model) read only the working folder and the workspace, write only the working folder, and node starts no programs.
+That deno path was built from Deno's documented flags and not run here, because deno is not installed on the development PC. The memory and process caps
 are Windows-only. There is no retry loop of its own: a program that fails is reported with its traceback, and the loop
 detector stops identical repeats.
 
@@ -1131,6 +1136,12 @@ budget among roles and run a mock; nothing uses it and `spawn_subagent` does not
 `serve/remote.py`. The server has the one key of `--api-key` (kept as it was) and, besides it, any number of **device keys**: each has a name (the phone it is for), is made on this PC in
 *Settings > Phones*, and is checked by its SHA-256 hash in `api-keys.json` of the user data folder. The key itself is kept in the same file encrypted (AES-256-GCM under a key derived from the vault's device key, with the key's id as associated data), so its code can be shown again (`keys/show`, this PC only); a key made before that, or where `cryptography` is missing, is shown once only. A key is taken away on its own and stops working at once. On the server's own address nothing changes: the master key, when there is one, and no key otherwise. A device key counts only on the **listener for phones** described below, where every request
 needs the master key or a device key, as `Authorization: Bearer ...` or `x-api-key`.
+A device key **ends**: 90 days after it was made unless the person chose 30, 365 or never when making it (a key that never ends is
+confirmed once with the risk said), and *Renew* in *Settings > Phones* gives it a new end; a phone whose key ran out is refused with `key_expired`
+and the name of the key. Keys made before this have no end and show so. A conversation, run or routine started or switched from a phone gets
+the person's limits (`remote.json`: `max_mode`, default `default`, and `rules`): a mode above the limit is refused with `phone_mode_limit`, a
+rule sent by the phone with `phone_rules`, and the PC's own rules take the place of the phone's. A holder of a stolen key can still answer the
+questions of the conversations it starts, so the limit keeps a phone from starting unattended work, not from using what the phone is for.
 
 A phone comes through a second listener, which is bound to **this PC's Tailscale address and nothing else** (`remote.json` keeps whether it is on; it starts
 with the server and follows Tailscale's address). It is off until the person turns it on. What such a client may reach is a short list (`remote_path_ok`): the model (`/v1/`), the
@@ -1139,6 +1150,14 @@ conversations (`/api/agent/`), attached files and the files the agent made (`/ap
 looked at: the vault, the wallet, the settings, the loading of models, the control routes and phone setup stay on this PC. The writes a phone may make (starting and talking to a
 conversation, attaching files, the routines) need a device key and the Tailscale range (`100.64.0.0/10`); the server's control secret, which protects the page from other sites, is not asked
 of a phone, whose own key is the proof.
+
+**The control secret on this PC.** Writes through `/api/*` (approving a question or a plan, the wallet, the settings) need the server's secret,
+kept in `control-<port>.token` in the user data folder and given to the page as a cookie. The cookie is given only to a browser navigation to
+`/` (`Sec-Fetch-*`; a program has to imitate it), or, with `--api-key`, from `GET /api/session` to a request that carries the key, and never to
+a client whose process descends from an agent session (the server finds the client process of the connection and walks its parents against the
+processes it started; `serve/util/peer.py`). The same client is refused when it presents the secret in the header or the cookie. The file itself is among the places the
+agent's tools cannot open. What stays open: a process the agent starts outside its own tree (a scheduled task, a service) is not seen as the
+agent's, and a program that reads the file as this user, outside the agent's tools, can use it.
 
 *Settings > Phones* does the setup: it shows whether Tailscale is installed (`tailscale status --json`), installs it with `winget` when asked (`POST /api/remote/tailscale/install`; with no
 winget it points to tailscale.com/download), connects it (`tailscale/up`; when a sign-in is needed the page shows the address to open), turns phones on or off (`enable`, `disable`), and makes

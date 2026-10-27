@@ -45,6 +45,8 @@ class WorkspaceSandbox:
         # an editor that holds the files: it gives a file's text (None: not known to it) and takes the text to write
         self.read_through: Optional[Callable[[Path], Optional[str]]] = None
         self.write_through: Optional[Callable[[Path, str], None]] = None
+        # path -> the protected place it is or lies in, or "": the person's secrets are not opened by any file tool
+        self.protected_hit: Optional[Callable[[Path], str]] = None
 
     def resolve_safe(self, rel_path: str | Path) -> Path:
         """Resolves path and enforces that it remains strictly inside self.root."""
@@ -54,6 +56,10 @@ class WorkspaceSandbox:
         except ValueError:
             raise PermissionError(f"Access denied: Path '{rel_path}' escapes workspace boundary. The working folder is {self.root}; "
                                   "file tools reach only paths inside it, relative to it.")
+        hit = self.protected_hit(path) if self.protected_hit else ""
+        if hit:
+            raise PermissionError(f"Access denied: '{rel_path}' is one of the person's secrets ({Path(hit).name}): the vault, the payment files, "
+                                  "the browser's sign-ins, the control token and the phone keys are read only in the Wallet.")
         return path
 
     def _where(self, path: str, resolved: Path, want_dir: bool = False) -> str:

@@ -296,7 +296,9 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 ### Cosa controlli tu
 
 - **Cosa può fare senza chiedere**: le quattro modalità; regole per i comandi (`shell_command:pytest*`, un divieto vince sempre, e una
-  regola non copre mai un comando che ne concatena altri o reindirizza); il pulsante *Permetti sempre* in una domanda. In
+  regola non copre mai un comando che ne concatena altri o reindirizza); il pulsante *Permetti sempre* in una domanda. Una risposta vale per
+  quella chiamata (lo stesso strumento con gli stessi argomenti), non per lo strumento intero, e *Permetti sempre* non propone mai una regola
+  larga per `python`, `powershell`, `curl` e simili (solo per quel comando preciso) né per `run_code`: una regola per questi la scrivi tu. In
   *Automatico*, un'azione irreversibile chiede comunque quando la conversazione ha letto contenuti esterni e può raggiungere un segreto
   o una voce del vault (la regola dei due).
 - **Hook scritti da te** (`hooks.json`): comandi o blocchi fissi su chiamate di strumenti, turni e sessione; un hook che non riesce a

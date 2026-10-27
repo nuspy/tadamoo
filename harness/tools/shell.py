@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from harness import environment
-from harness.sandbox import MAX_TIMEOUT, ProcessSandbox, command_words
+from harness.sandbox import MAX_TIMEOUT, ProcessSandbox, command_words, guard
 from harness.secrets_broker import NETWORK_TOOLS, SecretsBroker, command_hosts
 from harness.vault import VaultError
 
@@ -166,15 +166,15 @@ def execute_shell_command(
 
     argv: Optional[List[str]] = None
     as_script = ""
-    extra_env: Optional[Dict[str, str]] = None
+    extra_env: Optional[Dict[str, str]] = guard.environment(secrets.places(), os.environ.get("PYTHONPATH", "")) if secrets else {}
     try:
         if environment.is_windows():
-            extra_env = {"PYTHONIOENCODING": "utf-8"}
+            extra_env = {**extra_env, "PYTHONIOENCODING": "utf-8"}
             if to_run.strip():
                 argv, as_script, error = _plan(to_run, shell, make_folder)
                 if error:
                     return _refused(error)
-        res = sandbox.run(to_run, timeout=seconds, extra_env=extra_env, argv=argv)
+        res = sandbox.run(to_run, timeout=seconds, extra_env=extra_env or None, argv=argv)
     finally:
         for folder in folders:
             shutil.rmtree(folder, ignore_errors=True)

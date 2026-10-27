@@ -23,7 +23,7 @@ from harness.knowledge import LocalKnowledge, cag_prefix, choose_strategy, regis
 from harness.memory import MemoryStore, default_db_path, register_memory_tools
 from harness.permissions import PermissionLevel, PermissionManager
 from harness.plan_mode import MODES_AFTER_PLAN, PLAN_TOOL, PlanGate, register_plan_tool
-from harness.secrets_broker import SecretsBroker
+from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
 from harness.skills import ApprovalStore, SkillCatalog, find_project_guidelines, register_skill_tool
 from harness.tools import create_standard_tool_registry
 from harness.tools.registry import TOOL_CALL_NOTE
@@ -462,6 +462,11 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         from harness.vault import Vault
         secrets.attach_vault(Vault(cfg.vault_dir), cfg.ask_code)
     secrets.protect(cfg.vault_dir, cfg.payments_dir, cfg.browser_profile)
+    try:
+        from serve.userdata import user_data_dir
+        secrets.protect_in(user_data_dir(), *PROTECTED_FILES)
+    except Exception:
+        pass
     level, plan = PERMISSION_MODES[cfg.permission_mode]
     permissions = PermissionManager(level=level, plan_mode=plan, confirm_callback=cfg.confirm,
                                     sensitive_data=secrets.sensitive)       # asked at each call: the vault may gain entries later
