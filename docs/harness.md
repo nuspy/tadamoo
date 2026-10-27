@@ -331,7 +331,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   however its digits are spaced. **A cipher, or a value cut in pieces, cannot be recognised in text**: what keeps the model from deriving
   a value is that it never has one, and a model that can run commands as this same user on this PC can reach more than the vault can
   hide. For that reason a command cannot name the vault, the payment files, the control token or the browser's profile (a fence for a model
-  led astray, not a wall), and the real separation is to run the agent as another user. On Linux and macOS there is no DPAPI: the device key
+  led astray; programs the agent runs are held back by the hook described under Running code, and the file tools never open these places), and the real separation is to run the agent as another user. On Linux and macOS there is no DPAPI: the device key
   sits beside the vault, readable only by its owner, so the file is protected from a copy of itself and from other users, not from this user.
   A **backup** (Wallet view) is the entries under a key made from a passphrase the person chooses (scrypt, AES-GCM), to keep or to open on
   another PC; making one and reading a value (`vault_revealed`, by name) are written to the payment ledger.
@@ -1052,10 +1052,15 @@ bytes per stream. Files the code leaves in its working folder are listed in the 
 none leaves nothing behind. Edits the code makes to workspace text files are recorded for review like a shell command's.
 
 It is an irreversible action for the permission layer (it can write anywhere the user can), so it asks at the default level,
-is refused in plan mode, and can be allowed or denied with a rule named `run_code`. **There is no network or file isolation
-beyond the working folder** (open decision D5): Python and node run with the user's rights. Only deno narrows things (read
-access to the working folder and the workspace, write access to the working folder, no network); that path was built from
-Deno's documented flags and not run here, because deno is not installed on the development PC. The memory and process caps
+is refused in plan mode, and can be allowed or denied with a rule named `run_code`. **There is no network isolation, and Python can read what
+the user can, except the person's secrets.** Python and every Python program it starts load an audit hook
+(`harness/sandbox/guard/`) that refuses to open, copy, link, rename, delete or hand to sqlite the vault, the payment files, the
+browser profile, the control-token file, the phone keys, the OAuth tokens and the conversations' records, whatever way the path was built
+at run time, and refuses `ctypes` libraries and any command that names those places. The shell's Python programs get the same hook. It
+does not stop a program in another language that builds the path itself (a PowerShell script started by Python, say), or code written
+to defeat the hook: the real separation stays running the agent as another user. JavaScript and TypeScript are narrower: deno and node
+(with its permission model) read only the working folder and the workspace, write only the working folder, and node starts no programs.
+That deno path was built from Deno's documented flags and not run here, because deno is not installed on the development PC. The memory and process caps
 are Windows-only. There is no retry loop of its own: a program that fails is reported with its traceback, and the loop
 detector stops identical repeats.
 

@@ -19,6 +19,8 @@ def create_standard_tool_registry(
 ) -> tuple[ToolRegistry, WorkspaceSandbox]:
     sandbox = WorkspaceSandbox(workspace_path)
     registry = ToolRegistry()
+    if secrets is not None:
+        sandbox.protected_hit = secrets.path_hit
     if permissions is not None:
         def confirm_git_write(tool: str, arguments: dict) -> tuple[bool, str]:
             """A write inside .git is decided like an irreversible action, once per file: the person is asked."""

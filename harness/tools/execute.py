@@ -3,9 +3,12 @@
 Each run gets its own process in a job object (memory and process caps, the whole tree killed at the end, on a timeout
 and on a cancel), a fresh working folder inside the workspace, an environment without the PC's secrets, and a cap on
 the output it returns. This is containment of resources, not an isolation boundary: the code still runs with the
-user's file and network rights (deno, when it is used, narrows files to the working folder and the workspace for
-reading and the working folder for writing, and has no network). The tool is therefore an irreversible action for the
-permission layer, and every decision to run belongs to it.
+user's file and network rights, except for the person's secrets (the vault, the payment files, the browser's sign-ins, the
+control token, the phone keys). Python refuses those at run time through an audit hook, also in the Python programs it
+starts; deno and node narrow files to the working folder and the workspace for reading and the working folder for writing
+(deno has no network, node cannot start programs). A program in another language started by Python, or code written to
+defeat the hook, is not stopped. The tool is an irreversible action for the permission layer, and every decision to run
+belongs to it.
 """
 from __future__ import annotations
 
@@ -17,9 +20,9 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
-from harness.sandbox import DEFAULT_MAX_PROCESSES, MAX_TIMEOUT, _Capped, kill_tree, safe_environment
+from harness.sandbox import DEFAULT_MAX_PROCESSES, MAX_TIMEOUT, _Capped, guard, kill_tree, safe_environment
 from harness.sandbox.jobs import CREATE_SUSPENDED, CommandJob
 from harness.tools.registry import EffectClass
 
@@ -32,6 +35,17 @@ CODE_MAX_CHARS = 200_000
 SCRIPT_NAMES = {"python": "main.py", "javascript": "main.js", "typescript": "main.ts"}
 
 
+def _node_permission(node: str) -> str:
+    """The flag that turns on node's permission model, or '' when this node has none."""
+    for flag in ("--permission", "--experimental-permission"):
+        try:
+            if subprocess.run([node, flag, "-e", "0"], capture_output=True, timeout=15).returncode == 0:
+                return flag
+        except (OSError, subprocess.SubprocessError):
+            continue
+    return ""
+
+
 def find_runtimes(python: Optional[str] = None) -> Dict[str, Dict[str, str]]:
     """language -> {"kind": ..., "exe": ...}. Python is always there; deno gives all three, node gives JavaScript."""
     exe = python or (shutil.which("python") if getattr(sys, "frozen", False) else sys.executable) or sys.executable
@@ -40,17 +54,23 @@ def find_runtimes(python: Optional[str] = None) -> Dict[str, Dict[str, str]]:
     if deno:
         found["javascript"] = found["typescript"] = {"kind": "deno", "exe": deno}
     elif node:
-        found["javascript"] = {"kind": "node", "exe": node}
+        found["javascript"] = {"kind": "node", "exe": node, "permission": _node_permission(node)}
     return found
 
 
-def build_command(runtime: Dict[str, str], script: Path, workdir: Path, workspace: Path) -> List[str]:
+def build_command(runtime: Dict[str, str], script: Path, workdir: Path, workspace: Path, places: Sequence[str] = ()) -> List[str]:
+    """The command for a snippet. `places` are the person's secrets: Python is started through the guard that refuses them, deno is told to
+    deny them, node reads only the working folder and the workspace."""
     kind, exe = runtime["kind"], runtime["exe"]
     if kind == "python":
-        return [exe, "-I", "-X", "utf8", str(script)]               # -I: no PYTHON* variables, no user site, no script folder on the path
+        # -I: no PYTHON* variables, no user site, no script folder on the path
+        return [exe, "-I", "-X", "utf8", *([str(guard.LAUNCHER)] if places else []), str(script)]
     if kind == "deno":
         return [exe, "run", "--quiet", "--no-prompt", "--no-config", "--no-lock", f"--allow-read={workdir},{workspace}",
-                f"--allow-write={workdir}", "--allow-env=BASALT_WORKSPACE", str(script)]
+                f"--allow-write={workdir}", "--allow-env=BASALT_WORKSPACE", *guard.deno_flags(places), str(script)]
+    if runtime.get("permission"):
+        return [exe, "--no-warnings", runtime["permission"], f"--allow-fs-read={workdir}", f"--allow-fs-read={workspace}",
+                f"--allow-fs-write={workdir}", str(script)]
     return [exe, "--no-warnings", str(script)]
 
 
@@ -81,7 +101,8 @@ def _files_left(workdir: Path, script: Path) -> List[Dict[str, Any]]:
 
 def run_code(language: str, code: str, workspace: str | Path, runtimes: Dict[str, Dict[str, str]], timeout: float = 30.0,
              max_output_bytes: int = DEFAULT_MAX_OUTPUT, max_memory_bytes: Optional[int] = DEFAULT_MAX_MEMORY,
-             max_processes: Optional[int] = DEFAULT_MAX_PROCESSES, cancel: Optional[threading.Event] = None) -> Dict[str, Any]:
+             max_processes: Optional[int] = DEFAULT_MAX_PROCESSES, cancel: Optional[threading.Event] = None,
+             broker: Any = None) -> Dict[str, Any]:
     result: Dict[str, Any] = {"exit_code": -1, "stdout": "", "stderr": "", "success": False, "timed_out": False, "cancelled": False,
                               "truncated": False, "language": language, "seconds": 0.0, "folder": "", "files": []}
     runtime = runtimes.get(language)
@@ -92,6 +113,11 @@ def run_code(language: str, code: str, workspace: str | Path, runtimes: Dict[str
     if len(code) > CODE_MAX_CHARS:
         return {**result, "stderr": f"The code is too long ({len(code)} characters; at most {CODE_MAX_CHARS}). Put it in a file instead."}
 
+    hit = broker.protected_hit(code) if broker is not None else ""
+    if hit:
+        return {**result, "blocked": True, "stderr": f"The code cannot name '{hit}': the vault, the payment files, the browser's sign-ins, "
+                                                      "the control token and the phone keys are the person's, and they are read in the Wallet."}
+    places = broker.places() if broker is not None else []
     workspace = Path(workspace).resolve()
     base = workspace / RUN_DIR
     base.mkdir(parents=True, exist_ok=True)
@@ -110,10 +136,11 @@ def run_code(language: str, code: str, workspace: str | Path, runtimes: Dict[str
                                        | (CREATE_SUSPENDED if job.active else 0))
     else:
         popen_args["start_new_session"] = True
-    env = safe_environment({"PYTHONUTF8": "1", "PYTHONDONTWRITEBYTECODE": "1", "BASALT_WORKSPACE": str(workspace)})
+    env = safe_environment({"PYTHONUTF8": "1", "PYTHONDONTWRITEBYTECODE": "1", "BASALT_WORKSPACE": str(workspace),
+                            **guard.environment(places, os.environ.get("PYTHONPATH", ""))})
     started = time.monotonic()
     try:
-        proc = subprocess.Popen(build_command(runtime, script, workdir, workspace), cwd=str(workdir), env=env, stdin=subprocess.DEVNULL,
+        proc = subprocess.Popen(build_command(runtime, script, workdir, workspace, places), cwd=str(workdir), env=env, stdin=subprocess.DEVNULL,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, **popen_args)
     except Exception as exc:
         job.close()
@@ -162,14 +189,14 @@ def run_code(language: str, code: str, workspace: str | Path, runtimes: Dict[str
 
 
 def register_run_code(registry: Any, workspace: str | Path, sandbox: Any = None, python: Optional[str] = None,
-                      cancel: Optional[threading.Event] = None) -> List[str]:
+                      cancel: Optional[threading.Event] = None, broker: Any = None) -> List[str]:
     """`run_code` in the tools; returns the languages it offers."""
     runtimes = find_runtimes(python)
     languages = sorted(runtimes)
 
     def handler(language: str, code: str, timeout: float = 30.0) -> Dict[str, Any]:
         def go() -> Dict[str, Any]:
-            return run_code(language, code, workspace, runtimes, timeout=timeout, cancel=cancel)
+            return run_code(language, code, workspace, runtimes, timeout=timeout, cancel=cancel, broker=broker)
         if sandbox is None:
             return go()
         with sandbox.watching():                       # code that edits workspace files is reviewed like the file tools
@@ -180,7 +207,9 @@ def register_run_code(registry: Any, workspace: str | Path, sandbox: Any = None,
         description=("Runs a snippet of code in a separate process and returns its output. Languages: " + ", ".join(languages) + ". "
                      "The working folder is new for each run; the workspace is in the environment variable BASALT_WORKSPACE. "
                      "Python runs in isolated mode: add the workspace to sys.path to import its modules. Files the code leaves in "
-                     "its working folder are listed in the result. The code can reach whatever the user can: it is not confined to the workspace."),
+                     "its working folder are listed in the result. Python can reach whatever the user can, except the vault, payment files, browser "
+                     "sign-ins, control token and phone keys, which it cannot open. JavaScript and TypeScript read only the working folder and the "
+                     "workspace and write only the working folder."),
         parameters={
             "type": "object",
             "properties": {

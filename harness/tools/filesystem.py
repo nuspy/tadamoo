@@ -39,6 +39,8 @@ class WorkspaceSandbox:
         self.watch_off = False                       # set when the workspace is too large to compare around a command
         # (tool, {"path"}) -> (allowed, reason): asked before a write inside .git, where a hook or the config can make git run code
         self.confirm_git_write: Optional[Callable[[str, Dict[str, Any]], Tuple[bool, str]]] = None
+        # path -> the protected place it is or lies in, or "": the person's secrets are not opened by any file tool
+        self.protected_hit: Optional[Callable[[Path], str]] = None
 
     def resolve_safe(self, rel_path: str | Path) -> Path:
         """Resolves path and enforces that it remains strictly inside self.root."""
@@ -48,6 +50,10 @@ class WorkspaceSandbox:
         except ValueError:
             raise PermissionError(f"Access denied: Path '{rel_path}' escapes workspace boundary. The working folder is {self.root}; "
                                   "file tools reach only paths inside it, relative to it.")
+        hit = self.protected_hit(path) if self.protected_hit else ""
+        if hit:
+            raise PermissionError(f"Access denied: '{rel_path}' is one of the person's secrets ({Path(hit).name}): the vault, the payment files, "
+                                  "the browser's sign-ins, the control token and the phone keys are read only in the Wallet.")
         return path
 
     def _where(self, path: str, resolved: Path, want_dir: bool = False) -> str:
