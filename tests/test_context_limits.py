@@ -65,7 +65,7 @@ def test_a_masked_result_names_the_file_that_holds_it(tmp_path):
                 {"role": "tool", "name": "read_file", "tool_call_id": "2", "content": "NEW " * 500}]
     out = manager.prepare(messages)
     assert out[1]["masked"] is True and out[2]["content"].startswith("NEW")
-    named = out[1]["content"].split("full text in ")[1].rstrip("]")
+    named = out[1]["content"].splitlines()[0].split("full text in ")[1].rstrip("]")
     assert named.startswith(".basalt/artifacts/")
     assert (tmp_path / "art" / named.split("/")[-1]).read_text(encoding="utf-8") == "OLD " * 500
 

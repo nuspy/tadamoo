@@ -79,7 +79,8 @@ def command_words(command: str) -> List[str]:
 def blocked_reason(command: str) -> Optional[str]:
     for word in command_words(command):
         if word in DEFAULT_DENY_COMMANDS:
-            return f"Command '{word}' is blocked by sandbox security policy"
+            return (f"Command '{word}' is blocked by sandbox security policy. The programs it blocks, wherever they appear in a command: "
+                    f"{', '.join(sorted(DEFAULT_DENY_COMMANDS))}.")
     return None
 
 
@@ -142,7 +143,9 @@ class ProcessSandbox:
         extra_env: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
         stdin_text: Optional[str] = None,
+        argv: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
+        """Runs `command` through the shell. With `argv`, that program runs instead (no shell), while the deny list still judges `command`."""
         result: Dict[str, Any] = {"exit_code": 0, "stdout": "", "stderr": "", "success": True, "blocked": False,
                                   "timed_out": False, "truncated": False}
         if not command.strip():
@@ -161,7 +164,7 @@ class ProcessSandbox:
             popen_args["start_new_session"] = True
         try:
             proc = subprocess.Popen(
-                command, shell=True, cwd=str(self.workspace_root), env=safe_environment(extra_env),
+                argv if argv is not None else command, shell=argv is None, cwd=str(self.workspace_root), env=safe_environment(extra_env),
                 stdin=subprocess.DEVNULL if stdin_text is None else subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, **popen_args,
             )

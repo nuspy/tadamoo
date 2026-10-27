@@ -41,6 +41,7 @@ the Chat can reach, the others can reach:
 | `--secret-env NAME[=host,host]` | lets the agent write `{{secret:NAME}}`; with hosts, the value can only be sent to them |
 | `--vault-dir`, `--payments-dir` | the Wallet's vault and payment systems (`{{vault:ENTRY.FIELD}}`, `request_payment`) |
 | `--browser`, `--browser-headless`, `--browser-private`, `--browser-profile DIR` | the browser tools and how they run |
+| `--browser-consent {necessary,accept,reject,off}`, `--browser-permissions {deny,ask,grant-safe}` | what the browser does about cookie banners (default `necessary`) and permission requests (default `deny`) |
 | `--capabilities` | `find_capability`, `load_capability`, `call_capability`, `analyze_image`: the skills, plugins and MCP servers found on this PC |
 | `--lsp` | `diagnostics`, `go_to_definition`, `find_references` when a language server is found |
 | `--council` | `ask_council` when a council is set up (the Chat always offers it) |
@@ -82,7 +83,7 @@ skills, connections) and the history is kept between messages. The server starts
 | route | what it does |
 |---|---|
 | `GET /api/agent/sessions` | the conversations, newest first, with their state: `dormant`, `starting`, `idle`, `busy`, `blocked`, `closed` |
-| `POST /api/agent/sessions` | creates one: `workspace`, `mode`, `allow`, `ask_only` (answers without tools), `title`, `max_turns` |
+| `POST /api/agent/sessions` | creates one: `workspace`, `mode`, `allow`, `ask_only` (answers without tools), `title`, `max_turns` (the steps one answer may take: `-1`, the default, for no limit, or 1 and more) |
 | `POST .../<id>/send` | `{"text"}`; a dormant conversation wakes from its saved history; 409 while it is still answering |
 | `GET .../<id>/events?after=N` | what happened since event N: `user`, `ready`, `accepted`, `agent` (assistant text, tool start and end), `retrying`, `restarting`, `stalled`, `ask`, `answered`, `done`, `blocked` |
 | `GET .../<id>/history` | the saved messages |
@@ -90,6 +91,7 @@ skills, connections) and the history is kept between messages. The server starts
 | `POST .../<id>/cancel`, `/resume`, `/close` | stop the turn; go on after a block; end the conversation |
 | `POST .../<id>/mode` | `{"mode", "confirm_auto"}`: what the conversation may do without asking, from its next action on; `auto` needs `confirm_auto: true`, as at the start |
 | `POST .../<id>/effort` | `{"level"}`: `none`, `low`, `medium`, `high` or empty (the model's own); also a field of the create call |
+| `POST .../<id>/settings` | `{"max_turns"?, "end_turn_bias"?}`: changes them for the conversation from its next run |
 | `POST .../<id>/favorite`, `/delete` | `{"favorite": true\|false}`: the page lists favorites apart, above the rest (the conversation's place in time does not change); `delete` takes the conversation away for good: its process, saved messages, attached and made files and its own copy of the folder (branches made from it stay) |
 | `POST .../<id>/rename`, `/command` | `{"title"}`; `{"name", "args"}`: a slash command the process answers (below), whose answer comes as a `command` event |
 
@@ -375,6 +377,22 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   the windows the page opens (a payment sheet), which become the page it works on until they close. Whether the conversations have a
   browser, whether it shows a window, whether it may open pages of this PC and whether it keeps sign-ins is set in the Wallet view, each risky
   choice with a highlighted label and two questions.
+  What would hide a page is dealt with by the harness itself, by fixed rules (`browser_consent.py`) and the person's two policies (Wallet view, or
+  `--browser-consent`, `--browser-permissions`), never by the page's words. *Cookie banners*: after a page loads (and for a few seconds if the banner
+  comes late) the browser looks for a known consent manager's container (OneTrust, Cookiebot, Didomi, Quantcast, TrustArc, Usercentrics, Iubenda,
+  CookieYes, Complianz, Osano, Sourcepoint, Google's consent page) or a dialog or pinned banner that speaks of cookies or privacy, and only inside
+  it clicks a plain button whose label matches a fixed phrase in English, Italian, French, German or Spanish. `necessary` (default) rejects, or keeps
+  only the necessary, or opens the settings to reach one of those, and accepts only if none can be used; `accept` accepts; `reject` never accepts;
+  `off` leaves banners to the model. It never clicks a link that goes elsewhere, a button that sends a form, or a label that asks for a payment, a
+  sign-in or a download; a newsletter pop-up is closed by its close mark, never subscribed to. Each click is recorded in the audit ledger and put at
+  the top of the page the model reads (`consent banner: clicked "Reject all" (policy necessary)`). A page can still imitate a banner in a dialog; the
+  worst a click there does is what the page's own plain button does. *Permissions*: before any page loads every permission that reveals the person
+  or reaches a device (notifications, location, camera, microphone, screen, clipboard, MIDI, sensors, payment handlers...) is set to refused in the
+  browser's profile and through the DevTools `Browser.setPermission`, and the browser starts with `--deny-permission-prompts`; no flag that answers a
+  prompt is ever passed. `ask` puts the question to the person (site and permission, through the conversation's own confirmation) when a page asks, and
+  grants for that site only on a yes; `grant-safe` also allows only writing to the clipboard. USB, serial and HID choosers are never granted. JavaScript
+  dialogs never send anything: an alert is accepted, a question or a prompt dismissed, a warning on leaving accepted only when `browser_open` or
+  `browser_back` asked to go; each is reported to the model.
 - **Phone calls** (`--phone`): `phone_call` always asks, even at the `auto` level and with an allow rule; the call opens by
   saying it is an AI assistant calling for you; what the other person says is untrusted. Tests of real calls are skipped
   and queued in `tests/QUEUE_live_calls.md` until you authorize them (`BASALT_LIVE_CALLS=1`).

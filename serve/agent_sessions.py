@@ -50,7 +50,7 @@ SESSIONS_FILE = "agent_sessions.json"
 TITLE_CHARS = 80
 PLACE_KEEP_S = 86_400           # a position older than this is no longer handed to a conversation
 OPTIONS = ("resume", "close")
-ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free", "free_prefix")
+ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free", "free_prefix", "explain")
 COMPARES_FILE = "compares.json"
 COMPARE_SETTINGS = ("mode", "max_turns", "ask_only", "end_turn_bias")      # what the two sides of a comparison may differ in
 EFFECTS_FILE = "tool_effects.json"                                          # the effect class of each tool this conversation has used
@@ -60,6 +60,23 @@ LEVELS = ("", "very_low", "low", "normal", "high", "very_high", "highest")     #
 EFFORTS = ("", "none", "low", "medium", "high")                             # how long the model thinks; empty is its own default
 SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact")     # harness/commands.py
 FILE_DIFF_BYTES = 200_000
+UNLIMITED_STEPS = -1                                                        # `max_turns` for no limit on the steps of an answer
+
+
+def check_steps(value: Any) -> int:
+    """The most model steps one answer may take: -1 for no limit, or 1 and more."""
+    if not isinstance(value, int) or isinstance(value, bool) or not (value == UNLIMITED_STEPS or value >= 1):
+        raise RunError("The number of steps is -1 for no limit, or a whole number from 1.", "bad_steps")
+    return value
+
+
+def check_end_turn_bias(value: Any) -> float:
+    """The end-of-turn bias: a number from the API's minimum to 0 (empty and 0 are off)."""
+    try:
+        logit_bias.add_end_turn({"end_turn_bias": value}, [0])
+    except ValueError as e:
+        raise RunError(str(e), "bad_policy") from None
+    return float(value or 0)
 
 
 class Live:
@@ -211,7 +228,7 @@ class SessionManager:
             return {"messages": [], "turns": 0, "session": dict(rec)}
         shown = []
         for m in self._transcript(sid, data):
-            shown.append({k: (v[:TEXT_CHARS] if isinstance(v, str) else v) for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts", "raw")})
+            shown.append({k: (v[:TEXT_CHARS] if isinstance(v, str) else v) for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts", "raw", "explain", "skipped")})
         return {"messages": shown, "turns": data.get("turns", 0), "session": dict(rec)}
 
     def _read_history(self, sid: str) -> Optional[Dict[str, Any]]:
@@ -481,8 +498,8 @@ class SessionManager:
             settings = {k: v[k] for k in COMPARE_SETTINGS if k in v}
             if settings.get("mode") not in (None, *[m for m in MODES if m != "auto"]):
                 raise RunError("A comparison runs in default, plan or read-only mode: automatic mode is not offered here.", "bad_mode")
-            if "max_turns" in settings and (not isinstance(settings["max_turns"], int) or isinstance(settings["max_turns"], bool) or not 1 <= settings["max_turns"] <= 50):
-                raise RunError("The number of steps must be between 1 and 50.", "bad_steps")
+            if "max_turns" in settings:
+                check_steps(settings["max_turns"])
             if "ask_only" in settings and not isinstance(settings["ask_only"], bool):
                 raise RunError("Question-only is true or false.", "bad_policy")
             if "end_turn_bias" in settings:
@@ -660,7 +677,7 @@ class SessionManager:
     # -- creating ----------------------------------------------------------------------------------------
 
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
-               confirm_auto: bool = False, max_turns: Any = 15, context_patterns: Any = None,
+               confirm_auto: bool = False, max_turns: Any = UNLIMITED_STEPS, context_patterns: Any = None,
                context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
                images: Any = "", charts: Any = "") -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
@@ -680,17 +697,13 @@ class SessionManager:
         rules = allow if isinstance(allow, list) else []
         if len(rules) > MAX_ALLOW or any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
             raise RunError(f"Allow rules are lines of text, at most {MAX_ALLOW}.", "bad_rules")
-        if not isinstance(max_turns, int) or isinstance(max_turns, bool) or not 1 <= max_turns <= 50:
-            raise RunError("The number of steps must be between 1 and 50.", "bad_steps")
+        check_steps(max_turns)
         if context_policy not in ("stop", "rolling", "compact"):
             raise RunError("The policy for a full context is stop, rolling or compact.", "bad_policy")
         if isinstance(context_threshold, bool) or not isinstance(context_threshold, (int, float)) or not 0.3 <= context_threshold <= 1.0:
             raise RunError("The threshold is a share of the context window from 0.3 to 1.", "bad_policy")
-        try:
-            logit_bias.add_end_turn({"end_turn_bias": end_turn_bias}, [0])
-        except ValueError as e:
-            raise RunError(str(e), "bad_policy") from None
-        patterns = context_patterns_mod.check_config(context_patterns) if context_patterns else {}
+        check_end_turn_bias(end_turn_bias)
+        patterns =context_patterns_mod.check_config(context_patterns) if context_patterns else {}
         if context_policy != "stop":
             patterns = context_patterns_mod.with_policy(context_patterns or {}, context_policy)
         if worktree is True:
@@ -755,6 +768,7 @@ class SessionManager:
         prefs = self.browser_prefs() if self.browser_prefs else {}
         if not rec.get("ask_only") and prefs.get("enabled"):
             cmd += ["--browser"] + (["--browser-headless"] if prefs.get("headless") else []) + (["--browser-private"] if prefs.get("private") else [])                    + (["--browser-profile", str(self.browser_profile)] if prefs.get("persistent") and self.browser_profile else [])
+            cmd += ["--browser-consent", str(prefs.get("consent", "necessary")), "--browser-permissions", str(prefs.get("permissions", "deny"))]
         if rec.get("context_patterns"):
             cmd += ["--context-patterns", json.dumps(rec["context_patterns"])]
         if rec.get("context_threshold"):
@@ -1217,6 +1231,25 @@ class SessionManager:
             told = self._tell_if_running(sid, {"cmd": "effort", "level": level})
         if not told:
             self._push(sid, {"event": "effort", "level": level})
+        return self.get(sid)
+
+    def set_settings(self, sid: str, max_turns: Any = None, end_turn_bias: Any = None) -> Dict[str, Any]:
+        """Changes the steps one answer may take and the end-of-turn bias of a conversation, from its next run on; what is not given stays."""
+        changes: Dict[str, Any] = {}
+        if max_turns is not None:
+            changes["max_turns"] = check_steps(max_turns)
+        if end_turn_bias is not None:
+            changes["end_turn_bias"] = check_end_turn_bias(end_turn_bias)
+        if not changes:
+            raise RunError("Say the number of steps or the end-of-turn bias.", "bad_steps")
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            self._set(rec, **changes)
+            told = self._tell_if_running(sid, {"cmd": "settings", **changes})
+        if not told:
+            self._push(sid, {"event": "settings", **changes})
         return self.get(sid)
 
     def rename(self, sid: str, title: Any) -> Dict[str, Any]:

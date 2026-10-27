@@ -27,6 +27,7 @@ def _context(session: Any) -> Dict[str, Any]:
 def status(session: Any, args: str) -> Dict[str, Any]:
     built, agent = session.built, session.agent
     return {"mode": _mode_of(built.permissions), "effort": agent.sampling.get("reasoning_effort", ""), "turns": session.turns_done,
+            "max_turns": agent.max_turns, "end_turn_bias": agent.sampling.get("end_turn_bias", 0.0),
             "model_tokens": agent.total_tokens, "memories": built.memory.count() if built.memory else 0,
             "mcp_servers": len(built.mcp.catalog) if built.mcp is not None else 0, "tools": len(agent.tools.names()), **_context(session)}
 

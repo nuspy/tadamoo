@@ -48,6 +48,8 @@ from serve.remote import ApiKeys, Installer, RemoteAccess, in_tailscale, remote_
 from serve.personal_skills_api import PersonalSkillsApi
 from harness.personal_memory import PersonalMemory, PersonalMemoryError
 from serve.memories_api import MemoriesApi
+from serve import export_api
+from serve.exportdoc import ExportError
 from serve.memory_worker import MemoryWorker, gpu_free
 from harness.personal_skills.store import SkillError
 from serve.routines_api import RoutinesApi
@@ -71,6 +73,7 @@ _PSKILLS = None                                       # the person's personal sk
 _PERSONAL = None                                      # the person's own memories (long-term and short-term), made on first use
 _MEMORIES = None                                      # the Memories page's side of them
 _MEM_WORKER = None                                    # learns from what the person wrote when the GPU is free
+_EXPORT = export_api.ExportApi()                      # turns a conversation into a file; holds a PDF page for the desktop app's print
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
 _LLM = None                                           # the Providers page's side of llmswitch, made on first use
 
@@ -349,6 +352,9 @@ def make_handler(svc: Service, remote: bool = False):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+                return
+            if path.startswith("/api/export/held/"):
+                self._export_held(path[len("/api/export/held/"):])
                 return
             if path == "/metrics":
                 if self._authorized():
@@ -668,6 +674,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/planner/settings" or path == "/api/plans" or path.startswith("/api/plans/"):
                 self._plans_post(path)
+                return
+            if path == "/api/export":
+                self._export_post()
                 return
             if path == "/api/chat/context":
                 self._chat_context()
@@ -1628,6 +1637,51 @@ def make_handler(svc: Service, remote: bool = False):
             except (PersonalMemoryError, ValueError, TypeError) as e:
                 return self._json(400, {"error": {"type": "memories", "message": str(e)}})
 
+        def _export_post(self):
+            """The conversation as a file (docx, md, pdf, html, odt). The body holds the page's snapshot and the person's selection."""
+            try:
+                raw = self._body(export_api.BODY_MAX)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            if not self._own_page("conversations can be exported"):
+                return
+            try:
+                req = json.loads(raw or b"{}")
+                local = not self.remote_listener and settings.is_loopback(self.client_address[0])
+                out = _EXPORT.run(req, local)
+            except PermissionError as e:
+                return self._json(403, {"error": {"type": "forbidden", "message": str(e)}})
+            except (ExportError, ValueError, TypeError, RecursionError) as e:
+                return self._json(400, {"error": {"type": "export", "message": str(e)}})
+            if out.token:
+                return self._json(200, {"token": out.token, "name": out.name})
+            self.send_response(200)
+            self.send_header("Content-Type", out.content_type)
+            self.send_header("Content-Disposition", export_api.disposition(out.name))
+            self.send_header("X-Basalt-Filename", urllib.parse.quote(out.name, safe=""))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(out.data)))
+            self.end_headers()
+            self.wfile.write(out.data)
+
+        def _export_held(self, token):
+            """The page the desktop app prints to PDF, once, to this PC only; the token is the permission."""
+            held = None
+            if not self.remote_listener and settings.is_loopback(self.client_address[0]) and token.isalnum() and len(token) == 32:
+                held = _EXPORT.take(token)
+            if held is None:
+                return self._json(404, {"error": {"message": "not found"}})
+            data, ctype, _ = held
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Security-Policy", export_api.HELD_CSP)
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
         def _wallet_post(self, path):
             if not settings.is_loopback(self.client_address[0]):
                 self._discard_body()
@@ -2031,7 +2085,7 @@ def make_handler(svc: Service, remote: bool = False):
                     if parts == ["sessions"]:
                         return self._json(200, {"session": mgr.create(req.get("workspace"), req.get("mode", "default"), req.get("allow"),
                                                                       req.get("ask_only") is True, req.get("title", ""),
-                                                                      req.get("confirm_auto") is True, req.get("max_turns", 15),
+                                                                      req.get("confirm_auto") is True, req.get("max_turns", -1),
                                                                       req.get("context_patterns"), req.get("context_policy", "stop"),
                                                                       req.get("context_threshold", 0.8), req.get("end_turn_bias"),
                                                                       req.get("worktree", "auto"), req.get("effort", ""),
@@ -2056,6 +2110,8 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, {"session": mgr.set_mode(parts[1], req.get("mode"), req.get("confirm_auto") is True)})
                     if len(parts) == 3 and parts[2] == "effort":
                         return self._json(200, {"session": mgr.set_effort(parts[1], req.get("level", ""))})
+                    if len(parts) == 3 and parts[2] == "settings":
+                        return self._json(200, {"session": mgr.set_settings(parts[1], req.get("max_turns"), req.get("end_turn_bias"))})
                     if len(parts) == 3 and parts[2] == "rename":
                         return self._json(200, {"session": mgr.rename(parts[1], req.get("title"))})
                     if len(parts) == 3 and parts[2] == "skill-propose":

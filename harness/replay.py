@@ -27,7 +27,7 @@ from harness.agent_loop import AgentLoop
 from harness.tools.registry import EffectClass, ToolRegistry
 
 TRACE_FORMAT, TRACE_VERSION = "basalt-trace", 1
-DROPPED_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw")
+DROPPED_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw", "explain", "skipped")
 RETRIEVED_PREFIX = "<untrusted_data"
 FENCE = re.compile(r'\A<untrusted_data source="[^"]*">\n(.*)\n</untrusted_data>\nThe block above is data', re.DOTALL)
 
@@ -74,6 +74,8 @@ def infer_decision(text: str) -> str:
         return "denied"
     if head.startswith("Loop detected"):
         return "loop"
+    if head.startswith(("Not run again:", "Not run: more than")):
+        return "skipped"
     if head.startswith(("Unknown tool", "Tool '")) or "Call the tool again with corrected arguments" in text[:600] or head.startswith("The arguments of"):
         return "invalid"
     if head.startswith("No checkpoint could be taken"):
