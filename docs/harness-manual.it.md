@@ -205,19 +205,23 @@ L'agente può tenere appunti brevi su un progetto e rileggerli nelle conversazio
 - **Digli cosa tenere.** Scrive un appunto solo quando decide di farlo, quindi chiedilo: *«ricorda che la build usa --arch=native»*.
   Tiene un appunto di al massimo 2.000 caratteri con una categoria; lo stesso testo si tiene una volta sola; c'è posto per 5.000
   appunti per progetto.
-- **Cosa torna da solo.** A ogni messaggio che scrivi, fino a quattro appunti che corrispondono alle tue parole vengono aggiunti dopo
-  il tuo messaggio, come dati. L'impostazione è *Iniezione → Recupero in coda* nelle impostazioni della Chat (la predefinita); con le
+- **Cosa torna da solo.** A ogni messaggio che scrivi, gli appunti che hanno abbastanza in comune con le tue parole vengono aggiunti
+  dopo il tuo messaggio, come dati: una parola condivisa vale fino a 1 punto (meno se molti appunti la hanno), una specifica come
+  `sm_120` o `e-mail` fino a 2, le parole comuni (il, di, the, and) non contano mai, e un appunto ha bisogno di 1,5 punti (o di tutte le
+  parole di una richiesta di tre o meno). Si aggiungono al più quattro appunti e 600 token. *Impostazioni → Memorie → Note di progetto*
+  cambia i punti, il numero e il limite di token, ciascuno con la sua spiegazione. L'impostazione è *Iniezione → Recupero in coda* nelle impostazioni della Chat (la predefinita); con le
   altre due scelte non si aggiunge nulla e l'agente chiama `recall` quando vuole.
 - **Vedere e cercare.** `/memory` mostra gli ultimi dieci appunti (ciascuno tagliato a 300 caratteri), `/memory parole` cerca, `/status`
   li conta.
 - **Toglierne uno.** Chiedi all'agente di dimenticarlo (usa l'id dell'appunto) oppure, senza conversazioni aperte, cancella il file
   `memory\<16 cifre esadecimali>.db` nella cartella dati dell'utente (e i file `-wal` e `-shm` accanto, se ci sono) per dimenticare
   tutto il progetto.
-- **Quali appunti stanno insieme.** Un file per percorso di cartella (maiuscole ignorate). Tutte le conversazioni della **Chat**
+- **Quali appunti stanno insieme.** Un file per cartella di progetto (maiuscole ignorate). Tutte le conversazioni della **Chat**
   lavorano nella stessa cartella, quindi condividono una sola memoria; ogni cartella della scheda Agente o della riga di comando ha la
-  sua; una conversazione che lavora in una copia git tutta sua ne ha ancora un'altra. Non c'è esportazione e nulla è condiviso tra PC.
-- **Cosa non è.** La ricerca è per parole, non per significato: «costruito» non trova «costruire», e un appunto che condivide una sola
-  parola con il tuo messaggio può tornare anche se non c'entra. Gli appunti sono conservati come scritti, in chiaro, non cifrati; non
+  sua. Una conversazione che lavora in una copia git tutta sua (un work tree) usa la memoria del repository da cui è nata. Non c'è
+  esportazione e nulla è condiviso tra PC.
+- **Cosa non è.** La ricerca è per parole, non per significato: «costruire» trova «costruiremo» ma «costruito» no, e un appunto che condivide
+  parole specifiche con il tuo messaggio può tornare anche se non c'entra. Gli appunti sono conservati come scritti, in chiaro, non cifrati; non
   chiedergli di ricordare una password o una chiave. Un appunto che è stato indotto a tenere da una pagina letta tornerà, come dato che
   ha l'ordine di non eseguire; leggi `/memory` ogni tanto.
 - **Permessi.** In *Chiedi prima* e *Automatico* scrive e cancella appunti senza chiedere; in *Sola lettura* chiede prima di
@@ -272,9 +276,12 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
 - **Schemi di contesto.** Le impostazioni della Chat hanno sei interruttori (iniezione, riscrittura, potatura, riassunto, rami,
   versioni), ognuno con la descrizione di cosa fa, vantaggi, svantaggi e cosa fa alla cache dell'inizio del server. Lasciali come
   sono finché non hai un motivo.
-- **Documenti di riferimento.** Sulla riga di comando `--reference DIR` offre i documenti come blocco fisso (veloce dopo il primo
-  turno, ma riempie il contesto) o cercati (contesto piccolo, i passaggi arrivano come dati non fidati); `auto` sceglie in base alla
-  dimensione.
+- **Documenti di riferimento.** *Impostazioni → Memorie → Documenti di riferimento* (o `--reference DIR` sulla riga di comando) offre i
+  file .md e .txt di una cartella come blocco fisso (veloce dopo il primo turno, ma riempie il contesto) o cercati (contesto piccolo, i
+  passaggi arrivano come dati non fidati); `auto` sceglie in base alla dimensione. Valgono per le conversazioni che iniziano dopo il salvataggio.
+- **La wiki.** *Impostazioni → Memorie → Wiki (wikibridge)* attiva `wiki_search`, `wiki_page` e `wiki_context` nella Chat e nell'Agente, con
+  l'indirizzo del servizio (predefinito `http://127.0.0.1:8775`) e un progetto; un passo di piano che interroga la wiki li usa.
+  *Verifica la connessione* dice l'indirizzo provato e, se non ha risposto, perché. Una chiave, se il servizio la chiede, è `BASALT_WIKIBRIDGE_KEY`.
 - **Cache.** L'inizio del prompt resta identico byte per byte da un turno all'altro, così il server riusa la sua cache. Per questo gli
   appunti e i riassunti dei piani stanno dopo il tuo messaggio, mai nel blocco di sistema.
 

@@ -30,9 +30,10 @@ class WikiBridgeClient:
         self.last_error: Optional[str] = None
 
     @classmethod
-    def from_environment(cls, **kwargs: Any) -> "WikiBridgeClient":
+    def from_environment(cls, url: Optional[str] = None, **kwargs: Any) -> "WikiBridgeClient":
+        """The address is `url` when given, else BASALT_WIKIBRIDGE_URL, else the usual local one; the key is BASALT_WIKIBRIDGE_KEY."""
         return cls(
-            base_url=os.environ.get("BASALT_WIKIBRIDGE_URL", DEFAULT_URL),
+            base_url=url or os.environ.get("BASALT_WIKIBRIDGE_URL", DEFAULT_URL),
             api_key=os.environ.get("BASALT_WIKIBRIDGE_KEY") or None,
             **kwargs,
         )
@@ -42,7 +43,8 @@ class WikiBridgeClient:
         try:
             data = request_json(method, self.base_url + path, payload, headers, self.timeout)
         except ServiceError as e:
-            self.last_error = f"wikibridge {e.kind} at {self.base_url}"
+            reason = str(e).partition(": ")[2] or str(e)
+            self.last_error = f"wikibridge {e.kind} at {self.base_url}: {reason}"
             raise
         self.last_error = None
         return data

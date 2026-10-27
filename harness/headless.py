@@ -32,9 +32,6 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--result-file", default=None, metavar="PATH", help="write the result as JSON here, without the edited texts")
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of the terminal")
     parser.add_argument("--run-id", default="", help="the name of this run in the server's Agent tab")
-    parser.add_argument("--reference", default=None, metavar="DIR", help="folder of .md and .txt reference documents")
-    parser.add_argument("--reference-strategy", choices=["auto", "cag", "rag", "none"], default="auto",
-                        help="cag: a fixed block at the start of the context; rag: searched passages; auto: by size")
     parser.add_argument("--no-report", action="store_true", help="do not show the run and its edits in the server's Agent tab")
     parser.add_argument("--json", action="store_true", help="print the result as JSON")
     return parser.parse_args(args)
@@ -90,22 +87,11 @@ def _ask_on_terminal(tool: str, arguments: Dict[str, Any]) -> bool:
         return sys.stdin.readline().strip().lower() in ("y", "yes")
 
 
-def read_reference(folder: Optional[str]) -> Dict[str, str]:
-    """The .md and .txt files of a folder, by relative path; a missing folder is an error, not an empty set."""
-    if not folder:
-        return {}
-    root = Path(folder)
-    if not root.is_dir():
-        raise FileNotFoundError(f"reference folder not found: {root}")
-    return {p.relative_to(root).as_posix(): p.read_text(encoding="utf-8", errors="replace")
-            for p in sorted(root.rglob("*")) if p.is_file() and p.suffix.lower() in (".md", ".txt")}
-
-
 def config_from_args(args: argparse.Namespace) -> AgentConfig:
     return AgentConfig(
         **agent_settings(args),
-        max_total_tokens=args.max_tokens_budget, max_seconds=args.timeout_seconds, reference_docs=read_reference(args.reference),
-        report=not args.no_report, reference_strategy=args.reference_strategy,
+        max_total_tokens=args.max_tokens_budget, max_seconds=args.timeout_seconds,
+        report=not args.no_report,
         confirm=_confirmer(args), run_id=args.run_id, progress=args.progress,
     )
 
