@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from harness import council
 from harness.llm import functions
 from harness.llm.store import Ledger, SecureRegistry, is_local
 from harness.llmswitch import reasoning
@@ -53,11 +54,26 @@ class LlmApi:
             ok, why = self.registry.check(fid, pid or None)
             rows.append({"id": fid, "label": spec["label"], "kind": spec["kind"], "data": spec["data"], "tools": bool(spec.get("tools")),
                          "provider": pid, "ok": ok, "why": why, "consent": bool(consent.get(fid)), "needs_consent": spec["data"] == "personal"})
-        return {"functions": rows,
+        return {"functions": rows, "council": self.council_view(),
                 "providers": [self._provider_view(by_id[p["id"]], p) for p in pub["providers"]],
                 "types": [t for t in pub["types"] if t["type"] in SHOWN_TYPES],
                 "reasoning_levels": reasoning.choices("en"), "imported": self.registry.imported(),
                 "shared": [{"path": str(p), "providers": n} for p, n in self.shared_candidates()]}
+
+    def council_view(self) -> Dict[str, Any]:
+        """The council's roles and rounds as saved, the defaults, the limits, and what a debate costs at most and at least."""
+        settings = council.load_settings(self.registry)
+        away = council.outside(self.registry)
+        return {"settings": settings, "defaults": council.clean_settings(None), "estimate": council.estimate(settings=settings, away=away), "outside": away,
+                "limits": {"rounds": council.ROUNDS_MAX, "name": council.NAME_MAX, "job": council.JOB_MAX}, "configured": council.configured(self.registry)}
+
+    def set_council(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            settings = council.clean_settings({k: body[k] for k in ("rounds", "roles", "moderator") if k in body})
+        except ValueError as exc:
+            raise LlmError(str(exc), "bad_council") from None
+        self.registry._set_extra("council", settings)
+        return self.overview()
 
     def shared_candidates(self) -> List[tuple]:
         """The registries of other programs on this PC that could be copied once (named, not read from any other path)."""

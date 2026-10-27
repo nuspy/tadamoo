@@ -232,7 +232,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 ### Cosa sa fare
 
 - **Lavorare su un progetto**: leggere, elencare, cercare, modificare e scrivere file; eseguire comandi di shell; `repo_map` (le
-  definizioni di ogni file sorgente, i più rilevanti per primi); diagnostica e «vai alla definizione» dei language server quando ce n'è
+  definizioni di ogni file sorgente, i più rilevanti per primi) e `repo_diagram` (diagrammi degli import e delle cartelle calcolati dai file, senza modello); diagnostica e «vai alla definizione» dei language server quando ce n'è
   uno installato; eseguire frammenti di Python, JavaScript o TypeScript; affidare un compito a un sotto-agente. I file che alleghi
   (testo, codice, CSV, JSON, Word, Excel, PowerPoint, PDF, immagini; audio e video tramite il servizio callAPIcall) sono letti a
   pezzi, e i file che l'agente produce sono controllati prima di esserti offerti.
@@ -244,7 +244,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 - **Raggiungere altri strumenti**: skill, plugin e server MCP trovati su questo PC (ognuno *da approvare* finché non lo leggi e lo
   approvi, legato a un hash di ciò che hai letto); la ricerca online di quello che manca, con i candidati migliori proposti a te e
   un'installazione che non esegue mai gli script di un pacchetto; server MCP remoti con accesso OAuth; altri agenti tramite un client
-  ACP e un client A2A; un consiglio di consiglieri per le domande difficili; un modello diverso per ogni funzione (quello caricato,
+  ACP e un client A2A; un consiglio di consiglieri con ruoli modificabili che discutono una domanda difficile per un numero di giri scelto, con il costo mostrato prima; un modello diverso per ogni funzione (quello caricato,
   un altro su questo PC, un servizio cloud).
 - **Gestire denaro e identità**: il vault del **Portafoglio** tiene cifrati carte, dati personali e accessi; il modello scrive
   segnaposto e il valore viene inserito all'ultimo passo, solo verso i siti che la voce indica. I pagamenti seguono un limite che
@@ -284,7 +284,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
   [manuale](docs/harness-manual.it.md#17-skill-personali).
 - **Un messaggio mentre lavora** viene indirizzato nel compito, messo in coda o trattato come urgente; **Ferma** vuol dire ferma.
 - **Rami, tornare indietro, confrontare**: un albero di conversazioni, *Torna qui* su ogni richiesta (le azioni che restano avvenute
-  sono elencate prima) e due continuazioni della stessa richiesta affiancate.
+  sono elencate prima) e due continuazioni della stessa richiesta affiancate. I messaggi sono nodi immutabili condivisi, quindi un ramo non copia nulla; la vista dei nodi mostra, prima di cambiare ramo, quanto costa al modello, e *Unisci e sintetizza* fa scrivere al modello una sintesi di due rami in una nuova conversazione.
 - **Una copia tutta sua** (non offerta dalla pagina Chat, che non ha una cartella di progetto da copiare): in una cartella git una conversazione può lavorare in un suo worktree, e le modifiche che scegli le
   applichi come modifiche in staging, mai come commit.
 - **I guasti si gestiscono, non si nascondono**: un server occupato o irraggiungibile si riprova; un processo che muore riparte dalla

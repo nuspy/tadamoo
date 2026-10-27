@@ -212,7 +212,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
 ### What it can do
 
 - **Work on a project**: read, list, search, edit and write files; run shell commands; `repo_map` (the definitions of each source file,
-  most relevant first); language-server diagnostics and go-to-definition when a server is installed; run Python, JavaScript or
+  most relevant first) and `repo_diagram` (import and folder diagrams worked out from the files, with no model); language-server diagnostics and go-to-definition when a server is installed; run Python, JavaScript or
   TypeScript snippets; hand a task to a subagent. Files you attach (text, code, CSV, JSON, Word, Excel, PowerPoint, PDF, images; audio
   and video through the callAPIcall service) are read in pieces, and files the agent makes are checked before they are offered to you.
 - **Use the web**: `search_web` (DuckDuckGo unless you set another engine; no key, and the words of each search go to DuckDuckGo) and
@@ -223,7 +223,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
 - **Reach other tools**: skills, plugins and MCP servers found on this PC (each one *to approve* until you read and approve it, tied to
   a hash of what you read); a search for a missing one online, with the best candidates put to you and an install that never runs a
   package's scripts; remote MCP servers with OAuth sign-in; other agents through an ACP client and an A2A client; a council of
-  advisers for hard questions; a different model for each function (the loaded one, another on this PC, a cloud service).
+  advisers with editable roles that debate a hard question for a set number of rounds, with the cost shown first; a different model for each function (the loaded one, another on this PC, a cloud service).
 - **Handle money and identity**: the **Wallet** vault keeps cards, personal data and logins encrypted; the model writes placeholders and
   the value is put in at the last step, only toward the sites the entry names. Payments follow a limit you set (nothing until you set
   one), an optional waiver with caps, and a question above them. The second factor of each login is your choice. Real phone calls ask
@@ -260,7 +260,9 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   skill moves to another PC as one `.pskill` file and arrives *to approve*. See the [manual](docs/harness-manual.md#17-personal-skills).
 - **A message while it works** is steered into the task, queued, or treated as urgent; **Stop** means stop.
 - **Branches, going back, comparing**: a tree of conversations, *Back to here* on any request (actions that stay done are listed
-  first), and two continuations of one request side by side.
+  first), and two continuations of one request side by side. Messages are shared immutable nodes, so a branch copies nothing; the
+  node view shows what switching to a branch costs the model before you switch, and *Merge and summarize* has the model write one
+  synthesis of two branches into a new conversation.
 - **A copy of its own** (not offered from the Chat page, which has no project folder to copy): in a git folder a conversation can work in its own worktree, and you apply the changes you choose as staged
   changes, never a commit.
 - **Failures are handled, not hidden**: a busy or unreachable server is retried; a process that dies is started again from its history;

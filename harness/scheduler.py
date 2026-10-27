@@ -33,6 +33,7 @@ ROUTINES_FILE = "routines.json"
 RUNS_FILE = "routine_runs.json"
 KEEP_RUNS = 200
 NAME_MAX, PROMPT_MAX, SUMMARY_MAX = 80, 4000, 4000
+YIELD_MAX_S = 3600                  # the longest a routine may go on once a conversation of the person's is at work
 VALUES_MAX = 8000                                                     # what is kept of a skill's values: names and short values
 _SKILL = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 MIN_INTERVAL_S = 60
@@ -125,6 +126,7 @@ class Scheduler:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._cancel = threading.Event()
+        self._yielded = threading.Event()                                    # the running routine was stopped for a conversation of the person's
         self._queue: List[str] = []
         self._manual: set = set()                                            # queued because the person asked, enabled or not
         self._due: Dict[str, float] = {}
@@ -178,9 +180,10 @@ class Scheduler:
         return r
 
     def add(self, name: Any, prompt: Any, workspace: Any, schedule: Any, mode: Any = "read_only", allow: Any = None,
-            max_turns: Any = 10, confirm_auto: bool = False, skill: Any = "", values: Any = None) -> Dict[str, Any]:
-        """A new routine, disabled: the person turns it on. With a `skill` it runs that personal skill with `values` instead of a prompt."""
-        routine = self._check(None, name, prompt, workspace, schedule, mode, allow, max_turns, confirm_auto, skill, values)
+            max_turns: Any = 10, confirm_auto: bool = False, skill: Any = "", values: Any = None, yield_s: Any = None) -> Dict[str, Any]:
+        """A new routine, disabled: the person turns it on. With a `skill` it runs that personal skill with `values` instead of a prompt.
+        `yield_s` is how long it may go on once a conversation of the person's is at work (empty: it is never stopped for one)."""
+        routine = self._check(None, name, prompt, workspace, schedule, mode, allow, max_turns, confirm_auto, skill, values, yield_s)
         routine.update(id=secrets.token_hex(3), enabled=False, created=self.clock(), last_run=0, last_status="")
         with self._lock:
             self.routines.append(routine)
@@ -191,9 +194,10 @@ class Scheduler:
     def update(self, routine_id: str, **fields: Any) -> Dict[str, Any]:
         with self._lock:
             current = self._find(routine_id)
-            merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "mode", "allow", "max_turns", "confirm_auto", "skill", "values")}}
+            merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "mode", "allow", "max_turns", "confirm_auto", "skill", "values", "yield_s")}}
             checked = self._check(routine_id, merged["name"], merged["prompt"], merged["workspace"], merged["schedule"], merged["mode"],
-                                  merged.get("allow"), merged["max_turns"], merged.get("confirm_auto") is True, merged.get("skill", ""), merged.get("values"))
+                                  merged.get("allow"), merged["max_turns"], merged.get("confirm_auto") is True, merged.get("skill", ""), merged.get("values"),
+                                  merged.get("yield_s"))
             current.update(checked)
             self._due[routine_id] = self._advance(current, self.clock())
             self._save()
@@ -201,7 +205,7 @@ class Scheduler:
 
     @staticmethod
     def _check(routine_id: Optional[str], name: Any, prompt: Any, workspace: Any, schedule: Any, mode: Any, allow: Any,
-               max_turns: Any, confirm_auto: bool, skill: Any = "", values: Any = None) -> Dict[str, Any]:
+               max_turns: Any, confirm_auto: bool, skill: Any = "", values: Any = None, yield_s: Any = None) -> Dict[str, Any]:
         if not isinstance(name, str) or not name.strip() or len(name) > NAME_MAX:
             raise RoutineError(f"Give the routine a name of at most {NAME_MAX} characters.", "bad_name")
         if skill:
@@ -229,7 +233,9 @@ class Scheduler:
             raise RoutineError("Allow rules are lines of text, at most 10.", "bad_rules")
         if not isinstance(max_turns, int) or isinstance(max_turns, bool) or not 1 <= max_turns <= 50:
             raise RoutineError("The number of steps must be between 1 and 50.", "bad_steps")
-        return {"name": name.strip(), "prompt": prompt.strip(), "workspace": str(Path(workspace.strip()).resolve()),
+        if yield_s is not None and (not isinstance(yield_s, int) or isinstance(yield_s, bool) or not 0 <= yield_s <= YIELD_MAX_S):
+            raise RoutineError(f"The time to go on once a conversation of yours is at work is from 0 to {YIELD_MAX_S} seconds, or empty for never.", "bad_yield")
+        return {"yield_s": yield_s, "name": name.strip(), "prompt": prompt.strip(), "workspace": str(Path(workspace.strip()).resolve()),
                 "schedule": " ".join(str(schedule).lower().split()), "mode": mode, "allow": [r.strip() for r in rules],
                 "max_turns": max_turns, "confirm_auto": bool(confirm_auto and mode == "auto"),
                 **({"skill": skill, "values": dict(values or {})} if skill else {"skill": "", "values": {}})}
@@ -323,16 +329,36 @@ class Scheduler:
                 return
             self.running = routine_id
         self._cancel.clear()
+        self._yielded.clear()
         started = self.clock()
         meter = self.meter().start() if self.meter else None
+        finished = threading.Event()
+        if routine.get("yield_s") is not None:
+            threading.Thread(target=self._yield_watch, args=(float(routine["yield_s"]), finished), name="routine-yield", daemon=True).start()
         try:
             outcome = self.runner.run(routine, self._cancel)
         except Exception as exc:
             outcome = {"status": "failed", "summary": f"{type(exc).__name__}: {exc}"}
+        finished.set()
+        if self._yielded.is_set():
+            outcome = {**outcome, "status": "yielded", "summary": "Stopped because a conversation of yours needed the model. " + str(outcome.get("summary") or "")}
         energy = meter.stop() if meter else {}
         if energy:
             outcome = {**outcome, "energy": energy}
         self._finish(routine_id, outcome, started)
+
+    def _yield_watch(self, grace_s: float, finished: threading.Event) -> None:
+        """While a routine runs: once a conversation of the person's has been at work for `grace_s` seconds, the routine is asked to stop."""
+        since = None
+        while not finished.wait(self.poll_s):
+            if not self.busy():
+                since = None
+                continue
+            since = since if since is not None else time.monotonic()
+            if time.monotonic() - since >= grace_s:
+                self._yielded.set()
+                self._cancel.set()
+                return
 
     def _finish(self, routine_id: str, outcome: Dict[str, Any], started: float) -> None:
         ended = self.clock()

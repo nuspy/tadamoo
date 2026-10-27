@@ -325,3 +325,80 @@ def test_the_scheduler_runs_a_routine_through_the_manager(manager, tmp_path, fol
     until(lambda: sched.runs(rid), seconds=30)
     assert sched.runs(rid)[0]["status"] == "done" and sched.runs(rid)[0]["summary"] == "echo: summarise"
     sched.shutdown()
+
+
+class Cooperative(FakeRunner):
+    """A routine that works until it is asked to stop."""
+
+    def run(self, routine, cancel):
+        with self.lock:
+            self.active += 1
+        try:
+            end = time.monotonic() + 10
+            while time.monotonic() < end:
+                if cancel.is_set():
+                    return {"status": "cancelled", "summary": "It was stopped.", "session": "s"}
+                time.sleep(0.01)
+            return {"status": "done", "summary": "finished", "session": "s"}
+        finally:
+            with self.lock:
+                self.active -= 1
+
+
+def start_one(tmp_path, folder, runner, **fields):
+    sched, clock = make(tmp_path, runner)
+    sched.set_enabled(add(sched, folder, **fields)["id"], True)
+    clock.now += 4000
+    sched.start()
+    sched.check()
+    until(lambda: runner.active == 1)
+    return sched
+
+
+def test_a_running_routine_gives_way_when_a_conversation_of_the_person_has_been_at_work_for_its_budget(tmp_path, folder):
+    runner = Cooperative()
+    sched = start_one(tmp_path, folder, runner, yield_s=0)
+    time.sleep(0.2)
+    assert runner.active == 1                                           # nobody is talking: it goes on
+    runner.busy_now = True
+    until(lambda: sched.runs() and sched.runs()[0]["status"] == "yielded")
+    run = sched.runs()[0]
+    assert run["summary"].startswith("Stopped because a conversation of yours needed the model") and runner.active == 0
+    assert sched.view()["queued"] == [] and sched.get(run["routine"])["yield_s"] == 0       # not run again by itself: the next due time does that
+    sched.shutdown()
+
+
+def test_the_budget_is_a_number_of_seconds_and_a_short_conversation_does_not_stop_the_routine(tmp_path, folder):
+    runner = Cooperative()
+    sched = start_one(tmp_path, folder, runner, yield_s=1)
+    runner.busy_now = True
+    time.sleep(0.4)
+    runner.busy_now = False                                             # the conversation ended inside the budget
+    time.sleep(1.3)
+    assert runner.active == 1 and sched.runs() == []
+    runner.busy_now = True
+    until(lambda: sched.runs() and sched.runs()[0]["status"] == "yielded", seconds=5)
+    sched.shutdown()
+
+
+def test_without_a_budget_a_routine_is_never_stopped_for_a_conversation_and_the_person_can_stop_it(tmp_path, folder):
+    runner = Cooperative()
+    sched = start_one(tmp_path, folder, runner)
+    assert sched.view()["routines"][0]["yield_s"] is None
+    runner.busy_now = True
+    time.sleep(0.6)
+    assert runner.active == 1
+    sched.cancel_running()
+    until(lambda: sched.runs() and sched.runs()[0]["status"] == "cancelled")
+    sched.shutdown()
+
+
+@pytest.mark.parametrize("bad", [-1, 3601, "60", True, 1.5])
+def test_a_budget_that_is_not_a_whole_number_of_seconds_in_range_is_refused(tmp_path, folder, bad):
+    sched, _ = make(tmp_path)
+    with pytest.raises(RoutineError):
+        add(sched, folder, yield_s=bad)
+    routine = add(sched, folder)
+    with pytest.raises(RoutineError):
+        sched.update(routine["id"], yield_s=bad)
+    assert sched.update(routine["id"], yield_s=30)["yield_s"] == 30 and sched.update(routine["id"], yield_s=None)["yield_s"] is None
