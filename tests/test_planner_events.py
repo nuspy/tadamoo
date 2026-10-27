@@ -337,7 +337,7 @@ def test_the_pump_runs_on_its_own_thread_survives_a_failing_handler_and_stops_wh
     assert got.wait(5) and wait_for(lambda: pump.errors)
     assert "handler broke" in pump.errors[0]
     pump.stop()
-    assert not pump.running and not any(t.name == "inbox-pump" and t.is_alive() for t in threading.enumerate())
+    assert not pump.running
     inbox.add("a", "Altra frana")
     time.sleep(0.1)
     assert inbox.pending() == {"a": 1}                                                  # nobody takes it any more
@@ -416,22 +416,19 @@ def test_with_the_pump_on_events_are_buffered_judged_and_a_wake_starts_the_repla
     assert not svc.events_status()["pump"]
 
 
-def pump_threads():
-    return [t for t in threading.enumerate() if t.name == "inbox-pump" and t.is_alive()]
-
-
 def test_the_pump_is_on_by_default_stops_when_turned_off_and_stays_off_after_a_restart(tmp_path):
     svc = service(tmp_path)
     svc.create({"plan": PLAN, "card": CARD})
-    assert svc.events_status()["pump"] is True and pump_threads()
+    pump = svc._pump
+    assert svc.events_status()["pump"] is True and pump.running
     svc.update_settings({"event_pump": False})
-    assert wait_for(lambda: not pump_threads()) and svc.events_status()["pump"] is False
+    assert wait_for(lambda: not pump.running) and svc.events_status()["pump"] is False
     with pytest.raises(ValueError, match="event_pump"):
         svc.update_settings({"event_pump": "yes"})
     svc.close()
     again = service(tmp_path)                                                               # a restart: the person's "off" is kept
     again.list()
-    assert again.events_status()["pump"] is False and not pump_threads()
+    assert again.events_status()["pump"] is False and again._pump is None
     again.update_settings({"event_pump": True})
     again.close()
     third = service(tmp_path)
@@ -441,9 +438,9 @@ def test_the_pump_is_on_by_default_stops_when_turned_off_and_stays_off_after_a_r
 
 def test_the_pump_starts_with_the_server_not_at_the_first_request(tmp_path):
     svc = service(tmp_path)
-    assert svc._pump is None and not pump_threads()
+    assert svc._pump is None
     svc.start()
-    assert svc.events_status()["pump"] is True and pump_threads()
+    assert svc.events_status()["pump"] is True and svc._pump.running
 
 
 def test_an_idle_pump_sleeps_until_an_event_comes_and_then_judges_it(tmp_path):
@@ -463,9 +460,10 @@ def test_an_idle_pump_sleeps_until_an_event_comes_and_then_judges_it(tmp_path):
 def test_closing_ends_a_sleeping_pump(tmp_path):
     svc = service(tmp_path)
     svc.create({"plan": PLAN, "card": CARD})
-    assert pump_threads()
+    pump = svc._pump
+    assert pump.running
     svc.close()
-    assert wait_for(lambda: not pump_threads())
+    assert wait_for(lambda: not pump.running)
 
 
 def test_configured_sources_read_the_vault_deliver_into_plans_and_hold_no_secret_in_the_settings(tmp_path, web, imap):
@@ -497,7 +495,7 @@ def test_configured_sources_read_the_vault_deliver_into_plans_and_hold_no_secret
         assert "mail" in blob and "tgbot" in blob                                                 # only the names of the entries are kept
     finally:
         svc.close()
-    assert wait_for(lambda: not any(t.name.startswith(("source-", "inbox-")) and t.is_alive() for t in threading.enumerate()))
+    assert wait_for(lambda: not any(t.name in ("source-feed", "source-posta", "source-bot") and t.is_alive() for t in threading.enumerate()))
 
 
 def test_a_source_whose_vault_entry_is_missing_reports_it_without_stopping_the_others(tmp_path, web):

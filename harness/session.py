@@ -410,6 +410,9 @@ class Session:
         """Gives the conversation the planner's tools and the question tool; every change to a plan asks."""
         from harness.planner_tools import Confirmer, register_ask_tool, register_planner_tools
         self.planner = client
+        hooks = getattr(self.agent, "hooks", None)
+        if hooks is not None:                                    # a hook of the person's that tells the planner reaches it from here
+            hooks.plan_event_sink = lambda text, source: client.ingest(text, source)
         register_planner_tools(self.agent.tools, client, Confirmer(self.current, ask=self._ask))
         register_ask_tool(self.agent.tools, self.current, self._question)
 
