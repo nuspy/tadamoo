@@ -32,7 +32,7 @@
   function jobRow(j) {
     const li = el("li", "cj" + (j.id === S.selected ? " sel" : "") + (j.enabled ? " on" : ""));
     const open = el("button", "cj-open"); open.type = "button"; open.title = T("cj.tip.edit");
-    const last = j.last_status ? `${T("cj.status." + (["done", "asked", "failed", "skipped", "cancelled", "timeout"].includes(j.last_status) ? j.last_status : "failed"))} ${when(j.last_run)}` : T("cj.never");
+    const last = j.last_status ? `${T("cj.status." + (["done", "asked", "failed", "skipped", "cancelled", "timeout", "yielded"].includes(j.last_status) ? j.last_status : "failed"))} ${when(j.last_run)}` : T("cj.never");
     const next = j.enabled && j.next_run ? T("cj.next", when(j.next_run)) : T("cj.off");
     open.append(el("span", "cj-t", j.name), el("span", "cj-s", `${j.schedule} · ${next}`), el("span", "cj-s", last));
     if (j.skill) open.append(el("span", "cj-s", T("cj.skillrow", j.skill)));
@@ -124,6 +124,8 @@
     const schedule = el("input"); schedule.id = "cj-schedule"; schedule.value = v.schedule || ""; schedule.autocomplete = "off"; schedule.spellcheck = false;
     const presets = el("div", "cj-presets"); presets.append(...PRESETS.map(p => btn(p, "ghost", () => { schedule.value = p; schedule.focus(); })));
     const steps = el("input"); steps.id = "cj-steps"; steps.type = "number"; steps.min = "1"; steps.max = "50"; steps.value = String(v.max_turns || 10);
+    const yieldS = el("input"); yieldS.id = "cj-yield"; yieldS.type = "number"; yieldS.min = "0"; yieldS.max = "3600"; yieldS.inputMode = "numeric"; yieldS.placeholder = T("cj.yield.never");
+    yieldS.value = Number.isInteger(v.yield_s) ? String(v.yield_s) : (existing ? "" : "60");
     const allow = el("textarea"); allow.id = "cj-allow"; allow.rows = 3; allow.spellcheck = false; allow.value = (v.allow || []).join("\n");
     // what it runs: a task written here, or one of the person's personal skills with its values
     const kinds = el("fieldset", "cj-modes"); kinds.append(el("legend", "", T("cj.kind")));
@@ -168,14 +170,14 @@
     const msg = el("p", "cj-msg"); msg.id = "cj-msg"; msg.setAttribute("role", "status");
     const promptWrap = field("cj-prompt", T("cj.prompt"), prompt, T("cj.prompt.help"));
     const valuesNow = () => { const out = {}; fields.forEach(f => { const x = f.get(); if (String(x).trim() !== "") out[f.spec.name] = x; }); return out; };
-    form = { name, prompt, folder, schedule, steps, allow, modeNow, msg, kindNow, skillSel, valuesNow };
+    form = { name, prompt, folder, schedule, steps, yieldS, allow, modeNow, msg, kindNow, skillSel, valuesNow };
     host.replaceChildren(
       el("div", "sh", ""),
       (() => { const f = el("form", "pad cj-form"); f.noValidate = true; f.onsubmit = e => { e.preventDefault(); saveJob(existing); };
         f.append(field("cj-name", T("cj.name"), name), kinds, skillWrap, valuesBox, promptWrap,
           field("cj-folder", T("cj.folder"), folder, T("cj.folder.help")),
           field("cj-schedule", T("cj.schedule"), schedule, T("cj.schedule.help")), presets, modes, risk,
-          field("cj-steps", T("cj.steps"), steps), field("cj-allow", T("cj.allow"), allow, T("cj.allow.help")),
+          field("cj-steps", T("cj.steps"), steps), field("cj-yield", T("cj.yield"), yieldS, T("cj.yield.help")), field("cj-allow", T("cj.allow"), allow, T("cj.allow.help")),
           existing ? el("p", "help", T(existing.enabled ? "cj.is.on" : "cj.is.off")) : el("p", "help", T("cj.new.off")), msg, el("div", "cj-buttons", save)); return f; })());
     host.firstChild.append(el("b", "", existing ? T("cj.edit", existing.name) : T("cj.new")));
     paintKind();
@@ -187,6 +189,7 @@
     const skill = f.kindNow() === "skill";
     const body = { name: f.name.value.trim(), prompt: skill ? "" : f.prompt.value.trim(), workspace: f.folder.value.trim(), schedule: f.schedule.value.trim(), mode: f.modeNow(),
       allow: f.allow.value.split("\n").map(s => s.trim()).filter(Boolean), max_turns: Number(f.steps.value) || 10,
+      yield_s: f.yieldS.value.trim() === "" ? null : Number(f.yieldS.value),
       skill: skill ? f.skillSel.value : "", values: skill ? f.valuesNow() : {} };
     if (body.mode === "auto") {
       if (!(await riskConfirm([T("cj.risk")]))) return;
