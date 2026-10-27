@@ -2,8 +2,9 @@
 
 It holds what an event could threaten (bookings, constraints of the people involved), not the plan's
 whole history. Before anything leaves this machine it goes through Pseudonymizer and an allow-list of
-fields; the user decides both. By default the fields about the participants' health, allergies and
-personal constraints do not leave; the user can include them.
+fields; the user decides both. By default the whole card goes, as the validated experiment sent it, because
+the fields about the participants' health, allergies and personal constraints are what lets an event that matters only through them be
+recognised; the user can take any field out.
 """
 from __future__ import annotations
 
@@ -14,8 +15,8 @@ from typing import Any, Dict, Iterable, List, Optional
 
 CARD_FIELDS = ("titolo", "date", "destinazione", "partecipanti", "logistica_e_prenotazioni",
                "profilo_e_vincoli_partecipanti")
-PERSONAL_FIELDS = ("profilo_e_vincoli_partecipanti",)                       # health, allergies, personal constraints: not sent unless chosen
-DEFAULT_SHARED_FIELDS = tuple(f for f in CARD_FIELDS if f not in PERSONAL_FIELDS)
+PERSONAL_FIELDS = ("profilo_e_vincoli_partecipanti",)                       # health, allergies, personal constraints: the settings say so where they are chosen
+DEFAULT_SHARED_FIELDS = CARD_FIELDS                                         # what goes when the user has not chosen: the card of the specification
 MAX_CARD_BYTES = 12_000
 DERIVED_FIELDS = ("titolo", "date", "logistica_e_prenotazioni")      # what a plan's own data gives a card, and what follows the plan while the person has not written it
 INTERVIEW_FIELDS = {"occasional": ("date", "destinazione", "partecipanti"), "constant": ()}      # what a card needs to judge events against a plan
@@ -144,8 +145,7 @@ class Pseudonymizer:
 
 def share_card(card: PlanInsightCard, fields: Optional[Iterable[str]] = None, pseudonymize: bool = True) -> Dict[str, Any]:
     """The part of a card that may leave this machine: only the allowed fields, with names replaced and e-mail addresses and
-    phone numbers taken out. With no list of fields the default ones go, which leave out the participants' health, allergies
-    and personal constraints; a list names exactly what the user chose, those fields included."""
+    phone numbers taken out. With no list of fields the default ones go (the whole card); a list names exactly what the user chose."""
     allowed = list(fields) if fields is not None else list(DEFAULT_SHARED_FIELDS)
     unknown = [f for f in allowed if f not in CARD_FIELDS]
     if unknown:
