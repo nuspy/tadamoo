@@ -66,3 +66,11 @@ class Redact(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HideNothingTest(unittest.TestCase):
+    def test_the_person_can_choose_to_hide_nothing_but_the_words_they_list(self):
+        mask = ExportMask("none", ["Bianchi"])
+        text = "Authorization: Bearer abcdefgh12345678 for Bianchi, card 4242 4242 4242 4242"
+        self.assertEqual(mask.text(text), "Authorization: Bearer abcdefgh12345678 for [HIDDEN], card 4242 4242 4242 4242")
+        self.assertEqual(mask.value({"api_key": "k-123456789"}), {"api_key": "k-123456789"})

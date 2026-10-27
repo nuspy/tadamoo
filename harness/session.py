@@ -391,22 +391,29 @@ class Session:
         return modes[0] if answer == "confirm" else ""
 
     def permission_confirm(self, tool: str, arguments: Dict[str, Any]) -> bool:
-        """The permission manager's question, put to the person in the conversation."""
+        """The permission manager's question, put to the person in the conversation. The answer reaches as far as they choose: this call, this
+        conversation, or every conversation from now on (for the Rule of Two's own question, the conversation or every one stops being asked)."""
         from harness.permissions import suggest_rule
         two = arguments.get("rule_of_two")                            # set when the Rule of Two is what asks: the question says which facts made it ask
         arguments = {k: v for k, v in arguments.items() if k != "rule_of_two"}
         shown = json.dumps(arguments, ensure_ascii=False)[:300]
         permissions = self.built.permissions
-        rule = None if two else suggest_rule(tool, arguments, permissions.always_ask)    # no rule can answer it: the facts change from call to call
-        options = [{"label": "Allow", "value": "confirm"}, {"label": "Deny", "value": "cancel"}]
-        if rule:
-            options.insert(1, {"label": f"Always allow {rule}", "value": "always", "rule": rule})
+        rule = None if two else suggest_rule(tool, arguments, permissions.always_ask)    # facts change from call to call: no rule can answer the Rule of Two
+        options = [{"label": "Allow this call", "value": "confirm"}]
+        if rule or two:
+            options += [{"label": f"Allow in this conversation{f' ({rule})' if rule else ''}", "value": "chat", **({"rule": rule} if rule else {})},
+                        {"label": f"Always allow{f' ({rule})' if rule else ''}", "value": "always", **({"rule": rule} if rule else {})}]
+        options.append({"label": "Deny", "value": "cancel"})
         answer = self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments,
-                            "question": f"{two}\n\nAllow {tool} {shown}?" if two else f"Allow {tool} {shown}?", "options": options})
-        if answer == "always" and rule:
-            permissions.add_rule(rule, "allow")                       # for this conversation from now on; the server keeps it for the next start
-            self.emit({"event": "rule_added", "rule": rule})
-        return answer in ("confirm", "always")
+                            "question": f"{two}" + "\n\n" + f"Allow {tool} {shown}?" if two else f"Allow {tool} {shown}?", "options": options})
+        if answer in ("chat", "always"):
+            if rule:
+                permissions.add_rule(rule, "allow")                   # the server keeps it for this conversation's next starts; "always" also for every other one
+                self.emit({"event": "rule_added", "rule": rule, "scope": "global" if answer == "always" else "chat"})
+            elif two:
+                permissions.two.set_level("off")
+                self.emit({"event": "rule_of_two_off", "scope": "global" if answer == "always" else "chat"})
+        return answer in ("confirm", "chat", "always")
 
     def enable_planner(self, client: Any) -> None:
         """Gives the conversation the planner's tools and the question tool; every change to a plan asks."""

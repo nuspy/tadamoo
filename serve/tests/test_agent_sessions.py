@@ -805,6 +805,32 @@ def test_a_rule_the_person_chose_in_a_question_is_kept_for_the_next_starts(make,
     assert mgr.get(sid)["allow"] == ["shell_command:git status*", "shell_command:pytest *"]          # once, however many times it is said
 
 
+def test_a_rule_allowed_for_good_reaches_every_conversation_and_one_for_the_chat_only_its_own(make, ws, tmp_path):
+    from serve.allow_rules import AllowRules
+    rules = AllowRules(tmp_path / "allow.json")
+    seen = []
+    mgr = make(allow_rules=rules, command=lambda sid, rec, history: (seen.append(rec), stub_command()(sid, rec, history))[1])
+    first = mgr.create(ws)["id"]
+    mgr.send(first, "rule-global")
+    until(lambda: rules.read() == ["shell_command:python *"])
+    assert mgr.get(first).get("allow", []) == []                                    # kept for every conversation, not just this one
+    assert "shell_command:python *" in mgr._command("x", {**mgr.get(first)}, tmp_path)           # a conversation starting now gets it
+    mgr.send(first, "two-off")
+    until(lambda: mgr.get(first).get("rule_of_two") == "off")
+
+
+def test_the_allowed_rules_are_kept_added_and_taken_away(tmp_path):
+    from serve.allow_rules import AllowRules
+    rules = AllowRules(tmp_path / "allow.json")
+    assert rules.add("browser_click") == ["browser_click"] and rules.add(" browser_click ") == ["browser_click"]
+    assert rules.add("shell_command:pytest *") == ["browser_click", "shell_command:pytest *"]
+    assert AllowRules(tmp_path / "allow.json").read() == ["browser_click", "shell_command:pytest *"]
+    assert rules.remove("browser_click") == ["shell_command:pytest *"]
+    for bad in ("", "a" + chr(10) + "b", "x" * 201, 5):
+        with pytest.raises(ValueError):
+            rules.add(bad)
+
+
 def test_the_mode_is_changed_while_the_conversation_lives_and_automatic_needs_the_confirmation(make, ws):
     mgr = make()
     sid = mgr.create(ws)["id"]

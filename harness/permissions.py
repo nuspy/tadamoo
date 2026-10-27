@@ -33,17 +33,6 @@ _BARE_VERB = re.compile(r"^([^\s*?\[\]]+)(?: \*)?$")      # "rm" or "rm *": the 
 _CHAINING = re.compile(r"&&|\|\||[;&|\n\r`<>]|\$\(|\$\{|%[A-Za-z_]+%")
 
 
-# programs that run whatever they are given (`python -c`, `powershell -EncodedCommand`), that fetch and send (`curl`, `scp`), and that start
-# other programs (`env`, `npx`): a rule for the verb alone would allow anything, so only the exact command is offered
-BROAD_VERBS = frozenset((
-    "python python2 python3 py pythonw pypy node nodejs deno bun ruby perl php lua tclsh java dotnet go cargo rustc julia r rscript "
-    "powershell pwsh cmd bash sh zsh fish dash ksh csh wsl wscript cscript mshta rundll32 regsvr32 msiexec forfiles "
-    "curl wget iwr irm invoke-webrequest invoke-restmethod certutil bitsadmin scp sftp ssh ftp telnet nc ncat netcat socat "
-    "env sudo su runas nohup command start call time xargs npx uvx pipx pnpx bunx eval exec invoke-expression iex").split())
-# tools that run code or hand the task to another agent: "always allow this tool" is not offered, a rule is written by hand
-BROAD_TOOLS = frozenset({"run_code", "delegate_to_acp_agent", "ask_a2a_agent"})
-
-
 @dataclass
 class PermissionRule:
     pattern: str  # tool name or "shell_command:<command glob>", e.g. "shell_command:rm *"
@@ -72,10 +61,6 @@ def _matches(rule: PermissionRule, targets: List[str], arguments: Dict[str, Any]
     return False
 
 
-def _glob_escape(text: str) -> str:
-    return re.sub(r"[*?\[]", lambda m: f"[{m.group(0)}]", text)
-
-
 def fingerprint(tool_name: str, arguments: Dict[str, Any]) -> str:
     """What one approval covers: this tool with these arguments. A shell command is its own text; any other tool is its name and a digest of
     its arguments, so approving `run_code` for one snippet lets that snippet run again and no other."""
@@ -90,15 +75,13 @@ def fingerprint(tool_name: str, arguments: Dict[str, Any]) -> str:
 
 
 def suggest_rule(tool_name: str, arguments: Dict[str, Any], always_ask: FrozenSet[str] = DEFAULT_ALWAYS_ASK) -> Optional[str]:
-    """The allow rule that would let this kind of call run without asking next time, or None when no rule could cover it: a command is
-    allowed by its verb (`pytest *`), any other tool by its name; a program that runs what it is given, fetches or starts other programs
-    (`python`, `powershell`, `curl`, `env`) is allowed only as this exact command, and a tool that runs code only by a rule written by hand.
-    A command that chains others is covered by no rule, and a tool that always asks, or whose question is its own (payments, the writes
-    inside .git), is never offered."""
+    """The allow rule that would let this kind of call run without asking again, or None when no rule could cover it: a command is allowed by
+    its verb (`pytest *`), any other tool by its name. A command that chains others is covered by no rule, and a tool that always asks, or
+    whose question is its own (payments, the writes inside .git), is never offered."""
     if tool_name in always_ask or tool_name == "request_payment" or ":" in tool_name:
         return None
     if tool_name != "shell_command":
-        return None if tool_name in BROAD_TOOLS else tool_name
+        return tool_name
     command = arguments.get("command")
     if not isinstance(command, str) or _CHAINING.search(command):
         return None
@@ -106,8 +89,6 @@ def suggest_rule(tool_name: str, arguments: Dict[str, Any], always_ask: FrozenSe
     verb = words[0].strip("\"'").replace("\\", "/").rsplit("/", 1)[-1] if words else ""
     if not re.fullmatch(r"[A-Za-z0-9_.\-]+", verb):
         return None
-    if verb.lower().removesuffix(".exe").removesuffix(".cmd").removesuffix(".bat").removesuffix(".ps1") in BROAD_VERBS:
-        return f"shell_command:{_glob_escape(' '.join(words))}"
     return f"shell_command:{verb} *"
 
 
@@ -172,6 +153,17 @@ class PermissionManager:
         if approved and key is not None:
             self._remembered.add(key)
         return approved
+
+    def ask_leak(self, tool_name: str, arguments: Dict[str, Any], shown: Dict[str, Any], question: str) -> Tuple[bool, str]:
+        """A known secret is inside the arguments of an outward call: the person decides, seeing `shown` (the arguments with the secret hidden).
+        With the Rule of Two off nothing is asked. The same call, once allowed, is not asked about again."""
+        if self.two.level == "off":
+            return True, ""
+        if self._ask(tool_name, {**shown, "rule_of_two": question}, "leak:" + fingerprint(tool_name, arguments)):
+            return True, "User confirmed a secret in an outward call"
+        self.denied += 1
+        self.denied_by_tool[tool_name] = self.denied_by_tool.get(tool_name, 0) + 1
+        return False, self._refusal(question)
 
     def _refusal(self, reason: str) -> str:
         """The reason a call was not run, with what the model can still do: no one can answer a question in an unattended

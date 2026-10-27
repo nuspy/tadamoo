@@ -342,11 +342,13 @@ class RemoteAccess:
         self._lock = threading.RLock()
         self.error = ""
         self.enabled = False
-        self.max_mode = PHONE_MAX_MODE                         # the most a phone may start or switch a conversation to
+        self.phone_chooses = True                              # a phone may pick its own mode and rules; off: the limits below are the PC's
+        self.max_mode = PHONE_MAX_MODE                         # the most a phone may start or switch a conversation to, when it may not choose
         self.rules: List[str] = []                             # the allow rules a conversation started from a phone gets: the person's, never the phone's
         try:
             saved = json.loads(self.path.read_text(encoding="utf-8"))
             self.enabled = bool(saved.get("enabled"))
+            self.phone_chooses = bool(saved.get("phone_chooses", True))
             if saved.get("max_mode") in MODE_ORDER:
                 self.max_mode = saved["max_mode"]
             if isinstance(saved.get("rules"), list):
@@ -360,10 +362,11 @@ class RemoteAccess:
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({"enabled": self.enabled, "max_mode": self.max_mode, "rules": self.rules}), encoding="utf-8")
+        self.path.write_text(json.dumps({"enabled": self.enabled, "phone_chooses": self.phone_chooses, "max_mode": self.max_mode, "rules": self.rules}), encoding="utf-8")
 
-    def set_limits(self, max_mode: Any, rules: Any) -> None:
-        """What a conversation started from a phone may do without asking: its most permissive mode, and the allow rules it gets."""
+    def set_limits(self, max_mode: Any, rules: Any, phone_chooses: Any = None) -> None:
+        """Whether a phone chooses for itself; when it does not, what a conversation started from a phone may do without asking: its most
+        permissive mode, and the allow rules it gets."""
         if max_mode not in MODE_ORDER:
             raise ValueError("The most a phone may start is one of: " + ", ".join(MODE_ORDER) + ".")
         lines = [str(r).strip() for r in rules] if isinstance(rules, list) else []
@@ -371,10 +374,12 @@ class RemoteAccess:
             raise ValueError(f"Rules are lines of text, at most {PHONE_RULES_MAX}.")
         with self._lock:
             self.max_mode, self.rules = max_mode, lines
+            if phone_chooses is not None:
+                self.phone_chooses = bool(phone_chooses)
             self._save()
 
     def mode_allowed(self, mode: Any) -> bool:
-        return mode in MODE_ORDER and MODE_ORDER.index(mode) <= MODE_ORDER.index(self.max_mode)
+        return mode in MODE_ORDER and (self.phone_chooses or MODE_ORDER.index(mode) <= MODE_ORDER.index(self.max_mode))
 
     def apply(self) -> None:
         """Brings the listener in line with the setting: on when it is enabled and Tailscale has an address, off otherwise."""

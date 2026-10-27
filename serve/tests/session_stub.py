@@ -106,6 +106,10 @@ for line in sys.stdin:
         if text == "rule":
             emit({"event": "rule_added", "rule": "shell_command:pytest *"})
             emit({"event": "rule_added", "rule": "shell_command:pytest *"})
+        if text == "rule-global":
+            emit({"event": "rule_added", "rule": "shell_command:python *", "scope": "global"})
+        if text == "two-off":
+            emit({"event": "rule_of_two_off", "scope": "chat"})
         if text == "queue-me":
             emit({"event": "queued", "turn": cmd.get("id"), "text": text})
             continue

@@ -113,7 +113,7 @@ class SessionManager:
                  plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: float = 1800.0,
                  skills_dir: Optional[Path] = None, projects: Any = None, personal_dir: Optional[Path] = None, personal_keys: Optional[Path] = None,
                  learn: Optional[Callable[[Dict[str, Any]], Any]] = None, knowledge_flags: Optional[Callable[[], List[str]]] = None,
-                 rule_of_two: Optional[Callable[[], str]] = None) -> None:
+                 rule_of_two: Optional[Callable[[], str]] = None, allow_rules: Any = None, rule_of_two_prefs: Any = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -130,6 +130,8 @@ class SessionManager:
         self.browser_profile = browser_profile                  # where the browser keeps its sign-ins when the person chose that
         self.browser_prefs = browser_prefs                      # whether the conversations have a browser, and whether it shows a window
         self.knowledge_flags = knowledge_flags                  # the options for the project notes, the wiki and the reference documents (Settings, Memories)
+        self.allow_rules = allow_rules                          # the rules the person allowed for every conversation (serve/allow_rules.py)
+        self.rule_of_two_prefs = rule_of_two_prefs              # where "always" is written when the person stops the Rule of Two's question for good
         self.rule_of_two = rule_of_two                          # how strict the Rule of Two is for a conversation that starts now (harness/rule_of_two.py)
         self.payments_dir = payments_dir                        # the person's payment systems and limits, for the agent's request_payment
         self.vault_dir = vault_dir                              # the person's vault: the conversation's process fills placeholders from it
@@ -933,7 +935,9 @@ class SessionManager:
     def _command(self, sid: str, rec: Dict[str, Any], history: Path) -> List[str]:
         cmd = [self.python, "-m", "harness", "session", "--session-id", sid, "--history-dir", str(history), "--workspace", rec.get("workdir") or rec["workspace"],
                "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp", "--report-changes", "--page-files"]
-        for rule in rec.get("allow", []):
+        rules = list(rec.get("allow", []))
+        rules += [r for r in (self.allow_rules.read() if self.allow_rules else []) if r not in rules]
+        for rule in rules:
             cmd += ["--allow", rule]
         if rec.get("effort"):
             cmd += ["--effort", rec["effort"]]
@@ -949,7 +953,7 @@ class SessionManager:
         if not rec.get("ask_only") and self.payments_dir:
             cmd += ["--payments-dir", str(self.payments_dir)]
         if self.rule_of_two:
-            cmd += ["--rule-of-two", self.rule_of_two()]
+            cmd += ["--rule-of-two", rec.get("rule_of_two") or self.rule_of_two()]
         prefs = self.browser_prefs() if self.browser_prefs else {}
         if not rec.get("ask_only") and prefs.get("enabled"):
             cmd += ["--browser"] + (["--browser-headless"] if prefs.get("headless") else []) + (["--browser-private"] if prefs.get("private") else [])                    + (["--browser-profile", str(self.browser_profile)] if prefs.get("persistent") and self.browser_profile else [])
@@ -1064,8 +1068,18 @@ class SessionManager:
             elif kind == "rule_added":
                 rule = str(event.get("rule") or "").strip()
                 rules = list(rec.get("allow", []))
-                if rule and len(rule) <= 200 and "\n" not in rule and rule not in rules and len(rules) < MAX_ALLOW:
+                if event.get("scope") == "global" and self.allow_rules is not None:
+                    try:
+                        self.allow_rules.add(rule)                   # "always": every conversation from now on
+                    except ValueError:
+                        pass
+                elif rule and len(rule) <= 200 and "\n" not in rule and rule not in rules and len(rules) < MAX_ALLOW:
                     self._set(rec, allow=rules + [rule])             # a rule the person chose in the question stays for this conversation's next starts
+            elif kind == "rule_of_two_off":
+                if event.get("scope") == "global" and self.rule_of_two_prefs is not None:
+                    self.rule_of_two_prefs.write("off")
+                else:
+                    self._set(rec, rule_of_two="off")
             elif kind == "queued":
                 self._unconfirmed.pop(sid, None)                     # the process has the message; it will look at it before its next model call
             elif kind in ("started", "resumed"):

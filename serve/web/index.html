@@ -691,7 +691,7 @@
             <label class="sr" for="rl-format" data-t="lg.format">File format</label>
             <select id="rl-format"><option value="text" data-t="lg.fmt.text">Text</option><option value="jsonl" data-t="lg.fmt.jsonl">JSONL</option></select>
             <label class="sr" for="rl-mask" data-t="lg.mask">What to hide in the file</label>
-            <select id="rl-mask"><option value="secrets" data-t="lg.mask.secrets">Hide secrets</option><option value="personal" data-t="lg.mask.personal">Hide secrets, e-mails, phones, IBANs</option></select>
+            <select id="rl-mask"><option value="none" data-t="lg.mask.none">Hide nothing</option><option value="secrets" data-t="lg.mask.secrets" selected>Hide secrets</option><option value="personal" data-t="lg.mask.personal">Hide secrets, e-mails, phones, IBANs</option></select>
             <label class="sr" for="rl-hide" data-t="lg.hide">Words to hide as well, separated by commas</label>
             <input id="rl-hide" type="text" autocomplete="off" spellcheck="false" placeholder="Also hide: names, words" data-t-ph="lg.hide.ph">
           </div>

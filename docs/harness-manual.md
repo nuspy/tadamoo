@@ -106,13 +106,16 @@ message carefully and understand the risk*); once you have said yes it is not as
 you refuse, the cycle passes over it.
 
 **Rules for commands.** In *Chat → Settings → What the agent may do without asking* (for new conversations) write one rule per line, such as `shell_command:python -m pytest*`. A matching command runs without asking. A **deny**
-rule always wins. A rule never covers a command that chains or redirects another (`pytest && rm -rf ~` is not `pytest`). In a question,
-the **Always allow …** button adds a rule for you.
+rule always wins. A rule never covers a command that chains or redirects another (`pytest && rm -rf ~` is not `pytest`). Each question
+offers three answers: **Allow this call only**, **Allow … in this conversation** and **Always allow …**; the last two add a rule for you, for
+the conversation or for every conversation from then on. Settings > Wallet > *Always allowed* lists the rules kept for good and lets you add or
+take away any. A program that runs what it is given (`python`, `powershell`, `curl`) gets the same three answers: allowing it is your choice.
 
 **The Rule of Two.** Even in *Automatic*, an irreversible action asks again once the conversation has read content from outside (a
 web page, an MCP tool, a phone call, a recalled note) *and* can reach a secret or a vault entry. This is checked at every action. A web address, a search or a form asks when the
 conversation has read outside content (including files, command output, attachments and notes from the planner), touched private data and
-the action reaches the outside; Settings > Wallet sets how strict that is, and a stored secret never goes into an address at any setting.
+the action reaches the outside; Settings > Wallet sets how strict that is. A stored secret found inside an address, a search or a form asks first too, naming the secret and
+where it would go, never showing its value; with the level *Never ask* nothing is asked.
 
 **What the modes are not.** They are not an operating-system sandbox. A command runs with your rights on your files and network. The
 agent's commands have a scrubbed environment, no keyboard input, a time limit, capped output and, on Windows, a job object (memory

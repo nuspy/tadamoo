@@ -6,7 +6,7 @@
   E  the action it is about to take reaches the outside (a web address or query, a form, a request to a server).
 
 When all three are true together the outward action asks the person first, and the question says which facts made it ask. The person
-chooses how strict that is (`LEVELS`). Whatever the level, a value that is a known secret is never allowed inside an address or a query.
+chooses how strict that is (`LEVELS`). A value that is a known secret inside an address, a query or a form field asks first too, unless the level is off.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import unquote, unquote_plus
 
-from harness.secrets_broker import MIN_SECRET_LENGTH, shapes
+from harness.secrets_broker import MIN_SECRET_LENGTH, shapes, url_hosts
 
 LEVELS = ("off", "ask", "strict")
 DEFAULT_LEVEL = "ask"
@@ -176,6 +176,21 @@ class RuleOfTwo:
         return ""
 
 
+    def hide(self, value: Any, secrets: Any = None) -> Any:
+        """The arguments with every known secret value replaced, to show them to the person without showing the secret."""
+        if isinstance(value, str):
+            out = secrets.mask_secrets(value) if secrets is not None else value
+            for known in self._learned.values():
+                for form in shapes(known):
+                    out = out.replace(form, "[hidden]")
+            return out
+        if isinstance(value, dict):
+            return {k: self.hide(v, secrets) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [self.hide(v, secrets) for v in value]
+        return value
+
+
 class RuleOfTwoPrefs:
     """The person's choice of level, kept in a small file in the user data folder; the conversations started afterwards use it."""
 
@@ -197,6 +212,8 @@ class RuleOfTwoPrefs:
         return self.read()
 
 
-def blocked_message(name: str) -> str:
-    return (f"Refused: the arguments contain the value of the secret '{name}'. A secret is never put in an address, a query or a form "
-            "field by the model; use its {{secret:NAME}} or {{vault:ENTRY.FIELD}} placeholder only where the entry allows it. Nothing was sent.")
+def leak_question(tool: str, name: str, arguments: Any) -> str:
+    hosts = sorted({h for text in _strings(arguments) for h in url_hosts(text)})
+    where = ", ".join(hosts) if hosts else "a place outside this PC"
+    return (f"{tool} would send the value of the secret '{name}' to {where}, inside an address, a query or a form field "
+            "(the value is not shown here). A page the agent read could have asked for this.")
