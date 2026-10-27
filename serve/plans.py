@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-DEFAULTS = {"cloud_triage": False, "pseudonymize": True, "card_fields": None, "gate_mode": "or", "event_pump": False, "sources": []}
+DEFAULTS = {"cloud_triage": False, "pseudonymize": True, "card_fields": None, "gate_mode": "or", "event_pump": True, "sources": []}
 EVENTS_MAX = 100
 EVENT_CHARS = 2000
 
@@ -51,6 +51,7 @@ class PlanService:
         self._pump = None
         self._runner = None
         self._booted = False
+        self._sync_lock = threading.RLock()                # one start or stop of the pump and the sources at a time
         self._events_in = 0                                # events the mailbox has taken since the server started
         self._store = None
         self._settings_path = self.dir / "planner.json"
@@ -63,10 +64,16 @@ class PlanService:
         with self._lock:
             if self._store is None:
                 self._store = _planner().PlanStore(self.dir / "plans")
-            if not self._booted:                           # settings saved as "on" bring the pump back when the planner is first used
-                self._booted = True
-                self.sync_events()
-            return self._store
+            store = self._store
+        if not self._booted:                               # saved as "on", the pump and the sources start when the planner is first used
+            with self._sync_lock:
+                if not self._booted:
+                    self.sync_events()
+        return store
+
+    def start(self) -> None:
+        """Brings the pump and the sources up as the settings say; the server calls it as it starts."""
+        _ = self.store
 
     # -- settings --------------------------------------------------------------------------------
 
@@ -414,25 +421,28 @@ class PlanService:
         self._deliver([{"text": e.text, "source": e.source, "at": e.at, "plan_id": cfg.get("plan_id")} for e in events])
 
     def sync_events(self) -> None:
-        """Starts or stops the event pump and the read-only sources to match the settings (the pump is off until the person turns it on)."""
-        s = self.settings()
-        self._stop_events()
-        if not s["event_pump"]:
-            return
-        p = _planner()
-        inbox = p.EventInbox(self.pump_batch, self.pump_window)
-        pump = p.InboxPump(inbox, self.gatekeeper, self._card_for, self._pump_result, self.pump_poll)
-        saved = self._load_state()
-        built = [(cfg, p.sources.build_source(cfg, self._reveal, saved.get(cfg["id"]))) for cfg in s["sources"] if cfg.get("enabled", True)]
-        by_id = {src.id: cfg for cfg, src in built}
-        runner = p.sources.SourceRunner([src for _, src in built], lambda src, evs: self._deliver_from(by_id[src.id], evs), self._save_state)
-        with self._lock:
-            self._inbox, self._pump, self._runner = inbox, pump, runner
-        pump.start()
-        runner.start()
-        if not getattr(self, "_atexit", False):
-            self._atexit = True
-            atexit.register(self.close)
+        """Starts or stops the event pump and the read-only sources to match the settings. With the pump on and nothing to do its
+        thread sleeps; the person can turn it off."""
+        with self._sync_lock:
+            self._booted = True
+            s = self.settings()
+            self._stop_events()
+            if not s["event_pump"]:
+                return
+            p = _planner()
+            inbox = p.EventInbox(self.pump_batch, self.pump_window)
+            pump = p.InboxPump(inbox, self.gatekeeper, self._card_for, self._pump_result, self.pump_poll)
+            saved = self._load_state()
+            built = [(cfg, p.sources.build_source(cfg, self._reveal, saved.get(cfg["id"]))) for cfg in s["sources"] if cfg.get("enabled", True)]
+            by_id = {src.id: cfg for cfg, src in built}
+            runner = p.sources.SourceRunner([src for _, src in built], lambda src, evs: self._deliver_from(by_id[src.id], evs), self._save_state)
+            with self._lock:
+                self._inbox, self._pump, self._runner = inbox, pump, runner
+            pump.start()
+            runner.start()
+            if not getattr(self, "_atexit", False):
+                self._atexit = True
+                atexit.register(self.close)
 
     def _stop_events(self) -> None:
         """Takes the pump and the sources out of use and ends their threads (outside the lock: a thread may be waiting for it)."""

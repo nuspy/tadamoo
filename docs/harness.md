@@ -531,9 +531,10 @@ and the bridge the page talks to.
 - **Events from the world**: `POST /api/plans/events` takes `{"text", "source", "at"?, "plan_id"?}` or `{"events": [...]}` (up to 100). Each event goes to
   the sensors of the plan it names, or of every plan, always; with the event pump on it also goes into that plan's buffer (only plans with a card),
   and the pump thread judges a buffer when it holds 10 events or 5 minutes have passed since the first, tells the plan's viewers (`plan:triage` with
-  `via: "pump"`) and, when the filter says wake, starts the local model, which only prepares proposals. **The pump is off** until it is turned on in
-  Settings (`event_pump`); it ends with the server (`atexit`) and when it is turned off, and a pump saved as on starts again the first time the planner
-  is used after a restart (not at server start). The read-only **sources** (`sources` in Settings, up to 10) poll on their own threads, with the standard library only:
+  `via: "pump"`) and, when the filter says wake, starts the local model, which only prepares proposals. **The pump is on** unless it is turned off in
+  Settings (`event_pump`): it starts with the server when planner settings are saved (otherwise at the first use of the planner), sleeps with no polling
+  while nothing is waiting, ends with the server and when it is turned off, and a pump turned off stays off after a restart. Without the cloud
+  filter's consent the pump judges with the local keyword filter, which sends nothing out. The read-only **sources** (`sources` in Settings, up to 10) poll on their own threads, with the standard library only:
   an RSS or Atom feed (the first look only learns what is there, a DTD is refused), a mailbox over IMAP (opened with EXAMINE, headers fetched with
   `BODY.PEEK`, only sender and subject, never the body; the login is a `login` entry of the Wallet, read when needed) and a Telegram bot (long polling
   of `getUpdates`, the token a `secret` entry, only the chats in `allowed_chat_ids`; it never sends anything). Settings hold the names of the Wallet
