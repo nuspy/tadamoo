@@ -28,6 +28,7 @@ const chatSettings = (() => {
   const OTHER = [
     { key: "reasoning_budget_tokens", id: "cs-budget", min: 0, kind: "int", label: "cs.budget" },
     { key: "max_tokens", id: "cs-max_tokens", min: 1, kind: "int", label: "cs.max_tokens" },
+    { key: "retries", id: "cs-retries", min: 0, max: 5, kind: "int", label: "cs.retries" },
   ];
   // what the engine does with a key that neither the request nor the model file sets (the GEN line's defaults)
   const ENGINE_SAMPLING = { temperature: 0, top_p: 1, top_k: 20, min_p: 0, repetition_penalty: 1,
@@ -96,6 +97,7 @@ const chatSettings = (() => {
     $("#cs-threshold-box").hidden = s.policy !== "compact";
     const json = s.format === "json_object" || s.format === "json_schema";
     $("#cs-schema-box").hidden = s.format !== "json_schema";
+    $("#cs-retries-box").hidden = !json;
     $("#cs-format-note").hidden = !json;
     if (s.format === "json_schema") {
       const p = schemaProblem();
@@ -127,6 +129,7 @@ const chatSettings = (() => {
       if (s[f.key] === "" || problem(f, s[f.key])) continue;
       const n = Number(s[f.key]);
       if (f.key === "reasoning_budget_tokens" && n === 0) continue;
+      if (f.key === "retries") continue;
       out[f.key] = n;
     }
     const stops = s.stop.split("\n").map(x => x.replace(/\r$/, "")).filter(Boolean).slice(0, 4);
@@ -134,6 +137,7 @@ const chatSettings = (() => {
     if (s.format === "json_object") out.response_format = { type: "json_object" };
     if (s.format === "json_schema" && !schemaProblem())
       out.response_format = { type: "json_schema", json_schema: { name: (s.schema_name || "answer").trim() || "answer", strict: true, schema: JSON.parse(s.schema) } };
+    if (out.response_format && s.retries !== "" && !problem(OTHER[2], s.retries)) out.structured_retries = Number(s.retries);
     return out;
   }
   const system = () => read().system.trim();

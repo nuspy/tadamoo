@@ -36,6 +36,13 @@ STORY_SCHEMA = object_schema({
 FORMAT = {"type": "json_schema", "json_schema": {"name": "h3_story", "strict": True, "schema": STORY_SCHEMA}}
 
 
+try:
+    import jsonschema  # noqa: F401
+    HAVE_JSONSCHEMA = True
+except ImportError:
+    HAVE_JSONSCHEMA = False
+
+
 class Structured(unittest.TestCase):
     def request(self, path, body=None, headers=None):
         req = urllib.request.Request(self.base + path, data=json.dumps(body).encode() if body is not None else None,
@@ -83,6 +90,54 @@ class Structured(unittest.TestCase):
         self.assertEqual(json.loads(content), STORY)
         self.assertIn("reasoning_content", raw)
         self.assertIn("data: [DONE]", raw)
+
+    @unittest.skipUnless(HAVE_JSONSCHEMA, "jsonschema is not installed")
+    def test_with_tries_asked_an_invalid_answer_is_an_error_and_never_streams_content(self):
+        for script in ("## Film Plan - Photobooth", '{"title":"Only a title"}',
+                       json.dumps({**STORY, "extra": True}),
+                       json.dumps({**STORY, "boxes": [{**STORY["boxes"][0], "duration_ms": "15000"}]})):
+            with self.subTest(script=script):
+                code, reply = self.chat(script, structured_retries=1)
+                self.assertEqual(code, 502)
+                self.assertEqual(reply["error"]["code"], "structured_output_failed")
+                _, raw = self.chat(script, stream=True, structured_retries=1)
+                self.assertIn('"structured_output_failed"', raw)
+                chunks = [json.loads(line[6:]) for line in raw.splitlines() if line.startswith("data: {")]
+                for c in chunks:                                # no content of a rejected try is ever sent
+                    for choice in c.get("choices", []):
+                        self.assertFalse(choice["delta"].get("content"), c)
+                self.assertTrue(any((c.get("structured_output") or {}).get("discarded") for c in chunks))
+                self.assertIn("data: [DONE]", raw)
+
+    def test_tries_are_off_unless_the_request_asks_and_are_bounded(self):
+        self.engine = self.svc.engine = MockEngine(self.tok, "Markdown is not JSON", max_context=16384)
+        with mock.patch.object(self.engine, "generate", wraps=self.engine.generate) as generate:
+            self.assertEqual(self.chat()[0], 200)                       # the default: the engine's grammar alone
+            self.assertEqual(self.chat(structured_retries=0)[0], 200)
+            self.assertEqual(generate.call_count, 2)
+            generate.reset_mock()
+            code, reply = self.chat(structured_retries=2)               # asked: two more tries, then the error
+            self.assertEqual(code, 502)
+            self.assertEqual(generate.call_count, 3)
+            self.assertIn("after 3 tries", reply["error"]["message"])
+        for bad in (-1, 6, "2", True):
+            self.assertEqual(self.chat(structured_retries=bad)[0], 400, bad)
+
+    def test_a_rejected_answer_is_tried_again_with_the_error(self):
+        code, reply = self.chat(["## Not JSON", json.dumps(STORY)], structured_retries=1)
+        self.assertEqual(code, 200, reply)
+        self.assertEqual(json.loads(reply["choices"][0]["message"]["content"]), STORY)
+        self.assertEqual(reply["structured_output"]["attempts"], 2)
+        self.assertEqual([d["attempt"] for d in reply["structured_output"]["discarded"]], [1])
+        second = self.tok.decode(self.engine.requests[1][0])
+        self.assertNotIn("## Not JSON", second)                # the rejected text is not sent back, only why it failed
+        self.assertIn("Your previous answer was rejected: model did not return valid JSON", second)
+        code, raw = self.chat(["## Not JSON", json.dumps(STORY)], stream=True, structured_retries=1)
+        chunks = [json.loads(line[6:]) for line in raw.splitlines() if line.startswith("data: {")]
+        self.assertEqual(json.loads("".join(c["choices"][0]["delta"].get("content", "") for c in chunks)), STORY)
+        self.assertNotIn("Not JSON", raw)                       # the rejected try never reaches the client
+        self.assertEqual(chunks[-1]["structured_output"]["attempts"], 2)
+        self.assertTrue(chunks[-1]["structured_output"]["constrained"])
 
     def test_the_answer_is_not_checked_after_the_fact(self):
         for script in ("## Film Plan - Photobooth", '{"title":"Only a title"}'):

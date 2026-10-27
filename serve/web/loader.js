@@ -10,21 +10,42 @@
     { group: "context", name: "engine.max-context", kind: "int", min: 256, max: 262144, step: 1024,
       list: [4096, 8192, 16384, 32768, 65536, 131072, 262144] },
     { group: "context", name: "engine.kv", kind: "choice", options: ["fp16", "int8", "k8v4", "q4_0"] },
+    { group: "context", name: "engine.kv-resident", kind: "int", min: 0, max: 262144, step: 1024 },
+    { group: "context", name: "engine.rope-scaling", kind: "choice", options: ["none", "linear", "yarn"], defText: "d.model" },
+    { group: "context", name: "engine.rope-scale", kind: "num", min: 1, max: 1024, step: "any" },
+    { group: "context", name: "engine.rope-freq-base", kind: "num", min: 0, step: "any" },
     { group: "context", name: "server.parallel", kind: "int", min: 1, max: 8, step: 1 },
     { group: "context", name: "server.slot-full-context", kind: "bool" },
     { group: "speed", name: "engine.prefill", kind: "text", list: ["auto", "auto:8192", "auto:16384", "auto:32768", "2048", "512"] },
     { group: "speed", name: "mtp", kind: "bool", virtual: true },
     { group: "speed", name: "engine.spec", kind: "int", min: 2, max: 8, step: 1 },
     { group: "speed", name: "engine.relaxed-drafting", kind: "choice", options: ["0.5", "0.3", "0.2"] },
+    { group: "speed", name: "engine.prefill-cpu-share", kind: "num", min: 0, max: 1, step: 0.05 },
+    { group: "speed", name: "engine.adapt-swaps", kind: "int", min: 0, max: 1048576, step: 1 },
     { group: "memory", name: "engine.expert-cache", kind: "text", list: ["auto"] },
     { group: "memory", name: "engine.resident-experts", kind: "bool" },
+    { group: "memory", name: "engine.resident-budget-gib", kind: "num", min: 0.1, max: 65536, step: "any" },
+    { group: "memory", name: "engine.mmap-experts", kind: "bool" },
+    { group: "memory", name: "engine.vram-elastic", kind: "bool" },
+    { group: "memory", name: "engine.release-vram-commit", kind: "bool", windows: true },
     { group: "memory", name: "engine.ple-io", kind: "choice", options: ["direct", "mmap", "ram"] },
     { group: "memory", name: "engine.pool-workers", kind: "int", min: 1, max: 256, step: 1 },
+    { group: "cache", name: "engine.prompt-cache", kind: "int", min: 0, max: 1024, step: 1 },
+    { group: "cache", name: "engine.prompt-cache-every", kind: "int", min: 0, max: 2147483639, step: 1024 },
+    { group: "cache", name: "engine.prompt-cache-root", kind: "int", min: 0, max: 2147483639, step: 256 },
+    { group: "cache", name: "engine.conversation-cache-mib", kind: "int", min: 0, max: 16777216, step: 256 },
+    { group: "cache", name: "engine.conversation-cache-slots", kind: "int", min: 0, max: 4096, step: 1 },
+    { group: "cache", name: "engine.conversation-cache-min-free-mib", kind: "int", min: 0, max: 16777216, step: 256 },
     { group: "server", name: "server.port", kind: "int", min: 1, max: 65535, step: 1 },
     { group: "server", name: "server.vision", kind: "choice", options: ["off", "dynamic", "cpu", "0"] },
     { group: "server", name: "server.vision-projector", kind: "choice", options: ["embedded"] },   // the options come with each plan
     { group: "server", name: "server.vision-hold", kind: "choice", options: ["keep", "release"] },
+    { group: "server", name: "server.grammar", kind: "bool" },
+    { group: "server", name: "server.reasoning-budget-tokens", kind: "int", min: 0, max: 2147483639, step: 256 },
+    { group: "advanced", name: "engine.expert-profile-save", kind: "path" },
+    { group: "advanced", name: "engine.expert-profile-save-every", kind: "num", min: 0, max: 525600, step: "any" },
   ];
+  const isNum = f => f.kind === "int" || f.kind === "num";
   const fid = name => "lf-" + name.replace(/[^a-z0-9]+/gi, "-");
   const GiBn = 2 ** 30;
   const gib = n => nfmt(n / GiBn, 1);
@@ -37,9 +58,11 @@
     const box = $("#ld-fields");
     const groups = [...new Set(FIELDS.map(f => f.group))];
     box.replaceChildren(...groups.map(g => {
-      const fs = document.createElement("fieldset");
-      fs.className = "ldgroup";
-      fs.innerHTML = `<legend>${esc(T("ld.g." + g))}</legend><div class="fields"></div>`;
+      const adv = g === "advanced";                     // rarely changed: folded away until opened
+      const head = adv ? "summary" : "legend";
+      const fs = document.createElement(adv ? "details" : "fieldset");
+      fs.className = "ldgroup" + (adv ? " ldadv" : "");
+      fs.innerHTML = `<${head}>${esc(T("ld.g." + g))}</${head}><div class="fields"></div>`;
       const grid = fs.querySelector(".fields");
       for (const f of FIELDS.filter(x => x.group === g)) {
         const id = fid(f.name), help = `${id}-h`, key = f.name === "mtp" ? "mtp" : f.name;
@@ -62,13 +85,15 @@
             `<option value="" data-default></option>${opts}</select>`;
         } else {
           const list = f.list ? `<datalist id="${id}-l">${f.list.map(o => `<option value="${o}"></option>`).join("")}</datalist>` : "";
-          const num = f.kind !== "text";
+          const num = isNum(f);
+          const range = `${f.min != null ? ` min="${f.min}"` : ""}${f.max != null ? ` max="${f.max}"` : ""} step="${f.step}"`;
           d.innerHTML = `<label for="${id}">${esc(T("f." + key))}</label>` +
-            `<input id="${id}" type="${num ? "number" : "text"}" ${num ? `inputmode="numeric" min="${f.min}" max="${f.max}" step="${f.step}"` : 'autocapitalize="off" spellcheck="false"'}` +
+            `<input id="${id}" type="${num ? "number" : "text"}" ${num ? `inputmode="${f.kind === "num" ? "decimal" : "numeric"}"${range}` : 'autocapitalize="off" spellcheck="false"'}` +
             `${f.list ? ` list="${id}-l"` : ""} aria-describedby="${help}">${list}`;
         }
         d.insertAdjacentHTML("beforeend", `<p class="help" id="${help}">${esc(T("h." + key))}</p>`);
         if (f.name === RX) d.insertAdjacentHTML("beforeend", '<div class="rx-note" id="rx-note" role="status" aria-live="polite"></div>');
+        d.insertAdjacentHTML("beforeend", `<p class="help unsup" hidden>${esc(T(f.windows ? "ld.windows" : "ld.unsupported"))}</p>`);
         grid.append(d);
       }
       return fs;
@@ -77,7 +102,15 @@
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const el = name => $("#" + fid(name));
   // what a choice means, next to its name: o.<field>.<value> when the page has a sentence for it
-  const optionText = (name, value) => { const k = `o.${name}.${value}`, t = T(k); return t !== k ? t : value; };
+  const optionText = (name, value) => {
+    if (name === "server.vision" && /^\d+$/.test(value)) return gpuLabel(value);
+    const k = `o.${name}.${value}`, t = T(k);
+    return t !== k ? t : value;
+  };
+  // the GPU an image encoder can sit on: its number and, when the server found it, the card's name
+  const gpuName = n => { const g = (((INFO && INFO.limits) || {}).gpus || []).find(x => String(x.index) === String(n)); return g && g.name ? g.name : ""; };
+  const gpuLabel = n => gpuName(n) ? T("o.server.vision.gpu", n, gpuName(n)) : `GPU ${n}`;
+  const gpuShort = n => gpuName(n) ? `GPU ${n} (${gpuName(n)})` : `GPU ${n}`;
 
   /* ---- the VRAM left free: a slider and a number in GB (GiB, as Windows shows them), engine.vram-reserve-mib ---- */
   function reserveHtml(prefix, id, help) {
@@ -127,7 +160,7 @@
       const e = el(f.name);
       if (!e || f.virtual) return;
       const v = d[f.name];
-      if (f.kind === "choice") e.querySelector("[data-default]").textContent = T("opt.default", v ?? fallback[f.name] ?? "—");
+      if (f.kind === "choice") e.querySelector("[data-default]").textContent = T("opt.default", v ?? (f.defText ? T(f.defText) : fallback[f.name]) ?? "—");
       else if (f.kind === "reserve") e.placeholder = toGB(v);
       else if (f.kind !== "bool") e.placeholder = v == null ? "—" : String(v);
     });
@@ -142,8 +175,8 @@
       if (f.kind === "reserve") { out[f.name] = toMiB(e.value.trim()); continue; }
       const raw = e.value.trim();
       if (raw === "") { out[f.name] = null; continue; }
-      if (f.kind === "int") { const n = Number(raw); out[f.name] = Number.isFinite(n) ? n : raw; continue; }
-      out[f.name] = /^\d+$/.test(raw) ? Number(raw) : raw;
+      if (isNum(f)) { const n = Number(raw.replace(",", ".")); out[f.name] = Number.isFinite(n) ? n : raw; continue; }
+      out[f.name] = f.kind !== "path" && /^\d+$/.test(raw) ? Number(raw) : raw;
     }
     if (!el("mtp").checked) out["engine.spec"] = 0;
     else if (out["engine.spec"] == null || out["engine.spec"] < 2) out["engine.spec"] = 7;
@@ -154,11 +187,11 @@
     for (const f of FIELDS) {
       if (f.virtual) continue;
       const e = el(f.name), x = v[f.name];
-      if (f.kind === "bool") e.checked = x === true;
+      if (f.kind === "bool") e.checked = x == null ? ((INFO && INFO.defaults) || {})[f.name] === true : x === true;     // absent = the engine's default
       else if (f.kind === "reserve") { e.value = toGB(x); syncReserve("lf", e); }
       else if (f.kind === "choice") {                 // a value the list does not have (written in the file by hand) is added, not lost
         const s = x == null ? "" : x === true ? "0.5" : String(x);
-        if (s && !e.querySelector(`option[value="${s}"]`)) e.insertAdjacentHTML("beforeend", `<option value="${esc(s)}">${esc(s)}</option>`);
+        if (s && !e.querySelector(`option[value="${s}"]`)) e.insertAdjacentHTML("beforeend", `<option value="${esc(s)}">${esc(optionText(f.name, s))}</option>`);
         e.value = s;
       } else e.value = x == null ? "" : String(x);
     }
@@ -227,6 +260,18 @@
     const mode = el("server.vision").value || ((INFO && INFO.defaults) || {})["server.vision"] || "off";
     el("server.vision-projector").disabled = mode === "off";
     el("server.vision-hold").disabled = mode !== "dynamic";
+    // a setting of another system, or of a newer engine than the binary in use, is shown but cannot be set
+    const bad = new Set((INFO && INFO.unsupported) || []), win = !INFO || !INFO.limits || INFO.limits.windows !== false;
+    for (const f of FIELDS.filter(x => x.windows || bad.has(x.name))) {
+      const off = bad.has(f.name) || (f.windows && !win);
+      el(f.name).disabled = off;
+      $(`#ld-fields .field[data-name="${f.name}"] .unsup`).hidden = !off;
+    }
+    // mmap-experts keeps the experts in the file mapping: it wins over the resident copy and its budget
+    const mm = el("engine.mmap-experts").checked;
+    if (mm) { el("engine.resident-experts").checked = false; el("engine.resident-budget-gib").value = ""; }
+    el("engine.resident-experts").disabled = mm || bad.has("engine.resident-experts");
+    el("engine.resident-budget-gib").disabled = mm || bad.has("engine.resident-budget-gib");
     // while relaxed drafting is on, the drafter stays on and one conversation at a time is served (what it needs)
     const rx = !!el(RX).value;
     el("mtp").disabled = rx && el("mtp").checked;
@@ -234,13 +279,13 @@
   }
 
   /* ---- the prediction: resources, speed, the Load button ---- */
-  function bar(kind, need, have, keep, items, notes, share) {
+  function bar(kind, need, have, keep, items, notes, share, vgpu) {
     const known = typeof have === "number";
     const ok = !known || need <= have - (keep || 0);
     const top = Math.max(need + (keep || 0), known ? have : need, 1);
     const pct = x => `${Math.min(100, x / top * 100).toFixed(1)}%`;
-    const lis = (items || []).filter(i => i.bytes > 0).map(i =>
-      `<li><span>${esc(T("it." + (kind === "ram" && i.key === "experts" ? "experts_ram" : i.key)))}</span><b>${gib(i.bytes)} GiB</b></li>`).join("");
+    const label = i => i.key === "vision" && vgpu ? `${T("it.vision")} · ${gpuShort(vgpu.index)}` : T("it." + (kind === "ram" && i.key === "experts" ? "experts_ram" : i.key));
+    const lis = (items || []).filter(i => i.bytes > 0).map(i => `<li><span>${esc(label(i))}</span><b>${gib(i.bytes)} GiB</b></li>`).join("");
     return `<div class="res" data-ok="${ok}">
       <div class="res-h"><b>${esc(T("pr." + kind))}</b><span class="fit">${ok ? "✓ " + esc(T("pr.fits")) : "✕ " + esc(T("pr.nofit"))}</span></div>
       <div class="res-n"><span>${esc(T("pr.need", gib(need)))}</span><span>${known ? esc(T("pr.have", gib(have))) : esc(T("pr.unknown"))}</span></div>
@@ -259,6 +304,13 @@
       .concat(p.vision_hold && p.vision_hold.release ? [T("pr.vision.released", gib(p.vision_hold.bytes))] : []);
     const vnotes = [T("pr.reserve", gib(v.reserve)), T("pr.slots", nfmt(v.expert_slots), nfmt(v.expert_slots_total),
       nfmt(v.expert_slots / Math.max(1, v.expert_slots_total) * 100, 0))];
+    // what the memory settings did to the figures: the KV split, the resident budget, the caches' formula
+    const gb = n => gib(n || 0);
+    const noteText = n => T("pn." + n.code, ...({
+      kv_stream: [nfmt(n.cells), gb(n.vram), gb(n.host)], kv_fits: [nfmt(n.cells)], kv_k8v4: [], mmap_wins: [],
+      budget: [gb(n.bytes)], caches: [nfmt(n.checkpoints), nfmt(n.slots), gb(n.parked)],
+    }[n.code] || []));
+    const pnotes = (p.notes || []).map(noteText);
     const src = s.source || {};
     const srcText = src.kind === "calibration" ? T(src.exact ? "sp.cal.exact" : "sp.cal", when(src.at)) : T("sp.seed");
     const problems = (p.problems || []).map(x => LANG === "it" ? x.text_it : x.text);
@@ -268,8 +320,8 @@
     return `<section class="sec ldres" aria-label="${esc(T("pr.title"))}">
         <div class="sh"><b>${esc(T("pr.title"))}</b></div>
         <div class="pad">
-          ${bar("vram", v.need + v.reserve, v.available, 0, v.items, vnotes)}
-          ${bar("ram", r.need, r.available, r.keep, r.items, holds, r.keep_share)}
+          ${bar("vram", v.need + v.reserve, v.available, 0, v.items, vnotes, undefined, p.vision_gpu)}
+          ${bar("ram", r.need, r.available, r.keep, r.items, holds.concat(pnotes), r.keep_share)}
           ${bar("commit", c.need, c.available, c.keep, [], [T("pr.commit.parts", gib(c.ram_part), gib(c.vram_part))], c.keep_share)}
           ${p.relaxed && p.relaxed.p && !p.relaxed.effective ? `<p class="rsv-warn" role="alert">⚠ ${esc(T("rx.noeffect", p.relaxed.why.map(w => T("rx.no." + w)).join(" ")))}</p>` : ""}
         </div>
@@ -303,6 +355,22 @@
       p.projectors.map(o => opt(o.value, label(o))).join("") +
       (keep && !p.projectors.some(o => o.value === keep) ? opt(keep, keep) : "");
     if (e.dataset.sig === html) return;                           // unchanged: leave an open list alone
+    e.dataset.sig = html;
+    e.innerHTML = html;
+    e.value = keep;
+  }
+  /* the places the image encoder can sit: one option per GPU the server found, with the card's name; a saved GPU number
+     that was not found stays selectable */
+  function visionChoices() {
+    const e = el("server.vision");
+    if (!e) return;
+    const keep = e.value, seen = (((INFO && INFO.limits) || {}).gpus || []).map(g => String(g.index));
+    const cards = seen.length ? seen : ["0"];
+    if (/^\d+$/.test(keep) && !cards.includes(keep)) cards.push(keep);
+    const opt = (v, text, extra) => `<option value="${esc(v)}"${extra || ""}>${esc(text)}</option>`;
+    const html = opt("", "", " data-default") + ["off", "dynamic", "cpu"].map(m => opt(m, optionText("server.vision", m))).join("") +
+      cards.map(n => opt(n, optionText("server.vision", n))).join("");
+    if (e.dataset.sig === html) return;
     e.dataset.sig = html;
     e.innerHTML = html;
     e.value = keep;
@@ -593,6 +661,7 @@
     $("#ld-gpu").hidden = !gw; $("#ld-gpu").textContent = gw || "";
     $("#ld-standby").hidden = !INFO.standby;
     if (window.BasaltModels) await BasaltModels.refresh();
+    visionChoices();
     defaults();
     const reason = INFO.editable ? "" : T("ld.ro." + (INFO.reason || "no_config"));
     $("#ld-reason").hidden = !reason; $("#ld-reason").textContent = reason;

@@ -20,7 +20,7 @@ import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from serve import lang, loader, settings  # noqa: E402
+from serve import hardware, lang, loader, settings  # noqa: E402
 
 SAFE_NAME = "Valori sicuri"
 MACHINE_NAME = "Machine Default"        # the configuration wizard's load profile and inference preset
@@ -32,7 +32,7 @@ LOAD_FIELDS = [f"{s}.{k}" for s, k in settings.LOADER_FIELDS]
 # the chat settings a preset keeps (serve/web/chatset.js)
 INFERENCE_KEYS = ("system", "stop", "policy", "threshold", "effort", "temperature", "top_p", "top_k", "min_p",
                   "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n", "seed",
-                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "context_patterns", "end_turn_bias")
+                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias")
 
 
 def path() -> Path:
@@ -115,6 +115,7 @@ def check_load(values) -> dict:
             continue
         section, key = name.split(".", 1)
         out[name] = settings.check_value(section, key, value)
+    settings.check_combination({k.split(".", 1)[1]: v for k, v in out.items() if k.startswith("engine.")})
     return out
 
 
@@ -372,7 +373,13 @@ def compare(running: dict, running_model: str | None, requested: dict, requested
         out.append({"field": "server.model", "running": running_model, "requested": requested_model})
     for f in COMPARED:
         if not _same_value(r.get(f), q.get(f)):
-            out.append({"field": f, "running": r.get(f), "requested": q.get(f)})
+            item = {"field": f, "running": r.get(f), "requested": q.get(f)}
+            if f == "server.vision":                        # a GPU number is shown with the card's name
+                for side in ("running", "requested"):
+                    name = hardware.gpu_name(item[side]) if str(item[side]).isdigit() else None
+                    if name:
+                        item[f"{side}_name"] = name
+            out.append(item)
     if requested_port and running_port and int(requested_port) != int(running_port):
         out.append({"field": "server.port", "running": running_port, "requested": requested_port})
     return {"same": not out, "differences": out}

@@ -372,7 +372,6 @@ def vision_mode(value) -> str:
     if value is None:
         return "off"
     text = str(value).strip().lower()
-    text = {"on": "0", "peer": "1"}.get(text, text)       # the old names of the encoder on the main card and on the second
     if text in VISION_MODES:
         return text
     if text.isascii() and text.isdigit():                 # odd Unicode digits are the error, not int()'s guess
