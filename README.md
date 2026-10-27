@@ -331,8 +331,8 @@ the note.
 
 ### What is not done
 
-File and network isolation for commands (the job object limits resources only); `fs/*` and `session/load` in ACP; Basalt as an A2A
-server (it is a client only); bank accounts through an aggregator; a test of Google Pay or an embedded Stripe form on a real site;
+File and network isolation for commands (the job object limits resources only); a try of the ACP agent in a real editor (Zed, JetBrains) and
+`terminal/*`; Basalt as an A2A server (it is a client only); bank accounts through an aggregator; a test of Google Pay or an embedded Stripe form on a real site;
 and a measure of which context strategy works best (it needs the real model). No real phone call was placed in a test, and Stripe and
 Google Pay were not tried against the live services. The list with the reasons is at the end of [docs/harness.md](docs/harness.md).
 

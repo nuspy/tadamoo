@@ -39,6 +39,9 @@ class WorkspaceSandbox:
         self.watch_off = False                       # set when the workspace is too large to compare around a command
         # (tool, {"path"}) -> (allowed, reason): asked before a write inside .git, where a hook or the config can make git run code
         self.confirm_git_write: Optional[Callable[[str, Dict[str, Any]], Tuple[bool, str]]] = None
+        # an editor that holds the files: it gives a file's text (None: not known to it) and takes the text to write
+        self.read_through: Optional[Callable[[Path], Optional[str]]] = None
+        self.write_through: Optional[Callable[[Path, str], None]] = None
 
     def resolve_safe(self, rel_path: str | Path) -> Path:
         """Resolves path and enforces that it remains strictly inside self.root."""
@@ -109,12 +112,26 @@ class WorkspaceSandbox:
                 pass
             raise
 
+    def _read(self, path: Path) -> str:
+        edited = self.read_through(path) if self.read_through is not None else None
+        return edited if edited is not None else self._read_text(path)
+
+    def _write(self, path: Path, content: str) -> None:
+        if self.write_through is not None:
+            self.write_through(path, content)
+        else:
+            self._write_text(path, content)
+
     def read_file(self, path: str, max_bytes: int = 100_000) -> str:
         safe_path = self.resolve_safe(path)
         if not safe_path.is_file():
             raise FileNotFoundError(f"File not found: {path}.{self._where(path, safe_path)}")
-        with open(safe_path, "rb") as f:
-            data = f.read(max_bytes + 1)
+        edited = self.read_through(safe_path) if self.read_through is not None else None
+        if edited is not None:
+            data = edited.encode("utf-8")[:max_bytes + 1]
+        else:
+            with open(safe_path, "rb") as f:
+                data = f.read(max_bytes + 1)
         if b"\x00" in data[:8000]:
             raise ValueError(f"'{path}' is a binary file")
         text = data[:max_bytes].decode("utf-8", errors="ignore" if len(data) > max_bytes else "replace")
@@ -140,8 +157,8 @@ class WorkspaceSandbox:
         self._guard_git("write_file", path, safe_path)
         old_content, kind = "", "added"
         if safe_path.exists():
-            old_content, kind = self._read_text(safe_path), "modified"
-        self._write_text(safe_path, content)
+            old_content, kind = self._read(safe_path), "modified"
+        self._write(safe_path, content)
         return self._record(path, kind, old_content, content)
 
     def edit_file(self, path: str, target: str, replacement: str) -> Dict[str, Any]:
@@ -152,7 +169,7 @@ class WorkspaceSandbox:
             raise ValueError("The text to replace must not be empty")
         self._guard_git("edit_file", path, safe_path)
 
-        old_content = self._read_text(safe_path)
+        old_content = self._read(safe_path)
         if "\r\n" in old_content and "\r\n" not in target:        # the model writes \n; the file uses CRLF
             target = target.replace("\n", "\r\n")
             replacement = replacement.replace("\r\n", "\n").replace("\n", "\r\n")
@@ -163,7 +180,7 @@ class WorkspaceSandbox:
             raise ValueError(f"Target string appears {count} times in {path}; include more surrounding text so it is unique")
 
         new_content = old_content.replace(target, replacement, 1)
-        self._write_text(safe_path, new_content)
+        self._write(safe_path, new_content)
         return self._record(path, "modified", old_content, new_content)
 
     # -- edits made by a shell command ----------------------------------------------------------

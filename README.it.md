@@ -368,8 +368,8 @@ nell'appunto.
 
 ### Cosa non è fatto
 
-Isolamento di file e rete per i comandi (il job object limita solo le risorse); `fs/*` e `session/load` in ACP; Basalt come server A2A
-(è solo un client); i conti bancari tramite un aggregatore; una prova di Google Pay o di un modulo Stripe incorporato su un sito vero;
+Isolamento di file e rete per i comandi (il job object limita solo le risorse); una prova dell'agente ACP in un editor vero (Zed, JetBrains)
+e `terminal/*`; Basalt come server A2A (è solo un client); i conti bancari tramite un aggregatore; una prova di Google Pay o di un modulo Stripe incorporato su un sito vero;
 e una misura di quale strategia di contesto funzioni meglio (serve il modello vero). Nessuna telefonata vera è stata fatta in un test,
 e Stripe e Google Pay non sono stati provati sui servizi reali. L'elenco con i motivi è in fondo a
 [docs/harness.md](docs/harness.md).

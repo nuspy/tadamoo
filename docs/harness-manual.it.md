@@ -505,7 +505,7 @@ o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job
 ## 19. Cosa non fa
 
 - Non isola file e rete per i comandi: *Automatico* va in una cartella che puoi perdere.
-- Basalt è solo un **client** A2A; non riceve compiti da altri agenti. ACP non ha `fs/*` né `session/load`.
+- Basalt è solo un **client** A2A; non riceve compiti da altri agenti. L'agente ACP non ha `terminal/*` e non è stato provato in un editor vero; ha invece `session/load`, `authenticate` e `fs/*`.
 - Non legge i conti bancari tramite un aggregatore, e i pagamenti con Stripe e Google Pay non sono stati provati su servizi reali.
 - Audio e video richiedono il servizio callAPIcall; senza, il file viene conservato e l'agente lo dice.
 - Nulla qui misura quale strategia di contesto sia la migliore; serve il modello vero.

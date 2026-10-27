@@ -55,12 +55,12 @@ class Out:
 class Editor:
     """Plays the editor's side: sends requests, answers permission requests, records every notification."""
 
-    def __init__(self, tmp_path, client, answer=None, settings=None):
+    def __init__(self, tmp_path, client, answer=None, settings=None, **server_args):
         self.ws = tmp_path / "ws"
         self.ws.mkdir(exist_ok=True)
         self.pipe, self.out, self.client, self.answer = Pipe(), Out(), client, answer
         self.server = ACPAgentServer(workspace_dir=str(self.ws), client=client, in_stream=self.pipe, out_stream=self.out,
-                                     data_dir=str(tmp_path / "data"), settings=settings)
+                                     data_dir=str(tmp_path / "data"), settings=settings, **server_args)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self._id = 0
@@ -145,7 +145,7 @@ def test_initialize_follows_the_protocol(editor_factory):
     e = editor_factory(ScriptedClient())
     res = e.call("initialize", {"protocolVersion": 1, "clientCapabilities": {"fs": {"readTextFile": True}}})["result"]
     assert res["protocolVersion"] == 1 and isinstance(res["protocolVersion"], int)
-    assert res["agentCapabilities"]["loadSession"] is False and res["authMethods"] == []
+    assert res["agentCapabilities"]["loadSession"] is True and res["authMethods"] == []
     assert res["agentCapabilities"]["promptCapabilities"]["embeddedContext"] is True
     assert "capabilities" not in res and res["agentInfo"]["name"] == "basalt"
 
@@ -299,7 +299,7 @@ def test_malformed_messages_and_unknown_methods(editor_factory):
     assert e.wait(lambda m: m.get("id") is None and "error" in m)["error"]["code"] == -32700
     e.pipe.push(json.dumps([1, 2]))
     assert e.wait(lambda m: "error" in m and m["error"]["code"] == -32600)
-    assert e.call("session/load", {})["error"]["code"] == -32601
+    assert e.call("session/fork", {})["error"]["code"] == -32601
     before = len(e.out.messages)
     e.send("some/notification", {}, notify=True)
     time.sleep(0.2)

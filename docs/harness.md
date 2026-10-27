@@ -465,8 +465,16 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   the retried request's `params`, and the shape of the `notifications/cancelled` sent on a stdio timeout.
 - The ACP agent follows protocol version 1 over stdio: `initialize`, `session/new`, `session/prompt`, `session/cancel`,
   `session/set_mode`, `session/update` (message and thought text, tool calls, edits as `diff` content) and
-  `session/request_permission` toward the editor. It edits files itself rather than through the editor's `fs/*`, offers no
-  `session/load` and no authentication, and reads text only. It is built like the command line's agent and takes the same options
+  `session/request_permission` toward the editor, plus `session/load`, `authenticate` and the editor's `fs/read_text_file` and
+  `fs/write_text_file`. Each conversation is saved after every prompt (`acp_sessions/<id>/history.json` in the user data folder of the
+  folder the agent was started in); `session/load` takes the id, replays the conversation as `user_message_chunk`, thought, message,
+  `tool_call` and `tool_call_update` updates, and the next prompt goes on from it. When the editor says it offers `fs`, the file tools read
+  through it (so unsaved text is seen) and write through it (a write the editor refuses is an error for the model); every edit is still
+  reported as a diff. When the Basalt server refuses requests without a key and the agent has none, `initialize` lists the method
+  `basalt_api_key` and `session/new` and `session/load` answer -32000 with `data.authRequired` until `authenticate` finds the key accepted;
+  the key itself can only be given at launch (`BASALT_API_KEY` or `--api-key`), so `authenticate` checks it and does not receive it. It
+  reads text only and has no `terminal/*`. It was tested against a scripted editor over in-memory pipes and against Basalt's own ACP client,
+  never in Zed or JetBrains. It is built like the command line's agent and takes the same options
   (`python -m harness acp --capabilities --lsp --vault-dir ...`), and the `mcpServers` the editor sends with `session/new` (a program to
   start, or a Streamable HTTP address; SSE is refused) are connected for that session: their tools are always irreversible and untrusted,
   so they ask like any action that cannot be undone, and a server that cannot be started is reported on stderr and left out. Plan mode
@@ -1224,5 +1232,5 @@ An approval from the page asks the server for an answer, and any process on this
 one, so it matters that an agent which can run arbitrary code (an allow rule such as `python *`, or Automatic mode) can approve
 its own later requests: such a rule already grants that power, and only the isolation below would take it away.
 
-Not done: file and network isolation for commands (the job object limits resources only); `fs/*` and `session/load` in ACP;
+Not done: file and network isolation for commands (the job object limits resources only); `terminal/*` in ACP and a try of the ACP agent in a real editor;
 reading bank accounts through an authorized aggregator, and a test of Google Pay or an embedded Stripe form on a real site; the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.
