@@ -148,7 +148,7 @@ def test_a_repeat_is_recorded_as_refused_with_its_reason_and_the_permission_gate
     asked = []
     permissions = PermissionManager(level=PermissionLevel.AUTO)
     real = permissions.evaluate
-    permissions.evaluate = lambda name, effect, args: asked.append(name) or real(name, effect, args)
+    permissions.evaluate = lambda name, effect, args, **kw: asked.append(name) or real(name, effect, args, **kw)
     client = Scripted(calls(("a", "browser_open", {"url": "u"})), calls(("b", "browser_open", {"url": "u"})), say("done"))
     agent, ran, audit = make(tmp_path, client, permissions=permissions)
     agent.run("go")
