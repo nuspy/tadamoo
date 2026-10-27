@@ -266,9 +266,9 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
   Claude Code); **Maiusc+Tab** nel campo del messaggio passa alla successiva, con una conversazione aperta cambia solo quella, e
   *Automatico* chiede le due conferme della finestra di rischio solo la prima volta, finché non chiudi l'app.
 - **Livello di ragionamento** per conversazione (l'elenco *Ragionamento*, oppure `/effort`).
-- **Comandi con la barra**: scrivendo `/` si apre un menu di 30: sulla pagina (`/clear`, `/mode`, `/plan`, `/copy`, `/export`,
+- **Comandi con la barra**: scrivendo `/` si apre un menu di 31: sulla pagina (`/clear`, `/mode`, `/plan`, `/copy`, `/export`,
   `/branch`, `/rewind`, `/stop`, `/diff`…), risposti dal processo della conversazione (`/status`, `/context`, `/compact`, `/tools`,
-  `/hooks`, `/mcp`, `/memory`, `/permissions`), richieste scritte per il modello (`/init`, `/review`, `/security-review`,
+  `/hooks`, `/mcp`, `/memory`, `/permissions`, `/audit`), richieste scritte per il modello (`/init`, `/review`, `/security-review`,
   `/research`) e ogni skill trovata sul PC come `/nome testo`.
 - **Sa sempre che ora è.** Prima di ogni richiesta l'agente riceve da solo, dall'harness, data, ora e fuso orario locali della
   persona, quindi non deve mai chiamare uno strumento per chiederli, e l'inizio del prompt non viene toccato (il server tiene la sua

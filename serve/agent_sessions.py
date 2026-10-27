@@ -58,7 +58,7 @@ SNIPPET_CHARS = 80
 MAX_SAVED_FILE = 200 * 1024 * 1024                                          # the largest file of the folder the page offers to save
 LEVELS = ("", "very_low", "low", "normal", "high", "very_high", "highest")     # how much of pictures or diagrams the person wants; empty is none
 EFFORTS = ("", "none", "low", "medium", "high")                             # how long the model thinks; empty is its own default
-SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact")     # harness/commands.py
+SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact", "audit")     # harness/commands.py
 FILE_DIFF_BYTES = 200_000
 UNLIMITED_STEPS = -1                                                        # `max_turns` for no limit on the steps of an answer
 

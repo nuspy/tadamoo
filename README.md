@@ -243,9 +243,9 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   message box goes to the next, with a conversation open it changes that one only, and *Automatic* asks the two confirmations of the
   risk dialog the first time only, until the app is closed.
 - **Thinking level** per conversation (the *Thinking* list, or `/effort`).
-- **Slash commands**: typing `/` opens a menu of 30: on the page (`/clear`, `/mode`, `/plan`, `/copy`, `/export`, `/branch`, `/rewind`,
+- **Slash commands**: typing `/` opens a menu of 31: on the page (`/clear`, `/mode`, `/plan`, `/copy`, `/export`, `/branch`, `/rewind`,
   `/stop`, `/diff`…), answered by the conversation's process (`/status`, `/context`, `/compact`, `/tools`, `/hooks`, `/mcp`,
-  `/memory`, `/permissions`), requests worded for the model (`/init`, `/review`, `/security-review`, `/research`), and every skill found
+  `/memory`, `/permissions`, `/audit`), requests worded for the model (`/init`, `/review`, `/security-review`, `/research`), and every skill found
   on the PC as `/name text`.
 - **It always knows the time.** Before each request the agent is given the person's local date, time and timezone by the harness
   itself, so it never has to call a tool to ask, and the start of the prompt is not touched (the server keeps its cache). Each message

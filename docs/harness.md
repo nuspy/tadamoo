@@ -132,7 +132,7 @@ Code that make sense here, plus Basalt's own:
   `/plans` and `/wallet`;
 * **answered by the conversation's process** (`harness/commands.py`, data the page words in its language): `/status`, `/context`,
   `/compact` (the older half of the conversation becomes a summary, only when nothing is under way), `/tools`, `/hooks`, `/mcp`,
-  `/memory [search]`, `/permissions` (the mode, the rules, the refusals);
+  `/memory [search]`, `/permissions` (the mode, the rules, the refusals), `/audit` (whether the audit log is whole);
 * **requests worded for the model**: `/init` (write AGENTS.md), `/review` and `/security-review` (the changes in the folder), and
   `/research question` (also `/search`), which asks to read the sources themselves and to name the pages it could not open;
 * **skills** found on this PC (Settings, Capabilities): `/name text` asks the agent to load the skill with `load_capability` and follow it;
@@ -255,7 +255,8 @@ snapshot of the current state first (it is never the one rotated away). To go ba
 restores the files (`--keep-new` leaves files created since). Restoring files does not undo a command the agent ran, a call
 it placed or an MCP tool, so a rewind over any of those lists them and needs `--yes`; the rewind is written in the audit log
 and its safety snapshot can be rewound to as well. The audit log
-(`audit.jsonl`) is tamper-evident (a hash chain, a head file, secrets masked), not tamper-proof.
+(`audit.jsonl`) is tamper-evident (a hash chain, a head file, secrets masked), not tamper-proof. Conversations of one folder share it: each
+record is appended under a file lock after reading what the others added, so the chain does not fork, and `/audit` verifies the file as it is now.
 
 **The audit log keeps no file contents.** A tool call leaves one record with the tool, `args_sha256` (the SHA-256 of its arguments after
 secrets are masked), `arguments` (a masked preview with every value cut at 60 characters), `permission` (`allowed`, `denied`,
