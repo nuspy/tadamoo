@@ -280,7 +280,9 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
 - **Niente è attivo finché non lo approvi.** In *Impostazioni → Capacità* apri una voce, leggi il suo testo (una skill) o il suo
   comando (un server) e approva. L'approvazione è legata a ciò che hai letto; se il file cambia, torna *da approvare*.
 - **Usarle.** L'agente cerca (`find_capability`), carica una skill approvata (`load_capability`) o chiama uno strumento di un server
-  approvato (`call_capability`, che chiede come ogni azione irreversibile). Dalla Chat puoi chiamare una skill con `/nome testo`.
+  approvato (`call_capability`, che chiede come ogni azione irreversibile; l'agente può leggere gli argomenti di uno strumento prima di
+  chiamarlo). Se un server si ferma per chiederti dei valori, la domanda compare nella conversazione con il nome del server: viene dal
+  server, quindi non scrivere password o chiavi. Dalla Chat puoi chiamare una skill con `/nome testo`.
 - **Manca qualcosa?** L'agente può cercare online un server MCP o una skill (`find_online_capability`), mostrarti i cinque migliori con
   un punteggio, le avvertenze e il comando che verrebbe eseguito, e installare quello che scegli. All'installazione non si esegue
   nulla; il punteggio misura popolarità e manutenzione, **non la sicurezza**. Le impostazioni sono in *Impostazioni → Capacità →

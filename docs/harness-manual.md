@@ -264,7 +264,9 @@ you the address and the number to call.
 - **Nothing is active until you approve it.** In *Settings → Capabilities* open an entry, read its text (a skill) or its command (a
   server) and approve. The approval is tied to what you read; if the file changes, it is *to approve* again.
 - **Using them.** The agent searches (`find_capability`), loads an approved skill (`load_capability`) or calls an approved server's tool
-  (`call_capability`, which asks like any action that cannot be undone). From the Chat you can call a skill with `/name text`.
+  (`call_capability`, which asks like any action that cannot be undone; the agent can read a tool's arguments before it calls it). If a
+  server stops to ask you for some values, the question appears in the conversation with the server's name: it comes from the server, so
+  do not type passwords or keys. From the Chat you can call a skill with `/name text`.
 - **Missing something?** The agent can look online for an MCP server or a skill (`find_online_capability`), show you the best five
   with a score, their warnings and the command that would run, and install the one you choose. Nothing runs at install; the score
   measures popularity and upkeep, **not safety**. The settings are in *Settings → Capabilities → Search online*. Turning on "install the

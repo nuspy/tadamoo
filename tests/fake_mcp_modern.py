@@ -74,8 +74,11 @@ for line in sys.stdin:
             continue
         if MODE == "weird":
             send({"jsonrpc": "2.0", "id": rid, "result": {"resultType": "surprise"}})
+        elif MODE == "elicit" and params.get("inputResponses"):
+            reply(rid, {"content": [{"type": "text", "text": "answers=" + json.dumps(params["inputResponses"], sort_keys=True) + " state=" + str(params.get("requestState"))
+                                                           + " caps=" + json.dumps(meta[META + "clientCapabilities"], sort_keys=True)}]})
         elif MODE == "elicit":
-            send({"jsonrpc": "2.0", "id": rid, "result": {"resultType": "input_required", "inputRequests": {
+            send({"jsonrpc": "2.0", "id": rid, "result": {"resultType": "input_required", "requestState": "s-9", "inputRequests": {
                 "who": {"method": "elicitation/create", "params": {"mode": "form", "message": "Who?", "requestedSchema": {"type": "object"}}}}}})
         elif MODE == "state" and not params.get("requestState"):
             send({"jsonrpc": "2.0", "id": rid, "result": {"resultType": "input_required", "requestState": "opaque-state-1"}})
