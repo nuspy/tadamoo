@@ -179,7 +179,7 @@ An urgent request is not put aside for another urgent one: they go in order.
 ### The Chat and the planner
 
 A conversation has the planner's tools (`harness/planner_tools.py`), unless it is started `ask_only`: `plan_list`,
-`plan_get` and `plan_step_requests` (the call and the wiki question a step prepared) read; `plan_create`, `plan_propose_change`, `plan_mark`, `plan_step_start`, `plan_prepare_call` and `plan_archive` change (`plan_step_start` starts a ready step for the agent: the step is marked in progress and shows in the Tasks panel with its plan, and is marked done or failed after the result is read); `ask_user` asks a question with
+`plan_get` and `plan_step_requests` (the call and the wiki question a step prepared) read; `plan_create`, `plan_set_card`, `plan_propose_change`, `plan_mark`, `plan_step_start`, `plan_prepare_call` and `plan_archive` change (`plan_step_start` starts a ready step for the agent: the step is marked in progress and shows in the Tasks panel with its plan, and is marked done or failed after the result is read); `ask_user` asks a question with
 buttons. The plans live in the server, in the one store the Plans view uses, and every change made from the Chat names the
 Chat as its author in the plan's history.
 
@@ -487,6 +487,11 @@ and the bridge the page talks to.
   (`plan_check` with `with_model`, or the button), kept with the plan, said to be out of date once the plan changes, and never stated
   as fact. Plans are not compared for overlap with each other, only short ones with long ones. Not done: aims that are numbers to
   measure (KPIs, habits), a review that records what was found, and reading conflicts between two long-term plans by arithmetic.
+- **Every plan has a card** (what events are judged against), however it was made: one that is not given is drawn from the plan (title, dates of the profile,
+  the steps and their state) and those fields follow the plan until someone writes them (`card_auto` in the snapshot). The place, the participants
+  and what limits them are not in a plan's data: `card_missing` lists what a trip lacks, the `plan_create`/`plan_get` text tells the model to ask the
+  person only that (`ask_user`) and to save it with `plan_set_card` (the person's yes), and a plan made elsewhere (the Plans view) while the Chat is open
+  is asked about once, as a note from the planner. Without the cloud filter's consent nothing of a card leaves the machine.
 - A plan is a graph of action, sensor, decision and merge nodes with shared values. Decisions route by simple conditions
   (`len(guests) >= 2`; never code) and need at least two exits, each with a condition: a plan or a change that breaks this is refused, and a
   stored decision that breaks it cannot be completed. When a decision is completed and no exit holds (or a condition cannot be read yet) it is
@@ -529,7 +534,7 @@ and the bridge the page talks to.
   next event and shows why. A step also carries its `position` on the canvas, an optional prepared `call_request` and a `wiki_query` (below).
   Conditions are bounded (lists and texts up to 10,000, whole numbers up to 256 bits, powers up to 64) and everything that goes wrong is a plan error.
 - **Events from the world**: `POST /api/plans/events` takes `{"text", "source", "at"?, "plan_id"?}` or `{"events": [...]}` (up to 100). Each event goes to
-  the sensors of the plan it names, or of every plan, always; with the event pump on it also goes into that plan's buffer (only plans with a card),
+  the sensors of the plan it names, or of every plan, always; with the event pump on it also goes into that plan's buffer (only plans with something left to protect: a long-term plan, or one with an unfinished step),
   and the pump thread judges a buffer when it holds 10 events or 5 minutes have passed since the first, tells the plan's viewers (`plan:triage` with
   `via: "pump"`) and, when the filter says wake, starts the local model, which only prepares proposals. **The pump is on** unless it is turned off in
   Settings (`event_pump`): it starts with the server when planner settings are saved (otherwise at the first use of the planner), sleeps with no polling

@@ -309,8 +309,6 @@ class PlanService:
             raise ValueError(f"send between 1 and {EVENTS_MAX} events as a list of strings")
         texts = [str(e)[:EVENT_CHARS] for e in events if isinstance(e, (str, int, float))]
         bridge = self.bridge(plan_id)
-        if bridge.card is None:
-            raise ValueError("this plan has no card to judge events against")
         result = self.gatekeeper().triage_event_batch(bridge.card, texts)
         return self._report(plan_id, bridge, result, texts, replan)
 
@@ -370,7 +368,7 @@ class PlanService:
                 if res.get("ok") and res.get("resolved"):
                     resolved.setdefault(pid, []).extend(res["resolved"])
                     self.store.save(pid)
-                if pump_on and bridge.card is not None:
+                if pump_on and bridge.active():
                     inbox.add(pid, f"[{ev['source']}] {ev['text']}")
                     buffered[pid] = buffered.get(pid, 0) + 1
         self._events_in += len(events)

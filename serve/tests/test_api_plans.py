@@ -198,11 +198,15 @@ class PlansApiTest(PlansApiBase):
         self.assertEqual(snap["plan"]["nodes"]["partenza"]["title"], "Partenza")             # nothing applied by itself
         self.assertEqual(self.wait_event("triage", "plan:triage")["result"]["source"], "offline")
 
-    def test_a_plan_without_a_card_cannot_be_triaged(self):
-        self.call("POST", "/api/plans", {"plan": {**PLAN, "plan_id": "nocard"}})
+    def test_a_plan_made_without_a_card_gets_one_drawn_from_the_plan_and_can_be_triaged(self):
+        code, snap = self.call("POST", "/api/plans", {"plan": {**PLAN, "plan_id": "nocard"}})
+        self.assertEqual(code, 201)
+        self.assertEqual(snap["card"]["titolo"], "Weekend a Cervinia")
+        self.assertEqual(snap["card"]["logistica_e_prenotazioni"], {"Hotel": "pending", "Partenza": "pending"})
+        self.assertEqual(snap["card_auto"], ["titolo", "date", "logistica_e_prenotazioni"])
+        self.assertEqual(snap["card_missing"], ["date", "destinazione", "partecipanti"])
         code, res = self.call("POST", "/api/plans/nocard/triage", {"events": ["Sciopero"]})
-        self.assertEqual(code, 400)
-        self.assertIn("no card", res["error"]["message"])
+        self.assertEqual((code, res["source"], res["sent_to_cloud"]), (200, "offline", False))
 
     def test_settings_need_the_own_page_and_never_reveal_the_key(self):
         _, s = self.call("GET", "/api/planner/settings")

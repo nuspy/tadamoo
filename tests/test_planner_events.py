@@ -399,7 +399,8 @@ def test_with_the_pump_on_events_are_buffered_judged_and_a_wake_starts_the_repla
     model = FakeModel()
     svc = service(tmp_path, model)
     svc.create({"plan": PLAN, "card": CARD})
-    svc.create({"plan": SNOW})                                                             # no card: its events cannot be judged
+    svc.create({"plan": SNOW})
+    svc.handle_event("neve", {"type": "plan:mark", "node_id": "meteo", "status": "completed"})     # a finished plan has nothing left to protect
     try:
         svc.update_settings({"event_pump": True})
         assert svc.events_status()["pump"] is True

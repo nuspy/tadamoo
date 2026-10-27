@@ -905,7 +905,7 @@
     if (!title) return;
     const slug = title.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "plan";
     const plan_id = `${slug}_${Math.random().toString(36).slice(2, 6)}`;
-    const r = await api("api/plans", { plan: { plan_id, title, target_type: "occasional" }, card: { titolo: title } });
+    const r = await api("api/plans", { plan: { plan_id, title, target_type: "occasional" } });
     if (!r.ok) { say(errText(r.data) || T("pl.failed"), true); return; }
     document.getElementById("pl-new-title").value = "";
     ui.newForm.open = false;
@@ -1064,6 +1064,9 @@
         field("pl-m-kind", T("pl.f.kind"), el("select", { id: "pl-m-kind" },
           ["occasional", "constant"].map(k => el("option", { value: k, text: T("pl.kind." + k), selected: k === p.target_type })))),
         el("p", { class: "help", text: T("pl.kind.help") }),
+        el("p", { class: "help", text: T("pl.card.help") }),
+        ...((S.snap.card_missing || []).length ? [el("p", { class: "pl-fact", role: "status", text: T("pl.card.missing", S.snap.card_missing.map(f => T("pl.card." + f)).join(", ")) })] : []),
+        ...((S.snap.card_auto || []).length ? [el("p", { class: "help", text: T("pl.card.auto", S.snap.card_auto.map(f => T("pl.card." + f)).join(", ")) })] : []),
         field("pl-m-c-titolo", T("pl.meta.cardtitle"), el("input", { id: "pl-m-c-titolo", value: card.titolo || p.title, maxlength: "200", autocomplete: "off" })),
         field("pl-m-c-date", T("pl.card.date"), el("input", { id: "pl-m-c-date", value: card.date || "", autocomplete: "off" })),
         field("pl-m-c-dest", T("pl.card.destinazione"), el("input", { id: "pl-m-c-dest", value: card.destinazione || "", autocomplete: "off" })),

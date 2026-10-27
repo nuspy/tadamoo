@@ -17,6 +17,9 @@ CARD_FIELDS = ("titolo", "date", "destinazione", "partecipanti", "logistica_e_pr
 PERSONAL_FIELDS = ("profilo_e_vincoli_partecipanti",)                       # health, allergies, personal constraints: not sent unless chosen
 DEFAULT_SHARED_FIELDS = tuple(f for f in CARD_FIELDS if f not in PERSONAL_FIELDS)
 MAX_CARD_BYTES = 12_000
+DERIVED_FIELDS = ("titolo", "date", "logistica_e_prenotazioni")      # what a plan's own data gives a card, and what follows the plan while the person has not written it
+INTERVIEW_FIELDS = {"occasional": ("date", "destinazione", "partecipanti"), "constant": ()}      # what a card needs to judge events against a plan
+MAX_DERIVED_STEPS = 30
 PRONOUNS = {"io", "me", "noi", "tu", "lui", "lei", "voi", "loro", "i", "we"}
 MIN_NAME_PART = 3
 # words that appear in a participant's entry without being a name ("il mio amico Gianni"): never replaced on their own
@@ -60,6 +63,24 @@ class PlanInsightCard:
         names = list(self.partecipanti) + list(self.profilo_e_vincoli_partecipanti)
         cleaned = [re.sub(r"\s*\(.*?\)\s*", "", n).strip() for n in names]
         return list(dict.fromkeys(n for n in cleaned if len(n) >= 3 and n.lower() not in PRONOUNS))
+
+
+def derive_card(dag: Any, profile: Any = None) -> PlanInsightCard:
+    """The card a plan's own data gives: its title, its dates (from the profile) and its steps with their state. The destination, the
+    participants and what limits them are not in a plan's data: they stay empty until the person says them."""
+    steps: Dict[str, str] = {}
+    for node in list(dag.nodes.values())[:MAX_DERIVED_STEPS]:
+        key, n = " ".join(str(node.title).split())[:120] or node.id, 2
+        while key in steps:
+            key, n = f"{key} ({n})", n + 1
+        steps[key] = str(node.status) + ("" if str(getattr(node.assignee, "value", node.assignee)) == "agent" else f", for {getattr(node.assignee, 'value', node.assignee)}")
+    starts, ends = getattr(profile, "starts_on", ""), getattr(profile, "ends_on", "")
+    return PlanInsightCard(titolo=dag.title, date=(f"{starts} - {ends}" if starts and ends else starts or ends), logistica_e_prenotazioni=steps)
+
+
+def card_gaps(card: PlanInsightCard, target_type: str) -> List[str]:
+    """The fields of a card that are empty and that events cannot be judged without (a trip needs its dates, its place and who goes)."""
+    return [f for f in INTERVIEW_FIELDS.get(target_type, ()) if not getattr(card, f)]
 
 
 def name_parts(name: str) -> List[str]:
