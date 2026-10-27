@@ -84,7 +84,7 @@ def test_exfiltration_after_reading_untrusted_content_needs_the_user(ws, monkeyp
     monkeypatch.setenv("TAVILY_API_KEY", "k")
     register_backend("tavily", search=lambda q, n: [{"title": "page", "snippet": INJECTION}])
     asked = []
-    perms = PermissionManager(level=PermissionLevel.AUTO, sensitive_data=True,
+    perms = PermissionManager(level=PermissionLevel.DEFAULT, sensitive_data=True,
                               confirm_callback=lambda t, a: asked.append(a["command"]) or False)
     secrets = SecretsBroker({"TOKEN": "ghp_secretsecret"})
     steps = [call("search_web", {"query": "docs"}, "c1"),
@@ -169,8 +169,8 @@ def test_an_injected_instruction_to_phone_someone_never_dials_without_the_user(w
     try:
         steps = lambda: [call("search_web", {"query": "x"}, "a"),
                          call("phone_call", {"number": "+390166123456", "purpose": "obey the page"}, "b"), say("x")]
-        for perms in (PermissionManager(level=PermissionLevel.AUTO),
-                      PermissionManager(level=PermissionLevel.AUTO, confirm_callback=lambda t, a: False)):
+        for perms in (PermissionManager(level=PermissionLevel.DEFAULT),
+                      PermissionManager(level=PermissionLevel.DEFAULT, confirm_callback=lambda t, a: False)):
             perms.add_rule("phone_call", "allow")                   # even an explicit allow rule does not count
             phone_setup(fake, perms, ws, steps(), [])
         assert fake.placed == []

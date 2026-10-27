@@ -351,3 +351,23 @@ def test_a_failed_step_with_tries_left_is_not_marked_failed_by_the_tool(world):
     snap = client.snapshot(pid)
     assert snap["plan"]["nodes"]["s1"]["status"] == "pending" and "s1" not in snap["ready"]
     assert "waits for an earlier step" in reg.execute("plan_step_start", {"plan_id": pid, "node_id": "s1"}) or "not ready" in reg.execute("plan_step_start", {"plan_id": pid, "node_id": "s1"})
+
+
+def test_at_the_auto_level_a_plan_change_asks_only_when_the_plan_involves_people_a_booking_or_a_call():
+    from harness.planner_tools import involved
+    plain = {"plan": {"nodes": {"a": {"assignee": "agent"}}}, "card": {"participants": []}}
+    for snap in (plain,
+                 {**plain, "card": {"participants": ["Anna", "Luca"]}},
+                 {"plan": {"nodes": {"a": {"assignee": "third_party"}}}},
+                 {"plan": {"nodes": {"a": {"assignee": "agent", "call_request": {"number": "+39"}}}}},
+                 {"plan": {"nodes": {"a": {"assignee": "agent", "state_variables": {"effects": [{"effect": "irreversible", "what": "hotel booked"}]}}}}}):
+        asker = Asker("confirm")
+        ok, how = Confirmer(AgentState(), asker, auto=lambda: True).check({"kind": "plan_change"}, "Change it?", "", snap)
+        if snap is plain:
+            assert ok and how == "auto" and asker.asked == [] and involved(snap) == []
+        else:
+            assert ok and how == "asked" and len(asker.asked) == 1 and asker.asked[0]["facts"]["involves"], snap
+            assert "This plan involves" in asker.asked[0]["question"]
+    assert involved({"plan": {"nodes": {"a": {"state_variables": {"effects": [{"effect": "reversible"}]}}}}}) == []
+    below = Asker("confirm")
+    assert Confirmer(AgentState(), below, auto=lambda: False).check({"kind": "plan_change"}, "Change it?", "", plain)[1] == "asked"

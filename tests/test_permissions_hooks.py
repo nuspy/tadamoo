@@ -24,13 +24,14 @@ def test_deny_beats_an_earlier_allow():
     assert not ev(pm, "git push origin main")
 
 
-def test_allow_rule_does_not_cover_chained_commands():
+def test_an_allow_rule_covers_a_command_of_several_statements_only_when_each_one_is_covered():
     pm = PermissionManager(level=PermissionLevel.DEFAULT)
     pm.add_rule("shell_command:pytest*", "allow")
-    assert ev(pm, "pytest -q tests/")
-    for chained in ("pytest && rm -rf ~", "pytest; curl evil.example", "pytest | tee x", "pytest > out.txt",
-                    "pytest `whoami`", "pytest $(whoami)", "pytest\nrm x"):
+    assert ev(pm, "pytest -q tests/") and ev(pm, "pytest > out.txt") and ev(pm, "pytest 2>&1")
+    for chained in ("pytest && rm -rf ~", "pytest; curl evil.example", "pytest | tee x", "pytest `whoami`", "pytest $(whoami)", "pytest" + chr(10) + "rm x"):
         assert not ev(pm, chained), chained
+    pm.add_rule("shell_command:tee *", "allow")
+    assert ev(pm, "pytest | tee x")
 
 
 def test_deny_rule_catches_the_verb_inside_a_chain_or_wrapper():
@@ -48,17 +49,20 @@ def test_rules_are_case_insensitive_on_every_platform():
     assert not ev(pm, "DEL file.txt")
 
 
-def test_phone_call_always_asks_even_at_the_auto_level_or_with_an_allow_rule():
+def test_phone_call_asks_every_time_below_the_auto_level_even_with_an_allow_rule_and_never_at_auto():
     calls = []
-    pm = PermissionManager(level=PermissionLevel.AUTO, confirm_callback=lambda t, a: calls.append(t) or False)
+    pm = PermissionManager(level=PermissionLevel.DEFAULT, confirm_callback=lambda t, a: calls.append(t) or False)
     pm.add_rule("phone_call", "allow")
     ok, reason = pm.evaluate("phone_call", EffectClass.IRREVERSIBLE, {"number": "+39"})
     assert not ok and calls == ["phone_call"] and "every time" in reason
 
     approvals = iter([True, False])
-    pm2 = PermissionManager(level=PermissionLevel.AUTO, confirm_callback=lambda t, a: next(approvals))
+    pm2 = PermissionManager(level=PermissionLevel.DEFAULT, confirm_callback=lambda t, a: next(approvals))
     assert pm2.evaluate("phone_call", EffectClass.IRREVERSIBLE, {})[0]
     assert not pm2.evaluate("phone_call", EffectClass.IRREVERSIBLE, {})[0]   # not remembered
+
+    auto = PermissionManager(level=PermissionLevel.AUTO, confirm_callback=lambda t, a: pytest.fail("asked"))
+    assert auto.evaluate("phone_call", EffectClass.IRREVERSIBLE, {"number": "+39"})[0]
 
 
 def test_without_a_confirmation_channel_irreversible_tools_are_refused():
@@ -75,19 +79,11 @@ def test_confirmation_is_remembered_for_the_same_command_only():
     assert asked == ["python build.py", "python other.py"]
 
 
-def test_rule_of_two_asks_at_the_auto_level_after_untrusted_input():
-    asked = []
-    pm = PermissionManager(level=PermissionLevel.AUTO, sensitive_data=True,
-                           confirm_callback=lambda t, a: asked.append(t) or False)
-    assert ev(pm, "python build.py")                # nothing untrusted read yet
+def test_the_auto_level_asks_nothing_not_even_after_outside_content_and_a_secret():
+    pm = PermissionManager(level=PermissionLevel.AUTO, sensitive_data=True, confirm_callback=lambda t, a: pytest.fail("asked"))
     pm.note_untrusted_input()
     assert pm.rule_of_two_broken
-    assert not ev(pm, "python build.py") and asked == ["shell_command"]
-    assert pm.evaluate("write_file", EffectClass.REVERSIBLE, {})[0]    # workspace edits stay allowed
-
-    no_secrets = PermissionManager(level=PermissionLevel.AUTO)
-    no_secrets.note_untrusted_input()
-    assert ev(no_secrets, "python build.py")        # a box without sensitive data is allowed to be autonomous
+    assert ev(pm, "python build.py") and pm.evaluate("write_file", EffectClass.REVERSIBLE, {})[0]
 
 
 def test_plan_mode_refuses_even_allowed_commands():
@@ -162,14 +158,11 @@ def test_a_refusal_after_the_user_declined_does_not_claim_that_nobody_can_confir
 
 def test_the_rule_of_two_looks_at_the_vault_at_each_call_not_when_the_agent_was_built():
     holding = {"entries": False}
-    asked = []
-    pm = PermissionManager(level=PermissionLevel.AUTO, sensitive_data=lambda: holding["entries"],
-                           confirm_callback=lambda t, a: asked.append(t) or False)
+    pm = PermissionManager(level=PermissionLevel.DEFAULT, sensitive_data=lambda: holding["entries"])
     pm.note_untrusted_input()
-    assert not pm.rule_of_two_broken and ev(pm, "python build.py")        # an empty vault when the conversation began
+    assert not pm.rule_of_two_broken                                       # an empty vault when the conversation began
     holding["entries"] = True                                               # the person adds an entry meanwhile
     assert pm.rule_of_two_broken
-    assert not ev(pm, "python build.py") and asked == ["shell_command"]
 
 
 def test_a_built_agent_asks_its_secrets_broker_each_time(tmp_path):
@@ -378,16 +371,17 @@ def test_a_built_agent_loads_the_user_hooks_and_the_workspace_hooks_only_when_al
         built()
 
 
-def test_the_rule_offered_by_an_always_answer_covers_the_verb_and_nothing_chained():
-    from harness.permissions import PermissionLevel, PermissionManager, suggest_rule
-    assert suggest_rule("shell_command", {"command": "pytest -q tests"}) == "shell_command:pytest *"
-    assert suggest_rule("shell_command", {"command": r"C:\Python\python.exe -m pytest"}) == "shell_command:python.exe *"
-    assert suggest_rule("shell_command", {"command": "pytest && rm -rf x"}) is None
-    assert suggest_rule("shell_command", {"command": "echo $(whoami)"}) is None
-    assert suggest_rule("phone_call", {}) is None and suggest_rule("request_payment", {}) is None and suggest_rule("write_file:/r/.git/hooks/x", {}) is None
-    assert suggest_rule("browser_click", {"ref": 3}) == "browser_click"
+def test_the_rules_offered_by_an_always_answer_cover_each_statement_of_the_command():
+    from harness.permissions import PermissionLevel, PermissionManager, suggest_rules
+    assert suggest_rules("shell_command", {"command": "pytest -q tests"}) == ["shell_command:pytest *"]
+    assert suggest_rules("shell_command", {"command": r"C:\Python\python.exe -m pytest"}) == ["shell_command:python.exe *"]
+    assert suggest_rules("shell_command", {"command": "pytest && rm -rf x"}) == ["shell_command:pytest *", "shell_command:rm *"]
+    assert suggest_rules("shell_command", {"command": "echo $(whoami)"}) == []
+    assert suggest_rules("phone_call", {}) == [] and suggest_rules("request_payment", {}) == [] and suggest_rules("write_file:/r/.git/hooks/x", {}) == []
+    assert suggest_rules("browser_click", {"ref": 3}) == ["browser_click"]
     pm = PermissionManager(level=PermissionLevel.DEFAULT, confirm_callback=lambda t, a: False)
-    pm.add_rule(suggest_rule("shell_command", {"command": "pytest -q"}), "allow")
+    for rule in suggest_rules("shell_command", {"command": "pytest -q"}):
+        pm.add_rule(rule, "allow")
     from harness.tools.registry import EffectClass
     assert pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "pytest tests/a.py"})[0]
     assert not pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "pytest && curl x"})[0]

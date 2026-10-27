@@ -106,13 +106,12 @@ message carefully and understand the risk*); once you have said yes it is not as
 you refuse, the cycle passes over it.
 
 **Rules for commands.** In *Chat → Settings → What the agent may do without asking* (for new conversations) write one rule per line, such as `shell_command:python -m pytest*`. A matching command runs without asking. A **deny**
-rule always wins. A rule never covers a command that chains or redirects another (`pytest && rm -rf ~` is not `pytest`). Each question
+rule always wins. A command of several statements (`cd x && make`) is allowed when a rule covers each statement; a command built at run time (`$(...)`) is covered by no rule. Each question
 offers three answers: **Allow this call only**, **Allow … in this conversation** and **Always allow …**; the last two add a rule for you, for
 the conversation or for every conversation from then on. Settings > Wallet > *Always allowed* lists the rules kept for good and lets you add or
 take away any. A program that runs what it is given (`python`, `powershell`, `curl`) gets the same three answers: allowing it is your choice.
 
-**The Rule of Two.** Even in *Automatic*, an irreversible action asks again once the conversation has read content from outside (a
-web page, an MCP tool, a phone call, a recalled note) *and* can reach a secret or a vault entry. This is checked at every action. A web address, a search or a form asks when the
+**The Rule of Two.** In *Automatic* nothing is asked. Below it, a web address, a search or a form asks when the
 conversation has read outside content (including files, command output, attachments and notes from the planner), touched private data and
 the action reaches the outside; Settings > Wallet sets how strict that is. A stored secret found inside an address, a search or a form asks first too, naming the secret and
 where it would go, never showing its value; with the level *Never ask* nothing is asked.
@@ -315,7 +314,7 @@ you the address and the number to call.
   itself up to a cap per payment and a cumulative cap until it expires, after a dictated declaration and two dialogs with your name
   typed again; above the caps it asks again. A payment can be stopped from the Wallet at any moment, and then the card's fields are no
   longer released. Whatever a merchant's form then charges is bounded by the card's own limit, not by Basalt.
-- **Phone calls** are off by default and, once on, ask you **every time**, even in *Automatic*. The call opens by saying an AI
+- **Phone calls** are off by default and, once on, ask you **every time** below *Automatic*; in *Automatic* nothing is asked. The call opens by saying an AI
   assistant is calling on your behalf. No real call has been placed in a test.
 - **What this does not protect from.** The agent runs as your own user. A program running as you can reach more than the vault can
   hide; the commands the agent runs cannot name the vault, the payment files or the browser's sign-ins, but that is a fence for a
@@ -484,7 +483,7 @@ on a restricted script is a fence against mistakes, not a wall against someone w
 | A notice that no model is loaded | the server has nothing loaded | *Models*, choose one, *Load* |
 | The conversation is *blocked* | the server refused for good, or the process kept failing | read the note, then *Try again* or close it |
 | "Nobody can confirm in this run" | a headless run met something that needs a question | add `--interactive`, or an `--allow` rule |
-| A command was refused although a rule allows it | the command chains or redirects another | one plain command per call |
+| A command still asks although a rule allows it | a statement of it is not covered by a rule, or it is built at run time (`$(...)`) | allow each program it uses |
 | A tool was stopped after 15 minutes | the default time limit | `--tool-timeout NAME=SECONDS` |
 | The search says it needs a check | DuckDuckGo limits automatic searches | wait, set another engine, or `BASALT_WEB_SEARCH=off` |
 | A slash command stays in the box | the name is unknown | `/help`; start with a space to send it as text |

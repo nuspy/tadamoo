@@ -80,9 +80,8 @@ def test_the_levels_decide_it_like_any_irreversible_action(tmp_path):
     ws, registry, _ = tools(tmp_path, level=PermissionLevel.AUTO, asker=asker)
     registry.execute("write_file", {"path": ".git/hooks/pre-push", "content": "x"})                  # auto: allowed
     assert asker.asked == []
-    _, registry3, perms3 = tools(tmp_path / "three", level=PermissionLevel.AUTO, asker=asker, sensitive=True)
-    perms3.note_untrusted_input()                                                                    # the Rule of Two is broken: it asks
-    with pytest.raises(PermissionError):
+    _, registry3, perms3 = tools(tmp_path / "three", level=PermissionLevel.DEFAULT, asker=asker)
+    with pytest.raises(PermissionError):                                                             # below auto it asks, and the answer was no
         registry3.execute("write_file", {"path": ".git/hooks/pre-push", "content": "x"})
     assert asker.asked and asker.asked[-1][0] == "write_file:.git/hooks/pre-push"
 

@@ -57,7 +57,7 @@ def make(tmp_path, model, judge=None, parallel=1):
     ws = tmp_path / "ws"
     ws.mkdir(exist_ok=True)
     built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False,
-                                    permission_mode="auto", max_turns=6), client=model)
+                                    permission_mode="default", max_turns=6), client=model)
     events = Events()
     store = SessionStore(tmp_path / "hist", redact=built.agent.secrets.mask_secrets)
     health = lambda: {"reachable": True, "loaded": True, "loading": False, "auto_load": True, "parallel": parallel}

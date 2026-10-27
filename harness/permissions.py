@@ -3,8 +3,9 @@
 Evaluation order, first match wins:
   1. plan mode refuses everything that is not read-only;
   2. a matching deny rule refuses (allow rules never override it);
-  3. a tool in `always_ask` needs a fresh confirmation every time, whatever the level or the rules;
-  4. an allow rule permits (a shell command that chains or redirects never matches an allow rule);
+  2b. at the Auto level everything else passes, nothing is asked;
+  3. a tool in `always_ask` needs a fresh confirmation every time, whatever the rules;
+  4. an allow rule permits (a command that chains others is permitted when every statement of it is covered by a rule);
   5. read-only tools pass; the level decides the rest.
 """
 from __future__ import annotations
@@ -49,6 +50,44 @@ def _targets(tool_name: str, arguments: Dict[str, Any]) -> Tuple[List[str], bool
     return [f"shell_command:{command}"] + [f"shell_command:{s}" for s in segments], not chained
 
 
+_RUNTIME_EXPANSION = re.compile(r"\$\(|\$\{|`|%[A-Za-z_]+%")      # text that becomes a command only when the shell runs it
+_VERB_OK = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+def statements(command: str) -> Optional[List[str]]:
+    """The statements of a command line (split on ; & | && || and line ends outside quotes), or None when part of it is built at run time
+    (`$(...)`, a backtick, `${...}`, `%VAR%`), so what it would run cannot be told from its text. A redirection (`2>&1`, `> out`) stays in its statement."""
+    if _RUNTIME_EXPANSION.search(command):
+        return None
+    out: List[str] = []
+    cur: List[str] = []
+    quote = ""
+    for i, ch in enumerate(command):
+        if quote:
+            cur.append(ch)
+            quote = "" if ch == quote else quote
+        elif ch in "\"'":
+            quote = ch
+            cur.append(ch)
+        elif ch in ";|\n\r" or (ch == "&" and not (i and command[i - 1] == ">")):
+            out.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    out.append("".join(cur))
+    return [x.strip() for x in out if x.strip()]
+
+
+def _verb(statement: str) -> str:
+    words = statement.split()
+    verb = words[0].strip("\"'").replace("\\", "/").rsplit("/", 1)[-1] if words else ""
+    return verb if _VERB_OK.fullmatch(verb) else ""
+
+
+def _glob_escape(text: str) -> str:
+    return re.sub(r"[*?\[]", lambda m: f"[{m.group(0)}]", text)
+
+
 def _matches(rule: PermissionRule, targets: List[str], arguments: Dict[str, Any]) -> bool:
     pattern = rule.pattern.lower()
     if any(fnmatch.fnmatchcase(t.lower(), pattern) for t in targets):
@@ -74,22 +113,20 @@ def fingerprint(tool_name: str, arguments: Dict[str, Any]) -> str:
     return f"{tool_name}#{hashlib.sha256(body.encode('utf-8', 'replace')).hexdigest()[:24]}"
 
 
-def suggest_rule(tool_name: str, arguments: Dict[str, Any], always_ask: FrozenSet[str] = DEFAULT_ALWAYS_ASK) -> Optional[str]:
-    """The allow rule that would let this kind of call run without asking again, or None when no rule could cover it: a command is allowed by
-    its verb (`pytest *`), any other tool by its name. A command that chains others is covered by no rule, and a tool that always asks, or
-    whose question is its own (payments, the writes inside .git), is never offered."""
+def suggest_rules(tool_name: str, arguments: Dict[str, Any], always_ask: FrozenSet[str] = DEFAULT_ALWAYS_ASK) -> List[str]:
+    """The allow rules that would let this kind of call run without asking again: a command by the verb of each of its statements
+    (`pytest *`; a statement with no plain verb by its own text), any other tool by its name. A tool that always asks, or whose question is
+    its own (payments, the writes inside .git), gets none."""
     if tool_name in always_ask or tool_name == "request_payment" or ":" in tool_name:
-        return None
+        return []
     if tool_name != "shell_command":
-        return tool_name
+        return [tool_name]
     command = arguments.get("command")
-    if not isinstance(command, str) or _CHAINING.search(command):
-        return None
-    words = command.strip().split()
-    verb = words[0].strip("\"'").replace("\\", "/").rsplit("/", 1)[-1] if words else ""
-    if not re.fullmatch(r"[A-Za-z0-9_.\-]+", verb):
-        return None
-    return f"shell_command:{verb} *"
+    parts = statements(command) if isinstance(command, str) else None
+    if not parts:
+        return []
+    rules = [f"shell_command:{_verb(x)} *" if _verb(x) else f"shell_command:{_glob_escape(x)}" for x in parts]
+    return list(dict.fromkeys(rules))
 
 
 class PermissionManager:
@@ -146,6 +183,26 @@ class PermissionManager:
         reach sensitive data is looked at now, not when the agent was built: the person may add to the vault meanwhile."""
         return self.two.level != "off" and self.untrusted_input and (self.sensitive_data or bool(self.two.private))
 
+    def _allowed_by(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+        """The allow rules that cover this call, or ''. A rule that is the tool's name covers every call of it; a command is covered when each
+        of its statements is covered by a rule, so `cd x && make` needs one for `cd` and one for `make`."""
+        allows = [r for r in self.rules if r.action == "allow"]
+        if any(r.pattern.lower() == tool_name.lower() for r in allows):
+            return tool_name
+        command = arguments.get("command")
+        if tool_name != "shell_command" or not isinstance(command, str):
+            return ""
+        parts = statements(command)
+        if not parts:
+            return ""
+        used: List[str] = []
+        for part in parts:
+            hit = next((r for r in allows if _matches(r, [f"shell_command:{part}"], {"command": part})), None)
+            if hit is None:
+                return ""
+            used.append(hit.pattern)
+        return ", ".join(dict.fromkeys(used))
+
     def _ask(self, tool_name: str, arguments: Dict[str, Any], key: Optional[str]) -> bool:
         if key is not None and key in self._remembered:
             return True
@@ -156,8 +213,8 @@ class PermissionManager:
 
     def ask_leak(self, tool_name: str, arguments: Dict[str, Any], shown: Dict[str, Any], question: str) -> Tuple[bool, str]:
         """A known secret is inside the arguments of an outward call: the person decides, seeing `shown` (the arguments with the secret hidden).
-        With the Rule of Two off nothing is asked. The same call, once allowed, is not asked about again."""
-        if self.two.level == "off":
+        With the Rule of Two off, or at the Auto level, nothing is asked. The same call, once allowed, is not asked about again."""
+        if self.two.level == "off" or self.level == PermissionLevel.AUTO:
             return True, ""
         if self._ask(tool_name, {**shown, "rule_of_two": question}, "leak:" + fingerprint(tool_name, arguments)):
             return True, "User confirmed a secret in an outward call"
@@ -189,11 +246,14 @@ class PermissionManager:
         if self.plan_mode and effect != EffectClass.PURE:
             return False, f"Plan mode active: execution of {tool_name} deferred until user approves plan"
 
-        targets, plain = _targets(tool_name, arguments)
+        targets, _ = _targets(tool_name, arguments)
 
         for rule in self.rules:
             if rule.action == "deny" and _matches(rule, targets, arguments):
                 return False, f"Execution denied by rule: '{rule.pattern}'"
+
+        if self.level == PermissionLevel.AUTO:
+            return True, "Auto level permitted"                 # the person chose that nothing is asked; their own deny rules above still hold
 
         if tool_name in self.always_ask:
             if self._ask(tool_name, arguments, None):
@@ -206,9 +266,9 @@ class PermissionManager:
                 return True, "User confirmed after the Rule of Two check"      # the same call, put plainly: the level's own question would add nothing
             return False, self._refusal(why)
 
-        for rule in self.rules:
-            if rule.action == "allow" and plain and _matches(rule, targets, arguments):
-                return True, f"Permitted by allow rule: '{rule.pattern}'"
+        covered = self._allowed_by(tool_name, arguments)
+        if covered:
+            return True, f"Permitted by allow rule: '{covered}'"
 
         if effect == EffectClass.PURE:
             return True, "Pure read-only operation permitted"
@@ -225,13 +285,5 @@ class PermissionManager:
             if self._ask(tool_name, arguments, key):
                 return True, "User confirmed irreversible execution"
             return False, self._refusal(f"Irreversible tool {tool_name} needs confirmation")
-
-        if self.level == PermissionLevel.AUTO:
-            if effect == EffectClass.IRREVERSIBLE and self.rule_of_two_broken:
-                if self._ask(tool_name, arguments, key):
-                    return True, "User confirmed after the Rule of Two check"      # the same call, put plainly: the level's own question would add nothing
-                return False, (f"{tool_name} needs confirmation: this session read untrusted content and can reach "
-                               "sensitive data")
-            return True, "Auto level permitted"
 
         return False, "Permission denied by default"
