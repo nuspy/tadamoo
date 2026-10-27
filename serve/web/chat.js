@@ -603,8 +603,22 @@
       }
     }
   }
+  /* the model-only conversation as plain data, and the SVG a diagram was drawn as (empty when it was not): both read by export.js */
+  function snapshot() {
+    const items = [];
+    messages.forEach((m, n) => {
+      const time = (m.time || 0) / 1000;
+      if (m.role === "user") items.push({ kind: "prompt", text: m.text || "", time, images: (m.images || []).filter(i => i.url).map(i => ({ name: i.name || "", url: i.url })) });
+      else if (m.role === "assistant") {
+        if (m.reasoning) items.push({ kind: "reasoning", turn: n, text: m.reasoning, time });
+        if (m.text) items.push({ kind: "answer", turn: n, text: m.text, time });
+      }
+    });
+    return { title: "", session: "", items };
+  }
   window.chatUi = {
     renderMarkdown: (el, text) => { el.innerHTML = markdown(text || ""); loadPictures(el); drawDiagrams(el); },
+    snapshot, diagram: code => drawn.get(code) || "",
     sessionId: () => "",
     watchThink, paintThink, scrollDown, autosize, stamp, sourceLink,
     setPrompt: t => { prompt.value = t; autosize(); prompt.focus(); },

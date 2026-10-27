@@ -769,7 +769,7 @@ def test_a_comparison_without_copies_has_no_file_diff_and_bad_requests_are_refus
     mgr = make()
     sid = mgr.create(ws)["id"]
     _said(mgr, sid, "uno", 1)
-    for bad in (None, [], [{"text": "a"}], [{"text": "a"}, {"text": ""}], [{"text": "a"}, {"text": "b", "mode": "auto"}], [{"text": "a"}, {"text": "b", "max_turns": 99}],
+    for bad in (None, [], [{"text": "a"}], [{"text": "a"}, {"text": ""}], [{"text": "a"}, {"text": "b", "mode": "auto"}], [{"text": "a"}, {"text": "b", "max_turns": 0}],
                 [{"text": "a"}, "b"], [{"text": "a"}, {"text": "b", "end_turn_bias": 99}]):
         with pytest.raises(RunError):
             mgr.compare_start(sid, 1, bad)
@@ -844,6 +844,41 @@ def test_the_thinking_level_is_kept_and_checked(make, ws):
     assert e.value.code == "bad_effort"
     with pytest.raises(RunError):
         mgr.create(ws, effort="maximum")
+
+
+def test_the_steps_of_an_answer_default_to_no_limit_and_are_checked(make, ws):
+    mgr = make()
+    rec = mgr.create(ws)
+    assert rec["max_turns"] == -1
+    assert mgr.create(ws, max_turns=40)["max_turns"] == 40                       # no upper cap
+    cmd = mgr._command(rec["id"], rec, mgr.history_dir(rec["id"]))
+    assert cmd[cmd.index("--max-turns") + 1] == "-1"
+    old = {**rec}
+    old.pop("max_turns")
+    assert mgr._command(rec["id"], old, mgr.history_dir(rec["id"]))[mgr._command(rec["id"], old, mgr.history_dir(rec["id"])).index("--max-turns") + 1] == "15"
+    for bad in (0, -2, "5", 1.5, True, None):
+        with pytest.raises(RunError) as e:
+            mgr.create(ws, max_turns=bad)
+        assert e.value.code == "bad_steps"
+
+
+def test_the_steps_and_the_end_of_turn_bias_of_a_running_conversation_can_be_changed(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    out = mgr.set_settings(sid, max_turns=7, end_turn_bias=-3)                     # no process yet: the record is what it will start with
+    assert out["max_turns"] == 7 and out["end_turn_bias"] == -3.0
+    assert [e["event"] for e in mgr.events(sid)["events"]] == ["settings"]
+    cmd = mgr._command(sid, mgr.get(sid), mgr.history_dir(sid))
+    assert cmd[cmd.index("--max-turns") + 1] == "7" and cmd[cmd.index("--end-turn-bias") + 1] == "-3.0"
+    mgr.send(sid, "uno")
+    until(lambda: "done" in kinds(mgr, sid))
+    assert mgr.set_settings(sid, max_turns=-1)["max_turns"] == -1
+    assert mgr.set_settings(sid, end_turn_bias=0)["end_turn_bias"] == 0.0
+    until(lambda: kinds(mgr, sid).count("settings") == 3)                         # the process was told, and said so
+    for bad in ({"max_turns": 0}, {"max_turns": "3"}, {"end_turn_bias": 5}, {"end_turn_bias": "low"}, {}):
+        with pytest.raises(RunError):
+            mgr.set_settings(sid, **bad)
+    assert mgr.get(sid)["max_turns"] == -1
 
 
 def test_a_conversation_is_renamed_and_a_command_is_answered_by_its_process(make, ws):

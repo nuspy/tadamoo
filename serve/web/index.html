@@ -19,6 +19,7 @@
 <link rel="stylesheet" href="web/wallet.css">
 <link rel="stylesheet" href="web/risk.css">
 <link rel="stylesheet" href="web/branches.css">
+<link rel="stylesheet" href="web/export.css">
 <script defer src="web/i18n.js"></script>
 <script defer src="web/risk.js"></script>
 <script defer src="web/app.js"></script>
@@ -31,6 +32,7 @@
 <script defer src="web/agentchat.js"></script>
 <script defer src="web/slash.js"></script>
 <script defer src="web/pskills.js"></script>
+<script defer src="web/export.js"></script>
 <script defer src="web/branches.js"></script>
 <script defer src="web/settings.js"></script>
 <script defer src="web/capabilities.js"></script>
@@ -192,6 +194,7 @@
       <div class="sh chathead">
         <button type="button" class="btn" id="new-chat" data-t="ch.newbtn">New conversation</button>
         <button type="button" class="btn" id="branches-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="branches" data-t="br.open" hidden>Branches</button>
+        <button type="button" class="btn" id="export-open" aria-haspopup="dialog" data-t="exp.btn" data-t-title="exp.btn.title">Export</button>
         <button type="button" class="btn" id="pskills-open" aria-haspopup="dialog" data-t="psk.btn" data-t-title="psk.btn.title" hidden>Skills</button>
         <button type="button" class="btn" id="chg-open" aria-expanded="false" aria-controls="chg-side" data-t="ch.title" hidden>Changes</button>
         <span class="folderchip" id="folder-chip" hidden></span>
@@ -340,6 +343,10 @@
             <div class="csnum"><label for="cs-max_tokens" data-t="cs.max_tokens">Max output tokens</label>
               <input id="cs-max_tokens" type="number" inputmode="numeric" min="1" step="256" aria-describedby="cs-max_tokens-h">
               <p class="help" id="cs-max_tokens-h" data-t="cs.max_tokens.help"></p></div>
+            <div class="csnum"><label for="cs-max_turns" data-t="cs.max_turns">Max steps per answer</label>
+              <input id="cs-max_turns" type="number" inputmode="numeric" min="-1" step="1" placeholder="-1" aria-describedby="cs-max_turns-h">
+              <p class="help" id="cs-max_turns-h" data-t="cs.max_turns.help"></p>
+              <p class="help" id="cs-live" role="status" aria-live="polite" hidden></p></div>
           </div>
         </fieldset>
         <fieldset class="csgroup">

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,6 +26,7 @@ from harness.plan_mode import MODES_AFTER_PLAN, PLAN_TOOL, PlanGate, register_pl
 from harness.secrets_broker import SecretsBroker
 from harness.skills import ApprovalStore, SkillCatalog, find_project_guidelines, register_skill_tool
 from harness.tools import create_standard_tool_registry
+from harness.tools.registry import TOOL_CALL_NOTE
 
 SYSTEM_CORE = (
     "You are Basalt, an autonomous coding agent working inside one workspace folder. "
@@ -45,6 +47,27 @@ PERMISSION_MODES = {
     "default": (PermissionLevel.DEFAULT, False),
     "auto": (PermissionLevel.AUTO, False),
 }
+FALLBACK_CONTEXT_TOKENS = 32768       # the window assumed when the server cannot say its own
+ANSWER_RESERVE_TOKENS = 8192          # room kept for the model's answer when the window comes from the server (a small window keeps a quarter)
+MIN_BUDGET_TOKENS = 1024              # the least the context manager is ever given
+
+
+def context_budget(window: int, reserve: int) -> int:
+    """Tokens the prompt may use out of a window: a tenth kept as a safety buffer and `reserve` for the answer, never below the floor."""
+    return max(available_budget(window, 0.1, reserve), MIN_BUDGET_TOKENS)
+
+
+def server_context_window(client: Any) -> Optional[int]:
+    """The context the server reports for the model it serves, asked through `client`; None when the client cannot ask, the server
+    cannot be reached or it gives no number."""
+    ask = getattr(client, "context_window", None)
+    if not callable(ask):
+        return None
+    try:
+        value = ask()
+    except Exception:
+        return None
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 
 def split_secret_specs(specs: List[str]) -> "tuple[List[str], Dict[str, List[str]]]":
@@ -81,7 +104,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = 15) ->
     parser.add_argument("--workspace", default=".", help="folder the agent works in")
     parser.add_argument("--endpoint", default="http://127.0.0.1:7232", help="Basalt server address")
     parser.add_argument("--api-key", default=os.environ.get("BASALT_API_KEY"), help="server API key (or BASALT_API_KEY)")
-    parser.add_argument("--max-turns", type=int, default=max_turns, help="most model turns")
+    parser.add_argument("--max-turns", type=int, default=max_turns, help="most model turns in one answer (below 1: no limit)")
     parser.add_argument("--permission-mode", choices=["plan", "read_only", "default", "auto"], default="default")
     parser.add_argument("--allow", action="append", default=[], metavar="PATTERN", help='allow rule, e.g. "shell_command:pytest*"')
     parser.add_argument("--deny", action="append", default=[], metavar="PATTERN", help="deny rule")
@@ -94,6 +117,10 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = 15) ->
     parser.add_argument("--browser-headless", action="store_true", help="the browser has no window")
     parser.add_argument("--browser-private", action="store_true", help="the browser may open pages on this PC and its network")
     parser.add_argument("--browser-profile", default="", help="a profile folder that keeps the browser's sign-ins between conversations")
+    parser.add_argument("--browser-consent", default="necessary", choices=["necessary", "accept", "reject", "off"],
+                        help="what the browser does about a cookie banner: reject all or keep only the necessary (accept if that is not possible), accept, reject, or leave it to the model")
+    parser.add_argument("--browser-permissions", default="deny", choices=["deny", "ask", "grant-safe"],
+                        help="what the browser does when a page asks for a permission (location, camera, notifications...): refuse, ask the person, or allow only what is safe")
     parser.add_argument("--vault-dir", default="", help="the person's vault: the model writes {{vault:ENTRY.FIELD}} and the value is filled in for it")
     parser.add_argument("--capabilities", action="store_true", help="offer the search for skills, plugins and MCP servers found on this PC, and the visual analysis")
     parser.add_argument("--images", default="", choices=["", "very_low", "low", "normal", "high", "very_high", "highest"],
@@ -132,7 +159,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         workspace=args.workspace, endpoint=args.endpoint, api_key=args.api_key, max_turns=args.max_turns, permission_mode=args.permission_mode,
         allow=args.allow, deny=args.deny, secret_names=secret_names, secret_hosts=secret_hosts, skill_paths=args.skills,
         payments_dir=args.payments_dir, browser=args.browser, browser_headless=args.browser_headless, browser_private=args.browser_private,
-        browser_profile=args.browser_profile, vault_dir=args.vault_dir, capabilities=args.capabilities, lsp=args.lsp, council=args.council,
+        browser_profile=args.browser_profile, browser_consent=args.browser_consent, browser_permissions=args.browser_permissions, vault_dir=args.vault_dir, capabilities=args.capabilities, lsp=args.lsp, council=args.council,
         wiki=args.wiki, wiki_project=args.wiki_project, phone=args.phone, phone_on_behalf_of=args.on_behalf_of,
         context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold,
         end_turn_bias=args.end_turn_bias, attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
@@ -156,7 +183,7 @@ class AgentConfig:
     workspace: str = "."
     endpoint: str = "http://127.0.0.1:7232"
     api_key: Optional[str] = None
-    max_turns: int = 15
+    max_turns: int = 15                 # below 1: no limit on the steps of an answer
     permission_mode: str = "default"
     allow: List[str] = field(default_factory=list)
     deny: List[str] = field(default_factory=list)
@@ -168,8 +195,10 @@ class AgentConfig:
     browser_headless: bool = False      # without a window
     browser_private: bool = False       # may open pages on this PC or its network (off: only sites on the internet)
     browser_profile: str = ""           # a profile folder that keeps the browser's sign-ins between conversations (empty: a new one each time)
+    browser_consent: str = "necessary"  # cookie banners: necessary (reject all / only necessary, else accept), accept, reject, off (the model deals with them)
+    browser_permissions: str = "deny"   # a page's request for location, camera, notifications...: deny, ask (the person), grant-safe
     payments_dir: str = ""              # the person's payment systems and limits: with it the agent can ask to pay, and the broker decides
-    context_window: int = 32768
+    context_window: Optional[int] = None   # tokens of context to plan for; empty: what the server reports for its model
     max_output_tokens: int = 4096
     max_total_tokens: Optional[int] = None
     max_seconds: Optional[float] = None
@@ -247,6 +276,7 @@ class BuiltAgent:
     personal: Optional[Any] = None            # the notes about the person this conversation takes in (harness/personal_memory.py Recall)
     take_place: Optional[Callable[[Any], bool]] = None     # keeps the position the person's phone sent and offers where_is_user (harness/place.py)
     mcp_errors: Dict[str, str] = field(default_factory=dict)       # the servers that could not be started, and why
+    refresh_budget: Optional[Callable[[], None]] = None            # asks the server for its context again and sets the context budget by it
 
     def set_mode(self, mode: str) -> None:
         """Changes the permission mode of the running conversation; plan mode brings `present_plan`, any other takes it away."""
@@ -421,13 +451,38 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     checkpoints = CheckpointManager(workspace, storage_dir=data / "checkpoints") if cfg.use_checkpoints else None
 
     compactor = TokenJuiceCompactor(workspace / ".basalt" / "artifacts", display_dir=".basalt/artifacts")
-    budget = available_budget(cfg.context_window, 0.1, cfg.max_output_tokens)
+    def reserve_for(window: int) -> int:
+        return max(cfg.max_output_tokens, min(ANSWER_RESERVE_TOKENS, window // 4))
+
+    can_ask = callable(getattr(client, "context_window", None))
+    window, source = cfg.context_window, "config"            # the budget follows the window: the person's setting, else the server's report
+    if not window:
+        window, source = server_context_window(client), "server"
+    if window:
+        budget = context_budget(window, reserve_for(window))
+    else:
+        source, budget = "fallback", context_budget(FALLBACK_CONTEXT_TOKENS, cfg.max_output_tokens)
+        if can_ask:
+            print(f"[harness] the server did not report its context: the budget assumes {FALLBACK_CONTEXT_TOKENS} tokens", file=sys.stderr, flush=True)
     patterns = normalize_config(cfg.context_patterns)
     snapshots = Snapshots(Path(cfg.snapshot_dir) if cfg.snapshot_dir else data / "snapshots" / (cfg.run_id or "default")) if patterns["versioning"]["on"] else None
-    context = PatternContext(compactor, budget_tokens=max(budget, 1024), patterns=patterns, snapshots=snapshots, mask_at=min(0.95, max(0.3, cfg.context_threshold)),
+    context = PatternContext(compactor, budget_tokens=budget, patterns=patterns, snapshots=snapshots, mask_at=min(0.95, max(0.3, cfg.context_threshold)),
                              summarize=_summarizer(summarizer or client) if patterns["summary"]["on"] else None)
 
-    builder = ContextBuilder(SYSTEM_CORE)
+    def refresh_budget() -> None:
+        """Asks the server again, so a model loaded or changed since the conversation began sets the budget; no answer leaves it as it is."""
+        nonlocal source
+        if cfg.context_window or not can_ask:
+            return
+        seen = server_context_window(client)
+        if not seen:
+            return
+        new = context_budget(seen, reserve_for(seen))
+        if source == "fallback" or new != context.budget_tokens:
+            print(f"[harness] the context budget follows the server: {seen} tokens", file=sys.stderr, flush=True)
+        context.budget_tokens, source = new, "server"
+
+    builder = ContextBuilder(f"{SYSTEM_CORE} {TOOL_CALL_NOTE}")
     if secrets.vault is not None and secrets.vault.note():
         builder.pin("vault", secrets.vault.note())
     _, guidelines = find_project_guidelines(workspace)
@@ -469,6 +524,8 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         if cfg.images:
             from harness.visuals import register_visual_tools
             register_visual_tools(registry, OutputStore(Path(cfg.outputs_dir)), cfg.run_id, cfg.browser_private)
+    from harness.environment import environment_paragraph
+    builder.pin("environment", environment_paragraph(sandbox.root, output_files=registry.get("write_output_file") is not None))
     if cfg.page_files:
         from harness.visuals import FILES_GUIDANCE
         builder.pin("files", FILES_GUIDANCE)
@@ -486,7 +543,9 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         from harness.browser import find_browser, register_browser_tools
         if find_browser():
             browser = register_browser_tools(registry, secrets, profile_dir=cfg.browser_profile or data / "browser", headless=cfg.browser_headless,
-                                             allow_private=cfg.browser_private, persistent=bool(cfg.browser_profile))
+                                             allow_private=cfg.browser_private, persistent=bool(cfg.browser_profile), consent=cfg.browser_consent,
+                                             permissions=cfg.browser_permissions, confirm=lambda tool, args: bool(permissions.confirm_callback and permissions.confirm_callback(tool, args)),
+                                             audit=lambda kind, details: audit.record("browser", kind, details))
     if cfg.council:
         from harness.council import offer_council
         from harness.llm import client_for as routed_for, registry as llm_registry
@@ -553,4 +612,4 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
 
     return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser,
                       plan_gate=plan_gate, mode_switch=switch_mode, personal=personal, take_place=take_place,
-                      mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {})
+                      mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {}, refresh_budget=refresh_budget)

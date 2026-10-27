@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -32,7 +33,7 @@ LOAD_FIELDS = [f"{s}.{k}" for s, k in settings.LOADER_FIELDS]
 # the chat settings a preset keeps (serve/web/chatset.js)
 INFERENCE_KEYS = ("system", "stop", "policy", "threshold", "effort", "temperature", "top_p", "top_k", "min_p",
                   "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n", "seed",
-                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias")
+                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias", "max_turns")
 
 
 def path() -> Path:
@@ -149,7 +150,15 @@ def check_inference(values) -> dict:
         out["context_patterns"] = check_config(out["context_patterns"])
     if out.get("end_turn_bias") not in (None, ""):
         from serve.api.logit_bias import add_end_turn
+        if isinstance(out["end_turn_bias"], str) and re.fullmatch(r"\s*-?\d+(\.\d+)?\s*", out["end_turn_bias"]):
+            out["end_turn_bias"] = float(out["end_turn_bias"])                 # the page keeps its fields as typed
         add_end_turn({"end_turn_bias": out["end_turn_bias"]}, [0])          # the one rule for the value
+    if out.get("max_turns") not in (None, ""):
+        steps = out["max_turns"]
+        if isinstance(steps, str) and re.fullmatch(r"-?\d{1,9}", steps.strip()):
+            steps = int(steps)
+        if isinstance(steps, bool) or not isinstance(steps, int) or not (steps == -1 or steps >= 1):
+            raise ValueError("max_turns: -1 for no limit, or a whole number from 1")
     if len(json.dumps(out)) > 256 << 10:
         raise ValueError("settings: larger than 256 KiB")
     return out

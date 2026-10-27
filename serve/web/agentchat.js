@@ -7,7 +7,17 @@
 (() => {
   const MODE_KEY = "basalt.chatmode", LAST_KEYS = { chat: "basalt.chat.session", agent: "basalt.agent.session" }, PROJECT_KEY = "basalt.agent.project";
   const MODES = ["agent", "ask", "direct"];
-  const FAST_MS = 350, SLOW_MS = 3000, SHOWN_OUTPUT = 1500;
+  const FAST_MS = 350, SLOW_MS = 3000, SHOWN_OUTPUT = 1500, EXPLAIN_MAX = 300;
+  /* what an action is called when the model gave no sentence for it: a phrase by tool name (ch.act.*), else a generic one */
+  const ACTIONS = new Set(["shell_command", "write_file", "edit_file", "read_file", "list_directory", "search_web", "browse_url", "run_code", "spawn_subagent",
+    "browser_open", "read_attachment", "write_output_file", "find_online_capability"]);
+  const explainOf = v => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, EXPLAIN_MAX) : "");   // the model's words: text only, cut short
+  function actionText(b) {
+    const said = explainOf(b.description), name = String(b.name || "");
+    if (said) return said;
+    const key = ACTIONS.has(name) ? name : name.startsWith("plan_") ? "plan" : name.startsWith("browser_") ? "browser" : "";
+    return key ? T("ch.act." + key) : T("ch.act.generic", name);
+  }
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } };
   const keep = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* this page only */ } };
   const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -109,6 +119,7 @@
   function setControls() {
     paintFolder();
     paintChip();
+    paintLive();
     const on = active();
     if (!on) return;
     const asking = state === "asking";
@@ -241,6 +252,28 @@
   }
   $("#branch-chat").onclick = () => branch();
   document.addEventListener("basalt:chatset", () => setControls());
+  /* the steps one answer may take and the end-of-turn bias are read from the panel when a conversation starts; a change made in the panel
+     afterwards is sent to the open conversation (it is compared with the panel's own earlier value, not with the conversation's) */
+  let panelWas = JSON.stringify(chatSettings.live()), panelTimer = 0;
+  document.addEventListener("basalt:chatset-settled", () => { panelWas = JSON.stringify(chatSettings.live()); });
+  function paintLive() {
+    const el = $("#cs-live"), on = active() && !!sid && !!rec && rec.max_turns !== undefined;
+    if (!el) return;
+    el.hidden = !on;
+    if (on) el.textContent = T("cs.live", rec.max_turns > 0 ? rec.max_turns : T("cs.live.none"), rec.end_turn_bias || 0);
+  }
+  document.addEventListener("basalt:chatset", () => {
+    clearTimeout(panelTimer);
+    panelTimer = setTimeout(async () => {
+      const now = chatSettings.live(), before = JSON.parse(panelWas);
+      panelWas = JSON.stringify(now);
+      if (!active() || !sid) return;
+      const changed = Object.fromEntries(Object.entries(now).filter(([k, v]) => before[k] !== v));
+      if (!Object.keys(changed).length) return;
+      const r = await api("POST", `/${sid}/settings`, changed);
+      if (r.ok) { rec = r.json.session; paintLive(); } else status(errText(r));
+    }, 600);
+  });
 
   function forget() { pick = null; learn = null; paintPick(); paintLearn(); pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(lastKey(), ""); copyShown = false; }
   function newChat() {
@@ -309,6 +342,13 @@
       case "cleared": noteItem({ s: T("ch.cleared", e.count) }); break;
       case "mode": if (rec) rec.mode = e.mode; paintChip(); noteItem({ s: T("ch.mode.now", T("ag.mode." + e.mode)) }); break;
       case "effort": if (rec) rec.effort = e.level; noteItem({ s: T("ch.effort.now", effortName(e.level)) }); break;
+      case "settings":
+        if (rec && "max_turns" in e) rec.max_turns = e.max_turns;
+        if (rec && "end_turn_bias" in e) rec.end_turn_bias = e.end_turn_bias;
+        if ("max_turns" in e) noteItem({ s: T("ch.settings.steps", e.max_turns > 0 ? e.max_turns : T("cs.live.none")) });
+        if ("end_turn_bias" in e) noteItem({ s: T("ch.settings.bias", e.end_turn_bias || 0) });
+        paintLive();
+        break;
       case "command": document.dispatchEvent(new CustomEvent("basalt:command", { detail: e })); break;
       case "dropped": started(e.turn); noteItem({ s: T("ch.dropped") }); break;
       case "agent": {
@@ -321,7 +361,9 @@
           }
         } else if (d.type === "tool_start") {
           if (d.name === "ask_user") break;                                    // its question is shown by the question itself
-          addBlock({ t: "tool", id: d.call_id, name: d.name, args: d.arguments || {}, status: "running", output: "" }, e.turn);
+          addBlock({ t: "tool", id: d.call_id, name: d.name, args: d.arguments || {}, status: "running", output: "", description: explainOf(d.description) }, e.turn);
+        } else if (d.type === "calls_skipped") {                                 // repeats and calls over the limit are not run: said once, not once for each
+          addBlock({ t: "note", s: T("ch.calls.skipped", (d.repeated || 0) + (d.surplus || 0)) }, e.turn);
         } else if (d.type === "verify") {                                        // the answer measured against what was asked
           const list = (d.violations || []).join(" ");
           addBlock({ t: "note", s: d.ok ? T("ch.verify.ok", (d.constraints || []).length) : d.retry ? T("ch.verify.retry", list) : T("ch.verify.unmet", list) }, e.turn);
@@ -332,15 +374,15 @@
         }
         break;
       }
-      case "ask": addBlock({ t: "ask", id: e.id, mode: e.mode, kind: e.kind || (e.facts || {}).kind, question: e.question, options: e.options || [], facts: e.facts || {}, tool: e.tool, args: e.arguments, answered: null }, e.turn); break;
+      case "ask": addBlock({ t: "ask", id: e.id, mode: e.mode, kind: e.kind || (e.facts || {}).kind, question: e.question, options: e.options || [], facts: e.facts || {}, tool: e.tool, args: e.arguments, explain: explainOf(e.explain), answered: null }, e.turn); break;
       case "answered": { for (const it of items) { const b = (it.blocks || []).find(x => x.t === "ask" && x.id === e.ask); if (b) { b.answered = e.value; b.dirty = true; } } break; }
       case "retrying": addBlock({ t: "note", s: T("ch.retrying", e.attempt, e.of, Math.round(e.wait_s)) }, e.turn); break;
       case "restarting": addBlock({ t: "note", s: T("ch.restarting", e.attempt, e.of) }); break;
       case "stalled": addBlock({ t: "note", s: T("ch.stalled") }); break;
       case "blocked": addBlock({ t: "blocked", reason: e.reason, detail: e.detail, options: e.options || [] }, e.turn); break;
       case "done": {
-        const a = assistant(e.turn); a.done = true; a.stop = e.stop_reason;
-        a.meta = e.stop_reason === "cancelled" ? T("ch.cancelled") : e.stop_reason === "asked" ? "" : e.error ? e.error : "";
+        const a = assistant(e.turn); a.done = true; a.stop = e.stop_reason; a.steps = e.max_turns;
+        a.meta = e.stop_reason === "cancelled" ? T("ch.cancelled") : e.stop_reason === "asked" ? "" : e.error ? e.error : e.stop_reason === "error" ? T("ch.stop.error") : "";
         a.blocks.forEach(b => { if (b.t === "reasoning") b.over = true; });
         if (copyShown) loadCopy();
         break;
@@ -369,9 +411,15 @@
         if (current) current.done = true;
       } else if (m.role === "tool") {
         const b = toolBlock(m.tool_call_id) || (items.length ? items.flatMap(i => i.blocks || []).find(x => x.t === "tool" && x.id === m.tool_call_id) : null);
-        if (b) { b.output = String(m.content || "").slice(0, SHOWN_OUTPUT); b.dirty = true; }
+        if (b && m.skipped) {                                                   // a call that was not run: not a card of its own, but counted in one note
+          items.forEach(it => { const at = (it.blocks || []).indexOf(b); if (at >= 0) { it.blocks.splice(at, 1); it.skipped = (it.skipped || 0) + 1; } });
+        } else if (b) {
+          b.output = String(m.content || "").slice(0, SHOWN_OUTPUT); b.description = explainOf(m.explain); b.dirty = true;
+          if (b.description && b.args) ["description", "explain"].forEach(k => { if (b.args[k] === m.explain) delete b.args[k]; });   // shown above, not as an argument
+        }
       }
     }
+    items.forEach(it => { if (it.skipped) { it.blocks.push({ t: "note", s: T("ch.calls.skipped", it.skipped), dirty: true, ts: stampOf() }); it.skipped = 0; } });
     stampAt = undefined;
     current = null;
   }
@@ -427,7 +475,7 @@
     if (b.t === "text") return mk("div", "answer");
     if (b.t === "tool") {
       const d = mk("details", "atool"), s = mk("summary"), a = mk("pre", "atool-a"), o = mk("pre", "atool-o");
-      s.append(mk("span", "atool-n"), mk("span", "atool-s"));
+      s.append(mk("span", "atool-d"), mk("span", "atool-n"), mk("span", "atool-s"));
       d.append(s, a, o); return d;
     }
     if (b.t === "ask") return mk("div", "aask");
@@ -453,6 +501,8 @@
     if (b.t === "note") { el.textContent = b.s; return; }
     if (b.t === "tool") {
       el.dataset.s = b.status;
+      const said = explainOf(b.description), head = el.querySelector(".atool-d");
+      head.textContent = actionText(b); head.title = said ? T("ch.explain.said", said) : "";
       el.querySelector(".atool-n").textContent = b.name;
       el.querySelector(".atool-s").textContent = " · " + T("ch.tool." + b.status);
       el.querySelector(".atool-a").textContent = JSON.stringify(b.args, null, 1);
@@ -513,7 +563,7 @@
         if (done && b.answered === o.value) x.classList.add("picked");
         row.append(x);
       });
-      el.replaceChildren(q, row);
+      el.replaceChildren(q, ...(b.explain ? [mk("p", "aask-h", T("ch.explain.said", b.explain))] : []), row);
       if (b.mode === "question" && !done) el.append(mk("p", "aask-h", T("ch.write")));
       if (done && b.mode === "confirm") el.append(mk("p", "aask-h", T("ch.answered", optLabel(b, (b.options || []).find(o => o.value === b.answered) || { label: b.answered, value: b.answered }))));
       return;
@@ -526,6 +576,22 @@
       if (!b.options.length) row.hidden = true;
       el.append(row);
     }
+  }
+  /* why an answer ended when it did not simply finish: out of steps (with a button to go on), out of budget, or repeating itself */
+  function paintStop(it) {
+    const kind = it.done ? it.stop : "";
+    if (!["max_turns", "budget", "loop"].includes(kind)) return;
+    if (!it.stopEl) {
+      const steps = it.steps > 0 ? it.steps : (rec && rec.max_turns > 0 ? rec.max_turns : "?");
+      it.stopEl = mk("div", "astop"); it.stopEl.setAttribute("role", "status");
+      it.stopEl.append(mk("span", "", kind === "max_turns" ? T("ch.stop.max_turns", steps) : T("ch.stop." + kind)));
+      if (kind === "max_turns") {
+        it.goEl = btn(T("ch.continue"), "primary", () => send(T("ch.continue.text")));
+        it.stopEl.append(it.goEl, mk("span", "aask-h", T("ch.stop.max_turns.h")));
+      }
+      it.body.after(it.stopEl);
+    }
+    if (it.goEl) it.goEl.hidden = busyNow || items.slice(items.indexOf(it) + 1).some(x => x.kind === "user");    // only the latest answer can be continued
   }
   function paintNote(it) {
     const row = mk("div", "arow"), body = mk("span");
@@ -584,6 +650,7 @@
         b.row.hidden = b.el.hidden;                                           // a reasoning box with nothing in it shows no time either
       });
       it.metaEl.textContent = it.meta;
+      paintStop(it);
     });
     scrollDown();
     setControls();
@@ -944,7 +1011,7 @@
   async function ensure() {
     if (sid) return true;
     if (inAgent() && !curPath() && !(await addFolder())) { status(T("ag.noproject")); return false; }
-    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath() } : {}), mode: permMode(), allow: allowRules(), confirm_auto: permMode() === "auto", ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), end_turn_bias: chatSettings.body().end_turn_bias, worktree: copyMode(), ...visuals() });
+    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath() } : {}), mode: permMode(), allow: allowRules(), confirm_auto: permMode() === "auto", ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals() });
     if (!r.ok) { status(errText(r)); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0;
     await refreshList();
@@ -1063,7 +1130,23 @@
     rec = r.json.session; await refreshList();
     return true;
   }
-  window.agentChat = { skills, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, rename, transcript, saveBlob, answers: answersOf,
+  /* the conversation as plain data for export.js: each request, and for each answer its reasoning, actions and text, in the order they happened */
+  function snapshot() {
+    const out = [];
+    items.forEach((it, n) => {
+      if (it.kind === "user") { out.push({ kind: "prompt", text: it.text || "", time: it.ts || 0, attachments: (it.files || []).map(f => f.name) }); return; }
+      if (it.kind !== "assistant") return;
+      it.blocks.forEach(b => {
+        const time = b.ts || 0;
+        if (b.t === "reasoning" && b.s) out.push({ kind: "reasoning", turn: n, text: b.s, time });
+        else if (b.t === "text" && b.s) out.push({ kind: "answer", turn: n, text: b.s, time });
+        else if (b.t === "tool") out.push({ kind: "action", turn: n, name: b.name, description: b.description || b.desc || "", arguments: b.args, result: b.output || "", status: b.status, sources: sourcesOf(b), time });
+      });
+    });
+    const listed = known.find(s => s.id === sid) || {};
+    return { title: (rec && rec.title) || listed.title || "", session: sid, items: out };
+  }
+  window.agentChat = { skills, snapshot, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, rename, transcript, saveBlob, answers: answersOf,
     perm: { now: permNow, set: setPerm, cycle: cyclePerm, available: () => active() && mode !== "ask", modes: PERM_CYCLE },
     sessions: () => known.filter(s => s.state !== "closed" && inContext(s)).map(s => ({ id: s.id, label: `${s.title || s.id} \u00B7 ${T("ch.state." + s.state)}` })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
     toggleCopy: () => copyOpen.click() };

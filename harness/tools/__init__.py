@@ -26,9 +26,9 @@ def create_standard_tool_registry(
                                         {**arguments, "reason": "this file is inside .git, where a hook or the config can make git run code"})
         sandbox.confirm_git_write = confirm_git_write
 
-    def run_shell(command: str, timeout: float = 30.0):
+    def run_shell(command: str, timeout: float = 30.0, shell: str = "cmd"):
         with sandbox.watching():                       # a command that edits files is reviewed like the file tools
-            return execute_shell_command(command, cwd=sandbox.root, timeout=timeout, secrets=secrets)
+            return execute_shell_command(command, cwd=sandbox.root, timeout=timeout, secrets=secrets, shell=shell)
 
     registry.register(
         name="read_file",
@@ -86,12 +86,16 @@ def create_standard_tool_registry(
 
     registry.register(
         name="shell_command",
-        description="Executes a shell command inside the workspace. Write {{secret:NAME}} where a stored credential is needed.",
+        description=("Executes a shell command inside the workspace and returns exit_code, stdout and stderr. "
+                     "Write {{secret:NAME}} where a stored credential is needed. A command of several lines is run as a script, in order."),
         parameters={
             "type": "object",
             "properties": {
-                "command": {"type": "string", "description": "Shell command to run"},
-                "timeout": {"type": "number", "description": "Timeout in seconds", "default": 30.0},
+                "command": {"type": "string", "description": "Shell command to run; it may have several lines"},
+                "timeout": {"type": "number", "description": "Timeout in seconds, greater than 0 (at most 600)", "default": 30.0},
+                "shell": {"type": "string", "enum": ["cmd", "powershell"], "default": "cmd",
+                          "description": "\"cmd\" is the default shell: cmd.exe on Windows, sh elsewhere. \"powershell\" runs the command in PowerShell "
+                                         "(Windows only; pwsh when installed, else powershell.exe)."},
             },
             "required": ["command"],
         },
