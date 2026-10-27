@@ -1005,11 +1005,11 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
     ref_prop = {"ref": {"type": "integer", "description": "the number of the element, from the last reading of the page"}}
     registry.register("browser_open", "Opens a web page in the browser and reads it: numbered elements (links, buttons, fields) and the text.",
                       {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}, EffectClass.PURE,
-                      guard(lambda url: shown(b.open(url))), untrusted=True)
+                      guard(lambda url: shown(b.open(url))), untrusted=True, outward=True)
     registry.register("browser_read", "Reads the page that is open again, with its numbered elements.", {"type": "object", "properties": {}},
                       EffectClass.PURE, guard(lambda: shown(b.snapshot())), untrusted=True)
     registry.register("browser_click", "Clicks an element of the page (a link, a button, a box to tick) and reads the page that follows.",
-                      {"type": "object", "properties": ref_prop, "required": ["ref"]}, EffectClass.IRREVERSIBLE, guard(lambda ref: shown(b.click(ref))), untrusted=True)
+                      {"type": "object", "properties": ref_prop, "required": ["ref"]}, EffectClass.IRREVERSIBLE, guard(lambda ref: shown(b.click(ref))), untrusted=True, outward=True)
 
     def type_into(ref: int, text: str, submit: bool = False, clear: bool = True) -> Any:
         from_vault = secrets is not None and secrets.has_references(text)
@@ -1029,7 +1029,7 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
                       "it is filled in only on a site its entry names, and you never see it.",
                       {"type": "object", "properties": {**ref_prop, "text": {"type": "string"}, "submit": {"type": "boolean", "description": "press Enter after"},
                                                         "clear": {"type": "boolean", "description": "replace what is in the field (default true)"}},
-                       "required": ["ref", "text"]}, EffectClass.IRREVERSIBLE, guard(type_into), untrusted=True)
+                       "required": ["ref", "text"]}, EffectClass.IRREVERSIBLE, guard(type_into), untrusted=True, outward=True)
     def sign_in(entry: str, submit: bool = False) -> Any:
         """Fills the sign-in fields of the page from a login in the vault: the user name in the field before the password, the password in
         the password field. Only on a site the entry names. A page that asks for the user name first shows just that field: it is filled and
@@ -1074,13 +1074,13 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
                       "Only on a site the entry names. If the page asks for a code, write {{vault:ENTRY.totp}} in the field with browser_type.",
                       {"type": "object", "properties": {"entry": {"type": "string", "description": "the name of the login in the vault"},
                                                         "submit": {"type": "boolean", "description": "press Enter after the password"}}, "required": ["entry"]},
-                      EffectClass.IRREVERSIBLE, guard(sign_in), untrusted=True)
+                      EffectClass.IRREVERSIBLE, guard(sign_in), untrusted=True, outward=True)
     registry.register("browser_select", "Chooses an option in a list of the page, by its value or its visible text.",
                       {"type": "object", "properties": {**ref_prop, "value": {"type": "string"}}, "required": ["ref", "value"]}, EffectClass.IRREVERSIBLE,
-                      guard(lambda ref, value: shown(b.select(ref, value))), untrusted=True)
+                      guard(lambda ref, value: shown(b.select(ref, value))), untrusted=True, outward=True)
     registry.register("browser_press", "Presses a key: Enter, Tab, Escape, Backspace, the arrows or Space.",
                       {"type": "object", "properties": {"key": {"type": "string", "enum": list(KEYS)}}, "required": ["key"]}, EffectClass.IRREVERSIBLE,
-                      guard(lambda key: shown(b.press(key))), untrusted=True)
+                      guard(lambda key: shown(b.press(key))), untrusted=True, outward=True)
     registry.register("browser_back", "Goes back to the page before.", {"type": "object", "properties": {}}, EffectClass.IRREVERSIBLE,
                       guard(lambda: shown(b.back())), untrusted=True)
     return b

@@ -296,7 +296,10 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 - **Cosa può fare senza chiedere**: le quattro modalità; regole per i comandi (`shell_command:pytest*`, un divieto vince sempre, e una
   regola non copre mai un comando che ne concatena altri o reindirizza); il pulsante *Permetti sempre* in una domanda. In
   *Automatico*, un'azione irreversibile chiede comunque quando la conversazione ha letto contenuti esterni e può raggiungere un segreto
-  o una voce del vault (la regola dei due).
+  o una voce del vault (la regola dei due). Il web si legge liberamente per le notizie; un indirizzo web, una ricerca o un modulo chiede
+  solo quando la conversazione ha letto contenuti esterni, ha toccato dati privati (una credenziale salvata, un file con chiavi, un
+  allegato, le tue memorie) e l'azione arriva all'esterno. Impostazioni > Portafoglio regola quanto è rigida. Un segreto salvato non entra
+  mai in un indirizzo o in una ricerca, con nessuna impostazione.
 - **Hook scritti da te** (`hooks.json`): comandi o blocchi fissi su chiamate di strumenti, turni e sessione; un hook che non riesce a
   decidere blocca.
 - **Checkpoint e ritorno**: l'area di lavoro viene salvata prima della prima modifica di un turno, fuori dal progetto e con limiti di
@@ -359,7 +362,7 @@ nell'appunto.
   password o una chiave.
 - **Un appunto sbagliato o ostile resta.** L'agente può essere indotto a tenere un appunto da una pagina che ha letto, e `remember` è
   un'azione reversibile che non chiede a nessuno in *Chiedi prima* o *Automatico*. Torna poi come dato che il modello ha l'ordine di
-  non eseguire: il rischio si abbassa, non scompare. Gli appunti aggiunti in coda dal recupero non alzano il segnale della regola dei
+  non eseguire: il rischio si abbassa, non scompare. Gli appunti aggiunti in coda dal recupero alzano il segnale della regola dei
   due come fa `recall`.
 - **Nessuna pagina per sfogliare o modificare gli appunti.** `/memory` li legge (ciascuno tagliato a 300 caratteri); per toglierne uno
   chiedi all'agente di dimenticarlo, oppure cancella il file. Nulla è condiviso tra cartelle, utenti o PC, e non c'è esportazione.

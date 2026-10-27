@@ -270,7 +270,10 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
 
 - **What it may do without asking**: the four modes; command rules (`shell_command:pytest*`, a deny always wins, and a rule never
   covers a command that chains or redirects); the *Always allow* button in a question. In *Automatic*, an irreversible action still asks
-  once the conversation has read outside content and can reach a secret or a vault entry (the Rule of Two).
+  once the conversation has read outside content and can reach a secret or a vault entry (the Rule of Two). The web is read freely for
+  news; a web address, a search or a form asks only when the conversation has read outside content, touched private data (a stored
+  credential, a file that holds keys, an attachment, your memories) and the action reaches the outside. Settings > Wallet sets how strict
+  that is. A stored secret is never let into an address or a query, at any setting.
 - **Hooks you write** (`hooks.json`): commands or fixed blocks on tool calls, turns and the session; a hook that cannot decide blocks.
 - **Checkpoints and rewind**: the workspace is saved before the first change of a turn, outside the project and within size limits;
   `python -m harness.rewind`, `/rewind` and *Back to here* on a message restore it. Rewinding does not undo a command it ran, and says so.
@@ -323,7 +326,7 @@ the note.
 - **Notes are stored as written, in plain text, not encrypted and not masked.** Do not ask the agent to remember a password or a key.
 - **A wrong or hostile note stays.** The agent can be talked into keeping a note by a page it read, and `remember` is a reversible
   action that asks nobody in *Ask first* or *Automatic*. It comes back later as data the model is told not to obey, which lowers the
-  risk and does not remove it. The notes added at the end by the retrieval do not set the Rule of Two flag the way `recall` does.
+  risk and does not remove it. The notes added at the end by the retrieval set the Rule of Two flag like `recall`.
 - **No page to browse or edit the notes.** `/memory` reads them (each cut at 300 characters); to remove one, ask the agent to forget
   it, or delete the file. Nothing is shared between folders, users or PCs, and there is no export.
 

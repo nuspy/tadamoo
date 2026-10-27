@@ -38,6 +38,7 @@ from serve import plans as plans_mod, userdata
 from serve import review as review_mod
 from serve.agent_runs import AgentRunner, RunBusy, RunError
 from harness.browser import BrowserPrefs
+from harness.rule_of_two import RuleOfTwoPrefs
 from harness.payments_broker import PaymentsBroker
 from harness.waiver.dossier import sntp_offset
 from harness.vault import Vault, VaultError
@@ -1592,7 +1593,8 @@ def make_handler(svc: Service, remote: bool = False):
         def _wallet(self) -> WalletApi:
             global _WALLET
             if _WALLET is None:
-                _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments"), app_root=Path(__file__).resolve().parents[1], network_time=sntp_offset), BrowserPrefs(userdata.path("browser.json")), userdata.path("browser-profile"))
+                _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments"), app_root=Path(__file__).resolve().parents[1], network_time=sntp_offset), BrowserPrefs(userdata.path("browser.json")), userdata.path("browser-profile"),
+                                     RuleOfTwoPrefs(userdata.path("rule_of_two.json")))
             return _WALLET
 
         def _personal(self) -> PersonalMemory:
@@ -1721,6 +1723,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.revoke(req.get("id")))
                 if action == "browser":
                     return self._json(200, api.set_browser(req))
+                if action == "rule-of-two":
+                    return self._json(200, api.set_rule_of_two(req))
                 if action == "browser/signin":
                     return self._json(200, api.signin_window(req))
                 if action == "browser/forget":
@@ -1988,6 +1992,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
                                            browser_prefs=BrowserPrefs(userdata.path("browser.json")).read,
+                                           rule_of_two=RuleOfTwoPrefs(userdata.path("rule_of_two.json")).read,
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
                                            skills_dir=userdata.path("personal-skills"), projects=self._projects(),
                                            personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer)

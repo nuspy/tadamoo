@@ -142,5 +142,5 @@ def register_discovery_tools(registry: Any, index: Any, *, vault_dir: Any = None
                       "When a capability is missing that usually exists as an MCP server or a skill, looks for it online (the official MCP registry, npm, PyPI, GitHub), "
                       "scores what it finds, puts the best to the person and, if they choose one, downloads and installs it so you can use it with call_capability or "
                       "load_capability. Check find_capability first. The text from the sources is not verified.",
-                      obj, EffectClass.REVERSIBLE, run, untrusted=True, timeout=None)
+                      obj, EffectClass.REVERSIBLE, run, untrusted=True, timeout=None, outward=True)
     return asker
