@@ -26,6 +26,8 @@ import json
 import threading
 import time
 
+from serve.util.redact import ExportMask
+
 DEFAULT_MAX_MIB = 32
 EVENT_OVERHEAD = 96             # characters counted for an event beyond its text and data
 GATHER_S = 0.4                  # how long streamed pieces are gathered before they become an event
@@ -174,8 +176,20 @@ def event_text(event: dict) -> str:
     return "\n".join(lines)
 
 
-def export_text(log: RequestLog):
-    """The saved file as readable text, in pieces."""
+def _masked(event: dict, mask) -> dict:
+    """The event with its text and data passed through `mask` (an ExportMask; secrets are hidden even when none is given): nothing of the
+    original is written."""
+    mask = mask or ExportMask()
+    out = dict(event)
+    if out.get("text"):
+        out["text"] = mask.text(out["text"])
+    if out.get("data"):
+        out["data"] = mask.value(out["data"])
+    return out
+
+
+def export_text(log: RequestLog, mask=None):
+    """The saved file as readable text, in pieces; secrets (and what the person chose) hidden by `mask` before anything is written."""
     meta = log.meta()
     yield f"# Request log, saved {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
     if meta["dropped_events"]:
@@ -183,11 +197,11 @@ def export_text(log: RequestLog):
                f"within the memory budget of {meta['capacity_chars']} characters.\n")
     yield "\n"
     for event in log.snapshot():
-        yield event_text(event) + "\n\n"
+        yield event_text(_masked(event, mask)) + "\n\n"
 
 
-def export_jsonl(log: RequestLog):
-    """The saved file as JSON lines: a header record, then one event per line."""
+def export_jsonl(log: RequestLog, mask=None):
+    """The saved file as JSON lines: a header record, then one event per line, hidden by `mask` as in export_text."""
     yield json.dumps({"kind": "log", "saved": round(time.time(), 3), **log.meta()}, ensure_ascii=False) + "\n"
     for event in log.snapshot():
-        yield json.dumps(event, ensure_ascii=False, default=str) + "\n"
+        yield json.dumps(_masked(event, mask), ensure_ascii=False, default=str) + "\n"

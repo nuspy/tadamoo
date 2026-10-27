@@ -983,7 +983,7 @@ entries are dropped and the page is told how many. `GET /v1/status` reports `req
 | Endpoint | |
 |---|---|
 | `GET /api/reqlog?after=<id>&max_chars=<n>` | the events with an id above `after`, oldest first: `{"enabled", "epoch", "last", "events": [{"id", "t", "req", "kind", "data", "text"}], "skipped", "dropped": {"events", "chars"}, "capacity_chars", "held_chars"}`. With the log off: `enabled: false` and no events (HTTP 200). `kind` is `request`, `reasoning`, `content`, `attempt`, `repair`, `timing`, `finish`, `cancel`, `error`, `gpu`, `engine` or `server` |
-| `GET /api/reqlog/export?format=text\|jsonl` | the whole log as a downloaded file, `basalt-requests-YYYYmmdd-HHMMSS.log` or `.jsonl` |
+| `GET /api/reqlog/export?format=text\|jsonl&mask=secrets\|personal&hide=words` | the whole log as a downloaded file, `basalt-requests-YYYYmmdd-HHMMSS.log` or `.jsonl`. Secrets (private keys, tokens, passwords, card numbers, the vault's values, the server's key) are always hidden in the file, never in the page; `mask=personal` also hides e-mail addresses, phone numbers, IBANs and tax codes, and `hide` lists words (comma-separated, at most 20) |
 | `POST /api/reqlog/clear` | empties the log, `{"cleared": true}`; JSON from the server's own page only |
 
 Every setting, with its type, default and example configs: [docs/configuration.md](docs/configuration.md).

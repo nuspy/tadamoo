@@ -669,6 +669,10 @@
             <button type="button" class="btn" id="rl-save"><svg class="rl-ic" aria-hidden="true" focusable="false"><use href="#rl-i-save"/></svg><span data-t="lg.save">Save log</span></button>
             <label class="sr" for="rl-format" data-t="lg.format">File format</label>
             <select id="rl-format"><option value="text" data-t="lg.fmt.text">Text</option><option value="jsonl" data-t="lg.fmt.jsonl">JSONL</option></select>
+            <label class="sr" for="rl-mask" data-t="lg.mask">What to hide in the file</label>
+            <select id="rl-mask"><option value="secrets" data-t="lg.mask.secrets">Hide secrets</option><option value="personal" data-t="lg.mask.personal">Hide secrets, e-mails, phones, IBANs</option></select>
+            <label class="sr" for="rl-hide" data-t="lg.hide">Words to hide as well, separated by commas</label>
+            <input id="rl-hide" type="text" autocomplete="off" spellcheck="false" placeholder="Also hide: names, words" data-t-ph="lg.hide.ph">
           </div>
           <div class="rl-find">
             <label class="sr" for="rl-q" data-t="lg.find">Find in the log</label>
