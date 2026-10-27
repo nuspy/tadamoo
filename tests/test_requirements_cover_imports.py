@@ -17,7 +17,7 @@ OPTIONAL = {
 }
 # modules of this repository that the code reaches through sys.path (tools/ is added at run time)
 # (the personal skills' runtime folder holds basalt_skill, which a skill's script imports from the process that runs it)
-LOCAL_FOLDERS = (ROOT, ROOT / "tools", ROOT / "tools" / "convert", ROOT / "harness" / "personal_skills" / "runtime")
+LOCAL_FOLDERS = (ROOT, ROOT / "tools", ROOT / "tools" / "convert", ROOT / "harness" / "personal_skills" / "runtime", ROOT / "harness" / "sandbox" / "guard")
 
 
 def required():

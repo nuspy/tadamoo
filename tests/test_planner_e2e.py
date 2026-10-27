@@ -20,6 +20,7 @@ from harness.integrations._http import ServiceError  # noqa: E402
 from harness.integrations.telephony_tools import register_phone_tools  # noqa: E402
 from harness.integrations.wiki_tools import register_wiki_tools  # noqa: E402
 from harness.permissions import PermissionLevel, PermissionManager  # noqa: E402
+from harness.planner.card import CARD_FIELDS  # noqa: E402
 from harness.planner_tools import Confirmer, register_planner_tools  # noqa: E402
 from harness.tools.registry import ToolRegistry  # noqa: E402
 from serve.plans import PlanService  # noqa: E402
@@ -95,7 +96,7 @@ def tool_texts(agent):
 def test_an_event_in_the_mailbox_ends_in_a_prepared_call_that_only_the_chat_can_place_after_a_yes(world):
     svc, jev, phone, wiki, model = world
     svc.create({"plan": PLAN, "card": CARD})
-    svc.update_settings({"cloud_triage": True, "event_pump": True})
+    svc.update_settings({"cloud_triage": True, "event_pump": True, "card_fields": list(CARD_FIELDS)})
 
     # 1. events arrive: they are buffered, and nothing is judged until a batch is due
     first = svc.ingest({"text": "Sciopero dei treni venerdì: Gianni è stato precettato, scrivete a gianni@example.com o al 333 1234567", "source": "rss"})
