@@ -617,7 +617,8 @@
     const btn = el("rl-save"), format = fmtEl.value === "jsonl" ? "jsonl" : "text";
     btn.disabled = true;
     try {
-      const r = await fetch(`api/reqlog/export?format=${format}`, { cache: "no-store", headers: authHeaders() });
+      const mask = el("rl-mask").value === "personal" ? "personal" : "secrets", hide = encodeURIComponent(el("rl-hide").value.slice(0, 600));
+      const r = await fetch(`api/reqlog/export?format=${format}&mask=${mask}&hide=${hide}`, { cache: "no-store", headers: authHeaders() });
       if (r.status === 401) { askKey(); return; }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const blob = await r.blob();
