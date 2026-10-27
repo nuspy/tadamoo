@@ -284,6 +284,9 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
   (`~/.claude/skills`, il `.claude/skills` del progetto, i plugin, `.mcp.json` e simili).
 - **Niente è attivo finché non lo approvi.** In *Impostazioni → Capacità* apri una voce, leggi il suo testo (una skill) o il suo
   comando (un server) e approva. L'approvazione è legata a ciò che hai letto; se il file cambia, torna *da approvare*.
+- **Le tue cartelle di skill.** In *Impostazioni → Capacità → Cartelle di skill* (e con `--skills DIR` da riga di comando) indichi
+  cartelle di skill `SKILL.md`. Le loro skill compaiono lì come *da approvare*; `load_skill` carica una skill approvata e rifiuta una
+  nuova o modificata con un messaggio che lo dice. Non resta mai in attesa di una risposta.
 - **Usarle.** L'agente cerca (`find_capability`), carica una skill approvata (`load_capability`) o chiama uno strumento di un server
   approvato (`call_capability`, che chiede come ogni azione irreversibile). Dalla Chat puoi chiamare una skill con `/nome testo`.
 - **Manca qualcosa?** L'agente può cercare online un server MCP o una skill (`find_online_capability`), mostrarti i cinque migliori con

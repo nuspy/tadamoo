@@ -33,6 +33,8 @@ class CapabilityApi:
     def overview(self) -> Dict[str, Any]:
         with self._lock:
             idx = self.index
+            if idx.folders_changed():                     # a skill folder was named (a --skills option) since the last scan
+                idx.refresh()
             return {"entries": [{k: v for k, v in e.items() if k != "path"} for e in idx.entries],
                     "roots": {r: {"en": v["en"], "it": v["it"], "count": c} for (r, v), c in zip(cap.ROOTS.items(), (idx.counts()[r] for r in cap.ROOTS))},
                     "nodes": cap.node_names(), "visual_options": idx.visual_options(), "settings": idx.settings(),
@@ -92,8 +94,18 @@ class CapabilityApi:
             if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids) or len(ids) > 2000:
                 raise CapabilityError("off is a list of entry ids.", "bad_off")
             changes["off"] = sorted({i for i in ids if self.index.get(i) is not None})
+        if "skill_dirs" in body:
+            dirs = body["skill_dirs"]
+            if not isinstance(dirs, list) or any(not isinstance(d, str) for d in dirs) or len(dirs) > cap.MAX_SKILL_DIRS:
+                raise CapabilityError(f"skill_dirs is a list of folders, {cap.MAX_SKILL_DIRS} at most.", "bad_dirs")
+            missing = [d for d in dirs if not Path(d).is_dir()]
+            if missing:
+                raise CapabilityError(f"This folder does not exist on this PC: {missing[0]}", "bad_dirs")
+            changes["skill_dirs"] = [str(Path(d).resolve()) for d in dirs]
         with self._lock:
             self.index.save_settings(**changes)
+            if "skill_dirs" in changes:
+                self.index.refresh()
         return self.overview()
 
     # -- the search online and what Basalt installed -------------------------------------------------------------------
