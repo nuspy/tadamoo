@@ -464,6 +464,8 @@ fieldset:disabled input, fieldset:disabled select { opacity: .7; }
   .kv dt, .kv dd { padding: 10px 16px; }
 }
 @media (min-width: 981px) {
+  /* the page keeps the window's height: only the messages scroll, the columns at the sides stay in place */
+  body[data-view="chat"], body[data-view="agent"] { height: 100vh; height: 100dvh; overflow: hidden; }
   .chatbox { height: 100%; }
   .chat .composer { padding-bottom: 12px; }
 }
@@ -475,7 +477,7 @@ fieldset:disabled input, fieldset:disabled select { opacity: .7; }
 
 /* ---- Chat settings, context meter, compacted turns ---- */
 .chat.withset { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); gap: 16px; align-items: stretch; }
-.chatset { min-height: 0; }
+.chatset { min-height: 0; overflow-y: auto; }
 .chatset .sh { position: sticky; top: 0; background: var(--panel); z-index: 1; }
 .csform { overflow-y: auto; padding: 4px 0 0; display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .csgroup { border: 0; margin: 0; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--line-soft); min-width: 0; }

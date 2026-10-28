@@ -136,8 +136,6 @@
   /* ---- the column of conversations: the earlier ones to open again or delete, the favourites kept apart and above the rest ---- */
   const convs = $("#convs"), CV_KEY = "basalt.chat.convs";
   let known = [];                                                              // what the server lists, newest first
-  let delArmed = "";                                                              // the conversation whose delete button was pressed once
-  let delTimer = 0;
   const when = ts => (ts ? new Date(ts * 1000).toLocaleString(LANG === "it" ? "it-IT" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
   function setColumn(open) {
     convs.classList.toggle("shut", !open);
@@ -170,12 +168,7 @@
     del.type = "button";
     del.title = T("cv.del");
     del.setAttribute("aria-label", `${T("cv.del")}: ${name}`);
-    if (delArmed === s.id) { del.classList.add("sure"); del.textContent = T("cv.del.sure"); }
     del.onclick = async () => {
-      if (delArmed !== s.id) {                                                    // pressed once: it asks again, and forgets after a few seconds
-        delArmed = s.id; clearTimeout(delTimer); delTimer = setTimeout(() => { delArmed = ""; paintList(); }, 4000); paintList(); return;
-      }
-      clearTimeout(delTimer); delArmed = "";
       const r = await api("POST", `/${s.id}/delete`);
       if (!r.ok) { status(errText(r)); await refreshList(); return; }
       if (s.id === sid) { forget(); setControls(); }
