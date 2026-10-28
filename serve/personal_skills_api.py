@@ -1,4 +1,4 @@
-"""The page's side of the personal skills: the list, one skill, saving, deleting, approving, moving as a `.pskill` file, and the
+"""The page's side of the personal skills: the list, one skill, saving, deleting, moving as a `.pskill` file, and the
 live reading of a form (what a date written in words will be). The skills themselves are in harness/personal_skills/."""
 from __future__ import annotations
 
@@ -37,9 +37,6 @@ class PersonalSkillsApi:
     def delete(self, slug: str) -> Dict[str, Any]:
         self.store.delete(slug)
         return {"deleted": slug}
-
-    def approve(self, slug: str) -> Dict[str, Any]:
-        return {"skill": self.store.approve(slug)}
 
     def restore(self, slug: str, version: Any) -> Dict[str, Any]:
         if not isinstance(version, int) or isinstance(version, bool):

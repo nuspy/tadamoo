@@ -156,7 +156,7 @@ una nota.
 | `/init` | chiede all'agente di scrivere un `AGENTS.md` per la cartella |
 | `/review`, `/security-review` | gli chiede di rivedere le modifiche nella cartella |
 | `/research domanda` (`/search`) | gli chiede di leggere le fonti vere e di dire quali pagine non ha potuto aprire |
-| `/nome testo` | ogni skill trovata su questo PC (prima serve l'approvazione) |
+| `/nome testo` | ogni skill trovata su questo PC |
 
 Lasciati fuori di proposito: i comandi dell'account, del terminale o del cloud di Claude Code (`/login`, `/usage`, `/theme`, `/vim`,
 `/ide`…).
@@ -189,7 +189,7 @@ conversazione ti dice che potrebbe essere già partito. Dopo di che, o quando il
   copia di ciò che veniva dopo viene conservata. I file non si toccano: annullali dal pannello delle modifiche. Le azioni che restano
   avvenute (un comando, una telefonata, un pagamento, un'azione del browser) sono elencate prima, e devi premere ancora per tornare
   indietro lo stesso.
-- **Checkpoint.** Prima della prima modifica di ogni turno la cartella viene salvata fuori dal progetto. `python -m harness.rewind
+- **Checkpoint.** Prima che un'azione cambi dei file, il loro contenuto precedente viene conservato fuori dal progetto: solo i file che cambiano, di qualunque cartella, senza limite di dimensione. I file che un comando di shell non nomina non sono coperti. *Impostazioni > Checkpoint* (o `/checkpoints on|soft|off|default`) sceglie attivo, attivo senza mai fermare l'azione, o spento, li elenca e ne elimina uno o tutti. `python -m harness.rewind
   --workspace D:\proj` li elenca e `--to ID` ne ripristina uno; le conversazioni hanno `/rewind` e *Torna qui*. Il ritorno fa prima uno
   snapshot di sicurezza, quindi si può a sua volta annullare. Non disfa un comando che l'agente ha eseguito, e lo dice.
 - **Rami.** `/branch` copia una conversazione a una richiesta; *Rami* mostra l'albero. *Esegui entrambi e confronta* manda una richiesta lungo due
@@ -293,19 +293,22 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
 
 - **Da dove vengono.** Basalt legge, e non esegue mai, le skill, i plugin e i server MCP installati per altri strumenti su questo PC
   (`~/.claude/skills`, il `.claude/skills` del progetto, i plugin, `.mcp.json` e simili).
-- **Niente è attivo finché non lo approvi.** In *Impostazioni → Capacità* apri una voce, leggi il suo testo (una skill) o il suo
-  comando (un server) e approva. L'approvazione è legata a ciò che hai letto; se il file cambia, torna *da approvare*.
+- **Ciò che si trova è utilizzabile.** Non c'è un passaggio di approvazione: una voce su questo PC funziona a meno che tu non la spenga in
+  *Impostazioni → Capacità*, dove *Vedi il testo* mostra ciò che l'agente legge (una skill) o esegue (un server). Modificare un file non
+  ritira nulla.
 - **Le tue cartelle di skill.** In *Impostazioni → Capacità → Cartelle di skill* (e con `--skills DIR` da riga di comando) indichi
-  cartelle di skill `SKILL.md`. Le loro skill compaiono lì come *da approvare*; `load_skill` carica una skill approvata e rifiuta una
-  nuova o modificata con un messaggio che lo dice. Non resta mai in attesa di una risposta.
-- **Usarle.** L'agente cerca (`find_capability`), carica una skill approvata (`load_capability`) o chiama uno strumento di un server
-  approvato (`call_capability`, che chiede come ogni azione irreversibile; l'agente può leggere gli argomenti di uno strumento prima di
-  chiamarlo). Se un server si ferma per chiederti dei valori, la domanda compare nella conversazione con il nome del server: viene dal
+  cartelle di skill `SKILL.md`. Le loro skill compaiono lì e `load_skill` le carica così come sono ora.
+- **Usarle.** L'agente cerca (`find_capability`), carica una skill (`load_capability`) o chiama uno strumento di un server: uno strumento che il server
+  dichiara di sola lettura passa da `read_capability` (nessuna domanda, ammesso in modalità piano), ogni altro da `call_capability`, che
+  chiede come ogni azione irreversibile; l'agente può leggere gli argomenti di uno strumento prima di chiamarlo). Se un server si ferma per chiederti dei valori, la domanda compare nella conversazione con il nome del server: viene dal
   server, quindi non scrivere password o chiavi. Dalla Chat puoi chiamare una skill con `/nome testo`.
 - **Manca qualcosa?** L'agente può cercare online un server MCP o una skill (`find_online_capability`), mostrarti i cinque migliori con
   un punteggio, le avvertenze e il comando che verrebbe eseguito, e installare quello che scegli. All'installazione non si esegue
   nulla; il punteggio misura popolarità e manutenzione, **non la sicurezza**. Le impostazioni sono in *Impostazioni → Capacità →
-  Cerca online*. Attivare «installa da solo il migliore» mostra un'etichetta di rischio e chiede due volte.
+  Cerca online*. Attivare «installa da solo il migliore» mostra un'etichetta di rischio e chiede due volte. Quando non c'è nessuno a cui chiedere (un lavoro senza
+  supervisione), ciò che trova aspetta in *Impostazioni → Capacità → Richieste di installazione*, con la fonte, che cosa fa ciascuno,
+  vantaggi e svantaggi, e non viene installato nulla finché non premi *Installa* su uno (o rispondi alla stessa domanda nella Chat);
+  *Rifiuta* chiude la richiesta.
 - **Server MCP remoti** che richiedono un accesso mostrano un pulsante **Accedi** (OAuth); il token resta nel gestore credenziali di
   Windows.
 
@@ -360,7 +363,7 @@ aspetta.
   intestazioni) o da un bot Telegram. La pompa degli eventi è **accesa**: parte con il server e dorme finché non arriva nulla (si spegne in *Impostazioni*). Il filtro nel cloud è **spento** finché non lo accendi;
   richiede il tuo consenso e una chiave, sostituisce i nomi e manda tutta la scheda del piano, salute e allergie dei
   partecipanti comprese, a meno che togli una spunta.
-- Nulla in un piano cambia alle tue spalle: il planner prepara solo proposte, che approvi tu.
+- Il planner prepara proposte e, di default (*Impostazioni > Planner*, *Applica le modifiche in automatico, tranne se coinvolgono persone, prenotazioni o risorse che non controllo*), le applica subito e le scrive nella cronologia. Un passo che coinvolge altre persone, una telefonata, una prenotazione o un pagamento già fatti aspetta te in *Modifiche proposte* mentre il resto del piano prosegue. Spegni l'impostazione per approvare tutto da te.
 
 ## 12a. File nelle risposte
 
@@ -410,10 +413,11 @@ Opzioni comuni (tutte sono in [harness.md](harness.md#running-the-agent)):
 
 | Opzione | Significato |
 |---|---|
-| `--permission-mode plan\|read_only\|default\|auto` | come le modalità della sezione 4 |
+| `--permission-mode plan\|read_only\|default\|auto` | come le modalità della sezione 4; un'esecuzione senza interfaccia usa `auto` salvo `--interactive` |
 | `--allow PATTERN`, `--deny PATTERN` | regole per i comandi; un divieto vince |
 | `--interactive` o `--ask-server` | chiede sul terminale, o sulle pagine del server, prima di azioni rischiose, pagamenti e piani |
-| `--max-turns`, `--timeout-seconds`, `--max-tokens-budget` | si ferma dopo tanto |
+| `--timeout-seconds`, `--max-tokens-budget` | si ferma dopo tanto |
+| `--max-turns` | più giri del modello in una risposta; non indicato o sotto 1: nessun limite |
 | `--tool-timeout [NOME=]SECONDI` | limite di tempo per strumento; 0 per nessuno |
 | `--secret-env NOME[=host,host]` | lascia che l'agente scriva `{{secret:NOME}}` |
 | `--capabilities`, `--lsp`, `--browser`, `--phone`, `--wiki`, `--council` | accendono quei gruppi di strumenti |
@@ -451,10 +455,11 @@ scaduto, non autorizzato a girare) blocca anch'esso. Un file con un errore imped
 
 ## 16. Routine, valutazione e riesecuzione
 
-- Le **routine** eseguono un prompt secondo un orario (`every 30m`, `daily 08:30`, `weekdays 08:30`, `mon,wed,fri 18:15`) in una cartella
-  e in una modalità. Una routine nasce **disattivata** e in sola lettura; ne gira una alla volta e solo quando nessuna conversazione è
-  occupata. Si gestiscono dalla scheda **Cron Jobs**: un elenco con *Accendi/Spegni*, *Esegui ora* ed *Elimina*, un editor, gli ultimi risultati di ogni job e una
-  piccola chat a destra per discuterne uno. La chat propone soltanto: *Usa nell'editor* riempie il modulo, e nulla è salvato o acceso finché non premi *Salva* e *Accendi*.
+- Le **routine** eseguono un prompt secondo un orario (`every 30m`, `daily 08:30`, `weekdays 08:30`, `mon,wed,fri 18:15`) in una cartella.
+  Una routine nasce **accesa** e gira sempre in Automatica, che tu sia al PC o no; routine diverse girano insieme, la stessa mai due volte insieme, e una tua conversazione non ne trattiene nessuna
+  (a meno che tu imposti un tempo per cedere il passo). Passi e tempo per esecuzione sono limiti facoltativi, vuoti per nessuno. Un orario fisso perso a PC spento viene eseguito una volta, in ritardo, all'avvio.
+  Una richiesta che solo tu puoi risolvere resta in *Ti aspettano* mentre il resto dell'esecuzione va avanti. Si gestiscono dalla scheda **Cron Jobs**: un elenco con *Accendi/Spegni*, *Esegui ora* ed *Elimina*, un editor, gli ultimi risultati di ogni job e una
+  piccola chat a destra per discuterne uno. La chat propone soltanto: *Usa nell'editor* riempie il modulo, e nulla è salvato finché non premi *Salva*.
 - **Valutazione**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` esegue ogni compito k volte su una
   cartella nuova e riporta pass@k, pass^k, costo e uso della cache (un `--k` sotto 5 viene segnalato). Sono confronti di sviluppo, non numeri da titolo. I benchmark pubblici
   (BFCL, sottoinsiemi di Terminal-Bench e SWE-bench Pro) si leggono da una cartella che hai scaricato tu: `--bfcl DIR`, `--terminal-bench DIR`, `--swebench DIR`.
@@ -489,13 +494,12 @@ sue chiamate agli strumenti compaiono come quelle dell'agente, seguono gli stess
 **Ferma** la interrompe.
 
 **L'elenco.** *Esegui*, *Modifica* (la definizione, i parametri, lo script e le versioni precedenti), *Esporta* (un solo file `.pskill`, da tenere o
-da copiare su un altro PC con una chiavetta o per e-mail), *Elimina* (premi due volte) e *Importa skill personali…*. Una skill che arriva da un
-file, o i cui file sono stati cambiati a mano, è **da approvare**: leggi lo script e approvalo prima che possa girare. Una che hai fatto tu è
-approvata.
+da copiare su un altro PC con una chiavetta o per e-mail), *Elimina* (premi due volte) e *Importa skill personali…*. Una skill che hai fatto,
+modificato o importato è tua e gira subito; nulla va approvato e una modifica non ritira nulla.
 
 **Accesso.** Lo script gira come un tuo programma: può usare tutto ciò che Python sa fare (file, programmi, rete), con i tuoi diritti. Ciò che chiede
 con `tool(...)` passa dai permessi, dagli hook e dal registro di audit dell'agente; il resto dello script no. Non ci sono limiti di memoria, di output
-o di tempo, a meno che tu non imposti un *limite di tempo* in secondi nell'editor. Leggi lo script di una skill che viene da altri prima di approvarla.
+o di tempo, a meno che tu non imposti un *limite di tempo* in secondi nell'editor. Leggi lo script di una skill che viene da altri prima di eseguirla.
 
 **A un orario:** nella scheda **Cron Jobs** un job può eseguire una delle tue skill invece di un compito scritto da te. Compili i valori una volta; una data in parole come *oggi*
 o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job decidono cosa la skill può fare senza chiedere.
@@ -507,13 +511,13 @@ o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job
 | Cosa vedi | Perché | Cosa fare |
 |---|---|---|
 | Un avviso che non c'è un modello caricato | il server non ha nulla in memoria | *Modelli*, scegline uno, *Carica* |
-| La conversazione è *bloccata* | il server ha rifiutato definitivamente, o il processo continuava a fallire | leggi la nota, poi *Riprova* o chiudila |
-| «Nobody can confirm in this run» | un'esecuzione senza interfaccia ha incontrato qualcosa che richiede una domanda | aggiungi `--interactive`, o una regola `--allow` |
+| La conversazione è *bloccata* | il server ha rifiutato definitivamente | leggi la nota, poi *Riprova* o chiudila |
+| *Nuovo tentativo N tra S s* / *viene riavviato* | il modello non risponde o il processo si è fermato; riprova con attese sempre più lunghe e non si arrende da solo | aspetta, oppure ferma la conversazione |
+| «Nobody can confirm in this run» | un'esecuzione in modalità `plan`, `read_only` o `default`, senza nessuno a cui chiedere, ha incontrato qualcosa che richiede una domanda | usa `auto` (il default senza interfaccia), `--interactive`, o una regola `--allow` |
 | Un comando è stato rifiutato anche se una regola lo permette | il comando ne concatena o reindirizza un altro | un solo comando semplice per chiamata |
 | Uno strumento si è fermato dopo 15 minuti | il limite di tempo predefinito | `--tool-timeout NOME=SECONDI` |
 | La ricerca dice che serve un controllo | DuckDuckGo limita le ricerche automatiche | aspetta, imposta un altro motore, o `BASALT_WEB_SEARCH=off` |
 | Un comando con la barra resta nel campo | il nome è sconosciuto | `/help`; inizia con uno spazio per inviarlo come testo |
-| «La skill … non è ancora approvata» | la skill è *da approvare* | *Impostazioni → Capacità* |
 | Una pagina è stata rifiutata | è su questo PC o sulla tua rete | permettila nelle impostazioni del browser, se vuoi |
 | Ogni pagamento ti chiede | il limite è 0 finché non lo imposti | la vista Portafoglio |
 | `/compact` dice di aspettare | l'agente sta lavorando | aspetta la fine del turno, o Ferma |

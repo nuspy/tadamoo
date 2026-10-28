@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-DEFAULTS = {"cloud_triage": False, "pseudonymize": True, "card_fields": None, "gate_mode": "or", "event_pump": True, "sources": [],
+DEFAULTS = {"cloud_triage": False, "pseudonymize": True, "card_fields": None, "gate_mode": "or", "event_pump": True, "auto_apply": True, "sources": [],
             "blocker_threshold": 0.8, "cloud_timeout": 5.0, "max_events": 20}
 KEY_FIELDS = ("jev_key", "clear_jev_key")                 # acts on the key, which is not stored among the settings
 EVENTS_MAX = 100
@@ -97,7 +97,7 @@ class PlanService:
         if unknown:
             raise ValueError(f"unknown settings: {', '.join(unknown)}")
         current = {k: v for k, v in self.settings().items() if k in DEFAULTS}
-        for key in ("cloud_triage", "pseudonymize"):
+        for key in ("cloud_triage", "pseudonymize", "auto_apply"):
             if key in changes:
                 if not isinstance(changes[key], bool):
                     raise ValueError(f"{key} must be true or false")
@@ -561,7 +561,7 @@ class PlanService:
 
     def _replan(self, plan_id: str, bridge: Any, result: Any, events: List[str]) -> None:
         try:
-            bridge.replan(result, events)
+            bridge.replan(result, events, auto_apply=self.settings()["auto_apply"] is True)
             self.store.save(plan_id)
         except Exception as exc:
             bridge._emit("plan:replan_failed", {"error": f"{type(exc).__name__}: {exc}"})

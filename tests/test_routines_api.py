@@ -37,12 +37,16 @@ def body(ws, **kw):
 
 def test_create_list_enable_run_and_remove(api, ws):
     code, made = api("POST", "/api/routines", body(ws))
-    assert code == 200 and made["routine"]["enabled"] is False and made["routine"]["mode"] == "read_only"
+    assert code == 200 and made["routine"]["enabled"] is True and "mode" not in made["routine"]
+    assert (made["routine"]["max_turns"], made["routine"]["max_minutes"]) == (None, None)
     rid = made["routine"]["id"]
     listed = api("GET", "/api/routines")[1]
-    assert [r["id"] for r in listed["routines"]] == [rid] and listed["routines"][0]["next_run"] is None      # disabled: no next run
+    assert [r["id"] for r in listed["routines"]] == [rid] and listed["routines"][0]["next_run"] > time.time()      # born enabled
+    assert listed["running"] == [] and listed["pending"] == []
+    assert api("POST", f"/api/routines/{rid}/disable", {})[1]["routine"]["enabled"] is False
+    assert api("GET", "/api/routines")[1]["routines"][0]["next_run"] is None                                       # disabled: no next run
     enabled = api("POST", f"/api/routines/{rid}/enable", {})[1]["routine"]
-    assert enabled["enabled"] is True and api("GET", "/api/routines")[1]["routines"][0]["next_run"] > time.time()
+    assert enabled["enabled"] is True
     assert api("POST", f"/api/routines/{rid}/run", {})[0] == 200
     wait_for(lambda: api("GET", f"/api/routines/runs?id={rid}")[1]["runs"], seconds=30)
     run = api("GET", f"/api/routines/runs?id={rid}")[1]["runs"][0]
@@ -56,12 +60,27 @@ def test_create_list_enable_run_and_remove(api, ws):
 def test_mistakes_are_answered_with_a_message_and_a_code(api, ws):
     code, data = api("POST", "/api/routines", body(ws, schedule="whenever"))
     assert code == 400 and data["error"]["code"] == "bad_schedule"
-    code, data = api("POST", "/api/routines", body(ws, mode="auto"))
-    assert code == 200 and data["routine"]["mode"] == "auto" and "confirm_auto" not in data["routine"]
+    code, data = api("POST", "/api/routines", body(ws, max_turns=0))
+    assert code == 400 and data["error"]["code"] == "bad_steps"
+    code, data = api("POST", "/api/routines", body(ws, max_minutes="soon"))
+    assert code == 400 and data["error"]["code"] == "bad_minutes"
+    code, data = api("POST", "/api/routines", body(ws, max_turns=40, max_minutes=15))
+    assert code == 200 and (data["routine"]["max_turns"], data["routine"]["max_minutes"]) == (40, 15)
     code, data = api("POST", "/api/routines/nope/enable", {})
     assert code == 404 and data["error"]["code"] == "gone"
     assert api("POST", "/api/routines/abc/explode", {})[0] == 400
     assert api("GET", "/api/routines/runs?limit=x")[0] == 400
+
+
+def test_a_parked_request_is_listed_and_dismissed(api, ws, tmp_path):
+    rid = api("POST", "/api/routines", body(ws))[1]["routine"]["id"]
+    sched = handler._ROUTINES.scheduler
+    sched._park(rid, {"session": "s", "key": "k", "kind": "ask", "question": "Book the table?", "options": ["Yes", "No"]})
+    [pending] = api("GET", "/api/routines")[1]["pending"]
+    assert pending["question"] == "Book the table?" and pending["name"] == "morning" and pending["options"] == ["Yes", "No"]
+    assert api("POST", f"/api/routines/{pending['id']}/dismiss", {})[1] == {"dismissed": pending["id"]}
+    assert api("GET", "/api/routines")[1]["pending"] == []
+    assert api("POST", f"/api/routines/{pending['id']}/dismiss", {})[1]["error"]["code"] == "gone"
 
 
 def test_a_form_that_is_not_json_is_a_bad_request(api, ws):
@@ -107,14 +126,14 @@ def test_a_routine_can_run_a_personal_skill_and_the_date_in_words_is_worked_out_
     assert api("GET", "/api/routines")[1]["routines"][0]["values"]["day"] == "today"
 
 
-def test_a_skill_routine_with_a_wrong_value_a_missing_skill_or_a_skill_not_approved_is_refused_when_saved(skills_api, ws):
+def test_a_skill_routine_with_a_wrong_value_or_a_missing_skill_is_refused_when_saved(skills_api, ws):
     api, mgr = skills_api
     code, res = api("POST", "/api/routines", body(ws, skill="daily-report", values={"day": "when the moon is blue", "topic": "x"}))
     assert code == 400 and res["error"]["code"] == "bad_values" and "day" in res["error"]["message"]
     assert api("POST", "/api/routines", body(ws, skill="no-such-skill", values={}))[1]["error"]["code"] == "bad_skill"
     assert api("POST", "/api/routines", body(ws, values={"day": "today"}))[1]["error"]["code"] == "bad_values"            # values need a skill
-    mgr.skills.save({**SKILL_SPEC, "name": "Unread"}, SKILL_SCRIPT + "# changed\n", approve=False)
-    assert api("POST", "/api/routines", body(ws, skill="unread", values={"day": "today", "topic": "x"}))[1]["error"]["code"] == "needs_approval"
+    mgr.skills.save({**SKILL_SPEC, "name": "Unread"}, SKILL_SCRIPT + "# changed\n")
+    assert api("POST", "/api/routines", body(ws, skill="unread", values={"day": "today", "topic": "x"}))[0] == 200            # nothing to approve
     made = api("POST", "/api/routines", body(ws, skill="daily-report", values={"day": "tomorrow", "topic": "x"}))[1]["routine"]
     code, res = api("POST", f"/api/routines/{made['id']}/update", {"values": {"day": "nonsense", "topic": "x"}})
     assert code == 400 and res["error"]["code"] == "bad_values"

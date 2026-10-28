@@ -171,19 +171,14 @@ class PhoneLimitsTest(unittest.TestCase):
         self.assertEqual(self.phone_post("/api/agent/sessions", self.session(mode="root", ask_only=False))[0], 400)
         self.assertTrue(RemoteAccess(Path(self.tmp.name) / "remote.json", 0, lambda ip, port: None).phone_chooses)
 
-    def test_runs_and_routines_started_from_a_phone_follow_the_same_limits(self):
+    def test_runs_started_from_a_phone_follow_the_limits_and_routines_are_always_automatic(self):
         run = {"workspace": str(self.work), "goal": "x", "mode": "auto"}
         self.assertEqual(self.phone_post("/api/agent/runs", run)[1]["error"]["code"], "phone_mode_limit")
         self.assertEqual(self.phone_post("/api/agent/runs", {**run, "mode": "default", "allow": ["shell_command:*"]})[1]["error"]["code"], "phone_rules")
         routine = {"name": "n", "prompt": "p", "schedule": "daily 08:30", "workspace": str(self.work)}
-        self.assertEqual(self.phone_post("/api/routines", {**routine, "mode": "auto"})[1]["error"]["code"], "phone_mode_limit")
-        self.assertEqual(self.phone_post("/api/routines", {**routine, "allow": ["shell_command:*"]})[1]["error"]["code"], "phone_rules")
         code, made = self.phone_post("/api/routines", routine)
         self.assertEqual(code, 200)
-        rid = made["routine"]["id"]
-        self.assertEqual(self.phone_post(f"/api/routines/{rid}/update", {"mode": "auto"})[1]["error"]["code"], "phone_mode_limit")
-        self.assertEqual(self.phone_post(f"/api/routines/{rid}/update", {"allow": ["shell_command:*"]})[1]["error"]["code"], "phone_rules")
-        self.call("POST", f"/api/routines/{rid}/remove", {})
+        self.call("POST", f"/api/routines/{made['routine']['id']}/remove", {})
 
     def test_the_limits_are_set_from_the_pc_only_and_kept(self):
         code, view = self.call("POST", "/api/remote/limits", {"max_mode": "read_only", "rules": ["shell_command:pytest *"]})

@@ -3,11 +3,12 @@
 The scheduler is made when first needed and runs the routines through the server's conversation manager. Routes, under
 /api/routines (the writes pass the same gates as the other /api/ writes):
 
-  GET  /api/routines                  the routines, what is running or queued, and the latest results
+  GET  /api/routines                  the routines, what is running or queued, the pending requests and the latest results
   GET  /api/routines/runs?id=&limit=  results, newest first
-  POST /api/routines                  a new routine (disabled)
+  POST /api/routines                  a new routine (enabled; it always runs in Automatic)
   POST /api/routines/<id>/update | enable | disable | run | remove
-  POST /api/routines/cancel           stops the routine that is running
+  POST /api/routines/<pending id>/dismiss   removes a pending request from the list
+  POST /api/routines/cancel           stops the routines that are running
 """
 from __future__ import annotations
 
@@ -51,8 +52,6 @@ class RoutinesApi:
             skill = skills.get(slug)
         except SkillError as exc:
             raise RoutineError(str(exc), "bad_skill") from None
-        if skill.get("status") != "approved":
-            raise RoutineError("Read the skill and approve it first: it has not been approved on this PC.", "needs_approval")
         _, errors = resolve_values(skill.get("params") or [], values or {}, datetime.now())
         if errors:
             raise RoutineError("; ".join(f"{k}: {v}" for k, v in errors.items()), "bad_values")
@@ -61,8 +60,8 @@ class RoutinesApi:
         if req.get("skill"):
             self._skill_ok(req.get("skill"), req.get("values"))
         return {"routine": self.scheduler.add(req.get("name"), req.get("prompt"), req.get("workspace"), req.get("schedule"),
-                                              req.get("mode", "read_only"), req.get("allow"), req.get("max_turns", 10),
-                                              req.get("skill") or "", req.get("values"), req.get("yield_s"))}
+                                              req.get("max_turns"), req.get("max_minutes"), req.get("skill") or "",
+                                              req.get("values"), req.get("yield_s"))}
 
     def act(self, routine_id: str, action: str, req: Dict[str, Any]) -> Dict[str, Any]:
         s = self.scheduler
@@ -75,6 +74,9 @@ class RoutinesApi:
         if action == "remove":
             s.remove(routine_id)
             return {"removed": routine_id}
+        if action == "dismiss":
+            s.dismiss(routine_id)
+            return {"dismissed": routine_id}
         if action == "update":
             fields = {k: v for k, v in req.items() if k != "id"}
             current = s.get(routine_id)

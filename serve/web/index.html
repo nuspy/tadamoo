@@ -21,6 +21,7 @@
 <link rel="stylesheet" href="web/risk.css">
 <link rel="stylesheet" href="web/branches.css">
 <link rel="stylesheet" href="web/export.css">
+<link rel="stylesheet" href="web/checkpoints.css">
 <script defer src="web/i18n.js"></script>
 <script defer src="web/risk.js"></script>
 <script defer src="web/app.js"></script>
@@ -31,6 +32,7 @@
 <script defer src="web/chat.js"></script>
 <script defer src="web/projects.js"></script>
 <script defer src="web/agentchat.js"></script>
+<script defer src="web/checkpoints.js"></script>
 <script defer src="web/slash.js"></script>
 <script defer src="web/pskills.js"></script>
 <script defer src="web/export.js"></script>
@@ -341,6 +343,21 @@
             <textarea id="cs-allow" rows="4" spellcheck="false" autocomplete="off" aria-describedby="cs-allow-h" data-t-ph="ag.allow.ph"></textarea>
             <p class="help" id="cs-allow-h" data-t="ag.allow.help"></p></div>
         </fieldset>
+        <fieldset class="csgroup" id="cs-cp">
+          <legend data-t="ck.title">Checkpoints (files put back)</legend>
+          <p class="help" data-t="ck.help"></p>
+          <p class="help" data-t="ck.scope"></p>
+          <label class="radio"><input type="radio" name="cs-cp" value="" checked><span><b data-t="ck.m.default">Follow the permission level</b><small data-t="ck.m.default.d"></small></span></label>
+          <label class="radio"><input type="radio" name="cs-cp" value="on"><span><b data-t="ck.m.on">On</b><small data-t="ck.m.on.d"></small></span></label>
+          <label class="radio"><input type="radio" name="cs-cp" value="soft"><span><b data-t="ck.m.soft">On, never stop the action</b><small data-t="ck.m.soft.d"></small></span></label>
+          <label class="radio"><input type="radio" name="cs-cp" value="off"><span><b data-t="ck.m.off">Off</b><small data-t="ck.m.off.d"></small></span></label>
+          <p class="help" id="cs-cp-state" role="status"></p>
+          <div class="ck-bar">
+            <button type="button" class="btn" id="cs-cp-refresh" data-t="ck.refresh">Refresh the list</button>
+            <button type="button" class="btn" id="cs-cp-all" data-t="ck.delete.all">Delete all</button>
+          </div>
+          <ul id="cs-cp-list" class="ck-list"></ul>
+        </fieldset>
         <fieldset class="csgroup">
           <legend data-t="pt.title">Context patterns</legend>
           <p class="help" data-t="pt.help"></p>
@@ -503,6 +520,11 @@
       <section class="sec cj-listsec" aria-labelledby="cj-h">
         <div class="sh"><b id="cj-h" data-t="cj.title">Cron Jobs</b><span class="grow"></span><button type="button" class="btn primary" id="cj-new" data-t="cj.newbtn" data-t-title="cj.tip.new">New job</button></div>
         <p class="help pad" id="cj-running" role="status" hidden></p>
+        <div class="cj-pending" id="cj-pending" hidden>
+          <div class="sh"><b data-t="cj.pending.title">Waiting for you</b></div>
+          <p class="help pad" data-t="cj.pending.help"></p>
+          <ul class="cj-pendlist" id="cj-pending-list"></ul>
+        </div>
         <ul class="cj-list" id="cj-list" aria-label="Cron Jobs" data-t-aria="cj.title"></ul>
         <p class="pad dim" id="cj-empty" data-t="cj.empty" hidden>No jobs yet.</p>
         <p class="cj-status pad" id="cj-status" role="status" aria-live="polite"></p>

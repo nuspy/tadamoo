@@ -4,13 +4,14 @@ Each conversation is `python -m harness session`, spoken to in lines of JSON (se
 list of conversations, starts and stops the processes, buffers their events for the page, and supervises them:
 
 * a process that dies or stops giving signs of life is started again from its saved history, and the turn it was in goes
-  on; a message it never confirmed is sent again; at most `restart_cap` restarts in `restart_window_s`, then the
-  conversation is blocked and waits for the person;
+  on (the model is told the call in hand may have run); a message it never confirmed is sent again; the waits between
+  restarts grow up to `RESTART_WAITS[-1]` and never end the retries: only the person stops them;
 * a conversation idle for `idle_s` has its process closed (it is dormant: the history stays, the next message wakes it);
 * a confirmation the process asks (a change to a plan, a risky action) is kept with its buttons until the person answers; the
   conversation is `asking` meanwhile and a turn waiting for the person is never taken for a stuck one;
-* when the process says it is blocked (a refusal, retries that ran out, an action that cannot be undone and was running
-  when it died), the conversation waits for the person: nothing is decided for them and nothing is run again.
+* a question that only the person can answer, in an `unattended` conversation, does not stop it: it is kept in `pending` for the
+  person to answer whenever they come back, and the process goes on with other work;
+* when the process says it is blocked (a refusal that waiting cannot change), the conversation waits for the person.
 """
 from __future__ import annotations
 
@@ -50,6 +51,8 @@ SESSIONS_FILE = "agent_sessions.json"
 TITLE_CHARS = 80
 PLACE_KEEP_S = 86_400           # a position older than this is no longer handed to a conversation
 OPTIONS = ("resume", "close")
+RESTART_WAITS = (0.0, 2.0, 5.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0)       # before each new start of a process that keeps dying; the last repeats
+RESTART_RESET_S = 600.0                                                     # restarts older than this no longer lengthen the wait
 ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free", "free_prefix", "explain")
 COMPARES_FILE = "compares.json"
 NODES_FILE = "nodes.jsonl"
@@ -100,8 +103,8 @@ class Live:
 class SessionManager:
     def __init__(self, directory: str | Path, endpoint: str, api_key: str = "", board: Optional[ApprovalBoard] = None,
                  python: Optional[str] = None, root: Path = ROOT, command: Optional[Callable[[str, Dict[str, Any], Path], List[str]]] = None,
-                 idle_s: float = 1800.0, beat_timeout_s: float = 45.0, restart_cap: int = 3,
-                 restart_window_s: float = 600.0, tick_s: float = 1.0, start_wait_s: float = 60.0,
+                 idle_s: float = 1800.0, beat_timeout_s: float = 45.0,
+                 restart_waits: Tuple[float, ...] = RESTART_WAITS, tick_s: float = 1.0, start_wait_s: float = 60.0,
                  default_workspace: Optional[Path] = None, router: str = "model", pipeline: str = "full",
                  attachments_dir: Optional[Path] = None, outputs_dir: Optional[Path] = None, worktrees: Optional[Worktrees] = None,
                  vault_dir: Optional[Path] = None, payments_dir: Optional[Path] = None,
@@ -137,7 +140,8 @@ class SessionManager:
         self.python, self.root = python or sys.executable, Path(root)
         self.command = command or self._command
         self.idle_s, self.beat_timeout_s = idle_s, beat_timeout_s
-        self.restart_cap, self.restart_window_s, self.tick_s, self.start_wait_s = restart_cap, restart_window_s, tick_s, start_wait_s
+        self.restart_waits, self.tick_s, self.start_wait_s = restart_waits, tick_s, start_wait_s
+        self._restart_token: Dict[str, object] = {}            # a restart waiting for its time; dropping the token cancels it
         self._lock = threading.RLock()
         self._live: Dict[str, Live] = {}
         self._events: Dict[str, Deque[Dict[str, Any]]] = {}
@@ -856,7 +860,7 @@ class SessionManager:
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
                max_turns: Any = UNLIMITED_STEPS, context_patterns: Any = None,
                context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
-               images: Any = "", charts: Any = "") -> Dict[str, Any]:
+               images: Any = "", charts: Any = "", unattended: bool = False) -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         if (workspace is None or workspace == "") and self.default_workspace is not None:
             self.default_workspace.mkdir(parents=True, exist_ok=True)
@@ -890,7 +894,7 @@ class SessionManager:
         sid = secrets.token_hex(4)
         copy = self._copy_for(sid, path, worktree)
         rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "effort": effort, "images": images, "charts": charts,
-               "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns,
+               "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns, "unattended": unattended is True,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         if copy:
             rec["worktree"], rec["workdir"] = copy, copy["workdir"]
@@ -924,7 +928,9 @@ class SessionManager:
 
     def _command(self, sid: str, rec: Dict[str, Any], history: Path) -> List[str]:
         cmd = [self.python, "-m", "harness", "session", "--session-id", sid, "--history-dir", str(history), "--workspace", rec.get("workdir") or rec["workspace"],
-               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp", "--report-changes", "--page-files"]
+               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", UNLIMITED_STEPS)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp", "--report-changes", "--page-files"]
+        if rec.get("unattended"):
+            cmd.append("--unattended")
         rules = list(rec.get("allow", []))
         rules += [r for r in (self.allow_rules.read() if self.allow_rules else []) if r not in rules]
         for rule in rules:
@@ -1040,7 +1046,8 @@ class SessionManager:
                 live.pid = int(event.get("pid") or 0)
                 blocked = event.get("blocked")
                 pending, live.after_ready = live.after_ready, []
-                self._set(rec, state="blocked" if blocked else "busy" if pending else "idle", blocked=blocked)
+                self._set(rec, state="blocked" if blocked else "busy" if any(c.get("cmd") != "answer" for c in pending) else "idle", blocked=blocked,
+                          pending=[self._pending_view(i) for i in event.get("parked") or [] if isinstance(i, dict)])
                 live.ready.set()
                 if not blocked:                              # a block is the person's to lift, so nothing is given on
                     for cmd in pending:
@@ -1054,6 +1061,11 @@ class SessionManager:
                     self._set(rec, state="asking", ask=shown)
                 else:
                     self._set(rec, question=shown)
+            elif kind == "pending":                                   # a question for the person that does not stop the process
+                shown = {k: event.get(k) for k in ASK_FIELDS if k != "mode"}
+                self._set(rec, pending=[i for i in rec.get("pending", []) if i.get("id") != shown["id"]] + [{**shown, "source": event.get("source"), "turn": event.get("turn"), "at": event.get("t") or time.time()}])
+            elif kind == "pending_done":
+                self._set(rec, pending=[i for i in rec.get("pending", []) if i.get("id") != event.get("id")])
             elif kind == "rule_added":
                 rule = str(event.get("rule") or "").strip()
                 rules = list(rec.get("allow", []))
@@ -1115,27 +1127,49 @@ class SessionManager:
             if rec["state"] == "blocked" or not was_busy:   # waiting for the person, or nothing running: it starts at the next message
                 self._set(rec, state="dormant")
                 return
-            now = time.monotonic()
-            recent = [t for t in self._restarts.get(sid, []) if now - t < self.restart_window_s]
-            if len(recent) >= self.restart_cap:
-                self._restarts[sid] = recent
-                blocked = {"reason": "process_unstable", "detail": f"{why}; it was started again {len(recent)} times in "
-                           f"{int(self.restart_window_s // 60)} minutes", "options": list(OPTIONS)}
-                self._set(rec, state="blocked", blocked=blocked)
-                self._push(sid, {"event": "blocked", **blocked})
+            self._set(rec, state="starting")
+            self._schedule_restart(sid, rec, why)
+
+    def _schedule_restart(self, sid: str, rec: Dict[str, Any], why: str) -> None:
+        """Starts the process again after a wait that grows with the restarts of the last minutes and never ends the retries; the
+        person stops them by stopping or closing the conversation. Called with the lock held."""
+        now = time.monotonic()
+        recent = [t for t in self._restarts.get(sid, []) if now - t < RESTART_RESET_S]
+        self._restarts[sid] = recent + [now]
+        wait = self.restart_waits[min(len(recent), len(self.restart_waits) - 1)]
+        token = object()
+        self._restart_token[sid] = token
+        self._push(sid, {"event": "restarting", "why": why, "attempt": len(recent) + 1, "wait_s": wait})
+        threading.Thread(target=self._restart_after, args=(sid, token, wait, why), name=f"restart-{sid}", daemon=True).start()
+
+    def _restart_after(self, sid: str, token: object, wait: float, why: str) -> None:
+        if wait > 0 and self._stop.wait(wait):
+            return
+        with self._lock:
+            if self._restart_token.get(sid) is not token or self._stop.is_set():
+                return                                                  # stopped, closed, or started by a new message meanwhile
+            self._restart_token.pop(sid, None)
+            rec = next((r for r in self.records if r["id"] == sid), None)
+            if rec is None or rec["state"] != "starting" or self._live.get(sid) is not None:
                 return
-            self._restarts[sid] = recent + [now]
-            self._push(sid, {"event": "restarting", "why": why, "attempt": len(recent) + 1, "of": self.restart_cap})
             unconfirmed = self._unconfirmed.get(sid)
             try:
                 live = self._spawn(sid)
-            except RunError as exc:
-                blocked = {"reason": "start_failed", "detail": str(exc), "options": list(OPTIONS)}
-                self._set(rec, state="blocked", blocked=blocked)
-                self._push(sid, {"event": "blocked", **blocked})
+            except RunError as exc:                                     # it could not even start: try again later, the same way
+                self._schedule_restart(sid, rec, str(exc))
                 return
-            self._set(rec, state="starting")
             live.after_ready = [dict(unconfirmed)] if unconfirmed else [{"cmd": "resume"}]
+
+    def _stop_restart(self, sid: str) -> bool:
+        """The person stopped a conversation that was waiting to be started again."""
+        with self._lock:
+            return self._restart_token.pop(sid, None) is not None
+
+    @staticmethod
+    def _pending_view(item: Dict[str, Any]) -> Dict[str, Any]:
+        payload = item.get("payload") if isinstance(item.get("payload"), dict) else item
+        return {**{k: payload.get(k) for k in ASK_FIELDS if k != "mode"}, "id": item.get("id"), "source": item.get("source"),
+                "turn": item.get("turn"), "at": item.get("at")}
 
     def _write(self, sid: str, live: Live, cmd: Dict[str, Any]) -> bool:
         try:
@@ -1303,8 +1337,6 @@ class SessionManager:
             skill = self.skills.get(slug)
         except SkillError as exc:
             raise RunError(str(exc), "no_skill") from None
-        if skill["status"] != "approved":
-            raise RunError("Read the skill and approve it first: it has not been approved on this PC.", "needs_approval")
         typed, errors = resolve_values(skill.get("params") or [], values or {}, datetime.now())
         if errors:
             raise RunError("; ".join(f"{k}: {v}" for k, v in errors.items()), "bad_values")
@@ -1337,6 +1369,9 @@ class SessionManager:
             rec = self._record(sid)
             ask = rec.get("ask")
             live = self._live.get(sid)
+            parked = next((i for i in rec.get("pending", []) if i.get("id") == ask_id), None)
+            if parked is not None:                                  # a question left for the person: answered whenever, the process applies it
+                return self._answer_pending(sid, rec, live, parked, value)
             if not ask or live is None or ask.get("id") != ask_id:
                 raise RunError("That question is not waiting for an answer any more.", "not_asking")
             free = bool(ask.get("free"))
@@ -1351,6 +1386,26 @@ class SessionManager:
                 raise RunError("The agent process did not take the answer; try again.", "write_failed")
         self._push(sid, {"event": "answered", "ask": ask_id, "value": "" if free else value})        # a code is not kept in the conversation
         return self.get(sid)
+
+    def _answer_pending(self, sid: str, rec: Dict[str, Any], live: Optional[Live], item: Dict[str, Any], value: Any) -> Dict[str, Any]:
+        """The answer to a pending question (the lock is held): checked like any other, then handed to the process, which starts first when
+        the conversation is dormant. The conversation's state does not change here: the process says what it does with it."""
+        if item.get("free"):
+            if not valid_code(value):
+                raise RunError("A code is up to 32 letters, digits, spaces or dashes.", "bad_answer")
+        elif value not in [o.get("value") for o in item.get("options") or []] and not (
+                item.get("free_prefix") and isinstance(value, str) and value.startswith(item["free_prefix"]) and len(value) <= len(item["free_prefix"]) + 500):
+            raise RunError("That is not one of the answers.", "bad_answer")
+        cmd = {"cmd": "answer", "id": item["id"], "value": value}
+        if live is not None and live.ready.is_set() and live.proc.poll() is None and not live.ending:
+            if not self._write(sid, live, cmd):
+                raise RunError("The agent process did not take the answer; try again.", "write_failed")
+        else:
+            live = self._ensure(sid)
+            self._set(rec, state="starting")
+            live.after_ready = live.after_ready + [cmd]
+        self._push(sid, {"event": "answered", "ask": item["id"], "value": "" if item.get("free") else value})
+        return dict(rec)
 
     def promote(self, sid: str, turn: Any) -> Dict[str, Any]:
         """A request that waits behind the task in hand becomes urgent: the task is put aside at its next safe point."""
@@ -1371,9 +1426,13 @@ class SessionManager:
 
     def cancel(self, sid: str) -> Dict[str, Any]:
         with self._lock:
-            self._record(sid)
+            rec = self._record(sid)
             live = self._live.get(sid)
             if live is None:
+                if self._restart_token.pop(sid, None) is not None:       # waiting to be started again: stop that
+                    self._set(rec, state="dormant")
+                    self._push(sid, {"event": "restart_stopped"})
+                    return dict(rec)
                 raise RunError("That conversation is not running.", "not_running")
             self._write(sid, live, {"cmd": "cancel"})
         return self.get(sid)
@@ -1460,6 +1519,7 @@ class SessionManager:
         with self._lock:
             rec = self._record(sid)
             live = self._live.get(sid)
+            self._restart_token.pop(sid, None)
             if live is not None:
                 live.ending = True
                 self._write(sid, live, {"cmd": "close"})
@@ -1575,6 +1635,7 @@ class SessionManager:
             if live is not None:
                 live.ending = True
                 self._write(sid, live, {"cmd": "close"})
+            self._restart_token.pop(sid, None)
             self._set(rec, state="closed", blocked=None)
         if live is not None:
             self._end(live)

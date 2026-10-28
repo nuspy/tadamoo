@@ -48,8 +48,8 @@ class PersonalSkillsPageTest(unittest.TestCase):
         self.assertIn("psk.pf.dateHelp", PSK)
         self.assertRegex(PSK, r'"psk\.pf\.becomes"')
 
-    def test_a_skill_that_is_not_approved_cannot_be_run_from_the_form_and_no_access_mode_is_asked(self):
-        self.assertRegex(PSK, r'skill\.status !== "approved"[\s\S]*go\.disabled = true')
+    def test_the_form_runs_a_skill_with_no_approval_step_and_no_access_mode_is_asked(self):
+        self.assertNotIn("approve", PSK)
         self.assertNotIn("riskConfirm", PSK)
         self.assertNotIn("mode.value", PSK)
 

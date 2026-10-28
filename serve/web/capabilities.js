@@ -1,13 +1,13 @@
 "use strict";
-/* Settings > Capabilities and visual analysis: the skills, plugins and MCP servers found on this PC as a tree, what the person has
-   approved, and the choice for visual analysis. Nothing found is active until the person looks at what it does and presses
-   Approve; the approval is tied to the hash they were shown. Also here: the settings of the search online (which sources are asked,
-   the minimum score and the weights, whether the best candidate above the minimum is installed without asking) and the list of what
-   Basalt installed, with Remove. Everything the server says is put in the page as text. */
+/* Settings > Capabilities and visual analysis: the skills, plugins and MCP servers found on this PC as a tree (usable unless the person
+   turns them off), and the choice for visual analysis. Also here: the settings of the search online (which sources are asked, the
+   minimum score and the weights, whether the best candidate above the minimum is installed without asking), the install requests the
+   agent queued (the person installs one candidate or rejects the request), and the list of what Basalt installed, with Remove.
+   Everything the server says is put in the page as text. */
 (() => {
   const body = document.getElementById("st-caps-body");
   if (!body) return;
-  let state = null, filter = "", note = "", noteBad = false, review = null, visionOn = null, signed = {}, waiting = 0, online = null, armed = 0, armTimer = 0;
+  let state = null, filter = "", note = "", noteBad = false, review = null, requests = [], visionOn = null, signed = {}, waiting = 0, online = null, armed = 0, armTimer = 0;
   const opened = new Set();
 
   const h = (tag, cls, ...kids) => {
@@ -64,6 +64,8 @@
     const r = await call("GET", "api/capabilities");
     const o = await call("GET", "api/capabilities/online");
     if (o.ok) online = o.data;
+    const q = await call("GET", "api/capabilities/requests");
+    if (q.ok) requests = q.data.requests || [];
     if (r.ok) { state = r.data; draw(); } else if (!state) body.replaceChildren(h("p", "setnote warnnote", why(r)));
     try {
       const m = await fetch("v1/models", { cache: "no-store", headers: authHeaders() });
@@ -78,8 +80,8 @@
   }
 
   function visualBox() {
-    const sel = h("select", "", state.visual_options.map(o => Object.assign(h("option", "", o.id === "builtin" ? T("cp.v.builtin") : o.id === "none" ? T("cp.v.none") : `${o.label} (${o.origin}${o.state !== "approved" ? ", " + T("cp.state." + o.state) : ""})`),
-      { value: o.id, disabled: o.state !== "approved" })));
+    const sel = h("select", "", state.visual_options.map(o => Object.assign(h("option", "", o.id === "builtin" ? T("cp.v.builtin") : o.id === "none" ? T("cp.v.none") : `${o.label} (${o.origin})`),
+      { value: o.id })));
     sel.value = state.settings.visual; sel.id = "cp-visual";
     sel.onchange = async () => { if (await act("api/capabilities/settings", { visual: sel.value })) say(T("cp.saved")); draw(); };
     const vision = visionOn === null ? "" : visionOn ? T("cp.v.on") : T("cp.v.off");
@@ -155,13 +157,41 @@
     return sec;
   }
 
+  async function decide(r, path, payload, doneText) {
+    const res = await call("POST", path, payload);
+    if (res.ok) { if (res.data.entries) state = res.data; requests = res.data.requests || requests; say(doneText); } else say(why(res), true);
+    await load();
+  }
+  function requestsBox() {
+    const sec = h("section", "cp-online cp-requests");
+    sec.append(h("h3", "", T("cp.rq.title")), h("p", "setnote", T("cp.rq.help")));
+    if (!requests.length) { sec.append(h("p", "dim", T("cp.rq.none"))); return sec; }
+    requests.forEach(r => {
+      const li = h("div", "cp-entry", h("div", "cp-head", h("b", "", T("cp.rq.need", r.need)), h("span", "cp-badge", T("cp.rq.status." + r.status))));
+      if (r.detail) li.append(h("p", "setnote", r.detail));
+      r.candidates.forEach((c, i) => {
+        const card = c.card;
+        const block = h("div", "cp-cand", h("div", "cp-head", h("b", "", card.name), h("span", "cp-badge", T("cp.kind." + card.kind)), h("span", "cp-badge", card.source),
+          card.version ? h("span", "cp-badge", T("cp.on.version", card.version)) : null, h("span", "cp-badge", T("cp.rq.score", card.score))),
+          h("p", "dim cp-desc", c.summary || card.description), h("p", "setnote", T("cp.rq.command", card.command)),
+          card.keys.length ? h("p", "setnote", T("cp.rq.keys", card.keys.join(", "))) : null,
+          c.pros || c.cons ? h("p", "setnote", h("b", "", T("cp.rq.pros") + ": "), c.pros || "-", h("br"), h("b", "", T("cp.rq.cons") + ": "), c.cons || "-") : h("p", "setnote", T("cp.rq.nocompare")));
+        if (r.status === "pending") block.append(h("div", "cp-actions", btn(T("cp.rq.install"), "primary", () => decide(r, "api/capabilities/requests/approve", { id: r.id, number: i + 1 }, T("cp.rq.done", card.name)), T("cp.rq.install.tip"))));
+        li.append(block);
+      });
+      if (r.status === "pending") li.append(h("div", "cp-actions", btn(T("cp.rq.reject"), "ghost", () => decide(r, "api/capabilities/requests/reject", { id: r.id }, T("cp.rq.rejected")), T("cp.rq.reject.tip"))));
+      sec.append(li);
+    });
+    return sec;
+  }
+
   function entryRow(e) {
     const row = h("li", "cp-entry");
     row.append(h("div", "cp-head", h("b", "", e.name), h("span", "cp-badge", T("cp.kind." + e.kind)), h("span", "cp-badge", e.origin),
       h("span", "cp-badge cp-" + e.state, T("cp.state." + e.state))), h("p", "dim cp-desc", e.description));
     if (e.kind !== "builtin") {
       const acts = h("div", "cp-actions");
-      if (e.state === "pending") acts.append(btn(T("cp.review"), "", async () => { const r = await call("GET", "api/capabilities/review?id=" + encodeURIComponent(e.id)); if (r.ok) { review = r.data; draw(); } else say(why(r), true); }));
+      acts.append(btn(T("cp.review"), "ghost", async () => { const r = await call("GET", "api/capabilities/review?id=" + encodeURIComponent(e.id)); if (r.ok) { review = r.data; draw(); } else say(why(r), true); }));
       if (e.remote && e.state === "approved") {
         acts.append(h("span", "cp-badge", T(signed[e.id] ? "cp.signed" : "cp.notsigned")));
         acts.append(btn(T(signed[e.id] ? "cp.signin.again" : "cp.signin"), "", () => signIn(e), T("cp.signin.tip")));
@@ -170,7 +200,6 @@
           if (o.ok) { await loadSignins(); say(T("cp.signout.done", e.name)); draw(); } else say(why(o), true);
         }, T("cp.signout.tip")));
       }
-      if (e.state === "approved") acts.append(btn(T("cp.revoke"), "ghost", async () => { if (await act("api/capabilities/revoke", { id: e.id })) say(T("cp.saved")); draw(); }, T("cp.revoke.tip")));
       const off = state.settings.off.includes(e.id);
       acts.append(btn(off ? T("cp.turnon") : T("cp.turnoff"), "ghost", async () => {
         const next = off ? state.settings.off.filter(x => x !== e.id) : [...state.settings.off, e.id];
@@ -184,8 +213,7 @@
     }
     if (review && review.entry.id === e.id) {
       row.append(h("div", "cp-review", h("p", "setnote", T("cp.review.help")), h("pre", "cp-text", review.text), h("div", "cp-actions",
-        btn(T("cp.approve"), "primary", async () => { const sha = review.sha; review = null; if (await act("api/capabilities/approve", { id: e.id, sha })) say(T("cp.approved", e.name)); draw(); }),
-        btn(T("cp.cancel"), "ghost", () => { review = null; draw(); }))));
+        btn(T("cp.close"), "ghost", () => { review = null; draw(); }))));
     }
     return row;
   }
@@ -211,7 +239,7 @@
     const search = h("input"); search.type = "search"; search.value = filter; search.placeholder = T("cp.search"); search.setAttribute("aria-label", T("cp.search"));
     search.oninput = () => { filter = search.value; const pos = search.selectionStart; draw(); const s = body.querySelector("input[type=search]"); if (s) { s.focus(); s.setSelectionRange(pos, pos); } };
     const n = h("p", "setnote cp-note", note); n.setAttribute("role", "status"); n.hidden = !note; n.dataset.bad = noteBad ? "1" : "";
-    body.replaceChildren(h("p", "setnote", T("cp.help")), n, visualBox(), foldersBox(), online ? onlineBox() : null,
+    body.replaceChildren(h("p", "setnote", T("cp.help")), n, visualBox(), foldersBox(), requestsBox(), online ? onlineBox() : null,
       h("div", "cp-bar", search, btn(T("cp.rescan"), "", async () => { const r = await call("POST", "api/capabilities/rescan", {}); if (r.ok) { state = r.data; say(T("cp.rescanned", state.entries.length)); } else say(why(r), true); draw(); }, T("cp.rescan.tip"))),
       h("p", "setnote", T("cp.top", state.tree_top)), h("p", "setnote", T("cp.actions.help")), tree());
   }

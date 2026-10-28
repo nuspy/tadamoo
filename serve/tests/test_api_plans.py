@@ -182,6 +182,9 @@ class PlansApiTest(PlansApiBase):
     def test_triage_without_consent_stays_local_and_a_wake_can_replan_with_the_model(self):
         plan = {**PLAN, "plan_id": "triage"}
         self.call("POST", "/api/plans", {"plan": plan, "card": CARD})
+        self.assertTrue(self.call("GET", "/api/planner/settings")[1]["auto_apply"])                    # on unless the person turns it off
+        self.assertEqual(self.call("POST", "/api/planner/settings", {"auto_apply": "yes"})[0], 400)
+        self.assertEqual(self.call("POST", "/api/planner/settings", {"auto_apply": False})[0], 200)
         code, quiet = self.call("POST", "/api/plans/triage/triage", {"events": ["Nuovo museo a Parigi"]})
         self.assertEqual(code, 200)
         self.assertEqual((quiet["wake_system_2"], quiet["source"], quiet["sent_to_cloud"]), (False, "offline", False))

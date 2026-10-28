@@ -2,11 +2,13 @@
 
 Listing every skill in the prompt costs thousands of tokens on every call, so the prompt carries only the top of the tree
 (a few lines: the roots and how many entries each has) and two tools: `find_capability` searches the index (local FTS5, BM25) and
-returns at most five entries, `load_capability` reads an approved skill, `call_capability` calls an approved MCP server.
+returns at most five entries, `load_capability` reads a skill, `read_capability` calls a tool a server declares read-only and
+`call_capability` calls any tool of a server.
 
 Discovery only reads. It reads names, descriptions, commands and the arguments of a command with anything that looks like a key
-blanked out; it never reads a server's environment variables. Nothing found is active: a skill is approved against the hash of
-the text the person read, a server against its command. A folder whose name ends in `.disabled` is off.
+blanked out; it never reads a server's environment variables. What is found on this PC is the person's and usable; the person
+turns an entry off in Settings, and a folder whose name ends in `.disabled` is off. What the harness finds online is installed only
+when the person says so (harness/discovery).
 """
 from __future__ import annotations
 
@@ -18,11 +20,10 @@ import sqlite3
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from harness.mcp_client import MCPToolError, clean_description
-from harness.skills import ApprovalStore, parse_frontmatter
+from harness.mcp_client import MCPToolError, clean_description, declares_read_only
+from harness.skills import parse_frontmatter
 from harness.tools.registry import ToolArgumentError
 
 ROOTS: Dict[str, Dict[str, str]] = {
@@ -61,8 +62,7 @@ MAX_SKILL_DIRS = 50
 
 
 def add_skill_folders(directory: Path, paths: Sequence[str | Path]) -> List[str]:
-    """Names folders of skills the person chose (a --skills option) in the saved settings, so the Capabilities page lists what is in them
-    and the person can approve it there. Only folders that exist are added; returns the folders now saved."""
+    """Names folders of skills the person chose (a --skills option) in the saved settings, so the Capabilities page lists what is in them. Only folders that exist are added; returns the folders now saved."""
     file = Path(directory) / "settings.json"
     data = _load_json(file)
     data = data if isinstance(data, dict) else {}
@@ -108,7 +108,7 @@ def redact_args(args: List[Any]) -> List[str]:
 
 @dataclass
 class Found:
-    """What discovery learned about one entry, before the state of approval is added."""
+    """What discovery learned about one entry, before its state is added."""
     id: str
     name: str
     kind: str                  # builtin, skill, mcp
@@ -176,7 +176,7 @@ def _load_json(path: Path) -> Any:
 
 
 def mcp_spec_sha(command: str, args: List[str], url: str = "") -> str:
-    """The hash an approval of a server is tied to: what it starts, with which arguments, or the address it is reached at."""
+    """The hash that identifies a server: what it starts, with which arguments, or the address it is reached at."""
     return _sha(json.dumps([command, args, url.split("?", 1)[0]]))
 
 
@@ -288,7 +288,7 @@ def root_of(node: str) -> str:
 
 
 class CapabilityIndex:
-    """The entries found, their tree, their approvals and the person's own settings, kept in one folder."""
+    """The entries found, their tree and the person's own settings, kept in one folder."""
 
     def __init__(self, directory: Path, workspace: Path, home: Optional[Path] = None, appdata: Optional[Path] = None) -> None:
         self.dir = Path(directory)
@@ -296,7 +296,6 @@ class CapabilityIndex:
         self.workspace, self.home, self.appdata = Path(workspace), home, appdata
         self.online_hint = False                          # set when find_online_capability is offered: find_capability then points to it
         self.vault_dir: Optional[Path] = None             # where the keys a server installed by Basalt asks for are read from, when it starts
-        self.approvals = ApprovalStore(self.dir / "approved.json")
         self._lock = threading.RLock()
         self.entries: List[Dict[str, Any]] = []
         self._raw: Dict[str, List[str]] = {}
@@ -361,12 +360,7 @@ class CapabilityIndex:
             for b in self._base:
                 e = {k: v for k, v in b.items() if k != "forced_node"}
                 e["node"] = b.get("forced_node") or classify(e, overrides)
-                if e["kind"] == "builtin":
-                    e["state"] = "approved"
-                elif e["id"] in off:
-                    e["state"] = "off"
-                else:
-                    e["state"] = "approved" if self.approvals._load().get(e["id"]) == e["sha"] else "pending"
+                e["state"] = "off" if e["kind"] != "builtin" and e["id"] in off else "approved"
                 entries.append(e)
             self.entries = entries
             self._write("index.json", {"entries": entries})
@@ -375,21 +369,6 @@ class CapabilityIndex:
 
     def get(self, entry_id: str) -> Optional[Dict[str, Any]]:
         return next((e for e in self.entries if e["id"] == entry_id), None)
-
-    def approve(self, entry_id: str, sha: str) -> Dict[str, Any]:
-        """Approves what the person read: `sha` is the hash they were shown, so a file that changed since is not approved by mistake."""
-        e = self.get(entry_id)
-        if e is None or e["kind"] == "builtin":
-            raise KeyError(entry_id)
-        if e["sha"] != sha:
-            raise ValueError("It changed since you looked at it. Look again before approving.")
-        self.approvals.approve(SimpleNamespace(name=e["id"], sha256=e["sha"]))
-        self.refresh(rescan=False)
-        return self.get(entry_id)
-
-    def revoke(self, entry_id: str) -> None:
-        self.approvals.revoke(entry_id)
-        self.refresh(rescan=False)
 
     def move(self, entry_id: str, node: str) -> Dict[str, Any]:
         if self.get(entry_id) is None:
@@ -403,7 +382,7 @@ class CapabilityIndex:
         return self.get(entry_id)
 
     def review(self, entry_id: str) -> Dict[str, Any]:
-        """What the person must read before approving: the text of a skill, the command of a server, and the hash that approval will bind to."""
+        """What an entry is, to read: the text of a skill or the command of a server."""
         e = self.get(entry_id)
         if e is None or e["kind"] == "builtin":
             raise KeyError(entry_id)
@@ -414,7 +393,7 @@ class CapabilityIndex:
                 body = parse_frontmatter(text)[1].strip()[:20_000]
             except OSError:
                 body = ""
-        return {"entry": e, "text": body or e["command"], "sha": e["sha"]}
+        return {"entry": e, "text": body or e["command"]}
 
     # -- search -------------------------------------------------------------------------------------------------
 
@@ -499,32 +478,30 @@ class CapabilityIndex:
     # -- using an entry ---------------------------------------------------------------------------------------------
 
     def body(self, entry_id: str) -> str:
-        """The instructions of an approved skill, read now and checked against the hash that was approved."""
+        """The instructions of a skill, read now."""
         e = self.get(entry_id)
         if e is None:
             raise KeyError(f"No capability '{entry_id}'. Search with find_capability.")
         if e["kind"] != "skill":
             raise ValueError(f"'{entry_id}' is not a skill: use call_capability for a server.")
-        if e["state"] != "approved":
-            raise PermissionError(f"'{entry_id}' is {e['state']}: the person approves it in Settings, under Capabilities.")
+        if e["state"] == "off":
+            raise PermissionError(f"'{entry_id}' is turned off by the person in Settings, under Capabilities.")
         text = Path(e["path"]).read_text(encoding="utf-8", errors="replace")
-        if _sha(text) != e["sha"]:
-            raise PermissionError(f"'{entry_id}' changed since it was approved: it needs a new look in Settings.")
         return parse_frontmatter(text)[1].strip()
 
     def command(self, entry_id: str) -> List[str]:
         e = self.get(entry_id)
         if e is None or e["kind"] != "mcp":
             raise KeyError(f"No MCP server '{entry_id}'.")
-        if e["state"] != "approved":
-            raise PermissionError(f"'{entry_id}' is {e['state']}: the person approves it in Settings, under Capabilities.")
+        if e["state"] == "off":
+            raise PermissionError(f"'{entry_id}' is turned off by the person in Settings, under Capabilities.")
         raw = self._raw.get(entry_id)
         if not raw:
             raise ValueError(f"'{entry_id}' is a remote server: it is reached at an address, not started.")
         return raw
 
     def target(self, entry_id: str) -> Any:
-        """What an approved server is reached with: the command to start (a list) or the address of a remote one (a string)."""
+        """What a server is reached with: the command to start (a list) or the address of a remote one (a string)."""
         try:
             command = self.command(entry_id)
         except ValueError:
@@ -588,7 +565,8 @@ def _matching(tools: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
 def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory: Optional[Callable[[str, List[str]], Any]] = None) -> None:
     """`hub_factory(id, command)` starts a server and returns an object with `tools` (the server's tool definitions) and `call(tool, arguments)`.
 
-    `find_capability`, `load_capability` and `call_capability`: three fixed definitions however many entries there are."""
+    `find_capability`, `load_capability`, `read_capability` and `call_capability`: four fixed definitions however many entries there are.
+    `read_capability` calls only a tool its server declares read-only, so it is a pure operation; `call_capability` calls any tool."""
     from harness.tools.registry import EffectClass
     hubs: Dict[str, Any] = {}
 
@@ -598,7 +576,7 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
             hint = (" If what you need usually exists as an MCP server or a skill, find_online_capability looks for one online and the person chooses."
                     if index.online_hint else "")
             return "Nothing found. Try other words, or a node: " + ", ".join(node_names()) + "." + hint
-        return "\n".join(f"{h['id']} [{h['kind']}, {h['node']}, {h['state']}] {h['name']}: {h['description']}" for h in hits)
+        return "\n".join(f"{h['id']} [{h['kind']}, {h['node']}] {h['name']}: {h['description']}" for h in hits)
 
     def load_capability(id: str) -> str:
         try:
@@ -606,7 +584,7 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
         except (KeyError, ValueError, PermissionError) as exc:
             return str(exc.args[0] if exc.args else exc)
 
-    def call_capability(id: str, tool: str = "", arguments: Optional[Dict[str, Any]] = None, describe: bool = False, query: str = "") -> str:
+    def use(id: str, tool: str, arguments: Optional[Dict[str, Any]], describe: bool, query: str, read_only: bool) -> str:
         try:
             cmd = index.target(id)
         except (KeyError, ValueError, PermissionError) as exc:
@@ -622,7 +600,7 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
             if not tool:
                 if not tools:
                     return "The server offers no tools."
-                lines = [f"{_signature(t)}: {clean_description(t.get('description'))[:200]}" for t in tools[:LIST_TOOLS_MAX]]
+                lines = [f"{_signature(t)}{' [read-only]' if declares_read_only(t) else ''}: {clean_description(t.get('description'))[:200]}" for t in tools[:LIST_TOOLS_MAX]]
                 if len(tools) > LIST_TOOLS_MAX:
                     lines.append(f"... and {len(tools) - LIST_TOOLS_MAX} more tools: pass `query` with words to find them.")
                 return "\n".join(lines + ["A star marks a required argument. Pass the tool's name and describe=true for its whole definition."])
@@ -631,6 +609,8 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
                 return f"The server has no tool '{tool}'. Its tools: {', '.join(t['name'] for t in tools[:LIST_TOOLS_MAX]) or 'none'}."
             if describe:
                 return _definition(definition)
+            if read_only and not declares_read_only(definition):
+                return f"The server does not declare '{tool}' read-only, so read_capability does not call it: use call_capability."
             try:
                 return hub.call(tool, arguments or {})
             except ToolArgumentError as exc:
@@ -640,16 +620,24 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
         except Exception as exc:
             return f"The server could not be used: {type(exc).__name__}: {exc}"
 
+    def call_capability(id: str, tool: str = "", arguments: Optional[Dict[str, Any]] = None, describe: bool = False, query: str = "") -> str:
+        return use(id, tool, arguments, describe, query, False)
+
+    def read_capability(id: str, tool: str = "", arguments: Optional[Dict[str, Any]] = None, describe: bool = False, query: str = "") -> str:
+        return use(id, tool, arguments, describe, query, True)
+
     obj = lambda props, req: {"type": "object", "properties": props, "required": req}
     registry.register("find_capability", "Looks up skills, plugins and MCP servers by what you need (five results at most). " + index.top_of_tree(),
                       obj({"query": {"type": "string", "description": "What you want to do"}, "node": {"type": "string", "description": "optional: a node such as vision/analysis, documents, web"},
                            "kind": {"type": "string", "enum": ["skill", "mcp", "builtin"]}}, ["query"]), EffectClass.PURE, find_capability, untrusted=True)
-    registry.register("load_capability", "Reads the instructions of an approved skill found with find_capability.",
-                      obj({"id": {"type": "string"}}, ["id"]), EffectClass.PURE, load_capability)    # the text the person approved by its hash is theirs, not outside content
-    registry.register("call_capability", "Calls a tool of an approved MCP server found with find_capability. Leave `tool` empty to list the server's tools "
-                      "with their arguments, or give `query` words to find some and read their whole definitions. With `tool` and describe=true you get that tool's "
-                      "definition (arguments and result schema) without calling it.",
-                      obj({"id": {"type": "string"}, "tool": {"type": "string"}, "arguments": {"type": "object"},
-                           "describe": {"type": "boolean", "description": "Return the tool's definition instead of calling it"},
-                           "query": {"type": "string", "description": "With no `tool`: words to find tools of this server"}}, ["id"]),
-                      EffectClass.IRREVERSIBLE, call_capability, untrusted=True, outward=True)
+    registry.register("load_capability", "Reads the instructions of a skill found with find_capability.",
+                      obj({"id": {"type": "string"}}, ["id"]), EffectClass.PURE, load_capability)
+    call_props = {"id": {"type": "string"}, "tool": {"type": "string"}, "arguments": {"type": "object"},
+                  "describe": {"type": "boolean", "description": "Return the tool's definition instead of calling it"},
+                  "query": {"type": "string", "description": "With no `tool`: words to find tools of this server"}}
+    how = ("Leave `tool` empty to list the server's tools with their arguments, or give `query` words to find some and read their whole definitions. "
+           "With `tool` and describe=true you get that tool's definition (arguments and result schema) without calling it.")
+    registry.register("read_capability", "Like call_capability, but only for a tool its server declares read-only (the list marks them [read-only]).",
+                      obj(call_props, ["id"]), EffectClass.PURE, read_capability, untrusted=True, outward=True)
+    registry.register("call_capability", "Calls any tool of an MCP server found with find_capability. " + how,
+                      obj(call_props, ["id"]), EffectClass.IRREVERSIBLE, call_capability, untrusted=True, outward=True)

@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT, benchrun, catalog, chatctx, downloads, loader, loader_api, model_list, modelbench, models, profiles, settings
+from serve import ROOT, benchrun, catalog, chatctx, checkpoints_api, downloads, loader, loader_api, model_list, modelbench, models, profiles, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
@@ -462,7 +462,7 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/personal-skills" or path.startswith("/api/personal-skills/"):
                 if self._authorized():
                     self._pskills_get(path)
-            elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online"):
+            elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online", "/api/capabilities/requests"):
                 if self._authorized():
                     self._capabilities_get(path)
             elif path == "/api/knowledge":
@@ -1522,6 +1522,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.review((parse_qs(urlsplit(self.path).query).get("id") or [""])[0]))
                 if path == "/api/capabilities/online":
                     return self._json(200, api.online())
+                if path == "/api/capabilities/requests":
+                    return self._json(200, api.requests())
                 return self._json(200, api.overview())
             except CapabilityError as e:
                 return self._json(404, {"error": {"type": "capabilities", "message": str(e), "code": e.code}})
@@ -1542,10 +1544,6 @@ def make_handler(svc: Service, remote: bool = False):
                 api = self._caps()
                 if action == "rescan":
                     return self._json(200, api.rescan())
-                if action == "approve":
-                    return self._json(200, api.approve(req.get("id"), req.get("sha")))
-                if action == "revoke":
-                    return self._json(200, api.revoke(req.get("id")))
                 if action == "move":
                     return self._json(200, api.move(req.get("id"), req.get("node")))
                 if action == "settings":
@@ -1554,8 +1552,12 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.online_settings(req))
                 if action == "remove":
                     return self._json(200, api.remove_installed(req.get("id")))
+                if action == "requests/approve":
+                    return self._json(200, api.approve_request(req.get("id"), req.get("number")))
+                if action == "requests/reject":
+                    return self._json(200, api.reject_request(req.get("id")))
             except CapabilityError as e:
-                return self._json(409 if e.code in ("gone", "changed", "needs_approval") else 400, {"error": {"type": "capabilities", "message": str(e), "code": e.code}})
+                return self._json(409 if e.code == "gone" else 400, {"error": {"type": "capabilities", "message": str(e), "code": e.code}})
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"message": str(e)}})
             self._json(404, {"error": {"message": "not found"}})
@@ -1766,7 +1768,7 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.start(req.get("id")))
                 return self._json(200, api.sign_out(req.get("id")))
             except McpAuthError as e:
-                return self._json(409 if e.code in ("gone", "needs_approval") else 400, {"error": {"type": "mcp_auth", "message": str(e), "code": e.code}})
+                return self._json(409 if e.code == "gone" else 400, {"error": {"type": "mcp_auth", "message": str(e), "code": e.code}})
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"message": str(e)}})
 
@@ -1879,8 +1881,6 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.preview(req.get("params"), req.get("values")))
                 if len(parts) == 2 and parts[1] == "delete":
                     return self._json(200, api.delete(parts[0]))
-                if len(parts) == 2 and parts[1] == "approve":
-                    return self._json(200, api.approve(parts[0]))
                 if len(parts) == 2 and parts[1] == "restore":
                     return self._json(200, api.restore(parts[0], req.get("version")))
             except SkillError as e:
@@ -1909,10 +1909,6 @@ def make_handler(svc: Service, remote: bool = False):
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
                 api, parts = self._routines(), path[len("/api/routines"):].strip("/").split("/")
-                if parts == [""] and not self._phone_limits(req.get("mode", "read_only"), req.get("allow"), req):
-                    return
-                if len(parts) == 2 and parts[1] == "update" and not self._phone_limits(req.get("mode"), req.get("allow"), req if "allow" in req else None):
-                    return
                 if parts == [""]:
                     return self._json(200, api.create(req))
                 if parts == ["cancel"]:
@@ -2064,6 +2060,8 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) == 3 and parts[2] == "file":
                         file, name = mgr.workspace_file(parts[1], (parse_qs(urlsplit(self.path).query).get("path") or [""])[0])
                         return self._send_file(file, "application/octet-stream", name, inline=False)
+                    if len(parts) == 3 and parts[2] == "checkpoints":
+                        return self._json(200, checkpoints_api.listing(mgr.get(parts[1])))
                     if len(parts) == 3 and parts[2] == "snapshots":
                         return self._json(200, mgr.snapshots(parts[1]))
                     if len(parts) == 3 and parts[2] == "copy":
@@ -2084,6 +2082,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, self._agent_runner().log(parts[1], lines))
                 if len(parts) == 3 and parts[0] == "runs" and parts[2] == "checkpoints":
                     return self._json(200, {"checkpoints": self._agent_runner().checkpoints(parts[1])})
+                if parts == ["checkpoint-mode"]:
+                    return self._json(200, checkpoints_api.mode_view())
                 if parts == ["approvals"]:
                     return self._json(200, _APPROVALS.view())
                 if len(parts) == 2 and parts[0] == "approvals":
@@ -2129,7 +2129,8 @@ def make_handler(svc: Service, remote: bool = False):
                                                                       req.get("context_patterns"), req.get("context_policy", "stop"),
                                                                       req.get("context_threshold", 0.8), req.get("end_turn_bias"),
                                                                       req.get("worktree", "auto"), req.get("effort", ""),
-                                                                      req.get("images", ""), req.get("charts", ""))})
+                                                                      req.get("images", ""), req.get("charts", ""),
+                                                                      req.get("unattended") is True)})
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
                         return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
@@ -2152,6 +2153,10 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, {"session": mgr.answer(parts[1], req.get("ask"), req.get("value"))})
                     if len(parts) == 3 and parts[2] == "mode":
                         return self._json(200, {"session": mgr.set_mode(parts[1], req.get("mode"))})
+                    if len(parts) == 4 and parts[2] == "checkpoints" and parts[3] == "restore":
+                        return self._json(200, checkpoints_api.restore(mgr.get(parts[1]), req.get("checkpoint"), req.get("accept_irreversible") is True))
+                    if len(parts) == 4 and parts[2] == "checkpoints" and parts[3] == "delete":
+                        return self._json(200, checkpoints_api.delete(mgr.get(parts[1]), req.get("checkpoint"), req.get("all") is True))
                     if len(parts) == 3 and parts[2] == "effort":
                         return self._json(200, {"session": mgr.set_effort(parts[1], req.get("level", ""))})
                     if len(parts) == 3 and parts[2] == "settings":
@@ -2177,11 +2182,13 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) == 3 and parts[2] == "close":
                         return self._json(200, {"session": mgr.close(parts[1])})
                 if parts == ["runs"]:
-                    run = self._agent_runner().start(req.get("workspace"), req.get("goal"), req.get("mode", "default"), req.get("allow"),
-                                                     req.get("max_turns", 15))
+                    run = self._agent_runner().start(req.get("workspace"), req.get("goal"), req.get("mode", "auto"), req.get("allow"),
+                                                     req.get("max_turns", -1))
                     return self._json(200, {"run": run})
                 if len(parts) == 3 and parts[0] == "runs" and parts[2] == "stop":
                     return self._json(200, {"run": self._agent_runner().stop(parts[1])})
+                if parts == ["checkpoint-mode"]:
+                    return self._json(200, checkpoints_api.set_mode(req.get("mode", "")))
                 if len(parts) == 3 and parts[0] == "runs" and parts[2] == "rewind":
                     return self._json(200, self._agent_runner().rewind(parts[1], req.get("checkpoint"), req.get("accept_irreversible") is True))
                 if parts == ["approvals"]:

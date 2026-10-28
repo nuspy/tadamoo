@@ -92,14 +92,13 @@ def test_the_script_is_checked_as_it_is_written_and_the_form_is_read_as_it_is_fi
     assert "not a date" in data["errors"]["day"]
 
 
-def test_a_skill_goes_to_another_pc_as_a_file_and_comes_back_to_approve(server):
+def test_a_skill_goes_to_another_pc_as_a_file_and_arrives_usable(server):
     call(server, "POST", "/api/personal-skills", {"skill": DEFINITION, "script": SCRIPT})
     code, data, resp = call(server, "GET", "/api/personal-skills/read-a-day/export")
     assert code == 200 and resp.getheader("Content-Disposition") == 'attachment; filename="read-a-day.pskill"' and data[:2] == b"PK"
     code, imported, _ = call(server, "POST", "/api/personal-skills/import", {"data": base64.b64encode(data).decode()})
-    assert code == 200 and imported["skill"]["status"] == "pending" and imported["skill"]["slug"] == "read-a-day-2"
-    code, approved, _ = call(server, "POST", "/api/personal-skills/read-a-day-2/approve", {})
-    assert approved["skill"]["status"] == "approved"
+    assert code == 200 and imported["skill"]["status"] == "approved" and imported["skill"]["slug"] == "read-a-day-2"
+    assert call(server, "POST", "/api/personal-skills/read-a-day-2/approve", {})[0] == 404           # there is no approval step any more
     for bad in ("###", "", None):
         assert call(server, "POST", "/api/personal-skills/import", {"data": bad})[0] == 400
 
@@ -148,15 +147,11 @@ def test_a_skill_starts_in_the_conversation_with_its_values_worked_out_and_is_sa
     assert manager.get(sid)["title"] == "Read a day"
 
 
-def test_a_skill_that_is_not_approved_or_has_bad_values_or_does_not_exist_does_not_start(manager, tmp_path):
+def test_a_skill_with_bad_values_or_that_does_not_exist_does_not_start(manager, tmp_path):
     ws = tmp_path / "ws"
     ws.mkdir()
-    manager.skills.save(DEFINITION, SCRIPT, approve=False)
+    manager.skills.save(DEFINITION, SCRIPT)
     sid = manager.create(str(ws))["id"]
-    with pytest.raises(RunError) as err:
-        manager.run_skill(sid, "read-a-day", {"file": "a"})
-    assert err.value.code == "needs_approval"
-    manager.skills.approve("read-a-day")
     for slug, values, code in (("read-a-day", {}, "bad_values"), ("read-a-day", {"file": "a", "day": "never"}, "bad_values"), ("read-a-day", {"file": "a", "x": 1}, "bad_values"),
                                ("nope", {}, "no_skill"), (5, {}, "bad_skill"), ("read-a-day", [], "bad_skill")):
         with pytest.raises(RunError) as err:

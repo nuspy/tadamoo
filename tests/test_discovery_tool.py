@@ -17,6 +17,7 @@ from harness.capabilities import CapabilityIndex, register_capability_tools  # n
 from harness.discovery.candidates import CandidateStore  # noqa: E402
 from harness.discovery.finder import Finder  # noqa: E402
 from harness.discovery.installer import Installer, Run  # noqa: E402
+from harness.discovery.requests import InstallRequests  # noqa: E402
 from harness.discovery.settings import DiscoverySettings  # noqa: E402
 from harness.discovery.tool import register_discovery_tools  # noqa: E402
 from harness.tools.registry import EffectClass, ToolRegistry  # noqa: E402
@@ -53,6 +54,7 @@ class Set:
         self.finder = Finder(self.settings, CandidateStore(), bases=fake.bases)
         self.runner = Runner()
         self.installer = Installer(self.caps, self.finder.store, index=self.index, runner=self.runner, which=lambda n: "npm" if (npm and n == "npm") else None)
+        self.requests = InstallRequests(self.caps)
         self.asked, self.answers = [], list(answers)
         self.asker = register_discovery_tools(self.registry, self.index, finder=self.finder, installer=self.installer, bases=fake.bases)
         self.asker.ask = self._ask
@@ -129,6 +131,27 @@ def test_without_a_way_to_ask_nothing_is_installed_and_the_options_come_back_as_
     s.asker.ask = None
     out = s.run()
     assert "nothing was installed" in out and "pdf-mcp" in out and "score" in out and s.runner.calls == []
+    queued = s.requests.pending()
+    assert len(queued) == 1 and queued[0]["need"] == "extract tables from pdf" and queued[0]["id"] in out and "explain_install_request" in out
+    assert queued[0]["candidates"][0]["card"]["name"] == "pdf-mcp" and queued[0]["candidates"][0]["spec"]["package"] == "@acme/pdf-mcp"
+
+
+def test_the_model_adds_its_comparison_and_the_person_chats_the_choice_later(tmp_path, fake):
+    s = Set(tmp_path, fake, ["install:1"])
+    s.asker.ask = None
+    s.run()
+    rid = s.requests.pending()[0]["id"]
+    out = s.registry.execute("explain_install_request", {"request_id": rid, "comparison": [
+        {"n": 1, "summary": "Reads tables out of PDFs", "pros": "popular", "cons": "starts a program"}, {"n": 99, "summary": "ignored"}]})
+    assert "1 of" in out and s.requests.get(rid)["candidates"][0]["pros"] == "popular"
+    assert "No such" in s.registry.execute("explain_install_request", {"request_id": "r000", "comparison": []})
+    assert "no way to ask" in s.registry.execute("ask_install_request", {"request_id": rid})
+    s.asker.ask = s._ask
+    out = s.registry.execute("ask_install_request", {"request_id": rid})
+    q = s.asked[0]
+    assert q["kind"] == "capability_choice" and q["facts"]["comparison"][0]["cons"] == "starts a program" and "popular" in q["question"]
+    assert "Installed mcp:pdf-mcp" in out and s.requests.get(rid)["status"] == "installed" and s.index.get("mcp:pdf-mcp")["state"] == "approved"
+    assert "already installed" in s.registry.execute("ask_install_request", {"request_id": rid})
 
 
 def test_what_the_model_can_pass_is_a_need_and_nothing_that_could_be_a_command(tmp_path, fake):
@@ -151,7 +174,7 @@ def test_what_is_already_here_is_offered_before_going_online(tmp_path, fake):
     (skill_dir / "SKILL.md").write_text("---\nname: pdf-tables\ndescription: Extract tables from a PDF file\n---\nDo it.\n", encoding="utf-8")
     s.index.refresh()
     out = s.run()
-    assert "skill:pdf-tables" in out and "pending" in out and "approves it in Settings" in out and fake.world.requests == []
+    assert "skill:pdf-tables" in out and "load_capability" in out and "pending" not in out and fake.world.requests == []
     s.run(look_anyway=True)
     assert s.asked and fake.world.requests                                    # asked for it again: it looks online
 
@@ -300,7 +323,6 @@ def test_a_server_installed_by_basalt_starts_with_the_one_key_it_asks_for_from_t
     sha = mcp_spec_sha(command[0], command[1:])
     InstalledStore(caps).put({"id": "mcp:search", "name": "search", "kind": "mcp", "command": command, "sha": sha, "description": "fake search",
                               "env": [{"name": "FAKE_SEARCH_KEY", "required": True, "secret": True, "entry": "FAKE_SEARCH_KEY", "value": ""}]})
-    CapabilityIndex(caps, ws, home=home, appdata=tmp_path / "none").approvals.approve(SimpleNamespace(name="mcp:search", sha256=sha))
     vault = Vault(tmp_path / "vault")
 
     def build():

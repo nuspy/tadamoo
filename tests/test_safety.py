@@ -51,12 +51,13 @@ def test_checkpoints_create_and_restore(tmp_path: Path):
     (ws / "sub" / "zero.txt").write_text("", encoding="utf-8")  # 0-byte file must be preserved!
 
     cpm = CheckpointManager(ws, storage_dir=tmp_path / "cps")
-    cp_id = cpm.create("Initial state")
+    new_file = ws / "new_file.py"
+    cp_id = cpm.create("Initial state", [ws / "main.py", ws / "sub" / "zero.txt", new_file])   # a checkpoint keeps the files the action touches
 
     # Modify main.py, delete zero.txt, add new_file.py
     (ws / "main.py").write_text("print('v2')", encoding="utf-8")
     (ws / "sub" / "zero.txt").unlink()
-    (ws / "new_file.py").write_text("temp", encoding="utf-8")
+    new_file.write_text("temp", encoding="utf-8")
 
     # Restore
     assert cpm.restore(cp_id)

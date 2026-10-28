@@ -133,18 +133,6 @@
   async function runForm(skill, preset = {}) {
     const w = windowOf(T("psk.run.title", skill.name));
     if (skill.description) w.body.append(mk("p", "psk-lead", skill.description));
-    if (skill.status !== "approved") {
-      const box = mk("div", "psk-pending");
-      box.append(mk("p", "", T("psk.run.pending")));
-      const code = mk("pre", "psk-code-view"); code.textContent = (await api("GET", `api/personal-skills/${skill.slug}`)).json.skill?.script || "";
-      const ok = button(T("psk.approve"), "primary", async () => {
-        const r = await api("POST", `api/personal-skills/${skill.slug}/approve`, {});
-        if (!r.ok) { status.textContent = errText(r); return; }
-        w.close(); const fresh = await api("GET", `api/personal-skills/${skill.slug}`); if (fresh.ok) runForm(fresh.json.skill, preset);
-      });
-      box.append(code, ok);
-      w.body.append(box);
-    }
     const fields = (skill.params || []).map(p => ({ spec: p, ...valueField(p, preset[p.name]) }));
     fields.forEach(f => w.body.append(f.el));
     if (!fields.length) w.body.append(mk("p", "psk-help", T("psk.run.noparams")));
@@ -172,8 +160,7 @@
       w.close();
       A().refresh();
     });
-    if (skill.status === "approved") w.foot.append(go);
-    else go.disabled = true;
+    w.foot.append(go);
     w.foot.append(button(T("psk.close"), "ghost", w.close));
     const first = fields[0] && fields[0].control; if (first) first.focus();
   }
@@ -203,7 +190,6 @@
     const row = s => {
       const el = mk("section", "psk-item"), top = mk("div", "psk-itemhead");
       top.append(mk("b", "", s.name));
-      if (s.status !== "approved") top.append(mk("span", "psk-badge warn", T("psk.pending")));
       el.append(top);
       if (s.description) el.append(mk("p", "psk-help", s.description));
       el.append(mk("p", "psk-help", T("psk.meta", (s.params || []).length, s.uses || 0)));
@@ -287,7 +273,6 @@
       if (done) done(r.json.skill);
     });
     w.foot.append(status, button(T("psk.check"), "", check), save);
-    if (!fresh && skill.status !== "approved") w.foot.append(button(T("psk.approve"), "", async () => { const r = await api("POST", `api/personal-skills/${skill.slug}/approve`, {}); status.textContent = r.ok ? T("psk.approved") : errText(r); if (r.ok && done) done(r.json.skill); }));
     if (!fresh && (skill.versions || []).length) {
       const versions = select((skill.versions || []).map(String), String(skill.versions[skill.versions.length - 1]), v => T("psk.version", v));
       w.foot.append(versions, button(T("psk.restore"), "ghost", async () => {

@@ -96,7 +96,6 @@ def registry(tmp_path):
     home.mkdir()
     (ws / ".mcp.json").write_text(json.dumps({"mcpServers": {"wx": {"command": "python", "args": ["-m", "wx"]}}}), encoding="utf-8")
     idx = cap.CapabilityIndex(tmp_path / "caps", ws, home=home, appdata=tmp_path / "appdata")
-    idx.approve("mcp:wx", idx.review("mcp:wx")["sha"])
 
     def make(hub):
         reg = ToolRegistry()
@@ -235,7 +234,6 @@ def test_in_the_chat_a_server_of_the_capabilities_asks_through_the_conversations
     asked = []
     try:
         index = built.capabilities
-        index.approve("mcp:fake", index.review("mcp:fake")["sha"])
         tools = built.agent.tools
         tools.mcp_asker.ask = lambda payload: asked.append(payload) or ELICIT_PREFIX + json.dumps({"name": "Ada"})
         out = tools.execute("call_capability", {"id": "mcp:fake", "tool": "ask", "arguments": {}})

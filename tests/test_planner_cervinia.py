@@ -77,7 +77,7 @@ def wait_for(pred, timeout=20):
 def chat(start_server):
     url = start_server([SCRIPT])
     client = PlannerClient(url)
-    client._call("POST", "/api/planner/settings", {"cloud_triage": False, "event_pump": True})
+    client._call("POST", "/api/planner/settings", {"cloud_triage": False, "event_pump": True, "auto_apply": False})
     agent, yes = AgentState(), Yes()
     reg = ToolRegistry()
     register_planner_tools(reg, client, Confirmer(agent, yes))

@@ -1029,6 +1029,7 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .cp-root > summary { min-height: 48px; display: flex; align-items: center; padding: 0 14px; cursor: pointer; font-weight: 600; }
 .cp-list { list-style: none; margin: 0; padding: 0 14px 10px; display: flex; flex-direction: column; gap: 10px; }
 .cp-entry { border-top: 1px solid var(--line-soft); padding-top: 8px; min-width: 0; }
+.cp-cand { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 8px; min-width: 0; overflow-wrap: anywhere; }
 .cp-head { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
 .cp-badge { font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; color: var(--fg-2); }
 .cp-pending { border-color: var(--accent); color: var(--fg); }
@@ -1166,7 +1167,6 @@ dialog.psk::backdrop { background: rgba(0, 0, 0, .6); }
 .psk-acts .sure { color: #FF8A8A; }
 .psk-list { display: flex; flex-direction: column; gap: 10px; }
 .psk-bar { display: flex; gap: 8px; }
-.psk-pending { padding: 10px 12px; border: 1px solid #FFB547; border-radius: 8px; display: flex; flex-direction: column; gap: 8px; }
 .psk-asked summary { cursor: pointer; font: 500 13px/1.6 var(--font-sans); color: var(--fg-2); }
 
 /* the Agent tab: the folders added, each with its conversations, the folder in the header and the changes beside the conversation */

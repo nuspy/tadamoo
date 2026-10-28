@@ -160,6 +160,16 @@ def test_automatic_mode_starts_without_a_confirmation_and_runs(setup, ws):  # no
     assert s["api"]("GET", "/api/agent/approvals")[1]["pending"] == []                      # nothing was asked
 
 
+def test_a_run_without_a_mode_acts_without_asking_and_has_no_step_limit(setup, ws):  # noqa: F811
+    s = setup([tool_call("shell_command", command=f'{PY} -c "open(\'plain.txt\',\'w\').write(\'x\')"'), answer("Done.")])
+    status, body = start(s["api"], ws, "do it")
+    assert status == 200 and body["run"]["mode"] == "auto"
+    assert wait_for(lambda: finished(s["api"], body["run"]["id"]))["status"] == "done" and (ws / "plain.txt").exists()
+    assert s["api"]("GET", "/api/agent/approvals")[1]["pending"] == []
+    import inspect
+    assert inspect.signature(AgentRunner.start).parameters["max_turns"].default == -1
+
+
 def test_a_long_task_many_rules_many_steps_and_a_drive_root_are_not_refused(setup, ws):  # noqa: F811
     s = setup([answer("x")])
     status, body = start(s["api"], ws, "x" * 5000, allow=[f"shell_command:cmd{i}" for i in range(30)], max_turns=500)

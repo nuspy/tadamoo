@@ -97,6 +97,15 @@
       if (!backs.length) { note(T("sl.rewind.none")); return; }
       backs[backs.length - 1].focus(); note(T("sl.rewind", T("ch.back")));
     } },
+    { name: "checkpoints", args: "[on|soft|off|default]", run: async rest => {
+      const C = window.checkpointsUi, want = rest.toLowerCase();
+      if (!C) return;
+      if (want && await C.setMode(want)) { note(T("sl.ck.now", C.label(C.mode()))); return; }
+      if (!$("#cs-open")) return;
+      if ($("#chatset").hidden) $("#cs-open").click();
+      $("#cs-cp").scrollIntoView({ block: "nearest" });
+      note(T("sl.ck.usage", C.label(C.mode())));
+    } },
     { name: "stop", run: () => { if (A() && A().active()) A().stop(); } },
     { name: "diff", alias: ["changes"], run: () => { if (A() && A().hasCopy()) A().toggleCopy(); else note(T("sl.diff.none")); } },
     { name: "plans", alias: ["tasks"], run: () => goTo("plans") },
@@ -146,7 +155,6 @@
     const s = skillOf(p.word);
     if (s) {
       if (!chat) { note(T("sl.need.conv")); return "keep"; }
-      if (s.state !== "approved") { note(T("sl.skill.pending", s.name)); return true; }
       A().send(`Load the skill ${s.id} with load_capability and follow it. ` + (p.rest ? "What I need: " + p.rest : "Ask me what I need if the skill requires input."));
       return true;
     }
@@ -159,7 +167,7 @@
   function candidates(query) {
     const q = query.toLowerCase();
     const all = [...COMMANDS.map(c => ({ name: c.name, alias: c.alias, args: c.args, text: T("sl.d." + c.name), kind: "" })),
-      ...skills.filter(s => !byName(s.name.toLowerCase())).map(s => ({ name: s.name, alias: [], args: "", text: s.description, kind: "skill", pending: s.state !== "approved" }))];
+      ...skills.filter(s => !byName(s.name.toLowerCase())).map(s => ({ name: s.name, alias: [], args: "", text: s.description, kind: "skill" }))];
     const names = c => [c.name.toLowerCase(), ...c.alias];
     const rank = c => names(c).some(n => n.startsWith(q)) ? 0 : names(c).some(n => n.includes(q)) ? 1 : c.text.toLowerCase().includes(q) ? 2 : 3;
     return all.map((c, i) => [q ? rank(c) : 0, i, c]).filter(([r]) => r < 3).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, , c]) => c);      // no letters yet: the order of the list
@@ -169,7 +177,7 @@
     menu.replaceChildren(...shown.map((c, i) => {
       const o = mk("div", "slashitem" + (i === at ? " on" : ""));
       o.id = "slash-o" + i; o.setAttribute("role", "option"); o.setAttribute("aria-selected", String(i === at));
-      o.append(mk("b", "", "/" + c.name), mk("span", "slashargs", c.args), mk("span", "slashd", (c.pending ? T("sl.skill.pending.short") + " " : "") + c.text));
+      o.append(mk("b", "", "/" + c.name), mk("span", "slashargs", c.args), mk("span", "slashd", c.text));
       if (c.kind) o.append(mk("span", "slashkind", T("sl.skill")));
       o.onmousedown = e => { e.preventDefault(); at = i; choose(true); };
       return o;
@@ -224,7 +232,7 @@
     if (skills.length) {
       box.append(mk("b", "", T("sl.help.skills")));
       const us = mk("ul"); box.append(us);
-      skills.forEach(s => { const li = mk("li"); li.append(mk("code", "", "/" + s.name), mk("span", "", " — " + (s.state !== "approved" ? T("sl.skill.pending.short") + " " : "") + s.description)); us.append(li); });
+      skills.forEach(s => { const li = mk("li"); li.append(mk("code", "", "/" + s.name), mk("span", "", " — " + s.description)); us.append(li); });
     }
     return box;
   }

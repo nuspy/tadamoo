@@ -1,8 +1,9 @@
 """Model Context Protocol client: stdio and Streamable HTTP, and a hub with deferred tool search.
 
-Servers are third-party code. Their tool descriptions, annotations and results are untrusted: tools
-are registered as irreversible whatever a server claims about itself, results are fenced as data,
-and a stdio server starts with a scrubbed environment (only what is passed explicitly).
+Servers are third-party code. Their results are fenced as data and their tools are untrusted, and a
+stdio server starts with a scrubbed environment (only what is passed explicitly). A tool the server
+declares read-only (annotation readOnlyHint) is registered as a pure operation; every other tool is
+irreversible.
 
 Two eras are spoken and detected per server. The stateless revision (2026-07-28) carries its version and
 capabilities in every request and has no session; it is probed first (server/discover on stdio, a first
@@ -136,6 +137,12 @@ def annotated_values(arguments: Dict[str, Any], annotations: List[Tuple[str, Tup
 def clean_description(text: Any) -> str:
     text = text if isinstance(text, str) else ""
     return "".join(ch for ch in text if ch == "\n" or ch >= " ")[:MAX_DESCRIPTION].strip()
+
+
+def declares_read_only(tool: Any) -> bool:
+    """Whether a tool definition carries the server's own `readOnlyHint: true`."""
+    annotations = tool.get("annotations") if isinstance(tool, dict) else None
+    return isinstance(annotations, dict) and annotations.get("readOnlyHint") is True
 
 
 def flatten_result(res: Dict[str, Any]) -> str:
@@ -360,8 +367,8 @@ class _Client:
         return self.request("tasks/result", {"taskId": task_id}, max(self.request_timeout, end - time.monotonic()))
 
     def register_into(self, registry: ToolRegistry, prefix: str = "", tools: Optional[List[Dict[str, Any]]] = None) -> List[str]:
-        """Registers every tool of the server (`tools`: the list already read, else it is read now). They are all
-        irreversible and untrusted: a server's own read-only hint is not believed. Returns the registered names."""
+        """Registers every tool of the server (`tools`: the list already read, else it is read now). A tool the server
+        declares read-only is a pure operation, the others are irreversible; all are untrusted. Returns the registered names."""
         names: List[str] = []
         for t in tools if tools is not None else self.list_tools():
             name = f"{prefix}{_TOOL_NAME.sub('_', t['name'])}"[:64]
@@ -376,7 +383,7 @@ class _Client:
                 description=clean_description(t.get("description")) or f"Tool {target} of an MCP server",
                 parameters={"type": "object", "properties": schema.get("properties") or {},
                             "required": [r for r in schema.get("required") or [] if isinstance(r, str)]},
-                effect=EffectClass.IRREVERSIBLE,
+                effect=EffectClass.PURE if declares_read_only(t) else EffectClass.IRREVERSIBLE,
                 handler=lambda _t=target, **kwargs: self.call_tool(_t, kwargs),
                 untrusted=True,
                 outward=True,
@@ -686,9 +693,10 @@ class MCPHttpClient(_Client):
 
 
 class MCPHub:
-    """Several servers behind two tools: one that searches their tool definitions, one that calls a tool.
+    """Several servers behind three tools: one that searches their tool definitions, one that calls a tool the server declares
+    read-only and one that calls any tool.
 
-    Only those two definitions sit in the prompt, so the prefix stays short and stable however many
+    Only those definitions sit in the prompt, so the prefix stays short and stable however many
     tools the servers offer."""
 
     def __init__(self) -> None:
@@ -724,16 +732,19 @@ class MCPHub:
                 if score or not words:
                     scored.append((-score, server, t["name"], t))
         scored.sort(key=lambda x: x[:3])
-        return [{"server": s, "tool": n, "description": clean_description(t.get("description")),
+        return [{"server": s, "tool": n, "description": clean_description(t.get("description")), "read_only": declares_read_only(t),
                  "input_schema": t.get("inputSchema") or {"type": "object", "properties": {}}}
                 for _, s, n, t in scored[:max(1, min(limit, 20))]]
 
-    def call(self, server: str, tool: str, arguments: Dict[str, Any]) -> str:
+    def call(self, server: str, tool: str, arguments: Dict[str, Any], read_only: bool = False) -> str:
+        """`read_only`: call the tool only if its server declares it read-only."""
         if server not in self.servers or server not in self.catalog:
             raise KeyError(f"Unknown or unavailable MCP server '{server}'. Servers: {', '.join(sorted(self.catalog)) or 'none'}")
         definition = next((t for t in self.catalog[server] if t["name"] == tool), None)
         if definition is None:
             raise KeyError(f"Server '{server}' has no tool '{tool}'; use mcp_search to find tools")
+        if read_only and not declares_read_only(definition):
+            raise KeyError(f"Server '{server}' does not declare '{tool}' read-only, so mcp_read does not call it; use mcp_call")
         schema = definition.get("inputSchema") if isinstance(definition.get("inputSchema"), dict) else {}
         validate_arguments(tool, {"properties": schema.get("properties") or {}, "required": schema.get("required") or []}, arguments)
         return self.servers[server].call_tool(tool, arguments)
@@ -745,15 +756,19 @@ class MCPHub:
         def mcp_call(server: str, tool: str, arguments: Dict[str, Any]) -> str:
             return self.call(server, tool, arguments)
 
+        def mcp_read(server: str, tool: str, arguments: Dict[str, Any]) -> str:
+            return self.call(server, tool, arguments, read_only=True)
+
+        call_schema = {"type": "object", "properties": {"server": {"type": "string"}, "tool": {"type": "string"}, "arguments": {"type": "object"}},
+                       "required": ["server", "tool", "arguments"]}
         registry.register(
-            "mcp_search", "Searches the tools offered by connected MCP servers and returns their definitions.",
+            "mcp_search", "Searches the tools offered by connected MCP servers and returns their definitions (read_only: the server declares the tool read-only).",
             {"type": "object", "properties": {"query": {"type": "string", "description": "What you want to do"}},
              "required": ["query"]}, EffectClass.PURE, mcp_search, untrusted=True)
-        registry.register(
-            "mcp_call", "Calls a tool of an MCP server found with mcp_search.",
-            {"type": "object", "properties": {"server": {"type": "string"}, "tool": {"type": "string"},
-                                              "arguments": {"type": "object"}},
-             "required": ["server", "tool", "arguments"]}, EffectClass.IRREVERSIBLE, mcp_call, untrusted=True, outward=True)
+        registry.register("mcp_read", "Calls a tool of an MCP server found with mcp_search, only one marked read_only.", call_schema,
+                          EffectClass.PURE, mcp_read, untrusted=True, outward=True)
+        registry.register("mcp_call", "Calls any tool of an MCP server found with mcp_search.", call_schema,
+                          EffectClass.IRREVERSIBLE, mcp_call, untrusted=True, outward=True)
 
     def register_eager(self, registry: ToolRegistry) -> None:
         for name, client in self.servers.items():
@@ -761,7 +776,7 @@ class MCPHub:
                 client.register_into(registry, prefix=f"{name}__", tools=self.catalog[name])
 
     def register(self, registry: ToolRegistry, eager_limit: Optional[int] = None) -> str:
-        """Puts the servers' tools in the registry: each one as a tool of its own while they are few, else behind the two tools that
+        """Puts the servers' tools in the registry: each one as a tool of its own while they are few, else behind the tools that
         search and call (the prompt stays short however many there are). Returns "eager", "deferred" or "none"."""
         count = sum(len(tools) for tools in self.catalog.values())
         if not count:

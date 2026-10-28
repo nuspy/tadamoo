@@ -288,6 +288,7 @@ class ChatController extends ChangeNotifier {
         }
         break;
       case 'ask':
+      case 'pending':                                           // a question left for the person: answered like any other, whenever
         final b = Block('ask', id: '${e['id'] ?? ''}');
         b.mode = '${e['mode'] ?? ''}';
         final facts = e['facts'] is Map ? Map<String, dynamic>.from(e['facts'] as Map) : <String, dynamic>{};
@@ -314,7 +315,7 @@ class ChatController extends ChangeNotifier {
         _addBlock(b, turn);
         break;
       case 'retrying':
-        _addBlock(Block('note', s: '${e['attempt']}/${e['of']}'), turn);
+        _addBlock(Block('note', s: '${e['attempt']} · ${e['wait_s']} s'), turn);
         break;
       case 'done':
         final a = _assistant(turn);

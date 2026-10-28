@@ -1,4 +1,4 @@
-"""Downloads and installs the candidate the person chose, and registers it as approved.
+"""Downloads and installs the candidate the person chose, and registers it.
 
 The model never supplies a command, a package or an address: it names a candidate by the id this process gave it, the candidate
 is looked up in memory (candidates.CandidateStore), every field it builds a command from is checked against a strict pattern,
@@ -13,8 +13,8 @@ and the commands below are fixed in this file.
 * A remote server: nothing is downloaded; its address is recorded.
 * A skill: only its folder, from the commit that was shown, file by file; each file's git hash is checked against the tree.
 
-No install script of any package is ever run. Registering writes the entry into the capability system as installed by Basalt and
-approves it with the hash of what was shown (the start command, the address, or the text of the skill).
+No install script of any package is ever run. Registering writes the entry into the capability system as installed by Basalt; the entry's hash (the start command, the
+address, or the text of the skill) is checked to be the one that was shown.
 """
 from __future__ import annotations
 
@@ -29,7 +29,6 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional
 
 from harness.capabilities import _read_skill, mcp_spec_sha
@@ -37,7 +36,6 @@ from harness.discovery import sources as src
 from harness.discovery.candidates import Candidate, CandidateStore, safe_relative
 from harness.discovery.installed import InstalledStore, env_spec
 from harness.sandbox import safe_environment
-from harness.skills import ApprovalStore
 
 INSTALL_TIMEOUT_S = 900.0
 MAX_SKILL_FILES = 100
@@ -105,7 +103,10 @@ class Installer:
         self.store, self.index, self.runner, self.which, self.github, self.now = store, index, runner or default_runner, which or shutil.which, github, now
         self.python = python or sys.executable
         self.records = InstalledStore(self.root)
-        self.approvals = ApprovalStore(self.root / "approved.json")
+
+    def reading(self, store: CandidateStore) -> "Installer":
+        """The same installer, reading its candidates from `store`."""
+        return Installer(self.root, store, index=self.index, runner=self.runner, which=self.which, github=self.github, python=self.python, now=self.now)
 
     # -- what is needed -----------------------------------------------------------------------------------------
 
@@ -142,7 +143,6 @@ class Installer:
         record.update(id=record.get("id", entry_id), name=c.name, kind=c.kind, source=c.source, route=c.route, version=c.version, description=c.description[:300],
                       installed_at=self.now().isoformat(timespec="seconds"), score=c.score.total if c.score else None, repo=c.repo, env=env_spec(c.env))
         self.records.put(record)
-        self.approvals.approve(SimpleNamespace(name=record["id"], sha256=record["sha"]))       # the hash of what was shown
         if self.index is not None:
             self.index.refresh()
             shown = self.index.get(record["id"])
@@ -290,7 +290,7 @@ class Installer:
         return self.records.listing()
 
     def remove(self, entry_id: str) -> bool:
-        """Deletes what an install put on disk, forgets the record and withdraws the approval. False if Basalt did not install it."""
+        """Deletes what an install put on disk, and forgets the record. False if Basalt did not install it."""
         record = self.records.get(entry_id)
         if record is None:
             return False
@@ -303,7 +303,6 @@ class Installer:
             if target.exists():
                 _forget(target)
         self.records.delete(entry_id)
-        self.approvals.revoke(entry_id)
         if self.index is not None:
             self.index.refresh()
         return True

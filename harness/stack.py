@@ -25,7 +25,7 @@ from harness.permissions import PermissionLevel, PermissionManager
 from harness.plan_mode import MODES_AFTER_PLAN, PLAN_TOOL, PlanGate, register_plan_tool
 from harness.rule_of_two import LEVELS
 from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
-from harness.skills import ApprovalStore, SkillCatalog, find_project_guidelines, register_skill_tool
+from harness.skills import SkillCatalog, find_project_guidelines, register_skill_tool
 from harness.tools import create_standard_tool_registry
 from harness.tools.registry import TOOL_CALL_NOTE
 
@@ -103,13 +103,13 @@ def _tool_timeouts(specs: List[str]) -> "tuple[Optional[float], Dict[str, float]
 DEFAULT_MEMORY_MIN_SCORE, DEFAULT_MEMORY_NOTES, DEFAULT_MEMORY_BUDGET = 1.5, 4, 600
 
 
-def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = 15) -> None:
+def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, permission_mode: str = "default") -> None:
     """The options every way of running the agent takes (the Chat's process, the command line, the editor): what it can reach and how."""
     parser.add_argument("--workspace", default=".", help="folder the agent works in")
     parser.add_argument("--endpoint", default="http://127.0.0.1:7232", help="Basalt server address")
     parser.add_argument("--api-key", default=os.environ.get("BASALT_API_KEY"), help="server API key (or BASALT_API_KEY)")
-    parser.add_argument("--max-turns", type=int, default=max_turns, help="most model turns in one answer (below 1: no limit)")
-    parser.add_argument("--permission-mode", choices=["plan", "read_only", "default", "auto"], default="default")
+    parser.add_argument("--max-turns", type=int, default=max_turns, help="most model turns in one answer (default and below 1: no limit)")
+    parser.add_argument("--permission-mode", choices=["plan", "read_only", "default", "auto"], default=permission_mode)
     parser.add_argument("--allow", action="append", default=[], metavar="PATTERN", help='allow rule, e.g. "shell_command:pytest*"')
     parser.add_argument("--deny", action="append", default=[], metavar="PATTERN", help="deny rule")
     parser.add_argument("--secret-env", action="append", default=[], metavar="NAME",
@@ -211,7 +211,7 @@ class AgentConfig:
     workspace: str = "."
     endpoint: str = "http://127.0.0.1:7232"
     api_key: Optional[str] = None
-    max_turns: int = 15                 # below 1: no limit on the steps of an answer
+    max_turns: int = -1                 # below 1: no limit on the steps of an answer
     permission_mode: str = "default"
     allow: List[str] = field(default_factory=list)
     deny: List[str] = field(default_factory=list)
@@ -256,8 +256,8 @@ class AgentConfig:
     snapshot_dir: Optional[str] = None  # where the context of each turn is kept when versioning is on
     council: bool = False               # offer ask_council when the person set a council up on the Providers page
     lsp: bool = False                   # offer diagnostics, go_to_definition and find_references when a language server is found on this PC
-    capabilities: bool = False          # offer find_capability, load_capability, call_capability and analyze_image (skills, plugins, MCP servers found on this PC)
-    capabilities_dir: Optional[str] = None   # where their index and the person's approvals are kept (default: the user data folder)
+    capabilities: bool = False          # offer find_capability, load_capability, read_capability, call_capability and analyze_image (skills, plugins, MCP servers found on this PC)
+    capabilities_dir: Optional[str] = None   # where their index and the person's settings are kept (default: the user data folder)
     attachments_dir: Optional[str] = None    # the conversation's attached files (harness/attachments.py); with outputs_dir, the tools for them are offered
     outputs_dir: Optional[str] = None        # the files the agent made for the person
     page_files: bool = False                 # the answers are read in a page that offers files to save (harness/visuals.py FILES_GUIDANCE)
@@ -444,7 +444,7 @@ def _hook_files(cfg: AgentConfig, workspace: Path) -> List[Path]:
 
 
 def _capabilities_directory(cfg: "AgentConfig") -> Path:
-    """Where the capability index and its approvals are kept."""
+    """Where the capability index, its settings and the install requests are kept."""
     if cfg.capabilities_dir:
         return Path(cfg.capabilities_dir)
     try:
@@ -572,9 +572,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         from harness.integrations.wiki_tools import register_wiki_tools
         from harness.integrations.wikibridge_client import WikiBridgeClient
         register_wiki_tools(registry, WikiBridgeClient.from_environment(url=cfg.wiki_url or None), cfg.wiki_project or None)
-    # The approvals are the Capabilities page's, so a skill approved there loads here and a new or changed one is listed there to approve.
-    skill_approvals = ApprovalStore(_capabilities_directory(cfg) / "approved.json", prefix="skill:")
-    catalog = SkillCatalog([Path(p) for p in cfg.skill_paths], approvals=skill_approvals, require_approval=True)
+    catalog = SkillCatalog([Path(p) for p in cfg.skill_paths])
     if cfg.skill_paths:
         from harness.capabilities import add_skill_folders
         add_skill_folders(_capabilities_directory(cfg), cfg.skill_paths)

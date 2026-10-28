@@ -2,7 +2,9 @@
 
 Events in (the user edits a node, the model proposes a diff, the user approves, rejects or answers a
 human-fallback offer), results out, and a numbered stream of what changed so a view can follow by
-polling or by an event stream. Nothing a model proposes touches the plan until the user approves it.
+polling or by an event stream. A proposal waits for the user's approval, except the part of it that touches no
+step involving other people, a call or effects that cannot be undone: that part may be applied on its own
+(`plan:approve` with `safe_only`), and the rest stays pending.
 """
 from __future__ import annotations
 
@@ -20,6 +22,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional
 from .card import CARD_FIELDS, DERIVED_FIELDS, PlanInsightCard, card_gaps, derive_card
 from .dag import Assignee, PlanDAG, PlanError, node_to_dict
 from .horizon import PlanProfile
+from .involvement import split_diff
 from .replan import ReplanProposal, Replanner
 from .triage import TriageResult
 
@@ -55,11 +58,13 @@ class Proposal:
     source: str = "model"
     status: str = "pending"          # pending, applied, rejected, stale
     created_at: float = field(default_factory=time.time)
+    involves: List[str] = field(default_factory=list)    # the steps that make it wait for the person (people, a call, effects that cannot be undone)
+    auto: bool = False                                   # applied without the person's approval
 
     def to_dict(self) -> Dict[str, Any]:
         return {"proposal_id": self.proposal_id, "title": self.title, "rationale": self.rationale, "diff": self.diff,
                 "source": self.source, "status": self.status, "created_at": self.created_at,
-                "changes": classify_diff(self.diff)}
+                "changes": classify_diff(self.diff), "involves": self.involves, "auto": self.auto}
 
 
 class PlanCanvasBridge:
@@ -271,6 +276,7 @@ class PlanCanvasBridge:
         self.dag.preview_diff(diff)                      # refuse at once what could never apply
         proposal = Proposal(f"pr_{secrets.token_hex(4)}", str(e.get("title") or "Proposed change"),
                             str(e.get("rationale", "")), diff, source=str(e.get("source", "model")))
+        proposal.involves = split_diff(self._nodes(), diff).reasons
         self.proposals[proposal.proposal_id] = proposal
         self._emit("plan:diff_proposed", {"proposal": proposal.to_dict()})
         return {"proposal_id": proposal.proposal_id, "changes": classify_diff(diff)}
@@ -283,8 +289,36 @@ class PlanCanvasBridge:
             raise ValueError(f"proposal {proposal.proposal_id} is already {proposal.status}")
         return proposal
 
+    def _nodes(self) -> Dict[str, Dict[str, Any]]:
+        return {nid: node_to_dict(n) for nid, n in self.dag.nodes.items()}
+
+    def _approve_safe(self, proposal: Proposal) -> Dict[str, Any]:
+        """Applies the part of a proposal that touches no step involving other people, a call or effects that cannot be undone. What
+        touches one stays pending as the same proposal, with the steps that hold it back."""
+        split = split_diff(self._nodes(), proposal.diff)
+        if not split.safe:
+            proposal.involves = split.reasons
+            return {"applied": False, "changed": [], "parked": split.reasons, "remaining": proposal.proposal_id}
+        try:
+            changed = self.dag.apply_diff(split.safe)
+        except PlanError as exc:
+            return {"applied": False, "changed": [], "parked": split.reasons, "remaining": proposal.proposal_id, "failed": str(exc)}
+        if split.parked:
+            done = Proposal(f"pr_{secrets.token_hex(4)}", proposal.title, proposal.rationale, split.safe, proposal.source, "applied",
+                            proposal.created_at, [], True)
+            self.proposals[done.proposal_id] = done
+            proposal.diff, proposal.involves = split.parked, split.reasons
+            self._emit("plan:diff_proposed", {"proposal": proposal.to_dict()})
+        else:
+            done, proposal.status, proposal.auto = proposal, "applied", True
+        self._bump("apply", f"{proposal.title} ({proposal.source}): applied without waiting" + (", the rest waits for the user" if split.parked else ""))
+        self._emit("plan:diff_applied", {"proposal_id": done.proposal_id, "changed": changed, "changes": classify_diff(done.diff)})
+        return {"applied": True, "changed": changed, "parked": split.reasons, "remaining": proposal.proposal_id if split.parked else None}
+
     def _approve(self, e: Dict[str, Any]) -> Dict[str, Any]:
         proposal = self._pending(e)
+        if e.get("safe_only") is True:
+            return self._approve_safe(proposal)
         try:
             changed = self.dag.apply_diff(proposal.diff)
         except PlanError as exc:
@@ -361,25 +395,38 @@ class PlanCanvasBridge:
 
     # -- System 2 --------------------------------------------------------------------------------
 
-    def replan(self, triage: TriageResult, events: List[str]) -> Dict[str, Any]:
+    def replan(self, triage: TriageResult, events: List[str], auto_apply: bool = False) -> Dict[str, Any]:
         """Wakes the local model about a flagged batch. Its alternatives become proposals; human-fallback
-        offers wait for the user. Raises if no replanner or card is set."""
+        offers wait for the user. With `auto_apply` the recommended alternative is applied at once, except for what touches a step
+        involving other people, a call or effects that cannot be undone, which stays pending; when it applies whole, the other
+        alternatives are closed. Raises if no replanner or card is set."""
         if self.replanner is None or self.card is None:
             raise ValueError("re-planning needs a model client and the plan card")
         result: ReplanProposal = self.replanner.propose(self.dag, self.card, triage, events)
         ids = []
+        applied: Dict[str, Any] = {}
         with self._lock:
+            chosen = None
             for i, alt in enumerate(result.alternatives):
                 reply = self.handle({"type": "plan:propose_diff", "title": alt.title, "diff": alt.diff, "actor": "planner",
                                      "rationale": alt.description + (" (recommended)" if i == result.recommended else "")})
                 if reply["ok"]:
                     ids.append(reply["proposal_id"])
+                    if chosen is None or i == result.recommended:
+                        chosen = reply["proposal_id"]
+            if auto_apply and chosen is not None:
+                reply = self.handle({"type": "plan:approve", "proposal_id": chosen, "safe_only": True, "actor": "planner"})
+                applied = {"proposal_id": chosen, **{k: v for k, v in reply.items() if k != "ok"}} if reply.get("ok") else {}
+                if applied.get("applied") and not applied.get("remaining"):
+                    for other in ids:
+                        if other != chosen and self.proposals[other].status == "pending":
+                            self.handle({"type": "plan:reject", "proposal_id": other, "actor": "planner"})
             for fb in result.human_fallbacks:
                 self.handle({"type": "plan:human_fallback", "actor": "planner", **fb})
             self._emit("plan:replan_ready", {"diagnosis": result.diagnosis, "affected_nodes": result.affected_nodes,
-                                             "proposals": ids, "rejected": result.rejected})
+                                             "proposals": ids, "rejected": result.rejected, "applied": applied})
         return {"diagnosis": result.diagnosis, "proposals": ids, "rejected": result.rejected,
-                "human_fallbacks": result.human_fallbacks}
+                "human_fallbacks": result.human_fallbacks, "applied": applied}
 
     # -- saving ----------------------------------------------------------------------------------
 
@@ -397,7 +444,8 @@ class PlanCanvasBridge:
             bridge.card_auto = [f for f in (data.get("card_auto") or []) if f in CARD_FIELDS]
         for k, v in (data.get("proposals") or {}).items():
             bridge.proposals[k] = Proposal(k, v["title"], v.get("rationale", ""), v["diff"], v.get("source", "model"),
-                                           v.get("status", "pending"), v.get("created_at", time.time()))
+                                           v.get("status", "pending"), v.get("created_at", time.time()),
+                                           [str(x) for x in v.get("involves") or []], v.get("auto") is True)
         bridge.offers = data.get("offers") or {}
         bridge.seq = int(data.get("seq", 0))
         bridge.rev = int(data.get("rev", 0))

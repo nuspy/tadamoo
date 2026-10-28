@@ -57,11 +57,11 @@ class SlashCommandsTest(unittest.TestCase):
     def test_copy_takes_the_nth_answer_from_the_end(self):
         self.assertEqual(self.r["copied"], "first answer")
 
-    def test_skills_found_on_the_pc_are_commands_and_an_unapproved_one_is_not_run(self):
+    def test_skills_found_on_the_pc_are_commands_and_run_without_any_approval(self):
         r = self.r
-        self.assertEqual(r["skillMenu"], [["deploy", False], ["draft", True]])         # a skill that is off is not offered
-        self.assertEqual(r["skillRun"][2], ["Load the skill skill:deploy with load_capability and follow it. What I need: to staging"])
-        self.assertIn("The skill draft is not approved yet", r["skillRun"][3][-1])
+        self.assertEqual(r["skillMenu"], [["deploy", False], ["draft", False]])         # a skill that is off is not offered
+        self.assertEqual(r["skillRun"][2], ["Load the skill skill:deploy with load_capability and follow it. What I need: to staging",
+                                            "Load the skill skill:draft with load_capability and follow it. Ask me what I need if the skill requires input."])
         self.assertIn("deploy", r["candidates"])
 
     def test_the_menu_puts_the_names_that_start_with_the_letters_first(self):

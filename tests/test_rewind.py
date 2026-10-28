@@ -183,3 +183,14 @@ def test_the_plan_events_note_an_effect_preview_the_rewind_and_ask_for_the_yes()
     done = bridge.handle({"type": "plan:rewind", "node_id": "book", "accept_irreversible": True})
     assert done["ok"] and done["rewound"] == ["book", "call", "pay"] and [e["tool"] for e in done["not_undone"]] == ["phone_call"]
     assert not bridge.handle({"type": "plan:note_effect", "node_id": "ghost", "tool": "x", "effect": "irreversible"})["ok"]
+
+
+def test_the_checkpoints_are_deleted_one_or_all_from_the_command_line(work):
+    ws, data = work
+    run_agent(ws, data, [call("write_file", {"path": "a.txt", "content": "two\n"}),
+                         call("shell_command", {"command": "python -c \"print(1)\""}, "c2"), say("done")])
+    first, second = [c["id"] for c in checkpoint_report(data, ws)]
+    assert cli("--workspace", str(ws), "--data-dir", str(data), "--delete", first)[0] == 0
+    assert [c["id"] for c in checkpoint_report(data, ws)] == [second]
+    assert cli("--workspace", str(ws), "--data-dir", str(data), "--delete", "cp_1_1")[0] == 2
+    assert cli("--workspace", str(ws), "--data-dir", str(data), "--delete", "all")[0] == 0 and checkpoint_report(data, ws) == []

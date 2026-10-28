@@ -309,7 +309,7 @@ class Tabs(unittest.TestCase):
     def test_the_controls_that_had_no_explanation_now_have_one_in_both_languages(self):
         i18n = self.text("i18n.js")
         en, it = i18n.index("  en: {"), i18n.index("  it: {")
-        keys = ("st.lang.help", "cp.rescan.tip", "cp.actions.help", "cp.turnoff.tip", "cp.turnon.tip", "cp.revoke.tip", "cp.signin.tip",
+        keys = ("st.lang.help", "cp.rescan.tip", "cp.actions.help", "cp.turnoff.tip", "cp.turnon.tip", "cp.signin.tip",
                 "cp.signout.tip", "cp.move.tip", "cp.on.min.tip", "cp.w.tip", "pl.set.cloud.help", "pl.set.pseudo.help",
                 "pl.set.fields.help", "mb.allow.needts", "mb.fresh.copy.tip", "me.sec.field", "me.sec.tip", "me.kind.field", "me.kind.tip")
         for key in keys:
