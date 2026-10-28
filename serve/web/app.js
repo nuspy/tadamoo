@@ -38,11 +38,11 @@ async function get(path) {
 }
 
 /* ---- views: Chat, Monitor (stats), Plans, Hardware, Loader, Settings, Logs ---- */
-const VIEWS = ["chat", "agent", "stats", "plans", "cron", "hardware", "loader", "wallet", "settings", "logs"];
+const VIEWS = ["chat", "agent", "stats", "plans", "cron", "hardware", "loader", "wallet", "settings", "logs", "security"];
 applyT($(".tabs"));                                   // the tab names in the page's language
 $(".tabs").setAttribute("aria-label", T("tab.nav"));
 // pages that live under another tab: Hardware and LOGS under Monitor, Wallet under Settings
-const TAB_OF = { hardware: "stats", logs: "stats", wallet: "settings" };
+const TAB_OF = { hardware: "stats", logs: "stats", security: "stats", wallet: "settings" };
 // the Agent tab shows the conversation page, working in a folder
 const SHOWN_AS = { agent: "chat" };
 let viewOn = "";

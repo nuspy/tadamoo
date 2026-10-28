@@ -200,6 +200,8 @@ had to shorten.
 
 The reference is [docs/harness.md](docs/harness.md); a step-by-step guide is [docs/harness-manual.md](docs/harness-manual.md).
 
+An optional **security monitor** (Monitor > Security) watches the network connections and disk writes of the model processes and flags suspicious cases without blocking anything; see [docs/security-monitor.md](docs/security-monitor.md).
+
 ### Four ways in
 
 All four build the agent in the same place (`harness/stack.py`), so what one can reach the others can reach.
