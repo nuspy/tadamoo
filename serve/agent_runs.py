@@ -180,7 +180,7 @@ class AgentRunner:
             raise RunError(f"That folder does not exist: {path}", "folder_not_found")
         return path.resolve()
 
-    def start(self, workspace: Any, goal: Any, mode: Any = "default", allow: Any = None, max_turns: Any = 15) -> Dict[str, Any]:
+    def start(self, workspace: Any, goal: Any, mode: Any = "auto", allow: Any = None, max_turns: Any = -1) -> Dict[str, Any]:
         path = self.check_workspace(workspace)
         if not isinstance(goal, str) or not goal.strip():
             raise RunError("Write what the agent should do.", "goal_missing")

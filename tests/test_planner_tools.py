@@ -367,7 +367,7 @@ def test_at_the_auto_level_a_plan_change_asks_only_when_the_plan_involves_people
             assert ok and how == "auto" and asker.asked == [] and involved(snap) == []
         else:
             assert ok and how == "asked" and len(asker.asked) == 1 and asker.asked[0]["facts"]["involves"], snap
-            assert "This plan involves" in asker.asked[0]["question"]
+            assert "This involves" in asker.asked[0]["question"]
     assert involved({"plan": {"nodes": {"a": {"state_variables": {"effects": [{"effect": "reversible"}]}}}}}) == []
     below = Asker("confirm")
     assert Confirmer(AgentState(), below, auto=lambda: False).check({"kind": "plan_change"}, "Change it?", "", plain)[1] == "asked"

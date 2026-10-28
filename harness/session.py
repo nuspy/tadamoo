@@ -18,10 +18,16 @@ that task (steer), waits its turn (queue), or, when it cannot wait and has nothi
 it stands, the urgent one is done, and the first goes on afterwards. When the model answers several requests at once, a request that
 would wait is done beside the task instead.
 
-A failed model call is retried here, with growing waits, while the model or the server is only slow or busy; a refusal
-that waiting cannot change, or retries that ran out, end the turn as `blocked` and the process waits for the person:
-nothing is decided for them. A tool that cannot be undone is never run again: if the process dies while one is running, the
-next start says so and puts a note in the conversation that the tool may already have run.
+A failed model call is retried here, with growing waits that never end by themselves, while the model or the server is unreachable,
+slow or busy; only a refusal that waiting cannot change ends the turn as `blocked`, and the person can always stop it. If the process
+dies while a tool that cannot be undone is running, the next start puts a note in the conversation that the call may already have run
+and must be checked before it is repeated.
+
+A session flagged `unattended` (--unattended) never waits for a question: one that is not a named exception (another person, the
+user, a resource that is not the PC's own, a booking) is answered at once as approved, or as "not available" when only the person
+could give the data; a named exception is parked in a visible list (`pending` events, answered later with the same `answer` command)
+while the model is told the answer is pending. A conversation that is not flagged always waits for the person: at the Auto level
+the harness itself asks nothing, and what is still asked (the Rule of Two the person set) is theirs to answer.
 """
 from __future__ import annotations
 
@@ -51,11 +57,14 @@ EFFORT_LEVELS = ("none", "low", "medium", "high")
 DELTA_CHARS, DELTA_S = 400, 0.25
 EVENT_CHARS = 20_000
 TRANSIENT_STATUS = frozenset({0, 408, 425, 429, 500, 502, 503, 504})
-BACKOFF_S = (2.0, 5.0, 15.0, 30.0, 60.0)
+BACKOFF_S = (2.0, 5.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0)      # the last wait is repeated for as long as it takes
 HISTORY_FILE, INFLIGHT_FILE, ARCHIVE_FILE = "history.json", "inflight.json", "archive.jsonl"
 RESUME_NOTE = "[harness] You were set aside for an urgent request, which is now done. Go on with what you were doing."
-INTERRUPTED_NOTE = ("[harness] The previous turn was interrupted while it was running {tool} with {arguments}. It may have "
-                    "run already. Do not run it again without first checking what really happened, and tell the user.")
+INTERRUPTED_NOTE = ("[harness] The previous call may have run: the process stopped while it was running {tool} with {arguments}. "
+                    "Check what really happened before repeating it.")
+PENDING_NOTE = "The answer is pending: the user will see the question later. Go on with other work and do not repeat the request."
+UNAVAILABLE_NOTE = "That information is not available in this run and nobody can give it now. Continue with what you have."
+EXCEPTION_TOOLS = {"phone_call": "people"}                          # tools that reach another person
 
 
 PLAN_NEWS_SECONDS = 600            # a plan made by someone else is asked about only while it is new
@@ -182,11 +191,50 @@ class _Current:
         self._agent.request_end_turn()
 
 
+def question_source(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """The facts about whom a question is for. `named` is one of the exceptions that only a person can decide (another person, a booking,
+    money or a resource that is not the PC's own); `needs_data` is a question for information only the person or a service can give."""
+    facts = payload.get("facts") if isinstance(payload.get("facts"), dict) else {}
+    kind = str(payload.get("kind") or facts.get("kind") or "")
+    involves = [str(x) for x in facts.get("involves") or []] if isinstance(facts.get("involves"), list) else []
+    named = ""
+    if kind == "payment":
+        named = "resource"
+    elif kind == "permission" and str(payload.get("tool")) in EXCEPTION_TOOLS:
+        named = EXCEPTION_TOOLS[str(payload.get("tool"))]
+    elif involves:
+        named = "people" if any(x.startswith("people") or "someone else" in x or "phone call" in x for x in involves) else "booking"
+    return {"kind": kind, "named": named or None, "needs_data": kind in ("code", "mcp_elicitation", "capability_choice"),
+            **({"involves": involves} if involves else {})}
+
+
+def approving_value(payload: Dict[str, Any]) -> str:
+    """The button that approves: "confirm", else an option that says yes, else the first."""
+    values = [str(o.get("value")) for o in payload.get("options") or [] if isinstance(o, dict)]
+    if "confirm" in values:
+        return "confirm"
+    yes = [v for v in values if v.strip().lower() in ("yes", "y", "ok", "approve", "proceed", "allow")]
+    return yes[0] if yes else (values[0] if values else "")
+
+
+def unattended_confirm(board: Callable[[str, Dict[str, Any]], bool]) -> Callable[[str, Dict[str, Any]], bool]:
+    """With the approvals on the server's board and nobody watching: a call is approved at once unless it is a named exception,
+    which goes to the board and waits there for the person."""
+    def confirm(tool: str, arguments: Dict[str, Any]) -> bool:
+        if question_source({"kind": "permission", "tool": tool})["named"]:
+            return board(tool, arguments)
+        return True
+    return confirm
+
+
 class Session:
     def __init__(self, built: BuiltAgent, store: SessionStore, emit: Callable[[Dict[str, Any]], None], session_id: str = "",
                  waits: tuple = BACKOFF_S, sleep: Callable[[float], None] = time.sleep,
-                 health: Optional[Callable[[], Dict[str, Any]]] = None, router: Optional[Router] = None) -> None:
+                 health: Optional[Callable[[], Dict[str, Any]]] = None, router: Optional[Router] = None, unattended: bool = False) -> None:
         self.built, self.store, self.emit = built, store, emit
+        self.unattended = unattended                            # nobody is there to answer: a question never blocks (see the module's text)
+        self._parked: Dict[str, Dict[str, Any]] = {}            # questions left for the person, by id
+        self._granted: List[str] = []                           # permission questions the person approved after the call was refused
         self.agent = built.agent
         self.session_id = session_id
         self.waits, self.sleep = tuple(waits), sleep
@@ -209,6 +257,8 @@ class Session:
         self._pending_note: Optional[str] = None
         self._asks: Dict[str, Dict[str, Any]] = {}              # confirmations a task is waiting for, by id
         self._ask_lock = threading.Lock()
+        if getattr(built, "permissions", None) is not None:
+            built.permissions.refusal_note = self._refusal_note
         self._waiting_n = 0                                     # a task waiting for the person is not stuck
         self.planner: Any = None
         self.reporter: Any = None                               # sends the file edits to the server's Changes panel, when asked to
@@ -249,11 +299,11 @@ class Session:
 
     def _save(self) -> None:
         self.store.save(self.agent.messages[1:], {"session": self.session_id, "turns": self.turns_done, "plans_summary": self._summary, "announced": sorted(self._announced),
-                                                  "pending": self._pending()})
+                                                  "pending": self._pending(), "parked": list(self._parked.values())})
 
     def restore(self) -> int:
-        """Takes the saved history back. An action that cannot be undone and was running when the process died is
-        reported at once, and requests that were waiting are kept for the person to release: nothing goes on until they say so."""
+        """Takes the saved history back. An action that cannot be undone and was running when the process died is told to the model
+        as a note (it may have run: check before repeating); the requests that were waiting go on with the next `resume`."""
         data = self.store.load()
         count = 0
         if data:
@@ -262,16 +312,12 @@ class Session:
             self._summary = str(data.get("plans_summary") or "")
             self._announced = {str(k) for k in data.get("announced", [])}
             self.queue = [m for m in data.get("pending", []) if isinstance(m, dict) and m.get("text")]
+            self._parked = {str(i["id"]): i for i in data.get("parked", []) if isinstance(i, dict) and i.get("id")}
             count = len(data["messages"])
         lost = self.store.inflight()
         if lost:
             self._pending_note = INTERRUPTED_NOTE.format(tool=lost.get("tool"), arguments=json.dumps(lost.get("arguments"), ensure_ascii=False)[:300])
-            self.blocked = {"reason": "interrupted_irreversible", "detail": f"{lost.get('tool')} may have run before the process stopped",
-                            "options": ["resume", "close"], "tool": lost.get("tool"), "arguments": lost.get("arguments")}
             self.store.clear_inflight()
-        elif self.queue:
-            self.blocked = {"reason": "unfinished_requests", "detail": f"{len(self.queue)} request(s) were waiting when the process stopped",
-                            "options": ["resume", "close"]}
         return count
 
     def _on_turn_end(self, turn: al.AgentTurn, task: Task) -> None:
@@ -324,9 +370,47 @@ class Session:
         task = getattr(self._tl, "task", None)
         return (task.agent if task is not None else self.agent).cancel
 
+    def _policy(self, payload: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        """How a question is handled: "wait" (the person is there), "approve", "unavailable" or "park", with the facts about its source."""
+        source = question_source(payload)
+        if not self.unattended:
+            return "wait", source
+        if source["named"]:
+            return "park", source
+        return ("unavailable" if source["needs_data"] else "approve"), source
+
+    def _auto_answer(self, payload: Dict[str, Any], source: Dict[str, Any], value: str, available: bool) -> str:
+        self.emit({"event": "auto_answered", "id": uuid.uuid4().hex[:8], "turn": self._cur_turn(), "kind": source["kind"], "value": value,
+                   "available": available, "source": source, "question": str(payload.get("question") or "")[:300]})
+        return value
+
+    def _park(self, payload: Dict[str, Any], source: Dict[str, Any]) -> str:
+        """A question only the person can answer, in a run nobody watches: it is kept in a visible list and the model goes on with other work."""
+        aid = uuid.uuid4().hex[:8]
+        item = {"id": aid, "turn": self._cur_turn(), "at": time.time(), "source": source, "payload": payload}
+        with self._ask_lock:
+            self._parked[aid] = item
+        self._tl.parked = item
+        self._save()
+        self.emit({"event": "pending", "id": aid, "turn": item["turn"], "source": source, **payload})
+        return ""
+
+    def _refusal_note(self) -> str:
+        item = getattr(self._tl, "parked", None)
+        self._tl.parked = None
+        return f"{PENDING_NOTE} (question {item['id']})" if item else ""
+
     def _ask(self, payload: Dict[str, Any]) -> str:
         """A confirmation: shown with its buttons, and the task waits for the answer ("confirm", "cancel" or "" if it was
-        cancelled). A task waiting for the person is not stuck."""
+        cancelled), however long it takes. A task waiting for the person is not stuck. Where nobody can answer (see `_policy`) the
+        question is answered at once or parked, and "" comes back."""
+        how, source = self._policy(payload)
+        if how == "approve":
+            return self._auto_answer(payload, source, approving_value(payload), True)
+        if how == "unavailable":
+            return self._auto_answer(payload, source, "", False)
+        if how == "park":
+            return self._park(payload, source)
         aid = uuid.uuid4().hex[:8]
         said = al.current_explanation() if payload.get("mode") == "confirm" else ""
         if said and "explain" not in payload:
@@ -353,6 +437,9 @@ class Session:
     def answer(self, aid: Any, value: Any) -> bool:
         with self._ask_lock:
             slot = self._asks.get(str(aid))
+            parked = self._parked.get(str(aid))
+        if parked is not None:
+            return self._answer_parked(parked, value)
         sentence = bool(slot and slot["free_prefix"] and isinstance(value, str) and value.startswith(slot["free_prefix"]) and len(value) <= len(slot["free_prefix"]) + 500)
         if slot is None or not (value in slot["values"] or (slot["free"] and valid_code(value)) or sentence):
             self.emit({"event": "error", "code": "bad_answer", "message": "no such question, or not one of its answers"})
@@ -360,6 +447,42 @@ class Session:
         slot["value"] = value
         slot["event"].set()
         return True
+
+    def _answer_parked(self, item: Dict[str, Any], value: Any) -> bool:
+        """The person's answer to a parked question, applied now: a permission they approve is granted for the call that was refused,
+        and the model is told the answer in a note it reads at its next turn (a turn is started for it when nothing is under way)."""
+        payload = item["payload"]
+        options = {str(o.get("value")): o for o in payload.get("options") or [] if isinstance(o, dict)}
+        prefix = str(payload.get("free_prefix") or "")
+        free = bool(payload.get("free")) and isinstance(value, str) and valid_code(value)
+        sentence = bool(prefix) and isinstance(value, str) and value.startswith(prefix) and len(value) <= len(prefix) + 500
+        if not (value in options or free or sentence):
+            self.emit({"event": "error", "code": "bad_answer", "message": "no such question, or not one of its answers"})
+            return False
+        with self._ask_lock:
+            self._parked.pop(item["id"], None)
+        shown = "" if free else str(value)
+        if payload.get("kind") == "permission" and value in ("confirm", "chat", "always"):
+            self._granted.append(self._call_key(str(payload.get("tool")), payload.get("arguments") or {}))
+            self._remember_rules(str(value), options.get(str(value), {}).get("rules") or [], bool(payload.get("rule_of_two")))
+        what = str(payload.get("question") or "")[:200]
+        note = f"[harness] The user answered a question that was pending ({what}): {shown or 'answered'}."
+        if payload.get("kind") == "permission":
+            note += " If it is allowed now, run the call again." if value in ("confirm", "chat", "always") else " Do not run it."
+        self._pending_note = f"{self._pending_note}\n{note}" if self._pending_note else note
+        self._save()
+        self.emit({"event": "pending_done", "id": item["id"], "value": shown})
+        if self.idle():
+            self.resume()
+        return True
+
+    @staticmethod
+    def _call_key(tool: str, arguments: Dict[str, Any]) -> str:
+        return tool + ":" + json.dumps(arguments, sort_keys=True, ensure_ascii=False, default=str)
+
+    def parked_questions(self) -> List[Dict[str, Any]]:
+        with self._ask_lock:
+            return list(self._parked.values())
 
     def _question(self, payload: Dict[str, Any]) -> bool:
         """A question that ends the turn: the button the person presses is their next message."""
@@ -405,17 +528,25 @@ class Session:
             options += [{"label": f"Allow in this conversation{f' ({label})' if rules else ''}", "value": "chat", **({"rule": label, "rules": rules} if rules else {})},
                         {"label": f"Always allow{f' ({label})' if rules else ''}", "value": "always", **({"rule": label, "rules": rules} if rules else {})}]
         options.append({"label": "Deny", "value": "cancel"})
-        answer = self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments,
+        key = self._call_key(tool, arguments)
+        if key in self._granted:                                      # the person approved this very call after it was left pending
+            self._granted.remove(key)
+            return True
+        answer = self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments, **({"rule_of_two": True} if two else {}),
                             "question": f"{two}" + "\n\n" + f"Allow {tool} {shown}?" if two else f"Allow {tool} {shown}?", "options": options})
-        if answer in ("chat", "always"):
-            scope = "global" if answer == "always" else "chat"
-            for rule in rules:
-                permissions.add_rule(rule, "allow")                   # the server keeps it for this conversation's next starts; "always" for every other one too
-                self.emit({"event": "rule_added", "rule": rule, "scope": scope})
-            if two:
-                permissions.two.set_level("off")
-                self.emit({"event": "rule_of_two_off", "scope": scope})
+        self._remember_rules(answer, rules, bool(two))
         return answer in ("confirm", "chat", "always")
+
+    def _remember_rules(self, answer: str, rules: List[str], two: bool) -> None:
+        if answer not in ("chat", "always"):
+            return
+        scope = "global" if answer == "always" else "chat"
+        for rule in rules:
+            self.built.permissions.add_rule(rule, "allow")                   # the server keeps it for this conversation's next starts; "always" for every other one too
+            self.emit({"event": "rule_added", "rule": rule, "scope": scope})
+        if two:
+            self.built.permissions.two.set_level("off")
+            self.emit({"event": "rule_of_two_off", "scope": scope})
 
     def enable_planner(self, client: Any) -> None:
         """Gives the conversation the planner's tools and the question tool; every change to a plan asks."""
@@ -846,17 +977,12 @@ class Session:
             if status is None or status not in TRANSIENT_STATUS:
                 self._block(task, "refused" if status else "error", agent.error)
                 return "blocked"
-            if attempt >= len(self.waits):
-                self._block(task, "model_unavailable", f"{agent.error} (after {attempt} new tries)")
-                return "blocked"
             health = self.health()
-            if health["reachable"] and not health["loaded"] and not health["loading"] and not health["auto_load"]:
-                self._block(task, "model_not_loaded", "the model is not loaded and the server will not load it by itself")
-                return "blocked"
-            wait = self.waits[attempt]
+            wait = self.waits[min(attempt, len(self.waits) - 1)]          # the last wait is repeated: only the person stops the retries
             attempt += 1
-            self.emit({"event": "retrying", "turn": task.turn, "attempt": attempt, "of": len(self.waits), "wait_s": wait,
-                       "status": status, "error": agent.error, "reachable": health["reachable"], "loading": health["loading"]})
+            self.emit({"event": "retrying", "turn": task.turn, "attempt": attempt, "wait_s": wait,
+                       "status": status, "error": agent.error, "reachable": health["reachable"], "loading": health["loading"],
+                       "loaded": health["loaded"], "auto_load": health["auto_load"]})
             if not self._wait(wait, agent.cancel):
                 agent.stop_reason = al.CANCELLED
                 return "done"
@@ -959,7 +1085,10 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m harness session", description="One Chat conversation in a long-lived process")
     parser.add_argument("--session-id", default="", help="the conversation's id; its history is kept under it")
     parser.add_argument("--history-dir", default=None, help="where the history is kept (default: in the workspace's data folder)")
-    add_agent_arguments(parser, max_turns=15)
+    add_agent_arguments(parser)
+    parser.add_argument("--unattended", action="store_true",
+                        help="nobody answers questions here: an approval is given at once, what only the person can give is reported as not available, "
+                             "and a question about another person, money or a booking waits in the pending list")
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of in the conversation")
     parser.add_argument("--ask-only", action="store_true", help="answer without tools: a greeting does not become a loop")
     parser.add_argument("--report-changes", action="store_true", help="send each file edit to the server's Changes panel, to keep or undo by block")
@@ -999,6 +1128,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     if args.ask_server:
         from harness.approval_client import ServerApprover
         confirm = ServerApprover(args.endpoint, args.api_key, sid)
+        if args.unattended:
+            confirm = unattended_confirm(confirm)
     history = Path(args.history_dir) if args.history_dir else data_dir_for(Path(args.workspace).resolve()) / "sessions" / sid
     try:
         settings = agent_settings(args)
@@ -1026,7 +1157,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     if hasattr(built.agent.context, "on_removed"):
         built.agent.context.on_removed = store.archive
     built.agent.pipeline = Pipeline(args.pipeline, (lambda q, o, c, j=judge_for("pipeline", here): j.choose(q, o, c)) if args.pipeline == "full" else None)
-    session = Session(built, store, emit, session_id=sid, health=lambda: server_health(cfg.endpoint, cfg.api_key), router=router)
+    session = Session(built, store, emit, session_id=sid, health=lambda: server_health(cfg.endpoint, cfg.api_key), router=router,
+                      unattended=args.unattended)
     if args.report_changes and not args.ask_only:
         from harness.reporting import PanelReporter
         session.reporter = PanelReporter(cfg.endpoint, cfg.api_key, built.sandbox, "", session=sid, tasks=False)
@@ -1037,8 +1169,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     session.set_effort(args.effort)
     if built.agent.secrets is not None:
         built.agent.secrets.ask_code = session.ask_code
-    if getattr(built.agent.tools, "capability_ask", None) is not None:
-        built.agent.tools.capability_ask.ask = session._ask                      # find_online_capability puts its choice to the person here
+    if getattr(built.agent.tools, "capability_ask", None) is not None and not args.unattended:
+        built.agent.tools.capability_ask.ask = session._ask                      # find_online_capability puts its choice to the person here; unattended, it queues the request
     if getattr(built.agent.tools, "mcp_asker", None) is not None:
         built.agent.tools.mcp_asker.ask = session._ask                           # so does an MCP server that stops to ask for a few values
     if built.payment_confirm is not None:
@@ -1050,7 +1182,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         from harness.integrations.planner_client import PlannerClient
         session.enable_planner(PlannerClient(cfg.endpoint, cfg.api_key))
     restored = session.restore()
-    emit({"event": "ready", "session": sid, "restored": restored, "pid": os.getpid(), "blocked": session.blocked})
+    emit({"event": "ready", "session": sid, "restored": restored, "pid": os.getpid(), "blocked": session.blocked,
+          "parked": session.parked_questions()})
 
     stop = threading.Event()
 

@@ -455,7 +455,7 @@ def test_with_the_pump_on_events_are_buffered_judged_and_a_wake_starts_the_repla
     svc.create({"plan": SNOW})
     svc.handle_event("neve", {"type": "plan:mark", "node_id": "meteo", "status": "completed"})     # a finished plan has nothing left to protect
     try:
-        svc.update_settings({"event_pump": True})
+        svc.update_settings({"event_pump": True, "auto_apply": False})
         assert svc.events_status()["pump"] is True
         res = svc.ingest([{"text": "Nuovo museo a Parigi", "source": "rss"}, {"text": "Sciopero dei treni venerdì", "source": "rss"}])
         assert res["pump"] is True and res["buffered"] == {"cervinia": 2}

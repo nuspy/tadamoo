@@ -120,6 +120,7 @@ def test_the_settings_reach_the_same_gatekeeper_including_the_gate(tmp_path, mon
 def test_two_close_triages_start_one_replanning_and_the_second_is_told_it_is_in_progress(tmp_path):
     model = FakeModel(hold=True)
     svc = make_service(tmp_path, model)
+    svc.update_settings({"auto_apply": False})
     svc.create({"plan": PLAN, "card": CARD})
     first = svc.triage("cervinia", ["Sciopero dei treni"], replan=True)
     assert first["replan_state"] == "started" and first["replanning"] is True
@@ -221,3 +222,29 @@ def test_with_the_yes_already_given_a_saved_key_is_used_at_once(tmp_path, monkey
     reg.set_consent("triage", True)
     s = svc.update_settings({"jev_key": "sk-secret-456", "cloud_triage": True})
     assert s["key_present"] is True and svc.gatekeeper().cloud_allowed
+
+
+def test_a_replan_is_applied_by_itself_unless_the_person_turned_that_off(tmp_path):
+    svc = make_service(tmp_path, FakeModel())
+    assert svc.settings()["auto_apply"] is True and svc.update_settings({"auto_apply": False})["auto_apply"] is False
+    with pytest.raises(ValueError, match="auto_apply"):
+        svc.update_settings({"auto_apply": "yes"})
+    svc.update_settings({"auto_apply": True})
+    svc.create({"plan": PLAN, "card": CARD})
+    svc.triage("cervinia", ["Sciopero dei treni"], replan=True)
+    assert wait_for(lambda: not svc.snapshot("cervinia")["replanning"] and svc.snapshot("cervinia")["plan"]["nodes"]["partenza"]["title"] == "Partenza in auto")
+    snap = svc.snapshot("cervinia")
+    assert snap["proposals"] == [] and snap["history"][-1]["actor"] == "planner"
+
+
+def test_a_replan_that_adds_a_step_for_a_third_person_leaves_that_step_for_the_person(tmp_path):
+    third = {"id": "gianni", "type": "action", "title": "Avvisa Gianni", "description": "", "assignee": "third_party", "dependencies": ["hotel"], "outputs": []}
+    model = FakeModel({**REPLAN, "alternatives": [{"title": "Parti in auto e avvisa", "description": "d",
+                                                    "diff": {"update_nodes": {"partenza": {"title": "Partenza in auto"}}, "add_nodes": [third]}}]})
+    svc = make_service(tmp_path, model)
+    svc.create({"plan": PLAN, "card": CARD})
+    svc.triage("cervinia", ["Sciopero dei treni"], replan=True)
+    assert wait_for(lambda: model.calls == 1 and not svc.snapshot("cervinia")["replanning"] and svc.snapshot("cervinia")["proposals"])
+    snap = svc.snapshot("cervinia")
+    assert snap["plan"]["nodes"]["partenza"]["title"] == "Partenza in auto" and "gianni" not in snap["plan"]["nodes"]
+    assert [n["id"] for n in snap["proposals"][0]["diff"]["add_nodes"]] == ["gianni"] and snap["proposals"][0]["involves"]

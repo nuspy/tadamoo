@@ -1,4 +1,4 @@
-"""The Settings page's routes for capabilities: look, approve what was read, choose visual analysis, only from this PC and the page itself."""
+"""The Settings page's routes for capabilities: look, choose visual analysis, only from this PC and the page itself."""
 import json
 import sys
 import urllib.error
@@ -46,20 +46,16 @@ def test_the_page_sees_the_tree_and_never_a_path_on_disk(api):
     assert {o["id"] for o in view["visual_options"]} >= {"builtin", "none", "skill:ocr-reader"}
 
 
-def test_approving_needs_the_hash_that_was_shown_and_then_the_skill_can_be_the_visual_choice(api):
-    assert api("POST", "/api/capabilities/settings", {"visual": "skill:ocr-reader"})[1]["error"]["code"] == "needs_approval"
+def test_nothing_is_approved_by_hash_and_a_found_skill_can_be_the_visual_choice(api):
     code, review = api("GET", "/api/capabilities/review?id=skill%3Aocr-reader")
-    assert code == 200 and "Do the thing." in review["text"] and "path" not in review["entry"]
-    code, body = api("POST", "/api/capabilities/approve", {"id": "skill:ocr-reader", "sha": "0" * 64})
-    assert code == 409 and body["error"]["code"] == "changed"
-    code, view = api("POST", "/api/capabilities/approve", {"id": "skill:ocr-reader", "sha": review["sha"]})
-    assert code == 200 and next(e for e in view["entries"] if e["id"] == "skill:ocr-reader")["state"] == "approved"
+    assert code == 200 and "Do the thing." in review["text"] and "path" not in review["entry"] and "sha" not in review
     code, view = api("POST", "/api/capabilities/settings", {"visual": "skill:ocr-reader"})
     assert code == 200 and view["settings"]["visual"] == "skill:ocr-reader"
     assert api("POST", "/api/capabilities/settings", {"visual": "skill:nothing"})[1]["error"]["code"] == "bad_choice"
-    code, view = api("POST", "/api/capabilities/revoke", {"id": "skill:ocr-reader"})
-    assert next(e for e in view["entries"] if e["id"] == "skill:ocr-reader")["state"] == "pending"
-    assert api("GET", "/api/capabilities/review?id=ghost")[0] == 404 and api("POST", "/api/capabilities/approve", {"id": "ghost", "sha": "x"})[0] == 409
+    assert next(e for e in view["entries"] if e["id"] == "skill:ocr-reader")["state"] == "approved"
+    assert api("POST", "/api/capabilities/approve", {"id": "skill:ocr-reader", "sha": "x"})[0] == 404       # the routes are gone
+    assert api("POST", "/api/capabilities/revoke", {"id": "skill:ocr-reader"})[0] == 404
+    assert api("GET", "/api/capabilities/review?id=ghost")[0] == 404
 
 
 def test_moving_and_turning_off_and_looking_again(api, tmp_path):

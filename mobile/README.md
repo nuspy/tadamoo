@@ -8,7 +8,7 @@ A phone version of the Basalt conversation page, built with Flutter for Android 
 - **Files in answers**: a link to a file the agent made, or to a file in the folder, is a button that saves it with the phone's "Save as" window. Pictures the agent kept are shown; diagrams show their source.
 - **The + button**: *Image* (the phone's photo picker), *Photo* (the Camera app), *Documents/Files*: *Local* (the phone's document window), *Server* (the same window, opened on "Basalt - PC", the folders added on the PC, then the drives) and *Network* (the devices Tailscale sees, or an address you type; signs in over SMB and lets you mark files).
 - **Voice**: the microphone writes what you say with the phone's own speech recognition; answers can be read aloud with its own voice, one by one or automatically. The language follows the phone unless you set it.
-- **Cron Jobs**: switch the jobs on and off and start one now. Jobs are written on the PC.
+- **Cron Jobs**: switch the jobs on and off, start one now and dismiss the requests waiting for you. Jobs are written on the PC.
 - **Settings**: the server's address (IP:port) and this phone's key, a QR scan, a test of the link.
 
 ## Set up

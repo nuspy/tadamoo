@@ -143,6 +143,7 @@ class PermissionManager:
         self.plan_mode = plan_mode
         self.rules: List[PermissionRule] = list(rules or [])
         self.confirm_callback = confirm_callback
+        self.refusal_note: Optional[Callable[[], str]] = None   # what the asker adds to a refusal (a question left for the person to answer later)
         self.always_ask = frozenset(always_ask)
         self._sensitive = sensitive_data           # the session can reach secrets or private data; a function is asked each time
         self.two = RuleOfTwo()                     # the three facts of the Rule of Two for this conversation (harness/rule_of_two.py)
@@ -228,6 +229,9 @@ class PermissionManager:
         text = reason
         if self.confirm_callback is None:
             text += ". Nobody can confirm in this run, so it was not run"
+        extra = self.refusal_note() if self.refusal_note is not None else ""
+        if extra:
+            text += ". " + extra
         allowed = [r.pattern for r in self.rules if r.action == "allow"]
         if allowed:
             text += (f". These can run without confirmation: {', '.join(allowed)}, each as one plain command (no &&, ;, |, "

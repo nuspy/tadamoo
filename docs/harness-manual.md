@@ -152,7 +152,7 @@ argument, **Escape** closes. A message that starts with a space is sent as writt
 | `/init` | asks the agent to write an `AGENTS.md` for the folder |
 | `/review`, `/security-review` | asks it to review the changes in the folder |
 | `/research question` (`/search`) | asks it to read the sources themselves and say which pages it could not open |
-| `/name text` | every skill found on this PC (needs approval first) |
+| `/name text` | every skill found on this PC |
 
 Left out on purpose: the commands of Claude Code's account, terminal or cloud (`/login`, `/usage`, `/theme`, `/vim`, `/ide`…).
 
@@ -181,7 +181,7 @@ you it may already have run. After that, or when the server refuses for good, th
 - **Back to here.** Each request of yours has this button (press twice). The conversation returns to just after that request and a
   copy of what came later is kept. The files are not touched: undo them from the Changes panel. Actions that stay done (a command, a
   call, a payment, a browser action) are listed first, and you must press again to go back anyway.
-- **Checkpoints.** Before the first change of each turn the folder is saved outside the project. `python -m harness.rewind
+- **Checkpoints.** Before an action changes files, their previous content is kept outside the project: only the files that change, from any folder, with no size limit. Files a shell command does not name are not covered. *Settings > Checkpoints* (or `/checkpoints on|soft|off|default`) chooses on, on without ever stopping the action, or off, lists them and deletes one or all. `python -m harness.rewind
   --workspace D:\proj` lists them and `--to ID` restores one; the conversations have `/rewind` and *Back to here*. A rewind takes a safety snapshot first, so it
   can be undone. It does not undo a command the agent ran, and says so.
 - **Branches.** `/branch` copies a conversation at a request; *Branches* shows the tree. *Run both and compare* sends one request down two
@@ -279,19 +279,21 @@ you the address and the number to call.
 
 - **Where they come from.** Basalt reads, and never runs, the skills, plugins and MCP servers installed for other tools on this PC
   (`~/.claude/skills`, the project's `.claude/skills`, plugins, `.mcp.json` and the like).
-- **Nothing is active until you approve it.** In *Settings → Capabilities* open an entry, read its text (a skill) or its command (a
-  server) and approve. The approval is tied to what you read; if the file changes, it is *to approve* again.
+- **What is found is usable.** There is no approval step: an entry on this PC works unless you turn it off in *Settings → Capabilities*,
+  where *View text* shows what the agent reads (a skill) or runs (a server). Editing a file never withdraws anything.
 - **Your own skill folders.** In *Settings → Capabilities → Skill folders* (and with `--skills DIR` on the command line) you name folders
-  of `SKILL.md` skills. Their skills are listed there as *to approve*; `load_skill` loads an approved one, and refuses a new or changed
-  one with a message that says so. It never waits for an answer.
-- **Using them.** The agent searches (`find_capability`), loads an approved skill (`load_capability`) or calls an approved server's tool
-  (`call_capability`, which asks like any action that cannot be undone; the agent can read a tool's arguments before it calls it). If a
+  of `SKILL.md` skills. Their skills are listed there and `load_skill` loads them as they are now.
+- **Using them.** The agent searches (`find_capability`), loads a skill (`load_capability`) or calls a server's tool: a tool the server declares read-only goes
+  through `read_capability` (no question, allowed in plan mode), any other through `call_capability`, which asks like any action that cannot be
+  undone; the agent can read a tool's arguments before it calls it). If a
   server stops to ask you for some values, the question appears in the conversation with the server's name: it comes from the server, so
   do not type passwords or keys. From the Chat you can call a skill with `/name text`.
 - **Missing something?** The agent can look online for an MCP server or a skill (`find_online_capability`), show you the best five
   with a score, their warnings and the command that would run, and install the one you choose. Nothing runs at install; the score
   measures popularity and upkeep, **not safety**. The settings are in *Settings → Capabilities → Search online*. Turning on "install the
-  best one by itself" shows a risk label and asks twice.
+  best one by itself" shows a risk label and asks twice. When nobody is there to ask (an unattended run), the finds wait in
+  *Settings → Capabilities → Install requests*, with their source, what each does and its advantages and disadvantages, and nothing is
+  installed until you press *Install* on one (or answer the same question in the Chat); *Reject* closes the request.
 - **Remote MCP servers** that need a sign-in show a **Sign in** button (OAuth); the token stays in the Windows credential manager.
 
 ## 11. The web, the browser, the Wallet and the phone
@@ -340,7 +342,7 @@ has *Waits for* boxes to set from the keyboard what it waits for.
 - **Events from the world** can be fed to plans (`POST /api/plans/events`) or read from RSS feeds, a mailbox (headers only) or a Telegram
   bot. The event pump is **on**: it starts with the server and sleeps while nothing arrives (turn it off in *Settings*). The cloud filter is **off** until you turn it on; it needs your consent and
   a key and replaces names, and does not send health data unless you tick it.
-- Nothing in a plan changes behind your back: the planner only prepares proposals, which you approve.
+- The planner prepares proposals and, by default (*Settings > Planner*, *Apply changes automatically unless they involve people, bookings or resources I do not control*), applies them at once and writes them in the history. A step that involves other people, a call, a booking or a payment already made waits in *Proposed changes* for you while the rest of the plan goes on. Turn the setting off to approve everything yourself.
 
 ## 12a. Files in answers
 
@@ -389,10 +391,11 @@ Common options (all of them are in [harness.md](harness.md#running-the-agent)):
 
 | Option | Meaning |
 |---|---|
-| `--permission-mode plan\|read_only\|default\|auto` | as the modes in section 4 |
+| `--permission-mode plan\|read_only\|default\|auto` | as the modes in section 4; a headless run uses `auto` unless `--interactive` is given |
 | `--allow PATTERN`, `--deny PATTERN` | command rules; a deny wins |
 | `--interactive` or `--ask-server` | ask on the terminal, or on the server's pages, before risky actions, payments and plans |
-| `--max-turns`, `--timeout-seconds`, `--max-tokens-budget` | stop after this much |
+| `--timeout-seconds`, `--max-tokens-budget` | stop after this much |
+| `--max-turns` | most model turns in one answer; not given or below 1: no limit |
 | `--tool-timeout [NAME=]SECONDS` | per-tool time limit; 0 for none |
 | `--secret-env NAME[=host,host]` | lets the agent write `{{secret:NAME}}` |
 | `--capabilities`, `--lsp`, `--browser`, `--phone`, `--wiki`, `--council` | switch on those tool groups |
@@ -426,10 +429,12 @@ run) blocks too. A file with a mistake stops the agent from starting, with the r
 
 ## 16. Routines, evaluation and replay
 
-- **Routines** run a prompt on a schedule (`every 30m`, `daily 08:30`, `weekdays 08:30`, `mon,wed,fri 18:15`) in a folder and a mode.
-  A routine is created **disabled** and read-only; only one runs at a time and only while no conversation is busy. They are managed
+- **Routines** run a prompt on a schedule (`every 30m`, `daily 08:30`, `weekdays 08:30`, `mon,wed,fri 18:15`) in a folder.
+  A routine is created **enabled** and always runs in Automatic, whether or not you are at the PC; different routines run together, the same one never twice at once, and a conversation of yours does not hold one back
+  (unless you set a time to give way). Steps and time per run are optional limits, empty for none. A fixed time missed while the PC was off runs once, late, at start. A request that only you can settle
+  waits in *Waiting for you* while the rest of the run goes on. They are managed
   through the **Cron Jobs** tab: a list with *Turn on/off*, *Run now* and *Delete*, an editor, the latest results of each job, and a small chat at the right to
-  talk a job over. The chat only proposes: *Use in the editor* fills the form, and nothing is saved or turned on until you press *Save* and *Turn on*.
+  talk a job over. The chat only proposes: *Use in the editor* fills the form, and nothing is saved until you press *Save*.
 - **Evaluation**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` runs each task k times on a fresh
   folder and reports pass@k, pass^k, cost and cache use (a `--k` below 5 is warned about). These are development comparisons, not headline numbers. Public benchmarks
   (BFCL, subsets of Terminal-Bench and SWE-bench Pro) are read from a folder you downloaded: `--bfcl DIR`, `--terminal-bench DIR`, `--swebench DIR`.
@@ -462,12 +467,12 @@ The form asks each value with its explanation and type: a date has a picker and 
 appear like the agent's, follow the same permissions and questions, and stay in the history; **Stop** ends it.
 
 **The list.** *Run*, *Edit* (the definition, the parameters, the script, and the earlier versions), *Export* (one `.pskill` file, to keep or to
-copy to another PC by pen drive or e-mail), *Delete* (press twice) and *Import personal skills…*. A skill that arrives from a file, or whose
-files were changed by hand, is **to approve**: read its script and approve it before it can run. One you made yourself is approved.
+copy to another PC by pen drive or e-mail), *Delete* (press twice) and *Import personal skills…*. A skill you made, edited or imported is yours and runs at once;
+nothing needs approving and an edit never withdraws anything.
 
 **Access.** The script runs as a program of yours: it may use anything Python can (files, programs, the network), with your rights. What it asks through
 `tool(...)` goes through the agent's permissions, hooks and audit log; the rest of the script does not. There is no limit on its memory, its output or
-its time unless you set a *time limit* in seconds in the editor. Read the script of a skill that comes from others before you approve it.
+its time unless you set a *time limit* in seconds in the editor. Read the script of a skill that comes from others before you run it.
 
 **On a schedule:** in the **Cron Jobs** tab a job can run one of your skills instead of a task you write. Fill in its values once; a date in words such as *today* or
 *tomorrow* is worked out again each time the job runs. The job's mode and rules decide what the skill may do without asking.
@@ -479,13 +484,13 @@ its time unless you set a *time limit* in seconds in the editor. Read the script
 | What you see | Why | What to do |
 |---|---|---|
 | A notice that no model is loaded | the server has nothing loaded | *Models*, choose one, *Load* |
-| The conversation is *blocked* | the server refused for good, or the process kept failing | read the note, then *Try again* or close it |
-| "Nobody can confirm in this run" | a headless run met something that needs a question | add `--interactive`, or an `--allow` rule |
+| The conversation is *blocked* | the server refused for good | read the note, then *Try again* or close it |
+| *New try N in S s* / *being started again* | the model is unreachable or the process stopped; it tries again with longer waits and never gives up by itself | wait, or stop the conversation |
+| "Nobody can confirm in this run" | a run in `plan`, `read_only` or `default` mode, with no one to ask, met something that needs a question | use `auto` (the headless default), `--interactive`, or an `--allow` rule |
 | A command still asks although a rule allows it | a statement of it is not covered by a rule, or it is built at run time (`$(...)`) | allow each program it uses |
 | A tool was stopped after 15 minutes | the default time limit | `--tool-timeout NAME=SECONDS` |
 | The search says it needs a check | DuckDuckGo limits automatic searches | wait, set another engine, or `BASALT_WEB_SEARCH=off` |
 | A slash command stays in the box | the name is unknown | `/help`; start with a space to send it as text |
-| "The skill … is not approved yet" | the skill is *to approve* | *Settings → Capabilities* |
 | A page was refused | it is on this PC or your network | allow it in the browser settings, if you mean to |
 | Every payment asks you | the limit is 0 until you set it | the Wallet view |
 | `/compact` says to wait | the agent is working | wait for the turn to end, or Stop |

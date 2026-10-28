@@ -1,7 +1,8 @@
-"""The Settings page's side of capabilities: what was found on this PC, what the person approved, and the choice for visual analysis.
+"""The Settings page's side of capabilities: what was found on this PC, the choice for visual analysis, the search online and the
+queue of install requests.
 
-Reading here is what the harness reads (names, descriptions, commands with keys blanked). An entry becomes usable only when the
-person presses Approve after looking at its text, and the approval is tied to the hash they were shown.
+Reading here is what the harness reads (names, descriptions, commands with keys blanked). What is on this PC is usable unless the person
+turned it off. What the harness found online by itself is installed only when the person authorises one candidate of its request.
 """
 from __future__ import annotations
 
@@ -14,7 +15,11 @@ from typing import Any, Dict, Optional
 from harness import capabilities as cap
 from harness.discovery.candidates import CandidateStore
 from harness.discovery.installed import InstalledStore
+from harness.discovery import sources as src
+from harness.discovery.finder import resolve_bases
+from harness.discovery.installed import github_token
 from harness.discovery.installer import InstallError, Installer
+from harness.discovery.requests import InstallRequests, UnknownRequest
 from harness.discovery.scoring import DEFAULT_WEIGHTS
 from harness.discovery.settings import DiscoverySettings, SOURCES
 
@@ -54,21 +59,6 @@ class CapabilityApi:
         r["entry"] = {k: v for k, v in r["entry"].items() if k != "path"}
         return r
 
-    def approve(self, entry_id: Any, sha: Any) -> Dict[str, Any]:
-        try:
-            with self._lock:
-                self.index.approve(str(entry_id), str(sha))
-        except KeyError:
-            raise CapabilityError("That entry is not there any more: look again.", "gone") from None
-        except ValueError as exc:
-            raise CapabilityError(str(exc), "changed") from None
-        return self.overview()
-
-    def revoke(self, entry_id: Any) -> Dict[str, Any]:
-        with self._lock:
-            self.index.revoke(str(entry_id))
-        return self.overview()
-
     def move(self, entry_id: Any, node: Any) -> Dict[str, Any]:
         try:
             with self._lock:
@@ -86,8 +76,6 @@ class CapabilityApi:
             visual = body["visual"]
             if visual not in options:
                 raise CapabilityError("Choose one of the options in the list.", "bad_choice")
-            if options[visual]["state"] != "approved":
-                raise CapabilityError("Approve it first: look at what it does, then press Approve.", "needs_approval")
             changes["visual"] = visual
         if "off" in body:
             ids = body["off"]
@@ -128,7 +116,7 @@ class CapabilityApi:
         return self.online()
 
     def remove_installed(self, entry_id: Any) -> Dict[str, Any]:
-        """Deletes a capability Basalt installed: its folder, its record and its approval."""
+        """Deletes a capability Basalt installed: its folder and its record."""
         try:
             with self._lock:
                 removed = Installer(self.index.dir, CandidateStore(), index=self.index).remove(str(entry_id))
@@ -137,3 +125,32 @@ class CapabilityApi:
         if not removed:
             raise CapabilityError("Basalt did not install that one: look again.", "gone")
         return self.online()
+
+    # -- install requests: what the harness found by itself and the person has to authorise -----------------------------
+
+    def requests(self) -> Dict[str, Any]:
+        return {"requests": InstallRequests(self.index.dir).listing()}
+
+    def _installer_for(self, store: CandidateStore) -> Installer:
+        used = resolve_bases(DiscoverySettings(self.index.dir).load()["base_urls"])
+        github = src.GithubClient(src.Http(), used["github"], used["github_raw"], lambda: github_token(self.index.vault_dir))
+        return Installer(self.index.dir, store, index=self.index, github=github)
+
+    def approve_request(self, request_id: Any, number: Any) -> Dict[str, Any]:
+        """Installs candidate `number` (1-based) of a pending request: the person's authorisation."""
+        try:
+            with self._lock:
+                InstallRequests(self.index.dir).approve(str(request_id), number, self._installer_for)
+        except UnknownRequest:
+            raise CapabilityError("That request is not there any more: look again.", "gone") from None
+        except InstallError as exc:
+            raise CapabilityError(str(exc), "bad_request") from None
+        return {**self.requests(), **self.overview()}
+
+    def reject_request(self, request_id: Any) -> Dict[str, Any]:
+        try:
+            with self._lock:
+                InstallRequests(self.index.dir).reject(str(request_id))
+        except UnknownRequest:
+            raise CapabilityError("That request is not there any more: look again.", "gone") from None
+        return self.requests()

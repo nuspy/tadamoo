@@ -1,4 +1,4 @@
-"""Settings signs in to an approved remote MCP server and the browser's answer comes back to the server."""
+"""Settings signs in to a remote MCP server that is on and the browser's answer comes back to the server."""
 import json
 import sys
 import urllib.error
@@ -53,24 +53,20 @@ def setup(tmp_path, monkeypatch, world, start_server):  # noqa: F811
     return base, caps, api, tmp_path
 
 
-def approve(caps):
-    caps.approve("mcp:remote", caps.review("mcp:remote")["entry"]["sha"])
-
-
-def test_only_an_approved_remote_server_can_be_signed_in_to(setup, world):
+def test_only_a_remote_server_that_is_not_off_can_be_signed_in_to(setup, world):
     base, caps, api, tmp = setup
     code, body, _ = call(base, "GET", "/api/mcp/auth")
-    assert code == 200 and body["servers"] == [{"id": "mcp:remote", "name": "remote", "url": world.url, "state": "pending", "signed_in": False}]
+    assert code == 200 and body["servers"] == [{"id": "mcp:remote", "name": "remote", "url": world.url, "state": "approved", "signed_in": False}]
     assert "SECRETQUERY" not in json.dumps(body)
+    caps.settings({"off": ["mcp:remote"]})
     code, body, _ = call(base, "POST", "/api/mcp/auth/start", {"id": "mcp:remote"})
-    assert code == 409 and body["error"]["code"] == "needs_approval"
+    assert code == 400 and body["error"]["code"] == "turned_off"
     assert call(base, "POST", "/api/mcp/auth/start", {"id": "mcp:nothing"})[0] == 409
     assert world.requests == []                                                           # nothing was contacted
 
 
 def test_the_whole_sign_in_through_the_server_and_the_browsers_return(setup, world):
     base, caps, api, tmp = setup
-    approve(caps)
     code, body, _ = call(base, "POST", "/api/mcp/auth/start", {"id": "mcp:remote"})
     assert code == 200
     q = {k: v[0] for k, v in urllib.parse.parse_qs(urllib.parse.urlsplit(body["authorization_url"]).query).items()}
@@ -86,7 +82,6 @@ def test_the_whole_sign_in_through_the_server_and_the_browsers_return(setup, wor
 
 def test_a_return_nobody_asked_for_or_one_that_failed_gets_a_plain_page(setup, world):
     base, caps, api, tmp = setup
-    approve(caps)
     code, page, _ = call(base, "GET", "/api/mcp/auth/callback?code=x&state=nope")
     assert code == 400 and "not started here" in page
     code, body, _ = call(base, "POST", "/api/mcp/auth/start", {"id": "mcp:remote"})
@@ -99,7 +94,6 @@ def test_a_return_nobody_asked_for_or_one_that_failed_gets_a_plain_page(setup, w
 
 def test_a_server_that_asks_for_nothing_is_not_signed_in_to(setup, world):
     base, caps, api, tmp = setup
-    approve(caps)
     world.tokens = {"": "x"}                                                                              # the empty bearer is accepted: no sign-in needed
     code, body, _ = call(base, "POST", "/api/mcp/auth/start", {"id": "mcp:remote"})
     assert code == 200 and body == {"signed_in": False, "needs_sign_in": False}
@@ -107,7 +101,6 @@ def test_a_server_that_asks_for_nothing_is_not_signed_in_to(setup, world):
 
 def test_changing_things_does_not_look_at_the_origin_or_the_content_type(setup):
     base, caps, api, tmp = setup
-    approve(caps)
     code, body, _ = call(base, "POST", "/api/mcp/auth/start", {"id": "mcp:remote"}, {"Origin": "http://evil.example"})
     assert code == 200
     req = urllib.request.Request(base + "/api/mcp/auth/start", data=b"id=mcp:remote", method="POST", headers={"Content-Type": "text/plain"})

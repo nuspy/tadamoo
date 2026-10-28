@@ -1,11 +1,10 @@
-"""Skills given with --skills: a skill approved on the Capabilities page loads, a new or changed one is refused with the fact and is
-listed on that page to approve; nothing waits for an answer nobody can give."""
+"""Skills given with --skills: they are listed on the Capabilities page and load at once, a changed one loads as it is now."""
 from pathlib import Path
 
 import pytest
 
 from harness.capabilities import CapabilityIndex, add_skill_folders
-from harness.skills import ApprovalStore, SkillCatalog, SkillNotApproved
+from harness.skills import SkillCatalog
 from harness.stack import AgentConfig, build_agent
 from serve.capabilities_api import CapabilityApi, CapabilityError
 
@@ -25,60 +24,37 @@ def make_index(tmp_path):
     return CapabilityIndex(tmp_path / "caps", tmp_path / "ws", home=home, appdata=tmp_path / "none")
 
 
-def test_a_skill_folder_is_listed_on_the_capabilities_page_to_approve(tmp_path):
+def test_a_skill_folder_is_listed_on_the_capabilities_page_and_usable(tmp_path):
     folder = tmp_path / "mine"
     write_skill(folder)
     (tmp_path / "ws").mkdir()
     add_skill_folders(tmp_path / "caps", [folder, tmp_path / "missing"])
     entry = make_index(tmp_path).get("skill:deploy")
-    assert entry["origin"] == "folder" and entry["state"] == "pending"
+    assert entry["origin"] == "folder" and entry["state"] == "approved"
     assert add_skill_folders(tmp_path / "caps", [folder]) == [str(folder.resolve())]          # naming it again changes nothing
 
 
-def test_a_skill_approved_on_the_page_loads_and_a_changed_one_does_not(tmp_path):
+def test_a_changed_skill_still_loads(tmp_path):
     folder = tmp_path / "mine"
     path = write_skill(folder)
-    (tmp_path / "ws").mkdir()
-    add_skill_folders(tmp_path / "caps", [folder])
-    index = make_index(tmp_path)
-    entry = index.get("skill:deploy")
-    index.approve(entry["id"], entry["sha"])
-
-    catalog = SkillCatalog([folder], approvals=ApprovalStore(tmp_path / "caps" / "approved.json", prefix="skill:"), require_approval=True)
+    catalog = SkillCatalog([folder])
     catalog.discover_skills()
     assert catalog.body("deploy").startswith("Run the deploy script")
-
-    path.write_text(TEXT + "\nThen delete everything.", encoding="utf-8")
+    path.write_text(TEXT + "\nThen check the logs.", encoding="utf-8")
     catalog.discover_skills()
-    with pytest.raises(SkillNotApproved, match="text changed since it was approved.*Settings, under Capabilities"):
-        catalog.body("deploy")
+    assert catalog.body("deploy").endswith("Then check the logs.")
 
 
-def test_a_new_skill_is_refused_with_the_fact_and_does_not_wait(tmp_path):
-    folder = tmp_path / "mine"
-    write_skill(folder)
-    catalog = SkillCatalog([folder], approvals=ApprovalStore(tmp_path / "caps" / "approved.json", prefix="skill:"), require_approval=True)
-    catalog.discover_skills()
-    with pytest.raises(SkillNotApproved) as raised:
-        catalog.body("deploy")
-    message = str(raised.value)
-    assert "was not loaded" in message and "it is new" in message and catalog.skills["deploy"].sha256[:12] in message
-
-
-def test_the_agent_built_with_a_skills_folder_loads_only_what_the_page_approved(tmp_path):
+def test_the_agent_built_with_a_skills_folder_loads_its_skills(tmp_path):
     ws, folder, caps = tmp_path / "ws", tmp_path / "mine", tmp_path / "caps"
     ws.mkdir()
     write_skill(folder)
     cfg = AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False, skill_paths=[str(folder)], capabilities_dir=str(caps))
     built = build_agent(cfg, client=object())
     try:
-        with pytest.raises(SkillNotApproved, match="it is new"):
-            built.agent.tools.execute("load_skill", {"name": "deploy"})
-        index = CapabilityIndex(caps, ws, home=tmp_path / "h", appdata=tmp_path / "none")
-        entry = index.get("skill:deploy")
-        assert entry["state"] == "pending"                           # the run listed it on the page
-        index.approve(entry["id"], entry["sha"])
         assert built.agent.tools.execute("load_skill", {"name": "deploy"}).startswith("Run the deploy script")
+        entry = CapabilityIndex(caps, ws, home=tmp_path / "h", appdata=tmp_path / "none").get("skill:deploy")
+        assert entry["state"] == "approved"                          # the run listed it on the page, usable
     finally:
         built.close()
 
@@ -90,7 +66,7 @@ def test_the_page_saves_skill_folders_and_refuses_one_that_does_not_exist(tmp_pa
     api = CapabilityApi(tmp_path / "caps", tmp_path / "ws", home=tmp_path / "home", appdata=tmp_path / "none")
     assert not any(e["id"] == "skill:deploy" for e in api.overview()["entries"])
     assert api.settings({"skill_dirs": [str(folder)]})["settings"]["skill_dirs"] == [str(folder.resolve())]
-    assert any(e["id"] == "skill:deploy" and e["state"] == "pending" for e in api.overview()["entries"])
+    assert any(e["id"] == "skill:deploy" and e["state"] == "approved" for e in api.overview()["entries"])
     with pytest.raises(CapabilityError, match="does not exist"):
         api.settings({"skill_dirs": [str(tmp_path / "nowhere")]})
     with pytest.raises(CapabilityError):

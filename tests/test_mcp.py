@@ -122,12 +122,14 @@ def test_the_server_starts_with_a_scrubbed_environment(tmp_path, monkeypatch):
         c.close()
 
 
-def test_registered_tools_are_irreversible_untrusted_and_sanitized(client):
+def test_registered_tools_follow_the_servers_read_only_hint_stay_untrusted_and_sanitized(client):
     registry = ToolRegistry()
     names = client.register_into(registry, prefix="srv__")
     assert "srv__bad_name_" in names and registry.get("srv__bad name!") is None
     weather = registry.get("srv__weather")
-    assert weather.effect == EffectClass.IRREVERSIBLE and weather.untrusted        # the readOnlyHint is not believed
+    assert weather.effect == EffectClass.PURE and weather.untrusted and weather.outward       # the server declares it read-only
+    for other in ("srv__echo", "srv__fail", "srv__slow"):
+        assert registry.get(other).effect == EffectClass.IRREVERSIBLE and registry.get(other).untrusted
     assert "\x07" not in weather.description and "\x1b" not in weather.description
     assert registry.execute("srv__weather", {"city": "Rome"}) == "Sunny in Rome"
     client.register_into(registry, prefix="srv__")                                  # no duplicates, no crash
@@ -143,7 +145,13 @@ def test_hub_deferred_search_and_call_keep_the_prompt_short(client):
     assert hub.search("zzz nothing") == []
     registry = ToolRegistry()
     hub.register_deferred(registry)
-    assert registry.names() == ["mcp_call", "mcp_search"]
+    assert registry.names() == ["mcp_call", "mcp_read", "mcp_search"]
+    assert registry.get("mcp_call").effect == EffectClass.IRREVERSIBLE and registry.get("mcp_read").effect == EffectClass.PURE
+    assert registry.get("mcp_read").untrusted and registry.get("mcp_read").outward and registry.get("mcp_search").untrusted
+    assert found[0]["read_only"] is True and [f for f in hub.search("echo text") if f["tool"] == "echo"][0]["read_only"] is False
+    assert registry.execute("mcp_read", {"server": "fake", "tool": "weather", "arguments": {"city": "Rome"}}) == "Sunny in Rome"
+    with pytest.raises(KeyError, match="does not declare 'echo' read-only"):
+        registry.execute("mcp_read", {"server": "fake", "tool": "echo", "arguments": {"text": "x"}})
     assert registry.execute("mcp_call", {"server": "fake", "tool": "echo", "arguments": {"text": "hey"}}) == "echo: hey"
     with pytest.raises(Exception, match="missing required"):
         registry.execute("mcp_call", {"server": "fake", "tool": "echo", "arguments": {}})

@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from harness.audit import AuditLedger
-from harness.checkpoints import CheckpointManager
+from harness.checkpoints import CheckpointManager, call_paths
 from harness.client import BasaltClient, BasaltError, StreamCancelled, extract_reasoning_and_content
 from harness.context import ContextManager, fence_untrusted, wire_messages
 from harness.repeat_guard import RepeatGuard
@@ -337,7 +337,7 @@ class AgentLoop:
             text = self.output_filter(name, text)
         return text
 
-    def call_tool(self, name: str, arguments: Dict[str, Any], checkpointed: Optional[List[bool]] = None) -> "tuple[bool, str]":
+    def call_tool(self, name: str, arguments: Dict[str, Any], checkpointed: Optional[List[Any]] = None) -> "tuple[bool, str]":
         """A tool call made for the person by something other than the model, such as a personal skill's script. It goes through the same
         gate as the model's own (arguments checked, hooks, permissions, a checkpoint, the audit record), is shown and kept in the
         conversation the same way, and is not taken for a loop when it repeats. Returns whether it worked and its answer as text."""
@@ -357,7 +357,7 @@ class AgentLoop:
         self.append({"role": "tool", "tool_call_id": call.call_id, "name": name, "content": text})
         return worked, text
 
-    def _execute(self, call: ParsedCall, checkpointed: List[bool], loop_check: bool = True) -> ToolExecutionResult:
+    def _execute(self, call: ParsedCall, checkpointed: List[Any], loop_check: bool = True) -> ToolExecutionResult:
         """One guarded call. The model's sentence for the person is taken off the arguments first: what is checked, counted, recorded
         and run never sees it, and it never changes a decision; it is kept on the result for display."""
         args, description = self.tools.split_description(call.name, call.arguments)
@@ -382,7 +382,7 @@ class AgentLoop:
         self._audit_call("tool_repeat", call.name, args, "not_required" if self.permissions is None else "not_reached", "refused", time.monotonic(), reason=said)
         return ToolExecutionResult(call.name, args if isinstance(args, dict) else {}, said, False, call.call_id, "skipped")
 
-    def _guarded(self, call: ParsedCall, args: Any, checkpointed: List[bool], loop_check: bool) -> ToolExecutionResult:
+    def _guarded(self, call: ParsedCall, args: Any, checkpointed: List[Any], loop_check: bool) -> ToolExecutionResult:
         name = call.name
         started = time.monotonic()
         permission = "not_required" if self.permissions is None else "not_reached"
@@ -425,12 +425,21 @@ class AgentLoop:
             if not allowed:
                 return refused("denied", f"Permission denied: {reason}", "permission_denied")
             self._audit_call("permission_granted", name, args, permission, "started", started, reason=reason, effect=tool.effect.value)
-        if self.checkpoints and tool.effect != EffectClass.PURE and not checkpointed[0]:
+        cp_note = ""
+        mode = self.checkpoints.effective_mode(self.permissions.level.value if self.permissions else "default") if self.checkpoints else "off"
+        if mode != "off" and tool.effect != EffectClass.PURE:
             try:
-                self._audit("checkpoint", {"id": self.checkpoints.create(f"before {name}")})
-                checkpointed[0] = True
+                paths = call_paths(self.checkpoints.workspace, name, args)
+                if isinstance(checkpointed[0], str):
+                    self.checkpoints.add(checkpointed[0], paths)
+                else:
+                    checkpointed[0] = self.checkpoints.create(f"before {name}", paths)
+                    self._audit("checkpoint", {"id": checkpointed[0]})
             except Exception as exc:
-                return refused("blocked", f"No checkpoint could be taken ({exc}); the action was not run.", "tool_blocked")
+                if mode == "on":
+                    return refused("blocked", f"No checkpoint could be taken ({exc}); the action was not run.", "tool_blocked")
+                self._audit("checkpoint_failed", {"tool": name, "error": str(exc)})
+                cp_note = f"No checkpoint could be taken for this action ({exc}); it ran without one."
 
         ran = time.monotonic()
         try:
@@ -440,6 +449,8 @@ class AgentLoop:
         except Exception as exc:
             output, is_error = f"Tool execution error: {type(exc).__name__}: {exc}", True
         cancelled = scope.cancelled or (is_error and self.cancel.is_set())
+        if cp_note:
+            output = f"{output}\n\n[{cp_note}]" if isinstance(output, str) else {**output, "checkpoint": cp_note} if isinstance(output, dict) else output
         if self.permissions:
             self.permissions.two.observe(name, args, output, untrusted=tool.untrusted, secrets=self.secrets)
         if self.hooks:

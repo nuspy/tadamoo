@@ -24,10 +24,10 @@ EXIT_CODES = {al.FINAL: 0, al.ERROR: 1, al.MAX_TURNS: 3, al.BUDGET: 4, al.LOOP: 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m harness", description="Basalt autonomous agent, headless")
     parser.add_argument("-p", "--prompt", required=True, help="goal for the agent")
-    add_agent_arguments(parser, max_turns=10)
+    add_agent_arguments(parser, permission_mode="")
     parser.add_argument("--max-tokens-budget", type=int, default=None, help="stop after this many prompt+completion tokens")
     parser.add_argument("--timeout-seconds", type=float, default=None, help="stop after this much time")
-    parser.add_argument("--interactive", action="store_true", help="ask on the terminal before risky actions")
+    parser.add_argument("--interactive", action="store_true", help="ask on the terminal before risky actions (and start in the default permission mode, not auto)")
     parser.add_argument("--progress", action="store_true", help="print one line for each tool the agent uses and how it went")
     parser.add_argument("--result-file", default=None, metavar="PATH", help="write the result as JSON here, without the edited texts")
     parser.add_argument("--pid-file", default=None, metavar="PATH", help="write this process's id here, so the server knows which process is the agent")
@@ -35,7 +35,10 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--run-id", default="", help="the name of this run in the server's Agent tab")
     parser.add_argument("--no-report", action="store_true", help="do not show the run and its edits in the server's Agent tab")
     parser.add_argument("--json", action="store_true", help="print the result as JSON")
-    return parser.parse_args(args)
+    parsed = parser.parse_args(args)
+    if not parsed.permission_mode:                        # nobody is there to confirm unless the person asked to be asked
+        parsed.permission_mode = "default" if parsed.interactive else "auto"
+    return parsed
 
 
 SHOWN_ARGS = ("command", "path", "query", "url", "number", "name")

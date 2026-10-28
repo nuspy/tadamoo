@@ -72,59 +72,113 @@ def make_workspace(tmp_path: Path):
 
 def test_same_file_name_in_two_folders_stays_separate(tmp_path: Path):
     ws, cpm = make_workspace(tmp_path)
-    cp = cpm.create()
-    (ws / "src" / "core" / "layer.cpp").write_text("core v2", encoding="utf-8")
-    (ws / "src" / "kernels" / "layer.cpp").write_text("kernels v2", encoding="utf-8")
+    core, kernels = ws / "src" / "core" / "layer.cpp", ws / "src" / "kernels" / "layer.cpp"
+    cp = cpm.create(paths=[core, kernels])
+    core.write_text("core v2", encoding="utf-8")
+    kernels.write_text("kernels v2", encoding="utf-8")
     cpm.restore(cp)
-    assert (ws / "src" / "core" / "layer.cpp").read_text(encoding="utf-8") == "core v1"
-    assert (ws / "src" / "kernels" / "layer.cpp").read_text(encoding="utf-8") == "kernels v1"
+    assert core.read_text(encoding="utf-8") == "core v1"
+    assert kernels.read_text(encoding="utf-8") == "kernels v1"
     assert (ws / "src" / "core" / "__init__.py").exists()
 
 
 def test_rewind_is_undoable_through_its_safety_snapshot(tmp_path: Path):
     ws, cpm = make_workspace(tmp_path)
-    cp = cpm.create("start")
-    (ws / "notes.txt").write_text("written by hand after the checkpoint", encoding="utf-8")
-    (ws / "src" / "core" / "layer.cpp").write_text("core v2", encoding="utf-8")
+    notes, layer = ws / "notes.txt", ws / "src" / "core" / "layer.cpp"
+    cp = cpm.create("start", [notes, layer])
+    notes.write_text("written by hand after the checkpoint", encoding="utf-8")
+    layer.write_text("core v2", encoding="utf-8")
     cpm.restore(cp)
-    assert not (ws / "notes.txt").exists()
+    assert not notes.exists() and layer.read_text(encoding="utf-8") == "core v1"
     cpm.restore(cpm.last_safety_checkpoint)
-    assert (ws / "notes.txt").read_text(encoding="utf-8") == "written by hand after the checkpoint"
-    assert (ws / "src" / "core" / "layer.cpp").read_text(encoding="utf-8") == "core v2"
+    assert notes.read_text(encoding="utf-8") == "written by hand after the checkpoint"
+    assert layer.read_text(encoding="utf-8") == "core v2"
 
 
 def test_rewind_without_deleting_keeps_new_files(tmp_path: Path):
     ws, cpm = make_workspace(tmp_path)
-    cp = cpm.create()
+    cp = cpm.create(paths=[ws / "new.txt"])
     (ws / "new.txt").write_text("keep", encoding="utf-8")
     cpm.restore(cp, delete_new=False)
     assert (ws / "new.txt").exists()
 
 
-def test_rewind_removes_emptied_folders_but_not_ignored_ones(tmp_path: Path):
+def test_rewind_removes_emptied_folders_it_made_but_not_the_workspace_or_full_ones(tmp_path: Path):
     ws, cpm = make_workspace(tmp_path)
-    cp = cpm.create()
+    cp = cpm.create(paths=[ws / "artifacts" / "out" / "a.o", ws / "src" / "extra.txt"])
     (ws / "artifacts" / "out").mkdir(parents=True)
     (ws / "artifacts" / "out" / "a.o").write_text("x", encoding="utf-8")
-    (ws / ".git").mkdir()
-    (ws / ".git" / "HEAD").write_text("ref", encoding="utf-8")
+    (ws / "src" / "extra.txt").write_text("x", encoding="utf-8")
     cpm.restore(cp)
     assert not (ws / "artifacts").exists()
-    assert (ws / ".git" / "HEAD").exists()
+    assert (ws / "src" / "core" / "layer.cpp").exists() and ws.is_dir()
 
 
-def test_a_tampered_checkpoint_cannot_write_outside_the_workspace(tmp_path: Path):
+def test_a_checkpoint_keeps_files_from_any_folder_with_no_size_limit(tmp_path: Path):
     ws, cpm = make_workspace(tmp_path)
-    cp = cpm.create()
+    elsewhere = tmp_path / "other" / "data.bin"
+    elsewhere.parent.mkdir()
+    elsewhere.write_bytes(b"x" * (60 * 1024 * 1024))     # over the former 50 MB limit
+    cp = cpm.create(paths=[elsewhere])
+    elsewhere.write_bytes(b"changed")
+    cpm.restore(cp)
+    assert elsewhere.stat().st_size == 60 * 1024 * 1024
+    assert cpm.list_checkpoints()[0]["bytes"] == 60 * 1024 * 1024
+
+
+def test_only_the_named_files_are_copied(tmp_path: Path):
+    ws, cpm = make_workspace(tmp_path)
+    cp = cpm.create(paths=[ws / "src" / "core" / "layer.cpp"])
+    assert [Path(e["path"]).name for e in cpm.list_checkpoints()[0]["entries"]] == ["layer.cpp"]
+    assert sorted(p.name for p in (tmp_path / "cps" / cp / "files").iterdir()) == ["f1"]
+
+
+def test_the_first_state_of_a_file_wins_inside_a_checkpoint(tmp_path: Path):
+    ws, cpm = make_workspace(tmp_path)
+    layer = ws / "src" / "core" / "layer.cpp"
+    cp = cpm.create(paths=[layer])
+    layer.write_text("core v2", encoding="utf-8")
+    assert cpm.add(cp, [layer, ws / "src" / "kernels" / "layer.cpp"]) == 1
+    layer.write_text("core v3", encoding="utf-8")
+    cpm.restore(cp)
+    assert layer.read_text(encoding="utf-8") == "core v1"
+
+
+def test_delete_one_and_delete_all(tmp_path: Path):
+    _, cpm = make_workspace(tmp_path)
+    a, b, c = cpm.create("a"), cpm.create("b"), cpm.create("c")
+    assert cpm.delete(a) is True and cpm.delete(a) is False
+    assert [m["checkpoint_id"] for m in cpm.list_checkpoints()] == [b, c]
+    assert cpm.delete_all() == 2 and cpm.list_checkpoints() == []
+
+
+def test_a_tampered_checkpoint_cannot_write_into_the_storage_or_use_a_relative_path(tmp_path: Path):
+    ws, cpm = make_workspace(tmp_path)
+    layer = ws / "src" / "core" / "layer.cpp"
+    cp = cpm.create(paths=[layer])
     meta_path = tmp_path / "cps" / cp / "meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    meta["files"].append("../outside.txt")
-    meta_path.write_text(json.dumps(meta), encoding="utf-8")
-    (tmp_path / "cps" / cp / "outside.txt").write_text("evil", encoding="utf-8")
-    with pytest.raises(ValueError, match="outside the workspace"):
-        cpm.restore(cp)
-    assert not (tmp_path / "outside.txt").exists()
-    assert (ws / "src" / "core" / "layer.cpp").read_text(encoding="utf-8") == "core v1"
+    for bad in (str(tmp_path / "cps" / "cp_1_1" / "meta.json"), "../outside.txt"):
+        tampered = {**meta, "entries": meta["entries"] + [{"path": bad, "existed": False, "stored": "", "bytes": 0}]}
+        meta_path.write_text(json.dumps(tampered), encoding="utf-8")
+        with pytest.raises(ValueError):
+            cpm.restore(cp)
+    assert layer.read_text(encoding="utf-8") == "core v1"
+
+
+def test_a_checkpoint_of_the_former_whole_folder_design_is_listed_and_restored(tmp_path: Path):
+    ws, cpm = make_workspace(tmp_path)
+    cp_dir = tmp_path / "cps" / "cp_1_1"
+    (cp_dir / "data" / "src" / "core").mkdir(parents=True)
+    (cp_dir / "data" / "src" / "core" / "layer.cpp").write_text("old", encoding="utf-8")
+    (cp_dir / "meta.json").write_text(json.dumps({"checkpoint_id": "cp_1_1", "timestamp": 1, "description": "old", "files": ["src/core/layer.cpp"],
+                                                  "bytes": 3, "skipped": []}), encoding="utf-8")
+    assert cpm.summary(cpm.list_checkpoints()[0])["legacy"] is True
+    cpm.restore("cp_1_1")
+    assert (ws / "src" / "core" / "layer.cpp").read_text(encoding="utf-8") == "old"
+    assert not (ws / "src" / "kernels" / "layer.cpp").exists()      # not in that snapshot
+    cpm.restore(cpm.last_safety_checkpoint)
+    assert (ws / "src" / "kernels" / "layer.cpp").read_text(encoding="utf-8") == "kernels v1"
 
 
 @pytest.mark.parametrize("bad", ["../cp_1_1", "cp_1", "x", "cp_1_1/../../a"])
@@ -146,14 +200,6 @@ def test_storage_inside_the_workspace_is_refused(tmp_path: Path):
     ws.mkdir()
     with pytest.raises(ValueError, match="inside the workspace"):
         CheckpointManager(ws, storage_dir=ws / ".snapshots")
-
-
-def test_a_workspace_under_a_node_modules_folder_is_still_tracked(tmp_path: Path):
-    ws = tmp_path / "node_modules" / "proj"
-    ws.mkdir(parents=True)
-    (ws / "a.txt").write_text("x", encoding="utf-8")
-    cpm = CheckpointManager(ws, storage_dir=tmp_path / "cps")
-    assert json.loads((tmp_path / "cps" / cpm.create() / "meta.json").read_text(encoding="utf-8"))["files"] == ["a.txt"]
 
 
 def _loop_with_audit(tmp_path, steps, **kw):

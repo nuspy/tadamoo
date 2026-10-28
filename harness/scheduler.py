@@ -1,19 +1,23 @@
 """Routines: recurring tasks for the agent ("every morning run the tests and summarise", "check the pull requests").
 
-A routine is a prompt, a folder, a schedule and a permission profile. When its time comes it goes in a queue; one routine
-runs at a time (the model serves one conversation at a time), and only while no conversation of the person is at work: a
-routine that is due waits for the conversation, never the other way round. A routine runs through the agent's conversation
-path (`SessionRoutineRunner` uses the server's `SessionManager`), so its tools, permissions, audit and checkpoints are the
-ones of any conversation. The profile is small by default: read-only, with the allow rules the person wrote. A question the
-agent cannot put to anyone ends the run with the status "asked"; nothing is decided for the person.
+A routine is a prompt (or a personal skill), a folder and a schedule. When its time comes it starts by itself, in Automatic:
+nothing is asked of the person while it runs. Routines run in parallel; the same routine never overlaps with itself (a
+second due time waits for the run in progress). A routine runs through the agent's conversation path
+(`SessionRoutineRunner` uses the server's `SessionManager`), so its tools, audit and checkpoints are the ones of any
+conversation. Time and steps limits are optional per routine (empty: none), and so is `yield_s`, how long a run goes on once
+a conversation of the person's is at work (empty: it is never stopped for one).
+
+Only a request that is the person's alone to settle (another person, a booking, a resource the agent does not control) is
+parked, in a list of pending requests; the rest of the run goes on. A run that can only continue once the person answers
+ends with the status "parked", not "failed".
 
 Schedules are written as text:
   every 30s | every 30m | every 2h | every 1d       an interval
   daily 08:30 | weekdays 08:30 | weekends 10:00 | mon,wed,fri 18:15       fixed local times
 
-A routine never runs unless it is enabled, and it is created disabled. Overdue interval routines run once when the program
-starts; a fixed time that passed while the program was off is skipped, not made up. Routines and results are kept in files
-in the folder given at construction (the user data folder).
+A routine is created enabled; a disabled one never runs on its own. Overdue interval routines run once when the program
+starts, and so does a fixed time that passed while the program was off (once, late). Routines, results and pending requests
+are kept in files in the folder given at construction (the user data folder).
 """
 from __future__ import annotations
 
@@ -28,9 +32,10 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol
 
-MODES = ("plan", "read_only", "default", "auto")
 ROUTINES_FILE = "routines.json"
 RUNS_FILE = "routine_runs.json"
+PENDING_FILE = "routine_pending.json"
+NO_STEP_LIMIT = -1                  # `max_turns` the conversation path reads as no limit
 KEEP_RUNS = 200
 NAME_MAX, PROMPT_MAX, SUMMARY_MAX = 80, 4000, 4000
 YIELD_MAX_S = 3600                  # the longest a routine may go on once a conversation of the person's is at work
@@ -94,6 +99,18 @@ class Schedule:
                 return when.timestamp()
         raise RoutineError("This schedule never comes.", "bad_schedule")
 
+    def previous(self, moment: float) -> float:
+        """The latest fixed time at or before `moment` (0 for an interval, which has no fixed times)."""
+        if self.interval_s:
+            return 0.0
+        start = dt.datetime.fromtimestamp(moment)
+        for offset in range(8):
+            day = start.date() - dt.timedelta(days=offset)
+            when = dt.datetime.combine(day, self.at).timestamp()
+            if day.weekday() in self.days and when <= moment:
+                return when
+        return 0.0
+
 
 class Runner(Protocol):
     def run(self, routine: Dict[str, Any], cancel: threading.Event) -> Dict[str, Any]:
@@ -114,24 +131,27 @@ def _write_json(path: Path, data: Dict[str, Any]) -> None:
 
 class Scheduler:
     def __init__(self, directory: str | Path, runner: Runner, busy: Optional[Callable[[], bool]] = None,
-                 clock: Callable[[], float] = time.time, tick_s: float = 5.0, max_wait_s: float = 3600.0, poll_s: float = 1.0,
+                 clock: Callable[[], float] = time.time, tick_s: float = 5.0, poll_s: float = 1.0,
                  meter: Optional[Callable[[], Any]] = None) -> None:
         self.directory = Path(directory)
         self.runner = runner
         self.busy = busy or getattr(runner, "busy", None) or (lambda: False)
-        self.clock, self.tick_s, self.max_wait_s, self.poll_s = clock, tick_s, max_wait_s, poll_s
+        self.clock, self.tick_s, self.poll_s = clock, tick_s, poll_s
         self.meter = meter                                                   # makes an EnergyMeter (harness/energy.py) for each run
         self._lock = threading.RLock()
         self._wake = threading.Event()
         self._stop = threading.Event()
-        self._cancel = threading.Event()
-        self._yielded = threading.Event()                                    # the running routine was stopped for a conversation of the person's
-        self._queue: List[str] = []
+        self._queue: List[str] = []                                          # routines waiting to start, each at most once
         self._manual: set = set()                                            # queued because the person asked, enabled or not
         self._due: Dict[str, float] = {}
-        self.running: Optional[str] = None
-        self.routines: List[Dict[str, Any]] = self._load(ROUTINES_FILE, "routines")
-        self.results: List[Dict[str, Any]] = self._load(RUNS_FILE, "runs")
+        self._active: Dict[str, Dict[str, Any]] = {}                         # routine id -> the cancel and yield events and run id of its run
+        self._workers: List[threading.Thread] = []
+        self.routines: List[Dict[str, Any]] = [self._normalize(r) for r in self._load(ROUTINES_FILE, "routines")]
+        self.results: List[Dict[str, Any]] = [{**r, "status": "parked" if r.get("status") == "asked" else r.get("status")}
+                                              for r in self._load(RUNS_FILE, "runs")]
+        self.pending_requests: List[Dict[str, Any]] = self._load(PENDING_FILE, "pending")
+        if hasattr(runner, "park"):
+            runner.park = self._park
         now = self.clock()
         for r in self.routines:
             self._due[r["id"]] = self._first_due(r, now)
@@ -148,25 +168,41 @@ class Scheduler:
             items = None
         return [i for i in items or [] if isinstance(i, dict) and i.get("id")]
 
+    @staticmethod
+    def _normalize(routine: Dict[str, Any]) -> Dict[str, Any]:
+        """A stored routine in the current shape: no mode or allow rules (every run is Automatic), limits empty or a whole number."""
+        r = {k: v for k, v in routine.items() if k not in ("mode", "allow")}
+        for key in ("max_turns", "max_minutes"):
+            v = r.get(key)
+            r[key] = v if isinstance(v, int) and not isinstance(v, bool) and v >= 1 else None
+        if r.get("last_status") == "asked":
+            r["last_status"] = "parked"
+        return r
+
     def _save(self) -> None:
         _write_json(self.directory / ROUTINES_FILE, {"schema": "1.0", "routines": self.routines})
 
     def _save_runs(self) -> None:
         _write_json(self.directory / RUNS_FILE, {"schema": "1.0", "runs": self.results[-KEEP_RUNS:]})
 
+    def _save_pending(self) -> None:
+        _write_json(self.directory / PENDING_FILE, {"schema": "1.0", "pending": self.pending_requests})
+
     def _first_due(self, routine: Dict[str, Any], now: float) -> float:
-        """When the program starts: an interval counts from the last run (so an overdue one is due at once), a fixed time from now."""
+        """When the program starts: an interval counts from the last run (so an overdue one is due at once); a fixed time that
+        passed since the routine last ran (or was made or turned on) is due at once, once; otherwise the next time."""
         schedule = Schedule.parse(routine["schedule"])
-        if schedule.interval_s and routine.get("last_run"):
-            return float(routine["last_run"]) + schedule.interval_s
-        return schedule.next_after(now)
+        if schedule.interval_s:
+            return float(routine["last_run"]) + schedule.interval_s if routine.get("last_run") else schedule.next_after(now)
+        since = max(float(routine.get(k) or 0) for k in ("last_run", "created", "enabled_at"))
+        return now if schedule.previous(now) > since else schedule.next_after(now)
 
     # -- the list --------------------------------------------------------------------------------
 
     def view(self) -> Dict[str, Any]:
         with self._lock:
             return {"routines": [{**r, "next_run": self._due.get(r["id"]) if r.get("enabled") else None} for r in self.routines],
-                    "running": self.running, "queued": list(self._queue)}
+                    "running": list(self._active), "queued": list(self._queue), "pending": [dict(p) for p in self.pending_requests]}
 
     def get(self, routine_id: str) -> Dict[str, Any]:
         with self._lock:
@@ -178,33 +214,34 @@ class Scheduler:
             raise RoutineError("That routine is not in the list any more.", "gone")
         return r
 
-    def add(self, name: Any, prompt: Any, workspace: Any, schedule: Any, mode: Any = "read_only", allow: Any = None,
-            max_turns: Any = 10, skill: Any = "", values: Any = None, yield_s: Any = None) -> Dict[str, Any]:
-        """A new routine, disabled: the person turns it on. With a `skill` it runs that personal skill with `values` instead of a prompt.
-        `yield_s` is how long it may go on once a conversation of the person's is at work (empty: it is never stopped for one)."""
-        routine = self._check(None, name, prompt, workspace, schedule, mode, allow, max_turns, skill, values, yield_s)
-        routine.update(id=secrets.token_hex(3), enabled=False, created=self.clock(), last_run=0, last_status="")
+    def add(self, name: Any, prompt: Any, workspace: Any, schedule: Any, max_turns: Any = None, max_minutes: Any = None,
+            skill: Any = "", values: Any = None, yield_s: Any = None) -> Dict[str, Any]:
+        """A new routine, enabled. With a `skill` it runs that personal skill with `values` instead of a prompt.
+        `max_turns` and `max_minutes` limit the steps and the time of a run, `yield_s` how long it may go on once a conversation
+        of the person's is at work; empty means no limit."""
+        routine = self._check(name, prompt, workspace, schedule, max_turns, max_minutes, skill, values, yield_s)
+        now = self.clock()
+        routine.update(id=secrets.token_hex(3), enabled=True, enabled_at=now, created=now, last_run=0, last_status="")
         with self._lock:
             self.routines.append(routine)
-            self._due[routine["id"]] = self._advance(routine, self.clock())
+            self._due[routine["id"]] = self._advance(routine, now)
             self._save()
         return dict(routine)
 
     def update(self, routine_id: str, **fields: Any) -> Dict[str, Any]:
         with self._lock:
             current = self._find(routine_id)
-            merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "mode", "allow", "max_turns", "skill", "values", "yield_s")}}
-            checked = self._check(routine_id, merged["name"], merged["prompt"], merged["workspace"], merged["schedule"], merged["mode"],
-                                  merged.get("allow"), merged["max_turns"], merged.get("skill", ""), merged.get("values"),
-                                  merged.get("yield_s"))
+            merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "max_turns", "max_minutes", "skill", "values", "yield_s")}}
+            checked = self._check(merged["name"], merged["prompt"], merged["workspace"], merged["schedule"], merged.get("max_turns"),
+                                  merged.get("max_minutes"), merged.get("skill", ""), merged.get("values"), merged.get("yield_s"))
             current.update(checked)
             self._due[routine_id] = self._advance(current, self.clock())
             self._save()
             return dict(current)
 
     @staticmethod
-    def _check(routine_id: Optional[str], name: Any, prompt: Any, workspace: Any, schedule: Any, mode: Any, allow: Any,
-               max_turns: Any, skill: Any = "", values: Any = None, yield_s: Any = None) -> Dict[str, Any]:
+    def _check(name: Any, prompt: Any, workspace: Any, schedule: Any, max_turns: Any = None, max_minutes: Any = None,
+               skill: Any = "", values: Any = None, yield_s: Any = None) -> Dict[str, Any]:
         if not isinstance(name, str) or not name.strip() or len(name) > NAME_MAX:
             raise RoutineError(f"Give the routine a name of at most {NAME_MAX} characters.", "bad_name")
         if skill:
@@ -223,23 +260,21 @@ class Scheduler:
         if not isinstance(workspace, str) or not Path(workspace.strip()).is_absolute() or not Path(workspace.strip()).is_dir():
             raise RoutineError("Give the full path of an existing folder.", "bad_folder")
         Schedule.parse(schedule)
-        if mode not in MODES:
-            raise RoutineError("The mode must be one of: " + ", ".join(MODES) + ".", "bad_mode")
-        rules = allow if isinstance(allow, list) else []
-        if any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
-            raise RoutineError("Allow rules are lines of text.", "bad_rules")
-        if not isinstance(max_turns, int) or isinstance(max_turns, bool) or max_turns == 0 or max_turns < -1:
-            raise RoutineError("The number of steps is -1 for no limit, or a whole number from 1.", "bad_steps")
+        if max_turns is not None and (not isinstance(max_turns, int) or isinstance(max_turns, bool) or max_turns < 1):
+            raise RoutineError("The number of steps is a whole number from 1, or empty for no limit.", "bad_steps")
+        if max_minutes is not None and (not isinstance(max_minutes, int) or isinstance(max_minutes, bool) or max_minutes < 1):
+            raise RoutineError("The time of a run is a whole number of minutes from 1, or empty for no limit.", "bad_minutes")
         if yield_s is not None and (not isinstance(yield_s, int) or isinstance(yield_s, bool) or not 0 <= yield_s <= YIELD_MAX_S):
             raise RoutineError(f"The time to go on once a conversation of yours is at work is from 0 to {YIELD_MAX_S} seconds, or empty for never.", "bad_yield")
         return {"yield_s": yield_s, "name": name.strip(), "prompt": prompt.strip(), "workspace": str(Path(workspace.strip()).resolve()),
-                "schedule": " ".join(str(schedule).lower().split()), "mode": mode, "allow": [r.strip() for r in rules],
-                "max_turns": max_turns,
+                "schedule": " ".join(str(schedule).lower().split()), "max_turns": max_turns, "max_minutes": max_minutes,
                 **({"skill": skill, "values": dict(values or {})} if skill else {"skill": "", "values": {}})}
 
     def set_enabled(self, routine_id: str, enabled: bool) -> Dict[str, Any]:
         with self._lock:
             r = self._find(routine_id)
+            if enabled and not r.get("enabled"):
+                r["enabled_at"] = self.clock()
             r["enabled"] = bool(enabled)
             self._due[routine_id] = self._advance(r, self.clock())
             if not enabled and routine_id in self._queue:
@@ -254,6 +289,9 @@ class Scheduler:
             self._due.pop(routine_id, None)
             if routine_id in self._queue:
                 self._queue.remove(routine_id)
+            if any(p.get("routine") == routine_id for p in self.pending_requests):
+                self.pending_requests = [p for p in self.pending_requests if p.get("routine") != routine_id]
+                self._save_pending()
             self._save()
 
     def runs(self, routine_id: str = "", limit: int = 50) -> List[Dict[str, Any]]:
@@ -261,20 +299,52 @@ class Scheduler:
             items = [r for r in self.results if not routine_id or r.get("routine") == routine_id]
             return [dict(r) for r in reversed(items[-max(1, min(int(limit), KEEP_RUNS)):])]
 
+    # -- pending requests ------------------------------------------------------------------------
+
+    def _park(self, routine_id: str, request: Dict[str, Any]) -> None:
+        """A request only the person can settle: kept in the list while the rest of the run goes on."""
+        with self._lock:
+            routine = next((r for r in self.routines if r["id"] == routine_id), None)
+            if routine is None:
+                return
+            key = f"{request.get('session', '')}:{request.get('key', '')}"
+            if request.get("key") and any(p.get("key") == key for p in self.pending_requests):
+                return
+            options = [str(o) for o in request.get("options") or []][:20]
+            self.pending_requests.append({"id": secrets.token_hex(4), "routine": routine_id, "name": routine["name"],
+                                          "run": (self._active.get(routine_id) or {}).get("run", ""), "session": str(request.get("session") or ""),
+                                          "key": key if request.get("key") else "", "kind": str(request.get("kind") or "ask"),
+                                          "question": str(request.get("question") or "")[:SUMMARY_MAX], "options": options,
+                                          "created": self.clock()})
+            self._save_pending()
+
+    def pending(self, routine_id: str = "") -> List[Dict[str, Any]]:
+        with self._lock:
+            return [dict(p) for p in self.pending_requests if not routine_id or p.get("routine") == routine_id]
+
+    def dismiss(self, pending_id: str) -> None:
+        with self._lock:
+            if not any(p.get("id") == pending_id for p in self.pending_requests):
+                raise RoutineError("That request is not in the list any more.", "gone")
+            self.pending_requests = [p for p in self.pending_requests if p.get("id") != pending_id]
+            self._save_pending()
+
     # -- running ---------------------------------------------------------------------------------
 
     def run_now(self, routine_id: str) -> Dict[str, Any]:
-        """The person asks for a run: it goes in the queue even if the routine is disabled, and waits its turn like any other."""
+        """The person asks for a run: it goes in the queue even if the routine is disabled, and starts at once unless the same routine is running."""
         with self._lock:
             r = self._find(routine_id)
-            if routine_id not in self._queue and self.running != routine_id:
+            if routine_id not in self._queue:
                 self._queue.append(routine_id)
                 self._manual.add(routine_id)
         self._wake.set()
         return dict(r)
 
     def cancel_running(self) -> None:
-        self._cancel.set()
+        with self._lock:
+            for state in self._active.values():
+                state["cancel"].set()
 
     def check(self, now: Optional[float] = None) -> None:
         """One look at the clock (public so the tests can drive it): every enabled routine that is due goes in the queue once."""
@@ -282,7 +352,7 @@ class Scheduler:
         with self._lock:
             for r in self.routines:
                 rid = r["id"]
-                if r.get("enabled") and self._due.get(rid, now + 1) <= now and rid not in self._queue and self.running != rid:
+                if r.get("enabled") and self._due.get(rid, now + 1) <= now and rid not in self._queue:
                     self._queue.append(rid)
                     self._due[rid] = self._advance(r, now)
         if self._queue:
@@ -302,49 +372,45 @@ class Scheduler:
         while not self._stop.is_set():
             self._wake.wait(1.0)
             self._wake.clear()
-            while not self._stop.is_set():
-                with self._lock:
-                    rid = self._queue[0] if self._queue else None
-                if rid is None:
-                    break
-                self._run_one(rid)
+            self._dispatch()
 
-    def _run_one(self, routine_id: str) -> None:
-        waited_from = time.monotonic()
-        while self.busy() and not self._stop.is_set():                       # the person's conversation goes first
-            if time.monotonic() - waited_from > self.max_wait_s:
-                return self._finish(routine_id, {"status": "skipped", "summary": "The agent was busy with a conversation for too long."}, self.clock())
-            self._stop.wait(self.poll_s)
-        if self._stop.is_set():
-            return
+    def _dispatch(self) -> None:
+        """Starts every queued routine that is not already running; each run has its own thread."""
         with self._lock:
-            routine = next((dict(r) for r in self.routines if r["id"] == routine_id), None)
-            manual = routine_id in self._manual
-            if routine is None or (not routine.get("enabled") and not manual):
-                if routine_id in self._queue:
-                    self._queue.remove(routine_id)
-                return
-            self.running = routine_id
-        self._cancel.clear()
-        self._yielded.clear()
+            for rid in list(self._queue):
+                if rid in self._active or self._stop.is_set():
+                    continue
+                self._queue.remove(rid)
+                routine = next((dict(r) for r in self.routines if r["id"] == rid), None)
+                manual = rid in self._manual
+                self._manual.discard(rid)
+                if routine is None or (not routine.get("enabled") and not manual):
+                    continue
+                state = {"cancel": threading.Event(), "yielded": threading.Event(), "run": secrets.token_hex(4)}
+                self._active[rid] = state
+                worker = threading.Thread(target=self._run_one, args=(routine, state), name=f"routine-{rid}", daemon=True)
+                self._workers = [w for w in self._workers if w.is_alive()] + [worker]
+                worker.start()
+
+    def _run_one(self, routine: Dict[str, Any], state: Dict[str, Any]) -> None:
         started = self.clock()
         meter = self.meter().start() if self.meter else None
         finished = threading.Event()
         if routine.get("yield_s") is not None:
-            threading.Thread(target=self._yield_watch, args=(float(routine["yield_s"]), finished), name="routine-yield", daemon=True).start()
+            threading.Thread(target=self._yield_watch, args=(float(routine["yield_s"]), state, finished), name="routine-yield", daemon=True).start()
         try:
-            outcome = self.runner.run(routine, self._cancel)
+            outcome = self.runner.run(routine, state["cancel"])
         except Exception as exc:
             outcome = {"status": "failed", "summary": f"{type(exc).__name__}: {exc}"}
         finished.set()
-        if self._yielded.is_set():
+        if state["yielded"].is_set():
             outcome = {**outcome, "status": "yielded", "summary": "Stopped because a conversation of yours needed the model. " + str(outcome.get("summary") or "")}
         energy = meter.stop() if meter else {}
         if energy:
             outcome = {**outcome, "energy": energy}
-        self._finish(routine_id, outcome, started)
+        self._finish(routine["id"], outcome, started, state["run"])
 
-    def _yield_watch(self, grace_s: float, finished: threading.Event) -> None:
+    def _yield_watch(self, grace_s: float, state: Dict[str, Any], finished: threading.Event) -> None:
         """While a routine runs: once a conversation of the person's has been at work for `grace_s` seconds, the routine is asked to stop."""
         since = None
         while not finished.wait(self.poll_s):
@@ -353,28 +419,26 @@ class Scheduler:
                 continue
             since = since if since is not None else time.monotonic()
             if time.monotonic() - since >= grace_s:
-                self._yielded.set()
-                self._cancel.set()
+                state["yielded"].set()
+                state["cancel"].set()
                 return
 
-    def _finish(self, routine_id: str, outcome: Dict[str, Any], started: float) -> None:
+    def _finish(self, routine_id: str, outcome: Dict[str, Any], started: float, run_id: str = "") -> None:
         ended = self.clock()
         with self._lock:
             routine = next((r for r in self.routines if r["id"] == routine_id), None)
-            record = {"id": secrets.token_hex(4), "routine": routine_id, "name": routine["name"] if routine else "",
+            record = {"id": run_id or secrets.token_hex(4), "routine": routine_id, "name": routine["name"] if routine else "",
                       "started": started, "ended": ended, "status": str(outcome.get("status") or "failed"),
                       "summary": str(outcome.get("summary") or "")[:SUMMARY_MAX], "session": str(outcome.get("session") or ""),
                       **{k: outcome[k] for k in ("seconds", "energy") if k in outcome}}
             self.results.append(record)
             self.results = self.results[-KEEP_RUNS:]
-            if routine is not None and outcome.get("status") != "skipped":
+            if routine is not None:
                 routine["last_run"], routine["last_status"] = started, record["status"]
                 self._save()
-            if routine_id in self._queue:
-                self._queue.remove(routine_id)
-            self._manual.discard(routine_id)
-            self.running = None
+            self._active.pop(routine_id, None)
             self._save_runs()
+        self._wake.set()
 
     # -- life ------------------------------------------------------------------------------------
 
@@ -389,30 +453,45 @@ class Scheduler:
 
     def shutdown(self) -> None:
         self._stop.set()
-        self._cancel.set()
+        self.cancel_running()
         self._wake.set()
-        for t in self._threads:
+        with self._lock:
+            workers = list(self._workers)
+        for t in self._threads + workers:
             if t.is_alive() and t is not threading.current_thread():
                 t.join(5)
 
 
-class SessionRoutineRunner:
-    """Runs a routine as a conversation of the agent through the server's `SessionManager`, then closes it."""
+def _pending_options(source: Dict[str, Any]) -> List[str]:
+    return [str(o.get("label") or o.get("id") or "") if isinstance(o, dict) else str(o) for o in source.get("options") or []]
 
-    def __init__(self, manager: Any, poll_s: float = 0.5, max_seconds: float = 1800.0) -> None:
-        self.manager, self.poll_s, self.max_seconds = manager, poll_s, max_seconds
+
+class SessionRoutineRunner:
+    """Runs a routine as an Automatic conversation of the agent through the server's `SessionManager`, then closes it."""
+
+    park: Optional[Callable[[str, Dict[str, Any]], None]] = None            # set by the Scheduler: keeps a request for the person
+
+    def __init__(self, manager: Any, poll_s: float = 0.5, cancel_grace_s: float = 30.0) -> None:
+        self.manager, self.poll_s, self.cancel_grace_s = manager, poll_s, cancel_grace_s      # how long a stopped conversation has to wind down
         self._own: set = set()
 
     def busy(self) -> bool:
         """True while a conversation that is not a routine's is at work."""
         sessions = self.manager.view().get("sessions", [])
-        return any(s.get("state") in ("busy", "asking", "starting") and s["id"] not in self._own for s in sessions)
+        return any(s.get("state") in ("busy", "starting") and s["id"] not in self._own for s in sessions)
+
+    def _park(self, routine: Dict[str, Any], sid: str, key: str, kind: str, source: Dict[str, Any], default: str) -> str:
+        text = str(source.get("question") or source.get("detail") or source.get("reason") or default)
+        if self.park is not None:
+            self.park(routine["id"], {"session": sid, "key": key, "kind": kind, "question": text, "options": _pending_options(source)})
+        return text
 
     def run(self, routine: Dict[str, Any], cancel: threading.Event) -> Dict[str, Any]:
         mgr = self.manager
         started = time.monotonic()
-        sid = mgr.create(routine["workspace"], routine["mode"], routine.get("allow"), False, f"Routine: {routine['name']}"[:80],
-                         routine.get("max_turns", 10), worktree="off")["id"]
+        limit_s = routine["max_minutes"] * 60 if routine.get("max_minutes") else None
+        sid = mgr.create(routine["workspace"], "auto", None, False, f"Routine: {routine['name']}"[:80],
+                         routine.get("max_turns") or NO_STEP_LIMIT, worktree="off", unattended=True)["id"]
         self._own.add(sid)
         getattr(mgr, "keep_out_of_memory", lambda _sid: None)(sid)          # a routine is not the person talking: nothing in it is learned
         try:
@@ -430,24 +509,28 @@ class SessionRoutineRunner:
                 for event in data["events"]:
                     if event.get("event") == "done":
                         stop = event.get("stop_reason") or ""
-                        status = "done" if stop == "final" else "asked" if stop == "asked" else "incomplete"
+                        status = "done" if stop == "final" else "parked" if stop == "asked" else "incomplete"
                         if cancelled_at is not None:
                             status = "cancelled" if cancel.is_set() else "timeout"
-                        question = (mgr.get(sid).get("question") or {}).get("question") if stop == "asked" else ""
+                        question = ""
+                        if stop == "asked" and cancelled_at is None:
+                            question = self._park(routine, sid, "question", "question", mgr.get(sid).get("question") or {}, "It needed an answer.")
                         summary = event.get("final") or question or event.get("error") or f"Stopped: {stop}"
                         return {"status": status, "summary": summary, "session": sid, "seconds": round(time.monotonic() - started, 1)}
-                if data.get("state") in ("asking", "blocked"):
-                    rec = mgr.get(sid)
-                    why = (rec.get("ask") or rec.get("blocked") or {})
-                    text = why.get("question") or why.get("detail") or why.get("reason") or "It needed an answer nobody could give."
-                    return {"status": "asked", "summary": str(text), "session": sid, "seconds": round(time.monotonic() - started, 1)}
-                if data.get("state") == "closed":
+                state = data.get("state")
+                if state == "asking":                         # the run goes on; the request waits in the list for the person
+                    ask = mgr.get(sid).get("ask") or {}
+                    self._park(routine, sid, str(ask.get("id") or "ask"), "ask", ask, "It needed an answer.")
+                elif state == "blocked":                      # only the person can lift it: this run ends parked, not failed
+                    text = self._park(routine, sid, "blocked", "blocked", mgr.get(sid).get("blocked") or {}, "It needed the person.")
+                    return {"status": "parked", "summary": text, "session": sid, "seconds": round(time.monotonic() - started, 1)}
+                elif state == "closed":
                     return {"status": "failed", "summary": "The conversation was closed.", "session": sid}
-                if cancel.is_set() or time.monotonic() - started > self.max_seconds:
+                if cancel.is_set() or (limit_s is not None and time.monotonic() - started > limit_s):
                     if cancelled_at is None:
                         cancelled_at = time.monotonic()
                         mgr.cancel(sid)
-                    elif time.monotonic() - cancelled_at > 30:
+                    elif time.monotonic() - cancelled_at > self.cancel_grace_s:
                         return {"status": "cancelled" if cancel.is_set() else "timeout", "summary": "It was stopped.", "session": sid}
                 time.sleep(self.poll_s)
         finally:

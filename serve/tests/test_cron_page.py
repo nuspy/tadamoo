@@ -24,11 +24,20 @@ class CronPageTest(unittest.TestCase):
             self.assertIn(call, JS)
         self.assertIn("S.armed !== j.id", JS)                                            # a delete asks twice
 
-    def test_automatic_asks_nothing_and_a_new_job_starts_off(self):
-        self.assertNotIn("riskConfirm", JS)
-        self.assertNotIn("confirm_auto", JS)
-        self.assertNotIn('steps.max', JS)
-        self.assertIn("cj.new.off", JS)
+    def test_a_job_has_no_mode_starts_on_and_its_limits_are_optional(self):
+        for gone in ("riskConfirm", "confirm_auto", "steps.max", "MODES", "modeNow", "cj.risk", "cj.allow", "ag.mode."):
+            self.assertNotIn(gone, JS)
+        self.assertIn("cj.new.on", JS)
+        self.assertNotIn("cj.new.off", JS)
+        self.assertIn('max_turns: f.steps.value.trim() === "" ? null : Number(f.steps.value)', JS)       # empty means no limit
+        self.assertIn('max_minutes: f.minutes.value.trim() === "" ? null : Number(f.minutes.value)', JS)
+        self.assertNotIn('"60"', JS)                                                                   # no default time to give way
+
+    def test_requests_that_wait_for_the_person_are_listed_and_can_be_dismissed(self):
+        self.assertIn('id="cj-pending"', HTML)
+        self.assertIn("api/routines/${p.id}/dismiss", JS)
+        self.assertIn("S.pending = r.data.pending || []", JS)
+        self.assertIn("cj-pend", CSS)
 
     def test_the_chat_only_proposes_and_the_proposal_fills_the_editor(self):
         self.assertIn("```job", JS)
@@ -36,7 +45,7 @@ class CronPageTest(unittest.TestCase):
         use = JS[JS.index("function use(p)"):JS.index("function paintChat()")]
         self.assertNotIn("api(", use)                                                    # using a proposal saves nothing
         self.assertIn('"v1/chat/completions"', JS)
-        self.assertIn("Never say that a job was saved or turned on.", JS)
+        self.assertIn("Never say that a job was saved or is running.", JS)
 
     def test_the_script_writes_no_markup_and_sends_the_key_and_the_texts_exist_in_both_languages(self):
         for banned in ("innerHTML", "insertAdjacentHTML", "document.write", "eval("):

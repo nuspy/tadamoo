@@ -35,8 +35,20 @@ def test_headless_and_the_chat_process_set_the_same_agent_from_the_same_options(
     assert isinstance(cfg, AgentConfig) and cfg.vault_dir == "V" and cfg.lsp and cfg.capabilities and cfg.browser
 
 
-def test_the_default_number_of_turns_stays_as_each_way_had_it():
-    assert parse_args(["-p", "x"]).max_turns == 10 and session_args([]).max_turns == 15
+def test_the_default_number_of_turns_is_no_limit_in_every_way():
+    assert parse_args(["-p", "x"]).max_turns == -1 and session_args([]).max_turns == -1
+    assert agent_settings(parse_args(["-p", "x"]))["max_turns"] == -1
+    assert parse_args(["-p", "x", "--max-turns", "7"]).max_turns == 7
+
+
+def test_headless_acts_without_asking_unless_it_is_interactive():
+    assert parse_args(["-p", "x"]).permission_mode == "auto"
+    assert parse_args(["-p", "x", "--interactive"]).permission_mode == "default"
+    assert parse_args(["-p", "x", "--permission-mode", "plan"]).permission_mode == "plan"
+
+
+def test_a_session_can_be_flagged_unattended():
+    assert session_args([]).unattended is False and session_args(["--unattended"]).unattended is True
 
 
 def test_a_bad_tool_timeout_is_a_usage_error():
@@ -132,7 +144,7 @@ def test_mcp_tools_are_offered_one_by_one_while_few_and_behind_a_search_when_man
         one = ToolRegistry()
         assert hub.register(one) == "eager" and {"fake__echo", "fake__weather"} <= set(one.names()) and "mcp_call" not in one.names()
         many = ToolRegistry()
-        assert hub.register(many, eager_limit=2) == "deferred" and many.names() == ["mcp_call", "mcp_search"]
+        assert hub.register(many, eager_limit=2) == "deferred" and many.names() == ["mcp_call", "mcp_read", "mcp_search"]
         found = many.execute("mcp_search", {"query": "weather forecast"})
         assert found[0]["tool"] == "weather"
         assert many.execute("mcp_call", {"server": "fake", "tool": "echo", "arguments": {"text": "x"}}) == "echo: x"

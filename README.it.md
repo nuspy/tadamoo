@@ -257,7 +257,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
   tuo sì. Ogni piano ha una scheda rispetto a cui si giudicano gli eventi in arrivo; la Chat ti chiede solo ciò che alla scheda manca. Una
   decisione senza uscita valida passa a te invece di saltare in silenzio. Il filtro degli eventi (locale; quello nel cloud solo con il tuo
   consenso) parte con il server, e la ripianificazione col modello locale è facoltativa.
-- **Lavorare con orari propri**: routine (un prompt, una cartella, un orario, una modalità), valutazione (`python -m harness.eval`,
+- **Lavorare con orari propri**: routine (un prompt, una cartella, un orario; sempre in Automatica), valutazione (`python -m harness.eval`,
   pass^k, costo e uso della cache), riesecuzione di una sessione registrata e l'energia usata da un compito.
 
 ### Le conversazioni della Chat

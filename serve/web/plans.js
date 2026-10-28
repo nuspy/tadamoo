@@ -316,7 +316,8 @@
       [...ch.added, ...ch.updated, ...ch.removed].forEach(id => { S.flash[id] = Date.now() + 3000; });
       say(T("pl.ev.proposed", ev.proposal.title));
     } else if (ev.type === "plan:replan_ready") {
-      say(T("pl.ev.replan", ev.proposals.length));
+      const a = ev.applied || {};
+      say(a.applied ? T(a.remaining ? "pl.ev.autoparked" : "pl.ev.autoapplied") : T("pl.ev.replan", ev.proposals.length));
     } else if (ev.type === "plan:replan_failed") {
       say(T("pl.ev.replanfail", ev.error), true);
     } else if (ev.type === "plan:fallback_offered") {
@@ -839,6 +840,7 @@
         el("button", { type: "button", class: "pl-ptitle", "aria-pressed": String(S.proposal === p.proposal_id),
           onclick: () => { S.proposal = p.proposal_id; render(); } }, el("b", { text: p.title })),
         p.rationale ? el("p", { class: "pl-prat", text: p.rationale }) : [],
+        (p.involves || []).length ? el("p", { class: "pl-prat pl-waits", text: T("pl.props.involves", p.involves.join("; ")) }) : [],
         el("div", { class: "pl-chips" }, chips),
         el("div", { class: "pl-acts" },
           el("button", { type: "button", class: "btn primary pl-btn", title: T("pl.tip.approve"), text: T("pl.approve"),
@@ -1277,6 +1279,8 @@
       el("label", { class: "pl-check" }, el("input", { type: "checkbox", id: "pl-s-pump", checked: !!s.event_pump }), el("span", { text: T("pl.set.pump") })),
       el("p", { class: "help", text: T("pl.set.pump.help") }),
       ...(s.event_pump && s.cloud_triage ? [riskLabel(T("pl.risk.pump"))] : []),
+      el("label", { class: "pl-check" }, el("input", { type: "checkbox", id: "pl-s-auto", checked: s.auto_apply !== false, "aria-describedby": "pl-s-auto-h" }), el("span", { text: T("pl.set.auto") })),
+      el("p", { class: "help", id: "pl-s-auto-h", text: T("pl.set.auto.help") }),
       el("label", { for: "pl-s-sources", text: T("pl.set.sources") }),
       el("textarea", { id: "pl-s-sources", rows: "6", spellcheck: "false", text: (s.sources || []).length ? JSON.stringify(s.sources, null, 1) : "" }),
       el("p", { class: "help", text: T("pl.set.sources.help") }),
@@ -1303,7 +1307,7 @@
     const isStandard = fields.length === standard.length && standard.every(f => fields.includes(f));
     const body = { cloud_triage: ui.setBody.querySelector("#pl-s-cloud").checked, pseudonymize: ui.setBody.querySelector("#pl-s-pseudo").checked,
       gate_mode: ui.setBody.querySelector("#pl-s-gate").value, card_fields: isStandard ? null : fields,
-      event_pump: ui.setBody.querySelector("#pl-s-pump").checked,
+      event_pump: ui.setBody.querySelector("#pl-s-pump").checked, auto_apply: ui.setBody.querySelector("#pl-s-auto").checked,
       blocker_threshold: Number(ui.setBody.querySelector("#pl-s-thr").value), cloud_timeout: Number(ui.setBody.querySelector("#pl-s-to").value),
       max_events: Number(ui.setBody.querySelector("#pl-s-chunk").value) };
     if (![body.blocker_threshold, body.cloud_timeout, body.max_events].every(Number.isFinite)) { say(T("pl.badnum"), true); return; }

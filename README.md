@@ -89,7 +89,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
 **7. An agent harness, a planner and a revised interface shell** (`harness/`, [docs/harness.md](docs/harness.md))
 - A separate process (`python -m harness -p "task"`, or as an editor's agent over ACP) that talks to the server's public
   API: a tool loop with permission levels, a plan mode, hooks, file checkpoints, a hash-chained audit log, a command
-  sandbox, a secrets broker, fenced untrusted content, context masking, memory, skills with approval by hash, MCP and
+  sandbox, a secrets broker, fenced untrusted content, context masking, memory, skills, MCP and
   reference documents (fixed block or search). A **vault** keeps cards, personal data and logins encrypted and the model only writes placeholders that are filled in at the last step (the agent runs as your own user, so what that does and does not protect is in `docs/harness.md`);
   the agent can drive a browser to fill in forms and book, and can pay within limits you set in the **Wallet** view (automatic up to the
   caps you choose, a question above them); the second factor of a login is your choice. Real phone calls are gated and off by default.
@@ -222,8 +222,8 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   bookings and purchases.
 - **Keep what it learns**: a memory of notes per project (below), `AGENTS.md` rules read from the folder up, skills, and reference
   documents offered as a fixed block or searched.
-- **Reach other tools**: skills, plugins and MCP servers found on this PC (each one *to approve* until you read and approve it, tied to
-  a hash of what you read); a search for a missing one online, with the best candidates put to you and an install that never runs a
+- **Reach other tools**: skills, plugins and MCP servers found on this PC (usable at once unless you turn them off; a read-only tool of an MCP
+  server needs no question); a search for a missing one online, with the best candidates put to you (queued with a comparison when nobody is there, and installed only when you authorise one) and an install that never runs a
   package's scripts; remote MCP servers with OAuth sign-in; other agents through an ACP client and an A2A client; a council of
   advisers with editable roles that debate a hard question for a set number of rounds, with the cost shown first; a different model for each function (the loaded one, another on this PC, a cloud service).
 - **Handle money and identity**: the **Wallet** vault keeps cards, personal data and logins encrypted; the model writes placeholders and
@@ -231,11 +231,11 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   one), an optional waiver with caps, and a question above them. The second factor of each login is your choice. Real phone calls ask
   every time and are off by default.
 - **Plan**: plans as graphs (actions, sensors, decisions, merges, tasks handed to you) shown in the **Plans** view; the Chat can read
-  and propose changes to them, read what the planner's proposals would do and approve or reject them, and every change has your yes. Every
+  and propose changes to them, read what the planner's proposals would do and approve or reject them; a change has your yes below the Automatic level, and at Automatic (and for events, with a setting on by default) only the step that involves other people, a booking or a resource you do not control waits for you. Every
   plan has a card the incoming events are judged against; the Chat asks you only what the card lacks. A decision with no exit that holds
   passes to you instead of skipping in silence. The event filter (local; the cloud one only with your consent) runs from the start of the
   server, and re-planning by the local model is optional.
-- **Run on its own schedule**: routines (a prompt, a folder, a schedule, a mode), evaluation (`python -m harness.eval`, pass^k, cost
+- **Run on its own schedule**: routines (a prompt, a folder, a schedule; always Automatic), evaluation (`python -m harness.eval`, pass^k, cost
   and cache use), replay of a recorded session, and the energy a task used.
 
 ### The Chat's conversations
@@ -261,7 +261,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   `/stop-learn-skill`), and the harness keeps what you did as a Python script with the parts that change as parameters: marked by you with
   `# a phrase #`, or found from your words and dates. Run it again from the *Skills* button or with `/skilluse`, with a form that reads dates in
   words. Most of it is plain code, so it costs no tokens; the model is used once to write it and then only where the language must be understood. A
-  skill moves to another PC as one `.pskill` file and arrives *to approve*. See the [manual](docs/harness-manual.md#17-personal-skills).
+  skill moves to another PC as one `.pskill` file and arrives ready to run. See the [manual](docs/harness-manual.md#17-personal-skills).
 - **A message while it works** is steered into the task, queued, or treated as urgent; **Stop** means stop.
 - **Branches, going back, comparing**: a tree of conversations, *Back to here* on any request (actions that stay done are listed
   first), and two continuations of one request side by side. Messages are shared immutable nodes, so a branch copies nothing; the
@@ -280,7 +280,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   like (only for that exact command) or for `run_code`: a rule for those is one you write yourself. In *Automatic*, an irreversible action still asks
   once the conversation has read outside content and can reach a secret or a vault entry (the Rule of Two). The web is read freely for news; a web address, a search or a form asks only when the conversation has read outside content, touched private data (a stored credential, a file that holds keys, an attachment, your memories) and the action reaches the outside. Settings > Wallet sets how strict that is. A stored secret is never let into an address or a query, at any setting.
 - **Hooks you write** (`hooks.json`): commands or fixed blocks on tool calls, turns and the session; a hook that cannot decide blocks.
-- **Checkpoints and rewind**: the workspace is saved before the first change of a turn, outside the project and within size limits;
+- **Checkpoints and rewind**: before an action changes files, their previous content is kept outside the project (only the changed files, any folder, no size limit; off, on, or on without ever stopping the action);
   `python -m harness.rewind`, `/rewind` and *Back to here* on a message restore it. Rewinding does not undo a command it ran, and says so.
 - **An audit log**: one record per tool call (arguments hashed and masked, the decision, the outcome), in a hash chain you can verify.
 - **Time limits and Stop**: every tool has a time limit (15 minutes unless set); Stop ends a running command and everything it started.

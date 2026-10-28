@@ -1,13 +1,10 @@
 """Skill discovery (agentskills.io SKILL.md) and project instruction loading (AGENTS.md).
 
-A skill written or changed by anyone but the user is code the model will follow, so a catalog can
-require approval: the approval is stored with the hash of the text the user read, and any change to
-the file withdraws it.
+A skill in the search paths is the person's own: the model may load any of them.
 """
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,10 +13,6 @@ from typing import Any, Dict, List, Optional, Tuple
 FRONTMATTER_REGEX = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
 GUIDELINE_FILES = ("AGENTS.md", "CLAUDE.md", "GEMINI.md")
 MAX_GUIDELINE_BYTES = 32 * 1024
-
-
-class SkillNotApproved(PermissionError):
-    """The skill has not been approved in its current form."""
 
 
 @dataclass
@@ -49,55 +42,12 @@ def parse_frontmatter(text: str) -> Tuple[Dict[str, str], str]:
     return meta, text[match.end():]
 
 
-class ApprovalStore:
-    """Skill name -> hash of the text the user approved, kept in a JSON file. `prefix` is put before the name in the file, so that a
-    store shared with another list of approvals (the Capabilities page keeps `skill:<name>`) reads and writes the same entries."""
-
-    def __init__(self, path: str | Path, prefix: str = "") -> None:
-        self.path = Path(path)
-        self.prefix = prefix
-
-    def _load(self) -> Dict[str, str]:
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-            return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
-        except (OSError, json.JSONDecodeError):
-            return {}
-
-    def _save(self, data: Dict[str, str]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
-        tmp.replace(self.path)
-
-    def is_approved(self, skill: SkillMeta) -> bool:
-        return self._load().get(self.prefix + skill.name) == skill.sha256
-
-    def was_approved(self, skill: SkillMeta) -> bool:
-        """Whether some other text of this skill was approved before (so the skill has changed since)."""
-        return self.prefix + skill.name in self._load()
-
-    def approve(self, skill: SkillMeta) -> None:
-        data = self._load()
-        data[self.prefix + skill.name] = skill.sha256
-        self._save(data)
-
-    def revoke(self, name: str) -> None:
-        data = self._load()
-        if data.pop(self.prefix + name, None) is not None:
-            self._save(data)
-
-
 class SkillCatalog:
     def __init__(
         self,
         search_paths: Optional[List[str | Path]] = None,
-        approvals: Optional[ApprovalStore] = None,
-        require_approval: bool = False,
     ) -> None:
         self.search_paths = [Path(p) for p in (search_paths or [])]
-        self.approvals = approvals
-        self.require_approval = require_approval
         self.skills: Dict[str, SkillMeta] = {}
         self.warnings: List[str] = []
 
@@ -132,33 +82,12 @@ class SkillCatalog:
         """Name and one line per skill, sorted so the prompt prefix never changes order."""
         return "\n".join(f"- **{self.skills[n].name}**: {self.skills[n].description}" for n in sorted(self.skills))
 
-    def review(self, name: str) -> Dict[str, Any]:
-        """What the user must read before approving a skill."""
-        skill = self.skills[name]
-        return {"name": name, "path": str(skill.path), "sha256": skill.sha256, "content": skill.content,
-                "approved": bool(self.approvals and self.approvals.is_approved(skill))}
-
-    def approve(self, name: str) -> None:
-        if not self.approvals:
-            raise RuntimeError("this catalog has no approval store")
-        self.approvals.approve(self.skills[name])
-
     def body(self, name: str) -> str:
-        """The full instructions of a skill; refused when approval is required and missing or stale."""
+        """The full instructions of a skill."""
         skill = self.skills.get(name)
         if skill is None:
             raise KeyError(f"Unknown skill '{name}'. Available: {', '.join(sorted(self.skills)) or 'none'}")
-        if self.require_approval and not (self.approvals and self.approvals.is_approved(skill)):
-            raise SkillNotApproved(self.refusal(skill))
         return skill.content
-
-    def refusal(self, skill: SkillMeta) -> str:
-        """The fact behind a refusal: the skill is new or its text changed, it was not loaded, and where the person approves it."""
-        if self.approvals is None:
-            return f"Skill '{skill.name}' was not loaded: this run has no list of approved skills."
-        why = "its text changed since it was approved" if self.approvals.was_approved(skill) else "it is new"
-        return (f"Skill '{skill.name}' was not loaded: it is not approved ({why}; hash {skill.sha256[:12]}). "
-                f"The person approves it in Settings, under Capabilities, where its text is shown.")
 
 
 def register_skill_tool(registry: Any, catalog: SkillCatalog) -> None:

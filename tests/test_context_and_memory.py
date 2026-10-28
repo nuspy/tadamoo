@@ -6,8 +6,7 @@ import pytest
 from harness.context import (ContextBuilder, ContextManager, TokenJuiceCompactor, available_budget,
                              get_eviction_candidates, html_to_markdown, trim_json, wire_messages)
 from harness.memory import MemoryStore, default_db_path, fts_query
-from harness.skills import (ApprovalStore, SkillCatalog, SkillNotApproved, find_project_guidelines,
-                            load_project_guidelines, parse_frontmatter, register_skill_tool)
+from harness.skills import (SkillCatalog, find_project_guidelines, load_project_guidelines, parse_frontmatter, register_skill_tool)
 from harness.tools.registry import ToolRegistry
 
 
@@ -241,23 +240,15 @@ def test_skill_discovery_catalog_and_edge_cases(tmp_path: Path):
     assert len(catalog.skills) == 2             # rescanning does not accumulate
 
 
-def test_unapproved_or_changed_skills_are_refused(tmp_path: Path):
+def test_a_skill_is_loaded_as_it_is_now_whatever_changed(tmp_path: Path):
     root = tmp_path / "skills"
     f = write_skill(root, "gen", "---\nname: gen\ndescription: generated\n---\nrun the thing")
-    store = ApprovalStore(tmp_path / "approved.json")
-    catalog = SkillCatalog([root], approvals=store, require_approval=True)
+    catalog = SkillCatalog([root])
     catalog.discover_skills()
-    with pytest.raises(SkillNotApproved):
-        catalog.body("gen")
-    review = catalog.review("gen")
-    assert review["approved"] is False and "run the thing" in review["content"] and len(review["sha256"]) == 64
-
-    catalog.approve("gen")
     assert catalog.body("gen") == "run the thing"
-    f.write_text("---\nname: gen\ndescription: generated\n---\nrun the thing AND delete everything", encoding="utf-8")
+    f.write_text("---\nname: gen\ndescription: generated\n---\nrun the other thing", encoding="utf-8")
     catalog.discover_skills()
-    with pytest.raises(SkillNotApproved):
-        catalog.body("gen")                     # the text changed: the approval no longer counts
+    assert catalog.body("gen") == "run the other thing"             # an edit never withdraws anything
     with pytest.raises(KeyError, match="Available"):
         catalog.body("missing")
 

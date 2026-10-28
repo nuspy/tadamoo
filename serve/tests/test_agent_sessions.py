@@ -108,16 +108,54 @@ def test_a_message_the_process_never_confirmed_is_sent_again(make, ws):
     assert [m["content"] for m in mgr.history(sid)["messages"]] == ["ciao", "echo: ciao"]
 
 
-def test_too_many_restarts_block_the_conversation_and_wait_for_the_person(make, ws):
-    mgr = make(command=stub_command(die_times=99), restart_cap=2)
+def test_restarts_wait_longer_each_time_and_never_block_the_conversation(make, ws):
+    mgr = make(command=stub_command(die_times=5), restart_waits=(0.0, 0.05, 0.1))
     sid = mgr.create(ws)["id"]
     mgr.send(sid, "die")
-    blocked = until(lambda: next((e for e in mgr.events(sid)["events"] if e["event"] == "blocked"), None))
-    assert blocked["reason"] == "process_unstable" and blocked["options"] == ["resume", "close"]
-    assert kinds(mgr, sid).count("restarting") == 2
-    assert mgr.get(sid)["state"] == "blocked"
-    time.sleep(0.5)
-    assert kinds(mgr, sid).count("ready") == 3                                  # no restart beyond the cap
+    until(lambda: "done" in kinds(mgr, sid))
+    restarting = [e for e in mgr.events(sid)["events"] if e["event"] == "restarting"]
+    assert [e["attempt"] for e in restarting] == [1, 2, 3, 4, 5]
+    assert [e["wait_s"] for e in restarting] == [0.0, 0.05, 0.1, 0.1, 0.1]       # the last wait is repeated
+    assert "blocked" not in kinds(mgr, sid)
+    assert mgr.get(sid)["state"] == "idle"
+
+
+def test_the_person_can_stop_a_conversation_that_keeps_being_started_again(make, ws):
+    mgr = make(command=stub_command(die_times=999), restart_waits=(0.0, 30.0))
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "die")
+    until(lambda: kinds(mgr, sid).count("restarting") == 2)                     # the second start waits 30 s
+    mgr.cancel(sid)
+    assert mgr.get(sid)["state"] == "dormant" and "restart_stopped" in kinds(mgr, sid)
+    time.sleep(0.3)
+    assert kinds(mgr, sid).count("ready") == 2
+
+
+def test_a_question_left_for_the_person_is_listed_answered_and_survives_the_process(make, ws):
+    mgr = make(idle_s=0.4)
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "pending")
+    until(lambda: "done" in kinds(mgr, sid))
+    item = mgr.get(sid)["pending"][0]
+    assert item["id"] == "p1" and item["source"]["named"] == "people" and item["tool"] == "phone_call"
+    assert mgr.get(sid)["state"] == "idle"                                      # the conversation went on
+    until(lambda: mgr.get(sid)["state"] == "dormant")
+    assert mgr.get(sid)["pending"][0]["id"] == "p1"                             # it is still there, after the process left
+    with pytest.raises(RunError) as e:
+        mgr.answer(sid, "p1", "maybe")
+    assert e.value.code == "bad_answer"
+    mgr.answer(sid, "p1", "confirm")
+    until(lambda: "pending_done" in kinds(mgr, sid))
+    assert mgr.get(sid)["pending"] == []
+    assert any(m["content"] == "[harness] answered p1: confirm" for m in mgr.history(sid)["messages"])
+
+
+def test_an_unattended_conversation_starts_its_process_with_the_flag(make, ws):
+    mgr = make()
+    rec = mgr.create(ws, unattended=True)
+    assert "--unattended" in mgr._command(rec["id"], rec, mgr.history_dir(rec["id"]))
+    rec = mgr.create(ws)
+    assert "--unattended" not in mgr._command(rec["id"], rec, mgr.history_dir(rec["id"]))
 
 
 def test_a_process_that_stops_giving_signs_of_life_is_ended_and_started_again(make, ws):
@@ -145,16 +183,13 @@ def test_a_block_from_the_process_waits_for_the_person_and_resume_goes_on(make, 
         mgr.resume(sid)
 
 
-def test_an_action_that_cannot_be_undone_is_never_resumed_by_the_manager(make, ws):
+def test_an_action_that_cannot_be_undone_does_not_block_the_restart(make, ws):
     mgr = make(command=stub_command(die_times=0))
     sid = mgr.create(ws)["id"]
     mgr.send(sid, "irreversible")
     until(lambda: kinds(mgr, sid).count("ready") == 2)
-    until(lambda: mgr.get(sid)["state"] == "blocked")
-    assert mgr.get(sid)["blocked"]["reason"] == "interrupted_irreversible"
-    time.sleep(0.6)
-    assert "done" not in kinds(mgr, sid)                                        # nothing was given on by itself
-    assert not any(m["content"].startswith("resumed") for m in mgr.history(sid)["messages"])
+    until(lambda: "done" in kinds(mgr, sid))                                    # the process tells the model itself and goes on
+    assert mgr.get(sid)["state"] == "idle" and "blocked" not in kinds(mgr, sid)
 
 
 def test_an_idle_conversation_goes_dormant_and_the_next_message_wakes_it_with_its_history(make, ws):
@@ -874,7 +909,8 @@ def test_the_steps_of_an_answer_default_to_no_limit_and_are_checked(make, ws):
     assert cmd[cmd.index("--max-turns") + 1] == "-1"
     old = {**rec}
     old.pop("max_turns")
-    assert mgr._command(rec["id"], old, mgr.history_dir(rec["id"]))[mgr._command(rec["id"], old, mgr.history_dir(rec["id"])).index("--max-turns") + 1] == "15"
+    old_cmd = mgr._command(rec["id"], old, mgr.history_dir(rec["id"]))
+    assert old_cmd[old_cmd.index("--max-turns") + 1] == "-1"                     # a record without the field has no limit either
     for bad in (0, -2, "5", 1.5, True, None):
         with pytest.raises(RunError) as e:
             mgr.create(ws, max_turns=bad)

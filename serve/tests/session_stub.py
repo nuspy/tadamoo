@@ -46,9 +46,13 @@ starts_file.write_text(str(starts))
 data = load()
 blocked = None
 if (H / "inflight.json").exists():
-    blocked = {"reason": "interrupted_irreversible", "detail": "pay may have run", "options": ["resume", "close"], "tool": "pay"}
-    (H / "inflight.json").unlink()
-emit({"event": "ready", "session": args.session_id, "restored": len(data["messages"]), "pid": os.getpid(), "blocked": blocked, "starts": starts})
+    (H / "inflight.json").unlink()                                          # the real process only tells the model; nothing blocks
+try:
+    parked = json.loads((H / "parked.json").read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    parked = []
+emit({"event": "ready", "session": args.session_id, "restored": len(data["messages"]), "pid": os.getpid(), "blocked": blocked, "starts": starts,
+      "parked": parked})
 
 beating = threading.Event()
 beating.set()
@@ -87,6 +91,14 @@ for line in sys.stdin:
             emit({"event": "ask", "id": "a1", "mode": "confirm", "kind": "plan_archive", "question": "Archive it?", "facts": {"plan": "X"},
                   "options": [{"label": "Confirm", "value": "confirm"}, {"label": "Cancel", "value": "cancel"}]})
             continue                                                       # waits for the answer
+        if text == "pending":
+            item = {"id": "p1", "turn": cmd.get("id"), "source": {"kind": "permission", "named": "people"}, "mode": "confirm", "kind": "permission",
+                    "tool": "phone_call", "question": "Call Anna?", "options": [{"label": "Call", "value": "confirm"}, {"label": "No", "value": "cancel"}]}
+            (H / "parked.json").write_text(json.dumps([item]), encoding="utf-8")
+            emit({"event": "pending", **item})
+            busy["v"] = False
+            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "went on"})
+            continue
         if text == "code":
             emit({"event": "ask", "id": "c1", "mode": "confirm", "kind": "code", "free": True, "question": "Type the code for bank.", "facts": {"who": "bank"}, "options": []})
             continue                                                       # waits for the code
@@ -152,6 +164,11 @@ for line in sys.stdin:
         emit({"event": "command", "id": cmd.get("id"), "name": cmd.get("name"), "ok": True, "data": {"args": cmd.get("args")}})
     elif name in ("promote", "drop"):
         emit({"event": "routed" if name == "promote" else "dropped", "turn": cmd.get("id"), "how": "urgent"})
+    elif name == "answer" and cmd.get("id") == "p1":
+        (H / "parked.json").unlink()
+        data["messages"].append({"role": "user", "content": "[harness] answered p1: %s" % cmd.get("value")})
+        save(data)
+        emit({"event": "pending_done", "id": "p1", "value": cmd.get("value")})
     elif name == "answer":
         busy["v"] = False
         emit({"event": "done", "turn": "answered", "stop_reason": "final", "final": "answered: " + str(cmd.get("value"))})

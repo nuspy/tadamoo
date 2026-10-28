@@ -296,7 +296,7 @@
       const e = await api("GET", `/${id}/events?after=0`);
       if (e.ok) after = e.json.next;
     }
-    syncRecord(); render(); paintList(); poll(true);
+    showPending(); syncRecord(); render(); paintList(); poll(true);
   }
 
   /* ---- the view model: the person's messages and, for each answer, blocks in the order things happened ---- */
@@ -376,8 +376,10 @@
       }
       case "ask": addBlock({ t: "ask", id: e.id, mode: e.mode, kind: e.kind || (e.facts || {}).kind, question: e.question, options: e.options || [], facts: e.facts || {}, tool: e.tool, args: e.arguments, explain: explainOf(e.explain), answered: null }, e.turn); break;
       case "answered": { for (const it of items) { const b = (it.blocks || []).find(x => x.t === "ask" && x.id === e.ask); if (b) { b.answered = e.value; b.dirty = true; } } break; }
-      case "retrying": addBlock({ t: "note", s: T("ch.retrying", e.attempt, e.of, Math.round(e.wait_s)) }, e.turn); break;
-      case "restarting": addBlock({ t: "note", s: T("ch.restarting", e.attempt, e.of) }); break;
+      case "retrying": addBlock({ t: "note", s: T("ch.retrying", e.attempt, Math.round(e.wait_s)) }, e.turn); break;
+      case "restarting": addBlock({ t: "note", s: T("ch.restarting", e.attempt, Math.round(e.wait_s || 0)) }); break;
+      case "pending": addPending(e); break;
+      case "pending_done": { for (const it of items) { const b = (it.blocks || []).find(x => x.t === "ask" && x.id === e.id); if (b && b.answered === null) { b.answered = e.value || "-"; b.dirty = true; } } break; }
       case "stalled": addBlock({ t: "note", s: T("ch.stalled") }); break;
       case "blocked": addBlock({ t: "blocked", reason: e.reason, detail: e.detail, options: e.options || [] }, e.turn); break;
       case "done": {
@@ -393,6 +395,14 @@
   function started(turn) {                                                      // a waiting request has begun (or was taken out): no more buttons
     items.forEach(it => { if (it.kind === "note" && it.route === turn && !it.over) { it.over = true; it.dirty = true; } });
   }
+  /* a question the agent left for the person while it went on with other work: shown like any confirmation, answerable whenever */
+  function addPending(e) {
+    if (items.some(it => (it.blocks || []).some(x => x.t === "ask" && x.id === e.id))) return;
+    const b = addBlock({ t: "ask", id: e.id, mode: "confirm", pending: true, source: e.source || {}, kind: e.kind || (e.facts || {}).kind, question: e.question, options: e.options || [], facts: e.facts || {}, tool: e.tool, args: e.arguments, explain: explainOf(e.explain), answered: null }, e.turn);
+    if (current) current.done = true;
+    return b;
+  }
+  function showPending() { ((rec && rec.pending) || []).forEach(p => addPending({ ...p, arguments: p.arguments })); }
   function closeQuestions() { items.forEach(it => (it.blocks || []).forEach(b => { if (b.t === "ask" && b.mode === "question" && !b.answered) { b.answered = ""; b.dirty = true; } })); }
 
   function fromHistory(messages) {
@@ -626,6 +636,7 @@
         row.append(x);
       });
       el.replaceChildren(q, ...(b.explain ? [mk("p", "aask-h", T("ch.explain.said", b.explain))] : []), row);
+      if (b.pending && !done) el.append(mk("p", "aask-h", T("ch.pending.h", b.source && b.source.named ? T("ch.pending.src." + b.source.named) : "")));
       if (b.mode === "question" && !done) el.append(mk("p", "aask-h", T("ch.write")));
       if (done && b.mode === "confirm") el.append(mk("p", "aask-h", T("ch.answered", optLabel(b, (b.options || []).find(o => o.value === b.answered) || { label: b.answered, value: b.answered }))));
       return;
@@ -1076,7 +1087,7 @@
     if (b.mode === "question") { b.answered = value; b.dirty = true; render(); send(value); return; }     // the button is the person's next message
     const r = await api("POST", `/${sid}/answer`, { ask: b.id, value });
     if (!r.ok) { status(errText(r)); return; }
-    b.answered = b.kind === "code" ? "-" : value; b.dirty = true; state = "busy"; render(); poll(true);
+    b.answered = b.kind === "code" ? "-" : value; b.dirty = true; if (!b.pending) state = "busy"; render(); poll(true);
   }
   async function control(what) {
     const r = await api("POST", `/${sid}/${what}`, {});

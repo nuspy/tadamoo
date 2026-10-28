@@ -1,6 +1,7 @@
 """Asks the person through the server's pages: posts an approval request and waits for the answer.
 
-Whatever goes wrong (the server is gone, the run is cancelled) is a refusal; the answer is waited for as long as it takes.
+The answer is waited for as long as it takes: a server that does not answer for a while is tried again, and only the run's own
+cancellation ends the wait (as a refusal).
 """
 from __future__ import annotations
 
@@ -14,7 +15,6 @@ from typing import Any, Dict, Optional
 from harness import control_secret
 
 POLL_SECONDS = 1.0
-FAILURES_BEFORE_REFUSING = 3
 
 
 class ServerApprover:
@@ -38,23 +38,22 @@ class ServerApprover:
             return json.loads(resp.read().decode("utf-8"))
 
     def __call__(self, tool: str, arguments: Dict[str, Any]) -> bool:
-        try:
-            made = self._call("POST", "/api/agent/approvals", {"run": self.run_id, "tool": tool, "arguments": arguments,
-                                                                "effect": self.effect_of(tool) if self.effect_of else ""})
-            approval_id = made["id"]
-        except (urllib.error.URLError, OSError, ValueError, KeyError):
-            return False
-        failures = 0
+        approval_id = None
+        while approval_id is None:
+            if self.cancel is not None and self.cancel.is_set():
+                return False
+            try:
+                made = self._call("POST", "/api/agent/approvals", {"run": self.run_id, "tool": tool, "arguments": arguments,
+                                                                    "effect": self.effect_of(tool) if self.effect_of else ""})
+                approval_id = made["id"]
+            except (urllib.error.URLError, OSError, ValueError, KeyError):
+                time.sleep(self.poll)
         while True:
             if self.cancel is not None and self.cancel.is_set():
                 return False
             try:
                 status = self._call("GET", f"/api/agent/approvals/{approval_id}").get("status")
-                failures = 0
             except (urllib.error.URLError, OSError, ValueError):
-                failures += 1
-                if failures >= FAILURES_BEFORE_REFUSING:
-                    return False
                 status = "pending"
             if status == "approved":
                 return True

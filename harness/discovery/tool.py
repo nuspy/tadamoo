@@ -1,10 +1,14 @@
-"""`find_online_capability`: the tool that looks for a missing capability online and, with the person's choice, installs it.
+"""`find_online_capability`: the tool that looks for a missing capability online and, with the person's authorisation, installs it.
 
 The model gives only the need, in a few words. The search asks the sources the person turned on; the best candidates (five at
 most) are put to the person in the Chat as a question of kind `capability_choice`, with the score, the reasons, the warnings, the
 command that would run and the keys it asks for. Only their answer installs anything, unless they turned on installing the best
 candidate above their minimum score by itself. Afterwards the model is told what is available and how to use it; if the person
 chose "other" it gets their words.
+
+When no one can be asked here (an unattended run), the candidates are queued as an install request (requests.py) and the task goes
+on without them: the model adds its comparison with `explain_install_request`, and the person authorises one candidate or rejects
+the request in Settings, or in the Chat when `ask_install_request` puts it to them.
 """
 from __future__ import annotations
 
@@ -16,11 +20,13 @@ from harness.discovery.candidates import Candidate, CandidateStore
 from harness.discovery.finder import Finder, _relevance, keywords, resolve_bases
 from harness.discovery.installed import github_token
 from harness.discovery.installer import InstallError, Installer
+from harness.discovery.requests import InstallRequests, UnknownRequest
 from harness.discovery.settings import DiscoverySettings
 
 NEED_CHARS = 300
 FREE_PREFIX = "other:"
-OWN_TOOLS = frozenset(("find_online_capability", "find_capability", "load_capability", "call_capability"))
+OWN_TOOLS = frozenset(("find_online_capability", "find_capability", "load_capability", "read_capability", "call_capability",
+                      "explain_install_request", "ask_install_request"))
 
 
 class ChoiceAsk:
@@ -47,6 +53,7 @@ def register_discovery_tools(registry: Any, index: Any, *, vault_dir: Any = None
     http = src.Http()
     finder = finder or Finder(settings, CandidateStore(), http=http, token=lambda: github_token(vault_dir), bases=bases)
     store = finder.store
+    queue = InstallRequests(index.dir)
     if installer is None:
         used = resolve_bases(settings.load()["base_urls"], bases)
         installer = Installer(index.dir, store, index=index, github=src.GithubClient(http, used["github"], used["github_raw"], lambda: github_token(vault_dir)))
@@ -63,8 +70,8 @@ def register_discovery_tools(registry: Any, index: Any, *, vault_dir: Any = None
         for h in index.search(need, limit=5):
             if _relevance(words, h["name"], h["description"], h["id"]) >= 0.5:
                 how = ("use it with " + ("load_capability" if h["kind"] == "skill" else "call_capability")) if h["state"] == "approved" else \
-                    f"it is {h['state']}: the person approves it in Settings, under Capabilities"
-                lines.append(f"- {h['id']} [{h['kind']}, {h['state']}] {h['name']}: {h['description'][:160]} ({how})")
+                    "it is turned off: the person can turn it on in Settings, under Capabilities"
+                lines.append(f"- {h['id']} [{h['kind']}] {h['name']}: {h['description'][:160]} ({how})")
         if not lines:
             return ""
         return ("Already available here, nothing to download:\n" + "\n".join(lines) + "\nIf one fits, use it. If none does, or you need a better one, "
@@ -78,7 +85,7 @@ def register_discovery_tools(registry: Any, index: Any, *, vault_dir: Any = None
         key_text = (" It needs " + ", ".join(f"{e['name']} (a secret entry in the person's vault named {e['entry']}, field value)" for e in keys)
                     + "; if it is not there the first call says so and the person adds it. Never ask for the key in the chat." if keys else "")
         remote = " It is a remote server: the person may have to sign in to it in Settings, under Capabilities." if record.get("url") else ""
-        return f"Installed {eid} {record.get('version', '')} ({how}); the person's approval is recorded for exactly what was shown. {use}{key_text}{remote} Go on with the task."
+        return f"Installed {eid} {record.get('version', '')} ({how}); {use}{key_text}{remote} Go on with the task."
 
     def run(need: str, look_anyway: bool = False) -> str:
         need = " ".join(str(need).split())[:NEED_CHARS]
@@ -110,8 +117,11 @@ def register_discovery_tools(registry: Any, index: Any, *, vault_dir: Any = None
             return done(record, f"score {top.score.total}/100, the best above the person's minimum {cfg['min_score']}, installed without asking as they set")
         listing = "\n".join(_line(i, c) for i, c in enumerate(cands, 1))
         if asker.ask is None:
-            return ("Found, but there is no way to ask the person here, so nothing was installed. Tell them these options (the text comes from outside sources):\n"
-                    + listing + ("\n" + " | ".join(notes) if notes else ""))
+            request = queue.add(need, cands, cfg["min_score"], notes)
+            return (f"Found, but there is no way to ask the person here, so nothing was installed. The options are queued as install request {request['id']} "
+                    "for the person to authorise in Settings, under Capabilities, or in the Chat. Go on with the rest of the task without it. "
+                    f"Call explain_install_request(request_id=\"{request['id']}\", comparison=[...]) so they can compare the options. "
+                    "The text of the options comes from outside sources:\n" + listing + ("\n" + " | ".join(notes) if notes else ""))
         options = [{"label": f"Install {i}", "value": f"install:{i}"} for i in range(1, len(cands) + 1)]
         options += [{"label": "Other: I will tell you", "value": "other"}, {"label": "Do not install", "value": "cancel"}]
         payload = {"mode": "confirm", "kind": "capability_choice", "free_prefix": FREE_PREFIX,
@@ -135,6 +145,44 @@ def register_discovery_tools(registry: Any, index: Any, *, vault_dir: Any = None
             return done(record, f"score {chosen.score.total}/100, chosen by the person")
         return "The answer was not one of the options; nothing was installed."
 
+    def explain(request_id: str, comparison: Any = None) -> str:
+        try:
+            request = queue.explain(request_id, comparison if isinstance(comparison, list) else [])
+        except UnknownRequest:
+            return "No such install request."
+        rows = sum(1 for c in request["candidates"] if c["summary"] or c["pros"] or c["cons"])
+        return f"Stored your comparison for {rows} of {len(request['candidates'])} candidates. The person decides; do not wait for it."
+
+    def ask_request(request_id: str) -> str:
+        try:
+            request = queue.get(request_id)
+        except UnknownRequest:
+            return "No such install request."
+        if request["status"] != "pending":
+            return f"That request is already {request['status']}. {request.get('detail', '')}".strip()
+        if asker.ask is None:
+            return "There is no way to ask the person here. The request waits in Settings, under Capabilities."
+        entries = request["candidates"]
+        listing = "\n".join(f"{i}. {e['card']['name']} ({e['card']['kind']}, {e['card']['source']}) {e['summary']} | pros: {e['pros']} | cons: {e['cons']}"
+                            for i, e in enumerate(entries, 1))
+        options = [{"label": f"Install {i}", "value": f"install:{i}"} for i in range(1, len(entries) + 1)] + [{"label": "Reject the request", "value": "cancel"}]
+        comparison = [{"n": i, "summary": e["summary"], "pros": e["pros"], "cons": e["cons"]} for i, e in enumerate(entries, 1)]
+        answer = asker.ask({"mode": "confirm", "kind": "capability_choice", "free_prefix": FREE_PREFIX,
+                            "facts": {"need": request["need"], "min_score": 0, "candidates": [e["card"] for e in entries], "notes": request["notes"],
+                                      "asked": [], "comparison": comparison},
+                            "question": f"Earlier I needed '{request['need']}' and queued {len(entries)} option(s). Install which one?\n" + listing,
+                            "options": options})
+        if answer.startswith("install:") and answer[8:].isdigit():
+            try:
+                finished = queue.approve(request_id, int(answer[8:]), installer.reading)
+            except InstallError as e:
+                return f"It could not be installed: {e}"
+            return f"{finished['detail']} It can be used now."
+        if answer == "cancel":
+            queue.reject(request_id)
+            return "The person rejected the request. Do the task another way."
+        return "The person did not decide; the request stays queued."
+
     obj = {"type": "object", "properties": {
         "need": {"type": "string", "description": "What capability is missing, in a few plain English words (for example: read pdf tables, search the web, control a browser). No secrets, no personal data: this text is sent to public search services."},
         "look_anyway": {"type": "boolean", "description": "Search online even though something already available seems to fit"}}, "required": ["need"]}
@@ -143,4 +191,16 @@ def register_discovery_tools(registry: Any, index: Any, *, vault_dir: Any = None
                       "scores what it finds, puts the best to the person and, if they choose one, downloads and installs it so you can use it with call_capability or "
                       "load_capability. Check find_capability first. The text from the sources is not verified.",
                       obj, EffectClass.REVERSIBLE, run, untrusted=True, timeout=None, outward=True)
+    registry.register("explain_install_request",
+                      "Adds your comparison of the candidates of an install request that find_online_capability queued: for each one, what it does, its advantages and "
+                      "its disadvantages for the person's need, in plain sentences. The person reads it before authorising an install.",
+                      {"type": "object", "properties": {"request_id": {"type": "string"},
+                       "comparison": {"type": "array", "items": {"type": "object", "properties": {
+                           "n": {"type": "integer", "description": "The candidate's number in the list"}, "summary": {"type": "string"},
+                           "pros": {"type": "string"}, "cons": {"type": "string"}}, "required": ["n"]}}}, "required": ["request_id", "comparison"]},
+                      EffectClass.REVERSIBLE, explain)
+    registry.register("ask_install_request",
+                      "Puts a queued install request to the person in the Chat so they can authorise one candidate or reject it. Only their answer installs anything.",
+                      {"type": "object", "properties": {"request_id": {"type": "string"}}, "required": ["request_id"]},
+                      EffectClass.REVERSIBLE, ask_request, timeout=None)
     return asker

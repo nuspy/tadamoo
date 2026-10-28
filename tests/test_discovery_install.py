@@ -1,4 +1,4 @@
-"""Installing what the person chose: fixed commands only, integrity checked, registered as approved, removable. No real install runs."""
+"""Installing what the person chose: fixed commands only, integrity checked, registered, removable. No real install runs."""
 import hashlib
 import json
 import os
@@ -77,7 +77,7 @@ def npm_candidate(**kw):
     return c
 
 
-def test_an_npm_package_is_installed_with_the_fixed_command_checked_and_approved(env):
+def test_an_npm_package_is_installed_with_the_fixed_command_checked(env):
     c = env.store.add(npm_candidate(env=[]))
     record = env.inst.install(c.id)
     folder = env.caps / "mcp" / "search-mcp"
@@ -258,13 +258,12 @@ def test_a_skill_path_that_climbs_out_of_the_folder_is_refused(env, skills):
     assert not (env.caps / "skills" / "pdf-tables").exists() and not (env.caps / "evil.txt").exists()
 
 
-def test_removing_deletes_the_folder_the_record_and_the_approval(env):
+def test_removing_deletes_the_folder_and_the_record(env):
     c = env.store.add(npm_candidate())
     env.inst.install(c.id)
     assert env.inst.listing()[0]["id"] == "mcp:search-mcp" and env.inst.listing()[0]["keys"] == [{"name": "SEARCH_API_KEY", "entry": "SEARCH_API_KEY"}]
     assert env.inst.remove("mcp:search-mcp") is True
     assert not (env.caps / "mcp" / "search-mcp").exists() and env.inst.listing() == []
-    assert "mcp:search-mcp" not in json.loads((env.caps / "approved.json").read_text(encoding="utf-8"))
     assert env.index.get("mcp:search-mcp") is None
     assert env.inst.remove("mcp:search-mcp") is False and env.inst.remove("mcp:user-own") is False
     env.inst.install(env.store.add(npm_candidate()).id)                 # and it can be installed again
@@ -312,7 +311,6 @@ def installed_fake_search(env):
     command = [sys.executable, str(Path(__file__).resolve().parent / "fake_search_mcp.py")]
     rec.update(command=command, sha=mcp_spec_sha(command[0], command[1:]))
     store.put(rec)
-    env.inst.approvals.approve(type("S", (), {"name": "mcp:search", "sha256": rec["sha"]}))
     env.index.refresh()
 
 

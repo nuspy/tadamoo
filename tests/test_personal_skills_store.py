@@ -1,4 +1,4 @@
-"""Personal skills: the check of a script, the folder of skills, approval by hash and the .pskill file."""
+"""Personal skills: the check of a script, the folder of skills and the .pskill file. Nothing is approved by hash: what the person makes or imports is usable."""
 import io
 import json
 import zipfile
@@ -48,7 +48,7 @@ def test_only_a_main_is_required():
     assert check.check("x = 'a' * 300000\ndef main(params): return x") == []
 
 
-def test_a_skill_is_saved_in_its_own_folder_and_is_approved_because_the_person_made_it(tmp_path):
+def test_a_skill_is_saved_in_its_own_folder_and_is_usable(tmp_path):
     store = PersonalSkills(tmp_path)
     saved = store.save(SPEC, GOOD)
     assert saved["slug"] == "summarise-a-file" and saved["status"] == "approved" and saved["version"] == 1 and saved["tools"] == ["read_file"]
@@ -59,7 +59,7 @@ def test_a_skill_is_saved_in_its_own_folder_and_is_approved_because_the_person_m
     assert "script" not in store.list()[0]
 
 
-def test_a_new_version_keeps_the_old_and_a_file_changed_by_hand_is_to_approve_again(tmp_path):
+def test_a_new_version_keeps_the_old_and_a_file_changed_by_hand_stays_usable(tmp_path):
     store = PersonalSkills(tmp_path)
     store.save(SPEC, GOOD)
     store.save({**SPEC, "description": "second"}, GOOD + "\n# more\n", slug="summarise-a-file")
@@ -67,9 +67,9 @@ def test_a_new_version_keeps_the_old_and_a_file_changed_by_hand_is_to_approve_ag
     assert store.restore("summarise-a-file", 1)["version"] == 3 and store.get("summarise-a-file")["description"] == "reads a file and summarises it"
     path = tmp_path / "summarise-a-file" / "skill.py"
     path.write_text(path.read_text(encoding="utf-8") + "\n# edited outside\n", encoding="utf-8")
-    assert store.get("summarise-a-file")["status"] == "pending"
-    assert store.approve("summarise-a-file")["status"] == "approved"
-    store.note_run("summarise-a-file")                                          # counting a run does not withdraw the approval
+    assert store.get("summarise-a-file")["status"] == "approved"              # an edit never un-approves
+    assert not hasattr(store, "approve") and not (tmp_path / "approved.json").exists()
+    store.note_run("summarise-a-file")
     got = store.get("summarise-a-file")
     assert got["uses"] == 1 and got["last_run"] and got["status"] == "approved"
 
@@ -94,16 +94,16 @@ def test_a_skill_has_no_time_limit_unless_the_person_sets_one(tmp_path):
     assert store.save({**SPEC, "timeout": 200000}, GOOD)["timeout"] == 200000
 
 
-def test_delete_removes_the_folder_and_the_approval(tmp_path):
+def test_delete_removes_the_folder(tmp_path):
     store = PersonalSkills(tmp_path)
     store.save(SPEC, GOOD)
     store.delete("summarise-a-file")
-    assert store.list() == [] and not (tmp_path / "summarise-a-file").exists() and "summarise-a-file" not in json.loads((tmp_path / "approved.json").read_text())
+    assert store.list() == [] and not (tmp_path / "summarise-a-file").exists()
     with pytest.raises(SkillError):
         store.delete("summarise-a-file")
 
 
-def test_a_skill_travels_as_one_file_and_arrives_to_be_approved(tmp_path):
+def test_a_skill_travels_as_one_file_and_arrives_usable(tmp_path):
     here, there = PersonalSkills(tmp_path / "a"), PersonalSkills(tmp_path / "b")
     here.save({**SPEC, "source": {"conversation": "secret-id"}}, GOOD)
     data = here.export_bytes("summarise-a-file")
@@ -111,8 +111,7 @@ def test_a_skill_travels_as_one_file_and_arrives_to_be_approved(tmp_path):
     assert sorted(names) == ["manifest.json", "skill.json", "skill.py"]
     assert b"secret-id" not in data                                              # where it came from does not travel
     arrived = there.import_bytes(data)
-    assert arrived["status"] == "pending" and arrived["name"] == SPEC["name"] and arrived["script"] == GOOD
-    assert there.approve(arrived["slug"])["status"] == "approved"
+    assert arrived["status"] == "approved" and arrived["name"] == SPEC["name"] and arrived["script"] == GOOD
 
 
 def test_a_file_that_was_changed_or_is_not_a_skill_is_refused(tmp_path):
