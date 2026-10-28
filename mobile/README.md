@@ -5,6 +5,9 @@ A phone version of the Basalt conversation page, built with Flutter for Android 
 ## What it does
 
 - **Chat** and **Agent**: the same conversations as on the PC. Agent works in the folders you added on the PC. Questions come with their buttons, the four modes change with the chip at the top, answers can be copied, read aloud, and branched from.
+- **New conversation**: a sheet asks for the mode, the reasoning effort, the allow rules and (in a folder) the working copy, the fields the PC's page asks for. The model is the one loaded on the PC. In Agent, a button adds a folder by its path on the PC and another takes it off the list.
+- **Settings > More**: *Personal skills* (list, read the text, make one, import a `.pskill` file, run it in a new conversation, delete) and *MCP servers and requests* (switch the agent's MCP servers and skills on and off, approve one candidate of an install request or reject it). A blocked conversation always offers *Resume*.
+- **No time limit**: requests, uploads and the following of a conversation wait as long as the connection stays up.
 - **Files in answers**: a link to a file the agent made, or to a file in the folder, is a button that saves it with the phone's "Save as" window. Pictures the agent kept are shown; diagrams show their source.
 - **The + button**: *Image* (the phone's photo picker), *Photo* (the Camera app), *Documents/Files*: *Local* (the phone's document window), *Server* (the same window, opened on "Basalt - PC", the folders added on the PC, then the drives) and *Network* (the devices Tailscale sees, or an address you type; signs in over SMB and lets you mark files).
 - **Voice**: the microphone writes what you say with the phone's own speech recognition; answers can be read aloud with its own voice, one by one or automatically. The language follows the phone unless you set it.
@@ -17,7 +20,7 @@ A phone version of the Basalt conversation page, built with Flutter for Android 
 2. On the phone: install **Tailscale** from the Play Store and sign in with the same account as on the PC.
 3. Install `Basalt-mobile.apk` on the phone (allow installing from this source when Android asks), open it, go to *Settings*, press *Scan the QR code*. The address and the key are filled in and the link is tested. You can also type them.
 
-The key is the phone's own: take it away on the PC and the phone stops working at once. A phone can use the model, the conversations, the files of the PC, the routines and the plans, and works in any folder; what answers only to the PC itself (the wallet, the vault, the settings, the loading of models) stays there.
+The key is the phone's own: take it away on the PC and the phone stops working at once. A phone can use the model, the conversations, the files of the PC, the routines and the plans, and works in any folder; what answers only to the PC itself (the wallet, the vault, the settings, the loading of models) stays there. A phone with a key also uses the personal skills and answers install requests; the rest of the capabilities stays on the PC.
 
 ## Build
 
@@ -36,7 +39,7 @@ python mobile/tool/mock_server.py      # prints PORT and FOLDER; leave it runnin
 flutter test --dart-define=BASALT_TEST_URL=http://127.0.0.1:<PORT> --dart-define=BASALT_TEST_FOLDER=<FOLDER>
 ```
 
-`protocol_test.dart` runs the app's side of the protocol against a real server with a scripted model; `answer_view_test.dart` checks how an answer is drawn. Without `BASALT_TEST_URL` the protocol tests are skipped.
+`new_chat_test.dart` checks what a new conversation sends; `protocol_test.dart` runs the app's side of the protocol against a real server with a scripted model; `answer_view_test.dart` checks how an answer is drawn. Without `BASALT_TEST_URL` the protocol tests are skipped.
 
 ## Notes
 

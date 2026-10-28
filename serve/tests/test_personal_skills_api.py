@@ -152,12 +152,28 @@ def test_a_skill_with_bad_values_or_that_does_not_exist_does_not_start(manager, 
     ws.mkdir()
     manager.skills.save(DEFINITION, SCRIPT)
     sid = manager.create(str(ws))["id"]
-    for slug, values, code in (("read-a-day", {}, "bad_values"), ("read-a-day", {"file": "a", "day": "never"}, "bad_values"), ("read-a-day", {"file": "a", "x": 1}, "bad_values"),
+    for slug, values, code in (("read-a-day", {"file": "a", "day": "never"}, "bad_values"), ("read-a-day", {"file": "a", "x": 1}, "bad_values"),
                                ("nope", {}, "no_skill"), (5, {}, "bad_skill"), ("read-a-day", [], "bad_skill")):
         with pytest.raises(RunError) as err:
             manager.run_skill(sid, slug, values)
         assert err.value.code == code, (slug, values)
     assert [e["event"] for e in manager.events(sid)["events"]] == []
+
+
+def test_a_required_value_left_out_does_not_stop_the_run_and_is_told_to_the_model_as_missing_then_the_last_one_is_used(manager, tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    manager.skills.save(DEFINITION, SCRIPT)
+    sid = manager.create(str(ws))["id"]
+    manager.run_skill(sid, "read-a-day", {})
+    first = manager.events(sid)["events"][0]
+    assert first["event"] == "user" and "File = (no value was given" in first["text"]
+    until(lambda: any(e["event"] == "done" for e in manager.events(sid)["events"]))
+    manager.run_skill(sid, "read-a-day", {"file": "notes.txt"})
+    until(lambda: sum(e["event"] == "done" for e in manager.events(sid)["events"]) == 2)
+    manager.run_skill(sid, "read-a-day", {})
+    users = [e for e in manager.events(sid)["events"] if e["event"] == "user"]
+    assert "no value was given" not in users[-1]["text"]                                 # notes.txt, kept from the last run
 
 
 def test_a_skill_waits_for_the_agent_to_finish_and_a_closed_conversation_takes_none(manager, tmp_path):

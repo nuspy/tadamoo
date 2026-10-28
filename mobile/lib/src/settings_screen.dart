@@ -5,8 +5,10 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
+import 'capabilities_screen.dart';
 import 'i18n.dart';
 import 'place.dart';
+import 'pskills_screen.dart';
 import 'settings.dart';
 import 'voice.dart';
 
@@ -151,6 +153,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ]),
           ),
         ),
+        if (widget.settings.configured) ...[
+          const Divider(height: 32),
+          Text(Texts.t('set.more'), style: theme.textTheme.titleMedium),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.auto_fix_high_outlined),
+            title: Text(Texts.t('psk.title')),
+            subtitle: Text(Texts.t('psk.sub')),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => PersonalSkillsScreen(api: Api(widget.settings), settings: widget.settings, voice: widget.voice))),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.extension_outlined),
+            title: Text(Texts.t('cap.title')),
+            subtitle: Text(Texts.t('cap.sub')),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CapabilitiesScreen(api: Api(widget.settings)))),
+          ),
+        ],
         const Divider(height: 32),
         Text(Texts.t('set.voice'), style: theme.textTheme.titleMedium),
         SwitchListTile(contentPadding: EdgeInsets.zero, title: Text(Texts.t('set.autospeak')), value: widget.settings.autoSpeak, onChanged: (v) => widget.settings.setAutoSpeak(v).then((_) => setState(() {}))),

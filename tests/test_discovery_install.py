@@ -15,7 +15,7 @@ from harness.capabilities import CapabilityIndex  # noqa: E402
 from harness.discovery import sources as src  # noqa: E402
 from harness.discovery.candidates import Candidate, CandidateStore  # noqa: E402
 from harness.discovery.installed import InstalledStore  # noqa: E402
-from harness.discovery.installer import BOOT, InstallError, Installer, IntegrityError, Run, UnknownCandidate  # noqa: E402
+from harness.discovery.installer import BOOT, AlreadyInstalled, InstallError, Installer, IntegrityError, Run, UnknownCandidate  # noqa: E402
 from harness.discovery.scoring import Metrics, score  # noqa: E402
 
 WIN = os.name == "nt"
@@ -281,7 +281,7 @@ def test_a_record_that_points_outside_the_folders_basalt_makes_deletes_nothing(e
 
 def test_a_name_that_is_already_there_is_not_overwritten(env):
     env.inst.install(env.store.add(npm_candidate()).id)
-    with pytest.raises(InstallError, match="already installed"):
+    with pytest.raises(AlreadyInstalled, match="already installed"):
         env.inst.install(env.store.add(npm_candidate()).id)
     InstalledStore(env.caps).delete("mcp:search-mcp")
     env.index.refresh()
@@ -341,3 +341,66 @@ def test_a_missing_key_is_said_by_the_entry_name_to_create_and_the_server_is_not
     env.index.vault_dir = None
     with pytest.raises(ValueError):
         env.index.target("mcp:search")
+
+
+# ---- the person's options: allow scripts, install anyway, update, size limits ---------------------------------------------
+
+def test_allowing_scripts_drops_the_flag_that_stops_them_and_is_recorded(env):
+    record = env.inst.install(env.store.add(npm_candidate()).id, allow_scripts=True)
+    assert "--ignore-scripts" not in env.runner.calls[0] and record["scripts_allowed"] is True
+    assert env.inst.records.get("mcp:search-mcp")["scripts_allowed"] is True
+
+
+def test_allowing_scripts_lets_pypi_build_from_source(env):
+    env.inst.which = lambda n: {"uv": "uv"}.get(n)
+    env.inst.install(env.store.add(pypi_candidate()).id, allow_scripts=True)
+    download = next(c for c in env.runner.calls if "download" in c)
+    assert "--only-binary=:all:" not in download and "--no-build" not in env.runner.calls[-1]
+
+
+def test_installing_anyway_goes_on_after_a_different_hash_and_records_both(env):
+    env.runner.integrity = "sha512-TAMPERED"
+    c = env.store.add(npm_candidate())
+    with pytest.raises(IntegrityError) as caught:
+        env.inst.install(c.id)
+    assert caught.value.got == "sha512-TAMPERED" and caught.value.expected
+    record = env.inst.install(c.id, anyway=True)
+    assert record["integrity_differs"] == {"got": "sha512-TAMPERED", "expected": c.integrity}
+    assert (env.caps / "mcp" / "search-mcp").exists()
+
+
+def test_update_replaces_the_installed_one_and_a_failure_brings_the_old_one_back(env):
+    env.inst.install(env.store.add(npm_candidate()).id)
+    folder = env.caps / "mcp" / "search-mcp"
+    (folder / "mine.txt").write_text("old")
+    c = env.store.add(npm_candidate(version="2.1.0"))
+    with pytest.raises(AlreadyInstalled):
+        env.inst.install(c.id)
+    env.runner.fail = lambda cmd: True
+    with pytest.raises(InstallError):
+        env.inst.install(c.id, update=True)
+    assert (folder / "mine.txt").read_text() == "old" and env.inst.records.get("mcp:search-mcp")["version"] == "2.0.0"
+    assert not (env.caps / "mcp" / "search-mcp.previous").exists() and env.index.get("mcp:search-mcp") is not None
+    env.runner.fail = None
+    record = env.inst.install(c.id, update=True)
+    assert record["version"] == "2.1.0" and not (folder / "mine.txt").exists() and not (env.caps / "mcp" / "search-mcp.previous").exists()
+    assert env.index.get("mcp:search-mcp") is not None
+
+
+def test_a_skill_over_a_limit_is_refused_only_when_the_person_set_one(env, skills):
+    from harness.discovery.settings import DiscoverySettings
+    c = env.store.add(skill_candidate())
+    DiscoverySettings(env.caps).save({"max_skill_files": 1})
+    with pytest.raises(InstallError, match="limits"):
+        skill_installer(env, skills).install(c.id)
+    DiscoverySettings(env.caps).save({"max_skill_files": 0})
+    assert skill_installer(env, skills).install(c.id)["id"]
+
+
+def test_the_size_limits_default_to_none(tmp_path):
+    from harness.discovery.settings import DiscoverySettings
+    s = DiscoverySettings(tmp_path)
+    assert [s.load()[k] for k in ("max_skill_files", "max_skill_mb", "max_skill_file_mb")] == [0, 0, 0]
+    assert s.save({"max_skill_mb": 12})["max_skill_mb"] == 12
+    with pytest.raises(ValueError):
+        s.save({"max_skill_files": -1})

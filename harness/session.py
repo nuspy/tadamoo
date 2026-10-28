@@ -18,16 +18,18 @@ that task (steer), waits its turn (queue), or, when it cannot wait and has nothi
 it stands, the urgent one is done, and the first goes on afterwards. When the model answers several requests at once, a request that
 would wait is done beside the task instead.
 
-A failed model call is retried here, with growing waits that never end by themselves, while the model or the server is unreachable,
-slow or busy; only a refusal that waiting cannot change ends the turn as `blocked`, and the person can always stop it. If the process
-dies while a tool that cannot be undone is running, the next start puts a note in the conversation that the call may already have run
-and must be checked before it is repeated.
+A failed model call is retried here, with growing waits that never end by themselves, whatever the error: the `retrying` event says
+what is waited for, and a server that is up with no model loaded is asked to load one (the Loader's refusal is in the event); nothing
+about the model ends the turn as `blocked`, and the person can always stop it. If the process dies while a tool that cannot be undone
+is running, the next start puts a note in the conversation that the call may already have run and must be checked before it is
+repeated; the work itself goes on.
 
 A session flagged `unattended` (--unattended) never waits for a question: one that is not a named exception (another person, the
 user, a resource that is not the PC's own, a booking) is answered at once as approved, or as "not available" when only the person
 could give the data; a named exception is parked in a visible list (`pending` events, answered later with the same `answer` command)
-while the model is told the answer is pending. A conversation that is not flagged always waits for the person: at the Auto level
-the harness itself asks nothing, and what is still asked (the Rule of Two the person set) is theirs to answer.
+while the model is told the answer is pending; the `ask_user` tool does not end the turn: the model is told nobody can answer and goes
+on with its own judgement. A conversation that is not flagged always waits for the person: at the Auto level the harness itself asks
+nothing, and what is still asked (the Rule of Two the person set) is theirs to answer.
 """
 from __future__ import annotations
 
@@ -56,7 +58,6 @@ HEARTBEAT_S = 5.0
 EFFORT_LEVELS = ("none", "low", "medium", "high")
 DELTA_CHARS, DELTA_S = 400, 0.25
 EVENT_CHARS = 20_000
-TRANSIENT_STATUS = frozenset({0, 408, 425, 429, 500, 502, 503, 504})
 BACKOFF_S = (2.0, 5.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0)      # the last wait is repeated for as long as it takes
 HISTORY_FILE, INFLIGHT_FILE, ARCHIVE_FILE = "history.json", "inflight.json", "archive.jsonl"
 RESUME_NOTE = "[harness] You were set aside for an urgent request, which is now done. Go on with what you were doing."
@@ -252,6 +253,8 @@ class Session:
         self.inbox: List[Dict[str, str]] = []                   # messages that came while busy, not yet looked at
         self.queue: List[Dict[str, str]] = []                   # requests that wait for their turn on the main conversation
         self.urgent: List[Dict[str, str]] = []                  # requests that cannot wait, to be done next
+        self.skill_queue: List[Tuple[str, Dict[str, Any]]] = []  # skill runs asked while a task was under way, started when it is free
+        self._poll_due = False                                  # a look at the plans was due while busy: done when the conversation is free
         self.stack: List[Task] = []                             # tasks put aside, to go on afterwards
         self.tasks: Dict[str, Task] = {}                        # the tasks that exist, by turn
         self._pending_note: Optional[str] = None
@@ -464,7 +467,7 @@ class Session:
         shown = "" if free else str(value)
         if payload.get("kind") == "permission" and value in ("confirm", "chat", "always"):
             self._granted.append(self._call_key(str(payload.get("tool")), payload.get("arguments") or {}))
-            self._remember_rules(str(value), options.get(str(value), {}).get("rules") or [], bool(payload.get("rule_of_two")))
+            self._remember_rules(str(value), options.get(str(value), {}).get("rules") or [])
         what = str(payload.get("question") or "")[:200]
         note = f"[harness] The user answered a question that was pending ({what}): {shown or 'answered'}."
         if payload.get("kind") == "permission":
@@ -485,7 +488,12 @@ class Session:
             return list(self._parked.values())
 
     def _question(self, payload: Dict[str, Any]) -> bool:
-        """A question that ends the turn: the button the person presses is their next message."""
+        """A question that ends the turn: the button the person presses is their next message. Where nobody watches (`unattended`) it does not
+        end the turn: it is recorded as unanswered and False comes back, so the model goes on with its own best judgement."""
+        if self.unattended:
+            self.emit({"event": "auto_answered", "id": uuid.uuid4().hex[:8], "turn": self._cur_turn(), "kind": "question", "value": "", "available": False,
+                       "source": {"kind": "question", "named": "", "needs_data": False}, "question": str(payload.get("question") or "")[:300]})
+            return False
         self.emit({"event": "ask", "id": uuid.uuid4().hex[:8], "turn": self._cur_turn(), **payload})
         return True
 
@@ -502,8 +510,16 @@ class Session:
     def ask_payment(self, request: Dict[str, Any]) -> bool:
         """A payment the broker will not decide alone: no waiver covers it, or it is over the caps. The person decides."""
         question = f"Pay {request['amount']} to {request['recipient']} ({request['reason']}) with {request['system']}?"
-        return self._ask({"mode": "confirm", "kind": "payment", "facts": request, "question": question,
-                          "options": [{"label": "Allow", "value": "confirm"}, {"label": "Deny", "value": "cancel"}]}) == "confirm"
+        rule = f"request_payment:{request['system']}"                  # the person's allow for this payment system: this chat or every chat
+        if self.built.permissions.allowed_by(rule, {}):
+            return True
+        options = [{"label": "Allow", "value": "confirm"},
+                   {"label": f"Allow in this conversation ({rule})", "value": "chat", "rule": rule, "rules": [rule]},
+                   {"label": f"Always allow ({rule})", "value": "always", "rule": rule, "rules": [rule]},
+                   {"label": "Deny", "value": "cancel"}]
+        answer = self._ask({"mode": "confirm", "kind": "payment", "facts": request, "question": question, "options": options})
+        self._remember_rules(answer, [rule])
+        return answer in ("confirm", "chat", "always")
 
     def ask_plan(self, plan: str, modes: List[str], outside: bool) -> str:
         """The plan the agent presents in plan mode. Yes goes on in the mode the person chose for it (the first of `modes`); no keeps plan mode."""
@@ -515,18 +531,17 @@ class Session:
 
     def permission_confirm(self, tool: str, arguments: Dict[str, Any]) -> bool:
         """The permission manager's question, put to the person in the conversation. The answer reaches as far as they choose: this call, this
-        conversation, or every conversation from now on (for the Rule of Two's own question, the conversation or every one stops being asked)."""
+        conversation, or every conversation from now on; the last two are an allow rule, which also answers the Rule of Two and a tool that asks every time."""
         from harness.permissions import suggest_rules
         two = arguments.get("rule_of_two")                            # set when the Rule of Two is what asks: the question says which facts made it ask
         arguments = {k: v for k, v in arguments.items() if k != "rule_of_two"}
         shown = json.dumps(arguments, ensure_ascii=False)[:300]
-        permissions = self.built.permissions
-        rules = [] if two else suggest_rules(tool, arguments, permissions.always_ask)    # facts change from call to call: no rule can answer the Rule of Two
+        rules = suggest_rules(tool, arguments)
         label = ", ".join(rules)
         options = [{"label": "Allow this call", "value": "confirm"}]
-        if rules or two:
-            options += [{"label": f"Allow in this conversation{f' ({label})' if rules else ''}", "value": "chat", **({"rule": label, "rules": rules} if rules else {})},
-                        {"label": f"Always allow{f' ({label})' if rules else ''}", "value": "always", **({"rule": label, "rules": rules} if rules else {})}]
+        if rules:
+            options += [{"label": f"Allow in this conversation ({label})", "value": "chat", "rule": label, "rules": rules},
+                        {"label": f"Always allow ({label})", "value": "always", "rule": label, "rules": rules}]
         options.append({"label": "Deny", "value": "cancel"})
         key = self._call_key(tool, arguments)
         if key in self._granted:                                      # the person approved this very call after it was left pending
@@ -534,19 +549,16 @@ class Session:
             return True
         answer = self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments, **({"rule_of_two": True} if two else {}),
                             "question": f"{two}" + "\n\n" + f"Allow {tool} {shown}?" if two else f"Allow {tool} {shown}?", "options": options})
-        self._remember_rules(answer, rules, bool(two))
+        self._remember_rules(answer, rules)
         return answer in ("confirm", "chat", "always")
 
-    def _remember_rules(self, answer: str, rules: List[str], two: bool) -> None:
+    def _remember_rules(self, answer: str, rules: List[str]) -> None:
         if answer not in ("chat", "always"):
             return
         scope = "global" if answer == "always" else "chat"
         for rule in rules:
             self.built.permissions.add_rule(rule, "allow")                   # the server keeps it for this conversation's next starts; "always" for every other one too
             self.emit({"event": "rule_added", "rule": rule, "scope": scope})
-        if two:
-            self.built.permissions.two.set_level("off")
-            self.emit({"event": "rule_of_two_off", "scope": scope})
 
     def enable_planner(self, client: Any) -> None:
         """Gives the conversation the planner's tools and the question tool; every change to a plan asks."""
@@ -636,14 +648,20 @@ class Session:
 
     def run_skill(self, turn_id: str, skill: Dict[str, Any]) -> bool:
         """Runs a personal skill in this conversation, as a task of its own: the person's request is said in it, the skill's tool calls
-        go through the agent's gate and are kept in it, and its result is its answer. One thing at a time: while a task is under way it
-        is refused."""
+        go through the agent's gate and are kept in it, and its result is its answer. One thing at a time: while a task is under way
+        the run is queued and starts when the conversation is free."""
         with self._lock:
-            if self._workers > 0:
-                self.emit({"event": "error", "code": "busy", "message": "a task is still running"})
-                return False
+            if self._workers > 0 or self.waiting:
+                self.skill_queue.append((turn_id, skill))
+                self.emit({"event": "queued", "turn": turn_id, "kind": "skill", "position": len(self.skill_queue)})
+                return True
             self._workers += 1
             self.busy, self.turn_id, self.blocked = True, turn_id, None
+        task = self._begin_skill(turn_id, skill)
+        threading.Thread(target=self._work, args=(task,), name="session-skill", daemon=True).start()
+        return True
+
+    def _begin_skill(self, turn_id: str, skill: Dict[str, Any]) -> Task:
         agent = self.agent
         agent.cancel.clear()
         display = str(skill.get("display") or f"Run the skill {skill.get('name')}")
@@ -653,8 +671,7 @@ class Session:
         self.tasks[turn_id] = task
         self._save()
         self.emit({"event": "accepted", "turn": turn_id})
-        threading.Thread(target=self._work, args=(task,), name="session-skill", daemon=True).start()
-        return True
+        return task
 
     def _run_skill_task(self, task: Task) -> str:
         """The body of a task that runs a personal skill: the script runs, and what it did is told as the answer."""
@@ -735,13 +752,18 @@ class Session:
     def idle(self) -> bool:
         """Nothing under way, nothing waiting, nobody asked: a quiet moment."""
         with self._lock:
-            return (self._workers == 0 and not self._waiting_n and not self.blocked and not (self.queue or self.inbox or self.urgent or self.stack))
+            return (self._workers == 0 and not self._waiting_n and not self.blocked and not (self.queue or self.inbox or self.urgent or self.stack or self.skill_queue))
 
     def poll_plans(self) -> Optional[str]:
         """Looks at the plans in a quiet moment and, for what is new and needs the person (a change proposed by the planner, a
-        step it cannot do, a step that failed), starts a turn that tells them. Each thing is announced once."""
-        if self.planner is None or not self.idle():
+        step it cannot do, a step that failed), starts a turn that tells them (an unattended run is told to decide for itself instead).
+        Each thing is announced once. A look asked for while the conversation is busy is kept and made when it is free."""
+        if self.planner is None:
             return None
+        if not self.idle():
+            self._poll_due = True
+            return None
+        self._poll_due = False
         try:
             plans = self.planner.list()
         except Exception:
@@ -774,8 +796,12 @@ class Session:
                 key, text = fresh[0]
                 self._announced.add(key)
                 self._save()
-                note = (f'[planner] Plan {pid} "{title}": {text} Tell the person briefly and ask what to do; change nothing in the plan '
-                        f'without their say. This note is from the system, not from the person.')
+                if self.unattended:
+                    note = (f'[planner] Plan {pid} "{title}": {text} Nobody is there to answer: decide with what you know and go on (retry the step, '
+                            f'work around it or leave it, and go on with the rest of the plan). This note is from the system, not from the person.')
+                else:
+                    note = (f'[planner] Plan {pid} "{title}": {text} Tell the person briefly and ask what to do; change nothing in the plan '
+                            f'without their say. This note is from the system, not from the person.')
                 if self.send("w-" + uuid.uuid4().hex[:6], note, origin="planner"):
                     return key
                 self._announced.discard(key)
@@ -938,8 +964,30 @@ class Session:
             self.sleep(min(0.25, max(0.0, end - time.monotonic())))
         return not cancel.is_set()
 
+    def load_model(self, wait_s: float) -> str:
+        """Asks the Loader to load the model and waits up to `wait_s` for it; returns what was done, raises when the Loader refuses."""
+        from harness.llm.qwen_loader import QwenLoader
+        return QwenLoader(self.endpoint, self.api_key, wait_s=wait_s, sleep=self.sleep).ensure()
+
+    def _model_wait(self, health: Dict[str, Any], wait: float) -> Tuple[str, str]:
+        """What a retry waits for, as a sentence for the person, and the Loader's refusal if there was one. A server that is up with no
+        model loaded and does not load by itself is asked to load the default one."""
+        if not health["reachable"]:
+            return "the server to answer", ""
+        if health["loading"]:
+            return "the model to finish loading", ""
+        if health["loaded"]:
+            return "the model to answer", ""
+        if health["auto_load"] or not self.endpoint:
+            return "the model to load on this request", ""
+        try:
+            self.load_model(max(1.0, min(wait, 30.0)))
+            return "the model to finish loading (load started by this conversation)", ""
+        except Exception as exc:                                       # the Loader's own words: another model holds the memory, no model chosen
+            return "the Loader to accept the load of the model", str(exc)
+
     def _run_task(self, task: Task) -> str:
-        """Runs one task to where it stops, with new tries while the model is only busy. Returns "done", "suspended" or "blocked"."""
+        """Runs one task to where it stops, with new tries while the model is busy, not loaded or not answering. Returns "done", "suspended" or "blocked"."""
         agent = task.agent
         attempt = 0
         self._tl.task = task
@@ -973,22 +1021,21 @@ class Session:
                 continue
             if agent.stop_reason != al.ERROR:
                 return "done"
-            status = agent.error_status
-            if status is None or status not in TRANSIENT_STATUS:
-                self._block(task, "refused" if status else "error", agent.error)
-                return "blocked"
+            status = agent.error_status                                    # a model error never blocks: the model is waited for, and loaded when it is not
             health = self.health()
             wait = self.waits[min(attempt, len(self.waits) - 1)]          # the last wait is repeated: only the person stops the retries
             attempt += 1
+            waiting_for, load_error = self._model_wait(health, wait)
             self.emit({"event": "retrying", "turn": task.turn, "attempt": attempt, "wait_s": wait,
                        "status": status, "error": agent.error, "reachable": health["reachable"], "loading": health["loading"],
-                       "loaded": health["loaded"], "auto_load": health["auto_load"]})
+                       "loaded": health["loaded"], "auto_load": health["auto_load"], "waiting_for": waiting_for,
+                       **({"load_error": load_error} if load_error else {})})
             if not self._wait(wait, agent.cancel):
                 agent.stop_reason = al.CANCELLED
                 return "done"
 
     def _more(self) -> bool:
-        return bool(self.stack or self.queue or self.urgent or self.inbox)
+        return bool(self.stack or self.queue or self.urgent or self.inbox or self.skill_queue)
 
     def _work(self, task: Optional[Task]) -> None:
         try:
@@ -1019,12 +1066,17 @@ class Session:
             with self._lock:
                 self._workers -= 1
                 self.busy = self._workers > 0
+            if self._poll_due and self.idle():
+                try:
+                    self.poll_plans()
+                except Exception:
+                    pass                                         # a failed look is tried again at the next one
 
     def _next_after(self, finished: Optional[Task]) -> Optional[Task]:
         """What to do when a task ends: an urgent request first, then the task that was put aside, then what waited its turn."""
         if finished is not None and finished.agent.cancel.is_set():
             with self._lock:
-                self.stack, self.queue, self.urgent, self.inbox = [], [], [], []      # Stop means stop
+                self.stack, self.queue, self.urgent, self.inbox, self.skill_queue = [], [], [], [], []      # Stop means stop
             return None
         with self._lock:
             leftovers, self.inbox = self.inbox, []
@@ -1048,8 +1100,14 @@ class Session:
             elif self.queue:
                 msg = self.queue.pop(0)
                 side = False
+            elif self.skill_queue:
+                turn_id, skill = self.skill_queue.pop(0)
+                msg = None
             else:
                 return None
+        if msg is None:
+            self.turn_id = turn_id
+            return self._begin_skill(turn_id, skill)
         if side:
             return self._begin_side(msg["turn"], msg["text"], msg.get("attachments"))
         self.emit({"event": "accepted", "turn": msg["turn"]})

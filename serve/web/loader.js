@@ -316,7 +316,8 @@
     const problems = (p.problems || []).map(x => LANG === "it" ? x.text_it : x.text);
     const editable = INFO && INFO.editable, busy = INFO && INFO.status && ["waiting", "stopping", "starting", "calibrating"].includes(INFO.status.phase);
     const why = !editable ? T("ld.ro." + ((INFO && INFO.reason) || "no_config")) : busy ? T("ld.busy") : problems.length ? T("ld.refused", problems.join(" ")) : "";
-    const label = T("ld.load");
+    const blocked = !editable || busy;                          // not fitting only warns: the load can go ahead anyway
+    const label = problems.length ? T("ld.loadanyway") : T("ld.load");
     return `<section class="sec ldres" aria-label="${esc(T("pr.title"))}">
         <div class="sh"><b>${esc(T("pr.title"))}</b></div>
         <div class="pad">
@@ -340,7 +341,7 @@
       <div class="sec ldgo">
         <p class="ldwhy" role="status" aria-live="polite" ${why ? "" : "hidden"}>${esc(why)}</p>
         <p class="ldstate setstatus" role="status" aria-live="polite"></p>
-        <div class="setactions"><button type="button" class="btn primary" data-act="load" ${why ? "disabled" : ""}>${esc(label)}</button></div>
+        <div class="setactions"><button type="button" class="btn primary" data-act="load" data-force="${problems.length ? "1" : ""}" ${blocked ? "disabled" : ""}>${esc(label)}</button></div>
       </div>`;
   }
   /* the projectors this model can read images with, each with the RAM it keeps: the model file's own and the files of the models folders */
@@ -391,7 +392,7 @@
     const go = $("#ld-side [data-act=load]");
     $("#ld-sticky").innerHTML = `<span class="stk-parts">${part("vram", T("pr.vram"))}${part("ram", T("pr.ram"))}${part("commit", "Commit")}` +
       `<span>~${nfmt((p.speed || {}).decode, 0)} tok/s</span></span>` +
-      `<a class="btn ${go && !go.disabled ? "primary" : "ghost"}" href="#ld-side">${esc(go && !go.disabled ? T("ld.load") : T("pr.nofit"))}</a>`;
+      `<a class="btn ${go && !go.disabled && !(p.problems || []).length ? "primary" : "ghost"}" href="#ld-side">${esc(go && !go.disabled ? ((p.problems || []).length ? T("ld.loadanyway") : T("ld.load")) : T("pr.nofit"))}</a>`;
   }
 
   async function plan(values, model) {
@@ -431,9 +432,11 @@
     if (r.status === 401) askKey();
     return { r, j };
   }
-  async function load(values, target, mode, model) {
+  async function load(values, target, mode, model, force) {
     const m = model || modelNow();
-    const { r, j } = await post("api/loader/load", m ? { values, model: m } : { values });
+    const body = m ? { values, model: m } : { values };
+    if (force) body.force = true;
+    const { r, j } = await post("api/loader/load", body);
     if (r.status === 422 && j.plan) { renderSide(target, j.plan, mode); return; }
     if (!r.ok) { say(T("ld.phase.failed", (j.error && j.error.message) || `HTTP ${r.status}`), "err"); return; }
     if ((j.notes || []).includes("model_restart")) { say(T("ld.model.relaunch", BasaltModels.name(j.model)), "ok"); waitRestart(); return; }
@@ -725,7 +728,7 @@
   document.addEventListener("click", e => {
     const b = e.target.closest("[data-act]");
     if (!b || b.disabled) return;
-    if (b.dataset.act === "load") load(readForm(), "#ld-side", "loader");
+    if (b.dataset.act === "load") load(readForm(), "#ld-side", "loader", undefined, b.dataset.force === "1");
     if (b.dataset.act === "calibrate") calibrate();
   });
   document.addEventListener("basalt:view", e => { if (e.detail === "loader" || e.detail === "settings") refresh(); });

@@ -1,7 +1,7 @@
 """The Loader's endpoints: what the page reads (GET /api/loader), the live plan of the values being edited
 (POST /api/loader/plan) and the load itself (POST /api/loader/load): checked as the server would load the file,
-checked against the memory free now, written to the --config file (FILE.bak kept) and applied by restarting the
-engine inside this server."""
+checked against the memory free now (a plan that does not fit is refused unless the request says "force": true),
+written to the --config file (FILE.bak kept) and applied by restarting the engine inside this server."""
 from __future__ import annotations
 
 import os
@@ -244,7 +244,8 @@ def load(svc, req: dict) -> dict:
                                       "message": ", ".join(f"--{n.split('.', 1)[1]}" for n in refused)
                                       + ": this engine binary does not know the flag; build the engine again or leave the field empty"}})
     p = evaluate(svc, merged, model=model)
-    if not p["fits"]:
+    force = isinstance(req, dict) and bool(req.get("force"))
+    if not p["fits"] and not force:
         raise Refused(422, {"error": {"type": "insufficient_memory", "code": "does_not_fit",
                                       "message": " ".join(x["text"] for x in p["problems"])},
                             "problems": p["problems"], "plan": p})

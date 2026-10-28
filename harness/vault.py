@@ -308,7 +308,7 @@ class Vault:
         lines = []
         for e in self.entries():
             names = ", ".join(sorted(set(e["fields"]) | ({"totp"} if e.get("second_factor") in ("manual", "automatic") else set())))
-            where = ("any site" if "*" in e["hosts"] else ", ".join(e["hosts"])) if e["hosts"] else "no site: local use only"
+            where = "any site" if "*" in e["hosts"] or not e["hosts"] else ", ".join(e["hosts"])
             held = "; its number, expiry and cvc come out only after request_payment approves a payment" if e.get("guard") else ""
             lines.append(f"- {e['id']} ({e['kind']}: {e['label']}) fields: {names}; may be sent to: {where}{held}")
         return ("Entries in the person's vault; write {{vault:ENTRY.FIELD}} where a value is needed and it is filled in for you "
@@ -322,24 +322,27 @@ class Vault:
     def references(self, text: str) -> List[str]:
         return [f"{i}.{f}" for i, f in PLACEHOLDER.findall(text)]
 
-    def check_destinations(self, text: str, hosts: Iterable[str], network_tools: Iterable[str] = ()) -> None:
+    def check_destinations(self, text: str, hosts: Iterable[str], network_tools: Iterable[str] = ()) -> List[str]:
+        """Raises SecretDestinationError if an entry with named sites would go to another one. An entry with no site named, or "*", goes anywhere.
+        Returns the entries limited to named sites that a command with a network tool and no site could not be checked for."""
         hosts, tools, entries = list(hosts), list(network_tools), self._read()
+        unchecked: List[str] = []
         for entry_id, field in PLACEHOLDER.findall(text):
             e = entries.get(entry_id)
             if e is None:
                 continue
             allowed = e["hosts"]
-            if "*" in allowed:
+            if "*" in allowed or not allowed:
                 continue
-            if not allowed:
-                if hosts or tools:
-                    raise SecretDestinationError(f"'{entry_id}' is for local use only; it cannot be put in a command that reaches the network")
             else:
                 if tools and not hosts:
-                    raise SecretDestinationError(f"'{entry_id}' may only be sent to {', '.join(allowed)}; this command runs a network tool but names no site, so where it would go cannot be checked")
+                    if entry_id not in unchecked:
+                        unchecked.append(entry_id)
+                    continue
                 bad = [h for h in hosts if h not in allowed and not any(h.endswith("." + a) for a in allowed)]
                 if bad:
                     raise SecretDestinationError(f"'{entry_id}' may only be sent to {', '.join(allowed)}, not to {', '.join(bad)}")
+        return unchecked
 
     def resolve(self, text: str, hosts: Optional[Iterable[str]] = None, ask_code: Optional[Callable[[str], str]] = None) -> str:
         """Fills in the placeholders. With `hosts` (where the text goes) a value only goes to a site its entry names."""

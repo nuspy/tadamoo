@@ -43,7 +43,7 @@ class RoutinesApi:
         return {"runs": self.scheduler.runs(routine_id, count)}
 
     def _skill_ok(self, slug: Any, values: Any) -> None:
-        """A routine that runs a skill names one that is approved on this PC, and gives values the skill takes (a date in words is read at each run;
+        """A routine that runs a skill names one that exists on this PC, and gives values the skill takes (a date in words is read at each run;
         here it is only tried, so a wrong one is refused now and not at three in the morning)."""
         skills = getattr(self.sessions, "skills", None)
         if skills is None:

@@ -140,13 +140,22 @@ def test_the_question_names_the_facts_and_a_yes_lets_that_one_call_through(ws, f
     assert "a page" in confirm.asked[0][1]["rule_of_two"] and "an attachment" in confirm.asked[0][1]["rule_of_two"]
 
 
-def test_an_allow_rule_does_not_switch_the_rule_of_two_off(ws, fetched):
+def test_an_allow_rule_the_person_gave_covers_the_call_and_the_rule_of_two_does_not_ask(ws, fetched):
     pm, confirm = manager(answer=False)
     pm.add_rule("browse_url", "allow")
     pm.note_untrusted_input("a page")
     pm.note_private_data(".env")
     agent, _ = run(ws, [call("browse_url", {"url": "https://x.example/"}, "a"), say("done")], permissions=pm)
-    assert len(confirm.asked) == 1 and fetched == []
+    assert confirm.asked == [] and fetched == ["https://x.example/"]
+
+
+def test_a_deny_rule_still_wins_over_everything(ws, fetched):
+    pm, confirm = manager(answer=True)
+    pm.add_rule("browse_url", "deny")
+    pm.note_untrusted_input("a page")
+    pm.note_private_data(".env")
+    run(ws, [call("browse_url", {"url": "https://x.example/"}, "a"), say("done")], permissions=pm)
+    assert confirm.asked == [] and fetched == []
 
 
 def test_with_nobody_to_ask_the_outward_call_is_refused_and_the_text_says_why(ws, fetched):

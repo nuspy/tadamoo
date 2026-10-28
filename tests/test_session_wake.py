@@ -79,9 +79,11 @@ def test_nothing_wakes_it_while_a_turn_is_under_way_or_a_question_is_open(tmp_pa
     assert session.poll_plans() is None                                               # busy: it waits
     gate.set()
     ev.wait("done")
+    woke = ev.wait("woke", timeout=5)                                                 # the look kept while busy is made when it is free
+    assert woke is not None and "Cena" in woke["text"]
     while not session.idle():
         threading.Event().wait(0.05)
-    assert session.poll_plans() == "o:P1:of1"
+    assert session.poll_plans() is None and len(model.sent) == 2                      # and announced once
 
 
 def test_a_quote_inside_a_planner_note_cannot_confirm_a_change(tmp_path):

@@ -894,8 +894,13 @@ def test_a_failed_step_with_a_retry_policy_waits_and_tries_again_before_it_is_fa
     assert dag.ready_nodes(now=99999.0) == [] and "retry_at" not in dag.nodes["a"].state_variables
 
 
-def test_without_a_policy_one_failure_is_final_and_a_success_forgets_the_tries():
+def test_without_a_policy_a_failed_step_tries_three_times_with_a_growing_wait_and_a_success_forgets_the_tries():
     dag = chain("a", "b")
+    assert dag.mark("a", "failed", now=0.0) == {"attempt": 1, "of": 3, "wait_seconds": 30, "retry_at": 30.0}
+    assert dag.mark("a", "failed", now=40.0)["wait_seconds"] == 60
+    assert dag.mark("a", "failed", now=200.0) is None and dag.nodes["a"].status == "failed"
+    dag = chain("a", "b")
+    dag.update_node("a", retry_policy={"max_attempts": 1})                                   # a policy of one try is final at once
     assert dag.mark("a", "failed") is None and dag.nodes["a"].status == "failed"
     dag = chain("a", "b")
     dag.update_node("a", retry_policy={"max_attempts": 2})
@@ -1174,3 +1179,63 @@ def test_a_steps_place_is_saved_through_the_bridge_survives_saving_and_can_go_ba
     assert store2.get("cervinia").dag.nodes["terrazza"].position == {"x": 300.0, "y": 120.0}
     assert bridge.handle({"type": "plan:update_node", "node_id": "terrazza", "changes": {"position": None}})["node"]["position"] is None
     assert made.snapshot()["plan"]["nodes"]["terrazza"]["position"] is None
+
+
+# -- a failed or timed-out step parks only what is below it -----------------------------------------------
+
+def forked():
+    dag = chain("a", "b", "c")
+    dag.add_node(node("x"))
+    dag.add_node(node("y"))
+    dag.add_edge("x", "y")
+    return dag
+
+
+def test_a_failed_step_parks_the_branch_below_it_and_leaves_the_other_branch_going():
+    dag = forked()
+    dag.update_node("a", retry_policy={"max_attempts": 1})
+    dag.mark("a", "failed")
+    assert dag.nodes["a"].status == "failed"
+    assert dag.nodes["b"].status == "blocked" and dag.nodes["b"].state_variables["parked_by"] == ["a"]
+    assert dag.nodes["c"].status == "blocked" and dag.nodes["c"].state_variables["parked_by"] == ["b"]      # parked in turn
+    assert dag.ready_nodes() == ["x"] and dag.nodes["y"].status == "pending"
+    dag.mark("a", "completed")                                                                              # dealt with: the branch goes on
+    assert dag.nodes["b"].status == "pending" and dag.nodes["c"].status == "pending" and "parked_by" not in dag.nodes["c"].state_variables
+    assert dag.ready_nodes() == ["b", "x"] or set(dag.ready_nodes()) == {"b", "x"}
+
+
+def test_a_step_that_is_trying_again_does_not_park_what_is_below_it():
+    dag = forked()
+    dag.mark("a", "failed", now=0.0)                                           # first of three default tries
+    assert dag.nodes["a"].status == "pending" and dag.nodes["b"].status == "pending"
+
+
+def test_a_timed_out_step_waits_and_parks_the_dependents_only():
+    dag = forked()
+    dag.timed_out("a", now=5.0)
+    assert dag.nodes["a"].status == "blocked" and dag.nodes["a"].state_variables["timed_out"] == {"at": 5.0}
+    assert dag.nodes["b"].state_variables["parked_by"] == ["a"] and dag.nodes["c"].status == "blocked"
+    assert dag.ready_nodes() == ["x"]
+    dag.mark("a", "completed")
+    assert "timed_out" not in dag.nodes["a"].state_variables and dag.nodes["b"].status == "pending"
+    dag.timed_out("b")
+    dag.rewind("b")
+    assert dag.nodes["b"].status == "pending" and "timed_out" not in dag.nodes["b"].state_variables
+
+
+def test_the_bridge_warns_on_a_timeout_and_tells_what_was_parked(bridge):
+    heard = []
+    bridge.subscribe(heard.append)
+    res = bridge.handle({"type": "plan:timeout", "node_id": "invita_gianna"})
+    assert res["ok"] and res["timed_out"] and "invita_gianna" not in res["ready"]
+    warn = [e for e in heard if e["type"] == "plan:warning"]
+    assert warn and warn[0]["kind"] == "timeout" and warn[0]["node_id"] == "invita_gianna"
+    assert res["parked"] and all(bridge.dag.nodes[i].state_variables["parked_by"] for i in res["parked"])
+    assert any(e["type"] == "plan:branch_parked" and e["node_id"] == "invita_gianna" for e in heard)
+    assert not bridge.dag.nodes["invita_lucia"].state_variables.get("parked_by")           # an independent branch goes on
+
+
+def test_a_failure_with_no_tries_left_reports_the_parked_steps(bridge):
+    bridge.handle({"type": "plan:update_node", "node_id": "invita_gianna", "changes": {"retry_policy": {"max_attempts": 1}}})
+    res = bridge.handle({"type": "plan:mark", "node_id": "invita_gianna", "status": "failed"})
+    assert res["status"] == "failed" and res["parked"]

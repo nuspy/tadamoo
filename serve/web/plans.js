@@ -687,11 +687,13 @@
       ? el("textarea", { id: "pl-d-cond", rows: "4", disabled: done, spellcheck: "false", text: JSON.stringify(n.conditions, null, 2) })
       : null;
     const policy = n.retry_policy || {};
-    const tries = el("input", { id: "pl-d-tries", type: "number", min: "1", max: "10", inputmode: "numeric", disabled: done, value: String(policy.max_attempts || 1) });
-    const wait = el("input", { id: "pl-d-wait", type: "number", min: "0", max: "604800", inputmode: "numeric", disabled: done, value: String(policy.wait_seconds || 0) });
+    const tries = el("input", { id: "pl-d-tries", type: "number", min: "1", max: "10", inputmode: "numeric", disabled: done, value: String(policy.max_attempts || 3) });
+    const wait = el("input", { id: "pl-d-wait", type: "number", min: "0", max: "604800", inputmode: "numeric", disabled: done, value: String(policy.wait_seconds ?? 30) });
     const out = el("textarea", { id: "pl-d-out", rows: "2", spellcheck: "false", placeholder: '{"invitati_confermati": ["Anna"]}' });
     const facts = [];
     if (n.state_variables.blocked_by) facts.push(T("pl.blocked_by", n.state_variables.blocked_by.map(i => (S.snap.plan.nodes[i] || {}).title || i).join(", ")));
+    if (n.state_variables.parked_by) facts.push(T("pl.parked_by", n.state_variables.parked_by.map(i => (S.snap.plan.nodes[i] || {}).title || i).join(", ")));
+    if (n.state_variables.timed_out) facts.push(T("pl.timed_out"));
     if (n.state_variables.fallback_reason) facts.push(T("pl.fallback", n.state_variables.fallback_reason));
     if (n.state_variables.selected) facts.push(T("pl.selected", n.state_variables.selected.join(", ")));
     if (n.state_variables.outputs) facts.push(T("pl.outputs", JSON.stringify(n.state_variables.outputs)));
@@ -777,7 +779,7 @@
     if (!changes.title) { say(T("pl.f.title.required"), true); return; }
     const tries = Number(document.getElementById("pl-d-tries").value) || 1, wait = Number(document.getElementById("pl-d-wait").value) || 0;
     const old = (S.snap.plan.nodes[id] || {}).retry_policy || {};
-    changes.retry_policy = tries > 1 ? { max_attempts: tries, wait_seconds: wait, backoff: old.backoff || 1 } : null;
+    changes.retry_policy = { max_attempts: tries, wait_seconds: wait, backoff: old.backoff || 2 };
     await event({ type: "plan:update_node", node_id: id, changes }, T("pl.saved"));
   }
   function noRouteText(f) {

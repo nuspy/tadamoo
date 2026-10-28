@@ -217,6 +217,7 @@
     } else {
       a.innerHTML = markdown(m.text || "");
     }
+    if (m.notice) a.insertBefore(Object.assign(document.createElement("p"), { className: "ctx-notice", textContent: m.notice }), a.firstChild);
     el.querySelector(".meta-t").textContent = m.meta || (streaming ? "" : m.stopped ? "Stopped" : "");
     el.querySelector(".copy").hidden = streaming || !m.text;
     const retry = el.querySelector(".retry");
@@ -316,7 +317,11 @@
     const body = { messages: out, policy, max_tokens: sampling.max_tokens || 0, threshold: chatSettings.threshold(), ...extra };
     if (effort.value) body.reasoning_effort = effort.value;
     const r = await fetch("api/chat/context", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify(body) });
-    if (!r.ok) return { out, at, r: null };
+    if (!r.ok) {
+      let err = `HTTP ${r.status}`;
+      try { err = (await r.json()).error.message || err; } catch (e) { /* not JSON */ }
+      return { out, at, r: null, err };
+    }
     return { out, at, r: await r.json() };
   }
   function meter() {
@@ -337,10 +342,17 @@
   // apply the policy before a send: true to go on, false when the conversation cannot be sent
   async function fitContext(m) {
     const policy = chatSettings.policy();
-    let res;
-    try { res = await context(policy); } catch (e) { return true; }   // the server says no later if it must
-    const r = res.r;
-    if (!r) return true;
+    let res = null, why = "";
+    try { res = await context(policy); why = res.err || ""; } catch (e) { why = e.message; }
+    if ((!res || !res.r) && policy === "compact") {          // the summary failed: drop the oldest messages instead
+      try { const again = await context("rolling"); if (again.r) { res = again; m.notice = T("ctx.fallback", why); } } catch (e) { /* sent as it is below */ }
+    }
+    const r = res && res.r;
+    if (!r) {                                               // the send goes on; the server clamps the answer cap
+      if (why) { m.notice = T("ctx.failed", why); status(m.notice); }
+      return true;
+    }
+    if (r.notice) m.notice = r.notice;
     limitKnown = r.limit;
     messages.forEach(x => { delete x.outside; });
     if (r.action === "over") {

@@ -42,7 +42,7 @@ the Chat can reach, the others can reach:
 | `--rule-of-two {off,ask,strict}` | when an action that reaches the outside asks (default `ask`; see the Rule of Two below) |
 | `--vault-dir`, `--payments-dir` | the Wallet's vault and payment systems (`{{vault:ENTRY.FIELD}}`, `request_payment`) |
 | `--browser`, `--browser-headless`, `--browser-private`, `--browser-profile DIR` | the browser tools and how they run |
-| `--browser-consent {necessary,accept,reject,off}`, `--browser-permissions {deny,ask,grant-safe}` | what the browser does about cookie banners (default `necessary`) and permission requests (default `deny`) |
+| `--browser-consent {follow,necessary,accept,reject,off}`, `--browser-permissions {follow,ask,grant,grant-safe,deny}` | what the browser does about cookie banners and permission requests; `follow` (default) is accept / grant at the Auto level and necessary / ask otherwise |
 | `--capabilities` | `find_capability`, `load_capability`, `read_capability`, `call_capability`, `analyze_image`: the skills, plugins and MCP servers found on this PC |
 | `--lsp` | `diagnostics`, `go_to_definition`, `find_references` when a language server is found |
 | `--council` | `ask_council` when a council is set up (the Chat always offers it) |
@@ -102,10 +102,11 @@ skills, connections) and the history is kept between messages. The server starts
 The history is saved after every model turn, and a message is on disk before the model sees it. Failures are handled in
 two places and never hidden:
 
-* **in the process**: a model call that fails because the server is busy or unreachable (HTTP 0, 408, 425, 429, 5xx) is
-  tried again with waits of 2, 5, 15, 30, 60, 120, 180 and then 300 seconds, for as long as it takes, checking whether the
-  model is loaded in between (`retrying` carries the attempt and the wait); only a refusal that waiting cannot change
-  (4xx) ends the turn as `blocked`;
+* **in the process**: a model call that fails, whatever the error (busy, unreachable, model not loaded, refused), is
+  tried again with waits of 2, 5, 15, 30, 60, 120, 180 and then 300 seconds, for as long as it takes, and never ends the
+  turn as `blocked`. `retrying` carries the attempt, the wait and `waiting_for` (what is waited for). When the model is not
+  loaded and the server does not load it by itself, the conversation asks the Loader to load it (`load_error` when the Loader
+  refuses);
 * **in the server**: a process that dies or stops answering its heartbeat is started again from its history, after a wait
   that grows with the restarts of the last 10 minutes (0, 2, 5, 15, 30, 60, 120, 180, then 300 seconds, `restarting`
   carries `attempt` and `wait_s`), and the turn goes on (a message it never confirmed is sent again). It never gives up
@@ -125,8 +126,9 @@ go on with what it has (`auto_answered`: `kind`, `value`, `available`, `source`)
 `source.named` (`people`, `resource` or `booking`), the conversation lists it in `pending`, the model is told the answer is
 pending and to go on with other work, and `POST .../<id>/answer` with its id applies the answer later, from the page or a
 phone (`pending_done`; a permission the person approves lets the model's repeated call through, and the model reads the
-answer as a note at its next turn). Facts about the source are given; the model decides what to do. A conversation idle for 30 minutes loses its process (it is `dormant`; the
-history stays). The processes end with the server. Secrets are masked before the history reaches the disk.
+answer as a note at its next turn). Facts about the source are given; the model decides what to do. A conversation's process is closed after a set idle time (`idle_s`; no limit unless you set one; it is then `dormant` and the
+history stays). A process silent for `beat_timeout_s` is stopped and started again (no limit unless you set one: a long call without
+output is never killed). Both are in `limits.json` (see "Time limits"). The processes end with the server. Secrets are masked before the history reaches the disk.
 
 ### The mode, the thinking level and the slash commands
 
@@ -213,14 +215,15 @@ removes and changes, and a no rejects the proposal. With nobody to ask (a headle
 nothing.
 
 At `auto` the decision is made step by step (`harness/planner/involvement.py`: `step_facts`, `split_diff`). A step is an exception by
-its data: assignee `third_party`, a `call_request`, or recorded effects that are not reversible; a step for the user is a to-do and
-is not. A change that touches no such step is applied without a question. A change that mixes both is applied for the part that
+its data: assignee `third_party`, a `call_request`, or a recorded effect that is a booking, a payment or a resource the software does
+not control (`kind` on the effect, or `request_payment`); an effect that is only not reversible does not hold a step back. A step for
+the user is a to-do and is not. A change that touches no such step is applied without a question. A change that mixes both is applied for the part that
 touches none (`plan:approve` with `safe_only`) and the rest stays a pending proposal, with the steps that hold it back named in
 `involves`; a step that depends on a held step is held too. The plan goes on and the tool says what was applied and what waits. A
 plan made at `auto` is created without its steps for other people, which wait as a proposal; the person's own quoted words
 still cover them. Below `auto` nothing changes: the whole change is asked.
 
-`ask_user` ends the turn. The buttons are the question's options (a label and the text sent when it is pressed, at most 300
+`ask_user` ends the turn when the person is there; in an unattended run it does not: the model is told nobody can answer and goes on with its own judgement. The buttons are the question's options (a label and the text sent when it is pressed, at most 300
 characters), the person can always write instead, and whatever they press or write is their next message. Permission
 questions (a risky shell command, a phone call) are put in the conversation the same way.
 
@@ -242,8 +245,10 @@ statement is covered (`cd x && make` needs `cd *` and `make *`; a command built 
 by none); then the level: read-only asks for anything, `default` allows reversible workspace edits and asks for irreversible actions.
 The Rule of Two asks only below `auto`, and only for an outward action. `request_payment` carries an allow rule because the payment broker
 is its only gate (the person's limit, the waiver, and a question to the person above them). `write_file` and `edit_file` are reversible,
-except inside a `.git` folder (a hook or the config can make git run code later): below `auto` the person is asked there, once per file, and
-the checkpoint before it holds the hooks and the config.
+also inside a `.git` folder: no special question, they follow the rules of any workspace write, and the checkpoint before it holds the hooks and
+the config. Every question below `auto` offers three levels (this call, this conversation, for good); the last two add an allow rule made from the
+tool name (`write_file:.git/config`, `acp_permission:...`, `request_payment:<system>`, `phone_call`) or from the command, and an allow rule also
+covers the Rule of Two and a tool that asks every time.
 
 The Rule of Two is kept as three facts about the conversation (`harness/rule_of_two.py`). **Untrusted**: it read content from outside the
 person's control: a page, a search result, an MCP or A2A answer, a file, a command's output, an attachment, a recalled note, a note the
@@ -310,8 +315,10 @@ and the rejection are in the audit log.
 ### Stopping and time limits
 
 Stop ends a command that is running: a shell command and everything it started (on Windows the whole job) end within a fraction of a second
-after the run is cancelled, instead of when the command finishes. Every tool also has a time limit, 15 minutes unless set otherwise
-(`--tool-timeout SECONDS`, or `NAME=SECONDS` for one tool; `0` for none; `ToolRegistry.set_timeout` in code). A tool that runs past it is
+after the run is cancelled, instead of when the command finishes. Every tool also has a time limit, one hour unless set otherwise
+(`tool_timeout_s` in `limits.json`, which is never unlimited; or `--tool-timeout SECONDS`, or `NAME=SECONDS` for one tool; `0` for none; `ToolRegistry.set_timeout` in code).
+`limits.json` lives in the user data folder (`serve/limits.py`): `{"beat_timeout_s": null, "idle_s": null, "compare_wait_s": null, "tool_timeout_s": 3600}`;
+`null` or `0` is no limit (default for all but the tool's), `BASALT_LIMIT_<NAME>` sets one from the environment, and the file is read again whenever it changes. A tool that runs past it is
 stopped and the model is told which tool and how long. The stop is an exception raised in the tool's own thread, so no thread is left running
 behind; a tool that is inside one blocking system call stops when that call returns. The clock does not run while the person is being asked
 something inside the tool (a plan change, a payment, a code). A shell command keeps its own `timeout` (up to 10 minutes); `transcribe_attachment`,
@@ -362,14 +369,15 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
 ## Secrets, payments and phone calls
 
 - **Secrets**: the model writes `{{secret:NAME}}`; the shell tool fills it in at the last moment and masks the value in
-  everything that comes back. A secret without hosts is for local commands only; one with hosts is refused if the command
-  names any other host or a network tool without a site. The sites of a command are read from its addresses (every reading of a
+  everything that comes back. A secret without hosts, or with `*`, goes anywhere; one with hosts is refused if the command
+  names any other host. When a command runs a network tool but names no site the check cannot be made: the command runs and the audit
+  records `secret_destination_unchecked`. The sites of a command are read from its addresses (every reading of a
   backslash or an `@`, since parsers disagree on them) and, when it runs a network tool, from bare names (`curl evil.example/x`) and
   `user@host`; file names such as `out.txt` are not taken for sites.
 - **The vault** (`vault.py`, the **Wallet** view): cards, personal data for bookings, logins and secrets, in one file encrypted
   with AES-256-GCM under the device key (Windows DPAPI wraps the key for this user; code running as the same user can still ask
   Windows for it). The model writes `{{vault:ENTRY.FIELD}}`; the value is put in only where a tool uses it, only toward the
-  sites the entry names (none: this PC only; a star: any site), and masked again in what comes back, one-time codes included.
+  sites the entry names (none or a star: any site; the entry form has a *Use anywhere* box), and masked again in what comes back, one-time codes included.
   The list shows which fields are set and the last four digits of a card; the owner can show or copy a value when editing an entry (the page asks the server on that press, nothing the model can call does), generate a password, search and filter, and import the logins exported by Edge, Chrome, Firefox or a password manager as CSV, each one sent only to its own site. `browser_sign_in` fills a login's user name and password into the page's sign-in fields. A conversation that holds a vault
   entry counts as holding a secret for the Rule of Two, decided at each tool call, so an entry added in the page reaches a running conversation.
   What comes back is masked of a value in its forms: as it is, reversed, in the other case, base64, hex, percent-encoded, and a card number
@@ -387,10 +395,10 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
 - **Payments**: a payment system is held by a card or a login of the vault (or by a provider's own virtual card, token or
   mandate). The broker (`payments_broker.py`) keeps a state file signed with the device key and a hash-chained ledger under a
   file lock, re-read on every request, so a revocation made in the page applies at once, the server and the conversations'
-  processes keep one chain, and any file that fails verification stops all payments. Amounts are exact cents, with every digit kept
+  processes keep one chain, and a payments file that fails verification is set aside (renamed `.damaged-<time>`), the rows that still read are kept in a new chain, the amounts spent are worked out again from them and payments go on with a `ledger_recovered` row and a warning event (the state file `payments_state.json` still stops payments when its signature fails). Amounts are exact cents, with every digit kept
   (up to 60, only so that a number cannot fill the memory). The limit is the person's to set, to any amount; until it is set it is 0 and
   every payment asks the person. A waiver (the design's level 4, §4.8.4) lets the agent pay by itself up to a cap per payment
-  and a cumulative cap until it expires; above them it asks again. Granting one is the dictated declaration (checked in Italian
+  and, if the person set one, a cumulative cap, until it ends (it has no end date unless one is set); above them it asks again. Granting one is the dictated declaration (checked in Italian
   and English against the chosen amount), the release and acceptance dialogs with the name typed again, and an AES-256-GCM
   evidence dossier (needs the `cryptography` package, see `harness/requirements.txt`). The agent can only *ask*
   (`request_payment`, offered when a payment system exists, with the `site` that will take the payment); nothing it can call grants or
@@ -410,26 +418,30 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   bookings (`browser_open`, `browser_read`, `browser_click`, `browser_type`, `browser_select`, `browser_press`, `browser_back`).
   Where the conversation has a place for files (the Chat), `browser_screenshot` keeps a PNG of the page as a file of the conversation, and `browser_open`, `browser_click`,
   `browser_select`, `browser_press` and `browser_back` take `screenshot: true` to keep one of the page they lead to. The result names the file (its path, `output:<id>` for
-  `analyze_image`, and the `basalt-file:` link to show it); the call is in the audit log. No picture is taken in a browser where a vault value was typed, because a picture cannot be masked like text.
-  A page is read as numbered elements and text, fenced as untrusted. A vault value is typed only if the page's site is one the
+  `analyze_image`, and the `basalt-file:` link to show it); the call is in the audit log. In a browser where a vault value was typed a picture could show it (it cannot be masked like text): at the Auto level it is taken, otherwise the person is asked.
+  A page is read as numbered elements and text, fenced as untrusted. Nothing is cut off: `browser_read` takes `offset` and `limit` (the list is read in pages of 150
+  elements), `contains` and `role` (only the matching elements, numbered as on the whole page), and `words_from` and `words` (the text, 1000 words at a time); a cut says how to read on. A vault value is typed only if the page's site is one the
   entry names, and a field that holds one is listed as set. Each conversation has its own browser, and the
   browser ends with it, however it ends. By default its profile is thrown away with it; the person can choose to keep one profile, so that
   the sign-ins they make in it (Google, a bank, a shop: **Open the browser to sign in** in the Wallet view) are there in every conversation.
   Only one browser at a time can use that profile; another conversation starts with a fresh one and is told so. Pages on this PC or its
-  network (private, loopback, link-local, shared-carrier ranges such as a tailnet) are reached only if the person allowed them: every request of
+  network (private, loopback, link-local, shared-carrier ranges such as a tailnet) are reached at the Auto level and when the person allowed them in the Wallet view; otherwise opening one asks the person (`browser_private_page`, this
+  call, this conversation or for good, per host). Without that, every request of
   a page and of its frames goes through a check before it leaves, so a link, a redirect, a script or an image cannot reach them, and a refused
   one is reported to the model. A name that resolves to another address between the check and the request (DNS rebinding) is not stopped.
-  A value from the vault is not typed on a plain `http` page of the internet. The browser's debugging port listens on 127.0.0.1 without a
+  A value from the vault is typed on a plain `http` page of the internet only when the person allows it (`browser_insecure_typing`; at Auto it is allowed). The browser's debugging port listens on 127.0.0.1 without a
   password, so a command run as this user can reach the browser and its cookies; this is the same limit as above. It reaches the page, the frames of its own site, the frames of other sites the page
   holds (an embedded Stripe card form: each is a session of its own, and a value typed there goes only to a site the vault entry names), and
   the windows the page opens (a payment sheet), which become the page it works on until they close. Whether the conversations have a
   browser, whether it shows a window, whether it may open pages of this PC and whether it keeps sign-ins is set in the Wallet view, each risky
   choice with a highlighted label and two questions.
   What would hide a page is dealt with by the harness itself, by fixed rules (`browser_consent.py`) and the person's two policies (Wallet view, or
-  `--browser-consent`, `--browser-permissions`), never by the page's words. *Cookie banners*: after a page loads (and for a few seconds if the banner
+  `--browser-consent`, `--browser-permissions`), never by the page's words. At the Auto level the browser asks nothing; below it each question
+  (`browser_private_page`, `browser_permission`, `browser_dialog`, `browser_download`, `browser_screenshot`, `browser_insecure_typing`) goes through the
+  conversation's confirmation with the three answers, and an allow rule can name a site: `browser_permission:https://shop.example:camera`, `browser_dialog:*`. *Cookie banners*: after a page loads (and for a few seconds if the banner
   comes late) the browser looks for a known consent manager's container (OneTrust, Cookiebot, Didomi, Quantcast, TrustArc, Usercentrics, Iubenda,
   CookieYes, Complianz, Osano, Sourcepoint, Google's consent page) or a dialog or pinned banner that speaks of cookies or privacy, and only inside
-  it clicks a plain button whose label matches a fixed phrase in English, Italian, French, German or Spanish. `necessary` (default) rejects, or keeps
+  it clicks a plain button whose label matches a fixed phrase in English, Italian, French, German or Spanish. `follow` (default) is `accept` at the Auto level and `necessary` below it; `necessary` rejects, or keeps
   only the necessary, or opens the settings to reach one of those, and accepts only if none can be used; `accept` accepts; `reject` never accepts;
   `off` leaves banners to the model. It never clicks a link that goes elsewhere, a button that sends a form, or a label that asks for a payment, a
   sign-in or a download; a newsletter pop-up is closed by its close mark, never subscribed to. Each click is recorded in the audit ledger and put at
@@ -441,7 +453,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   grants for that site only on a yes; `grant-safe` also allows only writing to the clipboard. USB, serial and HID choosers are never granted. JavaScript
   dialogs never send anything: an alert is accepted, a question or a prompt dismissed, a warning on leaving accepted only when `browser_open` or
   `browser_back` asked to go; each is reported to the model.
-- **Phone calls** (`--phone`): below the `auto` level `phone_call` asks every time, even with an allow rule; the call opens by
+- **Phone calls** (`--phone`): below the `auto` level `phone_call` asks (this call, this conversation or for good); the call opens by
   saying it is an AI assistant calling for you; what the other person says is untrusted. Tests of real calls are skipped
   and queued in `tests/QUEUE_live_calls.md` until you authorize them (`BASALT_LIVE_CALLS=1`).
 - **Recordings** (audio and video attachments): the same callAPIcall client sends a file to the service's analysis routes in
@@ -589,7 +601,9 @@ and the bridge the page talks to.
   `not_asked`); `GET /api/plans/<id>` carries `replanning`. The ids `events` and `telemetry` cannot be plan ids.
 - **Steps**: a step with a `retry_policy` (`max_attempts` 1-10, the first try counts; `wait_seconds`; `backoff`) is not marked failed by the first
   failure: it goes back to pending, is not ready until the wait is over, and fails for good on the last try (`plan:mark` answers `retry`, the Chat's
-  `plan_mark` says so). A **sensor** step has `conditions: {"when": <expression>, "set": {name: value}}`; once its turn has come (its parents are done)
+  `plan_mark` says so). A step without a policy gets 3 tries with a wait of 30 s doubling each time. When a step fails for good or times out
+  (`plan:timeout`, a warning event), the steps below it are parked (`blocked`, `parked_by`) and the plan is sent to re-planning; independent
+  branches go on. A **sensor** step has `conditions: {"when": <expression>, "set": {name: value}}`; once its turn has come (its parents are done)
   it resolves on the first event whose text (in lower case, as `text`), `source` or `at` satisfy `when` (the plan's values can be used too), and writes
   `set` into the plan's values (a text that starts with `=` is an expression, e.g. `"=text"`). A sensor whose condition cannot be judged waits for the
   next event and shows why. A step also carries its `position` on the canvas, an optional prepared `call_request` and a `wiki_query` (below).
@@ -606,7 +620,7 @@ and the bridge the page talks to.
   of `getUpdates`, the token a `secret` entry, only the chats in `allowed_chat_ids`; it never sends anything). Settings hold the names of the Wallet
   entries, never a password or a token, and an error shown for a source never contains one. Two sources need nothing from outside: `system` (`disk_path`, `min_free_gb`: one event when the free space falls below the limit) and `deadlines` (`lead_days`, default 7, 3, 1 and 0: a plan whose profile dates are near gets one event for the nearest lead time, addressed to that plan; plans with nothing left to protect are left out). A hook with the `plan_event` action (see *Hooks*) also feeds the mailbox. SMS and calendar have their interface (`SmsSource`, `CalendarSource` in `harness/planner/local_sources.py`, which take items from a provider function) but nothing connects them to a modem or an account, so a Settings entry cannot name them; an ACP sensor has no schema in this code, and the mailbox takes such events as they are.
 - **A step and a call, or the wiki**: a step can carry `call_request` `{number, reason, text}` prepared by the plan (`plan_prepare_call`, with the
-  person's yes). Nothing places it: `plan_step_requests` shows it, and the Chat places the call only with `phone_call`, which asks every time. A step's
+  person's yes). Nothing places it: `plan_step_requests` shows it, and the Chat places the call only with `phone_call`, which asks below `auto`. A step's
   `wiki_query` is shown with `wiki_context` as the way to ask when the conversation has the wiki tools (`--wiki`). When `phone_call` cannot place
   a call the message says why: the service is not running, it refused the token, a call is already in progress (HTTP 409), or it refused the call
   with its reason; and when the call **may have started** (no answer in time, the connection broke, a server error) the status is `unknown`, the
@@ -752,8 +766,11 @@ Capabilities, *Search online*, and in `discovery.json`.
 
 **What is downloaded, and what is never run.**
 - *npm*: `npm install --prefix <user data>/capabilities/mcp/<name> <package>@<exact version> --ignore-scripts --no-audit --no-fund`.
-  No script of any package runs at install (a package that needs one may not work). The `integrity` npm wrote in the lock file is
-  compared with the one the registry published for that release; a different hash deletes the folder. The server is started from the
+  No script runs at install unless the person chose *allow scripts* when approving (the flag is then left out and the record says so). The
+  `integrity` npm wrote in the lock file is compared with the one the registry published for that release; a different hash deletes the
+  folder and shows both hashes, and the person may go on with *install anyway* (the record keeps `integrity_differs`). An installed package
+  is refused with *update*, which replaces it and puts the old one back if the new install fails. The size limits of a downloaded skill
+  (`max_skill_files`, `max_skill_mb`, `max_skill_file_mb` in `discovery.json`) are 0, no limit, until the person sets them. The server is started from the
   installed program in `node_modules/.bin`, never through `npx -y`.
 - *PyPI*: the release is downloaded as a wheel only (`pip download --no-deps --only-binary=:all:`), its sha256 is compared with the ones
   PyPI lists for the release, then it is installed with `uv pip install --no-build` (if `uv` is on the PC) or `pip install
@@ -815,7 +832,7 @@ model (structured and incremental summaries) use the provider chosen for the com
 when it fails.
 
 Going back: each request of the person in the conversations Chat has a "Back to here" button (two presses); the conversation returns to just after
-that request, a copy of what came later is kept in its folder, and the files the agent changed are not touched (the Changes panel undoes them). Actions that cannot be undone are listed first and need an explicit yes (see *Branches, going back and comparing*).
+that request, a copy of what came later is kept in its folder, and the files the agent changed are not touched (the Changes panel undoes them). Actions that cannot be undone are listed and stay done (see *Branches, going back and comparing*).
 A plan can be copied as a Mermaid diagram from the Plans view (`GET /api/plans/<id>/mermaid`).
 
 Not done: a rewriting that the model proposes and the person approves, candidates written in parallel, named versions of
@@ -838,9 +855,9 @@ before these fields existed have none and show as plain conversations.
   (`reversible`: the Changes panel puts them back) and those that stay (`not_undone`: a command, a call, a payment, a browser action,
   an MCP tool, a tool whose effect is not known, a file outside the copy). A call the agent refused or that was cancelled is not
   counted. The class of each tool comes from what it declared when the conversation used it (kept in `tool_effects.json`), else from
-  the table in `harness/rewind.py`. `POST .../<id>/back` refuses (`needs_yes`, 409) while any call stays, unless the body has
-  `accept_irreversible: true`; the page shows the list and asks for one more press. The list is kept in the `rewinds` mark and the
-  `went_back` event as still done: nothing pretends to have undone it.
+  the table in `harness/rewind.py`. `POST .../<id>/back` goes back without a yes (a run in progress is stopped by it); the list of what
+  stays done is kept in the `rewinds` mark and the `went_back` event: nothing pretends to have undone it. The same holds for putting
+  files back to a checkpoint (`.../checkpoints/restore`, `POST /api/agent/runs/<id>/rewind`): the reply carries `not_undone`.
 - **A plan's steps.** While a conversation works on a plan's step (between `plan_step_start` and `plan_mark` to completed, failed or
   skipped), the manager writes each reversible or irreversible tool call that succeeded onto the step (`plan:note_effect`, in the step's
   `state_variables.effects`). `plan:rewind_impact` lists what a rewind from a step would reset and which of those actions stay; `plan:rewind`
@@ -849,7 +866,7 @@ before these fields existed have none and show as plain conversations.
   from there a rewind over a recorded irreversible action shows the refusal.
 - **Run both and compare.** `POST .../<id>/compare` with `{turn, variants: [{text, mode?, max_turns?, ask_only?, end_turn_bias?, label?}, {...}]}`
   branches the conversation twice from that request and sends each branch its message, the first and then the second, never together
-  (there is one GPU; two comparisons also wait for each other). Automatic mode is not offered. `GET /api/agent/sessions/compares/<id>`
+  (there is one GPU; two comparisons also wait for each other; a side waits as long as `compare_wait_s` allows, no limit by default). Any mode may be used, automatic included. `GET /api/agent/sessions/compares/<id>`
   returns both answers, a diff of them and, when both branches worked in copies of the folder, the files each changed with a diff of
   each file between the two; without copies there is no file comparison. A side that asks something or is blocked is left for the
   person to answer from its branch. The list is kept across restarts (a comparison that was running is marked interrupted).
@@ -1067,7 +1084,7 @@ holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/
   and raises `ToolError` when it is refused or fails; `ai(prompt, cache=True, **inputs)` is one model call at temperature 0 with no thinking, and its answer
   is kept for the same prompt and inputs; `ask(question, options)` asks the person with buttons; `say(text)` tells how it is going. `params.name` holds
   each value (`datetime.date` for a date, `datetime.datetime` for a moment, numbers, lists). What `print` writes is the run's output.
-- **Where it runs.** In a process of its own (`harness/personal_skills/runner.py`: the interpreter in isolated mode, the scrubbed environment, a job object
+- **Where it runs.** In a process of its own (`harness/personal_skills/runner.py`: the interpreter in isolated mode, the whole environment of the server, a job object
   on Windows that ends what it started, a time limit only when the skill sets one, Stop ends it and what it started; no cap on memory, processes or output), talking in lines of JSON. The calls are answered in the
   conversation's process (`hosting.py`): `tool` goes through `AgentLoop.call_tool`, which is the same gate as a model's call (arguments checked, hooks,
   permissions, a checkpoint, the audit record, a question to the person when one is needed, secrets masked, outside content fenced) and keeps the call and
@@ -1200,17 +1217,16 @@ budget among roles and run a mock; nothing uses it and `spawn_subagent` does not
 `serve/remote.py`. The server has the one key of `--api-key` (kept as it was) and, besides it, any number of **device keys**: each has a name (the phone it is for), is made on this PC in
 *Settings > Phones*, and is checked by its SHA-256 hash in `api-keys.json` of the user data folder. The key itself is kept in the same file encrypted (AES-256-GCM under a key derived from the vault's device key, with the key's id as associated data), so its code can be shown again (`keys/show`, this PC only); a key made before that, or where `cryptography` is missing, is shown once only. A key is taken away on its own and stops working at once. On the server's own address nothing changes: the master key, when there is one, and no key otherwise. A device key counts only on the **listener for phones** described below, where every request
 needs the master key or a device key, as `Authorization: Bearer ...` or `x-api-key`.
-A device key **ends**: 90 days after it was made unless the person chose 30, 365 or never when making it (a key that never ends is
-confirmed once with the risk said), and *Renew* in *Settings > Phones* gives it a new end; a phone whose key ran out is refused with `key_expired`
+A device key **ends** only when the person chose a length when making it (30, 90, 365 days; the default is never, with the risk written under the box), and *Renew* in *Settings > Phones* gives it a new end; a phone whose key ran out is refused with `key_expired`
 and the name of the key. Keys made before this have no end and show so. By default a phone chooses for itself, as the person does at the PC
 (`remote.json`: `phone_chooses`, on). With it off, a conversation, run or routine started or switched from a phone gets the person's limits
-(`max_mode`, default `default`, and `rules`): a mode above the limit is refused with `phone_mode_limit`, a rule sent by the phone with
+(`max_mode`, default `auto`, and `rules`, any number of them): a mode above the limit is refused with `phone_mode_limit`, a rule sent by the phone with
 `phone_rules`, and the PC's own rules take the place of the phone's. A holder of a stolen key can still answer the
 questions of the conversations it starts, so the limit keeps a phone from starting unattended work, not from using what the phone is for.
 
 A phone comes through a second listener, which binds to the address the person chose in *Settings > Phones > Listen on* (`remote.json`: `listen`): **this PC's Tailscale address** (the default, followed as Tailscale moves it), every interface (`0.0.0.0`) or one IPv4 address typed by hand. `remote.json` also keeps whether it is on; it starts
 with the server. It is off until the person turns it on. Every request to it needs the master key or a device key, the page itself included. With a valid key a phone reaches every route that a client on this PC reaches with the same credentials: the model (`/v1/`), the
-conversations, attached files and the files the agent made, the routines, the plans, the personal skills, `GET /api/remote/hello` (which tells the app that its address and key are good, and the name of the key), `GET /api/remote/peers` and `GET /api/files/roots|list|read`, which let the app browse and read any folder or file of this PC (the roots offered first are the folders added in the Agent tab and the Chat's own folder, then the drives; nothing is hidden or cut; `serve/files_api.py`). A phone also works in any folder. The routes that answer only to a client on this PC (`settings.is_loopback`: the vault, the wallet, the settings, the loading of models, phone setup) refuse a phone, whose address is never this PC's. The control secret is not asked
+conversations, attached files and the files the agent made, the routines, the plans, the personal skills, the capabilities' on/off list and install requests (`/api/capabilities/settings`, `requests/approve`, `requests/reject`; the other capability changes stay on this PC), `GET /api/remote/hello` (which tells the app that its address and key are good, and the name of the key), `GET /api/remote/peers` and `GET /api/files/roots|list|read`, which let the app browse and read any folder or file of this PC (the roots offered first are the folders added in the Agent tab and the Chat's own folder, then the drives; nothing is hidden or cut; `serve/files_api.py`). A phone also works in any folder. The routes that answer only to a client on this PC (`settings.is_loopback`: the vault, the wallet, the settings, the loading of models, phone setup) refuse a phone, whose address is never this PC's. The control secret is not asked
 of a phone, whose own key is the proof. The client's address is not checked, so a key works from anywhere the listener can be reached.
 
 **The control secret on this PC.** Writes through `/api/*` (approving a question or a plan, the wallet, the settings) need the server's secret,
@@ -1249,7 +1265,7 @@ geocoder when it has one (coordinates alone otherwise), and puts it in the body 
 - **Forgetting.** Switching the app's setting off calls `POST /api/agent/place/forget`, which erases the last position from the server; a restart of the server erases it too. It is not written to the conversation's history
   or to the person's memories.
 - **What it does not do.** It does not place a call. A conversation of the Chat has no phone tools (`--phone` is not passed to it), so in an emergency the assistant can tell the person the address to give and what number to
-  call, but does not call for them; `phone_call` exists in the harness, asks every time, and is not offered to the Chat.
+  call, but does not call for them; `phone_call` exists in the harness, asks below `auto`, and is not offered to the Chat.
 
 ## The person's own memories
 

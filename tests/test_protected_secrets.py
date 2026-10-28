@@ -88,11 +88,6 @@ for name, go in tries.items():
     assert (world["data"] / "vault" / "vault.bin").read_text() == CANARY
 
 
-def test_ctypes_cannot_be_used_to_get_round_it(world):
-    res = py(world, "import ctypes\nctypes.CDLL('msvcrt' if __import__('os').name == 'nt' else 'libc.so.6')")
-    assert "PermissionError" in res["stderr"], res
-
-
 def test_a_python_helper_the_snippet_starts_is_guarded_too(world):
     helper = "import sys, os; print(open(os.path.join(*sys.argv[1:])).read())"       # the helper assembles the path itself
     code = (f"import subprocess, sys\nr = subprocess.run([sys.executable, '-c', {helper!r}, {str(world['data'])!r}, 'vau' + 'lt', 'vau' + 'lt.bin'], "

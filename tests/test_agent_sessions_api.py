@@ -167,8 +167,6 @@ def test_going_back_over_a_command_asks_first_and_the_tree_and_a_comparison_are_
     assert code == 200 and impact["needs_yes"] and [a["tool"] for a in impact["not_undone"]] == ["shell_command"] and impact["reversible"] == []
     assert api("GET", f"/api/agent/sessions/{sid}/back-impact?turn=x")[0] == 400
     code, body = api("POST", f"/api/agent/sessions/{sid}/back", {"turn": 1})
-    assert code == 409 and body["error"]["code"] == "needs_yes"
-    code, body = api("POST", f"/api/agent/sessions/{sid}/back", {"turn": 1, "accept_irreversible": True})
     assert code == 200 and body["session"]["turns"] == 1 and body["session"]["rewinds"][0]["still_done"][0]["tool"] == "shell_command"
     root = api("GET", "/api/agent/sessions/tree")[1]["roots"][0]
     assert root["id"] == sid and root["rewinds"][0]["turn"] == 1

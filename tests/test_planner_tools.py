@@ -360,7 +360,7 @@ def test_at_the_auto_level_a_plan_change_asks_only_when_the_plan_involves_people
                  {**plain, "card": {"participants": ["Anna", "Luca"]}},
                  {"plan": {"nodes": {"a": {"assignee": "third_party"}}}},
                  {"plan": {"nodes": {"a": {"assignee": "agent", "call_request": {"number": "+39"}}}}},
-                 {"plan": {"nodes": {"a": {"assignee": "agent", "state_variables": {"effects": [{"effect": "irreversible", "what": "hotel booked"}]}}}}}):
+                 {"plan": {"nodes": {"a": {"assignee": "agent", "state_variables": {"effects": [{"effect": "irreversible", "kind": "booking", "what": "hotel booked"}]}}}}}):
         asker = Asker("confirm")
         ok, how = Confirmer(AgentState(), asker, auto=lambda: True).check({"kind": "plan_change"}, "Change it?", "", snap)
         if snap is plain:
@@ -369,5 +369,6 @@ def test_at_the_auto_level_a_plan_change_asks_only_when_the_plan_involves_people
             assert ok and how == "asked" and len(asker.asked) == 1 and asker.asked[0]["facts"]["involves"], snap
             assert "This involves" in asker.asked[0]["question"]
     assert involved({"plan": {"nodes": {"a": {"state_variables": {"effects": [{"effect": "reversible"}]}}}}}) == []
+    assert involved({"plan": {"nodes": {"a": {"state_variables": {"effects": [{"effect": "irreversible", "tool": "shell_command"}]}}}}}) == []
     below = Asker("confirm")
     assert Confirmer(AgentState(), below, auto=lambda: False).check({"kind": "plan_change"}, "Change it?", "", plain)[1] == "asked"

@@ -89,11 +89,21 @@ def test_a_default_in_words_is_worked_out_each_time_the_skill_runs():
     assert later["day"]["value"] == "2026-11-02"                                       # the same skill, another day
 
 
-def test_what_is_missing_or_wrong_or_unknown_is_said_for_each_parameter():
+def test_what_is_wrong_or_unknown_is_said_for_each_parameter_and_a_missing_value_does_not_stop_the_run():
     specs = [{"name": "topic", "type": "text"}, {"name": "when", "type": "date"}, {"name": "extra", "type": "text", "required": False}]
     values, errors = resolve(specs, {"when": "never", "nope": "x"}, NOW)
-    assert set(errors) == {"topic", "when", "nope"} and values["extra"]["value"] is None
-    assert "needs a value" in errors["topic"] and "not a date" in errors["when"] and "not a parameter" in errors["nope"]
+    assert set(errors) == {"when", "nope"} and values["extra"] == {"type": "text", "value": None}
+    assert values["topic"] == {"type": "text", "value": None, "missing": True}
+    assert "not a date" in errors["when"] and "not a parameter" in errors["nope"]
+
+
+def test_a_value_left_out_is_the_default_then_the_last_one_used_then_missing():
+    specs = [{"name": "a", "type": "text", "default": "d"}, {"name": "b", "type": "number"}, {"name": "c", "type": "text"}]
+    values, errors = resolve(specs, {}, NOW, {"a": "old", "b": 7})
+    assert errors == {} and values["a"]["value"] == "d" and values["b"]["value"] == 7 and values["c"].get("missing") is True
+    assert resolve(specs, {"b": 9}, NOW, {"b": 7})[0]["b"]["value"] == 9
+    stale, errors = resolve([{"name": "d", "type": "date"}], {}, NOW, {"d": "not a date"})
+    assert errors == {} and stale["d"]["missing"] is True
 
 
 def test_a_definition_that_cannot_work_is_refused():

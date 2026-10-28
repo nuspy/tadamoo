@@ -283,7 +283,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
 - **Checkpoints and rewind**: before an action changes files, their previous content is kept outside the project (only the changed files, any folder, no size limit; off, on, or on without ever stopping the action);
   `python -m harness.rewind`, `/rewind` and *Back to here* on a message restore it. Rewinding does not undo a command it ran, and says so.
 - **An audit log**: one record per tool call (arguments hashed and masked, the decision, the outcome), in a hash chain you can verify.
-- **Time limits and Stop**: every tool has a time limit (15 minutes unless set); Stop ends a running command and everything it started.
+- **Time limits and Stop**: every tool has a time limit (one hour unless set in `limits.json`); silent work is not killed unless you set a limit; Stop ends a running command and everything it started.
 - **What it is not**: an operating-system sandbox. A command runs with your rights, with a scrubbed environment, no stdin, a time limit,
   capped output and, on Windows, a job object. Use *Automatic* only in a folder you can lose.
 

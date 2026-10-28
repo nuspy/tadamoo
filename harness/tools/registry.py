@@ -10,8 +10,8 @@ third-party servers); its results are fenced as data and taint the session's per
 `outward` sends what the model wrote (an address, a query, a form) out of this PC: the Rule of Two looks at it
 (harness/rule_of_two.py).
 
-Every tool has a time limit: the registry's default, or its own (`timeout=` when it is registered, or
-`set_timeout`; None means no limit). The tool runs in the calling thread, and a watchdog raises
+Every tool has a time limit: the registry's default (the person's `tool_timeout_s` in limits.json, never
+unlimited), or its own (`timeout=` when it is registered, or `set_timeout`; None means no limit). The tool runs in the calling thread, and a watchdog raises
 `ToolTimeout` in that thread when the limit is spent, so no thread is left running behind. The clock does
 not run while the person is being asked something (`clock_paused`). A tool stuck inside one blocking
 system call is stopped when that call returns.
@@ -26,8 +26,17 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
-DEFAULT_TOOL_TIMEOUT = 900.0          # more than the longest a shell command may run, so the command's own limit comes first
+DEFAULT_TOOL_TIMEOUT = 3600.0         # the limit when the person has not set one (serve/limits.py, tool_timeout_s); a tool call always has one
 _TICK = 0.1
+
+
+def configured_tool_timeout() -> float:
+    """The person's limit for one tool call, in seconds: limits.json or the default; never unlimited."""
+    try:
+        from serve import limits
+        return limits.get("tool_timeout_s", DEFAULT_TOOL_TIMEOUT) or DEFAULT_TOOL_TIMEOUT
+    except Exception:
+        return DEFAULT_TOOL_TIMEOUT
 _local = threading.local()            # the clock of the tool call this thread is running
 
 _JSON_TYPES = {
@@ -169,10 +178,18 @@ def split_description(parameters: Dict[str, Any], arguments: Any) -> "tuple[Any,
 
 
 class ToolRegistry:
-    def __init__(self, default_timeout: Optional[float] = DEFAULT_TOOL_TIMEOUT) -> None:
+    def __init__(self, default_timeout: Optional[float] = _UNSET) -> None:
         self._tools: Dict[str, ToolDefinition] = {}
-        self.default_timeout = default_timeout               # seconds; None: no limit unless a tool has its own
+        self._default_timeout = default_timeout              # seconds; None: no limit unless a tool has its own; unset: the person's limit
         self._timeouts: Dict[str, Optional[float]] = {}      # a tool's own limit (None: no limit for that tool)
+
+    @property
+    def default_timeout(self) -> Optional[float]:
+        return configured_tool_timeout() if self._default_timeout is _UNSET else self._default_timeout
+
+    @default_timeout.setter
+    def default_timeout(self, seconds: Optional[float]) -> None:
+        self._default_timeout = seconds
 
     def set_timeout(self, name: str, seconds: Optional[float]) -> None:
         """The time limit of one tool; None or 0 for no limit."""

@@ -19,6 +19,8 @@
   const btn = (text, cls, fn) => { const b = h("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = fn; return b; };
   const label = (key, prefix) => { const t = T(prefix + key); return t === prefix + key ? key : t; };
   const when = ts => new Date(ts * 1000).toLocaleDateString(LANG === "it" ? "it-IT" : "en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const ends = w => w.expires_at ? T("wl.until", when(w.expires_at)) : T("wl.until.none");
+  const stopLine = (name, w) => w.no_cumulative_cap ? T("wl.stop.line.nocap", name, w.per_payment, w.spent, ends(w)) : T("wl.stop.line", name, w.per_payment, w.cumulative, w.spent, w.remaining, ends(w));
 
   async function call(method, path, payload) {
     try {
@@ -64,7 +66,7 @@
     const on = (data.systems || []).filter(s => s.waiver);
     if (!on.length) return null;
     const box = h("section", "sec wl-sec wl-on", h("div", "sh", h("b", "", T("wl.stop.t"))));
-    const body = h("div", "wl-body", on.map(s => h("p", "", T("wl.stop.line", s.name, s.waiver.per_payment, s.waiver.cumulative, s.waiver.spent, s.waiver.remaining, when(s.waiver.expires_at)))));
+    const body = h("div", "wl-body", on.map(s => h("p", "", stopLine(s.name, s.waiver))));
     body.append(btn(T("wl.stop.btn"), "primary", async () => {
       const r = await call("POST", "api/wallet/revoke", {});
       if (r.ok) { say(T("wl.stopped")); await load(); } else say(why(r), true);
@@ -97,7 +99,7 @@
     const lines = [];
     const order = data.kinds[en.kind] || [], rank = n => (order.includes(n) ? order.indexOf(n) : order.length);
     lines.push(h("ul", "wl-chips", Object.entries(en.fields).sort((a, b) => rank(a[0]) - rank(b[0])).map(([n, hint]) => h("li", "", label(n, "wl.field."), hint === "set" ? "" : ` ${hint}`))));
-    const sites = en.hosts.length ? en.hosts.join(", ") : T("wl.local");
+    const sites = en.hosts.includes("*") || !en.hosts.length ? T("wl.anywhere") : en.hosts.join(", ");
     const facts = [`${T("wl.hosts")}: ${sites}`];
     if (en.kind === "login") facts.push(`${T("wl.sf")}: ${T("wl.sf." + (en.second_factor || "none"))}`);
     if (en.kind === "card") facts.push(`${T("wl.cardkind." + en.card_kind)}${en.currency ? " · " + en.currency : ""}`, T(en.guard ? "wl.guard.on" : "wl.guard.off"));
@@ -174,7 +176,10 @@
       form.append(fs);
     }
     hosts = h("textarea"); hosts.rows = 3; hosts.spellcheck = false; hosts.value = e.hosts !== undefined ? e.hosts : (en.hosts || []).join("\n");
-    form.append(field(T("wl.hosts"), hosts, T("wl.hosts.help")));
+    const anywhere = h("input"); anywhere.type = "checkbox"; anywhere.checked = String(hosts.value).split(/[\s,]+/).includes("*") || !String(hosts.value).trim();
+    const lock = () => { hosts.disabled = anywhere.checked; };
+    anywhere.onchange = lock; lock();
+    form.append(h("label", "check", anywhere, h("span", "", T("wl.anywhere.use"))), field(T("wl.hosts"), hosts, T("wl.hosts.help")));
     const out = h("p", "wl-msg", ""); out.setAttribute("role", "alert");
     const save = h("button", "btn primary", T("wl.save")); save.type = "submit";
     form.append(out, h("div", "wl-actions", save, btn(T("wl.cancel"), "ghost", () => { editing = null; draw(); })));
@@ -183,7 +188,7 @@
       const fields = {};
       Object.entries(inputs).forEach(([n, i]) => { if (removes[n] && removes[n].checked) fields[n] = ""; else if (i.value) fields[n] = i.value; });
       if (extra && extra[0].value.trim()) fields[extra[0].value.trim()] = extra[1].value;
-      const body = { id: id.value.trim(), kind: e.kind, label: lab.value.trim(), fields, hosts: hosts.value };
+      const body = { id: id.value.trim(), kind: e.kind, label: lab.value.trim(), fields, hosts: anywhere.checked ? "*" : hosts.value };
       if (e.kind === "card") Object.assign(body, { card_kind: cardKind.value, currency: currency.value.trim(), guard: guard.checked });
       if (e.kind === "login") body.second_factor = second;
       const was = new Set(entryRisks(en).map(r => r[0]));
@@ -262,7 +267,7 @@
   /* ---- the payment systems ---- */
   function systemCard(s) {
     const w = s.waiver;
-    const status = w ? T("wl.sys.auto", w.per_payment, w.cumulative, w.spent, w.remaining, when(w.expires_at)) : T("wl.sys.manual");
+    const status = w ? (w.no_cumulative_cap ? T("wl.sys.auto.nocap", w.per_payment, w.spent, ends(w)) : T("wl.sys.auto", w.per_payment, w.cumulative, w.spent, w.remaining, ends(w))) : T("wl.sys.manual");
     const actions = h("div", "wl-actions");
     actions.append(btn(T("wl.sys.go"), w ? "ghost" : "primary", () => openWizard(s)));
     if (w) actions.append(btn(T("wl.sys.stop"), "", async () => {
@@ -329,8 +334,8 @@
     const priv = h("input"); priv.type = "checkbox"; priv.id = "wl-br-priv"; priv.checked = !!b.private; priv.disabled = !b.found;
     const keep = h("input"); keep.type = "checkbox"; keep.id = "wl-br-keep"; keep.checked = !!b.persistent; keep.disabled = !b.found;
     const pick = (id, key, values, current) => { const s = select(values.map(v => [v, T("wl.br." + key + "." + v)]), current, !b.found); s.id = id; s.onchange = save; return s; };
-    const consent = pick("wl-br-consent", "consent", ["necessary", "accept", "reject", "off"], b.consent || "necessary");
-    const perms = pick("wl-br-perm", "perm", ["deny", "ask", "grant-safe"], b.permissions || "deny");
+    const consent = pick("wl-br-consent", "consent", ["follow", "necessary", "accept", "reject", "off"], b.consent || "follow");
+    const perms = pick("wl-br-perm", "perm", ["follow", "ask", "grant", "grant-safe", "deny"], b.permissions || "follow");
     const policy = (input, key) => { const l = h("label", "", T("wl.br." + key)); l.htmlFor = input.id; return h("div", "wl-pick", l, input, h("p", "help", T("wl.br." + key + ".help"))); };
     keep.onchange = async () => { if (keep.checked && !(await riskConfirm([T("wl.risk.persist")]))) { keep.checked = false; return; } save(); };
     on.onchange = save; hide.onchange = save;
@@ -398,7 +403,7 @@
   /* ---- automatic payments: the three dialogs, in order ---- */
   const norm = t => t.replace(/[’‘]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, " ").trim().toLowerCase();
   function openWizard(system) {
-    wizard = { step: 1, system, name: "", per: "", cum: "", days: "30", sites: "", typed: "", pasted: false, intervals: [], last: 0, phrase: "", seen2: false, seen3: false, ack2: false, ack3: false, n2: "", n3: "", error: "", timer: 0 };
+    wizard = { step: 1, system, name: "", per: "", cum: "", days: "", sites: "", typed: "", pasted: false, intervals: [], last: 0, phrase: "", seen2: false, seen3: false, ack2: false, ack3: false, n2: "", n3: "", error: "", timer: 0 };
     drawWizard();
     if (!dlg.open) dlg.showModal();
   }
@@ -447,8 +452,8 @@
       const copy = btn(T("wl.w.copy"), "ghost", async () => {
         try { await navigator.clipboard.writeText(w.phrase); copy.textContent = T("wl.w.copied"); } catch (e) { const r = document.createRange(); r.selectNodeContents(dlg.querySelector(".wl-phrase")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
       });
-      body.append(field(T("wl.w.name"), name), field(T("wl.w.per") + (w.system.currency ? ` (${w.system.currency})` : ""), per), field(T("wl.w.cum") + (w.system.currency ? ` (${w.system.currency})` : ""), cum),
-        field(T("wl.w.days"), days), field(T("wl.w.sites"), sites, T("wl.w.sites.help")), h("div", "field", h("b", "", T("wl.w.phrase")), h("p", "wl-phrase", T("wl.w.fill")), copy), field(T("wl.w.typed"), typed), h("p", "wl-mismatch dim", ""));
+      body.append(field(T("wl.w.name"), name), field(T("wl.w.per") + (w.system.currency ? ` (${w.system.currency})` : ""), per), field(T("wl.w.cum") + (w.system.currency ? ` (${w.system.currency})` : ""), cum, T("wl.w.cum.help")),
+        field(T("wl.w.days"), days, T("wl.w.days.help")), field(T("wl.w.sites"), sites, T("wl.w.sites.help")), h("div", "field", h("b", "", T("wl.w.phrase")), h("p", "wl-phrase", T("wl.w.fill")), copy), field(T("wl.w.typed"), typed), h("p", "wl-mismatch dim", ""));
       next.onclick = () => { w.step = 2; drawWizard(); };
     } else {
       const two = w.step === 2, key = two ? "2" : "3";
@@ -466,7 +471,7 @@
         next.onclick = async () => {
           next.disabled = true;
           const r = await call("POST", "api/wallet/grant", { system_id: w.system.id, user_name: w.name, typed_text: w.typed, per_payment: w.per, cumulative: w.cum,
-            read_to_end: w.seen2 && w.seen3, release_ack: w.ack2, retyped_names: { release: w.n2, acceptance: w.n3 }, pasted: w.pasted, ttl_days: Number(w.days) || 30,
+            read_to_end: w.seen2 && w.seen3, release_ack: w.ack2, retyped_names: { release: w.n2, acceptance: w.n3 }, pasted: w.pasted, ttl_days: Number(w.days) || 0,
             lang: LANG, typing_intervals_ms: w.intervals, sites: w.sites.split(/[\s,;]+/).filter(Boolean) });
           if (r.ok) { dlg.close(); say(T("wl.w.done", w.system.name)); wizard = null; await load(); }
           else { w.error = why(r); next.disabled = false; msg.textContent = w.error; }
@@ -492,7 +497,7 @@
   }
   function paintPop(on) {                                          // the detail behind the pill: the limits and the expiry of each system, as text
     pop.setAttribute("aria-label", T("wl.pill.panel"));
-    pop.replaceChildren(...on.map(s => h("p", "", T("wl.stop.line", s.name, s.waiver.per_payment, s.waiver.cumulative, s.waiver.spent, s.waiver.remaining, when(s.waiver.expires_at)))),
+    pop.replaceChildren(...on.map(s => h("p", "", stopLine(s.name, s.waiver))),
       h("div", "wl-actions", btn(T("wl.pill.open"), "primary", () => { closePop(false); view("wallet", true); }), btn(T("wl.pill.close"), "ghost", () => closePop(true))));
   }
   function paintPill() {                                          // while automatic payments are on, every screen says so; the pill opens the detail

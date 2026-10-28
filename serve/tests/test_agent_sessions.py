@@ -18,6 +18,11 @@ def stub_command(die_times=1):
     return lambda sid, rec, history: [sys.executable, STUB, "--session-id", sid, "--history-dir", str(history), "--die-times", str(die_times)]
 
 
+@pytest.fixture(autouse=True)
+def own_data_folder(tmp_path, monkeypatch):
+    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))          # the person's limits.json is not read
+
+
 @pytest.fixture
 def make(tmp_path):
     made = []
@@ -493,14 +498,13 @@ def test_going_back_takes_off_what_came_after_keeps_a_copy_and_wakes_from_there(
     assert [m["content"] for m in mgr.history(sid)["messages"]][-2:] == ["quattro", "echo: quattro"] and "tre" not in json.dumps(mgr.history(sid)["messages"])
 
 
-def test_going_back_is_refused_while_the_agent_works(make, ws):
+def test_going_back_while_the_agent_works_stops_it(make, ws):
     mgr = make()
     sid = mgr.create(ws)["id"]
     mgr.send(sid, "hang")                                   # the stand-in goes on working
     until(lambda: mgr.get(sid)["state"] == "busy")
-    with pytest.raises(RunError) as err:
-        mgr.go_back(sid, 1)
-    assert err.value.code == "busy"
+    back = mgr.go_back(sid, 1)
+    assert back["state"] == "dormant" and back["turns"] == 1
 
 
 # -- a conversation's own copy of a git folder -------------------------------------------------------------------------------
@@ -680,7 +684,7 @@ def _said(mgr, sid, text, n):
     until(lambda: kinds(mgr, sid).count("done") == n)
 
 
-def test_going_back_names_the_actions_that_stay_done_and_asks_for_a_yes(make, ws):
+def test_going_back_names_the_actions_that_stay_done_and_goes_back_without_a_yes(make, ws):
     mgr = make()
     sid = mgr.create(ws)["id"]
     _said(mgr, sid, "uno", 1)
@@ -690,11 +694,8 @@ def test_going_back_names_the_actions_that_stay_done_and_asks_for_a_yes(make, ws
     seen = mgr.back_impact(sid, 1)
     assert [a["tool"] for a in seen["reversible"]] == ["write_file"] and [a["tool"] for a in seen["not_undone"]] == ["shell_command", "phone_call"]
     assert seen["needs_yes"] and seen["removes"]["requests"] == 3 and "rm -rf x" in seen["not_undone"][0]["what"]
-    with pytest.raises(RunError) as err:
-        mgr.go_back(sid, 1)
-    assert err.value.code == "needs_yes" and mgr.get(sid)["turns"] == 4                      # nothing was touched
     assert len(mgr.back_impact(sid, 3)["not_undone"]) == 1 and mgr.back_impact(sid, 4)["not_undone"] == []
-    back = mgr.go_back(sid, 1, accept_irreversible=True)
+    back = mgr.go_back(sid, 1)
     assert back["turns"] == 1 and back["rewinds"][0]["turn"] == 1 and back["rewinds"][0]["was"] == 4
     assert [a["tool"] for a in back["rewinds"][0]["still_done"]] == ["shell_command", "phone_call"]           # it says they stayed done
     assert any(e["event"] == "went_back" and len(e["still_done"]) == 2 for e in mgr.events(sid)["events"])
@@ -800,7 +801,7 @@ def test_a_comparison_without_copies_has_no_file_diff_and_bad_requests_are_refus
     mgr = make()
     sid = mgr.create(ws)["id"]
     _said(mgr, sid, "uno", 1)
-    for bad in (None, [], [{"text": "a"}], [{"text": "a"}, {"text": ""}], [{"text": "a"}, {"text": "b", "mode": "auto"}], [{"text": "a"}, {"text": "b", "max_turns": 0}],
+    for bad in (None, [], [{"text": "a"}], [{"text": "a"}, {"text": ""}], [{"text": "a"}, {"text": "b", "mode": "everything"}], [{"text": "a"}, {"text": "b", "max_turns": 0}],
                 [{"text": "a"}, "b"], [{"text": "a"}, {"text": "b", "end_turn_bias": 99}]):
         with pytest.raises(RunError):
             mgr.compare_start(sid, 1, bad)
@@ -812,6 +813,34 @@ def test_a_comparison_without_copies_has_no_file_diff_and_bad_requests_are_refus
     assert mgr.compare_result(out["id"])["files"] is None
     with pytest.raises(RunError):
         mgr.compare_result("ghost")
+
+
+def test_a_comparison_runs_in_automatic_mode(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    _said(mgr, sid, "uno", 1)
+    out = mgr.compare_start(sid, 1, [{"text": "uno bis", "mode": "auto"}, {"text": "uno ter", "mode": "auto"}])
+    until(lambda: mgr.compare_result(out["id"])["state"] == "done", seconds=60)
+    a, b = mgr.compare_result(out["id"])["sides"]
+    assert mgr.get(a["session"])["mode"] == "auto" and mgr.get(b["session"])["mode"] == "auto"
+
+
+def test_the_silence_and_idle_limits_come_from_the_persons_file_and_are_off_by_default(make):
+    from serve import limits
+    mgr = make()
+    assert (mgr.beat_timeout_s, mgr.idle_s, mgr.compare_wait_s) == (None, None, None)
+    limits.save({"beat_timeout_s": 300, "idle_s": 60, "compare_wait_s": 90})
+    assert (mgr.beat_timeout_s, mgr.idle_s, mgr.compare_wait_s) == (300, 60, 90)
+    assert make(idle_s=0.4).idle_s == 0.4                                    # a value given to the manager wins
+
+
+def test_a_long_silent_call_is_not_stopped_when_no_limit_is_set(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "hang")
+    until(lambda: mgr.get(sid)["state"] == "busy")
+    mgr.check(now=time.monotonic() + 100000)                                 # a very long silence
+    assert mgr.get(sid)["state"] == "busy" and "stalled" not in kinds(mgr, sid)
 
 
 def test_a_step_of_a_plan_collects_the_actions_done_while_it_was_worked_on(make, ws):

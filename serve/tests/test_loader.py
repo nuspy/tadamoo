@@ -312,6 +312,14 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), CONFIG)
         self.assertEqual(self.sup.status()["phase"], "idle")
 
+    def test_a_plan_that_does_not_fit_loads_when_the_person_says_so(self):
+        with mock.patch.object(loader, "system_now", return_value=dict(TIGHT)):
+            code, body = self.post("load", {"values": {"engine.max-context": 262144}, "force": True})
+        self.assertIn(code, (200, 202), body)
+        self.assertFalse(body["plan"]["fits"])                                       # the plan still says so
+        self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8"))["engine"]["max-context"], 262144)
+        self.wait_ready()
+
     def test_bad_values_are_400(self):
         for values in ({"engine.kv": "fp8"}, {"engine.ple-io": "disk"}, {"engine.pool-workers": 0},
                        {"engine.resident-experts": "yes"}, {"server.model": "x"}):

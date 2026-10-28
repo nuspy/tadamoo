@@ -337,7 +337,7 @@ class EveryOption(unittest.TestCase):
     def test_every_server_option_by_both_paths(self):
         ap = build_parser()
         for name, act in server_options(ap).items():
-            if name in ("api-key", "engine-bin", "grammar"):   # grammar is on by default: no-grammar differs, see test_grammar
+            if name in ("api-key", "engine-bin", "grammar", "fit-max-tokens"):   # grammar is on by default: no-grammar differs, see test_grammar
                 continue
             v = "localhost" if name == "host" else self.sample(act)
             if isinstance(act, argparse._AppendAction):

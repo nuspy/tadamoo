@@ -11,7 +11,7 @@ from harness import agent_loop as al
 from harness.headless import config_from_args, parse_args, run_headless
 from harness.session import parse_args as session_args
 from harness.stack import AgentConfig, agent_settings, build_agent
-from harness.tools.registry import ToolRegistry
+from harness.tools.registry import ToolRegistry, configured_tool_timeout
 from test_agent_loop import ScriptedClient, call, say
 
 SHARED = ["--workspace", "W", "--permission-mode", "auto", "--allow", "shell_command:pytest*", "--deny", "shell_command:rm*",
@@ -47,6 +47,27 @@ def test_headless_acts_without_asking_unless_it_is_interactive():
     assert parse_args(["-p", "x", "--permission-mode", "plan"]).permission_mode == "plan"
 
 
+def test_interactive_without_a_terminal_asks_the_approvals_board_when_it_answers_else_nobody_can_confirm(monkeypatch):
+    from harness import headless
+    from harness.approval_client import ServerApprover
+    args = parse_args(["-p", "x", "--interactive"])
+    monkeypatch.setattr(headless, "_has_terminal", lambda: False)
+    monkeypatch.setattr(ServerApprover, "available", lambda self: True)
+    assert isinstance(headless._confirmer(args), ServerApprover)           # the question goes to the board, not to an automatic no
+    monkeypatch.setattr(ServerApprover, "available", lambda self: False)
+    assert headless._confirmer(args) is None                               # no way to ask: the permission layer tells the model so
+    monkeypatch.setattr(headless, "_has_terminal", lambda: True)
+    assert headless._confirmer(args) is headless._ask_on_terminal
+    assert headless._confirmer(parse_args(["-p", "x"])) is None
+
+
+def test_with_no_way_to_ask_the_model_is_told_nobody_can_confirm():
+    from harness.permissions import PermissionLevel, PermissionManager
+    from harness.tools.registry import EffectClass
+    ok, reason = PermissionManager(level=PermissionLevel.DEFAULT, confirm_callback=None).evaluate("pay", EffectClass.IRREVERSIBLE, {})
+    assert not ok and "Nobody can confirm in this run" in reason
+
+
 def test_a_session_can_be_flagged_unattended():
     assert session_args([]).unattended is False and session_args(["--unattended"]).unattended is True
 
@@ -75,7 +96,7 @@ def test_tools_that_wait_with_a_limit_of_their_own_are_not_cut_by_the_default(tm
     ws.mkdir()
     built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False), client=object())
     try:
-        assert built.agent.tools.default_timeout == 900.0 and "spawn_subagent" in OWN_TIME_LIMIT
+        assert built.agent.tools.default_timeout == configured_tool_timeout() and "spawn_subagent" in OWN_TIME_LIMIT
         assert all(built.agent.tools.timeout_for(name) is None for name in OWN_TIME_LIMIT)
     finally:
         built.close()

@@ -1,5 +1,6 @@
 """The person's settings for the online search: which sources are asked, the weights of the score and its minimum, whether the
-best candidate above the minimum is installed without asking, and the plugin marketplaces to look in. One file, discovery.json,
+best candidate above the minimum is installed without asking, the plugin marketplaces to look in, and the size limits of a downloaded skill
+(0 is no limit, the default). One file, discovery.json,
 in the capabilities folder of the user data folder.
 """
 from __future__ import annotations
@@ -12,6 +13,7 @@ from typing import Any, Dict, List
 from harness.discovery.scoring import DEFAULT_MIN_SCORE, DEFAULT_WEIGHTS
 
 SOURCES = ("registry", "npm", "pypi", "github", "skills")
+LIMITS = ("max_skill_files", "max_skill_mb", "max_skill_file_mb")
 MARKETPLACE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,99}/[A-Za-z0-9_.\-]{1,100}$")
 MAX_MARKETPLACES = 20
 FILE = "discovery.json"
@@ -19,7 +21,7 @@ FILE = "discovery.json"
 
 def defaults() -> Dict[str, Any]:
     return {"sources": {s: True for s in SOURCES}, "weights": dict(DEFAULT_WEIGHTS), "min_score": DEFAULT_MIN_SCORE,
-            "auto_install": False, "marketplaces": [], "base_urls": {}}
+            "auto_install": False, "marketplaces": [], "base_urls": {}, **{k: 0 for k in LIMITS}}
 
 
 class DiscoverySettings:
@@ -44,6 +46,10 @@ class DiscoverySettings:
         if isinstance(score, (int, float)) and not isinstance(score, bool) and 0 <= score <= 100:
             out["min_score"] = int(score)
         out["auto_install"] = data.get("auto_install") is True
+        for k in LIMITS:
+            v = data.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+                out[k] = v
         if isinstance(data.get("marketplaces"), list):
             out["marketplaces"] = [m for m in data["marketplaces"] if isinstance(m, str) and MARKETPLACE.match(m)][:MAX_MARKETPLACES]
         if isinstance(data.get("base_urls"), dict):           # for tests and mirrors; the page does not write it
@@ -75,6 +81,12 @@ class DiscoverySettings:
             if not isinstance(changes["auto_install"], bool):
                 raise ValueError("auto_install: true or false")
             current["auto_install"] = changes["auto_install"]
+        for k in LIMITS:
+            if k in changes:
+                v = changes[k]
+                if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+                    raise ValueError(f"{k}: a number, 0 for no limit")
+                current[k] = v
         if "marketplaces" in changes:
             m = changes["marketplaces"]
             if not isinstance(m, list) or len(m) > MAX_MARKETPLACES or any(not isinstance(x, str) or not MARKETPLACE.match(x.strip()) for x in m):
@@ -84,7 +96,7 @@ class DiscoverySettings:
             stored = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             stored = {}
-        data = {k: current[k] for k in ("sources", "weights", "min_score", "auto_install", "marketplaces")}
+        data = {k: current[k] for k in ("sources", "weights", "min_score", "auto_install", "marketplaces", *LIMITS)}
         if isinstance(stored, dict) and isinstance(stored.get("base_urls"), dict):
             data["base_urls"] = stored["base_urls"]
         self.path.parent.mkdir(parents=True, exist_ok=True)

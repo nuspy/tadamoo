@@ -26,7 +26,7 @@ def N(i, **kw):
             "status": "pending", **kw}
 
 
-BOOKED = {"effects": [{"effect": "irreversible", "what": "hotel booked"}]}
+BOOKED = {"effects": [{"effect": "irreversible", "kind": "booking", "what": "hotel booked"}]}
 NODES = {"a": N("a"), "ospite": N("ospite", assignee="third_party"), "hotel": N("hotel", state_variables=BOOKED), "tel": N("tel", call_request={"number": "+39 1"}),
          "me": N("me", assignee="user")}
 
@@ -37,6 +37,9 @@ def test_a_step_is_an_exception_by_its_data_not_by_its_words():
     assert step_facts(NODES["a"]) == [] and step_facts(NODES["me"]) == []                  # a step for the user is a to-do, not an exception
     assert step_facts(NODES["ospite"]) == [PEOPLE] and step_facts(NODES["tel"]) == [CALL] and step_facts(NODES["hotel"]) == [EFFECTS]
     assert step_facts(N("x", state_variables={"effects": [{"effect": "reversible"}]})) == []
+    assert step_facts(N("x", state_variables={"effects": [{"effect": "irreversible", "tool": "write_file", "what": "file sent"}]})) == []      # not undoable alone: done without asking
+    assert step_facts(N("x", state_variables={"effects": [{"effect": "irreversible", "tool": "request_payment"}]})) == [EFFECTS]
+    assert step_facts(N("x", state_variables={"effects": [{"effect": "irreversible", "kind": "uncontrolled"}]})) == [EFFECTS]
     assert step_facts(N("x", title="Telefona a Gianna e prenota")) == []
 
 

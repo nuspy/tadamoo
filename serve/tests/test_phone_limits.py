@@ -25,19 +25,20 @@ DAY = 86400
 
 
 class KeyLifetimeTest(unittest.TestCase):
-    def test_a_key_lasts_the_default_unless_another_end_or_never_is_chosen(self):
+    def test_a_key_has_no_end_unless_another_end_or_never_is_chosen(self):
         with tempfile.TemporaryDirectory() as tmp:
             keys = ApiKeys(Path(tmp) / "k.json")
             default, _ = keys.create("A")
-            self.assertAlmostEqual(default["expires"], time.time() + KEY_TTL_DAYS * DAY, delta=60)
+            self.assertEqual((KEY_TTL_DAYS, default["expires"]), (0, None))         # no end unless the person chose one
             week, _ = keys.create("B", 7)
             self.assertAlmostEqual(week["expires"], time.time() + 7 * DAY, delta=60)
             never, _ = keys.create("C", 0)
             self.assertIsNone(never["expires"])
-            for bad in (-1, 10 ** 6, "soon", True, 1.5e30):
+            for bad in (-1, "soon", True, 1.5e300, float("inf")):
                 with self.assertRaises(ValueError, msg=repr(bad)):
                     keys.create("D", bad)
-            self.assertEqual([r["expires"] is None for r in keys.list()], [False, False, True])
+            self.assertEqual([r["expires"] is None for r in keys.list()], [True, False, True])
+            self.assertIsNotNone(keys.create("E", 36500)[0]["expires"])           # a very long end is the person's to choose
 
     def test_a_key_past_its_end_does_not_work_and_a_renewal_brings_it_back(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -185,14 +186,15 @@ class PhoneLimitsTest(unittest.TestCase):
         self.assertEqual((code, view["limits"]["max_mode"], view["limits"]["rules"]), (200, "read_only", ["shell_command:pytest *"]))
         self.assertEqual(view["limits"]["modes"], ["plan", "read_only", "default", "auto"])
         self.assertEqual(self.call("POST", "/api/remote/limits", {"max_mode": "root", "rules": []})[0], 400)
-        self.assertEqual(self.call("POST", "/api/remote/limits", {"max_mode": "auto", "rules": ["x"] * 11})[0], 400)
+        self.assertEqual(self.call("POST", "/api/remote/limits", {"max_mode": "auto", "rules": ["x"] * 40})[0], 200)   # no cap on the number of rules
+        self.assertEqual(self.call("POST", "/api/remote/limits", {"max_mode": "read_only", "rules": ["shell_command:pytest *"]})[0], 200)
         self.assertEqual(self.phone_post_from_away("/api/remote/limits", {"max_mode": "auto", "rules": []})[0], 403)
         self.assertEqual(RemoteAccess(Path(self.tmp.name) / "remote.json", 0, lambda ip, port: None).max_mode, "read_only")
         self.assertEqual(self.svc.remote.max_mode, "read_only")
 
     def test_keys_are_made_with_an_end_listed_with_it_renewed_and_an_expired_one_says_so(self):
         code, made = self.call("POST", "/api/remote/keys/create", {"label": "Tablet"})
-        self.assertAlmostEqual(made["row"]["expires"], time.time() + KEY_TTL_DAYS * DAY, delta=120)
+        self.assertIsNone(made["row"]["expires"])
         self.assertEqual(made["limits"]["key_days"], KEY_TTL_DAYS)
         code, forever = self.call("POST", "/api/remote/keys/create", {"label": "Forever", "days": 0})
         self.assertIsNone(forever["row"]["expires"])
@@ -209,6 +211,27 @@ class PhoneLimitsTest(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/remote/hello", key=key, outside=True)[0], 200)
         self.assertEqual(self.call("POST", "/api/remote/keys/renew", {"id": "nope", "days": 30})[0], 404)
         self.assertEqual(self.phone_post_from_away("/api/remote/keys/renew", {"id": tablet, "days": 0})[0], 403)             # a phone cannot renew its own key
+
+    def test_a_phone_with_a_key_uses_personal_skills_and_answers_install_requests_but_changes_nothing_else_of_the_capabilities(self):
+        from serve.capabilities_api import CapabilityApi
+        from serve.personal_skills_api import PersonalSkillsApi
+        base = Path(self.tmp.name)
+        script = "def main(params):\n    return 1\n"
+        with mock.patch.object(handler, "_PSKILLS", PersonalSkillsApi(base / "pskills")), mock.patch.object(handler, "_CAPS", CapabilityApi(base / "caps", base / "chat-ws")):
+            self.assertEqual(self.phone_get_from_away("/api/personal-skills")[0], 200)
+            code, made = self.phone_post_from_away("/api/personal-skills", {"skill": {"name": "Hello", "description": "d", "params": []}, "script": script})
+            self.assertEqual(code, 200, made)
+            self.assertEqual(self.phone_get_from_away("/api/personal-skills/" + made["skill"]["slug"])[0], 200)
+            self.assertEqual(self.phone_post_from_away("/api/personal-skills/" + made["skill"]["slug"] + "/delete", {})[0], 200)
+            self.assertEqual(self.phone_get_from_away("/api/capabilities/requests")[0], 200)
+            self.assertEqual(self.phone_post_from_away("/api/capabilities/settings", {"off": []})[0], 200)
+            self.assertEqual(self.phone_post_from_away("/api/capabilities/requests/reject", {"id": "nope"})[0], 409)       # reached the handler: no such request
+            self.assertEqual(self.phone_post_from_away("/api/capabilities/remove", {"id": "x"})[0], 403)
+            self.assertEqual(self.phone_post_from_away("/api/capabilities/move", {"id": "x", "node": "y"})[0], 403)
+
+    def phone_get_from_away(self, path):
+        with mock.patch.object(handler.settings, "is_loopback", lambda address: False):
+            return self.call("GET", path, key=self.key, outside=True)
 
 
 if __name__ == "__main__":

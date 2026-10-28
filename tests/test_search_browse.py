@@ -100,7 +100,7 @@ def test_gzip_and_plain_text_are_read(site):
 
 def test_this_pc_is_refused_unless_the_person_allowed_it(site):
     for allowed in (False, lambda: False):
-        with pytest.raises(PageError, match="not allowed"):
+        with pytest.raises(PageError, match="did not allow"):
             browse_url(site + "/page", allow_private=allowed)
     assert browse_url(site + "/page", allow_private=lambda: True)["title"]       # the setting is read at the moment of the call
 
@@ -129,7 +129,7 @@ def test_a_redirect_is_followed_and_every_hop_is_checked(site, monkeypatch):
     monkeypatch.setattr(browser, "check_url", lambda url, allow_private=False: url if "127.0.0.1" in url else real_check(url, allow_private))
     monkeypatch.setattr(search, "_address_allowed", lambda ip, ap: str(ip) == "127.0.0.1" or real_allowed(ip, ap))
     assert browse_url(site + "/page")["title"]
-    with pytest.raises(PageError, match="not allowed"):
+    with pytest.raises(PageError, match="did not allow"):
         browse_url(site + "/to-metadata")
 
 
@@ -137,7 +137,7 @@ def test_a_name_is_connected_to_the_address_that_was_checked(monkeypatch):
     calls = []
     monkeypatch.setattr(search.socket, "getaddrinfo", lambda host, port, **kw: calls.append(host) or [(2, 1, 6, "", ("10.0.0.7", port))])
     monkeypatch.setattr(browser, "check_url", lambda url, allow_private=False: url)         # the name looked public to the first lookup
-    with pytest.raises(PageError, match="not allowed"):
+    with pytest.raises(PageError, match="not allowed such pages"):
         browse_url("http://rebind.example/x")                                                # the connection itself checks again
     assert calls == ["rebind.example"]
 

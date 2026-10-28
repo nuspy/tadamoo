@@ -18,6 +18,17 @@ from harness.waiver.cards import CREDENTIAL_KINDS, VAULT_KINDS
 from harness.waiver.dossier import DossierUnavailable
 
 
+def _days(value: Any) -> Optional[float]:
+    """The length of a waiver in days; a blank or zero value is none (no end)."""
+    if value is None or value == "" or value is False:
+        return None
+    try:
+        days = float(value)
+    except (TypeError, ValueError):
+        raise WalletError("the length of the waiver must be a number of days, or empty for none") from None
+    return days or None
+
+
 class WalletError(ValueError):
     pass
 
@@ -213,9 +224,9 @@ class WalletApi:
                 per_payment=str(req.get("per_payment") or ""), cumulative=str(req.get("cumulative") or ""),
                 read_to_end=req.get("read_to_end") is True, release_ack=req.get("release_ack") is True,
                 retyped_names={str(k): str(v) for k, v in names.items()}, pasted=req.get("pasted") is True,
-                ttl_days=float(req.get("ttl_days") or 30), lang=req.get("lang") if req.get("lang") in ("it", "en") else "it",
+                ttl_days=_days(req.get("ttl_days")), lang=req.get("lang") if req.get("lang") in ("it", "en") else "it",
                 typing_intervals_ms=[int(x) for x in intervals][:2000] if isinstance(intervals, list) else None,
-                sites=[str(x) for x in req["sites"]][:50] if isinstance(req.get("sites"), list) else None)
+                sites=[str(x) for x in req["sites"]] if isinstance(req.get("sites"), list) else None)
         except DossierUnavailable as e:
             raise WalletError(str(e)) from None
         except ValueError as e:

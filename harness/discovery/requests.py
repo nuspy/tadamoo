@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from harness.discovery.candidates import Candidate, CandidateStore
-from harness.discovery.installer import InstallError
+from harness.discovery.installer import AlreadyInstalled, InstallError, IntegrityError
 
 FILE = "install_requests.json"
 LIMIT = 40
@@ -111,9 +111,10 @@ class InstallRequests:
                 r["status"], r["detail"] = "rejected", "The person rejected it."
         return self._update(request_id, apply)
 
-    def approve(self, request_id: str, number: int, installer_for: Callable[[CandidateStore], Any]) -> Dict[str, Any]:
-        """Installs candidate `number` (1-based) of a pending request. `installer_for(store)` builds the installer that reads the candidate from `store`.
-        Returns the request; a failed install leaves it marked failed with the reason."""
+    def approve(self, request_id: str, number: int, installer_for: Callable[[CandidateStore], Any], **options: bool) -> Dict[str, Any]:
+        """Installs candidate `number` (1-based) of a pending request. `installer_for(store)` builds the installer that reads the candidate from `store`;
+        `options` (allow_scripts, anyway, update) go to its install. Returns the request; a failed install leaves it marked failed with the reason,
+        except a hash that differs or a version already installed: the request stays pending for the person to go on with an option."""
         request = self.get(request_id)
         if request["status"] != "pending":
             raise InstallError(f"This request is already {request['status']}.")
@@ -134,7 +135,9 @@ class InstallRequests:
         if missing:
             raise InstallError(missing[0].upper() + missing[1:])
         try:
-            record = installer.install(candidate.id)
+            record = installer.install(candidate.id, **options)
+        except (IntegrityError, AlreadyInstalled):
+            raise
         except InstallError as exc:
             self._update(request_id, lambda r: r.update(status="failed", detail=str(exc)[:TEXT_MAX]))
             raise

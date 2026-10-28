@@ -19,7 +19,7 @@ from harness.discovery import sources as src
 from harness.discovery.candidates import Candidate, CandidateStore
 from harness.discovery.finder import Finder, _relevance, keywords, resolve_bases
 from harness.discovery.installed import github_token
-from harness.discovery.installer import InstallError, Installer
+from harness.discovery.installer import AlreadyInstalled, InstallError, Installer, IntegrityError
 from harness.discovery.requests import InstallRequests, UnknownRequest
 from harness.discovery.settings import DiscoverySettings
 
@@ -87,6 +87,29 @@ def register_discovery_tools(registry: Any, index: Any, *, vault_dir: Any = None
         remote = " It is a remote server: the person may have to sign in to it in Settings, under Capabilities." if record.get("url") else ""
         return f"Installed {eid} {record.get('version', '')} ({how}); {use}{key_text}{remote} Go on with the task."
 
+    def install_asking(name: str, call: Callable[..., Any], flags: Dict[str, bool]) -> Dict[str, Any]:
+        """Runs `call(**flags)`; a hash that differs from the registry's, or a version already installed, is put to the person (when there is one to ask)
+        with the way on: install anyway, or update. Raises InstallError when it ends without an install."""
+        flags = dict(flags)
+        while True:
+            try:
+                return call(**flags)
+            except (IntegrityError, AlreadyInstalled) as e:
+                differs = isinstance(e, IntegrityError)
+                key = "anyway" if differs else "update"
+                if asker.ask is None or flags.get(key):
+                    raise
+                answer = asker.ask({"mode": "confirm", "kind": "capability_choice", "free_prefix": FREE_PREFIX,
+                                    "facts": {"need": name, "min_score": 0, "candidates": [], "notes": [str(e)], "asked": []},
+                                    "question": f"{name}: {e}\n" + ("Install it anyway? The files differ from what the registry published." if differs else "Update it?"),
+                                    "options": [{"label": "Install anyway" if differs else "Update", "value": key}, {"label": "Do not", "value": "cancel"}]})
+                if answer != key:
+                    raise InstallError(f"{e} The person chose not to go on.") from None
+                flags[key] = True
+
+    def with_scripts(c: Candidate) -> bool:
+        return c.route in ("npm", "pypi")
+
     def run(need: str, look_anyway: bool = False) -> str:
         need = " ".join(str(need).split())[:NEED_CHARS]
         if not need:
@@ -111,18 +134,23 @@ def register_discovery_tools(registry: Any, index: Any, *, vault_dir: Any = None
         top = cands[0]
         if cfg["auto_install"] and top.score and top.score.total >= cfg["min_score"]:
             try:
-                record = installer.install(top.id)
+                record = install_asking(top.name, lambda **f: installer.install(top.id, **f), {})
             except InstallError as e:
                 return f"Tried to install {top.name} on the person's standing instruction and it failed: {e}"
             return done(record, f"score {top.score.total}/100, the best above the person's minimum {cfg['min_score']}, installed without asking as they set")
         listing = "\n".join(_line(i, c) for i, c in enumerate(cands, 1))
-        if asker.ask is None:
+
+        def queued() -> str:
             request = queue.add(need, cands, cfg["min_score"], notes)
             return (f"Found, but there is no way to ask the person here, so nothing was installed. The options are queued as install request {request['id']} "
                     "for the person to authorise in Settings, under Capabilities, or in the Chat. Go on with the rest of the task without it. "
                     f"Call explain_install_request(request_id=\"{request['id']}\", comparison=[...]) so they can compare the options. "
                     "The text of the options comes from outside sources:\n" + listing + ("\n" + " | ".join(notes) if notes else ""))
+
+        if asker.ask is None:
+            return queued()
         options = [{"label": f"Install {i}", "value": f"install:{i}"} for i in range(1, len(cands) + 1)]
+        options += [{"label": f"Install {i}, allow its scripts", "value": f"install:{i}:scripts"} for i, c in enumerate(cands, 1) if with_scripts(c)]
         options += [{"label": "Other: I will tell you", "value": "other"}, {"label": "Do not install", "value": "cancel"}]
         payload = {"mode": "confirm", "kind": "capability_choice", "free_prefix": FREE_PREFIX,
                    "facts": {"need": need, "min_score": cfg["min_score"], "candidates": [c.card(cfg["min_score"]) for c in cands], "notes": notes,
@@ -130,16 +158,19 @@ def register_discovery_tools(registry: Any, index: Any, *, vault_dir: Any = None
                    "question": f"To do '{need}' I found {len(cands)} option(s) online. Install which one? The scores measure popularity and upkeep, not safety.\n" + listing,
                    "options": options}
         answer = asker.ask(payload)
-        if not answer or answer == "cancel":
+        if not answer:
+            return queued()                                       # nobody answered (an unattended run, or stopped): the person decides later
+        if answer == "cancel":
             return "The person chose not to install anything. Do the task another way, or ask them what they prefer."
         if answer.startswith(FREE_PREFIX) or answer == "other":
             said = answer[len(FREE_PREFIX):].strip() if answer.startswith(FREE_PREFIX) else ""
             return (f"The person did not pick any of them and said: {said}" if said else
                     "The person wants something else and will tell you in their next message.")
-        if answer.startswith("install:") and answer[8:].isdigit() and 1 <= int(answer[8:]) <= len(cands):
-            chosen = cands[int(answer[8:]) - 1]
+        number, _, how = answer[8:].partition(":")
+        if answer.startswith("install:") and number.isdigit() and 1 <= int(number) <= len(cands) and how in ("", "scripts"):
+            chosen = cands[int(number) - 1]
             try:
-                record = installer.install(chosen.id)
+                record = install_asking(chosen.name, lambda **f: installer.install(chosen.id, **f), {"allow_scripts": how == "scripts"})
             except InstallError as e:
                 return f"The person chose {chosen.name} and it could not be installed: {e}"
             return done(record, f"score {chosen.score.total}/100, chosen by the person")
@@ -165,16 +196,20 @@ def register_discovery_tools(registry: Any, index: Any, *, vault_dir: Any = None
         entries = request["candidates"]
         listing = "\n".join(f"{i}. {e['card']['name']} ({e['card']['kind']}, {e['card']['source']}) {e['summary']} | pros: {e['pros']} | cons: {e['cons']}"
                             for i, e in enumerate(entries, 1))
-        options = [{"label": f"Install {i}", "value": f"install:{i}"} for i in range(1, len(entries) + 1)] + [{"label": "Reject the request", "value": "cancel"}]
+        options = [{"label": f"Install {i}", "value": f"install:{i}"} for i in range(1, len(entries) + 1)]
+        options += [{"label": f"Install {i}, allow its scripts", "value": f"install:{i}:scripts"} for i, e in enumerate(entries, 1) if e["card"].get("route", "npm") in ("npm", "pypi")]
+        options += [{"label": "Reject the request", "value": "cancel"}]
         comparison = [{"n": i, "summary": e["summary"], "pros": e["pros"], "cons": e["cons"]} for i, e in enumerate(entries, 1)]
         answer = asker.ask({"mode": "confirm", "kind": "capability_choice", "free_prefix": FREE_PREFIX,
                             "facts": {"need": request["need"], "min_score": 0, "candidates": [e["card"] for e in entries], "notes": request["notes"],
                                       "asked": [], "comparison": comparison},
                             "question": f"Earlier I needed '{request['need']}' and queued {len(entries)} option(s). Install which one?\n" + listing,
                             "options": options})
-        if answer.startswith("install:") and answer[8:].isdigit():
+        number, _, how = answer[8:].partition(":")
+        if answer.startswith("install:") and number.isdigit() and how in ("", "scripts"):
             try:
-                finished = queue.approve(request_id, int(answer[8:]), installer.reading)
+                finished = install_asking(f"Request {request_id}", lambda **f: queue.approve(request_id, int(number), installer.reading, **f),
+                                          {"allow_scripts": how == "scripts"})
             except InstallError as e:
                 return f"It could not be installed: {e}"
             return f"{finished['detail']} It can be used now."

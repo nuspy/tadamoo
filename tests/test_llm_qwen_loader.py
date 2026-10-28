@@ -97,7 +97,7 @@ def test_nothing_loaded_loads_with_the_routes_profile_and_waits(make):
     server, loader = make()
     assert loader.ensure({"profile": "Chat"}) == "started"
     path, body, auth = server.calls[0]
-    assert path == "/api/loader/load" and body == {"values": {"server.context": 32768}, "model": "E:/m/chat.basalt"} and auth == "Bearer k"
+    assert path == "/api/loader/load" and body == {"values": {"server.context": 32768}, "force": True, "model": "E:/m/chat.basalt"} and auth == "Bearer k"
     assert server.state["loaded"] is True
 
 

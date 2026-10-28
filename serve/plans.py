@@ -361,7 +361,18 @@ class PlanService:
             self.store.save(plan_id)
             if event.get("type") == "plan:update_meta":
                 self._announce(plan_id)
+            if result.get("parked"):
+                self._replan_parked(plan_id, bridge, event, result)
         return result
+
+    def _replan_parked(self, plan_id: str, bridge: Any, event: Dict[str, Any], result: Dict[str, Any]) -> None:
+        """Steps were parked below a failed or timed-out one: the planner is asked for another way for that branch."""
+        from harness.planner.triage import TriageResult
+        names = ", ".join(bridge.dag.nodes[i].title for i in result["parked"] if i in bridge.dag.nodes)
+        source = bridge.dag.nodes.get(event.get("node_id"))
+        why = f"{source.title if source else event.get('node_id')} {'timed out' if event.get('type') == 'plan:timeout' else 'failed'}; parked: {names}"
+        verdict = TriageResult(True, 1.0, "MIXED_SOME_IMPACTFUL", [why], 0.0)
+        self.start_replan(plan_id, bridge, verdict, [why])
 
     def events_since(self, plan_id: str, seq: int) -> List[Dict[str, Any]]:
         return self.store.get(plan_id).events_since(seq)

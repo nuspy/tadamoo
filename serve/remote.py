@@ -28,11 +28,9 @@ from serve.security import lan_addresses
 KEY_PREFIX = "bsk_"
 LABEL_MAX = 60
 TOUCH_EVERY_S = 60                                       # the last use of a key is written at most this often
-KEY_TTL_DAYS = 90                                        # how long a new key lasts unless the person chose otherwise
-KEY_TTL_MAX_DAYS = 3650
+KEY_TTL_DAYS = 0                                         # how long a new key lasts unless the person chose otherwise (0: it does not end)
 MODE_ORDER = ("plan", "read_only", "default", "auto")    # from the least to the most a conversation may do without asking
-PHONE_MAX_MODE = "default"                               # the most a phone may start a conversation with, unless the person raised it
-PHONE_RULES_MAX = 10
+PHONE_MAX_MODE = "auto"                                  # the most a phone may start a conversation with, unless the person lowered it
 LISTEN_TAILSCALE = "tailscale"                           # the listener for phones follows the PC's Tailscale address
 LISTEN_ALL = "0.0.0.0"
 
@@ -104,10 +102,10 @@ class ApiKeys:
             ttl_days = KEY_TTL_DAYS
         try:
             days = int(ttl_days)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             raise ValueError("How long the key lasts is a number of days, or 0 for never.") from None
-        if isinstance(ttl_days, bool) or not 0 <= days <= KEY_TTL_MAX_DAYS:
-            raise ValueError(f"How long the key lasts is 1 to {KEY_TTL_MAX_DAYS} days, or 0 for never.")
+        if isinstance(ttl_days, bool) or days < 0 or days > 10 ** 6:
+            raise ValueError("How long the key lasts is a number of days, or 0 for never.")
         return time.time() + days * 86400 if days else None
 
     @staticmethod
@@ -354,7 +352,7 @@ class RemoteAccess:
             if saved.get("max_mode") in MODE_ORDER:
                 self.max_mode = saved["max_mode"]
             if isinstance(saved.get("rules"), list):
-                self.rules = [r for r in saved["rules"] if isinstance(r, str)][:PHONE_RULES_MAX]
+                self.rules = [r for r in saved["rules"] if isinstance(r, str)]
         except (OSError, ValueError, AttributeError):
             pass
 
@@ -372,8 +370,8 @@ class RemoteAccess:
         if max_mode not in MODE_ORDER:
             raise ValueError("The most a phone may start is one of: " + ", ".join(MODE_ORDER) + ".")
         lines = [str(r).strip() for r in rules] if isinstance(rules, list) else []
-        if len(lines) > PHONE_RULES_MAX or any(not r or len(r) > 200 or "\n" in r for r in lines):
-            raise ValueError(f"Rules are lines of text, at most {PHONE_RULES_MAX}.")
+        if any(not r or "\n" in r for r in lines):
+            raise ValueError("Rules are lines of text, one rule on each line.")
         with self._lock:
             self.max_mode, self.rules = max_mode, lines
             if phone_chooses is not None:

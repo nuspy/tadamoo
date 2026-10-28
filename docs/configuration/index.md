@@ -93,7 +93,7 @@ Server options. Command line `--name`, config `server` block `"name"`.
 | `host` | address | `127.0.0.1` | The address to listen on. `127.0.0.1` is this machine only; `0.0.0.0` also serves the network. Never listen beyond `127.0.0.1` without `api-key`. |
 | `port` | integer | `7232` | The TCP port. |
 | `api-key` | string | none | Require this key on `/v1/*` (`Authorization: Bearer ...` or `x-api-key`). Command line only. Set it whenever `host` is not `127.0.0.1`. |
-| `fit-max-tokens` | switch | off | Clamp a request's `max_tokens` to the context that remains instead of rejecting it with 400. |
+| `fit-max-tokens` | switch | on | Clamp a request's `max_tokens` to the context that remains instead of rejecting it with 400; `--no-fit-max-tokens` rejects it. |
 | `open` | switch | off | Open the local web page in the browser once the model is ready. |
 | `lazy` | switch | off | Start the text-only API unloaded and load the model on the first request. Turns vision off. |
 | `idle-unload` | seconds | off | Unload the model after this long without requests; the next request loads it again. Frees VRAM for other programs. |

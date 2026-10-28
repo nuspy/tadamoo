@@ -201,6 +201,15 @@ class PlansApiTest(PlansApiBase):
         self.assertEqual(snap["plan"]["nodes"]["partenza"]["title"], "Partenza")             # nothing applied by itself
         self.assertEqual(self.wait_event("triage", "plan:triage")["result"]["source"], "offline")
 
+    def test_a_timeout_warns_parks_the_steps_below_and_asks_the_planner_for_another_way(self):
+        self.call("POST", "/api/plans", {"plan": {**PLAN, "plan_id": "slow"}, "card": CARD})
+        code, res = self.call("POST", "/api/plans/slow/events", {"type": "plan:timeout", "node_id": "hotel"})
+        self.assertEqual((code, res["ok"], res["parked"]), (200, True, ["partenza"]))
+        self.assertEqual(self.wait_event("slow", "plan:warning")["kind"], "timeout")
+        self.wait_event("slow", "plan:replan_ready")
+        nodes = self.call("GET", "/api/plans/slow")[1]["plan"]["nodes"]
+        self.assertEqual((nodes["hotel"]["status"], nodes["partenza"]["status"]), ("blocked", "blocked"))
+
     def test_a_plan_made_without_a_card_gets_one_drawn_from_the_plan_and_can_be_triaged(self):
         code, snap = self.call("POST", "/api/plans", {"plan": {**PLAN, "plan_id": "nocard"}})
         self.assertEqual(code, 201)

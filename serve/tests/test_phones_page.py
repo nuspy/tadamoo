@@ -44,7 +44,8 @@ class PhonesPageTest(unittest.TestCase):
     def test_keys_have_an_end_that_can_be_chosen_and_renewed_and_the_limits_for_phones_are_set_with_an_explanation(self):
         for route in ("api/remote/keys/renew", "api/remote/limits"):
             self.assertIn(route, JS)
-        self.assertIn("window.confirm(T(\"mb.keys.neverconfirm\"))", JS)             # the risk of a key that never ends is said before it is made
+        self.assertNotIn("window.confirm", JS)                                       # a key with no end is made without a question; its risk is written under the box
+        self.assertIn("mb.keys.neverwarn", JS)
         dynamic = [f"mb.mode.{m}" for m in ("plan", "read_only", "default", "auto")] + [f"mb.lim.mode.help.{m}" for m in ("plan", "read_only", "default", "auto")]
         for key in dynamic + ["mb.keys.ends", "mb.keys.expired", "mb.keys.noend", "mb.keys.renew", "mb.keys.forever", "mb.lim.rules.help", "mb.lim.mode"]:
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)

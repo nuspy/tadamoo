@@ -121,10 +121,10 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--browser-headless", action="store_true", help="the browser has no window")
     parser.add_argument("--browser-private", action="store_true", help="the browser may open pages on this PC and its network")
     parser.add_argument("--browser-profile", default="", help="a profile folder that keeps the browser's sign-ins between conversations")
-    parser.add_argument("--browser-consent", default="necessary", choices=["necessary", "accept", "reject", "off"],
-                        help="what the browser does about a cookie banner: reject all or keep only the necessary (accept if that is not possible), accept, reject, or leave it to the model")
-    parser.add_argument("--browser-permissions", default="deny", choices=["deny", "ask", "grant-safe"],
-                        help="what the browser does when a page asks for a permission (location, camera, notifications...): refuse, ask the person, or allow only what is safe")
+    parser.add_argument("--browser-consent", default="follow", choices=["follow", "necessary", "accept", "reject", "off"],
+                        help="what the browser does about a cookie banner: follow the permission level (accept at Auto, the necessary only otherwise), keep only the necessary (accept if that is not possible), accept, reject, or leave it to the model")
+    parser.add_argument("--browser-permissions", default="follow", choices=["follow", "ask", "grant", "grant-safe", "deny"],
+                        help="what the browser does when a page asks for a permission (location, camera, notifications...): follow the permission level (grant at Auto, ask otherwise), ask the person, grant, grant only what is safe, or refuse")
     parser.add_argument("--rule-of-two", default="ask", choices=list(LEVELS),
                         help="when the agent has read content from outside and touched private data, an outward action (a web address, a query, a form) asks first (ask); "
                              "strict: it asks after untrusted content alone; off: it never asks. A known secret never leaves inside an address whatever the level")
@@ -224,8 +224,8 @@ class AgentConfig:
     rule_of_two: str = "ask"            # off, ask or strict: when an outward action asks (harness/rule_of_two.py)
     browser_private: bool = False       # may open pages on this PC or its network (off: only sites on the internet)
     browser_profile: str = ""           # a profile folder that keeps the browser's sign-ins between conversations (empty: a new one each time)
-    browser_consent: str = "necessary"  # cookie banners: necessary (reject all / only necessary, else accept), accept, reject, off (the model deals with them)
-    browser_permissions: str = "deny"   # a page's request for location, camera, notifications...: deny, ask (the person), grant-safe
+    browser_consent: str = "follow"     # cookie banners: follow (accept at Auto, necessary otherwise), necessary, accept, reject, off (the model deals with them)
+    browser_permissions: str = "follow"  # a page's request for location, camera, notifications...: follow (grant at Auto, ask otherwise), ask, grant, grant-safe, deny
     payments_dir: str = ""              # the person's payment systems and limits: with it the agent can ask to pay, and the broker decides
     context_window: Optional[int] = None   # tokens of context to plan for; empty: what the server reports for its model
     max_output_tokens: int = 4096
@@ -500,6 +500,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
                                   on_authorized=(lambda entry, payment_id, site: secrets.vault.arm(entry, payment_id=payment_id, site=site))
                                   if secrets.vault is not None else None)
     audit = AuditLedger(data / "audit.jsonl", redactor=secrets.mask_secrets)
+    secrets.on_unchecked = lambda names, tools: audit.record("agent", "secret_destination_unchecked", {"secrets": names, "network_tools": tools})
     if cfg.after_plan not in MODES_AFTER_PLAN:
         raise ValueError(f"after_plan must be one of {list(MODES_AFTER_PLAN)}")
     plan_gate = PlanGate()
@@ -624,7 +625,9 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
             browser = register_browser_tools(registry, secrets, profile_dir=cfg.browser_profile or data / "browser", headless=cfg.browser_headless,
                                              allow_private=cfg.browser_private, persistent=bool(cfg.browser_profile), consent=cfg.browser_consent,
                                              permissions=cfg.browser_permissions, confirm=lambda tool, args: bool(permissions.confirm_callback and permissions.confirm_callback(tool, args)),
-                                             audit=lambda kind, details: audit.record("browser", kind, details), screenshots=shots)
+                                             audit=lambda kind, details: audit.record("browser", kind, details), screenshots=shots,
+                                             auto=lambda: permissions.level == PermissionLevel.AUTO,
+                                             rules=lambda: [r.pattern for r in permissions.rules if r.action == "allow"])
     if cfg.council:
         from harness.council import offer_council
         from harness.llm import client_for as routed_for, registry as llm_registry

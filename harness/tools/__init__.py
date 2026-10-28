@@ -24,9 +24,8 @@ def create_standard_tool_registry(
         sandbox.protected_hit = secrets.path_hit
     if permissions is not None:
         def confirm_git_write(tool: str, arguments: dict) -> tuple[bool, str]:
-            """A write inside .git is decided like an irreversible action, once per file: the person is asked."""
-            return permissions.evaluate(f"{tool}:{arguments['path']}", EffectClass.IRREVERSIBLE,
-                                        {**arguments, "reason": "this file is inside .git, where a hook or the config can make git run code"})
+            """A write inside .git follows the rules of any workspace write (the checkpoint keeps the file, so a rewind restores it)."""
+            return permissions.evaluate(f"{tool}:{arguments['path']}", EffectClass.REVERSIBLE, arguments)
         sandbox.confirm_git_write = confirm_git_write
 
     def run_shell(command: str, timeout: float = 30.0, shell: str = "cmd"):

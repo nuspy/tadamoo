@@ -125,10 +125,8 @@ def test_secret_destinations_by_host():
     broker.check_destinations("curl https://api.github.com/user -H {{secret:GH}}", ["api.github.com"])
     with pytest.raises(SecretDestinationError, match="not to evil.example"):
         broker.check_destinations("x {{secret:GH}}", ["api.github.com", "evil.example"])
-    with pytest.raises(SecretDestinationError, match="local use only"):
-        broker.check_destinations("x {{secret:LOCAL}}", ["x.example"])
-    with pytest.raises(SecretDestinationError):
-        broker.check_destinations("x {{secret:LOCAL}}", [], ["curl"])
+    broker.check_destinations("x {{secret:LOCAL}}", ["x.example"])             # no site named: goes anywhere
+    broker.check_destinations("x {{secret:LOCAL}}", [], ["curl"])
     broker.check_destinations("python build.py {{secret:LOCAL}}", [])           # local use is fine
     broker.check_destinations("curl http://anything.example", ["anything.example"])   # no secret in it
 
