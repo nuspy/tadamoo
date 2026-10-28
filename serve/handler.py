@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT, benchrun, catalog, chatctx, checkpoints_api, downloads, loader, loader_api, model_list, modelbench, models, profiles, settings
+from serve import ROOT, benchrun, catalog, chatctx, checkpoints_api, downloads, engines, loader, loader_api, model_list, modelbench, models, profiles, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
@@ -377,6 +377,10 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/loader":
                 if self._authorized():
                     self._json(200, loader_api.info(svc))
+            elif path == "/api/loader/engines":
+                if self._authorized():
+                    every = parse_qs(urlsplit(self.path).query).get("all", ["0"])[0] in ("1", "true")
+                    self._json(200, loader_api.engines_info(every))
             elif path == "/api/wizard":
                 if self._authorized():
                     model = parse_qs(urlsplit(self.path).query).get("model", [None])[0]
@@ -1035,6 +1039,10 @@ def make_handler(svc: Service, remote: bool = False):
                 raw = self._body(settings.BODY_MAX)
             except BadBody as e:
                 self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                return
+            parts = what.split("/")
+            if len(parts) == 3 and parts[0] == "engines" and parts[2] == "install":
+                self._json(*engines.install(parts[1]))
                 return
             if what not in ("plan", "load", "calibrate"):
                 self._json(404, {"error": {"message": "not found"}})

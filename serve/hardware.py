@@ -7,6 +7,8 @@ about the machine):
   gpu(index)     name, CUDA compute capability (the engine's kernels are built for Blackwell: 10.x and 12.x), VRAM,
                  and the other processes on the card (NVML; their memory is unknown under Windows' WDDM)
 
+  machine()      the compute adapters and their families (nvidia_blackwell / ada / ampere / turing / other, amd, intel,
+                 apple) and whether the memory is one pool shared by CPU and GPU (True, False, or None when unknown)
   displays()     the video adapters and which of them drive a monitor: the primary display (the desktop's main
                  monitor) or only secondary ones (Windows: EnumDisplayDevices; elsewhere unknown)
   monitor_on(g)  where the compute GPU stands: "primary" (it drives the main monitor), "secondary" (another monitor,
@@ -14,12 +16,14 @@ about the machine):
   page_file()    the page file's size and whether Windows manages it (then it may grow)
 
 The mock server reads BASALT_FAKE_CPU / BASALT_FAKE_GPU / BASALT_FAKE_DISPLAYS / BASALT_FAKE_PAGEFILE (JSON) like
-BASALT_FAKE_SYSTEM, only with BASALT_FAKE_SYSTEM_OK=1."""
+BASALT_FAKE_SYSTEM, only with BASALT_FAKE_SYSTEM_OK=1. BASALT_FAKE_ACCEL (a JSON object or list of {"vendor", "name",
+"unified_memory"}) stands for the non-NVIDIA adapters; BASALT_FAKE_GPU may carry "unified_memory" too."""
 from __future__ import annotations
 
 import ctypes
 import json
 import os
+import re
 import time
 
 BLACKWELL_MAJORS = (10, 12)             # sm_100 (data centre) and sm_120 (GeForce RTX 50, RTX PRO)
@@ -353,3 +357,135 @@ def page_file() -> dict:
         return {"files": [], "automatic": None, "known": False}
     files = data.get("files") or []
     return {"files": files if isinstance(files, list) else [files], "automatic": data.get("automatic"), "known": True}
+
+# ------------------------------------------------------------------------------------------------ families
+NVIDIA_FAMILIES = ("nvidia_blackwell", "nvidia_ada", "nvidia_ampere", "nvidia_turing", "nvidia_other")
+VENDOR_FAMILIES = ("amd", "intel", "apple")
+
+
+def nvidia_family(cc) -> str | None:
+    """The NVIDIA architecture family of a compute capability [major, minor]: Blackwell (10.x, 12.x), Ada (8.9), Ampere
+    (other 8.x), Turing (7.5), anything else "nvidia_other"; None when the capability is unknown."""
+    try:
+        major, minor = int(cc[0]), int(cc[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if major in BLACKWELL_MAJORS:
+        return "nvidia_blackwell"
+    if (major, minor) == (8, 9):
+        return "nvidia_ada"
+    if major == 8:
+        return "nvidia_ampere"
+    if (major, minor) == (7, 5):
+        return "nvidia_turing"
+    return "nvidia_other"
+
+
+_AMD_UNIFIED = ("8060s", "8050s", "ryzen ai max", "mi300a")
+_AMD_DISCRETE = ("radeon rx", "radeon pro", "radeon ai pro", "radeon vii", "instinct")
+
+
+def classify_accel(vendor: str, name: str | None) -> tuple[str | None, bool | None]:
+    """(family, unified_memory) of a non-NVIDIA adapter from its vendor ("amd", "intel", "apple") and name. The family
+    is None for adapters that are not compute targets (integrated graphics, unnamed adapters); unified_memory is None
+    when the name does not settle it."""
+    n = (name or "").lower()
+    if vendor == "apple":
+        return "apple", True
+    if not n:
+        return None, None
+    if vendor == "amd":
+        if any(k in n for k in _AMD_UNIFIED):
+            return "amd", True
+        if any(k in n for k in _AMD_DISCRETE) or re.search(r"\bmi\d{2,3}x?\b", n):
+            return "amd", False
+        return None, None
+    if vendor == "intel":
+        if re.search(r"\barc\b.*\b[ab]\d{3}", n) or "data center gpu" in n or re.search(r"\bmax \d{4}\b", n):
+            return "intel", False
+        return None, None
+    return None, None
+
+
+def _accel_fake() -> list[dict] | None:
+    fake = _fake("BASALT_FAKE_ACCEL")
+    if isinstance(fake, dict):
+        fake = [fake]
+    return fake if isinstance(fake, list) else None
+
+
+def _linux_adapters() -> list[dict]:
+    """AMD and Intel adapters from /sys/class/drm (vendor ids only: the sysfs has no marketing name)."""
+    out = []
+    try:
+        for card in sorted(os.listdir("/sys/class/drm")):
+            if not re.fullmatch(r"card\d+", card):
+                continue
+            with open(f"/sys/class/drm/{card}/device/vendor", encoding="ascii") as f:
+                vid = f.read().strip().lower()
+            if vid in ("0x1002", "0x8086"):
+                out.append({"vendor": "amd" if vid == "0x1002" else "intel", "name": None})
+    except OSError:
+        pass
+    return out
+
+
+def _real_accel() -> list[dict]:
+    """The non-NVIDIA adapters this system shows: Apple silicon, and AMD / Intel video adapters by PCI vendor id."""
+    import platform
+    if platform.system() == "Darwin":
+        return [{"vendor": "apple", "name": "Apple silicon"}] if platform.machine() == "arm64" else []
+    adapters = displays() if os.name == "nt" else None
+    if adapters is not None:
+        out = []
+        for a in adapters:
+            ident = (a.get("id") or "").upper()
+            for ven, vendor in (("VEN_1002", "amd"), ("VEN_8086", "intel")):
+                if ven in ident:
+                    out.append({"vendor": vendor, "name": a.get("name")})
+        return out
+    return _linux_adapters() if os.name == "posix" else []
+
+
+def machine() -> dict:
+    """The compute adapters of this PC and their families: {"gpus": [{"index", "name", "vendor", "cc", "sm", "family",
+    "unified_memory"}], "families": sorted family ids (plus "unified_memory" when the memory is one pool), "unified_memory":
+    True / False / None (unknown), "os", "arch"}. Adapters that are not compute targets are left out."""
+    import platform
+    gpus: list[dict] = []
+    raw = _fake("BASALT_FAKE_GPU")
+    for g in gpu_list():
+        info = gpu(g["index"])
+        cc = info.get("cc")
+        name = info.get("name") or g.get("name")
+        unified = raw.get("unified_memory") if isinstance(raw, dict) and "unified_memory" in raw else (
+            True if "gb10" in (name or "").lower() else False)
+        gpus.append({"index": g["index"], "name": name, "vendor": "nvidia", "cc": cc,
+                     "sm": f"{cc[0]}.{cc[1]}" if cc else None, "family": nvidia_family(cc), "unified_memory": unified})
+    fake_accel = _accel_fake()
+    faked = fake_accel is not None or (os.environ.get("BASALT_FAKE_SYSTEM_OK") == "1"
+                                       and bool(os.environ.get("BASALT_FAKE_GPU")))
+    for a in (fake_accel if fake_accel is not None else ([] if faked else _real_accel())):
+        vendor = str(a.get("vendor") or "").lower()
+        family, unified = classify_accel(vendor, a.get("name"))
+        if a.get("family") in VENDOR_FAMILIES:
+            family = a["family"]
+        if "unified_memory" in a:
+            unified = a["unified_memory"]
+        if family:
+            gpus.append({"index": None, "name": a.get("name"), "vendor": vendor, "cc": None, "sm": None,
+                         "family": family, "unified_memory": unified})
+    flags = [g["unified_memory"] for g in gpus]
+    if not gpus:
+        unified_all = None
+    elif any(f is False for f in flags):
+        unified_all = False
+    elif all(f is True for f in flags):
+        unified_all = True
+    else:
+        unified_all = None
+    fams = sorted({g["family"] for g in gpus if g["family"]})
+    if unified_all:
+        fams.append("unified_memory")
+    return {"gpus": gpus, "families": fams, "unified_memory": unified_all, "os": platform.system().lower(),
+            "arch": platform.machine().lower()}

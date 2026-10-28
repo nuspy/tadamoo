@@ -19,6 +19,10 @@ ESCAPED_MARKUP = ("converter.js", "charts.js")
 # keys the scripts build at run time, as prefix + each value
 DYNAMIC = {
     "pl.type.": ["action", "sensor", "decision", "merge"],
+    "eng.tab.": ["rtx3040", "mac", "amd", "intel", "unified"],
+    "eng.desc.": ["rtx3040", "mac", "amd", "intel", "unified"],
+    "eng.why.": ["no_gpu", "family", "sm", "hardware"],
+    "eng.e.": ["not_available_yet", "unknown_engine"],
     "pl.status.": ["pending", "in_progress", "completed", "failed", "blocked", "skipped"],
     "pl.assignee.": ["agent", "user", "third_party"],
     "pl.assignee.short.": ["agent", "user", "third_party"],

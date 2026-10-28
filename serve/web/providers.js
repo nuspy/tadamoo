@@ -50,7 +50,7 @@
     if (tab) tab.setAttribute("aria-selected", String(cv));
     keep(SUB_KEY, which);
     if (prov) refresh();
-    if (cv) document.dispatchEvent(new CustomEvent("basalt:models-sub", { detail: "converter" }));
+    document.dispatchEvent(new CustomEvent("basalt:models-sub", { detail: which }));
   }
   document.getElementById("sub-providers").onclick = () => sub("providers");
   document.getElementById("sub-qwen").onclick = () => sub("qwen");
@@ -233,5 +233,7 @@
 
   document.addEventListener("basalt:view", e => { if (e.detail === "loader" && !panel.hidden) refresh(); });
   applyT(view.querySelector(".subtabs"));
-  sub(["providers", "converter"].includes(load(SUB_KEY, "qwen")) ? load(SUB_KEY, "qwen") : "qwen");
+  const saved = load(SUB_KEY, "qwen");
+  sub(["providers", "converter"].includes(saved) ? saved : "qwen");
+  if (saved.startsWith("engine:")) keep(SUB_KEY, saved);                       // engines.js restores its own tab
 })();

@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 import threading
 
-from serve import hardware, loader, settings
+from serve import engines, hardware, loader, settings
 from serve.config import PARALLEL_MAX, engine_flags_of, engine_words
 from serve.engine.vision import VISION_MODES
 
@@ -164,6 +164,11 @@ def clean(values) -> dict:
         section, key = name.split(".", 1)
         out[name] = None if value is None or value == "" else settings.check_value(section, key, value)
     return out
+
+
+def engines_info(show_all: bool = False) -> dict:
+    """GET /api/loader/engines: the engines, their Models tabs for this PC and its memory pool modes."""
+    return engines.listing(hardware.machine(), show_all)
 
 
 def info(svc, lang: str = "en") -> dict:
