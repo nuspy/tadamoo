@@ -18,11 +18,11 @@ class ConversationColumnTest(unittest.TestCase):
         for ident in ("cv-fav", "cv-recent", "cv-toggle", "cv-fav-group"):
             self.assertIn(f'id="{ident}"', HTML)
 
-    def test_each_conversation_opens_goes_to_the_favourites_and_is_deleted_after_a_second_press(self):
+    def test_each_conversation_opens_goes_to_the_favourites_and_is_deleted_with_one_press(self):
         self.assertIn("openSession(s.id)", JS)
         self.assertIn("`/${s.id}/favorite`", JS)
         self.assertIn("`/${s.id}/delete`", JS)
-        self.assertIn("if (delArmed !== s.id) {", JS)                                                # the first press only asks again
+        self.assertNotIn("delArmed", JS)                                                             # no second press
         self.assertIn("fav = shown.filter(s => s.favorite)", JS)                                     # favourites are drawn apart, above the others
         self.assertLess(HTML.index('id="cv-fav-group"'), HTML.index('id="cv-recent"'))
 
