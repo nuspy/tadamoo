@@ -574,6 +574,19 @@ class NetWatch:
         self.tool_calls_seen = True
         self.tool_calls.append((float(ts), str(tool), str(target or "")))
 
+    def note_tool_calls(self, req: Any) -> Dict[str, Any]:
+        """The same, as sent by an agent process over HTTP: {ts, tool, target}. A time in the future is taken as now."""
+        if not isinstance(req, dict) or not isinstance(req.get("tool"), str) or not req["tool"]:
+            raise NetwatchError("Send {ts, tool, target}.")
+        now = self.clock()
+        try:
+            ts = min(float(req.get("ts") or now), now)
+        except (TypeError, ValueError):
+            raise NetwatchError("ts is a number.") from None
+        target = req.get("target")
+        self.note_tool_call(ts, req["tool"][:80], target[:2000] if isinstance(target, str) else "")
+        return {"noted": True}
+
     # -- settings
     def settings(self) -> Dict[str, Any]:
         return dict(self.store.settings)
