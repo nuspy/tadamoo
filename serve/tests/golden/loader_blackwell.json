@@ -1,0 +1,818 @@
+{
+ "defaults": {
+  "engine.adapt-swaps": 96,
+  "engine.conversation-cache-mib": 0,
+  "engine.conversation-cache-min-free-mib": 2560,
+  "engine.conversation-cache-slots": 4,
+  "engine.expert-cache": 0,
+  "engine.expert-profile-save": null,
+  "engine.expert-profile-save-every": 10,
+  "engine.kv": "fp16",
+  "engine.kv-resident": 0,
+  "engine.max-context": 4096,
+  "engine.mmap-experts": false,
+  "engine.ple-io": "direct",
+  "engine.pool-workers": null,
+  "engine.prefill": null,
+  "engine.prefill-cpu-share": 0.6,
+  "engine.prompt-cache": 6,
+  "engine.prompt-cache-every": 16384,
+  "engine.prompt-cache-root": 2048,
+  "engine.relaxed-drafting": null,
+  "engine.release-vram-commit": false,
+  "engine.resident-budget-gib": null,
+  "engine.resident-experts": false,
+  "engine.rope-freq-base": 0,
+  "engine.rope-scale": null,
+  "engine.rope-scaling": null,
+  "engine.spec": 0,
+  "engine.vram-elastic": false,
+  "engine.vram-reserve-mib": 700,
+  "server.grammar": true,
+  "server.parallel": 1,
+  "server.port": 7232,
+  "server.reasoning-budget-tokens": 0,
+  "server.slot-full-context": false,
+  "server.vision": "off",
+  "server.vision-hold": "keep",
+  "server.vision-projector": "auto"
+ },
+ "editable": true,
+ "fields": [
+  "server.port",
+  "server.parallel",
+  "server.slot-full-context",
+  "server.vision",
+  "server.vision-projector",
+  "server.vision-hold",
+  "engine.max-context",
+  "engine.kv",
+  "engine.prefill",
+  "engine.spec",
+  "engine.relaxed-drafting",
+  "engine.expert-cache",
+  "engine.resident-experts",
+  "engine.vram-reserve-mib",
+  "engine.ple-io",
+  "engine.pool-workers",
+  "engine.kv-resident",
+  "engine.resident-budget-gib",
+  "engine.mmap-experts",
+  "engine.adapt-swaps",
+  "engine.prefill-cpu-share",
+  "engine.vram-elastic",
+  "engine.release-vram-commit",
+  "engine.expert-profile-save",
+  "engine.expert-profile-save-every",
+  "engine.prompt-cache",
+  "engine.prompt-cache-every",
+  "engine.prompt-cache-root",
+  "engine.conversation-cache-mib",
+  "engine.conversation-cache-slots",
+  "engine.conversation-cache-min-free-mib",
+  "engine.rope-scaling",
+  "engine.rope-scale",
+  "engine.rope-freq-base",
+  "server.grammar",
+  "server.reasoning-budget-tokens"
+ ],
+ "gpu": {
+  "blackwell": true,
+  "cc": [
+   12,
+   0
+  ],
+  "display_active": null,
+  "display_mode": null,
+  "name": "NVIDIA GeForce RTX 5090",
+  "processes": [],
+  "vram_free": 33285996544,
+  "vram_total": 34359738368
+ },
+ "gpu_warning": {
+  "en": null,
+  "it": null
+ },
+ "limits": {
+  "context_max": 262144,
+  "kv": [
+   "fp16",
+   "int8",
+   "q4_0",
+   "k8v4"
+  ],
+  "parallel_max": 8,
+  "ple_io": [
+   "direct",
+   "mmap",
+   "ram"
+  ],
+  "pool_workers_max": 256,
+  "prefill_ceilings": [
+   8192,
+   16384,
+   32768
+  ],
+  "spec_max": 8,
+  "vision": [
+   "off",
+   "dynamic",
+   "cpu"
+  ]
+ },
+ "offline": {
+  "plan_safe": {
+   "commit": {
+    "available": 143881404416,
+    "elastic": 11408506880,
+    "free_now": 143881404416,
+    "keep": 23192823398,
+    "keep_share": 0.15,
+    "limit": 154618822656,
+    "need": 75498286080,
+    "ram_part": 43823094528,
+    "used": 10737418240,
+    "vram_part": 31675191552
+   },
+   "engine_holds": {
+    "commit": 0,
+    "ram": 0,
+    "vram": 0
+   },
+   "fits": true,
+   "kv_bytes_per_token": 8720,
+   "notes": [],
+   "parallel": 1,
+   "problems": [],
+   "projector": {
+    "bytes": 904004352,
+    "fix": 0,
+    "name": "embedded",
+    "value": "embedded"
+   },
+   "projectors": [
+    {
+     "bytes": 904004352,
+     "fix": 0,
+     "name": "embedded",
+     "problem": null,
+     "value": "embedded"
+    }
+   ],
+   "ram": {
+    "available": 128849018880,
+    "elastic": 11408506880,
+    "free_now": 128849018880,
+    "items": [
+     {
+      "bytes": 28253184000,
+      "estimate": false,
+      "key": "experts"
+     },
+     {
+      "bytes": 11408506880,
+      "estimate": true,
+      "key": "lend"
+     },
+     {
+      "bytes": 273152000,
+      "estimate": false,
+      "key": "token_embd"
+     },
+     {
+      "bytes": 742391808,
+      "estimate": false,
+      "key": "checkpoints"
+     },
+     {
+      "bytes": 904004352,
+      "estimate": false,
+      "key": "vision"
+     },
+     {
+      "bytes": 94371840,
+      "estimate": false,
+      "key": "ple"
+     },
+     {
+      "bytes": 2147483648,
+      "estimate": true,
+      "key": "other"
+     }
+    ],
+    "keep": 20615843020,
+    "keep_share": 0.15,
+    "need": 43823094528,
+    "total": 137438953472
+   },
+   "relaxed": {
+    "effective": true,
+    "p": 0.0,
+    "why": []
+   },
+   "slot_context": 262144,
+   "unknown": [],
+   "values": {
+    "engine.adapt-swaps": 96,
+    "engine.conversation-cache-mib": 0,
+    "engine.conversation-cache-min-free-mib": 2560,
+    "engine.conversation-cache-slots": 4,
+    "engine.expert-cache": "auto",
+    "engine.expert-profile-save": null,
+    "engine.expert-profile-save-every": 10,
+    "engine.kv": "q4_0",
+    "engine.kv-resident": 0,
+    "engine.max-context": 262144,
+    "engine.mmap-experts": false,
+    "engine.ple-io": "direct",
+    "engine.pool-workers": 15,
+    "engine.prefill": "auto",
+    "engine.prefill-cpu-share": 0.6,
+    "engine.prompt-cache": 6,
+    "engine.prompt-cache-every": 16384,
+    "engine.prompt-cache-root": 2048,
+    "engine.relaxed-drafting": null,
+    "engine.release-vram-commit": false,
+    "engine.resident-budget-gib": null,
+    "engine.resident-experts": true,
+    "engine.rope-freq-base": 0,
+    "engine.rope-scale": null,
+    "engine.rope-scaling": null,
+    "engine.spec": 7,
+    "engine.vram-elastic": false,
+    "engine.vram-reserve-mib": 1536,
+    "server.grammar": true,
+    "server.parallel": 1,
+    "server.port": 7232,
+    "server.reasoning-budget-tokens": 0,
+    "server.slot-full-context": false,
+    "server.vision": "dynamic",
+    "server.vision-hold": "keep",
+    "server.vision-projector": "auto"
+   },
+   "vision_hold": {
+    "bytes": 0,
+    "release": false
+   },
+   "vram": {
+    "available": 33285996544,
+    "expert_slots": 11688,
+    "expert_slots_total": 24576,
+    "free_now": 33285996544,
+    "items": [
+     {
+      "bytes": 1975078400,
+      "estimate": false,
+      "key": "dense"
+     },
+     {
+      "bytes": 1015390208,
+      "estimate": false,
+      "key": "drafter"
+     },
+     {
+      "bytes": 2418016256,
+      "estimate": false,
+      "key": "kv"
+     },
+     {
+      "bytes": 3146496,
+      "estimate": false,
+      "key": "vision"
+     },
+     {
+      "bytes": 201326592,
+      "estimate": false,
+      "key": "buffers"
+     },
+     {
+      "bytes": 629145600,
+      "estimate": true,
+      "key": "cuda"
+     },
+     {
+      "bytes": 25433088000,
+      "estimate": false,
+      "key": "experts"
+     }
+    ],
+    "need": 31675191552,
+    "reserve": 1610612736,
+    "total": 34359738368
+   }
+  },
+  "plan_values": {
+   "commit": {
+    "available": 143881404416,
+    "elastic": 0,
+    "free_now": 143881404416,
+    "keep": 23192823398,
+    "keep_share": 0.15,
+    "limit": 154618822656,
+    "need": 89286899200,
+    "ram_part": 56736951296,
+    "used": 10737418240,
+    "vram_part": 32549947904
+   },
+   "engine_holds": {
+    "commit": 0,
+    "ram": 0,
+    "vram": 0
+   },
+   "fits": true,
+   "kv_bytes_per_token": 14480,
+   "notes": [],
+   "parallel": 1,
+   "problems": [],
+   "projector": {
+    "bytes": 904004352,
+    "fix": 0,
+    "name": "embedded",
+    "value": "embedded"
+   },
+   "projectors": [
+    {
+     "bytes": 904004352,
+     "fix": 0,
+     "name": "embedded",
+     "problem": null,
+     "value": "embedded"
+    }
+   ],
+   "ram": {
+    "available": 128849018880,
+    "elastic": 0,
+    "free_now": 128849018880,
+    "items": [
+     {
+      "bytes": 53479552000,
+      "estimate": false,
+      "key": "experts"
+     },
+     {
+      "bytes": 273152000,
+      "estimate": false,
+      "key": "token_embd"
+     },
+     {
+      "bytes": 742391808,
+      "estimate": false,
+      "key": "checkpoints"
+     },
+     {
+      "bytes": 94371840,
+      "estimate": false,
+      "key": "ple"
+     },
+     {
+      "bytes": 2147483648,
+      "estimate": true,
+      "key": "other"
+     }
+    ],
+    "keep": 20615843020,
+    "keep_share": 0.15,
+    "need": 56736951296,
+    "total": 137438953472
+   },
+   "relaxed": {
+    "effective": true,
+    "p": 0.0,
+    "why": []
+   },
+   "slot_context": 65536,
+   "unknown": [],
+   "values": {
+    "engine.adapt-swaps": 96,
+    "engine.conversation-cache-mib": 0,
+    "engine.conversation-cache-min-free-mib": 2560,
+    "engine.conversation-cache-slots": 4,
+    "engine.expert-cache": 0,
+    "engine.expert-profile-save": null,
+    "engine.expert-profile-save-every": 10,
+    "engine.kv": "int8",
+    "engine.kv-resident": 0,
+    "engine.max-context": 65536,
+    "engine.mmap-experts": false,
+    "engine.ple-io": "direct",
+    "engine.pool-workers": null,
+    "engine.prefill": null,
+    "engine.prefill-cpu-share": 0.6,
+    "engine.prompt-cache": 6,
+    "engine.prompt-cache-every": 16384,
+    "engine.prompt-cache-root": 2048,
+    "engine.relaxed-drafting": null,
+    "engine.release-vram-commit": false,
+    "engine.resident-budget-gib": null,
+    "engine.resident-experts": false,
+    "engine.rope-freq-base": 0,
+    "engine.rope-scale": null,
+    "engine.rope-scaling": null,
+    "engine.spec": 7,
+    "engine.vram-elastic": false,
+    "engine.vram-reserve-mib": 700,
+    "server.grammar": true,
+    "server.parallel": 1,
+    "server.port": 7232,
+    "server.reasoning-budget-tokens": 0,
+    "server.slot-full-context": false,
+    "server.vision": "off",
+    "server.vision-hold": "keep",
+    "server.vision-projector": "auto"
+   },
+   "vision_hold": {
+    "bytes": 0,
+    "release": false
+   },
+   "vram": {
+    "available": 33285996544,
+    "expert_slots": 12755,
+    "expert_slots_total": 24576,
+    "free_now": 33285996544,
+    "items": [
+     {
+      "bytes": 1975078400,
+      "estimate": false,
+      "key": "dense"
+     },
+     {
+      "bytes": 908435456,
+      "estimate": false,
+      "key": "drafter"
+     },
+     {
+      "bytes": 1081081856,
+      "estimate": false,
+      "key": "kv"
+     },
+     {
+      "bytes": 0,
+      "estimate": false,
+      "key": "vision"
+     },
+     {
+      "bytes": 201326592,
+      "estimate": false,
+      "key": "buffers"
+     },
+     {
+      "bytes": 629145600,
+      "estimate": true,
+      "key": "cuda"
+     },
+     {
+      "bytes": 27754880000,
+      "estimate": false,
+      "key": "experts"
+     }
+    ],
+    "need": 32549947904,
+    "reserve": 734003200,
+    "total": 34359738368
+   }
+  },
+  "safe": {
+   "engine.expert-cache": "auto",
+   "engine.kv": "q4_0",
+   "engine.max-context": 262144,
+   "engine.ple-io": "ram",
+   "engine.pool-workers": 15,
+   "engine.prefill": "auto",
+   "engine.resident-experts": true,
+   "engine.spec": 7,
+   "engine.vram-reserve-mib": 1536,
+   "server.parallel": 1,
+   "server.slot-full-context": false,
+   "server.vision": "dynamic"
+  }
+ },
+ "plan": {
+  "commit": {
+   "available": 143881404416,
+   "elastic": 713031680,
+   "free_now": 143881404416,
+   "keep": 23192823398,
+   "keep_share": 0.15,
+   "limit": 154618822656,
+   "need": 62842891264,
+   "ram_part": 30816707328,
+   "used": 10737418240,
+   "vram_part": 32026183936
+  },
+  "engine_holds": {
+   "commit": 0,
+   "ram": 0,
+   "vram": 0
+  },
+  "fits": true,
+  "gpu": {
+   "blackwell": true,
+   "cc": [
+    12,
+    0
+   ],
+   "display_active": null,
+   "display_mode": null,
+   "name": "NVIDIA GeForce RTX 5090",
+   "processes": [],
+   "vram_free": 33285996544,
+   "vram_total": 34359738368
+  },
+  "kv_bytes_per_token": 14480,
+  "model": {
+   "dense_bytes": 1538035200,
+   "experts_bytes": 53477376000,
+   "has_mtp": true,
+   "has_profile": true,
+   "head_bytes": 437043200,
+   "max_blob": 2176000,
+   "mmproj_bytes": 904004352,
+   "mtp_bytes": 823887872,
+   "n_expert": 512,
+   "n_layers": 48,
+   "n_vocab": 248320,
+   "name": "demo model (mock engine)",
+   "path": null,
+   "ple_bytes": 28800138240,
+   "profile_slots": 24576,
+   "projectors": [],
+   "sampling": {
+    "min_p": 0.0,
+    "presence_penalty": 0.0,
+    "temperature": 1.0,
+    "top_k": 20,
+    "top_p": 0.95
+   },
+   "token_embd_bytes": 273152000
+  },
+  "notes": [],
+  "parallel": 1,
+  "problems": [],
+  "projector": {
+   "bytes": 904004352,
+   "fix": 0,
+   "name": "embedded",
+   "value": "embedded"
+  },
+  "projectors": [
+   {
+    "bytes": 904004352,
+    "fix": 0,
+    "name": "embedded",
+    "problem": null,
+    "value": "embedded"
+   }
+  ],
+  "ram": {
+   "available": 128849018880,
+   "elastic": 713031680,
+   "free_now": 128849018880,
+   "items": [
+    {
+     "bytes": 25942272000,
+     "estimate": false,
+     "key": "experts"
+    },
+    {
+     "bytes": 713031680,
+     "estimate": true,
+     "key": "lend"
+    },
+    {
+     "bytes": 273152000,
+     "estimate": false,
+     "key": "token_embd"
+    },
+    {
+     "bytes": 742391808,
+     "estimate": false,
+     "key": "checkpoints"
+    },
+    {
+     "bytes": 904004352,
+     "estimate": false,
+     "key": "vision"
+    },
+    {
+     "bytes": 94371840,
+     "estimate": false,
+     "key": "ple"
+    },
+    {
+     "bytes": 2147483648,
+     "estimate": true,
+     "key": "other"
+    }
+   ],
+   "keep": 20615843020,
+   "keep_share": 0.15,
+   "need": 30816707328,
+   "total": 137438953472
+  },
+  "relaxed": {
+   "effective": true,
+   "p": 0.0,
+   "why": []
+  },
+  "slot_context": 32768,
+  "speed": {
+   "accept": 0.566,
+   "decode": 359.4,
+   "decode_reasoning": 359.4,
+   "decode_reasoning_visible": null,
+   "hit_rate": 0.9894,
+   "prefill": 1622.0,
+   "prefill_chunk": 2048,
+   "source": {
+    "at": null,
+    "exact": false,
+    "kind": "seed",
+    "note": "README: IQ3_XXS, RTX 5090 @400 W, 184 tok/s spec 0, 320 tok/s spec 7; Strata on this PC: 188 tok/s (spec 4, reasoning off, 98.4% expert-cache hits), prefill 892 tok/s at 512-token chunks"
+   },
+   "spec": 7,
+   "visible_share": null
+  },
+  "system": {
+   "commit_limit": 154618822656,
+   "commit_used": 10737418240,
+   "ram_available": 128849018880,
+   "ram_total": 137438953472,
+   "vram_free": 33285996544,
+   "vram_total": 34359738368
+  },
+  "unknown": [],
+  "values": {
+   "engine.adapt-swaps": 96,
+   "engine.conversation-cache-mib": 0,
+   "engine.conversation-cache-min-free-mib": 2560,
+   "engine.conversation-cache-slots": 4,
+   "engine.expert-cache": "auto",
+   "engine.expert-profile-save": null,
+   "engine.expert-profile-save-every": 10,
+   "engine.kv": "int8",
+   "engine.kv-resident": 0,
+   "engine.max-context": 32768,
+   "engine.mmap-experts": false,
+   "engine.ple-io": "direct",
+   "engine.pool-workers": 15,
+   "engine.prefill": null,
+   "engine.prefill-cpu-share": 0.6,
+   "engine.prompt-cache": 6,
+   "engine.prompt-cache-every": 16384,
+   "engine.prompt-cache-root": 2048,
+   "engine.relaxed-drafting": null,
+   "engine.release-vram-commit": false,
+   "engine.resident-budget-gib": null,
+   "engine.resident-experts": true,
+   "engine.rope-freq-base": 0,
+   "engine.rope-scale": null,
+   "engine.rope-scaling": null,
+   "engine.spec": 7,
+   "engine.vram-elastic": false,
+   "engine.vram-reserve-mib": 1200,
+   "server.grammar": true,
+   "server.parallel": 1,
+   "server.port": 7232,
+   "server.reasoning-budget-tokens": 0,
+   "server.slot-full-context": false,
+   "server.vision": "dynamic",
+   "server.vision-hold": "keep",
+   "server.vision-projector": "auto"
+  },
+  "vision_gpu": null,
+  "vision_hold": {
+   "bytes": 0,
+   "release": false
+  },
+  "vram": {
+   "available": 33285996544,
+   "expert_slots": 12750,
+   "expert_slots_total": 24576,
+   "free_now": 33285996544,
+   "items": [
+    {
+     "bytes": 1975078400,
+     "estimate": false,
+     "key": "dense"
+    },
+    {
+     "bytes": 869638144,
+     "estimate": false,
+     "key": "drafter"
+    },
+    {
+     "bytes": 606601216,
+     "estimate": false,
+     "key": "kv"
+    },
+    {
+     "bytes": 393984,
+     "estimate": false,
+     "key": "vision"
+    },
+    {
+     "bytes": 201326592,
+     "estimate": false,
+     "key": "buffers"
+    },
+    {
+     "bytes": 629145600,
+     "estimate": true,
+     "key": "cuda"
+    },
+    {
+     "bytes": 27744000000,
+     "estimate": false,
+     "key": "experts"
+    }
+   ],
+   "need": 32026183936,
+   "reserve": 1258291200,
+   "total": 34359738368
+  },
+  "warnings": []
+ },
+ "reason": "",
+ "reserve": {
+  "default_mib": 1536,
+  "vram_total": 34359738368,
+  "warn_mib": 1024
+ },
+ "safe": {
+  "engine.expert-cache": "auto",
+  "engine.kv": "q4_0",
+  "engine.max-context": 262144,
+  "engine.ple-io": "ram",
+  "engine.pool-workers": 15,
+  "engine.prefill": "auto",
+  "engine.resident-experts": true,
+  "engine.spec": 7,
+  "engine.vram-reserve-mib": 1536,
+  "server.parallel": 1,
+  "server.slot-full-context": false,
+  "server.vision": "dynamic"
+ },
+ "safe_why": {
+  "engine.expert-cache": {
+   "en": "auto: every MiB of VRAM left after the reserve holds experts.",
+   "it": "auto: tutta la VRAM che resta oltre la riserva contiene esperti."
+  },
+  "engine.kv": {
+   "en": "q4_0: the smallest KV cache, more VRAM left for experts.",
+   "it": "q4_0: la cache KV pi\u00f9 piccola, pi\u00f9 VRAM per gli esperti."
+  },
+  "engine.max-context": {
+   "en": "The model's full context; with q4_0 its KV cache is 2.1 GiB.",
+   "it": "Il contesto intero del modello; con q4_0 la cache KV \u00e8 di 2,1 GiB."
+  },
+  "engine.ple-io": {
+   "en": "ram: the PLE table fits in RAM with 15% of RAM and of the commit free.",
+   "it": "ram: la tabella PLE ci sta in RAM lasciando liberi il 15% della RAM e del commit."
+  },
+  "engine.pool-workers": {
+   "en": "15 CPU workers: the 8 performance cores and half the 16 efficiency cores, less one; the rest stay for the system.",
+   "it": "15 thread CPU: i 8 core performance e met\u00e0 dei 16 core efficienza, meno uno; il resto resta al sistema."
+  },
+  "engine.prefill": {
+   "en": "auto: the prompt is read in large chunks that borrow expert-cache slots.",
+   "it": "auto: il prompt si legge a blocchi grandi che prendono in prestito posti della cache esperti."
+  },
+  "engine.resident-experts": {
+   "en": "on: the experts outside the GPU cache are copied to RAM once, not read from disk.",
+   "it": "attivo: gli esperti fuori dalla cache GPU sono copiati in RAM una volta, non letti dal disco."
+  },
+  "engine.spec": {
+   "en": "7: the drafter proposes up to 6 tokens per step; the usual best speed.",
+   "it": "7: il drafter propone fino a 6 token per passo; di solito la velocit\u00e0 migliore."
+  },
+  "engine.vram-reserve-mib": {
+   "en": "1.5 GB stay free on the GPU: 0.5 GB for the driver, +1.0 GB until the configuration wizard confirms where the monitor is. Other programs use 1.0 GB of it now: the expert cache leaves that to them anyway.",
+   "it": "1,5 GB restano liberi sulla GPU: 0,5 GB per il driver, +1,0 GB finch\u00e9 la configurazione guidata non conferma dov'\u00e8 il monitor. Gli altri programmi ne usano ora 1,0 GB: la cache esperti li lascia comunque a loro."
+  },
+  "server.parallel": {
+   "en": "1: one request at a time gets the whole context and the full speed.",
+   "it": "1: una richiesta alla volta ha tutto il contesto e tutta la velocit\u00e0."
+  },
+  "server.slot-full-context": {
+   "en": "off: with one slot it changes nothing.",
+   "it": "spento: con un solo slot non cambia nulla."
+  },
+  "server.vision": {
+   "en": "dynamic: images are read inside the engine, no VRAM kept for them.",
+   "it": "dynamic: le immagini si leggono dentro il motore, nessuna VRAM fissa."
+  }
+ },
+ "unsupported": [],
+ "values": {
+  "engine.expert-cache": "auto",
+  "engine.kv": "int8",
+  "engine.max-context": 32768,
+  "engine.ple-io": "direct",
+  "engine.pool-workers": 15,
+  "engine.resident-experts": true,
+  "engine.spec": 7,
+  "engine.vram-reserve-mib": 1200,
+  "server.port": 7232,
+  "server.vision": "dynamic"
+ }
+}
