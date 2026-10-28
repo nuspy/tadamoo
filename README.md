@@ -202,6 +202,8 @@ The reference is [docs/harness.md](docs/harness.md); a step-by-step guide is [do
 
 An optional **security monitor** (Monitor > Security) watches the network connections and disk writes of the model processes and flags suspicious cases without blocking anything; see [docs/security-monitor.md](docs/security-monitor.md).
 
+An optional **reverse engineering** switch in the Agent tab adds the shipped REA toolkit (MCP server and skill) to the agent and lists the programs it can use, each installed only on a click; Windows support is experimental; see [docs/rea.md](docs/rea.md).
+
 ### Four ways in
 
 All four build the agent in the same place (`harness/stack.py`), so what one can reach the others can reach.

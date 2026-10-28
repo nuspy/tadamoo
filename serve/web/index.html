@@ -23,6 +23,7 @@
 <link rel="stylesheet" href="web/export.css">
 <link rel="stylesheet" href="web/checkpoints.css">
 <link rel="stylesheet" href="web/netwatch.css">
+<link rel="stylesheet" href="web/rea.css">
 <script defer src="web/i18n.js"></script>
 <script defer src="web/risk.js"></script>
 <script defer src="web/app.js"></script>
@@ -58,6 +59,7 @@
 <script defer src="web/memories.js"></script>
 <script defer src="web/wallet.js"></script>
 <script defer src="web/netwatch.js"></script>
+<script defer src="web/rea.js"></script>
 </head>
 <body>
 
@@ -242,6 +244,13 @@
         <button type="button" class="btn" id="acopy-open" aria-expanded="false" aria-controls="acopy-panel" hidden></button>
       </div>
       <div class="acopy-panel" id="acopy-panel" hidden></div>
+      <section class="rea" id="rea-box" aria-labelledby="rea-title">
+        <label class="rea-check"><input type="checkbox" id="rea-on" aria-describedby="rea-hint"><span id="rea-title" data-t="rea.title">Reverse engineering (REA)</span></label>
+        <p class="rea-hint" id="rea-hint" data-t="rea.hint"></p>
+        <div id="rea-state"></div>
+        <details class="rea-more"><summary data-t="rea.more">Programs REA can use, risk and installers</summary><div id="rea-body"></div></details>
+        <p class="rea-line" id="rea-msg" role="status"></p>
+      </section>
       <div class="msgs" id="msgs" role="log" aria-label="Messages" aria-live="polite" aria-busy="false" tabindex="0">
         <div class="chat-empty" id="chat-empty">
           <b>Ask the model anything.</b>
