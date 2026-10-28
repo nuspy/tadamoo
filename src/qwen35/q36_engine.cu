@@ -17,6 +17,7 @@
 // [--force IDS] [--dump-full-logits F] (tools/qwen35/kl.py's reference interface), --bench-pp N / --bench-tg N.
 #include "basalt/artifact/gguf_reader.hpp"
 #include "basalt/qwen35/layout.hpp"
+#include "basalt/core/model_file.hpp"
 #include "basalt/kernels/fused_gdn.hpp"
 #include "basalt/kernels/iq_kernels.hpp"
 #include "basalt/kernels/native_mmvq.hpp"
@@ -855,6 +856,9 @@ struct Layer {
     // the GGUF's expert tensors (the mapped file stays open): place_experts builds the blobs from them
     const uint8_t *src_g = nullptr, *src_u = nullptr, *src_d = nullptr;
     size_t src_gsz = 0, src_dsz = 0;
+    // a .basalt's experts section: the layer's blobs already in the native layout, src_blob_bytes apart
+    const uint8_t* src_blob = nullptr;
+    size_t src_blob_bytes = 0;
     uint8_t* hblobs = nullptr;  // hybrid mode: every expert's blob in host memory, `stride` apart
     int n_slots = 0;            // hybrid mode: the experts resident in VRAM
 };
@@ -973,8 +977,47 @@ float* upload_f32(const basalt::TensorInfo& t, const uint8_t* src) {
     return d;
 }
 
+/// One layer of a .basalt's `experts.layout`: the formats and where its blobs start in the `experts` section.
+struct PackLayer {
+    int gu_type = -1, d_type = -1;
+    uint64_t offset = 0, blob = 0;
+};
+
+/// Opens a .basalt for the loader below: its `gguf` section answers as a GGUF file, and `experts.layout` gives each
+/// layer's formats, offset and blob size (the global expert layout table is sized for another geometry, so it is not used).
+bool open_pack(const std::string& path, basalt::core::ModelFile& pack, std::vector<PackLayer>& layers, std::string& err) {
+    if (!pack.open(path, err) || !pack.load_meta(err) || !pack.register_gguf_view(err)) return false;
+    if (pack.family() != basalt::ModelFamily::Qwen35Moe) {
+        err = path + " is not a qwen35moe model file";
+        return false;
+    }
+    std::vector<uint8_t> text;
+    if (!pack.read("experts.layout", text, err)) return false;
+    const std::string s(text.begin(), text.end());
+    size_t at = 0;
+    while (at < s.size()) {
+        const size_t end = std::min(s.find('\n', at), s.size());
+        const std::string line = s.substr(at, end - at);
+        at = end + 1;
+        if (line.empty() || line[0] == '#') continue;
+        long long l = -1, gt = -1, dt = -1;
+        unsigned long long off = 0, blob = 0;
+        if (std::sscanf(line.c_str(), "%lld %lld %lld %llu %llu", &l, &gt, &dt, &off, &blob) != 5 || l < 0 || l > 4096) {
+            err = "experts.layout: a malformed line: " + line;
+            return false;
+        }
+        if ((size_t) l >= layers.size()) layers.resize((size_t) l + 1);
+        layers[(size_t) l] = {(int) gt, (int) dt, off, blob};
+    }
+    return true;
+}
+
 bool load(const std::string& path, Model& m, std::string& err, bool want_mtp) {
     const auto t0 = Clock::now();
+    const bool is_pack = path.size() > 7 && path.compare(path.size() - 7, 7, ".basalt") == 0;
+    basalt::core::ModelFile pack;
+    std::vector<PackLayer> pack_layers;
+    if (is_pack && !open_pack(path, pack, pack_layers, err)) return false;
     m.file = std::make_shared<basalt::GgufModel>(basalt::GgufModel::open(path));
     const basalt::GgufModel& gm = *m.file;
     if (!basalt::qwen35::geometry_from_gguf(gm.meta(), m.g, m.top_k, err)) return false;
@@ -983,7 +1026,7 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp) {
         return false;
     }
     size_t checked = 0;
-    if (!basalt::qwen35::check_gguf_layout(gm, m.g, err, &checked)) return false;
+    if (!basalt::qwen35::check_gguf_layout(gm, m.g, err, &checked, is_pack)) return false;
     const auto& g = m.g;
     if (g.head_dim != 256 || g.ssm_state_size != 128 || g.ssm_d_conv != 4 || g.n_expert > 512 || m.top_k > 15) {
         err = "a geometry this driver's kernels do not take (head 256, state 128, conv 4, <= 512 experts, top-k <= 15)";
@@ -1067,6 +1110,33 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp) {
         CK(cudaMemcpy(y.router_ext + (size_t) g.n_expert * g.n_embd, y.sh_gate_inp, (size_t) g.n_embd * 4,
                       cudaMemcpyDeviceToDevice));
         bytes += (size_t) (g.n_expert + 1) * g.n_embd * 4;
+        if (is_pack) {
+            // the routed experts of a .basalt: blobs in the native layout already
+            if ((size_t) l >= pack_layers.size() || pack_layers[(size_t) l].gu_type < 0) {
+                err = "experts.layout has no layer " + std::to_string(l);
+                return false;
+            }
+            const PackLayer& pl = pack_layers[(size_t) l];
+            if (!K::native_expert_supported(pl.gu_type, pl.d_type, g.n_embd, g.n_ff)) {
+                err = L(l, "experts are type ") + std::to_string(pl.gu_type) + "/" + std::to_string(pl.d_type) +
+                      ", which the native expert kernels do not take at " + std::to_string(g.n_embd) + " x " +
+                      std::to_string(g.n_ff);
+                return false;
+            }
+            y.L = K::native_expert_layout(pl.gu_type, pl.d_type, g.n_embd, g.n_ff);
+            if (y.L.bytes != pl.blob) {
+                err = L(l, "expert blob is ") + std::to_string(pl.blob) + " bytes in experts.layout, " +
+                      std::to_string(y.L.bytes) + " for its types";
+                return false;
+            }
+            const size_t al = lcm_sz(lcm_sz(block_bytes(y.L.gu_type), block_bytes(y.L.d_type)), 16);
+            y.stride = (y.L.bytes + al - 1) / al * al;
+            basalt::TensorInfo section;
+            section.offset = pack.range("experts").offset;
+            y.src_blob = gm.shard(0).tensor_data(section) + pl.offset;
+            y.src_blob_bytes = (size_t) pl.blob;
+            continue;
+        }
         // the routed experts: [gate | up | down] per expert, the native expert layout
         size_t sg = 0, su = 0, sd = 0;
         const basalt::TensorInfo* tg = find(L(l, "ffn_gate_exps.weight"), sg);
@@ -1121,6 +1191,10 @@ bool load(const std::string& path, Model& m, std::string& err, bool want_mtp) {
 
 /// Expert e of layer L as its native blob [gate | up | down] (L.L.bytes) at dst (host memory).
 void expert_blob(const Layer& L, int64_t e, uint8_t* dst) {
+    if (L.src_blob) {
+        std::memcpy(dst, L.src_blob + (size_t) e * L.src_blob_bytes, L.src_blob_bytes);
+        return;
+    }
     std::memcpy(dst, L.src_g + (size_t) e * L.src_gsz, L.src_gsz);
     std::memcpy(dst + L.L.up_off, L.src_u + (size_t) e * L.src_gsz, L.src_gsz);
     std::memcpy(dst + L.L.down_off, L.src_d + (size_t) e * L.src_dsz, L.src_dsz);
@@ -1376,8 +1450,9 @@ struct Engine {
         v16 = dalloc_t<__half>((size_t) g.n_head_kv * ctx * g.head_dim);
         q16 = dalloc_t<__half>(T * g.n_head * g.head_dim);
         use_mmq = MMQ::built() && std::getenv("BASALT_Q36_NO_MMQ") == nullptr;
+        // NVFP4 experts end in a scale tail that this driver's MMQ groups do not carry: they take the grouped kernels
         auto mmq_ok = [&](const Layer& L) {
-            return MMQ::supported(L.L.gu_type) && MMQ::supported(L.L.d_type) && MMQ::fits(L.L.gu_type, 2 * g.n_ff) &&
+            return L.L.gu_type != 40 && L.L.d_type != 40 && MMQ::supported(L.L.gu_type) && MMQ::supported(L.L.d_type) && MMQ::fits(L.L.gu_type, 2 * g.n_ff) &&
                    MMQ::fits(L.L.d_type, g.n_embd);
         };
         for (const Layer& L : m->layers) use_mmq = use_mmq && mmq_ok(L);

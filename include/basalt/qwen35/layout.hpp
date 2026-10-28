@@ -153,11 +153,16 @@ inline std::vector<TensorWant> global_tensors(const ModelGeometry& g) {
 }
 
 /// Checks the model `m` (all shards) against the layout table of `g`. `checked` counts the tensors found.
+/// `experts_elsewhere`: the routed experts are not tensors of `m` (a .basalt keeps them in its `experts` section).
 inline bool check_gguf_layout(const basalt::GgufModel& m, const ModelGeometry& g, std::string& err,
-                              size_t* checked = nullptr) {
+                              size_t* checked = nullptr, bool experts_elsewhere = false) {
+    auto is_expert_tensor = [](const std::string& name) {
+        return name.size() > 12 && name.compare(name.size() - 12, 12, "_exps.weight") == 0;
+    };
     std::set<std::string> named;
     size_t n = 0;
     auto check = [&](const std::string& name, const std::vector<int64_t>& shape) {
+        if (experts_elsewhere && is_expert_tensor(name)) return true;
         named.insert(name);
         size_t s = 0;
         const basalt::TensorInfo* t = m.find(name, &s);
