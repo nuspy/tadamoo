@@ -200,7 +200,7 @@ had to shorten.
 
 The reference is [docs/harness.md](docs/harness.md); a step-by-step guide is [docs/harness-manual.md](docs/harness-manual.md).
 
-An optional **security monitor** (Monitor > Security) watches the network connections and disk writes of the model processes and flags suspicious cases without blocking anything; see [docs/security-monitor.md](docs/security-monitor.md).
+An optional **security monitor** (Monitor > Security) watches the network connections and disk writes of the model processes and flags suspicious cases without blocking anything; see [docs/security-monitor.md](docs/security-monitor.md). The same page starts, stops and shows the Openweight Canary exfiltration test (add-on).
 
 ### Four ways in
 

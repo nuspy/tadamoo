@@ -36,7 +36,7 @@ def _number(query: Dict[str, str], key: str, default: float) -> float:
 
 def route_get(path: str, query: Dict[str, str]) -> Tuple[int, Dict[str, Any]]:
     nw = get()
-    if path == "/api/netwatch":
+    if path in ("/api/netwatch", "/api/netwatch/status"):
         return 200, nw.status()
     if path == "/api/netwatch/events":
         only = query.get("only", "all")
@@ -64,6 +64,8 @@ def route_post(path: str, req: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
         return 200, nw.save_exception(req)
     if path == "/api/netwatch/events":
         return 200, nw.add_manual(req)
+    if path == "/api/netwatch/tool-calls":
+        return 200, nw.note_tool_calls(req)
     if path == "/api/netwatch/events/delete":
         return 200, nw.delete_events(req)
     parts = path.split("/")                              # ['', 'api', 'netwatch', 'alerts'|'exceptions', id, action]

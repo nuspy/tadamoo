@@ -1184,7 +1184,9 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     sid = args.session_id or uuid.uuid4().hex[:12]
     confirm = None
     if args.ask_server:
+        from harness import outward_calls
         from harness.approval_client import ServerApprover
+        outward_calls.report_to(args.endpoint, args.api_key)
         confirm = ServerApprover(args.endpoint, args.api_key, sid)
         if args.unattended:
             confirm = unattended_confirm(confirm)
