@@ -67,7 +67,10 @@ DYNAMIC = {
     "br.side.state.": ["waiting", "running", "done", "needs_you", "ended", "timeout", "failed", "interrupted"],
     "sl.d.": ['help', 'clear', 'model', 'effort', 'mode', 'plan', 'permissions', 'settings', 'status', 'context', 'compact', 'tools', 'hooks', 'mcp', 'memory', 'copy', 'export', 'rename', 'branch', 'branches', 'resume', 'rewind', 'checkpoints', 'stop', 'diff', 'plans', 'wallet', 'init', 'review', 'security-review', 'research'],
     "sl.r.compact.": ["busy", "short", "moved", "unsupported"],
-    "tab.": ["chat", "agent", "plans", "cron", "stats", "loader", "hardware", "logs", "wallet", "settings"],
+    "tab.": ["chat", "agent", "plans", "cron", "stats", "loader", "hardware", "logs", "security", "wallet", "settings"],
+    "sec.tag.": ["alibaba_cn_domain", "proxy_env", "system_proxy", "local_proxy_listener", "doh_or_tor", "no_agent_call", "disk_outside_expected", "archive_or_staging", "persistence"],
+    "sec.tagx.": ["alibaba_cn_domain", "proxy_env", "system_proxy", "local_proxy_listener", "doh_or_tor", "no_agent_call", "disk_outside_expected", "archive_or_staging", "persistence"],
+    "sec.role.": ["server", "engine", "tool", "other"],
     "cj.status.": ["done", "parked", "failed", "cancelled", "timeout", "yielded"],
 }
 NODE = shutil.which("node")

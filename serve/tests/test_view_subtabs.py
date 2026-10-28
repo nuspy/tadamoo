@@ -17,7 +17,7 @@ class ViewSubtabsTest(unittest.TestCase):
             self.assertIn(f'id="view-{name}"', HTML)
             self.assertIn(f'"{name}"', re.search(r"const VIEWS = \[([^\]]*)\]", APP).group(1))
             self.assertIn(f"aria-labelledby=\"sub-{name}\"", HTML)                   # the strip's button names the page
-        self.assertIn('const TAB_OF = { hardware: "stats", logs: "stats", wallet: "settings" };', APP)
+        self.assertIn('const TAB_OF = { hardware: "stats", logs: "stats", security: "stats", wallet: "settings" };', APP)
 
     def test_the_strip_is_one_element_filled_by_the_script_and_loaded_after_the_app(self):
         self.assertEqual(HTML.count('id="viewsub"'), 1)

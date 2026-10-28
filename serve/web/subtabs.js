@@ -7,7 +7,8 @@
     stats: [
       { id: "stats", view: "stats", label: () => T("sub.server") },
       { id: "hardware", view: "hardware", label: () => T("tab.hardware") },
-      { id: "logs", view: "logs", label: () => T("tab.logs") }],
+      { id: "logs", view: "logs", label: () => T("tab.logs") },
+      { id: "security", view: "security", label: () => T("tab.security") }],
     settings: [
       { id: "general", view: "settings", label: () => T("sub.general") },
       { id: "models", view: "settings", label: () => T("sub.models") },
