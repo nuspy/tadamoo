@@ -88,6 +88,9 @@ def describe(skill: Dict[str, Any], values: Dict[str, Any]) -> str:
     parts: List[str] = []
     for spec in skill.get("params") or []:
         item = values.get(spec["name"])
+        if item is not None and item.get("missing"):
+            parts.append(f"{spec.get('label') or spec['name']} = (no value was given: work without it, or ask)")
+            continue
         if item is None or item.get("value") in (None, ""):
             continue
         v = item["value"]

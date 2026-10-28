@@ -124,6 +124,7 @@ class SecretsBroker:
         self._in_folders: List[Tuple[Path, Tuple[str, ...]]] = []   # (folder, name patterns) whose matching files are protected
         self.vault: Any = None                          # the person's vault (harness.vault.Vault), when there is one
         self.ask_code: Optional[Callable[[str], str]] = None   # how to ask the person for a second-factor code
+        self.on_unchecked: Optional[Callable[[List[str], List[str]], None]] = None   # told (secrets, network tools) when a destination could not be deduced
 
     @classmethod
     def from_environment(cls, names: Iterable[str], allowed_hosts: Optional[Mapping[str, Iterable[str]]] = None) -> "SecretsBroker":
@@ -213,27 +214,30 @@ class SecretsBroker:
         """Names of the secrets a text asks for, known or not."""
         return PLACEHOLDER.findall(text)
 
-    def check_destinations(self, text: str, hosts: Iterable[str], network_tools: Iterable[str] = ()) -> None:
-        """Raises SecretDestinationError if a secret in `text` would go to a host it may not reach."""
+    def check_destinations(self, text: str, hosts: Iterable[str], network_tools: Iterable[str] = ()) -> List[str]:
+        """Raises SecretDestinationError if a secret limited to named sites would go to another one; a secret with no site named goes anywhere.
+        Returns the secrets limited to named sites that a command with a network tool and no site could not be checked for: the command goes on
+        and `on_unchecked` (set to the audit record) is told which."""
         hosts, tools = list(hosts), list(network_tools)
-        if self.vault is not None:
-            self.vault.check_destinations(text, hosts, tools)
+        unchecked: List[str] = list(self.vault.check_destinations(text, hosts, tools)) if self.vault is not None else []
         for name in self.references(text):
             if name not in self._secrets:
                 continue
             allowed = self._hosts.get(name)
-            if allowed is None:
-                if hosts or tools:
-                    raise SecretDestinationError(
-                        f"Secret '{name}' is for local use only; it cannot be put in a command that reaches the network")
+            if allowed is None or "*" in allowed:
+                continue
             else:
                 if tools and not hosts:
-                    raise SecretDestinationError(
-                        f"Secret '{name}' may only go to {', '.join(sorted(allowed))}; this command runs a network tool but names no site, so where it would go cannot be checked")
+                    if name not in unchecked:
+                        unchecked.append(name)
+                    continue
                 bad = [h for h in hosts if h not in allowed]
                 if bad:
                     raise SecretDestinationError(
                         f"Secret '{name}' may only be sent to {', '.join(sorted(allowed))}, not to {', '.join(bad)}")
+        if unchecked and self.on_unchecked is not None:
+            self.on_unchecked(unchecked, tools)
+        return unchecked
 
     def resolve_tokens(self, text: str, destinations: Optional[Iterable[str]] = None) -> str:
         """Substitutes {{secret:NAME}} with the stored value; unknown names are left as written.

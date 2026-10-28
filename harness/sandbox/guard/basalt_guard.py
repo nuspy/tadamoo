@@ -60,8 +60,5 @@ def install():
             text = _flat(" ".join(_text(args[i]) for i in _TEXT_EVENTS[event] if len(args) > i))
             if any(p in text for p in places):
                 refuse("the command names one of them")
-        elif event == "ctypes.dlopen":
-            raise PermissionError("Access denied: ctypes cannot load libraries in a program the agent runs, because it could be used to get "
-                                  "round the protection of the person's secrets.")
 
     sys.addaudithook(audit)

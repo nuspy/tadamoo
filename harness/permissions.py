@@ -4,9 +4,11 @@ Evaluation order, first match wins:
   1. plan mode refuses everything that is not read-only;
   2. a matching deny rule refuses (allow rules never override it);
   2b. at the Auto level everything else passes, nothing is asked;
-  3. a tool in `always_ask` needs a fresh confirmation every time, whatever the rules;
-  4. an allow rule permits (a command that chains others is permitted when every statement of it is covered by a rule);
-  5. read-only tools pass; the level decides the rest.
+  3. an allow rule permits, also a tool in `always_ask` and a call the Rule of Two would ask about (a command that chains others is
+     permitted when every statement of it is covered by a rule);
+  4. a tool in `always_ask` needs a confirmation every time;
+  5. the Rule of Two asks about an outward call after untrusted content and private data;
+  6. read-only tools pass; the level decides the rest.
 """
 from __future__ import annotations
 
@@ -113,12 +115,10 @@ def fingerprint(tool_name: str, arguments: Dict[str, Any]) -> str:
     return f"{tool_name}#{hashlib.sha256(body.encode('utf-8', 'replace')).hexdigest()[:24]}"
 
 
-def suggest_rules(tool_name: str, arguments: Dict[str, Any], always_ask: FrozenSet[str] = DEFAULT_ALWAYS_ASK) -> List[str]:
+def suggest_rules(tool_name: str, arguments: Dict[str, Any]) -> List[str]:
     """The allow rules that would let this kind of call run without asking again: a command by the verb of each of its statements
-    (`pytest *`; a statement with no plain verb by its own text), any other tool by its name. A tool that always asks, or whose question is
-    its own (payments, the writes inside .git), gets none."""
-    if tool_name in always_ask or tool_name == "request_payment" or ":" in tool_name:
-        return []
+    (`pytest *`; a statement with no plain verb by its own text), any other tool by its name (a name that carries its target, like a
+    write inside .git or an agent's permission, by that whole name)."""
     if tool_name != "shell_command":
         return [tool_name]
     command = arguments.get("command")
@@ -183,6 +183,9 @@ class PermissionManager:
         """Untrusted input, sensitive data and outward effects must never all be present unattended. Whether the session can
         reach sensitive data is looked at now, not when the agent was built: the person may add to the vault meanwhile."""
         return self.two.level != "off" and self.untrusted_input and (self.sensitive_data or bool(self.two.private))
+
+    def allowed_by(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+        return self._allowed_by(tool_name, arguments)
 
     def _allowed_by(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """The allow rules that cover this call, or ''. A rule that is the tool's name covers every call of it; a command is covered when each
@@ -259,20 +262,20 @@ class PermissionManager:
         if self.level == PermissionLevel.AUTO:
             return True, "Auto level permitted"                 # the person chose that nothing is asked; their own deny rules above still hold
 
+        covered = self._allowed_by(tool_name, arguments)         # the person's own allow rule answers every question below
+        if covered:
+            return True, f"Permitted by allow rule: '{covered}'"
+
         if tool_name in self.always_ask:
             if self._ask(tool_name, arguments, None):
                 return True, f"User confirmed {tool_name}"
-            return False, self._refusal(f"{tool_name} needs the user's explicit confirmation every time")
+            return False, self._refusal(f"{tool_name} needs the user's confirmation every time")
 
         why = self.two.question(tool_name) if outward else ""      # the Rule of Two: an outward action after untrusted content and private data
         if why:
             if self._ask(tool_name, {**arguments, "rule_of_two": why}, None):
                 return True, "User confirmed after the Rule of Two check"      # the same call, put plainly: the level's own question would add nothing
             return False, self._refusal(why)
-
-        covered = self._allowed_by(tool_name, arguments)
-        if covered:
-            return True, f"Permitted by allow rule: '{covered}'"
 
         if effect == EffectClass.PURE:
             return True, "Pure read-only operation permitted"

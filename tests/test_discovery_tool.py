@@ -79,7 +79,8 @@ def test_the_choice_is_put_to_the_person_with_everything_they_need_to_decide(tmp
     assert top["score"] >= 70 and "60,000 downloads a week" in top["reasons"] and top["facts"][0]["code"] and top["command"].startswith("pdf-mcp")
     assert any(w["code"] == "runs_program" for w in top["warnings"]) and top["keys"] == []
     values = [o["value"] for o in q["options"]]
-    assert values == [f"install:{i}" for i in range(1, len(cands) + 1)] + ["other", "cancel"]
+    assert values == ([f"install:{i}" for i in range(1, len(cands) + 1)] + [f"install:{i}:scripts" for i, c in enumerate(cands, 1) if c["route"] in ("npm", "pypi")]
+                      + ["other", "cancel"])
     assert "popularity and upkeep, not safety" in q["question"]
     assert "chose not to install" in out and s.runner.calls == [] and not (s.caps / "mcp").exists()
 
@@ -106,8 +107,8 @@ def test_other_returns_what_the_person_said_in_their_own_words(tmp_path, fake):
 
 
 def test_an_answer_that_was_cancelled_installs_nothing(tmp_path, fake):
-    s = Set(tmp_path, fake, [""])
-    assert "chose not to install" in s.run() and s.runner.calls == []
+    s = Set(tmp_path, fake, ["cancel"])
+    assert "chose not to install" in s.run() and s.runner.calls == [] and s.requests.pending() == []
     s2 = Set(tmp_path / "b", fake, ["install:99"])
     assert "not one of the options" in s2.run() and s2.runner.calls == []
 
@@ -134,6 +135,13 @@ def test_without_a_way_to_ask_nothing_is_installed_and_the_options_come_back_as_
     queued = s.requests.pending()
     assert len(queued) == 1 and queued[0]["need"] == "extract tables from pdf" and queued[0]["id"] in out and "explain_install_request" in out
     assert queued[0]["candidates"][0]["card"]["name"] == "pdf-mcp" and queued[0]["candidates"][0]["spec"]["package"] == "@acme/pdf-mcp"
+
+
+def test_an_ask_that_nobody_answers_parks_the_request_instead_of_refusing_the_install(tmp_path, fake):
+    s = Set(tmp_path, fake, [""])                                                 # an unattended run: the question comes back empty
+    out = s.run()
+    assert "nothing was installed" in out and "chose not to" not in out and s.runner.calls == []
+    assert len(s.requests.pending()) == 1 and s.requests.pending()[0]["id"] in out
 
 
 def test_the_model_adds_its_comparison_and_the_person_chats_the_choice_later(tmp_path, fake):
@@ -338,3 +346,34 @@ def test_a_server_installed_by_basalt_starts_with_the_one_key_it_asks_for_from_t
     assert "sekret-abc-123456" not in built.agent.secrets.mask_secrets(out)    # and what goes on to the model does not carry it
     assert "sekret-abc-123456" not in "".join(f.read_text(encoding="utf-8", errors="ignore") for f in caps.rglob("*") if f.is_file())
     built.close()
+
+
+def test_allow_scripts_runs_the_install_without_ignoring_them(tmp_path, fake):
+    s = Set(tmp_path, fake, ["install:1:scripts"])
+    out = s.run()
+    assert "Installed mcp:pdf-mcp" in out and "--ignore-scripts" not in s.runner.calls[0]
+
+
+def test_a_hash_that_differs_is_shown_and_the_person_can_install_anyway(tmp_path, fake):
+    s = Set(tmp_path, fake, ["install:1", "anyway"])
+    s.runner.integrity = "sha512-OTHER"
+    out = s.run()
+    q = s.asked[1]
+    assert "Installed mcp:pdf-mcp" in out and "not the release the registry described" in q["question"]
+    assert [o["value"] for o in q["options"]] == ["anyway", "cancel"]
+    assert "integrity_differs" in s.installer.records.get("mcp:pdf-mcp")
+
+
+def test_a_hash_that_differs_stays_refused_when_the_person_says_no(tmp_path, fake):
+    s = Set(tmp_path, fake, ["install:1", "cancel"])
+    s.runner.integrity = "sha512-OTHER"
+    out = s.run()
+    assert "could not be installed" in out and not (s.caps / "mcp" / "pdf-mcp").exists()
+
+
+def test_an_installed_package_is_updated_when_the_person_agrees(tmp_path, fake):
+    s = Set(tmp_path, fake, ["install:1", "install:1", "update"])
+    assert "Installed mcp:pdf-mcp" in s.run()
+    out = s.run(look_anyway=True)
+    assert "Installed mcp:pdf-mcp" in out and s.asked[-1]["options"][0]["value"] == "update"
+    assert not (s.caps / "mcp" / "pdf-mcp.previous").exists() and (s.caps / "mcp" / "pdf-mcp").exists()

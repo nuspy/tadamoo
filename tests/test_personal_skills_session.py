@@ -86,6 +86,20 @@ def test_the_model_is_asked_once_and_the_answer_is_kept_for_the_same_prompt(tmp_
     assert len(client.sent) == 1                                                  # the second run did not ask
 
 
+def test_a_model_that_does_not_answer_is_waited_for_with_the_sessions_growing_waits_for_as_long_as_it_takes(tmp_path):
+    from harness.client import BasaltError
+    slept = []
+    errors = [BasaltError(500, "down") for _ in range(7)]                         # more tries than the old three, and a hard error among them
+    errors[2] = BasaltError(400, "refused")
+    client = Scripted(*errors, say("AT LAST"))
+    session, ev, *_ = make(tmp_path, client, waits=(1, 2, 3))
+    session.sleep = lambda s: slept.append(s)
+    session._wait = lambda seconds, cancel: slept.append(seconds) or True
+    script = 'from basalt_skill import ai\n\ndef main(params):\n    return ai("Say it")\n'
+    session.run_skill("t1", skill(script))
+    assert done(ev)["final"] == "AT LAST" and slept == [1, 2, 3, 3, 3, 3, 3]
+
+
 def test_a_question_to_the_person_waits_for_the_button(tmp_path):
     session, ev, *_ = make(tmp_path, Scripted())
     script = 'from basalt_skill import ask\n\ndef main(params):\n    return "chose " + ask("Which?", ["first", "second"])\n'
@@ -107,18 +121,20 @@ def test_stop_ends_a_skill_that_is_running(tmp_path):
     assert end["stop_reason"] == al.CANCELLED and "stopped" in end["final"]
 
 
-def test_a_second_skill_is_refused_while_one_runs_and_a_message_goes_on_afterwards(tmp_path):
+def test_a_second_skill_waits_its_turn_while_one_runs_and_a_message_goes_on_afterwards(tmp_path):
     client = Scripted(say("hello again"))
     session, ev, store, built = make(tmp_path, client)
     slow = "import time\n\ndef main(params):\n    time.sleep(1.5)\n    return 'slept'\n"
     session.run_skill("t1", skill(slow))
-    assert session.run_skill("t2", skill(slow)) is False
-    assert ev.wait("error")["code"] == "busy"
+    assert session.run_skill("t2", skill(slow)) is True
+    assert "queued" in ev.kinds()
     assert done(ev)["final"] == "slept"
+    second = done(ev, after=ev.kinds().index("done") + 1)
+    assert second["final"] == "slept"
     session.send("m1", "and now?")
-    assert done(ev, after=ev.kinds().index("done") + 1)["final"] == "hello again"
+    assert done(ev, after=len(ev.kinds()) - 1)["final"] == "hello again"
     roles = [m["role"] for m in client.sent[0]]
-    assert roles == ["system", "user", "assistant", "user"]                       # the model sees the skill's request and its answer
+    assert roles == ["system", "user", "assistant", "user", "assistant", "user"]  # the model sees both skills' requests and answers
 
 
 def test_an_error_in_the_script_is_told_as_the_answer(tmp_path):

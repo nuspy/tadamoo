@@ -90,6 +90,32 @@ class Policies(unittest.TestCase):
         self.assertEqual(r["summary"]["replaces"], list(range(2, n - 3)))
         self.assertLess(r["used"], r["used_before"])
 
+    def test_service_clamps_the_answer_cap_by_default(self):
+        self.assertTrue(self.svc.fit_max_tokens)
+
+    def test_default_policy_is_compact(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            r = chatctx.fit(self.svc, {"messages": chat(5, 300), "max_tokens": 128, "keep_turns": 2, "threshold": 0.5})
+        self.assertEqual(r["policy"], "compact")
+        self.assertEqual(r["action"], "compacted", r)
+
+    def test_failed_summary_falls_back_to_dropping_and_says_why(self):
+        from unittest import mock
+        msgs = chat(9)
+        with mock.patch.object(chatctx, "summarize", side_effect=RuntimeError("the model is busy")):
+            r = self.fit(msgs, "compact", max_tokens=256)
+        self.assertEqual(r["action"], "dropped", r)
+        self.assertIn("the model is busy", r["notice"])
+        self.assertEqual(r["keep"][-1], len(msgs) - 1)
+        self.assertLessEqual(r["used"], r["limit"] - 8 - 256)
+
+    def test_empty_summary_falls_back_to_dropping(self):
+        from unittest import mock
+        with mock.patch.object(chatctx, "summarize", return_value=("", 0)):
+            r = self.fit(chat(9), "compact", max_tokens=256)
+        self.assertEqual(r["action"], "dropped", r)
+        self.assertIn("empty summary", r["notice"])
+
     def test_compact_waits_for_the_threshold(self):
         msgs = chat(2, 200)
         r = self.fit(msgs, "compact", threshold=0.95, max_tokens=128)

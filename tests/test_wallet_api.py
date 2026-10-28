@@ -129,6 +129,19 @@ def test_the_declaration_is_given_checked_shown_and_revoked(setup):
     assert PaymentsBroker(tmp / "payments").ledger.verify_integrity()[0]
 
 
+def test_a_waiver_with_a_blank_cumulative_and_blank_days_has_no_cap_and_no_end(setup):
+    base, tmp = setup
+    card(base)
+    system(base)
+    code, body = grant(base, cumulative="", ttl_days="")
+    assert code == 200
+    row = call(base, "GET", "/api/wallet")[1]["systems"][0]["waiver"]
+    assert row["no_cumulative_cap"] is True and row["expires_at"] is None
+    assert grant(base, ttl_days="soon")[0] == 400
+    assert grant(base, ttl_days=1000, sites=[f"site{i}.example" for i in range(80)])[0] == 200      # no cap on days or on the sites listed
+    assert len(call(base, "GET", "/api/wallet")[1]["systems"][0]["waiver"]["sites"]) == 80
+
+
 def test_a_pasted_declaration_is_accepted_and_recorded_as_pasted(setup):
     base, tmp = setup
     card(base)
@@ -148,7 +161,7 @@ def test_the_browser_choice_is_kept_and_read_by_the_conversations(setup):
     assert code == 200 and body["browser"]["enabled"] is False and body["browser"]["headless"] is True and body["browser"]["private"] is False
     assert call(base, "POST", "/api/wallet/browser", {"enabled": True, "headless": False, "private": True})[1]["browser"]["private"] is True
     assert BrowserPrefs(tmp / "browser.json").read() == {"enabled": True, "headless": False, "private": True, "persistent": False,
-                                                                 "consent": "necessary", "permissions": "deny"}
+                                                                 "consent": "follow", "permissions": "follow"}
 
 
 def test_the_owner_can_read_a_value_back_and_an_unknown_one_is_a_clear_error(setup):

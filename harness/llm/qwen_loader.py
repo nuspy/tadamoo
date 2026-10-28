@@ -85,7 +85,7 @@ class QwenLoader:
             return "auto"                                 # the server loads the model by itself on the first request: nothing to override
         if not st.get("loading"):
             values, model = self._profile_values(str((route or {}).get("profile") or ""))
-            body: Dict[str, Any] = {"values": values}
+            body: Dict[str, Any] = {"values": values, "force": True}      # nobody is there to confirm: load even when memory is tight
             if model:
                 body["model"] = model
             code, data = self._call("POST", "/api/loader/load", body, timeout=30.0)

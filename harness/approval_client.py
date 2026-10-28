@@ -37,6 +37,14 @@ class ServerApprover:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
+    def available(self) -> bool:
+        """Whether the server answers now, so a question put to its board will be seen (a run that has no one at a terminal)."""
+        try:
+            self._call("GET", "/v1/status")
+            return True
+        except (urllib.error.URLError, OSError, ValueError):
+            return False
+
     def __call__(self, tool: str, arguments: Dict[str, Any]) -> bool:
         approval_id = None
         while approval_id is None:

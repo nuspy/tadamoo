@@ -16,12 +16,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-CONSENT_POLICIES = ("necessary", "accept", "reject", "off")
-PERMISSION_POLICIES = ("deny", "ask", "grant-safe")
-DEFAULT_CONSENT = "necessary"
-DEFAULT_PERMISSIONS = "deny"
+# "follow": the conversation's permission level decides (Auto: accept the banner, grant what a page asks; Manual: the necessary cookies only, ask the person)
+CONSENT_POLICIES = ("follow", "necessary", "accept", "reject", "off")
+PERMISSION_POLICIES = ("follow", "ask", "grant", "grant-safe", "deny")
+DEFAULT_CONSENT = "follow"
+DEFAULT_PERMISSIONS = "follow"
 
-MAX_CLICKS = 5                  # clicks on one page (a banner, its settings, its confirmation, a pop-up)
+CONSENT_SECONDS = 60.0          # how long dealing with the banners of one page may take at most, so that a page that makes new ones for ever ends
 LATE_SECONDS = 1.2              # how long to wait for a banner that loads late
 LATE_HINT_SECONDS = 4.0         # ... when a consent manager's script is on the page but nothing shows yet
 KNOWN_SITE_SECONDS = 0.4        # ... on a site where a banner was already dealt with
@@ -330,7 +331,7 @@ def run_consent(policy: str, detect: Callable[[], Dict[str, Any]], click: Callab
         return result
     tried: set = set()
     start = clock()
-    while len(result.clicks) < MAX_CLICKS:
+    while clock() - start < CONSENT_SECONDS:
         state = detect()
         banners = state.get("banners") or []
         pick, left = decide(policy, banners, tried) if banners else (None, None)
@@ -443,24 +444,25 @@ KIND_TO_PERMISSIONS: Dict[str, Tuple[str, ...]] = {
     "camera and microphone": ("videoCapture", "audioCapture"), "screen capture": ("displayCapture",), "clipboard": ("clipboardReadWrite", "clipboardSanitizedWrite"),
     "MIDI": ("midi", "midiSysex"), "persistent storage": ("durableStorage",), "USB": (), "serial port": (), "HID": (),
 }
-MAX_ASKS = 6
 
 
-def dialog_accepts(kind: str, leaving: bool) -> bool:
-    """Whether a JavaScript dialog is accepted. Never one that sends something: an alert is only read; a question or a prompt is dismissed;
-    leaving a page with a warning is accepted only when navigating away was asked for."""
+def dialog_accepts(kind: str, leaving: bool, everything: bool = False) -> bool:
+    """Whether a JavaScript dialog is accepted. An alert is only read and always accepted; a question or a prompt is accepted when the permission
+    level lets the page have what it asks (`everything`; otherwise the person is asked first, see Browser._dialog_ok); leaving a page with a warning is
+    accepted when navigating away was asked for or `everything`."""
     if kind == "alert":
         return True
     if kind == "beforeunload":
-        return bool(leaving)
-    return False
+        return bool(leaving or everything)
+    return bool(everything)
 
 
 def dialog_note(kind: str, message: str, accepted: bool) -> str:
-    done = {"alert": "accepted", "confirm": "dismissed", "prompt": "dismissed (nothing was entered)"}.get(kind)
     if kind == "beforeunload":
         done = "left the page" if accepted else "stayed on the page"
-    elif done is None:
+    elif kind == "prompt":
+        done = "accepted with its default text" if accepted else "dismissed (nothing was entered)"
+    else:
         done = "accepted" if accepted else "dismissed"
     text = safe_label(message, 80)
     return f'The page showed a {kind} dialog{(" saying " + chr(34) + text + chr(34)) if text else ""}: {done}.'

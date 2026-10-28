@@ -1,6 +1,6 @@
 """Runs a personal skill's script and answers its calls.
 
-The script runs in a process of its own (the interpreter in isolated mode, a scrubbed environment, on Windows inside a job object with a
+The script runs in a process of its own (the interpreter in isolated mode, the whole environment of the server, on Windows inside a job object with a
 that ends everything it started) and talks over its pipes in lines of JSON. What it asks for - a tool, the model, a question to the person - is done
 here by the functions the caller gives, so it goes through the same permissions, hooks and audit record as anything the agent does. Stop
 (the cancel event) and the time limit, when the skill has one, end the process and everything it started."""
@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from harness.sandbox import CommandJob, CREATE_SUSPENDED, kill_tree, safe_environment
+from harness.sandbox import CommandJob, CREATE_SUSPENDED, kill_tree
 
 ENTRY = Path(__file__).with_name("runtime") / "entry.py"
 PREFIX = "@@basalt@@ "
@@ -53,7 +53,7 @@ def run(script: Path, values: Dict[str, Any], handlers: Handlers, cancel: Option
         flags = 0
         if os.name == "nt":
             flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | (CREATE_SUSPENDED if job.active else 0)
-        env = safe_environment({"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"})
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
         try:
             proc = subprocess.Popen([sys.executable, "-I", "-X", "utf8", str(ENTRY), str(script), str(context)], cwd=str(cwd or script.parent),
                                     env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,

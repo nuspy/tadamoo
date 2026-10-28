@@ -1,6 +1,7 @@
-"""What in a plan reaches beyond the person's own work, step by step: other people, a call to prepare, effects that cannot be taken back
-(a booking, a payment). Those steps are the named exceptions: a change that touches one is left for the person, while a change that touches
-none goes through. The facts come from the plan's data, not from a guess about its words."""
+"""What in a plan reaches beyond the person's own work, step by step: other people, a call to prepare, bookings, payments and resources the
+software does not control. Those steps are the named exceptions: a change that touches one is left for the person, while a change that touches
+none goes through. An effect that cannot be taken back is not an exception by itself. The facts come from the plan's data, not from a
+guess about its words."""
 from __future__ import annotations
 
 import copy
@@ -8,7 +9,13 @@ from typing import Any, Dict, List, NamedTuple
 
 PEOPLE = "a step for someone else"
 CALL = "a phone call to prepare"
-EFFECTS = "effects already done that cannot be undone (bookings, payments)"
+EFFECTS = "a booking, a payment or a resource out of the software's control, already done"
+EXCEPTION_KINDS = ("booking", "payment", "uncontrolled")       # the `kind` a recorded effect can carry
+PAYMENT_TOOLS = ("request_payment",)
+
+
+def _holds_back(effect: Any) -> bool:
+    return isinstance(effect, dict) and (effect.get("kind") in EXCEPTION_KINDS or effect.get("tool") in PAYMENT_TOOLS)
 
 
 def step_facts(node: Dict[str, Any]) -> List[str]:
@@ -18,7 +25,7 @@ def step_facts(node: Dict[str, Any]) -> List[str]:
         out.append(PEOPLE)
     if node.get("call_request"):
         out.append(CALL)
-    if any(e.get("effect") != "reversible" for e in (node.get("state_variables") or {}).get("effects") or [] if isinstance(e, dict)):
+    if any(_holds_back(e) for e in (node.get("state_variables") or {}).get("effects") or []):
         out.append(EFFECTS)
     return out
 

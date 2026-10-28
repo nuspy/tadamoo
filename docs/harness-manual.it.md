@@ -62,8 +62,8 @@ Quattro modi di usarlo, tutti con le stesse capacità:
 3. Scrivi nel campo e premi **Invio** (**Maiusc+Invio** va a capo). L'agente lavora in sottofondo e la pagina mostra, in ordine, ciò che
    ha scritto, ciò che ha pensato e ogni strumento usato, col risultato. **Ferma** interrompe il turno.
 4. Quando gli servi, chiede: un comando da eseguire, un piano da approvare, una scelta. La risposta è un pulsante; puoi anche scrivere.
-5. Torna più tardi: la colonna a sinistra elenca le tue conversazioni (sotto). Una conversazione inattiva da 30 minuti lascia andare il
-   suo processo e si risveglia dalla cronologia salvata quando scrivi di nuovo.
+5. Torna più tardi: la colonna a sinistra elenca le tue conversazioni (sotto). Una conversazione può lasciare andare il suo processo
+   dopo un tempo di inattività che imposti (`idle_s` in `limits.json`; nessuno di default) e si risveglia dalla cronologia salvata quando scrivi di nuovo.
 
 **La colonna delle conversazioni.** A sinistra della Chat, dalla più recente: clicca su una per aprirla. La stella accanto la rende una
 **preferita**: le preferite sono elencate a parte, sopra le altre. La croce la elimina: premila una volta e chiede *Elimina?*, premi ancora
@@ -321,7 +321,10 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
   del sistema; un passo di ricerca o di lettura di una pagina elenca allo stesso modo i siti che ha usato.
 - **Il browser.** Con gli strumenti del browser l'agente guida Edge o Chrome per compilare moduli, prenotare e comprare. Se le
   conversazioni hanno un browser, se mostra una finestra, se può aprire pagine di questo PC e se conserva gli accessi si decide nella
-  vista **Portafoglio**; ogni scelta rischiosa ha un'etichetta evidenziata e due domande.
+  vista **Portafoglio**; ogni scelta rischiosa ha un'etichetta evidenziata e due domande. In *Automatico* il browser non chiede nulla: pagine di
+  questo PC o della rete, permessi delle pagine (fotocamera, posizione, notifiche), finestre di conferma e richiesta, download e screenshot dopo un
+  valore del vault sono tutti consentiti. Sotto quel livello ognuno te lo chiede (questa volta, questa conversazione o sempre; una regola può
+  nominare un sito). Le pagine lunghe si leggono a pezzi di elementi e di parole, mai tagliate.
 - **Segreti.** L'agente scrive `{{secret:NOME}}` dove serve una credenziale e non la vede mai; il valore viene inserito all'ultimo
   momento e mascherato in ciò che torna. **Il vault** (Portafoglio) tiene cifrati carte, dati personali e accessi; l'agente scrive
   `{{vault:VOCE.CAMPO}}`, e il valore va solo verso i siti che la voce indica.
@@ -329,11 +332,11 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
   oppure il segreto TOTP, così Basalt fa il codice da sé. L'ultimo permette l'accesso a chiunque possa usare Basalt su questo PC; te
   lo dice una volta.
 - **Pagamenti.** Il limite lo imposti tu, a qualunque importo; finché non lo imposti, ogni pagamento ti chiede. Una **rinuncia** lascia
-  che l'agente paghi da solo fino a un massimale per pagamento e a uno cumulativo finché non scade, dopo una dichiarazione dettata e due
+  che l'agente paghi da solo fino a un massimale per pagamento e, se lo imposti, a uno cumulativo, finché non finisce (nessuna scadenza se non la imposti), dopo una dichiarazione dettata e due
   finestre con il tuo nome riscritto; oltre i massimali chiede di nuovo. Un pagamento si può fermare dal Portafoglio in ogni momento, e
   da allora i campi della carta non vengono più rilasciati. Ciò che poi addebita il modulo di un commerciante è limitato dal limite
   della carta stessa, non da Basalt.
-- **Telefonate.** Sono spente di default e, una volta accese, ti chiedono **ogni volta**, anche in *Automatico*. La chiamata si apre
+- **Telefonate.** Sono spente di default e, una volta accese, ti chiedono conferma sotto *Automatico* (questa volta, in questa conversazione o sempre); in *Automatico* non si chiede nulla. La chiamata si apre
   dicendo che un assistente IA telefona per tuo conto. Nessuna telefonata vera è stata fatta in un test.
 - **Da cosa non protegge.** L'agente gira come il tuo stesso utente. Un programma che gira come te può raggiungere più di quanto il
   vault possa nascondere; i comandi dell'agente non possono nominare il vault, i file dei pagamenti o gli accessi del browser, ma è
@@ -515,7 +518,7 @@ o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job
 | *Nuovo tentativo N tra S s* / *viene riavviato* | il modello non risponde o il processo si è fermato; riprova con attese sempre più lunghe e non si arrende da solo | aspetta, oppure ferma la conversazione |
 | «Nobody can confirm in this run» | un'esecuzione in modalità `plan`, `read_only` o `default`, senza nessuno a cui chiedere, ha incontrato qualcosa che richiede una domanda | usa `auto` (il default senza interfaccia), `--interactive`, o una regola `--allow` |
 | Un comando è stato rifiutato anche se una regola lo permette | il comando ne concatena o reindirizza un altro | un solo comando semplice per chiamata |
-| Uno strumento si è fermato dopo 15 minuti | il limite di tempo predefinito | `--tool-timeout NOME=SECONDI` |
+| Uno strumento si è fermato dopo un'ora | il limite di tempo predefinito | `tool_timeout_s` in `limits.json`, o `--tool-timeout NOME=SECONDI` |
 | La ricerca dice che serve un controllo | DuckDuckGo limita le ricerche automatiche | aspetta, imposta un altro motore, o `BASALT_WEB_SEARCH=off` |
 | Un comando con la barra resta nel campo | il nome è sconosciuto | `/help`; inizia con uno spazio per inviarlo come testo |
 | Una pagina è stata rifiutata | è su questo PC o sulla tua rete | permettila nelle impostazioni del browser, se vuoi |

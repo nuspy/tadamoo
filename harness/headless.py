@@ -75,12 +75,20 @@ def _confirmer(args: argparse.Namespace):
     if args.ask_server:
         from harness.approval_client import ServerApprover
         return ServerApprover(args.endpoint, args.api_key, args.run_id or "cli")
-    return _ask_on_terminal if args.interactive else None
+    if not args.interactive:
+        return None
+    if _has_terminal():
+        return _ask_on_terminal
+    from harness.approval_client import ServerApprover
+    board = ServerApprover(args.endpoint, args.api_key, args.run_id or "cli")
+    return board if board.available() else None      # no terminal and no board: nobody can confirm, and the permission layer says so to the model
+
+
+def _has_terminal() -> bool:
+    return bool(sys.stdin) and sys.stdin.isatty()
 
 
 def _ask_on_terminal(tool: str, arguments: Dict[str, Any]) -> bool:
-    if not sys.stdin or not sys.stdin.isatty():
-        return False
     if tool == "present_plan":
         print(f"\nThe agent presents this plan:\n\n{arguments.get('plan', '')}\n", file=sys.stderr)
         print(f"Approve it and go on in '{arguments.get('mode')}' mode? [y/N] ", end="", file=sys.stderr, flush=True)

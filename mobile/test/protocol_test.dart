@@ -47,7 +47,7 @@ void main() {
     final done = Completer<ChatItem>();
     final ctl = ChatController(api, settings)..onAnswerDone = (a) => done.complete(a);
     await api.post('/api/agent/projects', {'path': folder});
-    await ctl.create(workspace: folder, mode: 'read_only');
+    await ctl.create(workspace: folder, options: NewChat(mode: 'read_only'));
     expect(ctl.sid, isNotEmpty);
     await ctl.send('disegna il flusso');
     final answer = await done.future.timeout(const Duration(seconds: 60));
@@ -66,7 +66,7 @@ void main() {
   test('a file of the folder is downloaded with its name, and a path outside is refused', () async {
     final c = ChatController(api, settings);
     await api.post('/api/agent/projects', {'path': folder});
-    await c.create(workspace: folder, mode: 'read_only');
+    await c.create(workspace: folder, options: NewChat(mode: 'read_only'));
     final got = await api.download('/api/agent/sessions/${c.sid}/file', {'path': 'report.txt'});
     expect(got.name, 'report.txt');
     expect(String.fromCharCodes(got.bytes), 'ciao dal PC');
@@ -76,7 +76,7 @@ void main() {
 
   test('an attachment goes up as the body of a request and comes back as a card', () async {
     final c = ChatController(api, settings);
-    await c.create(workspace: folder, mode: 'read_only');
+    await c.create(workspace: folder, options: NewChat(mode: 'read_only'));
     final meta = await api.upload(c.sid, 'nota.txt', 'testo'.codeUnits);
     expect(meta['name'], 'nota.txt');
     expect('${meta['id']}', isNotEmpty);

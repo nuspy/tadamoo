@@ -114,15 +114,11 @@ class ChatController extends ChangeNotifier {
     _schedule();
   }
 
-  /// A new conversation, made in a folder (empty: the Chat's own).
-  Future<void> create({String workspace = '', String mode = 'default'}) async {
+  /// A new conversation, made in a folder (empty: the Chat's own), with the options the person chose.
+  Future<void> create({String workspace = '', required NewChat options}) async {
     final r = await api.post('/api/agent/sessions', {
       if (workspace.isNotEmpty) 'workspace': workspace,
-      'mode': mode,
-      'allow': <String>[],
-      'ask_only': false,
-      'effort': '',
-      'worktree': 'auto',
+      ...options.body(),
     });
     final rec = Map<String, dynamic>.from(r['session'] as Map);
     sid = '${rec['id']}';
@@ -415,4 +411,23 @@ class ChatController extends ChangeNotifier {
     final r = await api.post('/api/agent/sessions/$sid/branch', {'turn': turn});
     return '${(r['session'] as Map)['id']}';
   }
+}
+
+/// What a new conversation starts with: the same fields the PC's page sends when it makes one.
+class NewChat {
+  NewChat({this.mode = 'default', this.effort = '', this.allow = const [], this.worktree = 'auto', this.askOnly = false});
+  final String mode;
+
+  /// '' (high, the default), 'medium', 'low' or 'none' (no reasoning).
+  final String effort;
+  final List<String> allow;
+
+  /// 'off', 'auto' or 'always'.
+  final String worktree;
+  final bool askOnly;
+
+  NewChat copy({String? mode, String? effort, List<String>? allow, String? worktree, bool? askOnly}) =>
+      NewChat(mode: mode ?? this.mode, effort: effort ?? this.effort, allow: allow ?? this.allow, worktree: worktree ?? this.worktree, askOnly: askOnly ?? this.askOnly);
+
+  Map<String, dynamic> body() => {'mode': mode, 'allow': allow, 'ask_only': askOnly, 'effort': effort, 'worktree': worktree};
 }

@@ -150,3 +150,11 @@ def test_unicode_goes_through_the_pipes(tmp_path):
     path = script(tmp_path, 'from basalt_skill import ai\n\ndef main(params):\n    print("città — ✓")\n    return ai("{t}", t="perché")\n')
     res = run(path, {}, handlers()[0])
     assert res.ok and res.output == "AI(perché)" and res.printed == "città — ✓"
+
+
+def test_a_script_gets_the_whole_environment_of_the_server(tmp_path, monkeypatch):
+    monkeypatch.setenv("BASALT_TEST_SECRET_TOKEN", "visible")
+    path = script(tmp_path, "import os\n\ndef main(params):\n    return os.environ.get('BASALT_TEST_SECRET_TOKEN', 'missing')\n")
+    h, _ = handlers()
+    result = run(path, {}, h)
+    assert result.ok and result.output == "visible"

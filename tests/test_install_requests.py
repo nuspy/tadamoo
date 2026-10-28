@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.discovery.installer import InstallError, Installer  # noqa: E402
+from harness.discovery.installer import InstallError, Installer, IntegrityError  # noqa: E402
 from harness.discovery.requests import FILE, InstallRequests, UnknownRequest  # noqa: E402
 from serve import handler  # noqa: E402
 from serve.capabilities_api import CapabilityApi  # noqa: E402
@@ -69,10 +69,16 @@ def test_a_wrong_number_a_damaged_request_and_a_failed_install_say_why(env):
         q.approve(r["id"], 1, env.inst.reading)
     assert env.runner.calls == []
     bad = Installer(env.caps, env.store, index=env.index, runner=Runner(integrity="sha512-OTHER"), which=lambda n: "npm")
-    q2, r2 = queue_of(env, name="third-mcp", package="@acme/third-mcp")
-    with pytest.raises(InstallError):
+    q2, r2 = queue_of(env, name="third-mcp", package="@acme/third-mcp", bins={"third-mcp": "x.js"})
+    with pytest.raises(IntegrityError):
         q2.approve(r2["id"], 1, bad.reading)
-    assert q2.get(r2["id"])["status"] == "failed" and q2.get(r2["id"])["detail"]
+    assert q2.get(r2["id"])["status"] == "pending"                                # the person may go on with "install anyway"
+    assert q2.approve(r2["id"], 1, bad.reading, anyway=True)["status"] == "installed"
+    broken = Installer(env.caps, env.store, index=env.index, runner=Runner(fail=lambda c: True), which=lambda n: "npm")
+    q3, r3 = queue_of(env, name="fourth-mcp", package="@acme/fourth-mcp")
+    with pytest.raises(InstallError):
+        q3.approve(r3["id"], 1, broken.reading)
+    assert q3.get(r3["id"])["status"] == "failed" and q3.get(r3["id"])["detail"]
 
 
 def test_the_queue_keeps_only_the_latest_requests(env):
@@ -101,7 +107,7 @@ def test_the_page_lists_authorises_and_rejects_requests(served):
     code, body = api("POST", "/api/capabilities/requests/approve", {"id": r["id"], "number": 2})
     assert code == 200, body
     assert body["requests"][0]["status"] == "installed" and any(e["id"] == "mcp:other-mcp" and e["state"] == "approved" for e in body["entries"])
-    q2, r2 = queue_of(env, name="third-mcp", package="@acme/third-mcp")
+    q2, r2 = queue_of(env, name="third-mcp", package="@acme/third-mcp", bins={"third-mcp": "x.js"})
     code, body = api("POST", "/api/capabilities/requests/reject", {"id": r2["id"]})
     assert code == 200 and [x["status"] for x in body["requests"]] == ["rejected", "installed"]
     assert api("POST", "/api/capabilities/requests/reject", {"id": "r000"})[0] == 409

@@ -39,7 +39,7 @@ from harness.vault import valid_code
 from harness.worktrees import WorktreeError, Worktrees
 from serve import ROOT
 from serve.api import logit_bias
-from serve.agent_runs import MODES, SAFE_ENV_KEYS, RunBusy, RunError
+from serve.agent_runs import MODES, RunBusy, RunError
 from serve.approvals import ApprovalBoard
 from serve.conv_nodes import NodeStore
 from serve.tasks import _write_json
@@ -103,13 +103,13 @@ class Live:
 class SessionManager:
     def __init__(self, directory: str | Path, endpoint: str, api_key: str = "", board: Optional[ApprovalBoard] = None,
                  python: Optional[str] = None, root: Path = ROOT, command: Optional[Callable[[str, Dict[str, Any], Path], List[str]]] = None,
-                 idle_s: float = 1800.0, beat_timeout_s: float = 45.0,
+                 idle_s: Optional[float] = None, beat_timeout_s: Optional[float] = None,
                  restart_waits: Tuple[float, ...] = RESTART_WAITS, tick_s: float = 1.0, start_wait_s: float = 60.0,
                  default_workspace: Optional[Path] = None, router: str = "model", pipeline: str = "full",
                  attachments_dir: Optional[Path] = None, outputs_dir: Optional[Path] = None, worktrees: Optional[Worktrees] = None,
                  vault_dir: Optional[Path] = None, payments_dir: Optional[Path] = None,
                  browser_prefs: Optional[Callable[[], Dict[str, bool]]] = None, browser_profile: Optional[Path] = None,
-                 plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: float = 1800.0,
+                 plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: Optional[float] = None,
                  skills_dir: Optional[Path] = None, projects: Any = None, personal_dir: Optional[Path] = None, personal_keys: Optional[Path] = None,
                  learn: Optional[Callable[[Dict[str, Any]], Any]] = None, knowledge_flags: Optional[Callable[[], List[str]]] = None,
                  rule_of_two: Optional[Callable[[], str]] = None, allow_rules: Any = None, rule_of_two_prefs: Any = None) -> None:
@@ -139,7 +139,7 @@ class SessionManager:
         self.default_workspace = Path(default_workspace) if default_workspace else None     # where a conversation works when none is named
         self.python, self.root = python or sys.executable, Path(root)
         self.command = command or self._command
-        self.idle_s, self.beat_timeout_s = idle_s, beat_timeout_s
+        self._limits = {"idle_s": idle_s, "beat_timeout_s": beat_timeout_s, "compare_wait_s": compare_wait_s}   # given: fixed (0: no limit); None: the person's limits.json
         self.restart_waits, self.tick_s, self.start_wait_s = restart_waits, tick_s, start_wait_s
         self._restart_token: Dict[str, object] = {}            # a restart waiting for its time; dropping the token cancels it
         self._lock = threading.RLock()
@@ -152,7 +152,6 @@ class SessionManager:
         self._step: Dict[str, Tuple[Any, Any]] = {}            # the plan step each conversation is working on, from its own tool calls
         self._calls: Dict[str, Dict[str, Tuple[str, Dict[str, Any], Any]]] = {}      # tool calls started and not yet ended
         self._learned: Dict[str, Dict[str, str]] = {}
-        self.compare_wait_s = compare_wait_s
         self._compare_lock = threading.Lock()                   # the two sides of a comparison, and two comparisons, run one after the other
         self.compares: List[Dict[str, Any]] = self._load_compares()
         self.records: List[Dict[str, Any]] = self._load()
@@ -167,6 +166,26 @@ class SessionManager:
         """The process ids of the agents running now: whatever a connection from below one of them runs is the agent's own code."""
         with self._lock:
             return [live.pid for live in self._live.values() if live.pid and live.proc.poll() is None]
+
+    def _limit(self, name: str) -> Optional[float]:
+        """A time limit in seconds, None for no limit: the value given to this manager, else the person's (serve/limits.py)."""
+        given = self._limits.get(name)
+        if given is None:
+            from serve import limits
+            return limits.get(name)
+        return given if given > 0 else None
+
+    @property
+    def idle_s(self) -> Optional[float]:
+        return self._limit("idle_s")
+
+    @property
+    def beat_timeout_s(self) -> Optional[float]:
+        return self._limit("beat_timeout_s")
+
+    @property
+    def compare_wait_s(self) -> Optional[float]:
+        return self._limit("compare_wait_s")
 
     # -- the list of conversations -----------------------------------------------------------------------
 
@@ -392,18 +411,14 @@ class SessionManager:
         return {"turn": turn, "removes": {"requests": sum(1 for m in dropped if m.get("role") == "user"), "messages": len(dropped)},
                 "reversible": found["reversible"], "not_undone": found["not_undone"], "needs_yes": bool(found["not_undone"])}
 
-    def go_back(self, sid: str, turn: Any, accept_irreversible: bool = False) -> Dict[str, Any]:
+    def go_back(self, sid: str, turn: Any) -> Dict[str, Any]:
         """The conversation goes back to the end of the person's `turn`-th request: what came after is taken off (a copy is kept in the
         conversation's folder). It is the conversation only: files the agent changed are put back from the Changes panel, not from here,
-        and an action that cannot be undone stays done: going back over one needs `accept_irreversible`."""
+        and an action that cannot be undone stays done (it is listed in the `rewinds` mark). A run in progress is stopped by it."""
         self._check_turn(turn)
         with self._lock:
             rec = self._record(sid)
-            if rec["state"] in ("busy", "starting", "asking"):
-                raise RunError("Wait for the agent to finish, or stop it, before going back.", "busy")
         impact = self.back_impact(sid, turn)
-        if impact["not_undone"] and accept_irreversible is not True:
-            raise RunError("Some of the actions after that point cannot be undone by going back.", "needs_yes")
         with self._lock:
             live = self._live.get(sid)
             if live is not None:
@@ -677,8 +692,8 @@ class SessionManager:
             if not isinstance(text, str) or not text.strip():
                 raise RunError("Each continuation needs a message.", "text_missing")
             settings = {k: v[k] for k in COMPARE_SETTINGS if k in v}
-            if settings.get("mode") not in (None, *[m for m in MODES if m != "auto"]):
-                raise RunError("A comparison runs in default, plan or read-only mode: automatic mode is not offered here.", "bad_mode")
+            if settings.get("mode") not in (None, *MODES):
+                raise RunError("Say a mode that exists: " + ", ".join(MODES) + ".", "bad_mode")
             if "max_turns" in settings:
                 check_steps(settings["max_turns"])
             if "ask_only" in settings and not isinstance(settings["ask_only"], bool):
@@ -711,7 +726,8 @@ class SessionManager:
                       **{k: v for k, v in side["settings"].items()})
 
     def _wait_side(self, sid: str) -> str:
-        end = time.monotonic() + self.compare_wait_s
+        wait = self.compare_wait_s                                  # None: as long as the side works
+        end = time.monotonic() + wait if wait else float("inf")
         while not self._stop.is_set() and time.monotonic() < end:
             state = self.get(sid)["state"]
             if state == "idle":
@@ -846,7 +862,7 @@ class SessionManager:
             if tool == "plan_step_start" and " started" in str(data.get("output") or "")[:300]:
                 self._step[sid] = (args.get("plan_id"), args.get("node_id"))
             elif tool == "plan_mark":
-                if step == (args.get("plan_id"), args.get("node_id")) and args.get("status") in ("completed", "failed", "skipped"):
+                if step == (args.get("plan_id"), args.get("node_id")) and args.get("status") in ("completed", "failed", "skipped", "timed_out"):
                     self._step.pop(sid, None)
             elif step and effect in ("reversible", "irreversible") and not tool.startswith("plan_") and self.plan_effect is not None:
                 from harness.rewind import describe_call
@@ -953,7 +969,7 @@ class SessionManager:
         prefs = self.browser_prefs() if self.browser_prefs else {}
         if not rec.get("ask_only") and prefs.get("enabled"):
             cmd += ["--browser"] + (["--browser-headless"] if prefs.get("headless") else []) + (["--browser-private"] if prefs.get("private") else [])                    + (["--browser-profile", str(self.browser_profile)] if prefs.get("persistent") and self.browser_profile else [])
-            cmd += ["--browser-consent", str(prefs.get("consent", "necessary")), "--browser-permissions", str(prefs.get("permissions", "deny"))]
+            cmd += ["--browser-consent", str(prefs.get("consent", "follow")), "--browser-permissions", str(prefs.get("permissions", "follow"))]
         if self.knowledge_flags:
             cmd += self.knowledge_flags()
         if rec.get("context_patterns"):
@@ -981,7 +997,7 @@ class SessionManager:
             made = self._history_from_nodes(sid)                  # a fork gets its file when it first runs
             if made is not None:
                 _write_json(history / "history.json", made)
-        env = {k: v for k, v in os.environ.items() if k.upper() in SAFE_ENV_KEYS}
+        env = dict(os.environ)
         env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root)})
         if self.api_key:
             env["BASALT_API_KEY"] = self.api_key
@@ -1328,8 +1344,9 @@ class SessionManager:
                                      "params": [{k: p[k] for k in keep if k in p} for p in params], "source": {"conversation": sid, "requests": sorted(set(turns))}}}
 
     def run_skill(self, sid: str, slug: Any, values: Any = None) -> Dict[str, Any]:
-        """Runs one of the person's skills in this conversation with the values they gave (a date in words is worked out now). The skill must
-        be approved: the person has read it. The process runs the script; its tool calls are decided by the conversation's own rules."""
+        """Runs one of the person's skills in this conversation with the values they gave (a date in words is worked out now; a value left out is the
+        default, else the last one used, else it is told to the model as missing). Nothing asks before it runs: its tool calls are
+        decided by the conversation's own rules."""
         from serve.personal_skills_api import describe
         if self.skills is None or not isinstance(slug, str) or (values is not None and not isinstance(values, dict)):
             raise RunError("Choose a skill and give its values.", "bad_skill")
@@ -1337,7 +1354,7 @@ class SessionManager:
             skill = self.skills.get(slug)
         except SkillError as exc:
             raise RunError(str(exc), "no_skill") from None
-        typed, errors = resolve_values(skill.get("params") or [], values or {}, datetime.now())
+        typed, errors = resolve_values(skill.get("params") or [], values or {}, datetime.now(), self.skills.last_values(slug))
         if errors:
             raise RunError("; ".join(f"{k}: {v}" for k, v in errors.items()), "bad_values")
         text = describe(skill, typed)
@@ -1359,7 +1376,7 @@ class SessionManager:
                 live.after_ready.append(cmd)
             elif not self._write(sid, live, cmd):
                 raise RunError("The agent process did not take the skill; try again.", "write_failed")
-        self.skills.note_run(slug)
+        self.skills.note_run(slug, typed)
         self._push(sid, {"event": "user", "turn": turn, "text": text})
         return {"turn": turn, "session": self.get(sid)}
 
@@ -1677,10 +1694,11 @@ class SessionManager:
             if rec is None or live.ending or live.proc.poll() is not None:
                 continue
             silent = now - live.last_seen
-            if silent >= self.beat_timeout_s:
+            beat, idle = self.beat_timeout_s, self.idle_s        # None: no limit
+            if beat and silent >= beat:
                 self._push(sid, {"event": "stalled", "why": "no sign of life for %d s" % silent})
                 _kill_tree(live.proc)                            # the reader sees the end and starts it again
-            elif rec["state"] == "idle" and time.time() - rec.get("updated", 0) >= self.idle_s:
+            elif idle and rec["state"] == "idle" and time.time() - rec.get("updated", 0) >= idle:
                 with self._lock:
                     live.ending = True
                     self._write(sid, live, {"cmd": "close"})

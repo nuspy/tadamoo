@@ -46,7 +46,7 @@ class MaxTokens(unittest.TestCase):
     def setUpClass(cls):
         tok = ByteTokenizer()
         cls.engine = RecordingEngine(tok, "</think>\n\n" + ANSWER, max_context=CTX)
-        cls.svc = Service(cls.engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        cls.svc = Service(cls.engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"), fit_max_tokens=False)
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
 
@@ -144,7 +144,7 @@ class MaxTokens(unittest.TestCase):
                 s, b, _, _ = self.call(api, max_tokens=CTX)
                 self.assertEqual(s, 400)
                 self.assertIn("exceeds the context", b["error"]["message"])
-                self.assertIn("--fit-max-tokens", b["error"]["message"])     # says how to get past it
+                self.assertIn("--no-fit-max-tokens", b["error"]["message"])  # says how to get past it
                 self.assertIn('"fit-max-tokens": true', b["error"]["message"])
                 self.assertIn('"server" section', b["error"]["message"])
                 self.assertNotIn(".json", b["error"]["message"])

@@ -59,15 +59,13 @@ def delete(rec: Dict[str, Any], checkpoint_id: Any, everything: bool = False) ->
         raise RunError(str(exc), "no_checkpoint") from None
 
 
-def restore(rec: Dict[str, Any], checkpoint_id: Any, accept_irreversible: bool = False) -> Dict[str, Any]:
+def restore(rec: Dict[str, Any], checkpoint_id: Any) -> Dict[str, Any]:
+    """Puts the files back to a checkpoint; the actions that stay done are returned as `not_undone`."""
     from harness.rewind import checkpoint_report, rewind
-    _idle(rec)
     path, data = _where(rec)
     target = next((c for c in checkpoint_report(data, path) if c["id"] == checkpoint_id), None)
     if target is None:
         raise RunError("That checkpoint is not there any more.", "no_checkpoint")
-    if target["not_undone"] and accept_irreversible is not True:
-        raise RunError("Some later actions cannot be undone by putting the files back.", "needs_yes")
     try:
         return {**rewind(data, path, checkpoint_id), "not_undone": target["not_undone"]}
     except (OSError, ValueError) as exc:

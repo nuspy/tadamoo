@@ -15,12 +15,13 @@ import 'voice.dart';
 
 /// One conversation: the messages, what the agent is doing, its questions with their buttons, and the box to write in.
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.api, required this.settings, required this.voice, this.sessionId, this.workspace = ''});
+  const ChatScreen({super.key, required this.api, required this.settings, required this.voice, this.sessionId, this.workspace = '', this.options});
   final Api api;
   final AppSettings settings;
   final Voice voice;
   final String? sessionId;
   final String workspace;
+  final NewChat? options;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -100,7 +101,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<bool> _ensure() async {
     if (ctl.ready) return true;
     try {
-      await ctl.create(workspace: widget.workspace, mode: widget.settings.mode);
+      await ctl.create(workspace: widget.workspace, options: widget.options ?? NewChat(mode: widget.settings.mode));
       return true;
     } on ApiError catch (e) {
       _say(e.message);
@@ -374,7 +375,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             padding: const EdgeInsets.all(12),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(b.detail.isEmpty ? b.reason : b.detail),
-              if (b.options.isNotEmpty) Row(children: [TextButton(onPressed: () => ctl.control('resume'), child: Text(Texts.t('chat.resume'))), TextButton(onPressed: () => ctl.control('close'), child: Text(Texts.t('chat.close')))]),
+              Row(children: [TextButton(onPressed: () => ctl.control('resume'), child: Text(Texts.t('chat.resume'))), TextButton(onPressed: () => ctl.control('close'), child: Text(Texts.t('chat.close')))]),
             ]),
           ),
         );

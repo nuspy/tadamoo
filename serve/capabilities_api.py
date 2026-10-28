@@ -18,7 +18,7 @@ from harness.discovery.installed import InstalledStore
 from harness.discovery import sources as src
 from harness.discovery.finder import resolve_bases
 from harness.discovery.installed import github_token
-from harness.discovery.installer import InstallError, Installer
+from harness.discovery.installer import AlreadyInstalled, InstallError, Installer, IntegrityError
 from harness.discovery.requests import InstallRequests, UnknownRequest
 from harness.discovery.scoring import DEFAULT_WEIGHTS
 from harness.discovery.settings import DiscoverySettings, SOURCES
@@ -107,7 +107,7 @@ class CapabilityApi:
                     "tools": {"npm": bool(shutil.which("npm")), "uv": bool(shutil.which("uv")), "pip": importlib.util.find_spec("pip") is not None}}
 
     def online_settings(self, body: Dict[str, Any]) -> Dict[str, Any]:
-        changes = {k: body[k] for k in ("sources", "weights", "min_score", "auto_install", "marketplaces") if k in body}
+        changes = {k: body[k] for k in ("sources", "weights", "min_score", "auto_install", "marketplaces", "max_skill_files", "max_skill_mb", "max_skill_file_mb") if k in body}
         try:
             with self._lock:
                 DiscoverySettings(self.index.dir).save(changes)
@@ -136,13 +136,20 @@ class CapabilityApi:
         github = src.GithubClient(src.Http(), used["github"], used["github_raw"], lambda: github_token(self.index.vault_dir))
         return Installer(self.index.dir, store, index=self.index, github=github)
 
-    def approve_request(self, request_id: Any, number: Any) -> Dict[str, Any]:
-        """Installs candidate `number` (1-based) of a pending request: the person's authorisation."""
+    def approve_request(self, request_id: Any, number: Any, options: Any = None) -> Dict[str, Any]:
+        """Installs candidate `number` (1-based) of a pending request: the person's authorisation. `options` may hold `allow_scripts`, `anyway`
+        (go on although the hash differs from the registry's) and `update` (replace what is installed); a refusal for a hash or an installed
+        version has the code "integrity" or "installed", with the two hashes in the message, and the request stays pending for another try."""
+        flags = {k: options.get(k) is True for k in ("allow_scripts", "anyway", "update")} if isinstance(options, dict) else {}
         try:
             with self._lock:
-                InstallRequests(self.index.dir).approve(str(request_id), number, self._installer_for)
+                InstallRequests(self.index.dir).approve(str(request_id), number, self._installer_for, **flags)
         except UnknownRequest:
             raise CapabilityError("That request is not there any more: look again.", "gone") from None
+        except IntegrityError as exc:
+            raise CapabilityError(str(exc), "integrity") from None
+        except AlreadyInstalled as exc:
+            raise CapabilityError(str(exc), "installed") from None
         except InstallError as exc:
             raise CapabilityError(str(exc), "bad_request") from None
         return {**self.requests(), **self.overview()}

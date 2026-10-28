@@ -39,7 +39,7 @@ const chatSettings = (() => {
   let last = load(LAST, null);
   if (!last || typeof last !== "object" || typeof last.name !== "string") {
     // the first opening with this version: settings a user typed before are kept, as changed by hand
-    const before = load(STORE, {}) || {}, plain = { policy: "stop", effort: "", format: "" };
+    const before = load(STORE, {}) || {}, plain = { policy: "compact", effort: "", format: "" };
     last = { name: "", edited: Object.entries(before).some(([k, v]) => v !== "" && v != null && plain[k] !== v) };
     keep(LAST, last);
   }
@@ -59,7 +59,7 @@ const chatSettings = (() => {
   const fieldsOf = () => [...SAMPLING.map(f => ({ ...f, id: `cs-${f.key}`, label: `cs.${f.key}` })), ...OTHER];
   function read() {
     const s = { system: $("#cs-system").value, stop: $("#cs-stop").value,
-      policy: (document.querySelector('input[name="cs-policy"]:checked') || {}).value || "stop",
+      policy: (document.querySelector('input[name="cs-policy"]:checked') || {}).value || "compact",
       threshold: $("#cs-threshold").value, effort: $("#effort").value,
       format: $("#cs-format").value, schema: $("#cs-schema").value, schema_name: $("#cs-schema_name").value,
       context_patterns: window.ctxPatterns ? window.ctxPatterns.read() : {} };
@@ -70,7 +70,7 @@ const chatSettings = (() => {
     s = s || {};
     $("#cs-system").value = s.system || "";
     $("#cs-stop").value = s.stop || "";
-    const p = document.querySelector(`input[name="cs-policy"][value="${s.policy || "stop"}"]`);
+    const p = document.querySelector(`input[name="cs-policy"][value="${s.policy || "compact"}"]`);
     if (p) p.checked = true;
     $("#cs-threshold").value = s.threshold || "";
     $("#cs-format").value = s.format || "";

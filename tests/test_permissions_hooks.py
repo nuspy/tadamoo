@@ -49,12 +49,15 @@ def test_rules_are_case_insensitive_on_every_platform():
     assert not ev(pm, "DEL file.txt")
 
 
-def test_phone_call_asks_every_time_below_the_auto_level_even_with_an_allow_rule_and_never_at_auto():
+def test_phone_call_asks_below_the_auto_level_unless_an_allow_rule_covers_it_and_never_at_auto():
     calls = []
     pm = PermissionManager(level=PermissionLevel.DEFAULT, confirm_callback=lambda t, a: calls.append(t) or False)
-    pm.add_rule("phone_call", "allow")
     ok, reason = pm.evaluate("phone_call", EffectClass.IRREVERSIBLE, {"number": "+39"})
     assert not ok and calls == ["phone_call"] and "every time" in reason
+    pm.add_rule("phone_call", "allow")                       # the person's own "always" answer covers it
+    assert pm.evaluate("phone_call", EffectClass.IRREVERSIBLE, {"number": "+39"})[0] and calls == ["phone_call"]
+    pm.add_rule("phone_call", "deny")
+    assert not pm.evaluate("phone_call", EffectClass.IRREVERSIBLE, {"number": "+39"})[0]
 
     approvals = iter([True, False])
     pm2 = PermissionManager(level=PermissionLevel.DEFAULT, confirm_callback=lambda t, a: next(approvals))
@@ -377,7 +380,8 @@ def test_the_rules_offered_by_an_always_answer_cover_each_statement_of_the_comma
     assert suggest_rules("shell_command", {"command": r"C:\Python\python.exe -m pytest"}) == ["shell_command:python.exe *"]
     assert suggest_rules("shell_command", {"command": "pytest && rm -rf x"}) == ["shell_command:pytest *", "shell_command:rm *"]
     assert suggest_rules("shell_command", {"command": "echo $(whoami)"}) == []
-    assert suggest_rules("phone_call", {}) == [] and suggest_rules("request_payment", {}) == [] and suggest_rules("write_file:/r/.git/hooks/x", {}) == []
+    assert suggest_rules("phone_call", {}) == ["phone_call"] and suggest_rules("request_payment", {}) == ["request_payment"]
+    assert suggest_rules("write_file:/r/.git/hooks/x", {}) == ["write_file:/r/.git/hooks/x"]
     assert suggest_rules("browser_click", {"ref": 3}) == ["browser_click"]
     pm = PermissionManager(level=PermissionLevel.DEFAULT, confirm_callback=lambda t, a: False)
     for rule in suggest_rules("shell_command", {"command": "pytest -q"}):

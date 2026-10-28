@@ -431,6 +431,8 @@ class Scheduler:
                       "started": started, "ended": ended, "status": str(outcome.get("status") or "failed"),
                       "summary": str(outcome.get("summary") or "")[:SUMMARY_MAX], "session": str(outcome.get("session") or ""),
                       **{k: outcome[k] for k in ("seconds", "energy") if k in outcome}}
+            if record["status"] == "timeout":                 # a warning, not a failure: the routine is tried again at its next time
+                record["warning"] = "timed out"
             self.results.append(record)
             self.results = self.results[-KEEP_RUNS:]
             if routine is not None:

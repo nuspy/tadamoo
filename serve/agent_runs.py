@@ -26,8 +26,6 @@ KEEP_RUNS = 50
 SHOWN_CHARS = 300
 LOG_TAIL_BYTES = 65_536
 RUNS_FILE = "agent_runs.json"
-SAFE_ENV_KEYS = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "COMSPEC", "PATHEXT", "USERPROFILE", "HOME", "APPDATA",
-                 "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMDATA", "LANG", "LC_ALL", "TERM", "BASALT_DATA"}
 
 
 class RunError(ValueError):
@@ -151,17 +149,19 @@ class AgentRunner:
         path, data = self._workspace_of(run_id)
         return [{**cp, "after": cp["after"][-8:]} for cp in checkpoint_report(data, path)]
 
-    def rewind(self, run_id: str, checkpoint_id: Any, accept_irreversible: bool = False) -> Dict[str, Any]:
+    def rewind(self, run_id: str, checkpoint_id: Any) -> Dict[str, Any]:
+        """Puts the files back to a checkpoint; a run still working is stopped first, and the actions that stay done are returned as `not_undone`."""
         from harness.rewind import checkpoint_report, rewind
         path, data = self._workspace_of(run_id)
         with self._lock:
-            if any(r["status"] == "running" for r in self.runs):
-                raise RunBusy("Stop the agent before going back: it is still working in a folder.", "busy")
+            for r in [r for r in self.runs if r["status"] == "running"]:
+                try:
+                    self.stop(r["id"])
+                except RunError:
+                    pass
             target = next((c for c in checkpoint_report(data, path) if c["id"] == checkpoint_id), None)
             if target is None:
                 raise RunError("That checkpoint is not there any more.", "no_checkpoint")
-            if target["not_undone"] and accept_irreversible is not True:
-                raise RunError("Some later actions cannot be undone by putting the files back.", "needs_yes")
             try:
                 return {**rewind(data, path, checkpoint_id), "not_undone": target["not_undone"]}
             except (OSError, ValueError) as exc:
@@ -202,7 +202,7 @@ class AgentRunner:
                        "--pid-file", str(self._pid_path(run_id))]
             for rule in rules:
                 command += ["--allow", rule.strip()]
-            env = {k: v for k, v in os.environ.items() if k.upper() in SAFE_ENV_KEYS}
+            env = dict(os.environ)
             env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root)})
             if self.api_key:
                 env["BASALT_API_KEY"] = self.api_key

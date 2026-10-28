@@ -227,17 +227,49 @@ def test_a_busy_server_is_retried_with_waits_and_the_turn_ends_well(tmp_path):
     assert [m["role"] for m in client.sent[2]] == ["system", "user"]       # the message was not added again
 
 
-def test_a_refusal_waiting_cannot_change_is_not_retried_and_the_person_decides(tmp_path):
+def test_a_model_error_of_any_kind_never_blocks_it_is_retried_and_the_event_says_what_is_waited_for(tmp_path):
     client = Scripted(BasaltError(400, "the prompt is over the context"), say("Ora sì."))
     session, ev, *_ = make(tmp_path, client)
     session.send("m1", "enorme")
-    blocked = ev.wait("blocked")
-    assert blocked["reason"] == "refused" and blocked["options"] == ["resume", "close"]
-    assert "retrying" not in ev.kinds() and len(client.sent) == 1
-    assert session.busy is False
-    n = len(ev.items)
-    assert session.resume()
-    assert ev.wait("done", after=n)["final"] == "Ora sì."
+    assert ev.wait("done")["final"] == "Ora sì."
+    assert "blocked" not in ev.kinds() and len(client.sent) == 2
+    retry = next(e for e in ev.items if e["event"] == "retrying")
+    assert retry["status"] == 400 and retry["waiting_for"]
+
+
+def test_a_model_that_is_not_loaded_is_loaded_by_the_session_and_attended_auto_does_not_block(tmp_path):
+    client = Scripted(BasaltError(503, "no model is loaded yet"), say("Carico."))
+    session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": False})
+    session.endpoint = "http://127.0.0.1:1"
+    loads = []
+    session.load_model = lambda wait_s: loads.append(wait_s) or "started"
+    session.send("m1", "ciao")
+    assert ev.wait("done")["final"] == "Carico." and len(loads) == 1 and "blocked" not in ev.kinds()
+    retry = next(e for e in ev.items if e["event"] == "retrying")
+    assert "loading" in retry["waiting_for"] and "load_error" not in retry
+
+
+def test_a_load_the_loader_refuses_is_said_in_the_event_and_the_retries_go_on(tmp_path):
+    client = Scripted(BasaltError(503, "no model is loaded yet"), BasaltError(503, "no model is loaded yet"), say("Eccomi."))
+    session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": False})
+    session.endpoint = "http://127.0.0.1:1"
+
+    def refuse(wait_s):
+        raise RuntimeError("no model is chosen: pick one in the Loader's model list first")
+    session.load_model = refuse
+    session.send("m1", "ciao")
+    assert ev.wait("done")["final"] == "Eccomi." and "blocked" not in ev.kinds()
+    retries = [e for e in ev.items if e["event"] == "retrying"]
+    assert len(retries) == 2 and "no model is chosen" in retries[0]["load_error"]
+
+
+def test_a_server_that_loads_by_itself_is_not_asked_to_load(tmp_path):
+    client = Scripted(BasaltError(503, "no model is loaded yet"), say("Ok."))
+    session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": True})
+    session.endpoint = "http://127.0.0.1:1"
+    session.load_model = lambda wait_s: pytest.fail("loaded by the session")
+    session.send("m1", "ciao")
+    assert ev.wait("done")["final"] == "Ok."
 
 
 def test_retries_never_run_out_and_the_last_wait_is_repeated(tmp_path):
@@ -762,6 +794,111 @@ def test_a_command_that_chains_others_gets_the_same_three_choices_and_a_payment_
     assert ask["options"][2]["rules"] == ["shell_command:pytest *", "shell_command:rm *"]
     session.answer(ask["id"], "cancel")
     ev.wait("done")
+
+
+def test_a_tool_with_a_colon_in_its_name_gets_the_three_levels_and_its_own_rule(tmp_path):
+    session, ev, plans, built = with_planner(tmp_path, Scripted(), mode="default")
+    answers = []
+    t = threading.Thread(target=lambda: answers.append(session.permission_confirm("acp_permission:codex:run tests", {"title": "run tests"})))
+    t.start()
+    ask = ev.wait("ask")
+    assert [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "cancel"]
+    assert ask["options"][2]["rules"] == ["acp_permission:codex:run tests"]
+    session.answer(ask["id"], "always")
+    t.join(5)
+    assert answers == [True] and ev.wait("rule_added")["rule"] == "acp_permission:codex:run tests"
+    assert built.permissions.allowed_by("acp_permission:codex:run tests", {})              # the next one passes without asking
+
+
+def test_a_payment_the_broker_does_not_decide_gets_the_three_levels_and_an_allow_covers_the_next(tmp_path):
+    session, ev, plans, built = with_planner(tmp_path, Scripted(), mode="default")
+    request = {"amount": "5", "recipient": "Bar", "reason": "caffe", "system": "card"}
+    answers = []
+    t = threading.Thread(target=lambda: answers.append(session.ask_payment(request)))
+    t.start()
+    ask = ev.wait("ask")
+    assert [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "cancel"]
+    assert ask["options"][1]["rules"] == ["request_payment:card"]
+    session.answer(ask["id"], "chat")
+    t.join(5)
+    assert answers == [True] and ev.wait("rule_added")["scope"] == "chat"
+    assert session.ask_payment(request) is True and len([e for e in ev.items if e["event"] == "ask"]) == 1
+
+
+def test_a_phone_call_in_a_manual_chat_has_the_three_levels_and_the_always_rule_covers_the_next_call(tmp_path):
+    ran = []
+    client = Scripted(call("phone_call", x="Anna"), call("phone_call", x="Luca"), say("Fatto."))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="default")
+    register(built, "phone_call", ran)
+    session.send("m1", "chiama")
+    ask = ev.wait("ask")
+    assert ask["kind"] == "permission" and [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "cancel"]
+    assert ask["options"][2]["rules"] == ["phone_call"]
+    session.answer(ask["id"], "always")
+    ev.wait("done")
+    assert [r["x"] for r in ran] == ["Anna", "Luca"] and len([e for e in ev.items if e["event"] == "ask"]) == 1
+
+
+def test_a_phone_call_at_the_auto_level_is_not_asked_even_with_the_person_there(tmp_path):
+    ran = []
+    client = Scripted(call("phone_call", x="Anna"), say("Fatto."))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="auto")
+    register(built, "phone_call", ran)
+    session.send("m1", "chiama")
+    ev.wait("done")
+    assert ran == [{"x": "Anna"}] and "ask" not in ev.kinds()
+
+
+def test_the_rule_of_two_question_has_the_three_levels_and_an_always_answer_stops_it_asking_again(tmp_path):
+    ran = []
+    client = Scripted(call("browse_url", x="a"), call("browse_url", x="b"), say("Fatto."))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="default")
+    built.agent.tools.register("browse_url", "opens", {"type": "object", "properties": {"x": {"type": "string"}}}, EffectClass.PURE,
+                               lambda **kw: ran.append(kw) or "page", outward=True)
+    built.permissions.two.set_level("ask")
+    built.permissions.note_untrusted_input("a page")
+    built.permissions.note_private_data(".env")
+    session.send("m1", "apri")
+    ask = ev.wait("ask")
+    assert [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "cancel"] and ask["options"][2]["rules"] == ["browse_url"]
+    session.answer(ask["id"], "chat")
+    ev.wait("done")
+    assert len(ran) == 2 and len([e for e in ev.items if e["event"] == "ask"]) == 1
+
+
+def test_a_question_tool_does_not_end_the_turn_of_an_unattended_session_and_the_model_decides(tmp_path):
+    client = Scripted(call("ask_user", question_text="Quale giorno?", options=[]), say("Scelgo sabato."))
+    session, ev, store, built = unattended_session(tmp_path, client)
+    session.enable_planner(FakePlans())
+    session.send("m1", "organizza")
+    done = ev.wait("done")
+    assert done["final"] == "Scelgo sabato." and "ask" not in ev.kinds() and done["stop_reason"] != al.ASKED
+    assert ev.wait("auto_answered")["kind"] == "question"
+    assert "Nobody can answer in this run" in json.dumps(client.sent[1])
+
+
+def test_a_skill_run_asked_while_a_task_is_under_way_is_queued_and_started_when_it_is_free(tmp_path):
+    gate, started = threading.Event(), threading.Event()
+
+    def slow():
+        started.set()
+        gate.wait(5)
+        return say("fatto")
+
+    session, ev, store, built = make(tmp_path, Scripted(slow))
+    ran = []
+    session._run_skill_task = lambda task: (ran.append(task.skill["name"]), setattr(task.agent, "stop_reason", al.FINAL), "done")[2]
+    session.send("m1", "lavora")
+    started.wait(5)
+    assert session.run_skill("k1", {"name": "daily"}) is True
+    queued = ev.wait("queued")
+    assert queued["kind"] == "skill" and queued["position"] == 1 and ran == [] and not session.idle()
+    gate.set()
+    ev.wait("accepted")
+    deadline = time.monotonic() + 5
+    while (ran != ["daily"] or not session.idle()) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert ran == ["daily"] and session.skill_queue == []
 
 
 def test_a_change_to_a_plan_asks_nothing_at_the_auto_level(tmp_path):

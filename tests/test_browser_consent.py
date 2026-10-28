@@ -172,17 +172,22 @@ def test_a_label_is_cleaned_before_it_is_shown():
     assert len(bc.safe_label("y" * 200)) <= 40 and '"' not in bc.safe_label('a"b')
 
 
-def test_policies_default_to_the_careful_choice_and_unknown_values_fall_back():
-    assert bc.DEFAULT_CONSENT == "necessary" and bc.DEFAULT_PERMISSIONS == "deny"
-    assert bc.clean_consent("whatever") == "necessary" and bc.clean_permissions("allow-all") == "deny" and bc.clean_permissions(None) == "deny"
-    assert bc.clean_consent("off") == "off" and bc.clean_permissions("grant-safe") == "grant-safe"
+def test_policies_default_to_following_the_level_and_unknown_values_fall_back():
+    assert bc.DEFAULT_CONSENT == "follow" and bc.DEFAULT_PERMISSIONS == "follow"
+    assert bc.clean_consent("whatever") == "follow" and bc.clean_permissions("allow-all") == "follow" and bc.clean_permissions(None) == "follow"
+    assert bc.clean_consent("off") == "off" and bc.clean_permissions("grant-safe") == "grant-safe" and bc.clean_permissions("grant") == "grant"
 
 
-def test_javascript_dialogs_never_send_anything():
+def test_there_is_no_cap_on_the_clicks_or_the_questions():
+    assert not hasattr(bc, "MAX_CLICKS") and not hasattr(bc, "MAX_ASKS")
+
+
+def test_javascript_dialogs_are_answered_by_what_is_allowed():
     assert bc.dialog_accepts("alert", False) and not bc.dialog_accepts("confirm", False) and not bc.dialog_accepts("prompt", False)
     assert not bc.dialog_accepts("beforeunload", False) and bc.dialog_accepts("beforeunload", True)
-    assert not bc.dialog_accepts("confirm", True) and not bc.dialog_accepts("prompt", True)
+    assert bc.dialog_accepts("confirm", False, True) and bc.dialog_accepts("prompt", False, True) and bc.dialog_accepts("beforeunload", False, True)
     assert "stayed on the page" in bc.dialog_note("beforeunload", "", False) and "dismissed" in bc.dialog_note("confirm", "Sure?", False)
+    assert "accepted" in bc.dialog_note("confirm", "Sure?", True) and "default" in bc.dialog_note("prompt", "Name?", True)
 
 
 def test_the_browser_command_line_has_the_refusing_flags_and_no_flag_that_answers_a_prompt(tmp_path):
@@ -206,16 +211,21 @@ def test_every_permission_is_refused_in_the_profile_before_the_browser_starts(tm
     assert kept["name"] == "kept" and kept["default_content_setting_values"]["cookies"] == 1 and kept["default_content_setting_values"]["geolocation"] == 2
 
 
-def test_the_camera_microphone_location_and_screen_are_refused_by_every_policy(tmp_path):
-    for policy in bc.PERMISSION_POLICIES:
-        b = Browser(tmp_path / "p", permissions=policy)
+def test_the_permissions_are_set_by_the_policy_and_the_level(tmp_path):
+    sensitive = {"videoCapture", "audioCapture", "geolocation", "displayCapture", "clipboardReadWrite", "notifications"}
+    for policy, auto in [(p, False) for p in bc.PERMISSION_POLICIES] + [("follow", True)]:
+        b = Browser(tmp_path / "p", permissions=policy, auto=lambda auto=auto: auto)
         calls = []
         b.set_permission = lambda name, setting, origin="", calls=calls: calls.append((name, setting)) or True
         b._apply_permissions()
         granted = [name for name, setting in calls if setting == "granted"]
-        assert not {"videoCapture", "audioCapture", "geolocation", "displayCapture", "clipboardReadWrite", "notifications"} & set(granted), policy
-        assert granted == (["clipboardSanitizedWrite"] if policy == "grant-safe" else []), policy
         assert {name for name, _ in calls} == set(bc.DENIED_PERMISSIONS)
+        if policy == "grant" or (policy == "follow" and auto):
+            assert sensitive <= set(granted) and set(granted) == set(bc.DENIED_PERMISSIONS), (policy, auto)
+        elif policy == "grant-safe":
+            assert granted == ["clipboardSanitizedWrite"]
+        else:
+            assert granted == [], (policy, auto)
 
 
 def test_the_device_choosers_are_never_granted_even_when_the_person_says_yes(tmp_path):
@@ -229,6 +239,31 @@ def test_the_device_choosers_are_never_granted_even_when_the_person_says_yes(tmp
     assert asked == [{"site": "https://shop.example", "permission": "camera"}] and granted == [("videoCapture", "https://shop.example")]
 
 
+def test_the_level_decides_what_follow_does_and_a_change_of_level_is_noticed(tmp_path):
+    level = {"auto": False}
+    asked = []
+    b = Browser(tmp_path / "p", permissions="follow", auto=lambda: level["auto"], confirm=lambda tool, args: asked.append(tool) or True)
+    sets = []
+    b.set_permission = lambda name, setting, origin="": sets.append((name, setting, origin)) or True
+    b.page_url = "https://shop.example/x"
+    b._permission_requests(["camera"])                                                   # Manual: the person is asked
+    assert asked == ["browser_permission"] and ("videoCapture", "granted", "https://shop.example") in sets
+    level["auto"] = True
+    b._permission_requests(["location"])                                                 # Auto: granted without a question
+    assert asked == ["browser_permission"] and ("geolocation", "granted", "https://shop.example") in sets
+
+
+def test_an_allow_rule_answers_a_browser_question_for_one_site_or_every_site(tmp_path):
+    rules = ["browser_permission:https://shop.example:camera", "browser_dialog"]
+    b = Browser(tmp_path / "p", permissions="ask", rules=lambda: rules)
+    assert b._approve("browser_permission", {"site": "https://shop.example", "permission": "camera"}) is True
+    assert b._approve("browser_permission", {"site": "https://shop.example", "permission": "location"}) is None
+    assert b._approve("browser_permission", {"site": "https://other.example", "permission": "camera"}) is None
+    assert b._approve("browser_dialog", {"site": "https://other.example", "kind": "confirm"}) is True
+    rules[:] = ["browser_permission:https://*.example:*"]
+    assert b._approve("browser_permission", {"site": "https://other.example", "permission": "camera"}) is True
+
+
 def test_ask_policy_asks_once_per_site_and_permission_and_the_other_policies_never_ask(tmp_path):
     asked = []
     b = Browser(tmp_path / "p", permissions="ask", confirm=lambda tool, args: asked.append((tool, args)) or False)
@@ -239,11 +274,11 @@ def test_ask_policy_asks_once_per_site_and_permission_and_the_other_policies_nev
     assert asked == [("browser_permission", {"site": "https://shop.example", "permission": "location"}),
                      ("browser_permission", {"site": "https://shop.example", "permission": "microphone"})]
     assert "the person did not allow it" in b.notice
-    for policy in ("deny", "grant-safe"):
+    for policy in ("deny", "grant-safe", "grant"):
         other = Browser(tmp_path / "q", permissions=policy, confirm=lambda *a: pytest.fail("asked"))
         other.page_url = "https://shop.example/x"
         other._permission_requests(["camera"])
-        assert f"refused (policy {policy})" in other.notice
+        assert (f"refused (policy {policy})" in other.notice) is (policy != "grant")
 
 
 def test_without_anyone_to_ask_the_ask_policy_refuses(tmp_path):
@@ -262,11 +297,11 @@ def test_the_page_cannot_name_an_unknown_permission_to_be_asked_about(tmp_path):
 
 def test_the_policies_are_kept_with_the_browser_preferences_and_a_missing_one_keeps_the_old(tmp_path):
     prefs = BrowserPrefs(tmp_path / "b.json")
-    assert prefs.read()["consent"] == "necessary" and prefs.read()["permissions"] == "deny"
+    assert prefs.read()["consent"] == "follow" and prefs.read()["permissions"] == "follow"
     prefs.write(True, False, consent="reject", permissions="ask")
     assert prefs.write(True, True)["consent"] == "reject" and prefs.read()["permissions"] == "ask"
     prefs.write(True, True, consent="bogus", permissions="bogus")
-    assert prefs.read()["consent"] == "necessary" and prefs.read()["permissions"] == "deny"
+    assert prefs.read()["consent"] == "follow" and prefs.read()["permissions"] == "follow"
 
 
 def test_the_options_of_the_agent_and_their_defaults():
@@ -275,7 +310,7 @@ def test_the_options_of_the_agent_and_their_defaults():
     parser = argparse.ArgumentParser()
     add_agent_arguments(parser)
     args = parser.parse_args([])
-    assert agent_settings(args)["browser_consent"] == "necessary" and agent_settings(args)["browser_permissions"] == "deny"
+    assert agent_settings(args)["browser_consent"] == "follow" and agent_settings(args)["browser_permissions"] == "follow"
     args = parser.parse_args(["--browser-consent", "off", "--browser-permissions", "ask"])
     assert agent_settings(args)["browser_consent"] == "off" and agent_settings(args)["browser_permissions"] == "ask"
     with pytest.raises(SystemExit):
@@ -492,12 +527,36 @@ def test_a_banner_inside_a_frame_of_another_site_is_handled(make, site):
 
 
 @needs_browser
-def test_javascript_dialogs_are_answered_without_sending_anything_and_reported(make, site):
+def test_javascript_dialogs_are_dismissed_when_nobody_allows_them_and_reported(make, site):
     b = make(consent="off")
     page = b.open(site + "/dialogs")
     assert "confirm=false prompt=null" in page["text"]
     assert "alert dialog" in b.notice and "confirm dialog" in b.notice and "prompt dialog" in b.notice
     assert 'saying "Delete everything?"' in b.notice
+
+
+@needs_browser
+def test_javascript_dialogs_are_accepted_at_the_auto_level_and_asked_otherwise(make, site):
+    b = make(consent="off", auto=lambda: True, confirm=lambda *a: pytest.fail("asked"))
+    page = b.open(site + "/dialogs")
+    assert "confirm=true prompt=x" in page["text"]
+    assert 'saying "Delete everything?"' in b.notice and "accepted" in b.notice
+    asked = []
+    b2 = make(consent="off", confirm=lambda tool, args: asked.append((tool, args["kind"], args["message"])) or tool == "browser_dialog" and args["kind"] == "confirm")
+    page = b2.open(site + "/dialogs")
+    assert "confirm=true prompt=null" in page["text"]
+    assert [a[:2] for a in asked] == [("browser_dialog", "confirm"), ("browser_dialog", "prompt")] and asked[0][2] == "Delete everything?"
+
+
+@needs_browser
+def test_the_grant_policy_lets_a_page_use_notifications_without_a_question(make, site):
+    b = make(consent="off", permissions="grant", confirm=lambda *a: pytest.fail("asked"))
+    b.open(site + "/perms")
+    page = settled(b)
+    assert "Notification.permission=granted" in page["text"] and "notifications=granted" in page["text"]
+    b2 = make(consent="off", auto=lambda: True, confirm=lambda *a: pytest.fail("asked"))        # follow, at the Auto level
+    b2.open(site + "/perms")
+    assert "Notification.permission=granted" in settled(b2)["text"]
 
 
 @needs_browser
@@ -511,7 +570,7 @@ def test_a_warning_about_leaving_is_accepted_only_when_the_agent_asked_to_go(mak
 
 @needs_browser
 def test_every_permission_is_refused_before_a_page_can_ask(make, site):
-    b = make(consent="off")
+    b = make(consent="off", permissions="deny")
     b.open(site + "/perms")
     page = settled(b)
     states = dict(item.split("=") for item in page["text"].replace("\n", " ").split() if "=" in item and "Notification" not in item and item.split("=")[0] in
@@ -523,7 +582,7 @@ def test_every_permission_is_refused_before_a_page_can_ask(make, site):
 
 @needs_browser
 def test_a_page_that_asks_is_refused_and_the_model_is_told(make, site):
-    b = make(consent="off")
+    b = make(consent="off", permissions="deny")
     b.open(site + "/perms")
     b.cdp.call("Runtime.evaluate", {"expression": "document.getElementById('n').click()", "userGesture": True})
     b.cdp.pump(0.3)

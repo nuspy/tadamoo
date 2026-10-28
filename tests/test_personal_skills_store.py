@@ -74,6 +74,15 @@ def test_a_new_version_keeps_the_old_and_a_file_changed_by_hand_stays_usable(tmp
     assert got["uses"] == 1 and got["last_run"] and got["status"] == "approved"
 
 
+def test_a_run_keeps_the_values_it_used_for_the_next_one(tmp_path):
+    store = PersonalSkills(tmp_path)
+    store.save(SPEC, GOOD)
+    assert store.last_values("summarise-a-file") == {} and store.last_values("ghost") == {}
+    store.note_run("summarise-a-file", {"file": {"type": "text", "value": "a.txt"}, "x": {"type": "text", "value": None, "missing": True}})
+    assert store.last_values("summarise-a-file") == {"file": "a.txt"}
+    assert store.get("summarise-a-file")["uses"] == 1
+
+
 def test_what_cannot_work_is_not_saved(tmp_path):
     store = PersonalSkills(tmp_path)
     for spec, script in (({"name": ""}, GOOD), (SPEC, "x = 1"),

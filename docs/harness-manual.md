@@ -61,8 +61,8 @@ Four ways to use it, all with the same abilities:
 3. Write in the box and press **Enter** (**Shift+Enter** adds a line). The agent works in the background and the page shows, in order,
    what it wrote, what it thought and each tool it used, with the result. **Stop** ends the turn.
 4. When it needs you, it asks: a command to run, a plan to approve, a choice. The answer is a button; you can also write instead.
-5. Come back later: the column at the left lists your conversations (below). A conversation idle for 30 minutes lets go of its process
-   and wakes from its saved history when you write again.
+5. Come back later: the column at the left lists your conversations (below). A conversation can let go of its process after an idle time you set
+   (`idle_s` in `limits.json`; none by default) and wakes from its saved history when you write again.
 
 **The column of conversations.** At the left of the Chat, newest first: click one to open it. The star beside it makes it a **favorite**:
 favorites are listed apart, above the others. The cross deletes it: press it once and it asks *Delete?*, press again (within a few seconds)
@@ -305,17 +305,20 @@ you the address and the number to call.
   sites it used in the same way.
 - **The browser.** With the browser tools the agent drives Edge or Chrome to fill in forms, book and buy. Whether conversations have a
   browser, whether it shows a window, whether it may open pages of this PC and whether it keeps sign-ins is set in the **Wallet** view;
-  each risky choice has a highlighted label and two questions.
+  each risky choice has a highlighted label and two questions. At *Automatic* the browser asks nothing: pages of this PC or network, a page's
+  permissions (camera, location, notifications), its confirm and prompt dialogs, downloads and a screenshot after a vault value was typed are all
+  allowed. Below it each of those asks you (this call, this conversation or always; an allow rule can name a site). Long pages are read in pages
+  of elements and words, never cut off.
 - **Secrets.** The agent writes `{{secret:NAME}}` where a credential is needed and never sees it; the value is filled in at the last
   moment and masked in what comes back. **The vault** (Wallet) holds cards, personal data and logins encrypted; the agent writes
   `{{vault:ENTRY.FIELD}}`, and the value goes only toward the sites the entry names.
 - **The second factor** of each login is your choice: none, a code you type each time (the conversation stops and asks), or the TOTP
   secret so Basalt makes the code itself. The last lets anyone who can use Basalt on this PC sign in; you are told once.
 - **Payments.** The limit is yours to set, to any amount; until you set it, every payment asks you. A **waiver** lets the agent pay by
-  itself up to a cap per payment and a cumulative cap until it expires, after a dictated declaration and two dialogs with your name
+  itself up to a cap per payment and, if you set one, a cumulative cap, until it ends (no end date unless you set one), after a dictated declaration and two dialogs with your name
   typed again; above the caps it asks again. A payment can be stopped from the Wallet at any moment, and then the card's fields are no
   longer released. Whatever a merchant's form then charges is bounded by the card's own limit, not by Basalt.
-- **Phone calls** are off by default and, once on, ask you **every time** below *Automatic*; in *Automatic* nothing is asked. The call opens by saying an AI
+- **Phone calls** are off by default and, once on, ask you below *Automatic* (this call, this conversation or always); in *Automatic* nothing is asked. The call opens by saying an AI
   assistant is calling on your behalf. No real call has been placed in a test.
 - **What this does not protect from.** The agent runs as your own user. A program running as you can reach more than the vault can
   hide; the commands the agent runs cannot name the vault, the payment files or the browser's sign-ins, but that is a fence for a
@@ -488,7 +491,7 @@ its time unless you set a *time limit* in seconds in the editor. Read the script
 | *New try N in S s* / *being started again* | the model is unreachable or the process stopped; it tries again with longer waits and never gives up by itself | wait, or stop the conversation |
 | "Nobody can confirm in this run" | a run in `plan`, `read_only` or `default` mode, with no one to ask, met something that needs a question | use `auto` (the headless default), `--interactive`, or an `--allow` rule |
 | A command still asks although a rule allows it | a statement of it is not covered by a rule, or it is built at run time (`$(...)`) | allow each program it uses |
-| A tool was stopped after 15 minutes | the default time limit | `--tool-timeout NAME=SECONDS` |
+| A tool was stopped after one hour | the default time limit | `tool_timeout_s` in `limits.json`, or `--tool-timeout NAME=SECONDS` |
 | The search says it needs a check | DuckDuckGo limits automatic searches | wait, set another engine, or `BASALT_WEB_SEARCH=off` |
 | A slash command stays in the box | the name is unknown | `/help`; start with a space to send it as text |
 | A page was refused | it is on this PC or your network | allow it in the browser settings, if you mean to |

@@ -126,7 +126,7 @@ def fit(svc, req: dict) -> dict:
     messages = req.get("messages")
     if not isinstance(messages, list) or not messages or not all(isinstance(m, dict) for m in messages):
         raise ValueError("messages: a non-empty list of chat messages")
-    policy = req.get("policy", "stop")
+    policy = req.get("policy", "compact")
     if policy not in POLICIES:
         raise ValueError(f"policy: one of {', '.join(POLICIES)}, not {policy!r}")
     limit = _limit(svc)
@@ -147,7 +147,8 @@ def fit(svc, req: dict) -> dict:
     head = head_of(messages)
     start = (max(head) + 1) if head else 0
     turns = turns_after(messages, start)
-    if policy == "rolling":
+
+    def rolling() -> dict:
         keep_turns_idx = list(turns)
         while keep_turns_idx:
             keep = head + [i for t in keep_turns_idx for i in t]
@@ -161,6 +162,9 @@ def fit(svc, req: dict) -> dict:
             keep_turns_idx = keep_turns_idx[1:]
         out["action"] = "over"
         return out
+
+    if policy == "rolling":
+        return rolling()
     # compact: the middle turns become one summary; the newest `keep_turns` turns stay as they are
     tail = turns[-keep_turns:] if len(turns) > keep_turns else turns[-1:]
     middle_turns = turns[:len(turns) - len(tail)]
@@ -168,14 +172,22 @@ def fit(svc, req: dict) -> dict:
     if not middle:
         out["action"] = "over" if used > budget else "none"
         return out
-    text, left_out = summarize(svc, [messages[i] for i in middle], limit, count)
-    if not text:
-        raise ValueError("the model wrote an empty summary; try again or use the rolling window")
+    try:
+        text, left_out = summarize(svc, [messages[i] for i in middle], limit, count)
+        if not text:
+            raise ValueError("the model wrote an empty summary")
+    except Exception as e:
+        # the chat goes on: the oldest turns are dropped instead and the reason is reported
+        out["notice"] = f"The summary could not be written ({e}); the oldest messages were left out instead."
+        return rolling()
     summary = {"role": "user", "content": SUMMARY_PREFIX + text}
     tail_idx = [i for t in tail for i in t]
     new = [messages[i] for i in head] + [summary] + [messages[i] for i in tail_idx]
     n = count(new)
-    out.update(action="compacted" if n <= budget else "over", used=n, used_before=used,
+    if n > budget:
+        out["notice"] = "The summary did not make the conversation fit; the oldest messages were left out instead."
+        return rolling()
+    out.update(action="compacted", used=n, used_before=used,
                keep=head + tail_idx, summary={"message": summary, "text": text, "replaces": middle,
                                                "not_summarized": middle[:left_out]})
     return out

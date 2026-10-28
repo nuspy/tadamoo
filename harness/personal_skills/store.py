@@ -20,7 +20,7 @@ from . import check as script_check
 from .values import check_spec
 
 FORMAT = "basalt-personal-skill"
-SPEC, SCRIPT = "skill.json", "skill.py"
+SPEC, SCRIPT, LAST = "skill.json", "skill.py", "last_values.json"
 VERSIONS_KEPT = 10
 MAX_FILE = 300_000
 MAX_NAME = 60
@@ -161,13 +161,27 @@ class PersonalSkills:
         with self._lock:
             shutil.rmtree(folder, ignore_errors=True)
 
-    def note_run(self, slug: str) -> None:
-        """Counts a run; it is not a change of the skill."""
+    def last_values(self, slug: str) -> Dict[str, Any]:
+        """The values the skill was last run with ({name: value}); empty when it has not run or the record cannot be read."""
+        try:
+            data = json.loads((self._folder(slug) / LAST).read_text(encoding="utf-8"))
+        except (OSError, ValueError, SkillError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def note_run(self, slug: str, values: Optional[Dict[str, Any]] = None) -> None:
+        """Counts a run, and keeps the values it used for the next one; it is not a change of the skill."""
         with self._lock:
             found = self._read(slug)
             if found is None:
                 return
             folder = self._folder(slug)
+            if values:
+                kept = {k: v["value"] for k, v in values.items() if isinstance(v, dict) and v.get("value") not in (None, "", [])}
+                try:
+                    (folder / LAST).write_text(json.dumps(kept, ensure_ascii=False), encoding="utf-8")
+                except OSError:
+                    pass
             spec = json.loads((folder / SPEC).read_text(encoding="utf-8"))
             spec["uses"] = int(spec.get("uses", 0)) + 1
             spec["last_run"] = time.time()

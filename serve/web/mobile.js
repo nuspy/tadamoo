@@ -7,7 +7,7 @@
   if (!host) return;
 
   const POLL_MS = 3000;
-  let S = null, shown = null, armed = "", timer = 0, note = "", upInfo = null, armTimer = 0, days = "", neverAck = false, limitsNote = "", listenNote = "", listenDraft = null;
+  let S = null, shown = null, armed = "", timer = 0, note = "", upInfo = null, armTimer = 0, days = "", limitsNote = "", listenNote = "", listenDraft = null;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, tip) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (tip) b.title = tip; return b; };
   const errText = r => (r.data && r.data.error && r.data.error.message) || `HTTP ${r.status}`;
@@ -15,8 +15,6 @@
 
   const endText = k => (!k.expires ? T("mb.keys.noend") : k.expired ? T("mb.keys.expired", when(k.expires)) : T("mb.keys.ends", when(k.expires)));
   const DURATIONS = [30, 90, 365, 0];
-  // choosing "never" is allowed, with the risk said once before the first key or renewal that has no end
-  const okNever = n => n !== 0 || neverAck || (neverAck = window.confirm(T("mb.keys.neverconfirm")));
 
   async function api(method, path, body) {
     try {
@@ -117,7 +115,6 @@
       li.append(end);
       li.append(btn(T("mb.keys.renew"), "ghost", async () => {
         const n = Number(days === "" ? S.limits.key_days : days);
-        if (!okNever(n)) return;
         const r = await api("POST", "api/remote/keys/renew", { id: k.id, days: n }); if (!r.ok) note = errText(r); await refresh();
       }, T("mb.keys.renew.tip")));
       if (k.recoverable) li.append(btn(T("mb.keys.show"), "ghost", async () => {
@@ -143,7 +140,6 @@
     const lab = el("label", "sr", T("mb.keys.name")); lab.htmlFor = "mb-name";
     form.onsubmit = async e => {
       e.preventDefault();
-      if (!okNever(Number(len.value))) return;
       const r = await api("POST", "api/remote/keys/create", { label: name.value, days: Number(len.value) });
       if (!r.ok) { note = errText(r); paint(); return; }
       shown = { key: r.data.key, label: r.data.row.label, again: !!r.data.row.recoverable };
@@ -152,7 +148,7 @@
       paint();
     };
     form.append(lab, name, lenLab, len, go);
-    box.append(form, el("p", "help", T("mb.keys.len.help", S.limits.key_days)), warn);
+    box.append(form, el("p", "help", S.limits.key_days ? T("mb.keys.len.help", S.limits.key_days) : T("mb.keys.len.help.none")), warn);
     return box;
   }
 

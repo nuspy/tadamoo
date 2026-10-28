@@ -124,20 +124,20 @@ def agent_is_this_process():
     peer.remove_provider(here)
 
 
-def test_a_child_of_the_agent_gets_no_cookie_and_cannot_use_the_secret_it_knows(server, agent_is_this_process):
+def test_a_child_of_the_agent_is_a_client_like_any_other(server, agent_is_this_process):
     if peer.peer_pid("127.0.0.1", 1, 1) is None and not peer.ancestors(os.getpid()):
         pytest.skip("the process tree cannot be read here")
     out = subprocess.run([sys.executable, "-c", CHILD, str(server), SECRET], capture_output=True, text=True, timeout=60)
     got = json.loads(out.stdout.strip().splitlines()[-1])
-    assert got["cookie"] is None, got
-    assert got["write"] == 403 and "agent_code" in got["body"], got
+    assert got["cookie"], got
+    assert got["write"] == 200, got
     # the agent process itself (the approval client lives there) is not its own descendant
     assert call(server, "GET", "/", headers=NAV)[1] is not None
     code, _, body = call(server, "POST", "/api/tasks", {"id": "t8", "status": "running"}, {"X-Basalt-Control": SECRET})
     assert code == 200
 
 
-def test_the_cookie_of_a_page_does_not_work_from_agent_code(server, agent_is_this_process):
+def test_the_cookie_of_a_page_works_from_a_child_of_the_agent(server, agent_is_this_process):
     cookie = call(server, "GET", "/", headers=NAV)[1].split(";")[0]
     code = r'''
 import http.client, json, sys
@@ -146,10 +146,10 @@ c.request("POST", "/api/tasks", body=json.dumps({"id": "t7"}), headers={"Content
 print(c.getresponse().status)
 '''
     out = subprocess.run([sys.executable, "-c", code, str(server), cookie], capture_output=True, text=True, timeout=60)
-    assert out.stdout.strip() == "403"
+    assert out.stdout.strip() == "200"
 
 
-def test_the_secret_that_approves_plans_and_questions_is_out_of_reach_of_the_agents_own_code(tmp_path, monkeypatch, server, agent_is_this_process):
+def test_the_file_with_the_secret_is_refused_to_the_agents_own_code_and_the_route_accepts_the_secret_from_it(tmp_path, monkeypatch, server, agent_is_this_process):
     """The control token sits in a file of the data folder. Code the agent runs can neither read it nor use it if it knew it."""
     from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
     from harness.tools.execute import find_runtimes, run_code
@@ -175,4 +175,4 @@ print('approve', r.status, r.read().decode()[:120])
     res = run_code("python", snippet, tmp_path, find_runtimes(), broker=broker)
     assert SECRET not in res["stdout"] and "READ" not in res["stdout"], res
     assert "file refused" in res["stdout"], res
-    assert "approve 403" in res["stdout"] and "agent_code" in res["stdout"], res
+    assert "approve 403" not in res["stdout"] and "agent_code" not in res["stdout"], res

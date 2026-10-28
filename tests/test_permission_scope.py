@@ -97,7 +97,8 @@ def test_a_statement_with_no_plain_verb_is_allowed_only_as_itself():
 def test_ordinary_programs_get_the_verb_rule_and_a_payment_or_a_phone_call_none():
     assert suggest_rules("shell_command", {"command": "pytest -q"}) == ["shell_command:pytest *"]
     assert suggest_rules("shell_command", {"command": "git status"}) == ["shell_command:git *"]
-    assert suggest_rules("phone_call", {}) == [] and suggest_rules("request_payment", {}) == []
+    assert suggest_rules("phone_call", {}) == ["phone_call"] and suggest_rules("request_payment", {}) == ["request_payment"]
+    assert suggest_rules("write_file:/r/.git/hooks/x", {}) == ["write_file:/r/.git/hooks/x"]
 
 
 @pytest.mark.parametrize("tool", ["phone_call", "shell_command", "run_code", "browser_click", "write_file"])

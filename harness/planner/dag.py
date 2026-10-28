@@ -183,6 +183,7 @@ EDITABLE = ("title", "description", "assignee", "conditions", "state_variables",
 # -- what a node may carry ---------------------------------------------------------------------------------
 
 MAX_ATTEMPTS, MAX_WAIT_SECONDS, MAX_BACKOFF = 10, 7 * 86400, 10
+DEFAULT_RETRY = {"max_attempts": 3, "wait_seconds": 30, "backoff": 2}      # a step without its own policy: tries again, waiting longer each time
 POSITION_LIMIT = 1_000_000
 _NUMBER = re.compile(r"^\+?[0-9][0-9 ()\-]{5,19}$")
 CALL_REASON_CHARS, CALL_TEXT_CHARS, WIKI_QUERY_CHARS = 300, 500, 300
@@ -637,17 +638,41 @@ class PlanDAG:
         return [p for p in node.dependencies
                 if self.nodes[p].assignee == Assignee.USER and self.nodes[p].status not in DONE]
 
+    def _halted_parents(self, node: PlanNode) -> List[str]:
+        """Parents that stopped for good (failed, timed out, or themselves parked): what is below them waits, the rest of the plan goes on."""
+        out = []
+        for p in node.dependencies:
+            parent = self.nodes[p]
+            if parent.status == "failed" or (parent.status not in DONE and parent.state_variables.get("timed_out")) or parent.state_variables.get("parked_by"):
+                out.append(p)
+        return out
+
     def refresh_blocking(self) -> None:
-        """Marks nodes blocked while a user task above them is open, and releases them when it is done."""
-        for node in self.nodes.values():
-            blockers = self._blockers(node)
-            if node.status in ("pending", "blocked"):
-                if blockers:
-                    node.status = "blocked"
-                    node.state_variables["blocked_by"] = blockers
+        """Marks nodes blocked while a user task above them is open, and releases them when it is done. A step below a failed or
+        timed-out one is parked with the reason in `parked_by` until that step is dealt with; independent branches are not touched."""
+        changed = True
+        while changed:                                          # a parked step parks what is below it, until nothing moves
+            changed = False
+            for node in self.nodes.values():
+                if node.status not in ("pending", "blocked") or node.state_variables.get("timed_out"):
+                    continue
+                blockers, halted = self._blockers(node), self._halted_parents(node)
+                if blockers or halted:
+                    if node.status != "blocked" or node.state_variables.get("blocked_by") != (blockers or None) or node.state_variables.get("parked_by") != (halted or None):
+                        node.status = "blocked"
+                        changed = True
+                    for key, value in (("blocked_by", blockers), ("parked_by", halted)):
+                        if value:
+                            node.state_variables[key] = value
+                        else:
+                            node.state_variables.pop(key, None)
                 elif node.status == "blocked":
                     node.status = "pending"
-                    node.state_variables.pop("blocked_by", None)
+                    for key in ("blocked_by", "parked_by"):
+                        node.state_variables.pop(key, None)
+                    changed = True
+                elif "parked_by" in node.state_variables:
+                    node.state_variables.pop("parked_by")
 
     def ready_nodes(self, now: Optional[float] = None) -> List[str]:
         """Pending nodes whose parents are all finished (a merge needs at least one completed parent), except a
@@ -673,8 +698,8 @@ class PlanDAG:
         are used up; then it is failed. Returns the retry that was scheduled, if any."""
         attempts = int(node.state_variables.get("attempts", 0)) + 1
         node.state_variables["attempts"] = attempts
-        policy = node.retry_policy
-        if not policy or attempts >= policy["max_attempts"]:
+        policy = node.retry_policy or DEFAULT_RETRY
+        if attempts >= policy["max_attempts"]:
             node.state_variables.pop("retry_at", None)
             node.status = "failed"
             return None
@@ -710,7 +735,7 @@ class PlanDAG:
                     self.shared_state.update(outputs)
                     node.state_variables["outputs"] = dict(outputs)
                 node.status = "completed"
-                for key in ("attempts", "retry_at", "sensor_error"):
+                for key in ("attempts", "retry_at", "sensor_error", "timed_out"):
                     node.state_variables.pop(key, None)
                 if node.type == NodeType.DECISION:
                     node.state_variables.pop("no_route", None)
@@ -733,11 +758,25 @@ class PlanDAG:
         else:
             node.status = status
             node.state_variables.pop("retry_at", None)
+            node.state_variables.pop("timed_out", None)
             if status == "skipped":
                 node.state_variables.pop("attempts", None)
         self.refresh_blocking()
         self._touch()
         return retry
+
+    def timed_out(self, node_id: str, now: Optional[float] = None) -> None:
+        """A step ran out of time. It stays as it is (blocked, with `timed_out`) until the person or the planner marks it again;
+        the steps below it are parked, the independent branches go on."""
+        node = self.nodes.get(node_id)
+        if node is None:
+            raise KeyError(f"Node '{node_id}' not found")
+        if node.status in DONE:
+            return
+        node.status = "blocked"
+        node.state_variables["timed_out"] = {"at": time.time() if now is None else now}
+        self.refresh_blocking()
+        self._touch()
 
     def _route(self, node: PlanNode) -> None:
         """Chooses the exits whose condition holds and skips the others. When none holds, or a condition cannot be read yet, the
@@ -849,7 +888,7 @@ class PlanDAG:
             for var in (produced or {}):
                 self.shared_state.pop(var, None)
             n.state_variables.pop("selected", None)
-            for key in ("attempts", "retry_at", "matched", "sensor_error"):
+            for key in ("attempts", "retry_at", "matched", "sensor_error", "timed_out", "parked_by"):
                 n.state_variables.pop(key, None)
             n.status = "pending"
         self.refresh_blocking()

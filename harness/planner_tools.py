@@ -9,7 +9,7 @@ Reading a plan is free. Creating, changing, marking and archiving one is confirm
   the person answers it with a button.
 
 At the Auto level the person chose that nothing is asked, except for the step a change touches when that step involves other people
-(a step for someone else), a call to prepare, or effects that cannot be undone (a booking, a payment): only that part waits. A change
+(a step for someone else), a call to prepare, a booking, a payment or a resource the software does not control: only that part waits. A change
 that mixes both is applied for what touches no such step, and the rest stays in the plan as a proposal for the person; the rest of the
 plan carries on. A card that adds participants is a change that involves people.
 
@@ -31,7 +31,7 @@ from harness.planner.involvement import split_diff, step_facts
 from harness.tools.registry import EffectClass, ToolRegistry
 
 MIN_QUOTE = 6
-STATUSES = ("pending", "in_progress", "completed", "failed", "blocked", "skipped")
+STATUSES = ("pending", "in_progress", "completed", "failed", "blocked", "skipped", "timed_out")
 KINDS = ("constant", "occasional")
 ASSIGNEES = ("agent", "user", "third_party")
 MAX_STEPS = 40
@@ -45,7 +45,7 @@ def _norm(text: str) -> str:
 
 
 def involved(snap: Dict[str, Any], step_ids: Optional[List[str]] = None) -> List[str]:
-    """What reaches beyond the person's own files: other people, a call to prepare, effects that cannot be taken back (a booking, a payment).
+    """What reaches beyond the person's own files: other people, a call to prepare, bookings, payments, resources the software does not control.
     The facts come from the plan's data, not from a guess about its words. With `step_ids` only those steps are looked at and each line
     names its step; without, the whole plan and the card's participants."""
     nodes = (snap.get("plan") or {}).get("nodes") or {}
@@ -81,7 +81,7 @@ class Confirmer:
     def check(self, facts: Dict[str, Any], question: str, quote: str = "", snap: Optional[Dict[str, Any]] = None,
               touches: Optional[List[str]] = None) -> Tuple[bool, str]:
         """(True, how) when the person said yes; (False, what to tell the model) otherwise. `touches` says why the part being changed
-        involves other people, a call or effects that cannot be undone (empty when it touches none; `involved` of the whole plan when
+        involves other people, a call, a booking, a payment or a resource out of control (empty when it touches none; `involved` of the whole plan when
         not given). At the Auto level the person chose that nothing is asked, except for what touches such a step: the question stands
         for that part and says why."""
         involves = involved(snap or {}) if touches is None else touches
@@ -213,6 +213,10 @@ def render_plan(snap: Dict[str, Any]) -> str:
             lines.append(f'      wants from the wiki: {n["wiki_query"][:100]}')
         if (n.get("state_variables") or {}).get("retry_at"):
             lines.append(f'      failed {n["state_variables"].get("attempts", 1)} time(s), waits to try again')
+        if (n.get("state_variables") or {}).get("timed_out"):
+            lines.append("      TIMED OUT, the steps after it wait")
+        if (n.get("state_variables") or {}).get("parked_by"):
+            lines.append("      parked: waits for " + ", ".join(n["state_variables"]["parked_by"]) + " (failed or timed out)")
         if (n.get("state_variables") or {}).get("no_route"):
             lines.append("      NO EXIT HOLDS, it waits for the user: " + no_route_text(n["state_variables"]["no_route"]))
     if interview_text(snap):
@@ -495,7 +499,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         if not ok:
             return how
         try:
-            res = client.event(plan_id, {"type": "plan:mark", "node_id": node_id, "status": status, "base_rev": seen[plan_id],
+            res = client.event(plan_id, {"type": "plan:timeout" if status == "timed_out" else "plan:mark", "node_id": node_id, "status": status, "base_rev": seen[plan_id],
                                          **({"outputs": outputs} if outputs else {})})
         except Exception as exc:
             return failure(exc)
@@ -506,6 +510,11 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         if res.get("no_route"):                                     # a decision no exit of which holds is not taken
             return (f"Step {node_id} was NOT completed ({how}): no exit of this decision holds, so it now waits for the user. {res.get('message', '')} "
                     "Tell the user which values or conditions are missing and ask what to do; do not choose an exit yourself.")
+        parked = res.get("parked")
+        tail = (f" The steps below it are parked ({', '.join(parked)}); the planner is looking for another way. Independent steps go on." if parked else "")
+        if status == "timed_out":
+            return (f"Step {node_id} timed out ({how}): a warning was raised and the steps after it wait; independent steps go on.{tail} "
+                    f"Ready now: {', '.join(res.get('ready', [])) or 'nothing'}.")
         retry = res.get("retry")
         if retry:                                                   # the step has tries left: it is not failed yet
             link_task(plan_id, node, "running")
@@ -514,7 +523,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         if status in ("completed", "failed", "skipped"):
             link_task(plan_id, node, {"completed": "done", "failed": "failed", "skipped": "closed"}[status])
         return (f"Step {node_id} marked {status} ({how})" + (f"; plan values set: {writes}" if writes else "")
-                + f". Ready now: {', '.join(res.get('ready', [])) or 'nothing'}.")
+                + f". Ready now: {', '.join(res.get('ready', [])) or 'nothing'}.{tail}")
 
     def link_task(plan_id: str, node: Dict[str, Any], status: str, result: str = "") -> None:
         """The Tasks panel shows the step with its plan; a panel that cannot be reached never stops the work."""
@@ -691,7 +700,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                       obj({"plan_id": {"type": "string"}, "profile": {"type": "object"}, "quote": quote_param}, ["plan_id", "profile"]), EffectClass.REVERSIBLE, plan_set_profile)
     registry.register("plan_check", "Compares a plan with the user's long-term plans. Conflicts are arithmetic on dates and amounts; with with_model the local model also reads what the plans mean together (a check, not a fact). Use it before a new plan is proposed and when something in the plan changes.",
                       obj({"plan_id": {"type": "string"}, "with_model": {"type": "boolean"}}, ["plan_id"]), EffectClass.REVERSIBLE, plan_check)
-    registry.register("plan_mark", "Marks a step of a plan (pending, in_progress, completed, failed, blocked, skipped). Completing a step can also write the plan's values "
+    registry.register("plan_mark", "Marks a step of a plan (pending, in_progress, completed, failed, blocked, skipped, timed_out). A failed step is tried again by itself (3 tries, growing wait) before it counts as failed; timed_out raises a warning and parks the steps after it. Completing a step can also write the plan's values "
                                    "(outputs), which later decisions and merges read: for example after a call, invitati_confermati = [\"Gianna\"]. A decision with no exit that holds "
                                    "is not completed; it passes to the user. Needs the user's yes.",
                       obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}, "status": {"type": "string", "enum": list(STATUSES)}, "quote": quote_param,

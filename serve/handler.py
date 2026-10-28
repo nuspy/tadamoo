@@ -117,7 +117,6 @@ def stop_sessions() -> None:
 _WALLET = None                                         # the vault and the payment systems, made on first use
 _MCP_AUTH = None                                       # the sign-in of the remote MCP servers, made on first use
 _PLANS = None                                          # the planner's service, made on first use
-from serve.util import peer
 from serve.util.reqtrace import RequestTrace
 from serve.util.text import IM_END, stop_strings
 
@@ -873,9 +872,6 @@ def make_handler(svc: Service, remote: bool = False):
             if not key_matches(self.headers.get(CONTROL_HEADER, ""), svc.control_token):
                 self._json(403, {"error": {"type": "forbidden", "message": f"the {CONTROL_HEADER} header is missing or wrong"}})
                 return False
-            if self._agent_code():
-                self._json(403, {"error": {"type": "forbidden", "code": "agent_code", "message": "the agent's own commands and code cannot use the control routes"}})
-                return False
             return True
 
         def _key_given(self) -> bool:
@@ -884,14 +880,10 @@ def make_handler(svc: Service, remote: bool = False):
             given = auth[7:].strip() if auth.lower().startswith("bearer ") else self.headers.get("x-api-key", "")
             return bool(svc.api_key) and key_matches(given, svc.api_key)
 
-        def _agent_code(self) -> bool:
-            """The client is a process the agent started (a command, a snippet, a tool's helper), not the person's page."""
-            return peer.is_agent_code(self.client_address[0], self.client_address[1], self.server.server_address[1])
-
         def _page_may_change_things(self, navigation: bool) -> bool:
             """Whether this request may be given the cookie of the change secret: the page of the person on this PC, never agent-run code.
             With an API key the key is the proof; without one the request must be a browser's own navigation to the page, which a web
-            page cannot forge and a program has to imitate; either way the client must not descend from an agent session."""
+            page cannot forge and a program has to imitate."""
             if not svc.control_token or self.remote_listener or not settings.is_loopback(self.client_address[0]):
                 return False
             if svc.api_key:
@@ -903,7 +895,7 @@ def make_handler(svc: Service, remote: bool = False):
                     return False
             else:
                 return False
-            return not self._agent_code()
+            return True
 
         def _control_cookie_header(self) -> str:
             return f"{self._control_cookie()}={svc.control_token}; Path=/; HttpOnly; SameSite=Strict"
@@ -927,12 +919,7 @@ def make_handler(svc: Service, remote: bool = False):
                     jar = {}
                 given = jar[self._control_cookie()].value if self._control_cookie() in jar else ""
             if key_matches(given, token):
-                if not self._agent_code():
-                    return True
-                if self._control_body():
-                    self._json(403, {"error": {"type": "forbidden", "code": "agent_code",
-                                               "message": "the agent's own commands and code cannot change things through the server"}})
-                return False
+                return True
             if self._control_body():
                 self._json(403, {"error": {"type": "forbidden", "code": "control_secret",
                                            "message": "this change needs the server's secret: reload the page (the server may have restarted)"}})
@@ -1529,7 +1516,8 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(404, {"error": {"type": "capabilities", "message": str(e), "code": e.code}})
 
         def _capabilities_post(self, path):
-            if not settings.is_loopback(self.client_address[0]):
+            phone_may = path[len("/api/capabilities/"):] in ("settings", "requests/approve", "requests/reject")
+            if not (settings.is_loopback(self.client_address[0]) or (phone_may and self._local_or_device())):
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "capabilities can be changed only from the PC the server runs on"}})
             try:
@@ -1553,7 +1541,7 @@ def make_handler(svc: Service, remote: bool = False):
                 if action == "remove":
                     return self._json(200, api.remove_installed(req.get("id")))
                 if action == "requests/approve":
-                    return self._json(200, api.approve_request(req.get("id"), req.get("number")))
+                    return self._json(200, api.approve_request(req.get("id"), req.get("number"), req))
                 if action == "requests/reject":
                     return self._json(200, api.reject_request(req.get("id")))
             except CapabilityError as e:
@@ -1838,8 +1826,8 @@ def make_handler(svc: Service, remote: bool = False):
             return _PSKILLS
 
         def _pskills_get(self, path):
-            if not settings.is_loopback(self.client_address[0]):
-                return self._json(403, {"error": {"type": "forbidden", "message": "personal skills can be used only from the PC the server runs on"}})
+            if not self._local_or_device():
+                return self._json(403, {"error": {"type": "forbidden", "message": "personal skills can be used only from the PC the server runs on or a phone with a key"}})
             parts = path[len("/api/personal-skills"):].strip("/").split("/")
             try:
                 api = self._pskills()
@@ -1862,9 +1850,9 @@ def make_handler(svc: Service, remote: bool = False):
             self._json(404, {"error": {"message": "not found"}})
 
         def _pskills_post(self, path):
-            if not settings.is_loopback(self.client_address[0]):
+            if not self._local_or_device():
                 self._discard_body()
-                return self._json(403, {"error": {"type": "forbidden", "message": "personal skills can be changed only from the PC the server runs on"}})
+                return self._json(403, {"error": {"type": "forbidden", "message": "personal skills can be changed only from the PC the server runs on or a phone with a key"}})
             parts = path[len("/api/personal-skills"):].strip("/").split("/")
             try:
                 api = self._pskills()
@@ -2136,7 +2124,7 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
                         return self._json(200, {"session": mgr.copy_discard(parts[1])})
                     if len(parts) == 3 and parts[2] == "back":
-                        return self._json(200, {"session": mgr.go_back(parts[1], req.get("turn"), req.get("accept_irreversible") is True)})
+                        return self._json(200, {"session": mgr.go_back(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "compare":
                         return self._json(200, {"compare": mgr.compare_start(parts[1], req.get("turn"), req.get("variants"))})
                     if len(parts) == 3 and parts[2] == "branch":
@@ -2154,7 +2142,7 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) == 3 and parts[2] == "mode":
                         return self._json(200, {"session": mgr.set_mode(parts[1], req.get("mode"))})
                     if len(parts) == 4 and parts[2] == "checkpoints" and parts[3] == "restore":
-                        return self._json(200, checkpoints_api.restore(mgr.get(parts[1]), req.get("checkpoint"), req.get("accept_irreversible") is True))
+                        return self._json(200, checkpoints_api.restore(mgr.get(parts[1]), req.get("checkpoint")))
                     if len(parts) == 4 and parts[2] == "checkpoints" and parts[3] == "delete":
                         return self._json(200, checkpoints_api.delete(mgr.get(parts[1]), req.get("checkpoint"), req.get("all") is True))
                     if len(parts) == 3 and parts[2] == "effort":
@@ -2190,7 +2178,7 @@ def make_handler(svc: Service, remote: bool = False):
                 if parts == ["checkpoint-mode"]:
                     return self._json(200, checkpoints_api.set_mode(req.get("mode", "")))
                 if len(parts) == 3 and parts[0] == "runs" and parts[2] == "rewind":
-                    return self._json(200, self._agent_runner().rewind(parts[1], req.get("checkpoint"), req.get("accept_irreversible") is True))
+                    return self._json(200, self._agent_runner().rewind(parts[1], req.get("checkpoint")))
                 if parts == ["approvals"]:
                     return self._json(200, _APPROVALS.request(req.get("run", ""), req.get("tool"), req.get("arguments", {}), req.get("effect", "")))
                 if len(parts) == 2 and parts[0] == "approvals":

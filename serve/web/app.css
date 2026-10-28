@@ -403,6 +403,7 @@ code { font-family: var(--font-mono); font-size: .92em; }
 .answer table { font-size: 15px; }
 .answer th, .answer td { font-family: var(--font-sans); white-space: normal; padding: 8px 12px; position: static; }
 .answer .err { color: #FF8FA3; }
+.answer .ctx-notice { color: var(--warn); font-size: .9em; margin: 0 0 .5em; }
 .answer .wait { color: var(--fg-2); }
 .dots::after { content: "…"; display: inline-block; animation: blink 1.2s steps(2, start) infinite; }
 @keyframes blink { to { visibility: hidden; } }
