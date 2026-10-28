@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT, benchrun, catalog, chatctx, checkpoints_api, downloads, loader, loader_api, model_list, modelbench, netwatch_api, models, profiles, settings
+from serve import ROOT, benchrun, catalog, chatctx, checkpoints_api, downloads, loader, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
@@ -468,6 +468,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/netwatch" or path.startswith("/api/netwatch/"):
                 if self._authorized():
                     self._netwatch(path, None)
+            elif path == "/api/rea":
+                if self._authorized():
+                    self._rea(path, False)
             elif path == "/api/knowledge":
                 if self._authorized():
                     self._json(200, KnowledgePrefs(userdata.path("knowledge.json")).view())
@@ -650,6 +653,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/netwatch/"):
                 self._netwatch(path, True)
+                return
+            if path.startswith("/api/rea/"):
+                self._rea(path, True)
                 return
             if path in ("/api/knowledge", "/api/knowledge/wiki-check"):
                 self._knowledge_post(path)
@@ -1578,6 +1584,30 @@ def make_handler(svc: Service, remote: bool = False):
                     code, obj = netwatch_api.route_get(path, query)
             except netwatch_api.NetwatchError as e:
                 code, obj = netwatch_api.error_view(e)
+            except (ValueError, TypeError) as e:
+                code, obj = 400, {"error": {"message": str(e)}}
+            self._json(code, obj)
+
+        def _rea(self, path, post):
+            """The REA switch and its installers: they start programs on this PC, so only the PC the server runs on may use them."""
+            if not settings.is_loopback(self.client_address[0]):
+                if post:
+                    self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "reverse engineering is set up only on the PC the server runs on"}})
+            try:
+                if post:
+                    try:
+                        raw = self._body(1 << 16)
+                    except BadBody as e:
+                        return self._json(e.status, {"error": {"message": str(e)}})
+                    req = json.loads(raw or b"{}")
+                    if not isinstance(req, dict):
+                        raise ValueError("send a JSON object")
+                    code, obj = rea_api.route_post(path, req)
+                    if code == 200 and _CAPS is not None:
+                        _CAPS.rescan()
+                else:
+                    code, obj = rea_api.route_get(path)
             except (ValueError, TypeError) as e:
                 code, obj = 400, {"error": {"message": str(e)}}
             self._json(code, obj)
@@ -2642,6 +2672,7 @@ def serve(svc: Service, host="127.0.0.1", port=7232) -> ThreadingHTTPServer:
     httpd = _listen(svc, host, port)
     threading.Thread(target=_start_planner, args=(svc, httpd.server_address[1]), daemon=True, name="planner-start").start()
     threading.Thread(target=netwatch_api.start_if_enabled, daemon=True, name="netwatch-start").start()
+    threading.Thread(target=rea_api.start_if_enabled, args=(lambda: _CAPS.rescan() if _CAPS is not None else None,), daemon=True, name="rea-start").start()
     if getattr(svc, "keys", None) is None:
         svc.keys = ApiKeys(userdata.path("api-keys.json"), key_dir=userdata.path("vault"))
     if getattr(svc, "remote", None) is None:

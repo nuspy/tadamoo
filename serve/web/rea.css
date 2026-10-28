@@ -1,0 +1,23 @@
+/* Reverse engineering (REA) box in the Agent tab. Narrow first; shown only in the Agent tab. */
+.rea { display: none; margin: 0 28px 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; max-height: 45vh; overflow: auto; }
+body[data-view="agent"] .rea { display: block; }
+.rea-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font: 600 15px/1.4 var(--font-sans); cursor: pointer; }
+.rea-check input { width: 24px; height: 24px; flex: none; }
+.rea-hint, .rea-line, .rea-mono { margin: 0 0 6px; font: 400 14px/1.5 var(--font-sans); color: var(--fg-2); overflow-wrap: anywhere; }
+.rea-mono { font-family: var(--font-mono); font-size: 13px; }
+.rea-line[data-kind="bad"], .rea-warn { color: var(--warn); }
+.rea-line:empty { display: none; }
+.rea-warn { margin: 0 0 6px; font: 500 14px/1.5 var(--font-sans); overflow-wrap: anywhere; }
+.rea-more > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font: 600 14px/1.4 var(--font-sans); }
+.rea-h { margin: 8px 0 4px; font: 600 15px/1.4 var(--font-sans); }
+.rea .btn { min-height: 44px; }
+.rea-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+.rea-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.rea-tool { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); min-width: 0; }
+.rea-top { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.rea-name { font: 600 15px/1.4 var(--font-sans); }
+.rea-chip { display: inline-block; padding: 2px 8px; border: 1px solid var(--warn); border-radius: 999px; font: 500 12.5px/1.5 var(--font-sans); color: var(--warn); }
+.rea-chip.ok { border-color: var(--line); color: var(--fg-2); }
+.rea-cmd, .rea-out { display: block; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font: 400 13px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rea-out { max-height: 200px; overflow: auto; margin: 0; }
+@media (max-width: 700px) { .rea { margin: 0 12px 8px; } }
