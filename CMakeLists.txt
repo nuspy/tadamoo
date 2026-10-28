@@ -168,6 +168,15 @@ if(BUILD_TESTING)
   target_link_libraries(gguf_split_test PRIVATE artifact)
   basalt_embed_manifest(gguf_split_test)
   basalt_cpu_test(NAME gguf_split_test COMMAND gguf_split_test)
+  # the qwen35moe family: layout and geometry on synthetic GGUFs, and the sampling penalties (no model, no GPU)
+  add_executable(qwen35_layout_test tests/qwen35/layout_test.cpp)
+  target_link_libraries(qwen35_layout_test PRIVATE artifact)
+  basalt_embed_manifest(qwen35_layout_test)
+  basalt_cpu_test(NAME qwen35_layout_test COMMAND qwen35_layout_test)
+  add_executable(qwen35_sampling_test tests/qwen35/sampling_test.cpp)
+  target_include_directories(qwen35_sampling_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  basalt_embed_manifest(qwen35_sampling_test)
+  basalt_cpu_test(NAME qwen35_sampling_test COMMAND qwen35_sampling_test)
   # the logit_bias protocol key: what parses and what is refused (host only)
   add_executable(logit_bias_test tests/core/logit_bias_test.cpp)
   target_include_directories(logit_bias_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -432,10 +441,19 @@ add_library(prefill STATIC src/prefill/gemm.cu src/prefill/kernels.cu src/prefil
 target_include_directories(prefill PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${_gpu_include_directories})
 target_link_libraries(prefill PUBLIC engine ${_gpu_blas_target} ${_gpu_runtime_target})
 
+# The qwen35moe family (Qwen3.6-35B-A3B): its own engine path (serve protocol, prompt chunks, decode graph), which
+# `basalt` switches to when the GGUF's architecture is qwen35moe.  The qwen4exp path does not run through it.
+add_library(basalt_qwen35 STATIC src/qwen35/q36_engine.cu)
+target_include_directories(basalt_qwen35 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${_gpu_include_directories})
+target_link_libraries(basalt_qwen35 PRIVATE prefill kernels kernels_cpu platform warnings ${_gpu_blas_target} ${_gpu_runtime_target})
+# the hybrid mode (experts that do not all fit in VRAM): the CPU expert pool
+target_compile_definitions(basalt_qwen35 PRIVATE BASALT_Q36_CPU_POOL=1)
+
 add_executable(basalt src/program/generate.cpp src/program/probe_rates.cpp)
 set_target_properties(basalt PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 target_include_directories(basalt PRIVATE ${_gpu_include_directories})
-target_link_libraries(basalt PRIVATE engine engine_session grammar tokenizer prefill spec ${_gpu_runtime_target})
+target_link_libraries(basalt PRIVATE engine engine_session grammar tokenizer prefill spec basalt_qwen35 ${_gpu_runtime_target})
+target_compile_definitions(basalt PRIVATE BASALT_HAVE_QWEN35=1)
 basalt_embed_manifest(basalt)
 # `basalt serve` runs the Python server from the source tree
 target_compile_definitions(basalt PRIVATE BASALT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

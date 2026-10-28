@@ -32,6 +32,7 @@
 #include <algorithm>
 
 #include "basalt/artifact/gguf_split.hpp"
+#include "basalt/artifact/model_family.hpp"
 #include "basalt/platform/file.hpp"
 #include "basalt/platform/mapped_file.hpp"
 
@@ -591,5 +592,38 @@ inline std::string check_architecture(const GgufFile& g, const Qwen4ExpGuard& wa
     }
     return {}; // empty == ok
 }
+
+/// The family of the model whose metadata shard is `g` (Unknown when it has no or another architecture).
+inline ModelFamily model_family(const GgufFile& g) {
+    const MetaValue* arch = g.get("general.architecture");
+    return arch ? model_family_from_arch(arch->s) : ModelFamily::Unknown;
+}
+
+/// Qwen3.6-35B-A3B's guard: every key the geometry is read from must be present (core::geometry_from_gguf),
+/// and the few that the layer pattern depends on must have the values the model has.
+inline std::string check_architecture_qwen35moe(const GgufFile& g) {
+    static const char* const keys[] = {
+        "qwen35moe.block_count", "qwen35moe.embedding_length", "qwen35moe.attention.head_count",
+        "qwen35moe.attention.head_count_kv", "qwen35moe.attention.key_length", "qwen35moe.attention.value_length",
+        "qwen35moe.expert_count", "qwen35moe.expert_used_count", "qwen35moe.expert_feed_forward_length",
+        "qwen35moe.expert_shared_feed_forward_length", "qwen35moe.ssm.conv_kernel", "qwen35moe.ssm.state_size",
+        "qwen35moe.ssm.group_count", "qwen35moe.ssm.time_step_rank", "qwen35moe.ssm.inner_size",
+        "qwen35moe.full_attention_interval",
+    };
+    for (const char* k : keys) {
+        const MetaValue* v = g.get(k);
+        if (!v) return std::string("missing ") + k;
+        if (!v->is_num()) return std::string(k) + " is not a number";
+    }
+    const MetaValue* nl = g.get("qwen35moe.block_count");
+    // absent = a file without the MTP block
+    const MetaValue* mtp = g.get("qwen35moe.nextn_predict_layers");
+    if (mtp && !mtp->is_num()) return "qwen35moe.nextn_predict_layers is not a number";
+    if (mtp && mtp->u >= nl->u) return "qwen35moe.nextn_predict_layers is not smaller than qwen35moe.block_count";
+    if (g.get("qwen35moe.full_attention_interval")->u < 2)
+        return "qwen35moe.full_attention_interval must be at least 2 (the GDN / attention pattern)";
+    return {};
+}
+
 
 } // namespace basalt
