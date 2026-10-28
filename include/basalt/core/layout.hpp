@@ -15,6 +15,7 @@
 // at LOAD time - not as a wrong number inside a GEMV at token 4000.
 #pragma once
 
+#include "basalt/artifact/model_family.hpp"
 #include "basalt/core/weights.hpp"
 
 #include <cstdint>
@@ -25,6 +26,7 @@ namespace basalt::core {
 /// The model's geometry, taken from the model definition and the artifact's own metadata.  Every field here
 /// is a number a kernel depends on, so a change is a change to a kernel contract and not a tuning knob.
 struct ModelGeometry {
+    ModelFamily family = ModelFamily::Qwen4Exp;
     int64_t n_embd = 2560;
     int64_t n_layers = 48;
     int64_t qsa_interval = 4;      ///< every 4th layer is full attention: layers 3, 7, ... 47
@@ -44,19 +46,30 @@ struct ModelGeometry {
     int64_t idx_q_heads = 4;
     int64_t idx_key_dim = 128;
 
-    // gated residual, on every layer
+    // gated residual, on every layer (hc == 0: a plain residual)
     int64_t hc = 4;
     int64_t hc_lr = 320;
 
     // MoE, on every layer
     int64_t n_expert = 512;
+    int64_t n_expert_used = 10;
     int64_t n_ff = 640;
 
+    bool gated_residual() const { return hc > 0; }
     int64_t hc_dim() const { return hc * n_embd; }
     /// `layer % qsa_interval == qsa_interval - 1` is full attention.  Derived, not a second list.
     int64_t n_qsa_layers() const { return n_layers / qsa_interval; }
     int64_t n_gdn_layers() const { return n_layers - n_qsa_layers(); }
 };
+
+/// The geometry of a family's default model.  qwen35moe has a plain residual and no indexer, so `hc` and `idx_q_heads`
+/// are 0 there.
+ModelGeometry geometry_for_family(ModelFamily family);
+
+/// The geometry of an opened .basalt (after `load_meta`): the family from `meta.family` (qwen4exp when absent) and,
+/// for qwen35moe, every dimension from `meta.gguf_kv`.  False with `err` when the family and the metadata disagree or
+/// a key is missing.
+bool geometry_from_model(const ModelFile& model, ModelGeometry& g, std::string& err);
 
 /// True for the full-attention layers.  the model definition gives this twice over - `full_attention_interval
 /// = 4` and an explicit `attention.compress_ratios` array - and this is the first of the two.
