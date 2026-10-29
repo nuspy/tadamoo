@@ -6,6 +6,7 @@ content, and server/telemetry metrics retrieval.
 from __future__ import annotations
 
 import json
+import os
 import re
 import urllib.request
 import urllib.error
@@ -124,6 +125,8 @@ class BasaltClient:
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+        if os.environ.get("BASALT_COMPRESS") == "1":
+            headers["X-Basalt-Compress"] = "1"          # the server may compress a streamed conversation (Billion Context)
         return headers
 
     def context_window(self, timeout: float = 3.0) -> Optional[int]:

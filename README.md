@@ -204,6 +204,8 @@ had to shorten.
 
 The reference is [docs/harness.md](docs/harness.md); a step-by-step guide is [docs/harness-manual.md](docs/harness-manual.md).
 
+**Billion Context** (Chat settings, on by default) is a local add-on proxy that compresses long chat and agent conversations before they reach the model, with a silent fallback to direct calls; see [docs/billion-context.md](docs/billion-context.md).
+
 An optional **security monitor** (Monitor > Security) watches the network connections and disk writes of the model processes and flags suspicious cases without blocking anything; see [docs/security-monitor.md](docs/security-monitor.md). The same page starts, stops and shows the Openweight Canary exfiltration test (add-on).
 
 An optional **reverse engineering** switch in the Agent tab adds the shipped REA toolkit (MCP server and skill) to the agent and lists the programs it can use, each installed only on a click; Windows support is experimental; see [docs/rea.md](docs/rea.md).

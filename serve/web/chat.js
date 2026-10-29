@@ -427,7 +427,7 @@
     if (effort.value) body.reasoning_effort = effort.value;
     try {
       const r = await fetch("v1/chat/completions", { method: "POST", signal: controller.signal,
-        headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify(body) });
+        headers: { "Content-Type": "application/json", "X-Basalt-Compress": "1", ...authHeaders() }, body: JSON.stringify(body) });
       if (!r.ok) {
         let msg = `HTTP ${r.status}`;
         try { msg = (await r.json()).error.message || msg; } catch (e) { /* not JSON */ }

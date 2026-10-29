@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT, benchrun, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
+from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
@@ -108,6 +108,7 @@ def stop_sessions() -> None:
     """The server ends: the conversations' processes end with it (the next start finds the conversations again)."""
     netwatch_api.stop()
     canary_api.shutdown()
+    billion_context.stop()
     if _ROUTINES is not None:
         _ROUTINES.shutdown()
     if _MEM_WORKER is not None:
@@ -149,6 +150,7 @@ def make_handler(svc: Service, remote: bool = False):
         protocol_version = "HTTP/1.0"                       # SSE ends by closing the connection
         remote_listener = remote
 
+        _held_body = None                                   # the body of a request read before it was answered here
         watch_done = None                                   # stops this request's disconnect watcher
         trace = None                                        # this request's entries in the request log
 
@@ -484,6 +486,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/canary" or path.startswith("/api/canary/"):
                 if self._authorized():
                     self._canary(path, None)
+            elif path == "/api/billion-context":
+                if self._authorized():
+                    self._json(200, billion_context.get().view())
             elif path == "/api/knowledge":
                 if self._authorized():
                     self._json(200, KnowledgePrefs(userdata.path("knowledge.json")).view())
@@ -667,6 +672,9 @@ def make_handler(svc: Service, remote: bool = False):
             if path.startswith("/api/capabilities/"):
                 self._capabilities_post(path)
                 return
+            if path == "/api/billion-context":
+                self._billion_context_post()
+                return
             if path.startswith("/api/netwatch/"):
                 self._netwatch(path, True)
                 return
@@ -796,9 +804,17 @@ def make_handler(svc: Service, remote: bool = False):
                 except (GpuBusy, EngineDied, EngineStarting) as e:
                     self._json(503, {"error": {"type": "server_error", "message": str(e)}})
                 return
-            if path in engine_host.PROXIED_POST and engine_host.HOST.active():
+            if path == "/v1/chat/completions" and not self.remote_listener and billion_context.wants(self.headers):
                 try:
                     raw = self._body()
+                except BadBody as e:
+                    return self._json(e.status, {"error": {"message": str(e)}})
+                if billion_context.forward(self, raw, billion_context.get().server_port):
+                    return
+                self._held_body = raw                         # not handed over: answered here, from the body already read
+            if path in engine_host.PROXIED_POST and engine_host.HOST.active():
+                try:
+                    raw = self._held_body if self._held_body is not None else self._body()
                 except BadBody as e:
                     self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
                     return
@@ -809,7 +825,7 @@ def make_handler(svc: Service, remote: bool = False):
                 trace = self.trace = svc.request_ctx.trace = RequestTrace(
                     svc, path, "POST", ":".join(str(x) for x in self.client_address[:2]))
             try:
-                raw = self._body() or b"{}"
+                raw = (self._held_body if self._held_body is not None else self._body()) or b"{}"
                 try:
                     req = json.loads(raw)
                     if not isinstance(req, dict):
@@ -1627,6 +1643,21 @@ def make_handler(svc: Service, remote: bool = False):
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"message": str(e)}})
             self._json(404, {"error": {"message": "not found"}})
+
+        def _billion_context_post(self):
+            """The Billion Context setting changes what a conversation sends to the model: only from the PC the server runs on."""
+            if not settings.is_loopback(self.client_address[0]) or self.remote_listener:
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "this setting can be changed only from the PC the server runs on"}})
+            try:
+                req = json.loads(self._body(1 << 14) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                self._json(200, billion_context.set_enabled_port(req))
+            except BadBody as e:
+                self._json(e.status, {"error": {"message": str(e)}})
+            except (ValueError, TypeError) as e:
+                self._json(400, {"error": {"message": str(e)}})
 
         def _netwatch(self, path, post):
             """The security monitor: its exceptions can hide evidence, so it is shown and changed only on the PC the server runs on."""
