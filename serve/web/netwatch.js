@@ -458,6 +458,7 @@
     refresh(true);
   });
   document.addEventListener("basalt:lang", () => { if (built) { build(); paintStatus(); paintEvents(true); paintExceptions(); } });
+  window.nwKit = { el, call, btn, say, field, checkRow, chip, when, num };       // the exfiltration test section (canary.js) builds on these
   startTimers();
   pollAlerts();
   if (document.body.dataset.view === "security") { build(); refresh(true); }       // the page was opened on this view
