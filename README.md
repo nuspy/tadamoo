@@ -367,6 +367,15 @@ Google Pay were not tried against the live services. The list with the reasons i
 - Building: Windows in [docs/WINDOWS.md](docs/WINDOWS.md) (Visual Studio v143 tools, CUDA 13.1, CMake, Ninja), Linux
   in [Build](#build) below. The app: `dotnet publish tools\windows\desktop -c Release -o tools\windows\desktop\publish`.
 
+## Compatibility
+
+- **Basalt engine** (`.basalt` files, Qwen3.8-Flash-Next and the Qwen3.6 path): NVIDIA Blackwell only, Windows x64 and Linux x86-64.
+- **Strata engine** (second engine in the Loader, installed from a local folder): meant for the other NVIDIA generations, and for
+  AMD (HIP), Intel (SYCL) and Apple (Metal) hardware. Run and checked here only on an NVIDIA Blackwell GPU with a Qwen3.6 GGUF
+  that carries the MTP layer; the other backends are not tested. A Mac release is not built: Mac users compile from the repository.
+- **Add-ons in the setup**: Openweight Canary, Billion Context (needs Node.js), REA and Node.js; none of them needs a GPU.
+- Known limit: the Qwen3.6 path on the Basalt engine can crash with prompt chunks of 2048 tokens or more; `--chunk 512` works.
+
 ## Starting Basalt Win+GUI
 
 ```powershell
