@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT, benchrun, canary_api, catalog, chatctx, checkpoints_api, downloads, loader, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
+from serve import ROOT, benchrun, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
@@ -379,6 +379,15 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/loader":
                 if self._authorized():
                     self._json(200, loader_api.info(svc))
+            elif path.startswith("/api/loader/engines/") and path.endswith("/models"):
+                if self._authorized():
+                    eid = path.split("/")[4]
+                    self._json(200 if eid in engines.ENGINES else 404,
+                               {"models": engine_host.models(eid), "profiles": profiles.engine_profiles(eid)})
+            elif path == "/api/loader/engines":
+                if self._authorized():
+                    every = parse_qs(urlsplit(self.path).query).get("all", ["0"])[0] in ("1", "true")
+                    self._json(200, loader_api.engines_info(every))
             elif path == "/api/wizard":
                 if self._authorized():
                     model = parse_qs(urlsplit(self.path).query).get("model", [None])[0]
@@ -556,6 +565,9 @@ def make_handler(svc: Service, remote: bool = False):
                 for k in ("started", "first_token"):
                     s.pop(k, None)
                 self._json(200, s)
+            elif engine_host.HOST.active() and (path in engine_host.PROXIED_GET or path.startswith(("/v1/models/", "/models/"))):
+                if self._authorized():                       # another engine is loaded: its answer, relayed
+                    engine_host.HOST.forward(self, "GET", self.path)
             elif path in ("/v1/models", "/models"):
                 if self._authorized():                       # the served model and the folders' others (model_list)
                     local = model_list.is_loopback(self.server.server_address[0])
@@ -761,6 +773,10 @@ def make_handler(svc: Service, remote: bool = False):
             # this PC and the secret of this server: an application that only knows the API key must not control the model
             if path in CONTROL_PATHS and not (self._control_local() and self._control_secret()):
                 return
+            if path == "/api/control/unload" and engine_host.HOST.active():
+                engine_host.HOST.stop()
+                self._json(200, {"status": "unloaded"})
+                return
             if path == "/api/control/unload":                # unload between requests
                 try:
                     r = svc.unload()
@@ -769,12 +785,24 @@ def make_handler(svc: Service, remote: bool = False):
                     return
                 self._json(409 if r == "busy" else 200, {"status": r})
                 return
+            if path == "/api/control/load" and engine_host.HOST.active():
+                st = engine_host.HOST.status()
+                self._json(200 if st["phase"] == "running" else 503, {"status": "loaded" if st["phase"] == "running" else st["phase"]})
+                return
             if path == "/api/control/load":                  # load ahead of a request
                 try:
                     svc.load()
                     self._json(200, {"status": "loaded"})
                 except (GpuBusy, EngineDied, EngineStarting) as e:
                     self._json(503, {"error": {"type": "server_error", "message": str(e)}})
+                return
+            if path in engine_host.PROXIED_POST and engine_host.HOST.active():
+                try:
+                    raw = self._body()
+                except BadBody as e:
+                    self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                    return
+                engine_host.HOST.forward(self, "POST", self.path, raw)
                 return
             trace = None
             if path in API_PATHS and svc.reqlog.enabled:
@@ -1056,6 +1084,10 @@ def make_handler(svc: Service, remote: bool = False):
             except BadBody as e:
                 self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
                 return
+            parts = what.split("/")
+            if len(parts) == 3 and parts[0] == "engines":
+                self._engine_post(parts[1], parts[2], raw)
+                return
             if what not in ("plan", "load", "calibrate"):
                 self._json(404, {"error": {"message": "not found"}})
                 return
@@ -1070,6 +1102,7 @@ def make_handler(svc: Service, remote: bool = False):
                     self._json(200, loader_api.evaluate(svc, loader_api.clean((req or {}).get("values", {})),
                                                         model=model or None))
                 elif what == "load":
+                    engine_host.HOST.stop()                  # Basalt's engine takes the GPU back from another one
                     out = loader_api.load(svc, req)
                     self._json(200 if out.get("status") == "saved" else 202, out)
                 else:
@@ -1088,6 +1121,31 @@ def make_handler(svc: Service, remote: bool = False):
                 self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
             except OSError as e:
                 self._json(500, {"error": {"type": "server_error", "message": f"cannot write the config file: {e}"}})
+
+        def _engine_post(self, engine_id: str, action: str, raw: bytes):
+            """POST /api/loader/engines/<id>/install | load | stop | source (serve/engine_host.py, engine_install.py)."""
+            if engine_id not in engines.ENGINES:
+                self._json(404, {"error": {"type": "invalid_request_error", "code": "unknown_engine", "message": "not found"}})
+                return
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                if action == "install":
+                    self._json(*engines.install(engine_id, req.get("source") or None, bool(req.get("remember"))))
+                elif action == "source":
+                    self._json(200, {"sources": engine_install.set_source(engine_id, req.get("path") or None)})
+                elif action == "stop":
+                    self._json(200, engine_host.HOST.stop())
+                elif action == "load":
+                    out = engine_host.HOST.activate(svc, engine_id, engine_host.load_request(engine_id, req))
+                    self._json(202, out)
+                else:
+                    self._json(404, {"error": {"message": "not found"}})
+            except engine_host.Refused as e:
+                self._json(e.status, e.body)
+            except ValueError as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
 
         def _wizard_post(self, what: str):
             """POST /api/wizard/plan | measure | save (serve/loader_api.py), as JSON."""

@@ -72,6 +72,10 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   with the reason; **conversion and verification** in the background (disk and commit checked first).
 - A `.basalt` can be given a real **expert profile without converting again**, and the Loader says when it has only the
   plain fill order. `/v1/models` lists the folders' ready files.
+- **A second engine, Strata**, for what Basalt does not run: other GPU families and the Qwen3.6 and DeepSeek models. The Loader
+  shows one Models tab per engine this PC can run, installs it from a local folder or archive (no download yet), and runs
+  Strata's own server as a managed child, relaying `/v1/*` to it. One engine is active at a time. Details and limits:
+  [docs/engines-protocol.md](docs/engines-protocol.md). Windows and Linux; AMD, Intel and Apple builds are untested here.
 
 **5. Server and API**
 - Default port **7232** (the base's examples disagreed with its code); `/api/settings` reads and writes the config file;
