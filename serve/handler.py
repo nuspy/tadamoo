@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from serve import ROOT, benchrun, catalog, chatctx, checkpoints_api, downloads, loader, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
+from serve import ROOT, benchrun, canary_api, catalog, chatctx, checkpoints_api, downloads, loader, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
@@ -107,6 +107,7 @@ def _start_planner(svc: Service, port: int) -> None:
 def stop_sessions() -> None:
     """The server ends: the conversations' processes end with it (the next start finds the conversations again)."""
     netwatch_api.stop()
+    canary_api.shutdown()
     if _ROUTINES is not None:
         _ROUTINES.shutdown()
     if _MEM_WORKER is not None:
@@ -471,6 +472,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/rea":
                 if self._authorized():
                     self._rea(path, False)
+            elif path == "/api/canary" or path.startswith("/api/canary/"):
+                if self._authorized():
+                    self._canary(path, None)
             elif path == "/api/knowledge":
                 if self._authorized():
                     self._json(200, KnowledgePrefs(userdata.path("knowledge.json")).view())
@@ -656,6 +660,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/rea/"):
                 self._rea(path, True)
+                return
+            if path.startswith("/api/canary/"):
+                self._canary(path, True)
                 return
             if path in ("/api/knowledge", "/api/knowledge/wiki-check"):
                 self._knowledge_post(path)
@@ -1608,6 +1615,32 @@ def make_handler(svc: Service, remote: bool = False):
                         _CAPS.rescan()
                 else:
                     code, obj = rea_api.route_get(path)
+            except (ValueError, TypeError) as e:
+                code, obj = 400, {"error": {"message": str(e)}}
+            self._json(code, obj)
+
+        def _canary(self, path, post):
+            """The exfiltration test: it starts a process and writes a config, so it is shown and changed only on the PC the server runs on."""
+            if not settings.is_loopback(self.client_address[0]):
+                if post:
+                    self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the exfiltration test is shown only on the PC the server runs on"}})
+            ctx = canary_api.Context(self.server.server_address[1], svc.api_key, svc.model if svc.loaded() else "")
+            try:
+                if post:
+                    try:
+                        raw = self._body(1 << 16)
+                    except BadBody as e:
+                        return self._json(e.status, {"error": {"message": str(e)}})
+                    req = json.loads(raw or b"{}")
+                    if not isinstance(req, dict):
+                        raise ValueError("send a JSON object")
+                    code, obj = canary_api.route_post(path, req, ctx)
+                else:
+                    query = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
+                    code, obj = canary_api.route_get(path, query, ctx)
+            except canary_api.CanaryError as e:
+                code, obj = canary_api.error_view(e)
             except (ValueError, TypeError) as e:
                 code, obj = 400, {"error": {"message": str(e)}}
             self._json(code, obj)
@@ -2673,6 +2706,7 @@ def serve(svc: Service, host="127.0.0.1", port=7232) -> ThreadingHTTPServer:
     threading.Thread(target=_start_planner, args=(svc, httpd.server_address[1]), daemon=True, name="planner-start").start()
     threading.Thread(target=netwatch_api.start_if_enabled, daemon=True, name="netwatch-start").start()
     threading.Thread(target=rea_api.start_if_enabled, args=(lambda: _CAPS.rescan() if _CAPS is not None else None,), daemon=True, name="rea-start").start()
+    threading.Thread(target=canary_api.reattach, daemon=True, name="canary-reattach").start()
     if getattr(svc, "keys", None) is None:
         svc.keys = ApiKeys(userdata.path("api-keys.json"), key_dir=userdata.path("vault"))
     if getattr(svc, "remote", None) is None:

@@ -39,7 +39,7 @@ Disk reports use `proto` `file` and put the path in `host`. Persistence reports 
 | `system_proxy` | Windows Internet Settings has a proxy enabled |
 | `local_proxy_listener` | a process listens on a loopback proxy port (1080, 8080, 3128, 8118, 9050, 9150, 7890, 7897 and similar) |
 | `doh_or_tor` | remote port 853, 9001 or 9030, or a known DNS-over-HTTPS host (dns.google, cloudflare-dns.com, dns.quad9.net) |
-| `no_agent_call` | the engine connected with no outward tool call recorded in the last 30 s; only used once the agent calls `NetWatch.note_tool_call(ts, tool, target)` |
+| `no_agent_call` | the engine connected with no outward tool call recorded in the last 30 s; only applies once agents report their outward tool calls (see Tool-call reports); `engine` connections only |
 | `disk_outside_expected` | a watched process has a file open for writing outside the expected folders |
 | `archive_or_staging` | an archive-like file (zip, 7z, rar, tar, gz, tgz, xz, zst, enc, bin, dat), a hidden file, or an NTFS alternate stream (`:` in the name) outside the expected folders |
 | `persistence` | a new Run-key value (HKCU or HKLM) or scheduled task since monitoring started (Windows only) |
@@ -139,5 +139,46 @@ All routes are under the usual authentication and, because exceptions could hide
   behaviour; it cannot prove that nothing was sent.
 - `psutil` is optional; without it the monitor reports `unavailable` and does nothing.
 - Persistence checks are Windows only.
-- The `no_agent_call` tag stays inactive until the agent code reports its outward tool calls with `note_tool_call`.
-- A long-run test (days of monitored use) is a separate repository, not part of this one.
+- The `no_agent_call` tag stays inactive until an agent reports an outward tool call (see Tool-call reports).
+- The long-run exfiltration test is the Openweight Canary add-on; Basalt only starts, stops and shows it (next section).
+
+## Exfiltration test (Openweight Canary)
+
+Monitor > Security > Exfiltration test connects this monitor to the Openweight Canary add-on. The add-on gives the
+model invented secret documents, each with a unique marker, and watches whether anything leaves the computer or a
+marker appears where it should not. It works with any model on any engine and can run for days, across Basalt restarts.
+
+- **Config:** runtime preset, model name (empty = the model loaded in Basalt), API address (empty = Basalt's own `/v1`),
+  key, vendor, duration (default: until stopped), sessions per hour, review interval, "keep running when Basalt
+  closes", optional reviewer model and a harness-profile selector (shown only when `python -m canary harnesses`
+  lists profiles). The key is kept in the Basalt data folder and reaches the add-on through an environment variable,
+  never in `canary.yaml`.
+- **Start:** writes the config, turns NetWatch on if it was off and starts the add-on in a hidden window. Its monitor
+  client reads `/api/netwatch/status` and `/api/netwatch/events`.
+- **Stop or end:** the add-on finishes the running session and stops; NetWatch is turned off again only if the test
+  turned it on. Closing Basalt stops the test too, unless "keep running" is set; a test still running when Basalt
+  starts is re-attached by its pid file.
+- **Results:** `findings.jsonl` is hash-chained (Verify checks it). A finding can be added to the security register,
+  a report can be generated, and the optional reviewer returns an assessment (suspicious items, explained items,
+  confidence, next checks). The reviewer must be a different model or endpoint from the one under test.
+- **API:** `GET /api/canary`, `/findings`, `/report`, `/verify`, `/reviews`, `/log`; `POST /api/canary/settings`,
+  `/start`, `/stop`, `/report`, `/review`, `/findings/<n>/register`. Loopback only. Errors carry
+  `{"error":{"type":"canary","code","message"}}`.
+
+### Tool-call reports
+
+Agents run in their own process. Each outward tool call (a tool flagged `outward`, such as fetching a URL) is
+reported by `harness/outward_calls.py` to `POST /api/netwatch/tool-calls` with `{ts, tool, target}`, and NetWatch
+keeps them for `NetWatch.note_tool_calls`. After the first report, an `engine` connection with no call covering its
+address or host in the last 30 s gets `no_agent_call`.
+
+Limits:
+
+- Shell commands and other tools not flagged `outward` are not reported, so a legitimate action done through them can
+  look like an unexplained connection.
+- A compromised agent could post false reports; the tag is a hint, not proof.
+- Only connections of the engine process are compared, and the engine's own legitimate connections can be tagged
+  once reports exist.
+- With no report the tag stays off and the page says so.
+- A finding added to the register becomes a manual event that canary's next monitor window may read back; the add-on
+  cannot filter it out.

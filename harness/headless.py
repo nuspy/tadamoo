@@ -73,7 +73,9 @@ def _on_event(cfg: AgentConfig, reporter: Any):
 
 def _confirmer(args: argparse.Namespace):
     if args.ask_server:
+        from harness import outward_calls
         from harness.approval_client import ServerApprover
+        outward_calls.report_to(args.endpoint, args.api_key)
         return ServerApprover(args.endpoint, args.api_key, args.run_id or "cli")
     if not args.interactive:
         return None

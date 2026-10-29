@@ -40,6 +40,13 @@ textarea.nw-in { font-family: var(--font-mono); resize: vertical; }
 .nw-dlg::backdrop { background: rgba(5, 7, 9, .72); }
 .nw-dform { display: flex; flex-direction: column; gap: 12px; padding: 18px 16px calc(16px + env(safe-area-inset-bottom)); }
 .nw-ex { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+/* the exfiltration test section */
+.cn [hidden] { display: none !important; }
+.cn-body, .cn-run, .cn-find, .cn-report, .cn-review { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.cn-find, .cn-report, .cn-review { padding-top: 10px; border-top: 1px solid var(--line); }
+.cn-rv { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+.cn-pre { margin: 0; max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px 0; }
+.cn select.nw-in { appearance: auto; }
 @media (min-width: 720px) {
   .nw { padding: 16px 24px 32px; }
   .nw-sec { padding: 16px; }

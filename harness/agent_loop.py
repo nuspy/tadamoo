@@ -22,6 +22,7 @@ from harness.client import BasaltClient, BasaltError, StreamCancelled, extract_r
 from harness.context import ContextManager, fence_untrusted, wire_messages
 from harness.repeat_guard import RepeatGuard
 from harness.rule_of_two import leak_question
+from harness import outward_calls
 from harness.hooks import HookManager
 from harness.permissions import PermissionManager
 from harness.pipeline import Card, Pipeline, feedback
@@ -442,6 +443,8 @@ class AgentLoop:
                 cp_note = f"No checkpoint could be taken for this action ({exc}); it ran without one."
 
         ran = time.monotonic()
+        if tool.outward:
+            outward_calls.note(name, args)
         try:
             with cancel_scope(self.cancel) as scope:             # Stop also ends a command that is running
                 output = self.tools.execute(name, args)
