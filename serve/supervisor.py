@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from serve import loader, settings
-from serve.config import build_parser, check_engine_flags, engine_flags_of, parse_settings, sampling_defaults_from_config, sampling_line
+from serve.config import build_parser, check_engine_flags, engine_flags_of, grammar_words, parse_settings, sampling_defaults_from_config, sampling_line
 from serve.engine.errors import EngineStartError
 from serve.engine.flags import flag_index, flag_value
 from serve.engine.vision import EngineVision, Vision, child_env, engine_args, gpus_in_play, vision_env
@@ -237,7 +237,8 @@ class Supervisor:
         engine.close()
         self._set(phase="starting")
         spawn = list(engine.spawn)
-        spawn[0], spawn[1], spawn[3], spawn[4] = cfg["engine_bin"], engine_args(cfg), cfg.get("log"), env
+        launch = engine_args(cfg) + grammar_words(engine_flags_of(cfg["engine_bin"]))      # as at start: a request's grammar is enforced
+        spawn[0], spawn[1], spawn[3], spawn[4] = cfg["engine_bin"], launch, cfg.get("log"), env
         engine.spawn = tuple(spawn)
         before = loader.system_now(getattr(svc, "gpu_index", 0))
         engine.restart(tries=1)
