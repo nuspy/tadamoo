@@ -122,9 +122,11 @@ Controls shown follow the chosen model's family: `max_context`, `kv`, `spec`, `e
 | API key | Basalt checks its key; the child binds to 127.0.0.1 | one check, at Basalt |
 | Qwen3.6 GGUF files without `qwen35moe.nextn_predict_layers` | the binary refuses them | marked unusable in the model list with the reason |
 
-## 6. Not verified
+## 6. Verified and not verified
 
-A run of Strata through the Loader (`/load`, relayed `/v1/chat/completions`) is not covered by a test. The tests use
+Verified once, by hand: `Host.activate` with a Qwen3.6 GGUF that carries the MTP layer and a Strata tokenizer folder
+started `strata-q36`, loaded the model and answered `/v1/chat/completions` on the child's port (the answer carried
+`reasoning_content`). A tokenizer folder holds `vocab.json`, `merges.txt` and `token_type.json`; a missing file is refused
+before the start. Not covered by a test: that run, the relay through Basalt's own port, and tokens per second. The tests use
 a stub (`serve/tests/fake_strata/`) that honours the same start-up protocol: config file, ready file, `/load`,
-`/v1/status`, `/v1/*`. The `strata-q36` binary alone has loaded a Qwen3.6 GGUF that carries the MTP layer and
-generated; Qwen3.6 GGUF files without it are refused. Tokens per second through the relay were not measured.
+`/v1/status`, `/v1/*`. Qwen3.6 GGUF files without the MTP layer are refused by the binary.
