@@ -2820,9 +2820,12 @@ struct Engine {
         const auto t0 = Clock::now();
         warming = true;
         const int32_t filler = 198;   // a newline: any token works
-        std::vector<int32_t> toks((size_t) tmax, filler);
+        // the three steps below advance the position without a reset between them: the first chunk leaves room in the
+        // cache for the others (a context shorter than the chunk would write past its cells)
+        const int64_t room = (int64_t) ctx - (kGemmT + 1) - 1 - (mtp_d + 2);
+        std::vector<int32_t> toks((size_t) std::max<int64_t>(1, std::min<int64_t>(tmax, room)), filler);
         process(toks.data(), (int64_t) toks.size(), [](int64_t) {});
-        if (tmax > kGemmT + 1) process(toks.data(), kGemmT + 1, [](int64_t) {});   // the smallest GEMM chunk too
+        if ((int64_t) toks.size() > kGemmT + 1) process(toks.data(), kGemmT + 1, [](int64_t) {});   // the smallest GEMM chunk too
         process(&filler, 1, [](int64_t) {});
         if (mtp_d > 0) {
             std::vector<int32_t> fix, drafts;
