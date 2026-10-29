@@ -35,6 +35,8 @@ def run_config(folder: Path, name: str = "strata-test.json", arch: str = "qwen4e
     tok = folder / "tokenizer"
     tok.mkdir(parents=True, exist_ok=True)
     (tok / "vocab.json").write_text("{}", encoding="utf-8")
+    (tok / "merges.txt").write_text("", encoding="utf-8")
+    (tok / "token_type.json").write_text("[]", encoding="utf-8")
     cfg = {"exe": "x", "args": ["--pack", "p", "--max-context", "4096", "--expert-cache", "auto"], "cwd": ".",
            "tokenizer": str(tok), "model_name": {"qwen4exp": "qwen3.8-flash-next", "qwen35moe": "qwen3.6-35b-a3b",
                                                   "deepseek41": "deepseek-v4.1-flash"}[arch], "arch": arch,
