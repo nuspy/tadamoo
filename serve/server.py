@@ -269,6 +269,8 @@ def main() -> int:
     svc.gpu_index = svc.gpu_indices[0]
     svc.control_token = write_control_token(a.port)
     httpd = serve(svc, host=a.host, port=a.port)
+    from serve import billion_context, chatctx
+    threading.Thread(target=billion_context.start, args=(httpd.server_address[1], lambda: chatctx._limit(svc)), daemon=True, name="billion-context-start").start()
     svc.start_idle_unload()
     here = "127.0.0.1" if a.host in ("0.0.0.0", "", "::") else a.host
 
