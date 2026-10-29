@@ -8,6 +8,7 @@ until built and measured with `python -m harness.eval`, with every number labell
 - [hermes.md](hermes.md): Hermes Agent (MIT).
 - [openclaw.md](openclaw.md): OpenClaw (MIT).
 - [harness2.md](harness2.md): Harness² from Google Research (Apache 2.0), a meta-harness that tunes the harness around an executor.
+- [clarification-survey.md](clarification-survey.md) and [ask-user-v2.md](ask-user-v2.md): how agents ask clarifying questions and suggest the next prompt, and the design of `ask_user` v2 with single, multiple and free answers.
 - [vibe-coding.md](vibe-coding.md): a coding mode for the Agent tab, from Goose (Apache 2.0) and Roo Code (Apache 2.0).
 
 ## What comes out first, across all studies
