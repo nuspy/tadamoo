@@ -12,4 +12,8 @@ namespace basalt::kernels {
 void native_router_top10(const float* logits, int32_t* ids, float* weights, void* stream);
 /// n_tok rows at once (logits [n,512], ids/weights [n,10]); each row exactly as the single call.
 void native_router_top10_multi(const float* logits, int32_t* ids, float* weights, int n_tok, void* stream);
+/// The same contract for a model family's (experts, top-k): 512 / 10 (the two calls above) and 256 / 8.
+/// logits [n_tok, n_expert], ids / weights [n_tok, k].
+bool native_router_topk_supported(int n_expert, int k);
+void native_router_topk(const float* logits, int32_t* ids, float* weights, int n_expert, int k, int n_tok, void* stream);
 }

@@ -2,6 +2,7 @@
 // its refusals, the JSON of `meta`, the GGUF view of the `gguf` section, the expert layout read from its section's
 // text, and the hc8 table round trip.  No model, no GPU.
 #include "basalt/artifact/gguf_reader.hpp"
+#include "basalt/core/layout.hpp"
 #include "basalt/core/model_file.hpp"
 #include "basalt/kernels/cpu/expert_layout.hpp"
 
@@ -146,6 +147,48 @@ int main() {
         hc8_set_table(back);
         check(hc8_find(c.name, 3, 64) != nullptr && hc8_find(c.name, 3, 32) == nullptr && hc8_find("x", 3, 64) == nullptr,
               "hc8_find matches name and shape");
+    }
+    std::printf("4. the family and the geometry\n");
+    {
+        ModelGeometry g4;
+        check(m.family() == basalt::ModelFamily::Qwen4Exp, "no family: qwen4exp");
+        check(geometry_from_model(m, g4, err) && g4.n_embd == 2560 && g4.hc == 4 && g4.n_expert == 512,
+              "its geometry is the compiled-in one: " + err);
+        const std::string kv =
+            R"({"general.architecture":"qwen35moe","qwen35moe.block_count":40,"qwen35moe.embedding_length":2048,)"
+            R"("qwen35moe.attention.head_count":16,"qwen35moe.attention.head_count_kv":2,)"
+            R"("qwen35moe.attention.key_length":256,"qwen35moe.expert_count":256,"qwen35moe.expert_used_count":8,)"
+            R"("qwen35moe.expert_feed_forward_length":512,"qwen35moe.ssm.conv_kernel":4,"qwen35moe.ssm.state_size":128,)"
+            R"("qwen35moe.ssm.group_count":16,"qwen35moe.ssm.time_step_rank":32,"qwen35moe.ssm.inner_size":4096,)"
+            R"("qwen35moe.full_attention_interval":4})";
+        auto open_with = [&](const char* name, const std::string& fam, const std::string& gguf_kv, ModelFile& f) {
+            const std::string json = R"({"format":"basalt",)" + fam + R"("gguf_kv":)" + gguf_kv + R"(,"tensors":{}})";
+            const std::string p = write_model(d.path / name, {{"meta", json}, {"gguf", std::string(16, '\0')}});
+            return f.open(p, err) && f.load_meta(err);
+        };
+        ModelFile q;
+        ModelGeometry gq;
+        check(open_with("q.basalt", R"("family":"qwen35moe",)", kv, q) && q.family() == basalt::ModelFamily::Qwen35Moe &&
+                  geometry_from_model(q, gq, err),
+              "a qwen35moe file reads its geometry: " + err);
+        check(gq.n_embd == 2048 && gq.n_layers == 40 && gq.ssm_v_heads == 32 && gq.ssm_conv_channels == 8192 &&
+                  gq.n_head == 16 && gq.n_head_kv == 2 && gq.n_expert == 256 && gq.n_expert_used == 8 && gq.n_ff == 512 &&
+                  gq.hc == 0 && !gq.gated_residual(),
+              "the dimensions");
+        ModelFile bad;
+        check(open_with("b1.basalt", R"("family":"qwen4exp",)", kv, bad) && !geometry_from_model(bad, gq, err) &&
+                  err.find("disagree") != std::string::npos,
+              "a family that disagrees with general.architecture is refused: " + err);
+        ModelFile bad2;
+        check(open_with("b2.basalt", R"("family":"nothing",)", kv, bad2) && !geometry_from_model(bad2, gq, err) &&
+                  err.find("does not know") != std::string::npos,
+              "an unknown family is refused: " + err);
+        ModelFile bad3;
+        std::string short_kv = kv;
+        short_kv.replace(short_kv.find("qwen35moe.expert_count"), 22, "qwen35moe.expert_cnt__");
+        check(open_with("b3.basalt", R"("family":"qwen35moe",)", short_kv, bad3) && !geometry_from_model(bad3, gq, err) &&
+                  err.find("expert_count") != std::string::npos,
+              "a missing key is named: " + err);
     }
     std::printf("%s\n", g_fail ? "FAILED" : "all passed");
     return g_fail ? 1 : 0;

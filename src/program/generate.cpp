@@ -80,6 +80,10 @@
 #include "basalt/core/device.hpp"
 #include "basalt/core/draft_cum.hpp"
 #include "basalt/artifact/gguf_reader.hpp"
+#include "basalt/artifact/gguf_split.hpp"
+#if defined(BASALT_HAVE_QWEN35)
+#include "basalt/qwen35/engine.hpp"
+#endif
 #include "basalt/vision/encoder_cuda.hpp"
 #include "basalt/vision/mmproj.hpp"
 #include "basalt/vision/preprocess.hpp"
@@ -1082,6 +1086,41 @@ double pcie_frac_for_gbps(double gbps, double base) {
     return gbps <= 0.0 ? base : base * std::min(1.0, gbps / 20.0);
 }
 
+#if defined(BASALT_HAVE_QWEN35)
+/// Whether --model / --native names a GGUF whose architecture is qwen35moe (read from the header of its first shard
+/// only), or a .basalt whose meta.family is qwen35moe.
+bool names_qwen35_model(int argc, char** argv) {
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (std::strcmp(argv[i], "--native") != 0 && std::strcmp(argv[i], "--model") != 0) continue;
+        const std::string arg = argv[i + 1];
+        if (arg.size() > 7 && arg.compare(arg.size() - 7, 7, ".basalt") == 0) {
+            basalt::core::ModelFile pack;
+            std::string err;
+            return pack.open(arg, err) && pack.load_meta(err) && pack.family() == basalt::ModelFamily::Qwen35Moe;
+        }
+        try {
+            const basalt::GgufFile meta(basalt::gguf_split_paths(argv[i + 1]).front());
+            return basalt::model_family(meta) == basalt::ModelFamily::Qwen35Moe;
+        } catch (const std::exception&) {
+            return false;   // not readable as a GGUF here: the normal path reports it
+        }
+    }
+    return false;
+}
+
+/// --gpu for the qwen35moe path, which drives one card: the first number of the list, as nvidia-smi numbers them.
+void select_qwen35_gpu(int argc, char** argv) {
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (std::strcmp(argv[i], "--gpu") != 0) continue;
+        const std::string first = std::string(argv[i + 1]).substr(0, std::string(argv[i + 1]).find(','));
+        if (first.empty() || first.find_first_not_of("0123456789") != std::string::npos) return;
+        basalt::platform::set_env("CUDA_DEVICE_ORDER", "PCI_BUS_ID");
+        basalt::platform::set_env("CUDA_VISIBLE_DEVICES", first.c_str());
+        return;
+    }
+}
+#endif
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1092,6 +1131,14 @@ int main(int argc, char** argv) {
     if (argc >= 2 && std::strcmp(argv[1], "serve") == 0) return serve_subcommand(argc, argv);
     // if memory runs out the kernel ends this process first, not the rest of the machine
     basalt::platform::prefer_oom_victim();
+#if defined(BASALT_HAVE_QWEN35)
+    // A Qwen3.6-35B-A3B file (GGUF architecture qwen35moe) runs on its own engine path (src/qwen35), decided from the
+    // file's header before any state of this engine exists; every other file goes on below.
+    if (names_qwen35_model(argc, argv)) {
+        select_qwen35_gpu(argc, argv);
+        return basalt::qwen35::run(argc, argv);
+    }
+#endif
     // Kernels load on first use: loading every kernel of the engine and of cuBLAS at context creation holds a few
     // hundred MiB of device memory for code that never runs.  The expert cache's sizing keeps back room for what loads
     // later (`kLazyKernelsMib`).  CUDA_MODULE_LOADING=EAGER restores the up-front load; batched serving sets it (below).
