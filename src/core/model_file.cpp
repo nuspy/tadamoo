@@ -350,6 +350,12 @@ bool ModelFile::load_meta(std::string& err) {
     return true;
 }
 
+ModelFamily ModelFile::family() const {
+    const Json* f = meta_.get("family");
+    if (f == nullptr) return ModelFamily::Qwen4Exp;
+    return f->is_string() ? model_family_from_arch(f->s) : ModelFamily::Unknown;
+}
+
 namespace {
 
 MetaValue meta_value(const Json& j) {

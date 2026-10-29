@@ -33,6 +33,12 @@ From an NVFP4 checkpoint (--sections-from with --checkpoint)
   --dense-q8-0       Q8_0 projections instead of Q6_K (the 8-bit dense variant)
   The drafter, profile and vision sections come from BASE byte for byte; BASE's vocabulary must be the checkpoint's.
 
+From a Qwen3.6 NVFP4 checkpoint (no --sections-from)
+    python3 tools/convert/convert.py --checkpoint DIR --out MODEL.basalt [--name NAME] [--workers N] [--force]
+  The routed experts as above; the FP8 projections and NVFP4 shared experts and output head are dequantized once and
+  stored as Q8_0, the norms as F32, the token embedding as Q8_0. meta.family is qwen35moe; there is no drafter,
+  vision or profile section.
+
 Dense requantization
     python3 tools/convert/convert.py --requant-dense-q6k PACK.basalt [--checkpoint DIR] --out MODEL.basalt [--workers N] [--force]
   Every Q8_0 dense projection whose rows are whole 256-value blocks (GDN qkv/z/out, attention q/k/v/o, the shared
@@ -512,6 +518,87 @@ def from_checkpoint(a) -> None:
     print(f"done: {len(job.rows)} sections, {out.stat().st_size / (1 << 30):.3f} GiB, {time.time() - job.t0:.1f} s -> {out}")
 
 
+def from_checkpoint_qwen35(a) -> None:
+    """A Qwen3.6 (qwen35moe) pack straight from its NVFP4 safetensors checkpoint: routed experts moved into Basalt's
+    blocks, every other language-model tensor converted once (FP8 and NVFP4 dequantized to Q8_0). There is no drafter,
+    vision or profile section."""
+    import multiprocessing
+    import checkpoint as C
+    import qwen35_checkpoint as Q
+    out = Path(a.out)
+    partial = Path(str(out) + ".partial")
+    if out.exists() and not a.force:
+        die(f"{out} exists (use --force to overwrite)")
+    try:
+        ck = C.Checkpoint(a.checkpoint)
+        experts = C.CheckpointExperts(ck)
+        dense_src = Q.Qwen35Dense(ck)
+        kv = Q.model_kv(ck, 7, a.name)
+        dense = S.Dense(dense_src, False)
+    except S.ConvertError as e:
+        die(str(e))
+    if partial.exists():
+        partial.unlink()
+    w = ModelWriter(str(partial))
+    job = Job(w)
+    ok = False
+    try:
+        with tempfile.TemporaryDirectory() as tmp, multiprocessing.Pool(a.workers) as pool:
+            import tokenizer
+            tokenizer.extract_metadata(kv, Path(tmp))
+            print("writing sections:", flush=True)
+            for p in sorted(q for q in (Path(tmp) / "tokenizer").iterdir() if q.is_file()):
+                job.file(f"tokenizer/{p.name}", p)
+            job.chunks("dense", dense.chunks())
+            job.bytes("dense.index", dense.index_text())
+            job.chunks("experts", experts.chunks(pool))
+            job.bytes("experts.layout", experts.layout_text())
+            t = time.time()
+            parts = []
+            for n, info in dense_src.tensors.items():
+                if info.type_name == "Q8_0":
+                    parts.append(Stream(info.expected_bytes(), dense_src.chunks(n, pool)))
+                else:
+                    parts.append(dense_src.bytes(n).tobytes())
+            offs = w.add_parts("gguf", parts, TENSOR_ALIGN)
+            job._report("gguf", w.entries[-1][2], time.time() - t)
+            tens = {n: {"type": t.type_name, "type_id": t.type_id, "shape": [int(d) for d in t.ne],
+                        "bytes": t.expected_bytes(), "offset": o}
+                    for (n, t), o in zip(dense_src.tensors.items(), offs)}
+            meta = {
+                "format": "basalt", "version": 1, "family": Q.FAMILY, "name": a.name or kv.get("general.name"),
+                "converter": {"tool": "tools/convert/convert.py", "git": git_rev()},
+                "sources": [{"path": p.name, "size": p.stat().st_size,
+                             "fingerprint_sha256_first_last_64mib_and_size": fingerprint(p)} for p in ck.shards],
+                "gguf_kv": kv,
+                "tensors": tens,
+                "conversions": {"compat_bf16": False, "tensors": []},
+                "sampling": model_sampling(kv)[0], "license": {"name": kv.get("general.license", "unknown")},
+                "checkpoint": {
+                    "dir": Path(a.checkpoint).name,
+                    "config_sha256": hashlib.sha256((ck.dir / "config.json").read_bytes()).hexdigest(),
+                    "experts": {"format": "nvfp4", "source": "weight (E2M1 pairs), weight_scale (UE4M3 per 16), "
+                                "weight_scale_2 (FP32); input_scale unused", "repack": "codes and scales unchanged, "
+                                "nibbles moved into 64-value blocks", "tail": "fp32 {s_gate, s_up, s_down, 0} per expert"},
+                    "dense": {"projections": "Q8_0", "q8_0_method": "ggml reference rounding",
+                              "from": "FP8 code x per-tensor scale, NVFP4 E2M1 x UE4M3 x per-tensor scale, BF16",
+                              "transforms": {k: C.METHODS[k] for k in sorted({t.how for t in dense_src.tensors.values()})}}}}
+            job.bytes("meta", json.dumps(meta, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        w.close()
+        ok = True
+    except S.ConvertError as e:
+        die(str(e))
+    finally:
+        if not ok:
+            try:
+                w.f.close()
+            except OSError:
+                pass
+            partial.unlink(missing_ok=True)
+    os.replace(partial, out)
+    print(f"done: {len(job.rows)} sections, {out.stat().st_size / (1 << 30):.3f} GiB, {time.time() - job.t0:.1f} s -> {out}")
+
+
 def requant_dense(a) -> None:
     """BASE with its Q8_0 dense projections written as Q6_K; every other section and tensor is copied byte for byte."""
     import multiprocessing
@@ -634,6 +721,14 @@ def main():
         if a.mtp_dense and not Path(a.mtp_dense).is_file():
             ap.error(f"missing input: {a.mtp_dense}")
         from_checkpoint(a)
+        return
+    if a.checkpoint and not a.sections_from and not a.gguf:
+        import qwen35_checkpoint
+        if not qwen35_checkpoint.is_qwen35(a.checkpoint):
+            ap.error("--checkpoint without --sections-from reads a Qwen3.6 (qwen3_5_moe_text) checkpoint")
+        if a.mmproj or a.mtp_source or a.draft_vocab or a.profile or a.profile_from or a.hc8 or a.dense_q8_0 or a.mtp_dense:
+            ap.error("a Qwen3.6 --checkpoint takes only --out, --name, --workers and --force")
+        from_checkpoint_qwen35(a)
         return
     if a.dense_q8_0:
         ap.error("--dense-q8-0 needs --checkpoint and --sections-from")

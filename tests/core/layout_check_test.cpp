@@ -1,5 +1,6 @@
 // check_all over a synthetic weight table (host only): the canonical shapes pass; a wrong dimension, a wrong
-// engine form, a missing tensor and a tensor of the wrong layer family each fail with a message naming it.
+// engine form, a missing tensor and a tensor of the wrong layer family each fail with a message naming it.  The
+// qwen35moe geometry (plain residual, no indexer) has its own table.
 #include "basalt/core/layout.hpp"
 
 #include <cstdio>
@@ -31,30 +32,37 @@ static void build(WeightTable& t, const ModelGeometry& g) {
         const std::string p = "blk." + std::to_string(l) + ".";
         auto m = [&](const char* s, int64_t a, int64_t b) { WeightTableFixture::put(t, p + s, a, b, WeightKind::Verbatim); };
         auto v = [&](const char* s, int64_t n, WeightKind k) { WeightTableFixture::put(t, p + s, n, 1, k); };
-        m("hc_attn_down.weight", g.hc_dim(), g.hc_lr);
-        m("hc_attn_up.weight", g.hc_lr, g.hc_dim());
-        m("hc_attn_inject.weight", g.hc_dim(), g.hc);
-        m("hc_ffn_down.weight", g.hc_dim(), g.hc_lr);
-        m("hc_ffn_up.weight", g.hc_lr, g.hc_dim());
-        m("hc_ffn_inject.weight", g.hc_dim(), g.hc);
+        if (g.gated_residual()) {
+            m("hc_attn_down.weight", g.hc_dim(), g.hc_lr);
+            m("hc_attn_up.weight", g.hc_lr, g.hc_dim());
+            m("hc_attn_inject.weight", g.hc_dim(), g.hc);
+            m("hc_ffn_down.weight", g.hc_dim(), g.hc_lr);
+            m("hc_ffn_up.weight", g.hc_lr, g.hc_dim());
+            m("hc_ffn_inject.weight", g.hc_dim(), g.hc);
+            v("hc_attn_norm.weight", g.hc_dim(), WeightKind::F32);
+            v("hc_ffn_norm.weight", g.hc_dim(), WeightKind::F32);
+        } else {
+            v("attn_norm.weight", g.n_embd, WeightKind::F32);
+            v("post_attention_norm.weight", g.n_embd, WeightKind::F32);
+        }
         m("ffn_gate_inp.weight", g.n_embd, g.n_expert);
         m("ffn_gate_shexp.weight", g.n_embd, g.n_ff);
         m("ffn_up_shexp.weight", g.n_embd, g.n_ff);
         m("ffn_down_shexp.weight", g.n_ff, g.n_embd);
-        v("hc_attn_norm.weight", g.hc_dim(), WeightKind::F32);
-        v("hc_ffn_norm.weight", g.hc_dim(), WeightKind::F32);
         v("ffn_gate_inp_shexp.weight", g.n_embd, WeightKind::Bf16InF32);
         if (qsa) {
             m("attn_q.weight", g.n_embd, 2 * g.n_head * g.head_dim);
             m("attn_k.weight", g.n_embd, g.n_head_kv * g.head_dim);
             m("attn_v.weight", g.n_embd, g.n_head_kv * g.head_dim);
             m("attn_output.weight", g.n_head * g.head_dim, g.n_embd);
-            m("indexer.q_proj.weight", g.n_embd, g.idx_q_heads * g.idx_key_dim);
-            m("indexer.k_proj.weight", g.n_embd, g.idx_key_dim);
             v("attn_q_norm.weight", g.head_dim, WeightKind::F32);
             v("attn_k_norm.weight", g.head_dim, WeightKind::F32);
-            v("indexer.q_norm.weight", g.idx_key_dim, WeightKind::F32);
-            v("indexer.k_norm.weight", g.idx_key_dim, WeightKind::F32);
+            if (g.gated_residual()) {
+                m("indexer.q_proj.weight", g.n_embd, g.idx_q_heads * g.idx_key_dim);
+                m("indexer.k_proj.weight", g.n_embd, g.idx_key_dim);
+                v("indexer.q_norm.weight", g.idx_key_dim, WeightKind::F32);
+                v("indexer.k_norm.weight", g.idx_key_dim, WeightKind::F32);
+            }
         } else {
             m("attn_qkv.weight", g.n_embd, g.ssm_conv_channels);
             m("attn_gate.weight", g.n_embd, g.ssm_value_dim);
@@ -106,5 +114,21 @@ int main() {
     ModelGeometry other = g;
     other.n_ff = 512;
     check(!check_all(t, other, err), "a different geometry passed");
+
+    // qwen35moe: a plain residual, no indexer; the gated tensors are not asked for, the norms are
+    const ModelGeometry q = geometry_for_family(basalt::ModelFamily::Qwen35Moe);
+    check(q.n_layers == 40 && q.n_qsa_layers() == 10 && q.ssm_conv_channels == 8192 && q.ssm_value_dim == 4096 &&
+              q.n_expert == 256 && q.n_expert_used == 8 && !q.gated_residual(),
+          "the qwen35moe geometry");
+    WeightTable tq;
+    build(tq, q);
+    check(check_all(tq, q, err), "the qwen35moe table was refused");
+    check(!check_all(tq, g, err), "a qwen35moe table passed the qwen4exp geometry");
+    check(!check_all(t, q, err), "a qwen4exp table passed the qwen35moe geometry");
+    WeightTableFixture::erase(tq, "blk.39.post_attention_norm.weight");
+    check(!check_all(tq, q, err) && err.find("blk.39.post_attention_norm.weight") != std::string::npos,
+          "a missing norm passed");
+    WeightTableFixture::put(tq, "blk.39.post_attention_norm.weight", q.n_embd, 1, WeightKind::Bf16InF32);
+    check(!check_all(tq, q, err) && err.find("post_attention_norm") != std::string::npos, "a wrong norm form passed");
     std::puts("layout_check_test: passed");
 }

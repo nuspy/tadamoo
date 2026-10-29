@@ -17,6 +17,7 @@
 // The names are the weight table's tensor names (e.g. blk.0.hc_attn_down.weight); the draft layer's matrices are
 // prefixed "mtp." and use the drafter's own tensor names.  The codes and scales are the ones the quantizer made, so
 // loading them is bit-identical to quantizing the bf16 matrices.
+#include "basalt/artifact/model_family.hpp"
 #include "basalt/core/model_format.hpp"
 
 #include <cstdint>
@@ -100,6 +101,8 @@ public:
     /// Parses the `meta` section (once).
     bool load_meta(std::string& err);
     const Json& meta() const { return meta_; }
+    /// After load_meta: `meta.family` (absent: qwen4exp).  Unknown when it names a family Basalt does not know.
+    ModelFamily family() const;
 
     /// After load_meta: makes `GgufFile(path())` serve meta.gguf_kv and the tensors of the `gguf` section.
     bool register_gguf_view(std::string& err) const;
