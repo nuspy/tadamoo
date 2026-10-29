@@ -998,7 +998,7 @@ class SessionManager:
             if made is not None:
                 _write_json(history / "history.json", made)
         env = dict(os.environ)
-        env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root)})
+        env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root), "BASALT_COMPRESS": "1"})
         if self.api_key:
             env["BASALT_API_KEY"] = self.api_key
         flags = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW) if os.name == "nt" else 0
