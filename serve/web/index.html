@@ -34,6 +34,7 @@
 <script defer src="web/projects.js"></script>
 <script defer src="web/agentchat.js"></script>
 <script defer src="web/checkpoints.js"></script>
+<script defer src="web/billioncontext.js"></script>
 <script defer src="web/slash.js"></script>
 <script defer src="web/pskills.js"></script>
 <script defer src="web/export.js"></script>
@@ -321,6 +322,21 @@
           <div class="csnum" id="cs-threshold-box">
             <label for="cs-threshold" data-t="cs.threshold">Compact at (% of context)</label>
             <input id="cs-threshold" type="number" inputmode="numeric" min="30" max="100" step="5" placeholder="80">
+          </div>
+        </fieldset>
+        <fieldset class="csgroup" id="cs-bc">
+          <legend data-t="bc.title">Billion Context</legend>
+          <p class="help" data-t="bc.help"></p>
+          <label class="check"><input type="checkbox" id="cs-bc-on" aria-describedby="cs-bc-state"><span data-t="bc.on">Compress long conversations before they reach the model</span></label>
+          <div class="csnum">
+            <label for="cs-bc-port" data-t="bc.port">Port of the local process</label>
+            <input id="cs-bc-port" type="number" inputmode="numeric" min="1024" max="65535" step="1" aria-describedby="cs-bc-port-h">
+            <p class="help" id="cs-bc-port-h" data-t="bc.port.help"></p>
+          </div>
+          <p class="help" id="cs-bc-state" role="status" aria-live="polite"></p>
+          <div class="csrow wrap">
+            <button type="button" class="btn" id="cs-bc-save" data-t="bc.save">Save</button>
+            <button type="button" class="btn ghost" id="cs-bc-restart" data-t="bc.restart">Restart</button>
           </div>
         </fieldset>
         <fieldset class="csgroup" id="cs-visuals">
