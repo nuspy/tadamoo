@@ -168,7 +168,8 @@ def clean(values) -> dict:
 
 def engines_info(show_all: bool = False) -> dict:
     """GET /api/loader/engines: the engines, their Models tabs for this PC and its memory pool modes."""
-    return engines.listing(hardware.machine(), show_all)
+    from serve import engine_host
+    return engines.listing(hardware.machine(), show_all, engine_host.HOST.status())
 
 
 def info(svc, lang: str = "en") -> dict:

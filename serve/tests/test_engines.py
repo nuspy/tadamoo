@@ -7,6 +7,7 @@ import http.client
 import io
 import json
 import os
+import socket
 import sys
 import tempfile
 import unittest
@@ -132,7 +133,10 @@ class Registry(unittest.TestCase):
                                               "intel", "apple"})
         self.assertEqual(set(b["capabilities"]), set(engines.CAPABILITIES))
         self.assertTrue(all(v is True for v in b["capabilities"].values()))
-        self.assertTrue(all(v is None for v in s["capabilities"].values()))
+        self.assertEqual(set(s["capabilities"]), set(engines.CAPABILITIES))
+        self.assertTrue(all(isinstance(v, bool) for v in s["capabilities"].values()))
+        self.assertFalse(s["capabilities"]["calibrate"])
+        self.assertTrue(s["capabilities"]["context_kv"])
 
     def test_installed_means_the_binary_is_in_its_folder(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(engines, "ROOT", Path(d)):
@@ -224,12 +228,27 @@ class MemoryPool(unittest.TestCase):
             engines.memory_pool("wide", machine(APPLE))
 
 
+def connect(port: int) -> http.client.HTTPConnection:
+    """A connection to the local server; a connect attempt the loopback drops is retried on a new socket."""
+    for _ in range(8):
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+        try:
+            c.connect()
+            c.sock.settimeout(30)
+            return c
+        except OSError:
+            c.close()
+    raise OSError(f"127.0.0.1:{port} does not accept connections")
+
+
 class Http(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name,
                                                 "BASALT_FAKE_SYSTEM_OK": "1", **self.fake})
         self.env.start()
+        self.no_engines = mock.patch.object(engines, "ROOT", Path(self.dir.name))     # no engine installed on this PC leaks in
+        self.no_engines.start()
         self.path = os.path.join(self.dir.name, "basalt_config.json")
         Path(self.path).write_text(json.dumps(CONFIG, indent=2), encoding="utf-8")
         self.svc = make_service()
@@ -237,8 +256,15 @@ class Http(unittest.TestCase):
         self.sup = self.svc.supervisor = supervisor.Supervisor(self.svc, ["--mock-engine", "--config", self.path], mock=True)
         self.system = mock.patch.object(loader, "system_now", return_value=dict(ROOMY))
         self.system.start()
-        self.httpd = serve(self.svc, port=0)
-        self.port = self.httpd.server_address[1]
+        for _ in range(20):             # a port the loopback cannot reach is replaced
+            self.httpd = serve(self.svc, port=0)
+            self.port = self.httpd.server_address[1]
+            try:
+                socket.create_connection(("127.0.0.1", self.port), timeout=1).close()
+                break
+            except OSError:
+                self.httpd.shutdown()
+                self.httpd.server_close()
 
     fake = RTX5090
 
@@ -246,11 +272,12 @@ class Http(unittest.TestCase):
         self.httpd.shutdown()
         self.httpd.server_close()
         self.system.stop()
+        self.no_engines.stop()
         self.env.stop()
         self.dir.cleanup()
 
     def req(self, method, path, body=None):
-        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
+        c = connect(self.port)
         try:
             with contextlib.redirect_stdout(io.StringIO()):
                 c.request(method, path, body=None if body is None else json.dumps(body).encode(),
@@ -367,7 +394,17 @@ class WebTabs(unittest.TestCase):
         if not NODE:
             self.skipTest("node is needed to read the strings")
         strings = strings()
-        used = set(re.findall(r'\bT\(\s*"(eng\.[\w.]+)"', self.js))
+        used = {k for k in re.findall(r'T\(\s*"(eng\.[\w.]+)"', self.js) if not k.endswith(".")}
+        for name in ("max_context", "kv", "spec", "mtp", "expert_cache", "vram_reserve", "parallel", "tokenizer"):
+            used |= {f"eng.c.{name}", f"eng.c.{name}.help"}
+        used |= {f"eng.fam.{f}" for f in engines.FAMILIES}
+        used |= {f"eng.state.{x}" for x in ("stopped", "starting", "loading", "running", "error", "installed", "not")}
+        used |= {"eng.model.bad.nextn", "eng.model.bad.family"}
+        used |= {f"eng.e.{c}" for c in (
+            "start_failed", "start_timeout", "load_failed", "flag_unsupported", "control_unsupported", "in_use", "copy_failed",
+            "source_incomplete", "source_missing", "config_unreadable", "model_unsupported", "spawn_failed", "not_installed",
+            "busy", "binary_missing", "tokenizer_missing", "model_missing", "family_mismatch", "profile_missing",
+            "install_running")}
         for tid in ("rtx3040", "mac", "amd", "intel", "unified"):
             used |= {f"eng.tab.{tid}", f"eng.desc.{tid}"}
         used |= {f"eng.why.{c}" for c in ("no_gpu", "family", "sm", "hardware")}
