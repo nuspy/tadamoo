@@ -7,7 +7,11 @@
   listing(hw)    the body of GET /api/loader/engines
   memory_pools(hw) / memory_pool(want, hw)   the memory pool modes: "split" (VRAM and RAM tiers) always, "single" (one
                  pool shared by CPU and GPU) only on a machine known to have unified memory
-  install(id)    the engine installer: not available yet, nothing is downloaded
+  FAMILIES       the model families Strata reads: its binary, API model name, capability flags and Loader controls
+  controls(id, family)  the Loader controls an engine (and model family) supports; the page shows only those
+  check_values(id, values, family)   a Strata Loader request's values, each checked
+  install(id, ...)  copy an engine from a local folder or archive (serve/engine_install.py); a release download is
+                 not available yet
 
 A capability flag is True (the Loader control applies), False, or None (the engine does not report it yet)."""
 from __future__ import annotations
@@ -37,9 +41,29 @@ ENGINES: dict[str, dict] = {
         "families": ("nvidia_turing", "nvidia_ampere", "nvidia_ada", "nvidia_blackwell", "amd", "intel", "apple"),
         "sm": ("7.5", "8.6", "8.9", "12.0"),
         "models": ("qwen4exp", "qwen35moe", "deepseek41"),
-        "capabilities": dict.fromkeys(CAPABILITIES),
+        "capabilities": {},          # filled below from FAMILIES
     },
 }
+
+# Strata's model families: the binary that reads them, the name its API answers to, what the binary supports (checked
+# against the flags of the shipped binaries) and the Loader controls that map to a flag of that binary. Pictures are
+# set in the model's own run config (the projector and its reader), so there is no Loader control for them.
+FAMILIES: dict[str, dict] = {
+    "qwen4exp": {"exe": "strata", "model_name": "qwen3.8-flash-next",
+                 "capabilities": {"reserve_slider": True, "context_kv": True, "speed_spec": True, "expert_cache": True,
+                                  "vision": True, "profiles": True, "calibrate": False},
+                 "controls": ("max_context", "kv", "spec", "expert_cache", "vram_reserve", "parallel")},
+    "qwen35moe": {"exe": "strata-q36", "model_name": "qwen3.6-35b-a3b",
+                  "capabilities": {"reserve_slider": False, "context_kv": True, "speed_spec": True,
+                                   "expert_cache": False, "vision": True, "profiles": True, "calibrate": False},
+                  "controls": ("max_context", "mtp", "parallel")},
+    "deepseek41": {"exe": "strata-dsv41", "model_name": "deepseek-v4.1-flash",
+                   "capabilities": {"reserve_slider": True, "context_kv": True, "speed_spec": False,
+                                    "expert_cache": True, "vision": True, "profiles": True, "calibrate": False},
+                   "controls": ("max_context", "expert_cache", "vram_reserve", "parallel")},
+}
+ENGINES["strata"]["capabilities"] = {c: any(f["capabilities"][c] for f in FAMILIES.values()) for c in CAPABILITIES}
+BASALT_CONTROLS = ("max_context", "kv", "spec", "expert_cache", "vram_reserve", "parallel")
 
 TABS: list[dict] = [
     {"id": "qwen", "engine": "basalt", "label": "Qwen Loader", "builtin": True, "shows_on": ("nvidia_blackwell",)},
@@ -128,28 +152,88 @@ def memory_pool(want: str | None, hw: dict) -> str:
     return want
 
 
-def listing(hw: dict | None = None, show_all: bool = False) -> dict:
-    """GET /api/loader/engines: every engine with whether it is installed and runs here, the tabs to show, the PC's
-    adapters and families, and the memory pool modes."""
+def listing(hw: dict | None = None, show_all: bool = False, host: dict | None = None) -> dict:
+    """GET /api/loader/engines: every engine with whether it is installed, runs here and is running, the tabs to
+    show, the PC's adapters and families, and the memory pool modes. `host`: serve/engine_host.py's status."""
+    from serve import engine_install
     hw = hardware.machine() if hw is None else hw
+    host = host or {"engine": None, "phase": "idle"}
     shown = set(visible_engines(hw, show_all))
+    sources = engine_install.sources()
     engines = []
     for e in ENGINES.values():
         ok, code, text = compatible(e["id"], hw)
-        engines.append({"id": e["id"], "label": e["label"], "installed": installed(e["id"]), "compatible": ok,
-                        "reason_code": code, "reason": text, "families": list(e["families"]),
-                        "models": list(e["models"]), "capabilities": dict(e["capabilities"]),
-                        "visible": e["id"] in shown})
+        have = installed(e["id"])
+        running = host["engine"] == e["id"]
+        # Basalt is running when no other engine is: its own supervisor owns that state
+        state = "not_installed" if not have else (host["phase"] if running else "stopped")
+        item = {"id": e["id"], "label": e["label"], "installed": have, "compatible": ok,
+                "reason_code": code, "reason": text, "families": list(e["families"]),
+                "models": list(e["models"]), "capabilities": dict(e["capabilities"]),
+                "controls": list(controls(e["id"])), "visible": e["id"] in shown, "state": state,
+                "active": running, "source": sources.get(e["id"]), "install": engine_install.job(e["id"])}
+        if e["id"] == "strata":
+            item["model_families"] = {k: {"capabilities": dict(f["capabilities"]), "controls": list(f["controls"]),
+                                          "model_name": f["model_name"]} for k, f in FAMILIES.items()}
+            item["error"] = host.get("error") if running else None
+        engines.append(item)
     return {"engines": engines, "tabs": visible_tabs(hw, show_all),
             "hardware": {k: hw.get(k) for k in ("gpus", "families", "unified_memory", "os", "arch")},
-            "memory_pools": memory_pools(hw), "memory_pool": POOL_SPLIT}
+            "memory_pools": memory_pools(hw), "memory_pool": POOL_SPLIT, "active": host["engine"]}
 
 
-def install(engine_id: str) -> tuple[int, dict]:
-    """(HTTP status, body) of an install request: the engine installer is not available yet and downloads nothing."""
-    if engine_id not in ENGINES:
-        return 404, {"error": {"type": "invalid_request_error", "code": "unknown_engine", "message": "not found"}}
-    if installed(engine_id):
-        return 200, {"engine": engine_id, "status": "installed"}
-    return 501, {"error": {"type": "not_available", "code": "not_available_yet",
-                           "message": f"installing the {ENGINES[engine_id]['label']} engine is not available yet"}}
+def controls(engine_id: str, family: str | None = None) -> tuple[str, ...]:
+    """The Loader controls this engine supports: Basalt's all; Strata's those of the model family (all families'
+    when none is given)."""
+    if engine_id == "basalt":
+        return BASALT_CONTROLS
+    if family:
+        return FAMILIES[family]["controls"]
+    return tuple(dict.fromkeys(c for f in FAMILIES.values() for c in f["controls"]))
+
+
+def family_capabilities(family: str) -> dict:
+    return dict(FAMILIES[family]["capabilities"])
+
+
+def check_values(engine_id: str, values, family: str | None = None) -> dict:
+    """A Strata request's Loader values: only controls the engine supports (ValueError names the others), each a
+    whole number, a choice or text as the control needs."""
+    if engine_id != "strata":
+        raise ValueError(f"{engine_id}: its values are the Loader's own fields")
+    if values is None:
+        return {}
+    if not isinstance(values, dict):
+        raise ValueError("values: an object of Loader controls")
+    allowed = controls(engine_id, family)
+    out: dict = {}
+    for name, value in values.items():
+        if name not in allowed and name != "tokenizer":
+            raise ValueError(f"{name}: not a control {ENGINES[engine_id]['label']} supports"
+                             + (f" for the {family} family" if family else ""))
+        if value is None or value == "":
+            continue
+        if name == "kv":
+            if value not in KV_CHOICES:
+                raise ValueError(f"kv: one of {', '.join(KV_CHOICES)}")
+        elif name == "tokenizer":
+            if not isinstance(value, str):
+                raise ValueError("tokenizer: a folder path")
+        elif name == "expert_cache":
+            if value is False or value == "off":
+                value = 0
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError("expert_cache: a whole number of expert slots (0 = off)")
+        elif isinstance(value, bool) or not isinstance(value, int) or value < 0 or (name == "max_context" and value < 1):
+            raise ValueError(f"{name}: a whole number")
+        out[name] = value
+    return out
+
+
+KV_CHOICES = ("fp16", "int8", "q4_0", "k8v4")
+
+
+def install(engine_id: str, source: str | None = None, remember: bool = False) -> tuple[int, dict]:
+    """(HTTP status, body) of an install request: see serve/engine_install.py."""
+    from serve import engine_install
+    return engine_install.start(engine_id, source, remember)

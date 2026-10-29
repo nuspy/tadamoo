@@ -54,7 +54,7 @@ def _read() -> dict:
     if not isinstance(data.get("default"), str):
         data["default"] = None                          # none chosen: default_of() picks one
     for p in data["load"].values():
-        if isinstance(p, dict) and isinstance(p.get("values"), dict):
+        if isinstance(p, dict) and isinstance(p.get("values"), dict) and not p.get("engine"):
             p["values"] = {k: v for k, v in p["values"].items() if k not in settings.REMOVED_KEYS}
     return data
 
@@ -175,7 +175,7 @@ def listing(system: dict | None = None, facts: dict | None = None, holds: dict |
                                                        holds_vram=holds_vram), "builtin": True, "model": None}]
     loads += [{"name": n, "values": p.get("values", {}), "builtin": False, "saved": p.get("saved"),
                "model": p.get("model") if isinstance(p.get("model"), str) else None}
-              for n, p in sorted(data["load"].items(), key=lambda kv: kv[0].lower())]
+              for n, p in sorted(data["load"].items(), key=lambda kv: kv[0].lower()) if engine_of(p) == "basalt"]
     default = default_of(data)
     for p in loads:
         p["default"] = p["name"] == default
@@ -227,7 +227,7 @@ def get_load(name: str, facts: dict | None = None) -> dict | None:
     if name == SAFE_NAME:
         return safe_values(facts=facts)
     p = _read()["load"].get(name)
-    return dict(p.get("values", {})) if p else None
+    return dict(p.get("values", {})) if p and engine_of(p) == "basalt" else None
 
 
 def get_model(name: str) -> str | None:
@@ -236,6 +236,32 @@ def get_model(name: str) -> str | None:
         return None
     p = _read()["load"].get(name) or {}
     return p.get("model") if isinstance(p.get("model"), str) else None
+
+
+def engine_of(item) -> str:
+    """The engine a load profile is for: "basalt" unless it was saved with another (serve/engines.py)."""
+    return item.get("engine") or "basalt" if isinstance(item, dict) else "basalt"
+
+
+def _engine_item(engine: str, values, model) -> dict:
+    """A profile of another engine: its controls (engines.check_values) and the model file or run config to load."""
+    from serve import engines
+    if engine not in engines.ENGINES or engine == "basalt":
+        raise ValueError(f"engine: one of {', '.join(k for k in engines.ENGINES if k != 'basalt')}")
+    if not isinstance(model, str) or not os.path.isfile(model):
+        raise ValueError("model: a file on this PC")
+    return {"engine": engine, "values": engines.check_values(engine, values), "model": model}
+
+
+def engine_profiles(engine: str) -> list[dict]:
+    """The load profiles saved for `engine`: {"name", "values", "model", "saved", "model_missing"}."""
+    out = []
+    for n, p in sorted(_read()["load"].items(), key=lambda kv: kv[0].lower()):
+        if engine_of(p) == engine:
+            m = p.get("model") if isinstance(p.get("model"), str) else None
+            out.append({"name": n, "values": p.get("values", {}), "model": m, "saved": p.get("saved"),
+                        "model_missing": not (m and os.path.isfile(m))})
+    return out
 
 
 def _load_item(values, model) -> dict:
@@ -264,8 +290,12 @@ def change(req: dict) -> dict:
             name = check_name(req.get("name"))
             if kind == "load" and name == SAFE_NAME:
                 raise ValueError(f"{SAFE_NAME} is built in: save under another name")
-            item = _load_item(req.get("values"), req.get("model")) if kind == "load" else \
-                {"settings": check_inference(req.get("settings"))}
+            if kind == "load" and req.get("engine") not in (None, "", "basalt"):
+                item = _engine_item(req["engine"], req.get("values"), req.get("model"))
+            elif kind == "load":
+                item = _load_item(req.get("values"), req.get("model"))
+            else:
+                item = {"settings": check_inference(req.get("settings"))}
             box[name] = {**item, "saved": loader.now_iso()}
         elif action == "rename":
             old, new = check_name(req.get("name")), check_name(req.get("new_name"))
@@ -288,7 +318,7 @@ def change(req: dict) -> dict:
                 data["default"] = None
         elif action == "default":
             name = check_name(req.get("name"))
-            if kind != "load" or (name != SAFE_NAME and name not in box):
+            if kind != "load" or (name != SAFE_NAME and name not in box) or engine_of(box.get(name)) != "basalt":
                 raise ValueError(f"no load profile named {name!r}")
             data["default"] = name
         elif action == "import":
