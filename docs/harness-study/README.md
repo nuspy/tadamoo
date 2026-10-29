@@ -1,11 +1,12 @@
 # Harness study
 
-What our agent harness (`harness/`) can learn from other open-source harnesses, and two designs that follow from it. The
+What our agent harness (`harness/`) can learn from other open-source harnesses (Hermes, OpenClaw, Harness², Goose, Roo Code), and two designs that follow from it. The
 studies read the sources and compared them with `harness/` and `docs/harness.md`; nothing was run. Everything is a proposal
 until built and measured with `python -m harness.eval`, with every number labelled with the GPU power limit.
 
 - [long-answers.md](long-answers.md): why final texts come out shorter than asked, cheap fixes, and a segmented long-answer mode.
 - [hermes.md](hermes.md): Hermes Agent (MIT).
+- [openclaw.md](openclaw.md): OpenClaw (MIT).
 - [harness2.md](harness2.md): Harness² from Google Research (Apache 2.0), a meta-harness that tunes the harness around an executor.
 - [vibe-coding.md](vibe-coding.md): a coding mode for the Agent tab, from Goose (Apache 2.0) and Roo Code (Apache 2.0).
 
@@ -23,7 +24,9 @@ until built and measured with `python -m harness.eval`, with every number labell
    cycles, progress reset, identical-result stubs).
 6. **Honest evaluation:** an A/A noise floor, divergent-task reports, resume with a fingerprint, `--offline` for public
    benchmarks.
-7. **Long final texts in segments** with protected content (images, links, code, tables, diagrams) and deterministic checks.
+7. **Prefix-cache hygiene and compaction inside one long turn** (OpenClaw): a stable tool surface (a plan-mode toggle re-reads
+   the prefix today), and a summariser that works on a single long autonomous turn and keeps the newest text.
+8. **Long final texts in segments** with protected content (images, links, code, tables, diagrams) and deterministic checks.
 
 ## Licence notes
 
