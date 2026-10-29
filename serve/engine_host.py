@@ -140,11 +140,11 @@ def build_config(model: str, values: dict, port: int, family: str | None = None)
     tok = values.get("tokenizer") or cfg.get("tokenizer")
     if not tok and path.suffix.lower() == ".gguf":
         for d in (path.parent / "tokenizer", path.parent.parent / "tokenizer"):
-            if (d / "vocab.json").is_file():
+            if all((d / f).is_file() for f in ("vocab.json", "merges.txt", "token_type.json")):
                 tok = str(d)
                 break
-    if not tok or not (Path(tok) / "vocab.json").is_file():
-        raise Refused(400, "tokenizer_missing", "the model's tokenizer folder (with vocab.json) is needed: set it in the Strata tab")
+    if not tok or not all((Path(tok) / f).is_file() for f in ("vocab.json", "merges.txt", "token_type.json")):
+        raise Refused(400, "tokenizer_missing", "the model's tokenizer folder (with vocab.json, merges.txt and token_type.json) is needed: set it in the Strata tab")
     # the child listens on loopback only and this server checks the key, so the run config's own key and host go
     cfg = {k: v for k, v in cfg.items() if k not in ("api_key", "host", "port", "lib_dirs")}
     cfg.update(exe=str(exe), args=args, cwd=str(exe.parent), tokenizer=str(tok), port=port, host="127.0.0.1",
