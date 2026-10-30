@@ -1,7 +1,7 @@
 "use strict";
 /* The Long answer control: a button beside Send that opens a small dialog. The options apply to the next message only.
    In the Chat they go to the server as `long_answer` (serve/longform.py writes the text in parts); in the Agent the message carries one
-   line that the harness reads, so the model hands its plan to plan_long_answer. */
+   line that the harness reads, and the harness itself writes the text in parts. */
 (() => {
   const KEY = "basalt.longanswer";
   const MODES = ["write", "translate", "rewrite"];

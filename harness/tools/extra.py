@@ -76,10 +76,6 @@ def register_extra_tools(registry: Any, config: Any = None, *, workspace: Any = 
     chosen = set(ALL) if wanted is None else set(wanted) & set(ALL)
     root = workspace if workspace is not None else _get(config, "workspace", ".")
     added: List[str] = []
-    binding = getattr(registry, "longform", None)
-    if binding is not None:                                   # plan_long_answer writes with the conversation's own model
-        binding.client, binding.cancel = client, cancel
-
     if "run_code" in chosen:
         from harness.tools.execute import register_run_code
         register_run_code(registry, root, sandbox, python=_get(config, "code_python"), cancel=cancel, broker=secrets)

@@ -52,6 +52,7 @@ DYNAMIC = {
     "wl.act.": ["payment_authorized", "payment_confirmed", "payment_refused", "waiver_granted", "waiver_revoked", "system_registered", "system_removed"],
     "wl.w.": ["1", "2", "3"],
     "ch.routed.": ["steer", "queue", "urgent", "parallel"],
+    "la.r.": ["not_found", "ambiguous", "too_short", "spans_blocks", "protected", "heading", "table", "limit", "length", "rejected", "invalid"],
     "pv.data.": ["personal", "general"],
     "pt.": ["what", "pros", "cons", "when", "cache"],
     "cp.state.": ["approved", "off"],
