@@ -104,18 +104,30 @@ def register_skill_tool(registry: Any, catalog: SkillCatalog) -> None:
     )
 
 
-def find_project_guidelines(workspace_dir: str | Path) -> Tuple[Optional[Path], str]:
-    """AGENTS.md, else CLAUDE.md, else GEMINI.md: from the workspace upward to the repository root."""
+def read_project_guidelines(workspace_dir: str | Path) -> Tuple[Optional[Path], str, int]:
+    """(file, text, bytes cut off): AGENTS.md, else CLAUDE.md, else GEMINI.md, from the workspace upward to the repository root; the text
+    is the first MAX_GUIDELINE_BYTES of the file."""
     here = Path(workspace_dir).resolve()
     for folder in [here, *here.parents]:
         for filename in GUIDELINE_FILES:
             target = folder / filename
             if target.is_file():
-                data = target.read_bytes()[:MAX_GUIDELINE_BYTES]
-                return target, data.decode("utf-8", errors="replace")
+                data = target.read_bytes()
+                return target, data[:MAX_GUIDELINE_BYTES].decode("utf-8", errors="replace"), max(0, len(data) - MAX_GUIDELINE_BYTES)
         if (folder / ".git").exists():
             break
-    return None, ""
+    return None, "", 0
+
+
+def guidelines_cut_notice(name: str, cut: int) -> str:
+    """The line that tells the model a project file was read only in part."""
+    return f"[{name} was cut at {MAX_GUIDELINE_BYTES // 1024} KiB; {cut} bytes ignored; read the file directly]"
+
+
+def find_project_guidelines(workspace_dir: str | Path) -> Tuple[Optional[Path], str]:
+    """The project's instruction file and its text, as far as it is read (see `read_project_guidelines`)."""
+    path, text, _ = read_project_guidelines(workspace_dir)
+    return path, text
 
 
 def load_project_guidelines(workspace_dir: str | Path) -> str:

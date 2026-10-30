@@ -2,6 +2,7 @@
 import copy
 import json
 
+from harness import untrusted
 from harness.agent_loop import AgentLoop, FINAL
 from harness.audit import AuditLedger
 from harness.context import ContextManager, TokenJuiceCompactor
@@ -118,7 +119,7 @@ def test_a_masked_first_result_is_named_by_the_file_that_holds_it(tmp_path):
     assert third.endswith(".txt. The call was not repeated.")
     saved = third.split("saved at ")[1].split(". The call")[0].split("/")[-1]
     text = (tmp_path / "artifacts" / saved).read_text(encoding="utf-8")
-    assert text.startswith('<untrusted_data source="browser_open">\nURL: https://n.example/big') and "word word" in text
+    assert untrusted.normalize(text).startswith('<untrusted_data source="browser_open">\nURL: https://n.example/big') and "word word" in text
 
 
 def test_a_first_call_that_failed_is_not_counted_as_a_read(tmp_path):

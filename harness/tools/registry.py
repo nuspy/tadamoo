@@ -26,6 +26,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
+from harness.tools.repair import coerce_arguments, resolve_tool_name
+
 DEFAULT_TOOL_TIMEOUT = 3600.0         # the limit when the person has not set one (serve/limits.py, tool_timeout_s); a tool call always has one
 _TICK = 0.1
 
@@ -123,6 +125,7 @@ class ToolDefinition:
     handler: Callable[..., Any]
     untrusted: bool = False
     outward: bool = False        # sends something the model wrote (an address, a query, a form) out of this PC
+    tier: int = 1                # where its definition goes in the tool list: STABLE, SESSION or EXTERNAL (see ToolRegistry.schemas)
 
 
 def validate_arguments(name: str, schema: Dict[str, Any], arguments: Any) -> Dict[str, Any]:
@@ -152,6 +155,9 @@ def validate_arguments(name: str, schema: Dict[str, Any], arguments: Any) -> Dic
 
 
 _UNSET: Any = object()
+
+# The tool list is part of the prompt prefix the server caches, so tools that rarely change come first.
+STABLE, SESSION, EXTERNAL = 0, 1, 2
 
 # The optional argument every tool takes beside its own: one sentence for the person. The first name a tool does not already use is the one offered.
 DESCRIPTION_KEYS = ("description", "explain")
@@ -208,6 +214,7 @@ class ToolRegistry:
         untrusted: bool = False,
         timeout: Optional[float] = _UNSET,
         outward: bool = False,
+        tier: int = SESSION,
     ) -> None:
         if timeout is not _UNSET:
             self.set_timeout(name, timeout)
@@ -219,7 +226,13 @@ class ToolRegistry:
             handler=handler,
             untrusted=untrusted,
             outward=outward,
+            tier=tier,
         )
+
+    def mark_stable(self) -> None:
+        """The tools registered so far are the fixed set every conversation has: they lead the tool list."""
+        for tool in self._tools.values():
+            tool.tier = STABLE
 
     def unregister(self, name: str) -> bool:
         self._timeouts.pop(name, None)
@@ -232,10 +245,11 @@ class ToolRegistry:
         return sorted(self._tools)
 
     def schemas(self) -> List[Dict[str, Any]]:
-        """Standard OpenAI/Basalt tool definitions, in a stable order so the prompt prefix stays identical. Each tool also offers the
-        optional sentence for the person (see DESCRIPTION_KEYS); the tool's own parameters are not changed."""
+        """Standard OpenAI/Basalt tool definitions, in a stable order so the prompt prefix stays identical: the fixed tools first, then
+        those a conversation's setup adds, then those of outside servers, each group by name. Each tool also offers the optional sentence
+        for the person (see DESCRIPTION_KEYS); the tool's own parameters are not changed."""
         out = []
-        for t in sorted(self._tools.values(), key=lambda t: t.name):
+        for t in sorted(self._tools.values(), key=lambda t: (t.tier, t.name)):
             parameters, key = t.parameters, description_key(t.parameters)
             if key is not None:
                 parameters = {**parameters, "properties": {**(parameters.get("properties") or {}), key: {"type": "string", "description": _DESCRIPTION_HELP}}}
@@ -247,17 +261,27 @@ class ToolRegistry:
         tool = self.get(name)
         return (arguments, "") if tool is None else split_description(tool.parameters, arguments)
 
+    def resolve(self, name: str) -> "tuple[Optional[str], List[str]]":
+        """The registered tool a name stands for (see repair.resolve_tool_name) and, when there is none, the tools with a similar name."""
+        return resolve_tool_name(name, self.names())
+
+    def coerce(self, name: str, arguments: Any) -> "tuple[Any, bool]":
+        """The arguments with each value made the type the tool's schema asks for where that is not in doubt, and whether any changed."""
+        tool = self.get(name)
+        return (arguments, False) if tool is None else coerce_arguments(tool.parameters, arguments)
+
     def validate(self, name: str, arguments: Any) -> Dict[str, Any]:
+        """The arguments checked against the tool's schema, after the safe coercions; the checked arguments are returned."""
         tool = self.get(name)
         if tool is None:
             raise KeyError(f"Unknown tool: '{name}'")
-        return validate_arguments(name, tool.parameters, arguments)
+        return validate_arguments(name, tool.parameters, self.coerce(name, arguments)[0])
 
     def execute(self, name: str, arguments: Dict[str, Any]) -> Any:
         tool = self.get(name)
         if tool is None:
             raise KeyError(f"Unknown tool: '{name}'")
-        validate_arguments(name, tool.parameters, arguments)
+        arguments = validate_arguments(name, tool.parameters, self.coerce(name, arguments)[0])
         limit = self.timeout_for(name)
         if not limit:
             return tool.handler(**arguments)

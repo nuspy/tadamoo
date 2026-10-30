@@ -6,6 +6,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fake_services import FakeWikibridge
+from harness import untrusted
 from harness.eval import EvalRunner, expand_strategies, generate_eval_report, load_task_set
 from harness.integrations.wiki_tools import register_wiki_tools
 from harness.integrations.wikibridge_client import WikiBridgeClient
@@ -146,7 +147,7 @@ def test_the_rag_tool_really_returns_the_passage_with_the_answer(tmp_path):
 
     EvalRunner(client_factory=lambda t, r: Spy(call("kb_search", {"query": "freeze hotfix code word"}), say("LANTERN"))).evaluate_task(task, 1)
     tool_msg = [m for m in seen[-1] if m["role"] == "tool"][0]["content"]
-    assert "LANTERN" in tool_msg and tool_msg.startswith("<untrusted_data source=\"kb_search\">")
+    assert "LANTERN" in tool_msg and untrusted.normalize(tool_msg).startswith("<untrusted_data source=\"kb_search\">")
 
 
 # -- wikibridge tools ----------------------------------------------------------------------------------------------
@@ -197,5 +198,5 @@ def test_the_stack_can_offer_the_wiki(wiki, tmp_path, monkeypatch):
     b = build_agent(AgentConfig(workspace=str(tmp_path), data_dir=str(tmp_path / "d"), wiki=True, wiki_project="cervinia",
                                 use_memory=False, use_checkpoints=False), client=ScriptedClient(call("wiki_search", {"query": "diana"}), say("ok")))
     b.agent.run("who is diana")
-    assert "<untrusted_data source=\"wiki_search\">" in [m for m in b.agent.messages if m["role"] == "tool"][0]["content"]
+    assert "<untrusted_data source=\"wiki_search\" id=\"" in [m for m in b.agent.messages if m["role"] == "tool"][0]["content"]
     b.close()

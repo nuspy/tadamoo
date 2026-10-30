@@ -8,6 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fake_mcp_http import FakeMcpHttp
+from harness import untrusted
 from harness.agent_loop import AgentLoop
 from harness.mcp_client import MCPClient, MCPError, MCPHttpClient, MCPHub, clean_description
 from harness.permissions import PermissionLevel, PermissionManager
@@ -187,7 +188,7 @@ def test_mcp_results_reach_the_model_fenced_and_taint_the_session(client, tmp_pa
                       registry, permissions=perms)
     agent.run("go")
     tool_msg = [m for m in agent.messages if m["role"] == "tool"][0]["content"]
-    assert tool_msg.startswith("<untrusted_data source=\"mcp_call\">") and perms.rule_of_two_broken
+    assert untrusted.normalize(tool_msg).startswith("<untrusted_data source=\"mcp_call\">") and perms.rule_of_two_broken
 
 
 # -- Streamable HTTP -------------------------------------------------------------------------------

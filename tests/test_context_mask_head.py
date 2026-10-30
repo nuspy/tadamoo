@@ -1,6 +1,7 @@
 """A masked tool result says what it was, inside the untrusted fence, and where the full text is."""
 import json
 
+from harness import untrusted
 from harness.context import (MASK_HEAD_CHARS, MASK_SAVED_NOTE, ContextManager, TokenJuiceCompactor, describe_result, fence_untrusted,
                              masked_artifact, wire_messages)
 
@@ -19,7 +20,7 @@ def masked_first(tmp_path, name, arguments, content):
     out = manager(tmp_path).prepare(msgs)
     first = out[2]
     assert first["masked"] is True and out[4]["content"].startswith("NEW")
-    return first["content"]
+    return untrusted.normalize(first["content"])         # the ids of the fences are random; the text around them is what is compared
 
 
 PAGE = ('<untrusted_data source="browser_open">\nURL: https://news.example/ukraine\nTitle: Ukraine war: live\nElements:\n[1] link "Home"\n'

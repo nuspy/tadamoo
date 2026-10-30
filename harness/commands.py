@@ -3,6 +3,8 @@ Each returns plain data; the page words it in the person's language. Commands th
 model, are the page's own (serve/web/slash.js)."""
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Callable, Dict, List
 
 from harness.permissions import PermissionLevel
@@ -24,10 +26,37 @@ def _context(session: Any) -> Dict[str, Any]:
             "summarised": any(m.get("summary") for m in agent.messages)}
 
 
+def _section(name: str, text: str, **more: Any) -> Dict[str, Any]:
+    raw = text.encode("utf-8")
+    return {"name": name, "bytes": len(raw), "sha": hashlib.sha256(raw).hexdigest()[:12], **more}
+
+
+def prefix_sections(session: Any) -> Dict[str, Any]:
+    """The size and a short hash of each part of what comes first in every request: the blocks of the system prompt and the groups of
+    tool definitions, then the two together. When the hash of a part changes between two requests, the server reads everything after it
+    again."""
+    agent, builder = session.agent, getattr(session.built, "builder", None)
+    sections: List[Dict[str, Any]] = []
+    if builder is not None:
+        from harness.context import PIN_ORDER
+        sections += [_section(name, builder.blocks[name]) for name in PIN_ORDER if builder.blocks.get(name)]
+    registry = agent.tools
+    groups: Dict[int, List[Dict[str, Any]]] = {}
+    for schema in registry.schemas():
+        groups.setdefault(registry.get(schema["function"]["name"]).tier, []).append(schema)
+    for tier, label in ((0, "tools:stable"), (1, "tools:session"), (2, "tools:external")):
+        if tier in groups:
+            sections.append(_section(label, json.dumps(groups[tier], sort_keys=True, ensure_ascii=False), count=len(groups[tier])))
+    system = agent.messages[0].get("content") if agent.messages else ""
+    whole = _section("prefix", system + "\n" + json.dumps(registry.schemas(), sort_keys=True, ensure_ascii=False))
+    return {"sections": sections, "prefix_bytes": whole["bytes"], "prefix_sha": whole["sha"]}
+
+
 def status(session: Any, args: str) -> Dict[str, Any]:
     built, agent = session.built, session.agent
     return {"mode": _mode_of(built.permissions), "effort": agent.sampling.get("reasoning_effort", ""), "turns": session.turns_done,
             "max_turns": agent.max_turns, "end_turn_bias": agent.sampling.get("end_turn_bias", 0.0),
+            "temperature": agent.sampling.get("temperature"), "max_tokens": agent.max_tokens, "notices": list(getattr(built, "notices", [])),
             "model_tokens": agent.total_tokens, "memories": built.memory.count() if built.memory else 0,
             "mcp_servers": len(built.mcp.catalog) if built.mcp is not None else 0, "tools": len(agent.tools.names()), **_context(session)}
 
@@ -75,7 +104,7 @@ def audit(session: Any, args: str) -> Dict[str, Any]:
 
 
 def context(session: Any, args: str) -> Dict[str, Any]:
-    return _context(session)
+    return {**_context(session), **prefix_sections(session), "notices": list(getattr(session.built, "notices", []))}
 
 
 def compact(session: Any, args: str) -> Dict[str, Any]:

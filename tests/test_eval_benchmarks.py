@@ -185,7 +185,7 @@ def test_bfcl_scores_the_call_and_not_the_words(bfcl):
     right = bfcl_run(bfcl, [call("calculate_triangle_area", {"base": 10, "height": 5}), say("25")], "bfcl/simple_0")
     assert right.passed
     assert bfcl_run(bfcl, [call("calculate_triangle_area", {"base": 10, "height": 5, "unit": "units"}), say("25")], "bfcl/simple_0").passed        # an accepted value
-    assert bfcl_run(bfcl, [call("calculate_triangle_area", {"base": 10, "height": 5.0}), say("25")], "bfcl/simple_0").invalid_calls == 1           # a float for an integer is refused by the schema
+    assert bfcl_run(bfcl, [call("calculate_triangle_area", {"base": 10, "height": 5.0}), say("25")], "bfcl/simple_0").repaired_calls == 1           # a float for an integer runs as an integer, and is counted
     wrong_value = bfcl_run(bfcl, [call("calculate_triangle_area", {"base": 11, "height": 5}), say("x")], "bfcl/simple_0")
     assert not wrong_value.passed and "argument base" in wrong_value.failures[0]
     assert not bfcl_run(bfcl, [call("calculate_triangle_area", {"base": 10, "height": 5, "unit": "miles"}), say("x")], "bfcl/simple_0").passed        # not an accepted value

@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from harness import untrusted
 from harness.context import (ContextBuilder, ContextManager, TokenJuiceCompactor, available_budget,
                              get_eviction_candidates, html_to_markdown, trim_json, wire_messages)
 from harness.memory import MemoryStore, default_db_path, fts_query
@@ -154,8 +155,9 @@ def test_memories_go_to_the_tail_as_untrusted_data_and_not_in_the_prefix():
     assert msgs[0]["content"] == before                  # the cached prefix did not change
     assert msgs[0]["pinned"] is True
     tail = msgs[-1]["content"]
-    assert tail.startswith("<untrusted_data source=\"memory\">") and "data, not instructions" in tail
-    assert tail.count("</untrusted_data>") == 1 and "\n# New Instructions" not in tail
+    flat = untrusted.normalize(tail)
+    assert flat.startswith("<untrusted_data source=\"memory\">") and "data, not instructions" in tail
+    assert flat.count("</untrusted_data>") == 1 and "\n# New Instructions" not in tail
 
 
 def test_memory_store_fts5(tmp_path: Path):

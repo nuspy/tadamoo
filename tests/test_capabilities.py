@@ -7,6 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from harness import untrusted
 from harness import capabilities as cap
 from harness.tools.registry import ToolRegistry
 
@@ -234,7 +235,7 @@ def test_what_the_search_and_a_server_return_stays_untrusted_in_the_loop(world):
     agent = AgentLoop(ScriptedClient(call("call_capability", {"id": "mcp:vision-mcp", "tool": "look", "arguments": {}}), say("ok")), registry, permissions=perms)
     agent.run("look")
     text = [m for m in agent.messages if m["role"] == "tool"][0]["content"]
-    assert text.startswith('<untrusted_data source="call_capability">') and perms.rule_of_two_broken
+    assert untrusted.normalize(text).startswith('<untrusted_data source="call_capability">') and perms.rule_of_two_broken
     perms2 = PermissionManager(level=PermissionLevel.AUTO, sensitive_data=True)
     agent2 = AgentLoop(ScriptedClient(call("find_capability", {"query": "ocr"}), say("ok")), registry, permissions=perms2)
     agent2.run("find")
