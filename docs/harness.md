@@ -1066,6 +1066,7 @@ wide, not for phones.
   and the copy of a git folder are the Chat's. The Chat tab lists only the conversations with no folder (the server's `chat-workspace`), the
   Agent tab only those of the folders. Each tab goes back to its own last conversation. A conversation sends each file edit to the Changes
   panel (`--report-changes`), which opens beside the conversation with the *Changes* button.
+- **Target Loop**: a button next to Send in the Chat and in the Agent tab opens a dialog with a large text box (and list tools that every prompt box now has: numbered and bulleted lists, Enter for the next item, Tab to indent, Ctrl+Enter to send). The target is split into items to check and tasks, which are done one by one in the conversation and judged against the evidence until all are met, it stalls, or you stop it; achieved parts are struck through in red, with notes and the history of the session's targets. See [target-loop.md](target-loop.md).
 - **Plans**: the graph (drawn with status as icon and word as well as colour), an ordered list that works by keyboard,
   proposed changes shown on the graph before they are applied, approve and reject, tasks handed to you, a box to judge events.
 

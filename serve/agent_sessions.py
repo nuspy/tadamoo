@@ -1667,6 +1667,12 @@ class SessionManager:
             from serve.agent_runs import _kill_tree
             _kill_tree(live.proc)
 
+    def note(self, sid: str, event: Dict[str, Any]) -> None:
+        """Puts an event of the server's own (not the process's) in the conversation's stream, for the page to show."""
+        with self._lock:
+            self._record(sid)
+        self._push(sid, event)
+
     def events(self, sid: str, after: int = 0) -> Dict[str, Any]:
         with self._lock:
             rec = self._record(sid)

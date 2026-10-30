@@ -45,6 +45,8 @@ from harness.payments_broker import PaymentsBroker
 from harness.waiver.dossier import sntp_offset
 from harness.vault import Vault, VaultError
 from serve.agent_sessions import SessionManager
+from serve.target_api import TargetManager
+from harness.target import TargetError
 from serve.files_api import FilesApi, FilesError
 from serve.projects import ProjectStore
 from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAccess, tailscale_peers, tailscale_status, tailscale_up
@@ -70,6 +72,7 @@ _CHANGES = ChangeJournal(userdata.path("journal"))
 _APPROVALS = ApprovalBoard()
 _RUNNER = None                                        # made on first use: it needs this server's address
 _SESSIONS = None                                      # the Chat's conversations with the agent, made on first use
+_TARGETS = None                                       # the Target Loop of those conversations, made on first use
 _PROJECTS = None                                      # the folders of the Agent tab, made on first use
 _INSTALLER = Installer()                              # installs Tailscale when the person asks
 _ROUTINES = None                                      # the agent's recurring routines, made with the conversations or on first use
@@ -2193,6 +2196,13 @@ def make_handler(svc: Service, remote: bool = False):
                 self._routines()                          # the clock of the routines starts with the conversations
             return _SESSIONS
 
+        def _targets(self) -> TargetManager:
+            global _TARGETS
+            mgr = self._agent_sessions()
+            if _TARGETS is None or _TARGETS.sessions is not mgr:
+                _TARGETS = TargetManager(mgr, _TASKS, lambda: _CHANGES.load().get("edits", []))
+            return _TARGETS
+
         def _plan_effect_sink(self):
             """What the conversations tell the plans: an action done while a plan's step was being worked on is written on the step."""
             service = self._plan_service()
@@ -2224,6 +2234,8 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, mgr.compare_result(parts[2]))
                     if len(parts) == 3 and parts[2] == "back-impact":
                         return self._json(200, mgr.back_impact(parts[1], int((parse_qs(urlsplit(self.path).query).get("turn", ["0"])[0]) or 0)))
+                    if len(parts) >= 3 and parts[2] == "targets":
+                        return self._json(200, self._targets().get_route(parts[1], parts[3:]))
                     if len(parts) == 3 and parts[2] == "events":
                         after = int((parse_qs(urlsplit(self.path).query).get("after", ["0"])[0]) or 0)
                         return self._json(200, mgr.events(parts[1], after))
@@ -2263,6 +2275,8 @@ def make_handler(svc: Service, remote: bool = False):
                     if item is None:
                         return self._json(404, {"error": {"message": "That request is not there any more."}})
                     return self._json(200, {"status": item["status"]})
+            except TargetError as e:
+                return self._json(404, {"error": {"type": "target", "message": str(e), "code": e.code}})
             except RunError as e:
                 return self._json(404, {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except ValueError as e:
@@ -2317,6 +2331,8 @@ def make_handler(svc: Service, remote: bool = False):
                     if parts == ["sessions", "merge"]:
                         return self._json(200, {"session": mgr.merge(req.get("a"), req.get("b"), req.get("instruction", ""))})
                     # --- conversation nodes: end ---
+                    if len(parts) >= 3 and parts[2] == "targets":
+                        return self._json(200, self._targets().post_route(parts[1], parts[3:], req))
                     if len(parts) == 3 and parts[2] == "send":
                         return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place")))
                     if len(parts) == 3 and parts[2] in ("promote", "drop"):
@@ -2371,6 +2387,9 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, {"approval": _APPROVALS.decide(parts[1], req["decision"] == "approve")})
             except RunBusy as e:
                 return self._json(409, {"error": {"type": "agent", "message": str(e), "code": e.code}})
+            except TargetError as e:
+                return self._json(404 if e.code == "gone" else 409 if e.code in ("busy", "not_running", "closed", "running", "achieved") else 400,
+                                  {"error": {"type": "target", "message": str(e), "code": e.code}})
             except RunError as e:
                 return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint", "not_blocked", "closed", "not_asking", "asking", "busy", "copy_conflict") else 400,
                                   {"error": {"type": "agent", "message": str(e), "code": e.code}})

@@ -343,6 +343,13 @@
         paintLive();
         break;
       case "command": document.dispatchEvent(new CustomEvent("basalt:command", { detail: e })); break;
+      case "target": {                                                         // the Target Loop (target.js) tells how it goes
+        const n = e.what, args = { planned: [e.criteria, e.tasks], task: [e.n, e.of, e.title], pass: [e.n, e.achieved, e.total], fix: [e.tasks], approach: [e.tasks],
+          achieved: [e.achieved], blocked: [e.achieved, e.total], stopped: [e.achieved, e.total] }[n];
+        if (args) noteItem({ s: T("tg.note." + n, ...args) });
+        document.dispatchEvent(new CustomEvent("basalt:target", { detail: e }));
+        break;
+      }
       case "dropped": started(e.turn); noteItem({ s: T("ch.dropped") }); break;
       case "agent": {
         const d = e.data || {};
