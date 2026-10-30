@@ -650,7 +650,7 @@ def test_a_plan_the_person_approves_ends_plan_mode_and_the_work_goes_on(tmp_path
     done = ev.wait("done")
     assert done["stop_reason"] == al.FINAL and (ws / "a.txt").read_text(encoding="utf-8") == "after approval"
     assert not built.permissions.plan_mode and built.permissions.level.value == "default"
-    assert "present_plan" not in built.agent.tools.names()
+    assert "present_plan" in built.agent.tools.names()                       # the tool list does not change with the mode
     assert [r["action"] for r in built.audit.records if r["action"].startswith("plan_")] == ["plan_approved"]
     assert any("Plan mode active" in m["content"] for m in built.agent.messages if m["role"] == "tool")
 
@@ -685,7 +685,8 @@ def test_a_run_with_nobody_to_ask_stays_a_plan_and_the_mode_can_be_set_back_to_p
         assert "Nobody can approve" in tool.execute("present_plan", {"plan": "do x"}) and built.permissions.plan_mode
         assert "plan is empty" in tool.execute("present_plan", {"plan": "  "})
         built.set_mode("auto")
-        assert "present_plan" not in tool.names() and not built.permissions.plan_mode
+        assert "present_plan" in tool.names() and not built.permissions.plan_mode
+        assert "Plan mode is not on" in tool.execute("present_plan", {"plan": "do x"})            # there is nothing to approve outside plan mode
         built.set_mode("plan")
         assert "present_plan" in tool.names() and built.permissions.plan_mode
         with pytest.raises(ValueError):

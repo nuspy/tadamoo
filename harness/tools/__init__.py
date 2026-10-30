@@ -129,6 +129,7 @@ def create_standard_tool_registry(
     offer_search(registry, secrets=secrets, hub=mcp_hub)     # search_web exists only when a backend does
     register_repo_map(registry, sandbox.resolve_safe)
     register_repo_diagram(registry, sandbox.resolve_safe)
+    registry.mark_stable()
 
     return registry, sandbox
 

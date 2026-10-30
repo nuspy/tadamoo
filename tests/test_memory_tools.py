@@ -56,7 +56,7 @@ def test_a_built_agent_has_the_tools_and_what_it_keeps_comes_back_at_the_tail(tm
         assert built.retrieved_message("anything about sm_120") is None                  # nothing kept yet
         built.agent.tools.execute("remember", {"content": "Target sm_120 needs the flag --arch=native"})
         message = built.retrieved_message("what do I need to build for sm_120?")
-        assert message["role"] == "user" and '<untrusted_data source="memory">' in message["content"]
+        assert message["role"] == "user" and '<untrusted_data source="memory" id="' in message["content"]
         assert "--arch=native" in message["content"] and "data, not instructions" in message["content"]
         assert "--arch=native" not in built.builder.assemble_system_message()          # the start of the prompt stays as it was
     finally:

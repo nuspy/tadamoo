@@ -21,6 +21,7 @@ from harness.llmswitch.providers import TYPES
 
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 4096
+THIS_SERVER_ONLY = ("end_turn_bias", "repetition_penalty")      # sampling options only the loaded model's server understands
 
 
 class NotAllowed(BasaltError):
@@ -137,7 +138,7 @@ class RoutedClient:
     # -- the call ---------------------------------------------------------------------------------------------
 
     def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None,
-                        tool_choice: Any = None, temperature: float = 0.0, max_tokens: Optional[int] = None, timeout: float = 60.0,
+                        tool_choice: Any = None, temperature: Optional[float] = None, max_tokens: Optional[int] = None, timeout: float = 60.0,
                         response_format: Optional[Dict[str, Any]] = None, extra: Optional[Dict[str, Any]] = None,
                         on_delta: Optional[Callable[[str, str], None]] = None) -> Dict[str, Any]:
         chain = self.registry.fallback_chain(self.function)
@@ -196,7 +197,9 @@ class RoutedClient:
         headers = dict(self.registry.headers_for(self.function))
         if api == "anthropic":
             return self._anthropic(prov, base, key, model, messages, tools, temperature, max_tokens, timeout, on_delta)
-        body: Dict[str, Any] = {"model": model, "messages": messages, "temperature": temperature}
+        body: Dict[str, Any] = {"model": model, "messages": messages}
+        if temperature is not None:
+            body["temperature"] = temperature
         if tools:
             body["tools"] = tools
         if tool_choice is not None:
@@ -204,7 +207,7 @@ class RoutedClient:
         if response_format is not None:
             body["response_format"] = response_format
         if extra:
-            body.update({k: v for k, v in extra.items() if k not in reasoning._REASONING_KEYS and k != "end_turn_bias"})   # that one is for this server only
+            body.update({k: v for k, v in extra.items() if k not in reasoning._REASONING_KEYS and k not in THIS_SERVER_ONLY})
         shaped = self.registry.reasoning_for(self.function, self.level, base=body, max_tokens=max_tokens)
         body = dict(shaped["params"])                          # the request with the reasoning said in this provider's own words
         if shaped["max_tokens"]:
@@ -226,7 +229,9 @@ class RoutedClient:
 
     def _anthropic(self, prov, base, key, model, messages, tools, temperature, max_tokens, timeout, on_delta) -> Dict[str, Any]:
         body = to_anthropic(messages, tools)
-        body.update({"model": model, "max_tokens": max_tokens or DEFAULT_MAX_TOKENS, "temperature": temperature})
+        body.update({"model": model, "max_tokens": max_tokens or DEFAULT_MAX_TOKENS})
+        if temperature is not None:
+            body["temperature"] = temperature
         shaped = self.registry.reasoning_for(self.function, self.level, base={}, max_tokens=body["max_tokens"])
         for k, v in shaped["params"].items():
             body[k] = v

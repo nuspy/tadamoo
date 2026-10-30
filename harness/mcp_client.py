@@ -29,7 +29,7 @@ from urllib.parse import urlparse
 from harness.integrations._http import _OPENER
 from harness.mcp_oauth import AuthRequired
 from harness.sandbox import safe_environment
-from harness.tools.registry import EffectClass, ToolArgumentError, ToolRegistry, validate_arguments
+from harness.tools.registry import EXTERNAL, EffectClass, ToolArgumentError, ToolRegistry, validate_arguments
 
 SUPPORTED_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 MODERN_VERSION = "2026-07-28"
@@ -387,6 +387,7 @@ class _Client:
                 handler=lambda _t=target, **kwargs: self.call_tool(_t, kwargs),
                 untrusted=True,
                 outward=True,
+                tier=EXTERNAL,
             )
             names.append(name)
         return names
@@ -764,11 +765,11 @@ class MCPHub:
         registry.register(
             "mcp_search", "Searches the tools offered by connected MCP servers and returns their definitions (read_only: the server declares the tool read-only).",
             {"type": "object", "properties": {"query": {"type": "string", "description": "What you want to do"}},
-             "required": ["query"]}, EffectClass.PURE, mcp_search, untrusted=True)
+             "required": ["query"]}, EffectClass.PURE, mcp_search, untrusted=True, tier=EXTERNAL)
         registry.register("mcp_read", "Calls a tool of an MCP server found with mcp_search, only one marked read_only.", call_schema,
-                          EffectClass.PURE, mcp_read, untrusted=True, outward=True)
+                          EffectClass.PURE, mcp_read, untrusted=True, outward=True, tier=EXTERNAL)
         registry.register("mcp_call", "Calls any tool of an MCP server found with mcp_search.", call_schema,
-                          EffectClass.IRREVERSIBLE, mcp_call, untrusted=True, outward=True)
+                          EffectClass.IRREVERSIBLE, mcp_call, untrusted=True, outward=True, tier=EXTERNAL)
 
     def register_eager(self, registry: ToolRegistry) -> None:
         for name, client in self.servers.items():

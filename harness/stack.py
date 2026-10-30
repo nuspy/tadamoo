@@ -22,10 +22,11 @@ from harness.hooks import HookManager, load_hook_files
 from harness.knowledge import LocalKnowledge, cag_prefix, choose_strategy, register_local_search
 from harness.memory import MemoryStore, default_db_path, register_memory_tools
 from harness.permissions import PermissionLevel, PermissionManager
-from harness.plan_mode import MODES_AFTER_PLAN, PLAN_TOOL, PlanGate, register_plan_tool
+from harness.plan_mode import MODES_AFTER_PLAN, PlanGate, register_plan_tool
 from harness.rule_of_two import LEVELS
 from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
-from harness.skills import SkillCatalog, find_project_guidelines, register_skill_tool
+from harness.prompt_blocks import instruction_blocks
+from harness.skills import SkillCatalog, guidelines_cut_notice, read_project_guidelines, register_skill_tool
 from harness.tools import create_standard_tool_registry
 from harness.tools.registry import TOOL_CALL_NOTE
 
@@ -152,6 +153,11 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--context-patterns", default="", metavar="JSON", help="what shapes the context (harness/context_patterns.py)")
     parser.add_argument("--context-threshold", type=float, default=0.7, help="the share of the context window at which pruning or a summary starts")
     parser.add_argument("--end-turn-bias", type=float, default=0.0, help="0 or less: how much less ready the model is to end its turn (0 is off)")
+    parser.add_argument("--temperature", type=float, default=None,
+                        help="sampling temperature of every model call; unset: the model file's own sampling applies. A temperature above 0 makes tool calls less repeatable")
+    parser.add_argument("--max-tokens", type=int, default=None, help="most tokens one model reply may write; unset: the server's own limit")
+    parser.add_argument("--instruction-blocks", action="store_true",
+                        help="add short working rules to the system prompt: act on a request, vary a search that found nothing, check what can change, back a claim with evidence, never invent a result")
     parser.add_argument("--attachments-dir", default="", help="where the conversation's attached files are kept (with --outputs-dir: the tools for them)")
     parser.add_argument("--outputs-dir", default="", help="where the files the agent makes for the person are kept")
     parser.add_argument("--hooks", default="", metavar="FILE", help="a hooks file (default: hooks.json in the user data folder)")
@@ -179,7 +185,8 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         reference_docs=read_reference(args.reference), reference_strategy=args.reference_strategy,
         memory_min_score=args.memory_min_score, memory_notes=args.memory_notes, memory_budget_tokens=args.memory_budget, phone_on_behalf_of=args.on_behalf_of,
         context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold,
-        end_turn_bias=args.end_turn_bias, attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
+        end_turn_bias=args.end_turn_bias, temperature=args.temperature, max_tokens=args.max_tokens, instruction_blocks=args.instruction_blocks,
+        attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
         personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys,
@@ -253,6 +260,9 @@ class AgentConfig:
     context_patterns: Dict[str, Any] = field(default_factory=dict)   # harness/context_patterns.py: what shapes the context
     context_threshold: float = 0.7      # the share of the context window at which pruning or a summary starts
     end_turn_bias: float = 0.0          # 0 or less: how much less ready the model is to end its turn (0 is off)
+    temperature: Optional[float] = None  # sampling temperature of every model call; None: the model file's own sampling applies
+    max_tokens: Optional[int] = None    # most tokens one reply may write; None: the server's own limit
+    instruction_blocks: bool = False    # short working rules in the system prompt (harness/prompt_blocks.py)
     snapshot_dir: Optional[str] = None  # where the context of each turn is kept when versioning is on
     council: bool = False               # offer ask_council when the person set a council up on the Providers page
     lsp: bool = False                   # offer diagnostics, go_to_definition and find_references when a language server is found on this PC
@@ -313,9 +323,10 @@ class BuiltAgent:
     memory_min_score: float = DEFAULT_MEMORY_MIN_SCORE
     memory_notes: int = DEFAULT_MEMORY_NOTES
     memory_budget_tokens: int = DEFAULT_MEMORY_BUDGET
+    notices: List[str] = field(default_factory=list)                # facts about the prompt the person should see, e.g. a project file read in part
 
     def set_mode(self, mode: str) -> None:
-        """Changes the permission mode of the running conversation; plan mode brings `present_plan`, any other takes it away."""
+        """Changes the permission mode of the running conversation. `present_plan` is always offered and does nothing outside plan mode."""
         if mode not in PERMISSION_MODES:
             raise ValueError(f"permission mode must be one of {sorted(PERMISSION_MODES)}")
         self.mode_switch(mode)
@@ -508,12 +519,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     def switch_mode(mode: str) -> None:
         level, plan = PERMISSION_MODES[mode]
         permissions.level, permissions.plan_mode = level, plan
-        if not plan:
-            registry.unregister(PLAN_TOOL)
-        elif registry.get(PLAN_TOOL) is None:
-            register_plan_tool(registry, permissions, plan_gate, switch_mode, cfg.after_plan, audit)
-    if permissions.plan_mode:
-        register_plan_tool(registry, permissions, plan_gate, switch_mode, cfg.after_plan, audit)
+    register_plan_tool(registry, permissions, plan_gate, switch_mode, cfg.after_plan, audit)      # always there: the tool list is part of the cached prefix
     hooks = HookManager()
     hooks.mask = secrets.mask_secrets
     for path, specs in load_hook_files(_hook_files(cfg, workspace)):
@@ -556,8 +562,12 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     builder = ContextBuilder(f"{SYSTEM_CORE} {TOOL_CALL_NOTE}")
     if secrets.vault is not None and secrets.vault.note():
         builder.pin("vault", secrets.vault.note())
-    _, guidelines = find_project_guidelines(workspace)
+    notices: List[str] = []
+    guide_file, guidelines, guide_cut = read_project_guidelines(workspace)
     if guidelines:
+        if guide_cut:
+            notices.append(guidelines_cut_notice(guide_file.name, guide_cut))
+            guidelines = f"{guidelines}\n{notices[-1]}"
         builder.set_project_rules(guidelines)
     kb = None
     if cfg.reference_docs and cfg.reference_strategy != "none":
@@ -664,6 +674,8 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         registry.default_timeout = cfg.tool_timeout or None
     for name, seconds in cfg.tool_timeouts.items():
         registry.set_timeout(name, seconds)
+    if cfg.instruction_blocks:
+        builder.pin("discipline", instruction_blocks(registry.names()))
     agent = AgentLoop(
         client=client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key),
         tool_registry=registry,
@@ -679,8 +691,9 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         max_total_tokens=cfg.max_total_tokens,
         max_seconds=cfg.max_seconds,
         cancel=cancel,
-        sampling={"end_turn_bias": cfg.end_turn_bias} if cfg.end_turn_bias else None,
+        sampling={**({"end_turn_bias": cfg.end_turn_bias} if cfg.end_turn_bias else {}), **({"temperature": cfg.temperature} if cfg.temperature is not None else {})} or None,
         clock=local_now,
+        max_tokens=cfg.max_tokens,
     )
     from harness.place import Place, register_place_tool
     here = Place()
@@ -695,4 +708,4 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser,
                       plan_gate=plan_gate, mode_switch=switch_mode, personal=personal, take_place=take_place,
                       mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {}, refresh_budget=refresh_budget,
-                      memory_min_score=cfg.memory_min_score, memory_notes=cfg.memory_notes, memory_budget_tokens=cfg.memory_budget_tokens)
+                      memory_min_score=cfg.memory_min_score, memory_notes=cfg.memory_notes, memory_budget_tokens=cfg.memory_budget_tokens, notices=notices)

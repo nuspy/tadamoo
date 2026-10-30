@@ -6,8 +6,8 @@ for the start, and saves the history after every model turn, so a process that d
 
 Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd": "cancel"}, {"cmd": "resume"}, {"cmd": "close"},
 {"cmd": "promote", "id"}, {"cmd": "drop", "id"}, {"cmd": "ping"}, {"cmd": "mode", "mode"} (the permission mode of the conversation),
-{"cmd": "effort", "level"} (how long the model thinks), {"cmd": "settings", "max_turns", "end_turn_bias"} (the steps one answer may take,
--1 for no limit, and the end-of-turn bias; either or both), {"cmd": "command", "id", "name", "args"} (a slash command: harness/commands.py),
+{"cmd": "effort", "level"} (how long the model thinks), {"cmd": "settings", "max_turns", "end_turn_bias", "temperature", "max_tokens"} (the steps one answer may take,
+-1 for no limit, the end-of-turn bias, the sampling temperature, null for the model file's own, and the most a reply may write, null for the server's own; any of them), {"cmd": "command", "id", "name", "args"} (a slash command: harness/commands.py),
 {"cmd": "skill", "id", "name", "display", "script", "values", "timeout", "cache_dir"} (runs a personal skill in the conversation).
 Events: ready, accepted, queued, routed, started, suspended, resumed, agent (an assistant text or a tool start or end), delta
 (text as it is written), ask (a question with buttons: a confirmation the task waits for, or a question that ends the turn),
@@ -744,6 +744,17 @@ class Session:
         else:
             self.agent.sampling.pop("end_turn_bias", None)
 
+    def set_temperature(self, value: Optional[float]) -> None:
+        """The sampling temperature of every model call from the next on; None leaves it to the model file's own sampling."""
+        if value is None:
+            self.agent.sampling.pop("temperature", None)
+        else:
+            self.agent.sampling["temperature"] = value
+
+    def set_max_tokens(self, value: Optional[int]) -> None:
+        """The most one reply may write, from the next request on; None leaves it to the server."""
+        self.agent.max_tokens = value
+
     def run_command(self, cid: str, name: str, args: str) -> None:
         """A slash command that asks this process something; the answer is an event, so the person's page shows it where it was asked."""
         from harness.commands import run
@@ -1052,10 +1063,10 @@ class Session:
                     task = self._begin_side(nxt["turn"], nxt["text"], nxt.get("attachments")) if nxt else self._next_after(task)
                     continue
                 agent = task.agent
-                final = next((t.assistant_content for t in reversed(agent.turns) if not t.tool_calls and t.assistant_content), "")
+                final = al.answer_text(agent.turns)
                 self._save()
                 self.emit({"event": "done", "turn": task.turn, "stop_reason": agent.stop_reason, "error": agent.error, "final": final,
-                           "tokens": agent.total_tokens, "max_turns": agent.max_turns, "more": self._more() and not agent.cancel.is_set(),
+                           "tokens": agent.total_tokens, "max_turns": agent.max_turns, "cut": agent.cut, "more": self._more() and not agent.cancel.is_set(),
                            "denied": self.permission_denials["total"]})
                 self.tasks.pop(task.turn, None)
                 task = self._next_after(task)
@@ -1129,14 +1140,23 @@ class Session:
 
 # -- the process ---------------------------------------------------------------------------------------------
 
+def _number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def _valid_settings(cmd: Dict[str, Any]) -> bool:
-    """A "settings" command: the steps one answer may take (-1 for no limit, or 1 and more) and/or the end-of-turn bias (-20 to 0)."""
-    steps, bias = cmd.get("max_turns"), cmd.get("end_turn_bias")
-    if "max_turns" not in cmd and "end_turn_bias" not in cmd:
+    """A "settings" command: any of the steps one answer may take (-1 for no limit, or 1 and more), the end-of-turn bias (-20 to 0), the
+    temperature (0 to 5, or null) and the most a reply may write (1 and more, or null)."""
+    steps, bias, temp, room = cmd.get("max_turns"), cmd.get("end_turn_bias"), cmd.get("temperature"), cmd.get("max_tokens")
+    if not any(k in cmd for k in ("max_turns", "end_turn_bias", "temperature", "max_tokens")):
         return False
     if "max_turns" in cmd and (not isinstance(steps, int) or isinstance(steps, bool) or not (steps == -1 or steps >= 1)):
         return False
-    return "end_turn_bias" not in cmd or (isinstance(bias, (int, float)) and not isinstance(bias, bool) and -20.0 <= bias <= 0.0)
+    if "temperature" in cmd and temp is not None and not (_number(temp) and 0.0 <= temp <= 5.0):
+        return False
+    if "max_tokens" in cmd and room is not None and (not isinstance(room, int) or isinstance(room, bool) or room < 1):
+        return False
+    return "end_turn_bias" not in cmd or (_number(bias) and -20.0 <= bias <= 0.0)
 
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
@@ -1301,6 +1321,12 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                 if "end_turn_bias" in cmd:
                     session.set_end_turn_bias(float(cmd["end_turn_bias"]))
                     changed["end_turn_bias"] = float(cmd["end_turn_bias"])
+                if "temperature" in cmd:
+                    session.set_temperature(None if cmd["temperature"] is None else float(cmd["temperature"]))
+                    changed["temperature"] = cmd["temperature"]
+                if "max_tokens" in cmd:
+                    session.set_max_tokens(cmd["max_tokens"])
+                    changed["max_tokens"] = cmd["max_tokens"]
                 emit({"event": "settings", **changed})
             elif name == "command" and isinstance(cmd.get("name"), str):
                 threading.Thread(target=session.run_command, args=(str(cmd.get("id") or ""), cmd["name"], str(cmd.get("args") or "")[:2000]),
