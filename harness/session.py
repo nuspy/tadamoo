@@ -12,14 +12,15 @@ Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd
 Events: ready, accepted, queued, routed, started, suspended, resumed, agent (an assistant text or a tool start or end), delta
 (text as it is written), ask (a confirmation the task waits for, or a card of questions that ends the turn), intake (what the look at a request assumed
 or recorded), suggestions (the next-message chips after an answer),
-retrying, done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, effort, settings, command, skill, skill_say, heartbeat, error.
+retrying, model_error (only with the error-classifier proposal), done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, effort, settings, command, skill, skill_say, heartbeat, error.
 
 A message that comes while a task is under way is looked at before the task's next model call (harness/router.py): it goes into
 that task (steer), waits its turn (queue), or, when it cannot wait and has nothing to do with the task, the task is put aside where
 it stands, the urgent one is done, and the first goes on afterwards. When the model answers several requests at once, a request that
 would wait is done beside the task instead.
 
-A failed model call is retried here, with growing waits that never end by themselves, whatever the error: the `retrying` event says
+A failed model call is retried here, with growing waits that never end by themselves, whatever the error (only with the proposal
+`--error-classifier`, awaiting the owner's decision, does an error that waiting cannot cure end the turn): the `retrying` event says
 what is waited for, and a server that is up with no model loaded is asked to load one (the Loader's refusal is in the event); nothing
 about the model ends the turn as `blocked`, and the person can always stop it. If the process dies while a tool that cannot be undone
 is running, the next start puts a note in the conversation that the call may already have run and must be checked before it is
@@ -49,6 +50,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TextIO, Tuple
 
 from harness import agent_loop as al
+from harness import error_classifier
 from harness import intake as it
 from harness import questions as qs
 from harness import suggestions as sg
@@ -239,9 +241,11 @@ def unattended_confirm(board: Callable[[str, Dict[str, Any]], bool]) -> Callable
 class Session:
     def __init__(self, built: BuiltAgent, store: SessionStore, emit: Callable[[Dict[str, Any]], None], session_id: str = "",
                  waits: tuple = BACKOFF_S, sleep: Callable[[float], None] = time.sleep,
-                 health: Optional[Callable[[], Dict[str, Any]]] = None, router: Optional[Router] = None, unattended: bool = False) -> None:
+                 health: Optional[Callable[[], Dict[str, Any]]] = None, router: Optional[Router] = None, unattended: bool = False,
+                 classify_errors: bool = False) -> None:
         self.built, self.store, self.emit = built, store, emit
         self.unattended = unattended                            # nobody is there to answer: a question never blocks (see the module's text)
+        self.classify_errors = classify_errors                  # proposal, off: a model error that waiting cannot cure ends the turn (harness/error_classifier.py)
         self._parked: Dict[str, Dict[str, Any]] = {}            # questions left for the person, by id
         self._granted: List[str] = []                           # permission questions the person approved after the call was refused
         self.agent = built.agent
@@ -1187,6 +1191,9 @@ class Session:
             if agent.stop_reason != al.ERROR:
                 return "done"
             status = agent.error_status                                    # a model error never blocks: the model is waited for, and loaded when it is not
+            if self.classify_errors and error_classifier.classify(status, agent.error) == error_classifier.DETERMINISTIC:
+                self.emit({"event": "model_error", "turn": task.turn, "status": status, "error": agent.error, "retry": False})
+                return "done"                                              # the turn ends on the error; the `done` event carries it
             health = self.health()
             wait = self.waits[min(attempt, len(self.waits) - 1)]          # the last wait is repeated: only the person stops the retries
             attempt += 1
@@ -1379,6 +1386,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         emit({"event": "error", "code": "start", "message": str(exc)})
         return 1
     settings["council"] = not args.ask_only                       # the council is offered whenever the person set one up
+    settings["unattended"] = args.unattended
     if args.ask_only:                                             # answers without tools: nothing that reaches outside is built
         settings.update(capabilities=False, lsp=False, vault_dir="", payments_dir="", browser=False, wiki=False, phone=False)
     cfg = AgentConfig(**settings, confirm=confirm, run_id=sid, snapshot_dir=str(history / "snapshots"))
@@ -1400,7 +1408,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         built.agent.context.on_removed = store.archive
     built.agent.pipeline = Pipeline(args.pipeline, (lambda q, o, c, j=judge_for("pipeline", here): j.choose(q, o, c)) if args.pipeline == "full" else None)
     session = Session(built, store, emit, session_id=sid, health=lambda: server_health(cfg.endpoint, cfg.api_key), router=router,
-                      unattended=args.unattended)
+                      unattended=args.unattended, classify_errors=cfg.error_classifier)
     if args.report_changes and not args.ask_only:
         from harness.reporting import PanelReporter
         session.reporter = PanelReporter(cfg.endpoint, cfg.api_key, built.sandbox, "", session=sid, tasks=False)

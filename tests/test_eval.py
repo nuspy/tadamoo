@@ -348,7 +348,7 @@ def test_the_command_line_runs_a_task_against_the_real_server(tmp_path, monkeypa
     ROOT = Path(__file__).resolve().parents[1]
     tok = ByteTokenizer()
     svc = Service(MockEngine(tok, [tool_call("write_file", path="textutil.py", content="def reverse_words(s):\n    return ' '.join(reversed(s.split()))\n"),
-                                    answer("Done.")], max_context=16384), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+                                    answer("Done.")], max_context=32768), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
     svc.telemetry = SimpleNamespace(snapshot=lambda: {"now": {"gpus": []}, "history": {}, "static": {"gpus": []}})
     httpd = serve(svc, port=0)
     try:

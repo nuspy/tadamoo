@@ -381,6 +381,7 @@ def replay(trace: Trace, registry: Optional[ToolRegistry] = None, *, compare_res
     registry = registry or recorded_registry(trace)
     model = ScriptedModel(step for seg in trace.segments for step in seg.steps)
     loop_kwargs.setdefault("system_prompt", trace.system or "You are a helpful coding assistant equipped with tools.")
+    loop_kwargs.setdefault("budget_grace", False)               # the recording has the model calls that were made, no more
     agent = AgentLoop(client=model, tool_registry=registry, **loop_kwargs)
     stop = ""
     for seg in trace.segments:
