@@ -402,7 +402,7 @@
           addBlock({ t: "note", s: T("ch.ev.compaction_cache", d.prompt_tokens, d.cached_tokens) }, e.turn);
         } else if (d.type === "gate" || d.type === "budget_warning" || d.type === "budget_grace" || d.type === "stop_denied") {      // the checks before the end, and the limits: one line each
           addBlock({ t: "note", s: T(d.type === "gate" ? "ch.gate." + d.decision : "ch.ev." + d.type, d.round, d.of) }, e.turn);
-        } else if (d.type === "long_answer") {                                    // plan_long_answer: one line that follows the parts (serve/longform.py)
+        } else if (d.type === "long_answer") {                                    // the long answer the harness writes: one line that follows it (serve/longflow.py)
           longNote(e.turn, d);
         } else if (d.type === "tool_end") {
           if (d.name === "ask_user") break;
@@ -433,11 +433,22 @@
     }
   }
   function longNote(turn, d) {
-    const text = d.event === "plan" ? T("la.p.plan", d.segments.length) : d.event === "segment_start" ? T("la.p.part", d.index, d.of)
-      : d.event === "segment_progress" ? T("la.p.words", d.index, d.words) : d.event === "segment_done" ? T("la.p.done", d.index, d.of, d.words)
-      : d.event === "done" ? T("la.summary", d.words, d.target_words, d.segments, d.of) + ((d.warnings || []).length ? " " + T("la.warn", d.warnings.length, d.warnings.slice(0, 6).map(w => `${w.segment}: ${w.code}`).join("; ")) : "") : "";
-    if (!text) return;
     const a = assistant(turn);
+    if (d.event === "revised") {                                                // the corrected text replaces the text shown while the parts were written
+      const t = a.blocks.filter(x => x.t === "text").pop();
+      if (t) { t.s = d.text; t.dirty = true; }
+      return;
+    }
+    const why = r => T(["not_found", "ambiguous", "too_short", "spans_blocks", "protected", "heading", "table", "limit"].includes(r) ? "la.r." + r
+      : r === "rejected_length" ? "la.r.length" : String(r).startsWith("rejected") ? "la.r.rejected" : "la.r.invalid");
+    const text = d.event === "estimate" ? T(d.long ? "la.p.estimate" : "la.p.short", d.words) : d.event === "plan" ? T("la.p.plan", d.segments.length)
+      : d.event === "segment_start" ? T("la.p.part", d.index, d.of) : d.event === "segment_progress" ? T("la.p.words", d.index, d.words)
+      : d.event === "segment_done" ? T("la.p.done", d.index, d.of, d.words) : d.event === "review" ? T("la.p.review", d.round, d.of)
+      : d.event === "fix" ? (d.status === "applied" ? T("la.p.fix.ok", d.n, d.of, d.chunk) : T("la.p.fix.no", d.n, d.of, d.chunk, why(d.reason)))
+      : d.event === "done" ? T("la.summary", d.words, d.target_words, d.segments, d.of)
+        + (d.applied || (d.unapplied || []).length ? " " + T("la.fixes", d.applied || 0, (d.unapplied || []).length) : "")
+        + ((d.warnings || []).length ? " " + T("la.warn", d.warnings.length, d.warnings.slice(0, 6).map(w => `${w.segment}: ${w.code}`).join("; ")) : "") : "";
+    if (!text) return;
     const b = a.blocks.find(x => x.t === "note" && x.long);
     if (b) { b.s = text; b.dirty = true; } else addBlock({ t: "note", s: text, long: true }, turn);
   }

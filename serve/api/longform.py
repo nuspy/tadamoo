@@ -13,13 +13,10 @@ from serve.api.grammar import REQUEST_KEY as GRAMMAR_KEY
 from serve.api.logit_bias import REQUEST_KEY as BIAS_KEY, add_end_turn, checked as checked_bias
 from serve.api.openai import openai_chunks, openai_collect
 from serve.frontend import openai_to_messages
-from serve.longform import LongAnswer, LongformError, Spec
+from serve.longform import SAMPLING_FIELDS, LongAnswer, LongformError, Spec
 from serve.prompt import primed
 from serve.service import Service
 from serve.util.text import IM_END
-
-SAMPLING = ("temperature", "top_p", "top_k", "min_p", "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n",
-            "seed")        # the request's own sampling, passed on to every call of the run
 
 
 class ServiceClient:
@@ -94,7 +91,7 @@ def long_answer_chunks(svc: Service, req: dict, spec: Spec, system: str, prior: 
     def chunk(delta, finish=None, **extra):
         return {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
                 "choices": [{"index": 0, "delta": delta, "finish_reason": finish}], **extra}
-    sampling = {k: req[k] for k in SAMPLING if req.get(k) is not None}
+    sampling = {k: req[k] for k in SAMPLING_FIELDS if req.get(k) is not None}
     run = LongAnswer(ServiceClient(svc, sampling, cancel), spec, prior=prior, system=system, cancel=cancel, sampling={})
     yield chunk({"role": "assistant", "content": ""})
     events = run.run()
