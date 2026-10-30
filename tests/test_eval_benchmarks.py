@@ -282,7 +282,7 @@ def test_a_swe_instance_is_resolved_when_its_tests_start_passing(swebench):
     loaded = benchmarks.load_swebench(swebench)
     assert [t.id for t in loaded.tasks] == ["swe/demo__calc-1"] and any("demo__missing-2" in s for s in loaded.skipped)
     task = loaded.tasks[0]
-    fixed = runner_for(call("write_file", {"path": "calc.py", "content": "def add(a, b):\n    return a + b\n"}), say("Fixed.")).evaluate_task(task, 1).trials[0]
+    fixed = runner_for(call("write_file", {"path": "calc.py", "content": "def add(a, b):\n    return a + b\n", "overwrite": True}), say("Fixed.")).evaluate_task(task, 1).trials[0]
     assert fixed.passed, fixed.failures
     untouched = runner_for(say("Looks fine to me.")).evaluate_task(task, 1).trials[0]
     assert not untouched.passed and "FAIL_TO_PASS tests failed" in untouched.failures[0]

@@ -102,7 +102,7 @@ def test_command_checks_run_in_the_workspace_with_the_current_python(tmp_path):
 # -- a model that solves every task, and ones that do not -----------------------------------------------------------
 
 def w(path, content, cid="c1"):
-    return call("write_file", {"path": path, "content": content}, cid)
+    return call("write_file", {"path": path, "content": content, "overwrite": True}, cid)
 
 
 CORE_SOLUTIONS = {

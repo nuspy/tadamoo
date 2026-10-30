@@ -40,7 +40,7 @@ from harness.tools.registry import clock_paused
 PROTOCOL_VERSION = 1
 STOP_REASONS = {al.FINAL: "end_turn", al.MAX_TURNS: "max_turn_requests", al.CANCELLED: "cancelled", al.BUDGET: "max_tokens",
                 al.LOOP: "end_turn"}
-KINDS = {"read_file": "read", "list_directory": "read", "write_file": "edit", "edit_file": "edit",
+KINDS = {"read_file": "read", "list_directory": "read", "tree": "read", "search_code": "search", "write_file": "edit", "edit_file": "edit",
          "shell_command": "execute", "search_web": "fetch", "browse_url": "fetch", "mcp_search": "search",
          "mcp_call": "other", "mcp_read": "fetch", "read_capability": "fetch", "phone_call": "other", "request_payment": "other", "present_plan": "think"}
 MODES = [
