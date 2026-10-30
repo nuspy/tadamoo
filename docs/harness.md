@@ -369,6 +369,7 @@ The loop reads `finish_reason` of every reply (`harness/agent_loop.py`, `_comple
   at most 1.5; only this server receives it). A reply that the limit ended and that is a loop gets the same treatment. A second loop in the request ends
   the run as `degenerate`. Records: `output_degenerate`. A run without streaming only judges a reply the limit ended.
 - `length_stops` (replies the limit ended, per run) is in every trial of `python -m harness.eval` and in its report; so is the number of calls that were mended.
+- **A reply still cut after the continuations** shows "The output limit ended this answer" and a Continue button in the Agent tab (the Chat has its own). A text too long for one turn is written in parts by `plan_long_answer`, which the harness offers when a request asks for over 1800 words; see [longform.md](longform.md).
 
 The loop passes no temperature and no `max_tokens` unless the session sets them (`--temperature`, `--max-tokens`, the `settings` command of the
 conversation's process, `/status`): without a temperature the model file's own sampling applies. **A temperature above 0 makes tool calls less
