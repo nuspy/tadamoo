@@ -103,6 +103,8 @@
     $("#attach").setAttribute("aria-label", attachName); $("#attach").title = attachName;
     $("#branches-open").hidden = !on;
     $("#pskills-open").hidden = !on;
+    $("#ps-chat").hidden = !on;                                               // the model-only chat has no look at a request
+    if (!on) $("#ps-chat-panel").hidden = true;
     $("#chatmode-label").hidden = inAgent();
     modeSel.title = T("ch.mode." + mode + ".d");                              // what the kind of conversation is, as a tooltip
     drawPend();

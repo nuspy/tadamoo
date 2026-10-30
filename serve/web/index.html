@@ -28,6 +28,7 @@
 <link rel="stylesheet" href="web/target.css">
 <link rel="stylesheet" href="web/coding.css">
 <link rel="stylesheet" href="web/longform.css">
+<link rel="stylesheet" href="web/promptswitch.css">
 <script defer src="web/i18n.js"></script>
 <script defer src="web/cuttext.js"></script>
 <script defer src="web/risk.js"></script>
@@ -53,6 +54,7 @@
 <script defer src="web/settings.js"></script>
 <script defer src="web/capabilities.js"></script>
 <script defer src="web/knowledge.js"></script>
+<script defer src="web/promptswitch.js"></script>
 <script defer src="web/intake.js"></script>
 <script defer src="web/gate.js"></script>
 <script defer src="web/compaction.js"></script>
@@ -321,6 +323,7 @@
         <span class="learnbadge" id="learn-badge" role="status" hidden></span>
         <span id="chat-model" hidden></span>
         <span class="grow"></span>
+        <div class="ps" id="ps-chat" data-panel="ps-chat-panel"></div>
         <label class="effort" for="chatmode" id="chatmode-label"><span data-t="ch.mode">Mode</span>
           <select id="chatmode">
             <option value="agent" data-t="ch.mode.agent">With tools</option>
@@ -340,6 +343,7 @@
           </select>
         </label>
         <button type="button" class="btn" id="cs-open" aria-expanded="false" aria-controls="chatset" data-t="cs.open">Settings</button>
+        <div class="ps-panel" id="ps-chat-panel" hidden></div>
       </div>
       <div class="acopy" id="acopy" hidden>
         <span class="acopy-text" id="acopy-text" role="status"></span>
@@ -817,7 +821,15 @@
       <div class="sh"><b id="kn-h" data-t="kn.title">Project notes, wiki and reference documents</b></div>
       <div class="pad" id="kn-root"></div>
     </section>
-    <section class="sec stintake" data-sub="general" id="iq-section" aria-labelledby="iq-h">
+    <section class="sec stpromptswitch" data-sub="inference" id="ps-section" aria-labelledby="ps-h">
+      <div class="sh"><b id="ps-h" data-t="ps.title">Prompt analysis</b></div>
+      <div class="pad">
+        <p class="setnote" data-t="ps.intro"></p>
+        <div class="ps" id="ps-set" data-panel="ps-set-panel" data-label="off"></div>
+        <div class="ps-panel" id="ps-set-panel" hidden></div>
+      </div>
+    </section>
+    <section class="sec stintake" data-sub="inference" id="iq-section" aria-labelledby="iq-h">
       <div class="sh"><b id="iq-h" data-t="iq.title">Questions and suggestions</b></div>
       <div class="pad" id="iq-root"></div>
     </section>

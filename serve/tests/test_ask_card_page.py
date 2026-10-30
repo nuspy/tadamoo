@@ -36,7 +36,7 @@ class WiringTest(unittest.TestCase):
         self.assertIn('id="iq-root"', HTML)
         self.assertIn('src="web/intake.js"', HTML)
         section = HTML[HTML.index('id="iq-section"') - 80:HTML.index('id="iq-root"')]
-        self.assertIn('data-sub="general"', section)
+        self.assertIn('data-sub="inference"', section)
 
     def test_what_the_agent_wrote_enters_the_page_as_text_only(self):
         for name, js in (("askcard.js", CARD), ("intake.js", INTAKE)):
@@ -69,7 +69,7 @@ class WiringTest(unittest.TestCase):
     def test_every_text_is_in_english_and_italian_and_the_two_differ(self):
         keys = set(re.findall(r'T\("((?:ch\.ask|ch\.suggest|ch\.intake|iq)\.[a-z_.]+)"', CARD + CHAT + INTAKE))
         keys = {k for k in keys if not k.endswith(".")}                                      # a key built from a name is listed below
-        keys |= {"iq.mode." + m for m in ("off", "rules", "full")} | {"iq.mode." + m + ".d" for m in ("off", "rules", "full")} | {"iq.title"}
+        keys |= {"iq.title", "iq.sugg.title", "iq.size.title"}
         self.assertGreater(len(keys), 30)
         strs = strings()
         en, it = strs["en"], strs["it"]

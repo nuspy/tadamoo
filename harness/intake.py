@@ -26,7 +26,7 @@ from harness import questions as qs
 log = logging.getLogger("harness.intake")
 
 MODES = ("off", "rules", "full")
-DEFAULT_MODE = "rules"
+DEFAULT_MODE = "off"
 DEFAULT_SIDE_CALL_TOKENS = 6000          # a conversation longer than this gets no extra model call while its cache is warm
 TRIAGE_INPUT_CHARS = 3000
 TRIAGE_TOKENS = 600
