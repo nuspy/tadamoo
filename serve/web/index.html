@@ -25,9 +25,11 @@
 <link rel="stylesheet" href="web/checkpoints.css">
 <link rel="stylesheet" href="web/netwatch.css">
 <link rel="stylesheet" href="web/rea.css">
+<link rel="stylesheet" href="web/target.css">
 <script defer src="web/i18n.js"></script>
 <script defer src="web/risk.js"></script>
 <script defer src="web/app.js"></script>
+<script defer src="web/listtools.js"></script>
 <script defer src="web/shell.js"></script>
 <script defer src="web/subtabs.js"></script>
 <script defer src="web/patterns.js"></script>
@@ -35,6 +37,7 @@
 <script defer src="web/chat.js"></script>
 <script defer src="web/projects.js"></script>
 <script defer src="web/agentchat.js"></script>
+<script defer src="web/target.js"></script>
 <script defer src="web/checkpoints.js"></script>
 <script defer src="web/billioncontext.js"></script>
 <script defer src="web/slash.js"></script>
@@ -146,6 +149,47 @@
       <div class="ag-buttons"><button type="submit" class="btn primary" id="af-go" data-t="ag.add.go">Add the folder</button></div>
     </div>
   </form>
+</dialog>
+
+<dialog class="tgd" id="target-dlg" aria-labelledby="tg-title">
+  <div class="tgd-h"><h2 id="tg-title" data-t="tg.title">Target Loop</h2><span class="tgd-grow"></span>
+    <button type="button" class="btn" id="tg-close" data-t="tg.close" data-t-title="tg.close.tip">Close</button></div>
+  <div class="tgd-body">
+    <nav class="tgd-hist" aria-labelledby="tg-hist-h">
+      <h3 id="tg-hist-h" data-t="tg.hist">Targets of this conversation</h3>
+      <button type="button" class="btn primary" id="tg-new" data-t="tg.new" data-t-title="tg.new.tip">New target</button>
+      <ul class="tgd-list" id="tg-list"></ul>
+      <p class="tgd-dim" id="tg-hist-empty" data-t="tg.hist.empty" hidden>No target yet in this conversation.</p>
+    </nav>
+    <section class="tgd-pane" aria-labelledby="tg-title">
+      <p class="tgd-dim" data-t="tg.help"></p>
+      <div class="tgd-status" id="tg-status" role="status" aria-live="polite"></div>
+      <form class="tgd-new" id="tg-new-view" novalidate>
+        <div class="tgd-labelrow"><label for="tg-text" data-t="tg.text.label">Describe the target</label><span id="tg-bar"></span></div>
+        <textarea id="tg-text" rows="12" spellcheck="true" aria-describedby="tg-text-help" data-t-ph="tg.text.ph"></textarea>
+        <p class="tgd-dim" id="tg-text-help" data-t="tg.text.help"></p>
+        <details class="tgd-opt">
+          <summary data-t="tg.opt.title">Options</summary>
+          <div class="tgd-optgrid">
+            <label for="tg-verify" data-t="tg.opt.verify">Commands that must succeed (one per line)</label>
+            <textarea id="tg-verify" rows="3" spellcheck="false" aria-describedby="tg-verify-h"></textarea>
+            <p class="tgd-dim" id="tg-verify-h" data-t="tg.opt.verify.help"></p>
+            <label for="tg-files" data-t="tg.opt.files">Files that must exist (one per line)</label>
+            <textarea id="tg-files" rows="2" spellcheck="false" aria-describedby="tg-files-h"></textarea>
+            <p class="tgd-dim" id="tg-files-h" data-t="tg.opt.files.help"></p>
+            <label for="tg-stall" data-t="tg.opt.stall">Passes before a different approach</label>
+            <input id="tg-stall" type="number" min="2" max="20" value="3" aria-describedby="tg-stall-h">
+            <p class="tgd-dim" id="tg-stall-h" data-t="tg.opt.stall.help"></p>
+            <label for="tg-max" data-t="tg.opt.max">Most passes (0 is no limit)</label>
+            <input id="tg-max" type="number" min="0" max="1000" value="0" aria-describedby="tg-max-h">
+            <p class="tgd-dim" id="tg-max-h" data-t="tg.opt.max.help"></p>
+          </div>
+        </details>
+        <div class="tgd-actions"><button type="submit" class="btn primary" id="tg-start" data-t="tg.start" data-t-title="tg.start.tip">Start</button></div>
+      </form>
+      <div class="tgd-view" id="tg-view" hidden></div>
+    </section>
+  </div>
 </dialog>
 
 <dialog class="brd" id="branches" aria-labelledby="br-title">
@@ -288,6 +332,7 @@
             <span class="ctxm-t" id="ctx-text">Context: —</span><span class="ctxm-bar" aria-hidden="true"><i id="ctx-bar"></i></span>
           </div>
           <button type="button" class="btn" id="stop" hidden>Stop</button>
+          <button type="button" class="btn" id="target-open" aria-haspopup="dialog" data-t="tg.open" data-t-title="tg.open.tip">Target Loop</button>
           <button type="submit" class="btn primary" id="send">Send</button>
         </div>
         <div class="sr" id="chat-status" role="status"></div>
