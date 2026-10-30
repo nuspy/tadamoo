@@ -60,6 +60,7 @@ the Chat can reach, the others can reach:
 | `--max-tokens N` | the most one reply may write; not given, the server's own limit applies |
 | `--instruction-blocks` | six short working rules in the system prompt (see "Working rules"); off unless asked for |
 | `--verify-command CMD`, `--verify-gate {off,unattended,always}`, `--verify-rounds N` | the project's own checks, run before a turn that changed files ends; off by default (see [harness-gates.md](harness-gates.md)) |
+| `--role ROLE`, `--safe-command CMD`, `--project-check CMD` | what the agent is for (build, plan, ask, debug, orchestrate, general), the exact commands that run without a question, and the folder's accepted checks for the verify gate (see [coding-mode.md](coding-mode.md)) |
 | `--no-budget-grace` | a budget that runs out ends the answer at once, without the warning and the last report |
 | `--error-classifier` | proposal awaiting the owner: a model error that waiting cannot cure ends the turn instead of being retried (see [harness-gates.md](harness-gates.md)) |
 | `--unattended` | (conversations) nobody answers: a question is approved at once, or says the data is not available, or, if it is for another person, the user, a resource that is not the PC's own or a booking, is parked in the `pending` list while the model goes on |
@@ -251,7 +252,7 @@ Permissions: plan mode refuses anything that is not read-only; then **deny rules
 shell command and the words inside `cmd /c`, `powershell -c`); then, **at the `auto` level, everything passes and nothing is asked**: the
 person chose that. Below it: tools that always ask (`phone_call`); **allow rules**, which cover a command of several statements when each
 statement is covered (`cd x && make` needs `cd *` and `make *`; a command built at run time with `$(...)`, a backtick or `%VAR%` is covered
-by none); then the level: read-only asks for anything, `default` allows reversible workspace edits and asks for irreversible actions.
+by none); then **safe verification** (a command the person listed or accepted for the folder, written exactly, passes; see [coding-mode.md](coding-mode.md)); then the level: read-only asks for anything, `default` allows reversible workspace edits and asks for irreversible actions.
 The Rule of Two asks only below `auto`, and only for an outward action. `request_payment` carries an allow rule because the payment broker
 is its only gate (the person's limit, the waiver, and a question to the person above them). `write_file` and `edit_file` are reversible,
 also inside a `.git` folder: no special question, they follow the rules of any workspace write, and the checkpoint before it holds the hooks and

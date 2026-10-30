@@ -6,6 +6,7 @@ Evaluation order, first match wins:
   2b. at the Auto level everything else passes, nothing is asked;
   3. an allow rule permits, also a tool in `always_ask` and a call the Rule of Two would ask about (a command that chains others is
      permitted when every statement of it is covered by a rule);
+  3b. safe verification permits a command the person listed or accepted, written exactly, and a few read-only commands (below);
   4. a tool in `always_ask` needs a confirmation every time;
   5. the Rule of Two asks about an outward call after untrusted content and private data;
   6. read-only tools pass; the level decides the rest.
@@ -32,6 +33,8 @@ class PermissionLevel(str, enum.Enum):
 
 
 DEFAULT_ALWAYS_ASK = frozenset({"phone_call"})
+# commands that only read, matched as a whole statement; they are safe in a coding role (`PermissionManager.read_only_class`)
+READ_ONLY_COMMANDS = ("git status", "git status --short", "git diff", "git diff --stat", "git log", "git log --oneline", "ls", "dir")
 _BARE_VERB = re.compile(r"^([^\s*?\[\]]+)(?: \*)?$")      # "rm" or "rm *": the verb alone, whatever its arguments
 _CHAINING = re.compile(r"&&|\|\||[;&|\n\r`<>]|\$\(|\$\{|%[A-Za-z_]+%")
 
@@ -102,6 +105,26 @@ def _matches(rule: PermissionRule, targets: List[str], arguments: Dict[str, Any]
     return False
 
 
+def squash(command: str) -> str:
+    """The command with each run of white space outside quotes made one space, so two spellings of the same command compare equal."""
+    out: List[str] = []
+    quote = ""
+    pending = False
+    for ch in command.strip():
+        if quote:
+            out.append(ch)
+            quote = "" if ch == quote else quote
+        elif ch == " " or ch == chr(9):
+            pending = True
+        else:
+            if pending:
+                out.append(" ")
+                pending = False
+            out.append(ch)
+            quote = ch if ch in "\"'" else ""
+    return "".join(out)
+
+
 def fingerprint(tool_name: str, arguments: Dict[str, Any]) -> str:
     """What one approval covers: this tool with these arguments. A shell command is its own text; any other tool is its name and a digest of
     its arguments, so approving `run_code` for one snippet lets that snippet run again and no other."""
@@ -148,6 +171,8 @@ class PermissionManager:
         self._sensitive = sensitive_data           # the session can reach secrets or private data; a function is asked each time
         self.two = RuleOfTwo()                     # the three facts of the Rule of Two for this conversation (harness/rule_of_two.py)
         self._remembered: Set[str] = set()
+        self.safe_commands: List[str] = []         # the exact commands the person listed or accepted for this folder: they run without a question
+        self.read_only_class = False               # the short list of read-only commands (READ_ONLY_COMMANDS) runs without a question too
         self.denied = 0                            # calls refused in this session, whatever the reason
         self.denied_by_tool: Dict[str, int] = {}
 
@@ -207,6 +232,31 @@ class PermissionManager:
             used.append(hit.pattern)
         return ", ".join(dict.fromkeys(used))
 
+    def safe_verification(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+        """The listed command(s) that cover this call, or ''. A command is covered when it is, whole, one the person listed or accepted, or when
+        every statement of it is: never a prefix, so `pytest -x` is not covered by `pytest` and `pytest; rm x` is not covered at all."""
+        command = arguments.get("command")
+        if tool_name != "shell_command" or not isinstance(command, str):
+            return ""
+        known = {squash(c): c for c in self.safe_commands}
+        if self.read_only_class:
+            known.update({squash(c): c for c in READ_ONLY_COMMANDS if squash(c) not in known})
+        if not known:
+            return ""
+        whole = known.get(squash(command))
+        if whole:
+            return whole
+        parts = statements(command)
+        if not parts:
+            return ""
+        used: List[str] = []
+        for part in parts:
+            hit = known.get(squash(part))
+            if hit is None:
+                return ""
+            used.append(hit)
+        return ", ".join(dict.fromkeys(used))
+
     def approve(self, tool_name: str, arguments: Dict[str, Any]) -> None:
         """The person has already approved this exact call (a command they listed in a setting): it is not asked about again. Deny rules and
         plan mode still refuse it, and any other call is unaffected."""
@@ -240,6 +290,8 @@ class PermissionManager:
         extra = self.refusal_note() if self.refusal_note is not None else ""
         if extra:
             text += ". " + extra
+        if self.safe_commands:
+            text += ". These exact commands can run without confirmation: " + ", ".join(self.safe_commands[:6]) + ", each written as listed"
         allowed = [r.pattern for r in self.rules if r.action == "allow"]
         if allowed:
             text += (f". These can run without confirmation: {', '.join(allowed)}, each as one plain command (no &&, ;, |, "
@@ -270,6 +322,10 @@ class PermissionManager:
         covered = self._allowed_by(tool_name, arguments)         # the person's own allow rule answers every question below
         if covered:
             return True, f"Permitted by allow rule: '{covered}'"
+
+        safe = self.safe_verification(tool_name, arguments)
+        if safe:
+            return True, f"Permitted as safe verification: '{safe}'"
 
         if tool_name in self.always_ask:
             if self._ask(tool_name, arguments, None):

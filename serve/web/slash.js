@@ -246,12 +246,12 @@
   };
   const pct = x => Math.round((x || 0) * 100);
   const SHOW = {
-    status: d => list(T("sl.r.status"), [[T("sl.r.mode"), T("ag.mode." + d.mode)], [T("sl.r.effort"), d.effort ? effortName(d.effort) : effortName("")], [T("sl.r.turns"), d.turns],
+    status: d => list(T("sl.r.status"), [[T("sl.r.mode"), T("ag.mode." + d.mode)], ...(d.role && d.role !== "general" ? [[T("sl.r.role"), T("cd.role." + d.role)]] : []), [T("sl.r.effort"), d.effort ? effortName(d.effort) : effortName("")], [T("sl.r.turns"), d.turns],
       [T("sl.r.steps"), d.max_turns > 0 ? d.max_turns : T("sl.r.steps.none")], [T("sl.r.bias"), d.end_turn_bias || 0],
       [T("sl.r.context"), T("sl.r.ctx", d.tokens, d.window, pct(d.share))], [T("sl.r.messages"), d.messages], [T("sl.r.tools"), d.tools], [T("sl.r.memories"), d.memories],
       [T("sl.r.mcp"), d.mcp_servers], [T("sl.r.spent"), d.model_tokens]]),
     context: d => list(T("sl.r.context"), [T("sl.r.ctx", d.tokens, d.window, pct(d.share)), [T("sl.r.messages"), d.messages], ...(d.summarised ? [T("sl.r.ctx.summary")] : [])]),
-    tools: d => list(T("sl.r.tools.title", d.tools.length), d.tools.map(t => t.name + " · " + t.effect)),
+    tools: d => list(T("sl.r.tools.title", d.tools.length), d.tools.map(t => t.name + " · " + t.effect + (t.role_allowed === false ? " · " + T("sl.r.tools.out", T("cd.role." + d.role)) : ""))),
     hooks: d => list(T("sl.r.hooks"), [d.sources.length ? T("sl.r.hooks.files", d.sources.join(", ")) : T("sl.r.hooks.none"), T("sl.r.hooks.counts", d.pre_tool, d.post_tool),
       ...Object.entries(d.events).map(([k, n]) => k + ": " + n), ...(d.errors.length ? [T("sl.r.hooks.errors", d.errors.join(" | "))] : [])]),
     mcp: d => list(T("sl.r.mcp.title"), d.servers.length ? d.servers.map(s => s.error ? T("sl.r.mcp.err", s.name, s.error) : T("sl.r.mcp.line", s.name, s.tools)) : [T("sl.r.mcp.none")]),

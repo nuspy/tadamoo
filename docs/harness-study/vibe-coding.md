@@ -1,6 +1,6 @@
 # A vibe-coding mode for the Agent tab
 
-Proposal from the study of Goose and Roo Code. Not built. The user describes what they want in a folder; the agent plans, edits
+Proposal from the study of Goose and Roo Code. The roles, the project profile, the safe-verification class and the Agent-tab selector are built (see [../coding-mode.md](../coding-mode.md)); the rest of this page is still the study. The user describes what they want in a folder; the agent plans, edits
 files, runs the project's checks and iterates. Our models are local open-weight models, so tool-call reliability and prompt
 length decide; Goose's own benchmark shows a 30B-class model at 1.1% on Terminal-Bench 2 against 50-57% for a frontier model, so
 every idea is measured with `harness.eval` before it ships.

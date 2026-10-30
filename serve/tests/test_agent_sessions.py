@@ -980,6 +980,49 @@ def test_a_mode_set_before_the_process_exists_is_what_it_starts_with_and_is_told
     assert seen == [("read_only", "low")]
 
 
+def test_the_role_is_changed_while_the_conversation_lives_and_a_new_process_starts_with_it(make, ws):
+    seen = []
+    mgr = make(command=lambda sid, rec, history: (seen.append(rec.get("role")), stub_command()(sid, rec, history))[1])
+    sid = mgr.create(ws, role="build")["id"]
+    assert mgr.get(sid)["role"] == "build"
+    mgr.set_role(sid, "plan")
+    assert [e["event"] for e in mgr.events(sid)["events"]] == ["role"]                 # no process yet: the page is told
+    mgr.send(sid, "primo")
+    until(lambda: "done" in kinds(mgr, sid))
+    assert seen == ["plan"]
+    assert mgr.set_role(sid, "ask")["role"] == "ask"
+    until(lambda: sum(1 for e in mgr.events(sid)["events"] if e["event"] == "role" and e["role"] == "ask") == 1)       # the process was told
+    for bad in ("king", "", None):
+        with pytest.raises(RunError) as e:
+            mgr.set_role(sid, bad)
+        assert e.value.code == "bad_role"
+    with pytest.raises(RunError):
+        mgr.create(ws, role="king")
+    only = mgr.create(ws, ask_only=True)["id"]
+    with pytest.raises(RunError):
+        mgr.set_role(only, "ask")
+
+
+def test_checks_the_person_accepts_are_told_to_the_running_conversations_of_that_folder_only(make, ws, tmp_path):
+    import json as _json
+    from serve.coding_prefs import CodingPrefs
+    folder = Path(ws)
+    (folder / "package.json").write_text(_json.dumps({"scripts": {"test": "jest"}}), encoding="utf-8")
+    other = tmp_path / "other"
+    other.mkdir()
+    prefs = CodingPrefs(tmp_path / "coding.json")
+    mgr = make(coding=prefs)
+    here, there = mgr.create(ws)["id"], mgr.create(str(other))["id"]
+    for sid in (here, there):
+        mgr.send(sid, "primo")
+        until(lambda sid=sid: "done" in kinds(mgr, sid))
+    prefs.accept(folder, [{"command": "npm test"}])
+    assert mgr.update_checks(folder) == 1
+    until(lambda: any(e["event"] == "checks" and e["safe"] == 1 and e["checks"] == 1 for e in mgr.events(here)["events"]))
+    assert "checks" not in kinds(mgr, there)
+    assert SessionManager(tmp_path / "j2", "http://127.0.0.1:1").update_checks(folder) == 0
+
+
 def test_the_thinking_level_is_kept_and_checked(make, ws):
     mgr = make()
     sid = mgr.create(ws, effort="medium")["id"]

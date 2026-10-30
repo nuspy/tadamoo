@@ -28,6 +28,8 @@ from harness.rule_of_two import LEVELS
 from harness.syntax_check import DEFAULT_GUARD as DEFAULT_EDIT_GUARD, GUARD_LEVELS as EDIT_GUARD_LEVELS
 from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
 from harness.prompt_blocks import instruction_blocks
+from harness.project_profile import clean_list
+from harness.roles import GENERAL as GENERAL_ROLE, ROLE_IDS, RolePolicy, valid as valid_role
 from harness.skills import SkillCatalog, guidelines_cut_notice, read_project_guidelines, register_skill_tool
 from harness.tools import create_standard_tool_registry
 from harness.tools.registry import TOOL_CALL_NOTE
@@ -169,6 +171,12 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--verify-gate", choices=list(VERIFY_MODES), default="off",
                         help="when the verify commands run before a turn ends: off (never), unattended (only in a conversation nobody watches), always")
     parser.add_argument("--verify-rounds", type=int, default=DEFAULT_ROUNDS, help=f"most times a failed check sends the model back to fix it (1 to {MAX_ROUNDS})")
+    parser.add_argument("--role", choices=list(ROLE_IDS), default=GENERAL_ROLE,
+                        help="what the agent is for (harness/roles.py): the tools it may use and the working rules it is told; general has no limit")
+    parser.add_argument("--safe-command", action="append", default=[], metavar="COMMAND",
+                        help="a command that runs without a question, written exactly as given (tests, a linter); repeatable. Matched as a whole command, never as a prefix")
+    parser.add_argument("--project-check", action="append", default=[], metavar="COMMAND",
+                        help="a check the person accepted for this folder; with --verify-gate on it runs before a turn ends, like --verify-command")
     parser.add_argument("--no-budget-grace", action="store_true",
                         help="a budget that runs out ends the answer at once, without the warning and the last report")
     parser.add_argument("--error-classifier", action="store_true",
@@ -202,6 +210,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         memory_min_score=args.memory_min_score, memory_notes=args.memory_notes, memory_budget_tokens=args.memory_budget, phone_on_behalf_of=args.on_behalf_of,
         context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold,
         end_turn_bias=args.end_turn_bias, temperature=args.temperature, max_tokens=args.max_tokens, instruction_blocks=args.instruction_blocks,
+        role=args.role, safe_commands=args.safe_command, project_checks=args.project_check,
         verify_commands=args.verify_command, verify_gate=args.verify_gate, verify_rounds=args.verify_rounds, budget_grace=not args.no_budget_grace,
         error_classifier=args.error_classifier,
         attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
@@ -282,6 +291,9 @@ class AgentConfig:
     temperature: Optional[float] = None  # sampling temperature of every model call; None: the model file's own sampling applies
     max_tokens: Optional[int] = None    # most tokens one reply may write; None: the server's own limit
     instruction_blocks: bool = False    # short working rules in the system prompt (harness/prompt_blocks.py)
+    role: str = GENERAL_ROLE            # what the agent is for: the tools it may use and the rules it is told (harness/roles.py)
+    safe_commands: List[str] = field(default_factory=list)     # commands that run without a question, written exactly (PermissionManager.safe_verification)
+    project_checks: List[str] = field(default_factory=list)    # checks the person accepted for this folder; the verify gate runs them like verify_commands
     verify_commands: List[str] = field(default_factory=list)   # the project's own checks, run before a turn ends after edits (harness/gate.py)
     verify_gate: str = "off"            # when they run: off, unattended (only where nobody watches) or always
     verify_rounds: int = DEFAULT_ROUNDS  # most times a failed check sends the model back to fix it
@@ -340,6 +352,8 @@ class BuiltAgent:
     browser: Optional[Any] = None
     plan_gate: Optional[PlanGate] = None
     mode_switch: Optional[Callable[[str], None]] = None
+    role: Optional[RolePolicy] = None
+    checks_switch: Optional[Callable[[List[str], List[str]], None]] = None
     mcp: Optional[Any] = None                 # the MCPHub of cfg.mcp_servers
     personal: Optional[Any] = None            # the notes about the person this conversation takes in (harness/personal_memory.py Recall)
     take_place: Optional[Callable[[Any], bool]] = None     # keeps the position the person's phone sent and offers where_is_user (harness/place.py)
@@ -355,6 +369,16 @@ class BuiltAgent:
         if mode not in PERMISSION_MODES:
             raise ValueError(f"permission mode must be one of {sorted(PERMISSION_MODES)}")
         self.mode_switch(mode)
+
+    def set_role(self, role: str) -> None:
+        """Changes the role of the running conversation from its next model call on. The tool list sent to the model does not change."""
+        if not valid_role(role):
+            raise ValueError("unknown role")
+        self.role.set(role)
+
+    def set_checks(self, safe: List[str], checks: List[str]) -> None:
+        """The commands that run without a question and the accepted checks of the verify gate, as the person has them now."""
+        self.checks_switch(safe, checks)
 
     def retrieved_message(self, goal: str, limit: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Project notes relevant to a goal, as an untrusted-data message for the tail of the conversation: only notes whose shared words
@@ -513,6 +537,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     permissions = PermissionManager(level=level, plan_mode=plan, confirm_callback=cfg.confirm,
                                     sensitive_data=secrets.sensitive)       # asked at each call: the vault may gain entries later
     permissions.two.set_level(cfg.rule_of_two)
+    permissions.safe_commands = clean_list(cfg.safe_commands)
     for pattern in cfg.deny:
         permissions.add_rule(pattern, "deny")
     for pattern in cfg.allow:
@@ -705,11 +730,26 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     if cfg.instruction_blocks:
         builder.pin("discipline", instruction_blocks(registry.names()))
     edits = lambda: len(sandbox.changes)                       # the file changes recorded so far: progress for the loop guard, and what the gate looks at
-    gate = VerifyGate(clean_commands(cfg.verify_commands), cfg.verify_gate, cfg.verify_rounds, edits=edits, unattended=cfg.unattended)
+    own_checks = clean_commands(cfg.verify_commands)
+
+    def make_gate(accepted: List[str]) -> Optional[VerifyGate]:
+        found = VerifyGate(clean_commands(own_checks + list(accepted)), cfg.verify_gate, cfg.verify_rounds, edits=edits, unattended=cfg.unattended)
+        return found if found.commands else None
+
+    def tool_names() -> List[str]:
+        return [s["function"]["name"] for s in agent.tools.schemas()]
+
+    def role_changed(role: Any) -> None:
+        permissions.read_only_class = role.id != GENERAL_ROLE and role.shell      # the short list of read-only commands is for a coding role
+
+    if not valid_role(cfg.role):
+        raise ValueError(f"role must be one of {list(ROLE_IDS)}")
+    role = RolePolicy(workspace, tool_names, cfg.role, on_change=role_changed, checks=lambda: permissions.safe_commands)
     agent = AgentLoop(
         client=client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key),
         tool_registry=registry,
-        gate=gate if gate.commands else None,
+        gate=make_gate(cfg.project_checks),
+        role=role,
         changes=edits,
         budget_grace=cfg.budget_grace,
         max_turns=cfg.max_turns,
@@ -728,6 +768,10 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         clock=local_now,
         max_tokens=cfg.max_tokens,
     )
+    def switch_checks(safe: List[str], checks: List[str]) -> None:
+        permissions.safe_commands = clean_list(safe)
+        agent.gate = make_gate(checks)
+
     from harness.place import Place, register_place_tool
     here = Place()
     away = lambda: getattr(client, "stays_local", lambda: True)()                # the position leaves this PC only inside a request to another provider
@@ -739,6 +783,6 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         return True
 
     return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser,
-                      plan_gate=plan_gate, mode_switch=switch_mode, personal=personal, take_place=take_place,
+                      plan_gate=plan_gate, mode_switch=switch_mode, role=role, checks_switch=switch_checks, personal=personal, take_place=take_place,
                       mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {}, refresh_budget=refresh_budget,
                       memory_min_score=cfg.memory_min_score, memory_notes=cfg.memory_notes, memory_budget_tokens=cfg.memory_budget_tokens, notices=notices)

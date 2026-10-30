@@ -120,6 +120,7 @@
     paintFolder();
     paintChip();
     paintLive();
+    if (window.codingUi) window.codingUi.refresh();
     const on = active();
     if (!on) return;
     const asking = state === "asking";
@@ -344,6 +345,8 @@
       case "resumed": noteItem({ s: T("ch.resumed") }); assistant(e.turn); break;
       case "cleared": noteItem({ s: T("ch.cleared", e.count) }); break;
       case "mode": if (rec) rec.mode = e.mode; paintChip(); noteItem({ s: T("ch.mode.now", T("ag.mode." + e.mode)) }); break;
+      case "role": if (rec) rec.role = e.role; noteItem({ s: T("cd.role.now", T("cd.role." + e.role)) }); setControls(); break;
+      case "checks": noteItem({ s: T("cd.checks.now", e.safe) }); break;
       case "effort": if (rec) rec.effort = e.level; noteItem({ s: T("ch.effort.now", effortName(e.level)) }); break;
       case "settings":
         if (rec && "max_turns" in e) rec.max_turns = e.max_turns;
@@ -1130,7 +1133,7 @@
   async function ensure() {
     if (sid) return true;
     if (inAgent() && !curPath() && !(await addFolder())) { status(T("ag.noproject")); return false; }
-    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath() } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals() });
+    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals() });
     if (!r.ok) { status(errText(r)); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0;
     await refreshList();
@@ -1143,6 +1146,7 @@
     const files = pend.filter(f => f.id);
     const r = await api("POST", `/${sid}/send`, { text, ...(files.length ? { attachments: files.map(f => f.id) } : {}) });
     if (!r.ok) { status(errText(r)); window.chatUi.setPrompt(text); return; }
+    document.dispatchEvent(new CustomEvent("basalt:sent", { detail: { text } }));
     clearChips();
     pend = []; drawPend();
     state = "busy"; busyNow = true; status(T("ch.working")); setControls(); poll(true);
@@ -1273,7 +1277,7 @@
     const listed = known.find(s => s.id === sid) || {};
     return { title: (rec && rec.title) || listed.title || "", session: sid, items: out };
   }
-  window.agentChat = { skills, snapshot, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, rename, transcript, saveBlob, answers: answersOf,
+  window.agentChat = { record: () => rec, folder: curPath, busy: () => busyNow, skills, snapshot, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, rename, transcript, saveBlob, answers: answersOf,
     perm: { now: permNow, set: setPerm, cycle: cyclePerm, available: () => active() && mode !== "ask", modes: PERM_CYCLE },
     sessions: () => known.filter(s => s.state !== "closed" && inContext(s)).map(s => ({ id: s.id, label: `${s.title || s.id} \u00B7 ${T("ch.state." + s.state)}` })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
     toggleCopy: () => copyOpen.click() };

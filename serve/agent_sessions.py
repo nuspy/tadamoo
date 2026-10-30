@@ -37,6 +37,8 @@ from harness import questions as qs
 from harness.personal_skills.store import PersonalSkills, SkillError
 from harness.personal_skills.values import resolve as resolve_values
 from harness.vault import valid_code
+from serve.coding_prefs import project_key
+from harness.roles import GENERAL as GENERAL_ROLE, ROLE_IDS, valid as valid_role
 from harness.worktrees import WorktreeError, Worktrees
 from serve import ROOT
 from serve.api import logit_bias
@@ -115,7 +117,7 @@ class SessionManager:
                  learn: Optional[Callable[[Dict[str, Any]], Any]] = None, knowledge_flags: Optional[Callable[[], List[str]]] = None,
                  rule_of_two: Optional[Callable[[], str]] = None, allow_rules: Any = None, rule_of_two_prefs: Any = None,
                  intake_flags: Optional[Callable[[], List[str]]] = None,
-                 gate_flags: Optional[Callable[[], List[str]]] = None) -> None:
+                 gate_flags: Optional[Callable[[], List[str]]] = None, coding: Any = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -133,6 +135,7 @@ class SessionManager:
         self.browser_prefs = browser_prefs                      # whether the conversations have a browser, and whether it shows a window
         self.knowledge_flags = knowledge_flags                  # the options for the project notes, the wiki and the reference documents (Settings, Memories)
         self.intake_flags = intake_flags                        # the options for the look at a request, the questions and the suggestions (Settings, General)
+        self.coding = coding                                    # what the person accepted for each folder (serve/coding_prefs.py)
         self.gate_flags = gate_flags                            # the options for the verify gate, the budget's last report and the model-error proposal (Settings, Gate)
         self.allow_rules = allow_rules                          # the rules the person allowed for every conversation (serve/allow_rules.py)
         self.rule_of_two_prefs = rule_of_two_prefs              # where "always" is written when the person stops the Rule of Two's question for good
@@ -881,7 +884,7 @@ class SessionManager:
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
                max_turns: Any = UNLIMITED_STEPS, context_patterns: Any = None,
                context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
-               images: Any = "", charts: Any = "", unattended: bool = False) -> Dict[str, Any]:
+               images: Any = "", charts: Any = "", unattended: bool = False, role: Any = GENERAL_ROLE) -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         if (workspace is None or workspace == "") and self.default_workspace is not None:
             self.default_workspace.mkdir(parents=True, exist_ok=True)
@@ -894,6 +897,8 @@ class SessionManager:
                 raise RunError(f"How much {name} are wanted is one of: off, " + ", ".join(LEVELS[1:]) + ".", "bad_visuals")
         if effort not in EFFORTS:
             raise RunError("The thinking level is none, low, medium or high; empty is the model's own.", "bad_effort")
+        if not valid_role(role):
+            raise RunError("The role must be one of: " + ", ".join(ROLE_IDS) + ".", "bad_role")
         rules = allow if isinstance(allow, list) else []
         if any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
             raise RunError("Allow rules are lines of text.", "bad_rules")
@@ -914,7 +919,7 @@ class SessionManager:
             raise RunError("The copy of the folder is off, auto or always.", "bad_worktree")
         sid = secrets.token_hex(4)
         copy = self._copy_for(sid, path, worktree)
-        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "effort": effort, "images": images, "charts": charts,
+        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "role": role, "effort": effort, "images": images, "charts": charts,
                "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns, "unattended": unattended is True,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         if copy:
@@ -952,6 +957,10 @@ class SessionManager:
                "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", UNLIMITED_STEPS)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp", "--report-changes", "--page-files"]
         if rec.get("unattended"):
             cmd.append("--unattended")
+        if rec.get("role") and rec["role"] != GENERAL_ROLE and not rec.get("ask_only"):
+            cmd += ["--role", rec["role"]]
+        if self.coding is not None and not rec.get("ask_only"):
+            cmd += self.coding.flags(rec["workspace"])
         rules = list(rec.get("allow", []))
         rules += [r for r in (self.allow_rules.read() if self.allow_rules else []) if r not in rules]
         for rule in rules:
@@ -1510,6 +1519,31 @@ class SessionManager:
         if not told:
             self._push(sid, {"event": "mode", "mode": mode})
         return self.get(sid)
+
+    def set_role(self, sid: str, role: Any) -> Dict[str, Any]:
+        """Changes what the conversation's agent is for, from its next model call on. The tool list the model receives stays the same."""
+        if not valid_role(role):
+            raise RunError("The role must be one of: " + ", ".join(ROLE_IDS) + ".", "bad_role")
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            if rec.get("ask_only"):
+                raise RunError("A conversation without tools has no role to change.", "bad_role")
+            self._set(rec, role=role)
+            told = self._tell_if_running(sid, {"cmd": "role", "role": role})
+        if not told:
+            self._push(sid, {"event": "role", "role": role})
+        return self.get(sid)
+
+    def update_checks(self, workspace: Any) -> int:
+        """Tells the running conversations of a folder what the person accepted for it now. Returns how many were told."""
+        if self.coding is None:
+            return 0
+        got = self.coding.effective(workspace)
+        with self._lock:
+            sids = [r["id"] for r in self.records if project_key(r.get("workspace", "")) == project_key(workspace) and r["state"] != "closed" and not r.get("ask_only")]
+            return sum(1 for sid in sids if self._tell_if_running(sid, {"cmd": "checks", "safe": got["safe"], "checks": got["checks"]}))
 
     def set_effort(self, sid: str, level: Any) -> Dict[str, Any]:
         """How long the model thinks in this conversation, from its next model call on."""

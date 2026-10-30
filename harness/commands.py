@@ -54,7 +54,8 @@ def prefix_sections(session: Any) -> Dict[str, Any]:
 
 def status(session: Any, args: str) -> Dict[str, Any]:
     built, agent = session.built, session.agent
-    return {"mode": _mode_of(built.permissions), "effort": agent.sampling.get("reasoning_effort", ""), "turns": session.turns_done,
+    return {"mode": _mode_of(built.permissions), "role": built.role.id if built.role is not None else "general",
+            "effort": agent.sampling.get("reasoning_effort", ""), "turns": session.turns_done,
             "max_turns": agent.max_turns, "end_turn_bias": agent.sampling.get("end_turn_bias", 0.0),
             "temperature": agent.sampling.get("temperature"), "max_tokens": agent.max_tokens, "notices": list(getattr(built, "notices", [])),
             "model_tokens": agent.total_tokens, "memories": built.memory.count() if built.memory else 0,
@@ -62,8 +63,10 @@ def status(session: Any, args: str) -> Dict[str, Any]:
 
 
 def tools(session: Any, args: str) -> Dict[str, Any]:
-    registry = session.agent.tools
-    return {"tools": [{"name": n, "effect": getattr(registry.get(n).effect, "value", str(registry.get(n).effect))} for n in registry.names()]}
+    registry, role = session.agent.tools, getattr(session.built, "role", None)
+    allowed = set(role.allowed()) if role is not None else set(registry.names())
+    return {"role": role.id if role is not None else "general",
+            "tools": [{"name": n, "effect": getattr(registry.get(n).effect, "value", str(registry.get(n).effect)), "role_allowed": n in allowed} for n in registry.names()]}
 
 
 def hooks(session: Any, args: str) -> Dict[str, Any]:

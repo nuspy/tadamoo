@@ -176,6 +176,10 @@ for line in sys.stdin:
         emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": final})
     elif name == "mode":
         emit({"event": "mode", "mode": cmd.get("mode")})
+    elif name == "role":
+        emit({"event": "role", "role": cmd.get("role")})
+    elif name == "checks":
+        emit({"event": "checks", "safe": len(cmd.get("safe", [])), "checks": len(cmd.get("checks", []))})
     elif name == "effort":
         emit({"event": "effort", "level": cmd.get("level")})
     elif name == "settings":
