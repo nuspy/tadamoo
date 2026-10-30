@@ -103,6 +103,15 @@ class Plain(unittest.TestCase):
         self.assertIn("REASON-MARK", everything.decode())
         self.assertIn("ACTION-MARK", everything.decode())
 
+    def test_one_message_can_be_saved_bare_with_the_same_route(self):
+        snap = {"title": "Chapter", "lang": "en", "items": [{"kind": "answer", "turn": 1, "text": "# Chapter one\n\nThe river runs."}]}
+        status, headers, data = self.post({"snapshot": snap, "select": {"answers": True}, "format": "md", "name": "Chapter one", "bare": True})
+        self.assertEqual(status, 200)
+        self.assertEqual(data.decode(), "# Chapter one\n\nThe river runs.\n")
+        self.assertEqual(urllib.parse.unquote(headers["X-Basalt-Filename"]), "Chapter one.md")
+        status, _, data = self.post({"snapshot": snap, "select": {"answers": True}, "format": "md", "name": "Chapter one"})
+        self.assertIn("## Assistant", data.decode())
+
     def test_bad_requests_are_refused_with_a_reason(self):
         for payload, word in ((body(format="exe"), "format"), (body(select={}), "Choose"), (body(select=None), "Choose"),
                               (body(snapshot={"items": "no"}), "no conversation"), ([1, 2], "JSON object")):

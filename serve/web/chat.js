@@ -166,6 +166,7 @@
       el.innerHTML = `<details class="think" hidden><summary><span class="think-t"></span></summary><div class="think-b" tabindex="0" role="region" aria-label="Reasoning"></div></details>` +
         `<div class="answer"></div><div class="meta"><span class="meta-t"></span>` +
         `<button type="button" class="btn ghost copy" hidden>Copy</button>` +
+        `<button type="button" class="btn ghost savefile" hidden></button>` +
         `<button type="button" class="btn ghost retry" hidden></button>` +
         `<button type="button" class="btn ghost goon" hidden></button></div>`;
       const row = document.createElement("div"), body = document.createElement("div");
@@ -225,6 +226,9 @@
     }
     el.querySelector(".meta-t").textContent = m.meta || (streaming ? "" : m.stopped ? "Stopped" : "");
     el.querySelector(".copy").hidden = streaming || !m.text;
+    const save = el.querySelector(".savefile");
+    save.hidden = streaming || !m.text;
+    save.textContent = T("sf.btn"); save.title = T("sf.tip");
     const retry = el.querySelector(".retry"), goon = el.querySelector(".goon");
     retry.hidden = streaming || !(m.cut || m.repeated);
     const limit = !streaming && lengthCut(m);
@@ -287,6 +291,12 @@
       }
       return;
     }
+    const sv = e.target.closest(".savefile");
+    if (sv && !busy) {                                  // only on the person's click: the message is saved as a file through the export route
+      const m = messages[+sv.closest(".cmsg").dataset.i];
+      if (m && window.BasaltSave) window.BasaltSave.message(sv, { text: m.text, time: (m.time || 0) / 1000, turn: +sv.closest(".cmsg").dataset.i + 1 });
+      return;
+    }
     const b = e.target.closest(".copy");
     if (!b) return;
     const m = messages[+b.closest(".cmsg").dataset.i];
@@ -311,7 +321,7 @@
       } else {
         if (m.error && !m.text) return;                 // a failed reply is not part of the conversation
         if (m.cut) return;                              // nor is one the model ended mid-word: it would teach the next ones to stop short
-        out.push({ role: "assistant", content: m.text || "" });
+        out.push({ role: "assistant", content: busy && busy.cont === m ? (m.text || "").slice(0, cutText.cutPoint(m.text || "")) : m.text || "" });   // a cut reply goes back up to its last whitespace
       }
       at.push(i);
     });
@@ -405,14 +415,17 @@
   // the conversations mode (agentchat.js) takes the composer when it is on; this file keeps the model-only chat
   const agent = () => (window.agentChat && window.agentChat.active() ? window.agentChat : null);
 
-  /* `cont`: an assistant message the output limit ended; the model is asked to go on and its words join that message */
-  async function send(cont) {
-    let m, long = null, text = "";
+  /* `cont`: an assistant message the output limit ended; the model is asked to go on and its words join that message. `auto`: the
+     continuation is the page's own (the setting "Automatic continuations"), not a press of the Continue button */
+  async function send(cont, auto) {
+    let m, long = null, text = "", head = null, fresh = "";
     if (cont) {
       if (busy) return;
       m = cont;
-      delete m.finish; m.stopped = false; m.cut = false; m.error = "";
-      m.base = (m.text || "").length;
+      delete m.finish; m.stopped = false; m.cut = false; m.error = ""; m.capped = false;
+      head = m.text || "";                                              // the cut text; what comes now is joined to it
+      m.chain = auto ? (m.chain || 0) + 1 : 0;
+      m.progress = auto ? T("chat.auto", m.chain, chatSettings.autoContinue()) : "";
     } else {
       if (prompt.value.startsWith("/") && window.slash) {              // a command is run, not sent; an unknown one stays to be edited
         const done = window.slash.run(prompt.value.trim());
@@ -433,7 +446,7 @@
     render();
     let el = cont ? msgs.querySelector(`.cmsg[data-i="${messages.indexOf(m)}"]`) : msgs.lastElementChild;
     const controller = new AbortController();
-    busy = { controller, msg: cont ? null : m, el };
+    busy = { controller, msg: cont ? null : m, el, cont: cont || null };
     setBusy(true);
     let first = null, thinkStart = null, usage = null, frame = 0;
     const draw = () => { frame = 0; paint(el, m, true); scrollDown(); };
@@ -485,6 +498,7 @@
           if (j.usage) usage = j.usage;
           if (j.long_answer) longEvent(m, j.long_answer);
           if (j.repeated) m.repeated = true;
+          if (j.answer_capped) m.capped = true;
           if (j.structured_output) m.structured = j.structured_output;
           if (j.choices && j.choices[0] && j.choices[0].finish_reason) m.finish = j.choices[0].finish_reason;
           const d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
@@ -492,7 +506,8 @@
           if (d.content) {
             first = first || performance.now();
             if (thinkStart && m.thinkSecs == null) m.thinkSecs = (performance.now() - thinkStart) / 1000;
-            m.text += d.content;
+            if (head != null) { fresh += d.content; m.text = cutText.joinCut(head, fresh); }       // no doubled space, no repeated words at the seam
+            else m.text += d.content;
           }
           if (!frame) frame = requestAnimationFrame(draw);
         }
@@ -504,9 +519,10 @@
     if (frame) cancelAnimationFrame(frame);
     if (thinkStart && m.thinkSecs == null) m.thinkSecs = (performance.now() - thinkStart) / 1000;
     const n = usage && usage.completion_tokens;
+    m.tokens = (cont ? m.tokens || 0 : 0) + (n || 0);
     if (n && first) {
       const secs = (performance.now() - first) / 1000;
-      m.meta = `${n.toLocaleString("en-US")} tokens${secs > 0.25 ? ` · ${(n / secs).toFixed(1)} tok/s` : ""}${m.stopped ? " · stopped" : ""}`;
+      m.meta = `${m.tokens.toLocaleString("en-US")} tokens${secs > 0.25 ? ` · ${(n / secs).toFixed(1)} tok/s` : ""}${m.stopped ? " · stopped" : ""}`;
     } else if (m.stopped) m.meta = "Stopped";
     if (body.response_format) {                         // JSON held to its schema by the engine: shown as a code block
       if (m.structured) m.meta = `${m.meta ? m.meta + " · " : ""}${T("cs.validated", m.structured.attempts)}`;
@@ -521,6 +537,8 @@
     save();
     scrollDown();
     meter();
+    // a reply the output limit cut goes on by itself, up to the setting; not a loop, not the answer cap, not a stop, and only while words keep coming
+    if (lengthCut(m) && !m.capped && (head == null || fresh.trim()) && (m.chain || 0) < chatSettings.autoContinue()) send(m, true);
   }
 
   /* the events of a long answer (serve/longform.py) as one line under the text, and the totals at the end */

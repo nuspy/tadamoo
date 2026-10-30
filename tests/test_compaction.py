@@ -293,7 +293,17 @@ def test_open_items_that_name_a_file_no_one_mentioned_are_flagged(tmp_path):
     writer = Writer(text="Goal: fix it\nOpen items: edit src/ghost/never_seen.py next")
     ctx, comp = make(tmp_path, writer)
     note = next(m for m in ctx.prepare(single_turn()) if m.get("summary"))["content"]
-    assert "Not found in the work" in note and "src/ghost/never_seen.py" in note
+    assert "Not contained in the memory of this session (check before relying on it): " in note and "src/ghost/never_seen.py" in note
+    assert "Not found in the work" not in note
+
+
+def test_the_warning_is_worded_in_italian_when_the_request_is_in_italian(tmp_path):
+    writer = Writer(text="Obiettivo: sistemare il parser\nOpen items: modificare src/ghost/mai_visto.py")
+    ctx, comp = make(tmp_path, writer)
+    msgs = single_turn(goal="Per favore sistema il parser dei file di configurazione e controlla che i test passino tutti")
+    note = next(m for m in ctx.prepare(msgs) if m.get("summary"))["content"]
+    assert "Non contenuto nella memoria di questa sessione (verifica prima di farci affidamento): " in note and "src/ghost/mai_visto.py" in note
+    assert "Not contained in the memory" not in note
 
 
 # -- the prefix report ----------------------------------------------------------------------------------------------

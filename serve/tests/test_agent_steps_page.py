@@ -45,7 +45,7 @@ class StepsPageTest(unittest.TestCase):
         self.assertIn('document.addEventListener("basalt:chatset-settled"', CHAT)       # the panel's own starting values are not a change by the person
 
     def test_the_limit_is_said_with_a_button_to_go_on_and_the_other_stops_have_a_line(self):
-        self.assertIn('["max_turns", "budget", "loop"].includes(kind)', CHAT)
+        self.assertIn('["max_turns", "budget", "loop", "length"].includes(kind)', CHAT)
         self.assertIn('T("ch.continue.text")', CHAT)
         self.assertIn("paintStop(it);", CHAT)
         self.assertIn(".astop .btn { min-height: 44px", (WEB / "app.css").read_text(encoding="utf-8"))

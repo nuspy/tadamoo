@@ -7,11 +7,23 @@ A model asked for a long final text ends its turn early, well short of the lengt
 
 ## A reply that is cut is shown as cut
 
-- **Chat.** When the output limit ends a reply (`finish_reason: length`) the message says so and has a **Continue** button. It asks the
-  model to go on exactly where it stopped, and the new words join the same message. A reply that the server stopped because it was
-  repeating itself has no Continue (it would write the loop again), only *Ask again*.
-- **Agent.** The loop already asks the model to go on twice by itself (`docs/harness.md`, *How a reply ends*). An answer that is still cut
-  after that shows the line "The output limit ended this answer" and a **Continue** button that sends one more message.
+- **Chat.** When the output limit ends a reply (`finish_reason: length`) the Chat asks the model by itself to go on exactly where it
+  stopped, with the same hidden turn as the **Continue** button, and the new words join the same message under a line "Continuing by
+  itself (2 of 4)". The setting is Chat settings > *Automatic continuations*: default 4, 0 turns it off, kept with the other Chat settings and
+  in the presets. Stop ends the chain. A reply that the server stopped because it was repeating itself (`repeated: true`), one that reached
+  *Max answer tokens* (`answer_capped: true`) and one that brings no new words are never continued by themselves. When the limit is reached
+  the message says it was cut and the **Continue** button stays (it starts a new chain). A looped reply has no Continue (it would write
+  the loop again), only *Ask again*.
+- **Agent.** The loop asks the model to go on twice by itself (`docs/harness.md`, *How a reply ends*) and the page says so under the
+  answer ("asked to go on (1 of 2)") and joins the pieces into the same text. An answer that is still cut after that shows the line "The
+  output limit ended this answer" and a **Continue** button that sends one more message.
+- **How a continuation joins.** The cut text goes back to the model only up to its last whitespace, so the model writes the unfinished
+  word again; the join (`harness/continuation.py`, the same in `serve/web/cuttext.js`) leaves no doubled or missing space, no second
+  paragraph break and none of the words the model repeated at its start. The segmented mode joins its parts' continuations the same way.
+- **What tells a cut reply from a finished one.** Only `finish_reason`: `length` is the output limit (or the answer cap, or a loop, which carry
+  their own flag), `stop` is the end-of-sequence code, which the model also writes when it simply ends early. An early end with `stop` cannot
+  be told from a finished reply by code, so nothing continues it by itself; only the segmented mode catches it, because it checks the length
+  of every part against what was asked and writes a short part again.
 - **`max_answer_tokens`** (a request field and a Chat setting, *Max answer tokens*): the most the answer text may take, not counting the
   thinking. `max_tokens` is one budget for thinking and answer together; this one is for the answer alone. The reply ends as `length`
   and the final chunk carries `answer_capped: true`. The server default is off (`Service.max_answer_tokens`).
@@ -22,8 +34,8 @@ A model asked for a long final text ends its turn early, well short of the lengt
 
 ## The segmented mode
 
-For a final text that is too long for one turn the text is planned, then written one **segment** per model call (about 1000 words, never
-over 2000), and the segments are put together. Each segment is checked by plain code before it is kept.
+For a final text that is too long for one turn the text is planned, then written one **segment** per model call (about 2000 words, never
+over 2500), and the segments are put together. Each segment is checked by plain code before it is kept.
 
 Three ways to start it, all with the same engine:
 
@@ -31,10 +43,12 @@ Three ways to start it, all with the same engine:
    a translation of it, a rewrite of it), the length, the language, a style, a glossary, and whether images, links, code, tables and
    diagrams are kept as they are. It applies to the next message only. In the Chat the options go to the server as `long_answer`; in the
    Agent the message ends with one line, `[long answer: mode=translate; language=Italian]`, which the harness reads.
-2. **By the harness.** A deterministic check of the person's request (`detect_long_request`): a length asked for above 1800 words ("10,000
-   words", "10.000 parole", "20 pages", "5k words") with a writing verb or a document kind, a chapter, a translation or rewrite of a text
-   over 1800 words, an analysis of a very large text. Where the person is, a card offers "About 10,000 words: write it in 10 parts?" (the
-   first option is recommended) and the turn ends on it; where nobody watches (a routine, `--unattended`) the offer is taken at once and
+2. **By the harness.** A deterministic check of the person's request (`detect_long_request`): a length asked for above 3000 tokens (about
+   2000 words; "10,000 words", "10.000 parole", "20 pages", "5k words") with a writing verb or a document kind, a chapter, a translation or
+   rewrite of a text over 3000 tokens, an analysis of a very large text. Words become tokens in one place (`tokens_for_words`): 1.35 tokens a
+   word for English and 1.5 for Italian and any language not recognised, by the language of the request, so 2100 words ask for parts in
+   Italian (3150 tokens) and not in English (2835). A chapter with no length counts as 2500 words. Where the person is, a card offers "About
+   10,000 words (13,500 tokens): write it in 5 parts?" (the first option is recommended) and the turn ends on it; where nobody watches (a routine, `--unattended`) the offer is taken at once and
    noted as an assumption. Either way the model is told, with a note after the message, to hand its plan to `plan_long_answer`.
 3. **By the model.** The tool `plan_long_answer`, in the fixed group at the start of the tool list (so the cached prefix is untouched) and
    marked pure: it changes no file. The model declares that the answer does not fit a turn and hands over the plan in a constrained
@@ -45,8 +59,8 @@ Three ways to start it, all with the same engine:
 ### Parts from a plan
 
 The number of parts comes from the total, not from the sections: `chunk_count(total, segment_words)` rounds `total / segment_words`
-(`segment_words` is 1000 by default, kept between 700 and 1500) and adds parts until none is over 2000 words. So 10,000 words is 10
-parts, or 7 with `segment_words: 1500`. Each section is then placed on the word axis and a part takes the sections that fall in its
+(`segment_words` is 2000 by default, kept between 700 and 2500) and adds parts until none is over 2500 words. So 10,000 words is 5
+parts, or 7 with `segment_words: 1500`. A plan the model makes (`plan_long_answer`) follows the same rule. Each section is then placed on the word axis and a part takes the sections that fall in its
 share: a long section is written over several parts ("continues from the previous part"), several short ones share one part, and each
 heading is written where its section starts.
 
@@ -107,7 +121,7 @@ in a row under half of what was asked stop the run (`stopped: "short_segments"`)
 | `target_words` | the length of a new text (50 to 200000, default 2000) |
 | `target_language`, `style`, `glossary` | language, style, `{term: translation}` |
 | `outline`, `title` | a plan: `[{heading, goal, target_words, key_points}]` (new text only) |
-| `segment_words` | 200 to 3000, default 1000; a plan's parts stay within 700 to 1500 |
+| `segment_words` | 200 to 2500, default 2000; a plan's parts stay within 700 to 2500 |
 | `sections` | the number of sections to ask the model for |
 | `headings` | write the section headings (default: for 3 parts or more) |
 | `retries` | 0 to 3, default 1 |
@@ -132,6 +146,14 @@ route. In the Agent tab the text is shown in the conversation as it passes its c
 10") and the totals; the model sees only a short report with the start and end of the text. The text is not saved to a file and is not in
 the model's history.
 
+## Save as file
+
+Under every assistant message, next to **Copy**, a **Save as file** button (Chat and Agent) opens a small window: the format (Markdown by
+default, or Word, OpenDocument, HTML, PDF; the same ones as the conversation export) and the file name. Only that click saves anything. The
+text of that message alone goes to `POST /api/export` with `bare: true`: no title line, no export header and no speaker heading, the
+headings as written (`serve/exportdoc.py`, `serve/exportoffice.py`); the system's "Save as" window lets the person choose the folder
+(`serve/web/export.js`, `window.BasaltSave.message`). In the Agent the text is the answer's text blocks, as Copy gives it.
+
 ## Not done
 
 - Abort and resume across connections (`POST /api/chat/long`): closing the connection stops the run, and a new one starts again.
@@ -140,12 +162,14 @@ the model's history.
 - Streaming inside a segment: text appears when its segment has passed the checks, a part at a time.
 - `max_answer_tokens` for Agent sessions, a bigger room for the Chat context reserve, and a notice when the server clamps `max_tokens`.
 - Map-reduce summaries of a source larger than the context.
-- Saving the assembled text as an output file and exporting it.
+- A tool or a plan that writes the assembled text to a file by itself: `plan_long_answer` stays pure, and the text is saved only by the person.
 
-Real-model checks are rows 57 to 62 of `tests/QUEUE_daytime.md`.
+Real-model checks of the parts are rows 57 to 62 of `tests/QUEUE_daytime.md`.
 
 ## Tests
 
 `tests/test_longform.py` (protection, splitting, checks, plan, chunking, the run with a scripted client), `tests/test_longform_tool.py` (the
 tool, the card, the unattended offer, the control line), `serve/tests/test_longform_api.py` (the request field against the mock engine,
-`max_answer_tokens`, the passage guard), `serve/tests/test_longform_page.py` (the markup and strings).
+`max_answer_tokens`, the passage guard), `serve/tests/test_longform_page.py` (the markup and strings), `serve/tests/test_chat_continue.py` (the
+Chat's own continuing, run in node against the page's script), `tests/test_continuation.py` (the join, in Python and in the page's script).
+Real-model checks of the continuing, the part size and Save as file are rows 66 to 68 of `tests/QUEUE_daytime.md`.

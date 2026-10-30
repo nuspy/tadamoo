@@ -356,7 +356,13 @@ The loop reads `finish_reason` of every reply (`harness/agent_loop.py`, `_comple
 - **Cut by the output limit, with text and no tool call.** The text is kept as an assistant message and a `[harness]` note (`note: true`, at the
   tail, so the cached start is untouched) asks the model to go on exactly where it stopped, at most 2 times per request. After that the answer
   is delivered as it is, flagged cut (`AgentLoop.cut`, `cut` in the `done` event, `turn.cut`). The pieces are joined by `answer_text(turns)`.
-  Every cut gives an `answer_truncated` event and audit record. A text that is a repetition loop is never continued.
+  Every cut gives an `answer_truncated` event (`final`, `continuation`, `of`, `degenerate`) and audit record; the Agent tab shows "the model is
+  asked to go on (1 of 2)" under the answer while it goes on. A text that is a repetition loop is never continued.
+  The cut text goes back to the model only up to its last whitespace (`harness/continuation.py`, `cut_point`): the model starts its new reply
+  with the unfinished word, which a new reply could not otherwise do without a space. `join_continuation` puts the pieces together with no
+  doubled or missing space, one paragraph break at most, and none of the words (6 characters or more, whole words) the model began a little early
+  with. The Agent page does the same on the streamed text (`serve/web/cuttext.js`, the Chat's copy of the two functions); one table of cases
+  runs through both (`tests/test_continuation.py`).
 - **A tool call cut inside its arguments** is never run. The reply is dropped from the conversation and asked again with the ceiling doubled (from the
   setting, else from what the reply had written), up to 3 times, and the larger ceiling is kept for the rest of the request; if it is still cut the
   run ends as `length` with a notice in `error`. Events and records: `tool_call_cut`.
@@ -370,7 +376,7 @@ The loop reads `finish_reason` of every reply (`harness/agent_loop.py`, `_comple
   at most 1.5; only this server receives it). A reply that the limit ended and that is a loop gets the same treatment. A second loop in the request ends
   the run as `degenerate`. Records: `output_degenerate`. A run without streaming only judges a reply the limit ended.
 - `length_stops` (replies the limit ended, per run) is in every trial of `python -m harness.eval` and in its report; so is the number of calls that were mended.
-- **A reply still cut after the continuations** shows "The output limit ended this answer" and a Continue button in the Agent tab (the Chat has its own). A text too long for one turn is written in parts by `plan_long_answer`, which the harness offers when a request asks for over 1800 words; see [longform.md](longform.md).
+- **A reply still cut after the continuations** shows "The output limit ended this answer" and a Continue button in the Agent tab (the Chat has its own). A text too long for one turn is written in parts by `plan_long_answer`, which the harness offers when a request asks for over 3000 tokens (about 2000 words); see [longform.md](longform.md).
 
 The loop passes no temperature and no `max_tokens` unless the session sets them (`--temperature`, `--max-tokens`, the `settings` command of the
 conversation's process, `/status`): without a temperature the model file's own sampling applies. **A temperature above 0 makes tool calls less

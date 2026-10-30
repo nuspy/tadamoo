@@ -199,6 +199,13 @@ def test_spec_defaults_and_errors():
     ("Translate this: short text", None),
     ("riscrivi questo " + "testo " * 2000, ("rewrite", 2002)),
     ("Analizza questo documento: " + "testo " * 4000, ("write", 2001)),
+    ("Scrivi un testo di 2100 parole sui fiumi d'Europa", ("write", 2100)),                  # Italian: 1.5 tokens a word, 3150 tokens
+    ("Write a text of 2100 words about the rivers of Europe", None),                           # English: 1.35 tokens a word, 2835 tokens
+    ("Write a text of 2300 words about the rivers of Europe", ("write", 2300)),
+    ("Scrivi un testo di 1900 parole sui fiumi d'Europa", None),
+    ("Write a chapter about the rivers of Europe", ("write", 2500)),
+    ("Translate this into Italian: " + "the " * 2100, None),
+    ("Translate this into Italian: " + "the " * 2300, ("translate", 2304)),
 ])
 def test_detect_long_request(text, expected):
     found = lf.detect_long_request(text)
@@ -207,15 +214,34 @@ def test_detect_long_request(text, expected):
         assert found["parts"] == lf.chunk_count(found["words"])
 
 
+def test_words_and_tokens_are_converted_in_one_place_by_language():
+    assert lf.LONG_MIN_TOKENS == 3000
+    assert lf.tokens_for_words(2000, "it") == 3000 and lf.tokens_for_words(2000, "en") == 2700 and lf.words_for_tokens(3000, "it") == 2000
+    assert lf.tokens_for_words(1000, "") == lf.tokens_for_words(1000, "it") and lf.tokens_for_words(1000, "xx") == 1500
+    assert lf.request_language("Write a text of words about the rivers of Europe") == "en"
+    assert lf.request_language("Scrivi un testo di mille parole sui fiumi che attraversano l'Europa") == "it"
+    assert lf.detect_long_request("Write a text of 2300 words about the rivers of Europe")["tokens"] == 3105
+    assert lf.parse_hint("Write about rivers\n\n[long answer: mode=write]")["words"] == 2000
+
+
 # -- the plan ---------------------------------------------------------------------------------------------------------
 
 def test_chunk_count_keeps_parts_within_what_is_reliable():
-    assert lf.chunk_count(10000) == 10 and lf.chunk_count(10000, 1500) == 7 and lf.chunk_count(300) == 1
+    assert lf.SEGMENT_WORDS == 2000 and lf.CHUNK_WORDS == (700, 2500) and lf.CHUNK_MAX == 2500 and lf.SEGMENT_WORDS_RANGE[1] == 2500
+    assert lf.chunk_count(10000) == 5 and lf.chunk_count(10000, 1500) == 7 and lf.chunk_count(300) == 1
     assert lf.chunk_count(10000, 100) == 14                      # parts are never smaller than 700 words
-    assert lf.chunk_count(40000, 3000) == 27                     # nor above 1500, and never beyond 2000
-    for words in (1800, 5000, 12345, 90000):
-        for size in (700, 1000, 1500, 3000):
+    assert lf.chunk_count(40000, 3000) == 16                     # nor above 2500
+    for words in (2000, 5000, 12345, 90000):
+        for size in (700, 1000, 2000, 2500, 3000):
             assert words / lf.chunk_count(words, size) <= lf.CHUNK_MAX
+
+
+def test_a_plan_made_by_the_model_follows_the_same_part_size():
+    segs = lf.chunks_from_outline(outline(*[1000] * 10), 10000)
+    assert len(segs) == 5 and all(s.words == 2000 for s in segs)
+    assert lf.Spec.from_request({"mode": "write", "task": "t", "target_words": 9000}, "").segment_words == 2000
+    with pytest.raises(lf.LongformError, match="segment_words"):
+        lf.Spec.from_request({"mode": "write", "task": "t", "segment_words": 2600}, "")
 
 
 def outline(*sizes):
@@ -249,7 +275,7 @@ def test_outline_parse_and_fallbacks():
 # -- the run: write ---------------------------------------------------------------------------------------------------
 
 def spec_for(**kw):
-    base = {"mode": "write", "task": "Write about rivers", "target_words": 3000, "outline": outline(1000, 1000, 1000)}
+    base = {"mode": "write", "task": "Write about rivers", "target_words": 3000, "segment_words": 1000, "outline": outline(1000, 1000, 1000)}
     base.update(kw)
     return lf.Spec.from_request(base, "")
 
@@ -320,6 +346,19 @@ def test_a_cut_part_is_continued_and_a_part_that_stays_cut_is_reported():
     assert la.parts[0] == "First half of the text and the second half of the text, whole and finished properly."
     assert done["finish"] == "length"                                      # never delivered as complete
     assert [w["code"] for w in done["warnings"]].count("truncated") == 1 and "truncated" in {w["code"] for w in done["warnings"]}
+
+
+def test_a_part_cut_inside_a_word_goes_on_from_the_word_before_it():
+    sent = []
+
+    def script(n, messages):
+        if n == 1:
+            return ("The international rel", "length")
+        sent.append(messages[-2]["content"])
+        return ("relations of states are old, and the rules that hold them together are older still, as every student of the subject learns.", "stop")
+    la, events, done = run(Model(script), spec_for(outline=outline(1000), target_words=1000, retries=0))
+    assert sent == ["The international "]
+    assert la.parts[0].startswith("The international relations of states are old") and "relrelations" not in la.parts[0]
 
 
 def test_a_short_part_is_asked_again_once_with_the_reason():
@@ -437,7 +476,7 @@ def test_a_source_that_needs_too_many_parts_is_refused_up_front():
 
 def test_the_control_line_is_read_and_removed():
     got = lf.parse_hint("Write about rivers\n\n[long answer: mode=write; words=4000; language=Italian]")
-    assert got["text"] == "Write about rivers" and (got["mode"], got["words"], got["parts"]) == ("write", 4000, 4) and got["fields"]["language"] == "Italian"
+    assert got["text"] == "Write about rivers" and (got["mode"], got["words"], got["parts"]) == ("write", 4000, 2) and got["fields"]["language"] == "Italian"
     assert lf.parse_hint("Translate\n\n[long answer: mode=bogus]")["mode"] == "write"
     assert lf.parse_hint("a message about [long answer: x] in the middle\nand more") is None
     assert lf.parse_hint("no line") is None

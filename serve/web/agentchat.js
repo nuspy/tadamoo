@@ -309,8 +309,16 @@
     return current;
   }
   function noteItem(it) { items.push({ kind: "note", ts: stampOf(), ...it }); }
+  /* a reply the output limit cut is asked to go on (harness/agent_loop.py): its words join the text already shown, with no doubled space and
+     none of the words the model wrote again. They are held back for a moment so the start can be compared with the end of the text. */
+  function joinPending(a, force) {
+    if (!a.joinTo || (!force && a.joinBuf.length < 160)) return;
+    a.joinTo.s = cutText.joinCut(a.joinHead, a.joinBuf); a.joinTo.dirty = true;
+    if (force) { a.joinTo = null; a.joinBuf = ""; }
+  }
   function textBlock(kind, text, turn) {
     const a = assistant(turn), last = a.blocks[a.blocks.length - 1];
+    if (kind === "text" && a.joinTo) { a.joinBuf += text; joinPending(a, false); return; }
     if (last && last.t === kind) { last.s += text; last.dirty = true; return; }
     if (last && last.t === "reasoning") last.over = true;
     a.blocks.push({ t: kind, s: text, dirty: true, ts: stampOf() });
@@ -366,9 +374,17 @@
       case "dropped": started(e.turn); noteItem({ s: T("ch.dropped") }); break;
       case "agent": {
         const d = e.data || {};
-        if (d.type === "assistant") {                                          // the whole message; the pieces came before it
+        if (d.type === "answer_truncated") {                                    // the output limit cut the reply: it is asked to go on, or delivered as it is
           const a = assistant(e.turn);
-          if (!a.blocks.some(b => b.t === "text" || b.t === "reasoning") && (d.content || d.reasoning)) {
+          a.contNote = d.final ? null : { n: d.continuation, of: d.of };
+          const last = a.blocks.filter(b => b.t === "text").pop();
+          if (last && !d.final) { a.joinTo = last; a.joinHead = last.s; a.joinBuf = ""; }
+        } else if (d.type === "assistant") {                                    // the whole message; the pieces came before it
+          const a = assistant(e.turn);
+          if (a.joinTo) {
+            if (!a.joinBuf && d.content) a.joinBuf = d.content;
+            joinPending(a, true);
+          } else if (!a.blocks.some(b => b.t === "text" || b.t === "reasoning") && (d.content || d.reasoning)) {
             if (d.reasoning) textBlock("reasoning", d.reasoning, e.turn);
             if (d.content) textBlock("text", d.content, e.turn);
           }
@@ -406,6 +422,8 @@
       case "blocked": addBlock({ t: "blocked", reason: e.reason, detail: e.detail, options: e.options || [] }, e.turn); break;
       case "done": {
         const a = assistant(e.turn); a.done = true; a.stop = e.stop_reason; a.steps = e.max_turns; a.cut = !!e.cut;
+        if (a.joinTo) joinPending(a, true);
+        a.contNote = null;
         a.meta = e.stop_reason === "cancelled" ? T("ch.cancelled") : e.stop_reason === "asked" ? "" : e.error ? e.error : e.stop_reason === "error" ? T("ch.stop.error") : "";
         a.blocks.forEach(b => { if (b.t === "reasoning") b.over = true; });
         if (copyShown) loadCopy();
@@ -730,6 +748,15 @@
       el.append(row);
     }
   }
+  const answerText = it => it.blocks.filter(x => x.t === "text").map(x => x.s).join("\n\n");
+  /* the line under an answer that the output limit cut and the model is being asked to go on: "(1 of 2)" */
+  function paintCont(it) {
+    const on = !it.done && !!it.contNote;
+    if (!it.contEl && !on) return;
+    if (!it.contEl) { it.contEl = mk("div", "astop"); it.contEl.setAttribute("role", "status"); it.body.after(it.contEl); }
+    it.contEl.hidden = !on;
+    if (on) it.contEl.textContent = T("ch.ev.answer_truncated", it.contNote.n, it.contNote.of);
+  }
   /* why an answer ended when it did not simply finish: out of steps (with a button to go on), out of budget, or repeating itself */
   function paintStop(it) {
     const kind = it.done ? (it.cut && !["max_turns", "budget", "loop"].includes(it.stop) ? "length" : it.stop) : "";   // an answer the output limit ended is cut, whatever else ended the run
@@ -797,7 +824,12 @@
         });
         branchBtn.title = T("ch.branch.from.tip");
         branchBtn.prepend(icon(BRANCH_ICON));
-        it.actsEl.append(copyButton(() => it.blocks.filter(x => x.t === "text").map(x => x.s).join("\n\n")), branchBtn);
+        const save = btn(T("sf.btn"), "ghost savefile", () => {
+          const text = answerText(it);
+          if (text && window.BasaltSave) window.BasaltSave.message(save, { text, time: it.ts || 0, turn: items.indexOf(it) + 1 });     // only on the person's click
+        });
+        save.title = T("sf.tip");
+        it.actsEl.append(copyButton(() => answerText(it)), save, branchBtn);
         it.el.append(it.actsEl);
       }
       it.blocks.forEach(b => {
@@ -806,6 +838,7 @@
         b.row.hidden = b.el.hidden;                                           // a reasoning box with nothing in it shows no time either
       });
       it.metaEl.textContent = it.meta;
+      paintCont(it);
       paintStop(it);
     });
     if (chipsEl) box.append(chipsEl);                                          // the chips stay below the last answer

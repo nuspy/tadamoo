@@ -15,7 +15,7 @@ from harness.stack import AgentConfig, build_agent
 from harness.tools import create_standard_tool_registry
 from harness.tools.registry import STABLE, EffectClass
 
-SECTIONS = [{"heading": f"Section {i}", "goal": f"goal {i}", "target_words": 1000, "key_points": ["a", "b"]} for i in (1, 2, 3)]
+SECTIONS = [{"heading": f"Section {i}", "goal": f"goal {i}", "target_words": 2000, "key_points": ["a", "b"]} for i in (1, 2, 3)]
 
 
 class Model:
@@ -107,14 +107,14 @@ def test_the_model_hands_over_a_plan_and_the_harness_writes_it_in_parts(tmp_path
     shown, events = [], []
     binding = registry.longform
     binding.client, binding.deliver, binding.progress = model, shown.append, events.append
-    out = registry.execute("plan_long_answer", {"task": "A report on rivers", "sections": SECTIONS, "total_words": 3000, "language": "English"})
-    assert len(model.parts) == 3                                              # 3000 words: three parts of 1000
+    out = registry.execute("plan_long_answer", {"task": "A report on rivers", "sections": SECTIONS, "total_words": 6000, "language": "English"})
+    assert len(model.parts) == 3                                              # 6000 words: three parts of 2000
     assert out.startswith("Written in 3 of 3 parts") and "do not write it again" in out and "Start: Body of part 1." in out
     text = "".join(shown)
     assert text.count("Body of part") == 3 and text.endswith("\n\n")
     assert [e["event"] for e in events][0] == "plan" and events[-1]["event"] == "done" and events[-1]["segments"] == 3
     first = model.sent[0]
-    assert "Plan of the whole text" in first[0]["content"] and "1. Section 1: goal 1 (about 1000 words)" in first[0]["content"]
+    assert "Plan of the whole text" in first[0]["content"] and "1. Section 1: goal 1 (about 2000 words)" in first[0]["content"]
 
 
 def test_without_a_place_to_show_it_the_text_is_returned(tmp_path):
@@ -151,7 +151,7 @@ ASK = "Scrivi un report di 10.000 parole sui fiumi d'Europa"
 
 
 def plan_call():
-    return call("plan_long_answer", task="Report sui fiumi", sections=SECTIONS, total_words=3000, language="Italian")
+    return call("plan_long_answer", task="Report sui fiumi", sections=SECTIONS, total_words=6000, language="Italian")
 
 
 def test_where_the_person_is_a_card_offers_the_parts_and_the_answer_starts_the_model(tmp_path):
@@ -161,7 +161,7 @@ def test_where_the_person_is_a_card_offers_the_parts_and_the_answer_starts_the_m
     ask = ev.wait("ask")
     q = ask["questions"][0]
     assert ask["source"] if "source" in ask else True
-    assert q["kind"] == "single" and "10,000" in q["text"] and "10 parts" in q["text"] and q["options"][0]["recommended"] and not q["allow_other"]
+    assert q["kind"] == "single" and "10,000" in q["text"] and "5 parts" in q["text"] and "tokens" in q["text"] and q["options"][0]["recommended"] and not q["allow_other"]
     assert ev.wait("done")["stop_reason"] == al.ASKED and model.sent == []         # the model was not called
     n = len(ev.items)
     answer = qs.ANSWER_HEADER + "\n1. " + q["text"][:60] + " -> " + q["options"][0]["label"] + " (your recommended option)\n" + qs.GO_ON
@@ -169,7 +169,7 @@ def test_where_the_person_is_a_card_offers_the_parts_and_the_answer_starts_the_m
     done = ev.wait("done", after=n)
     assert done["final"] == "Fatto."
     notes = [m["content"] for m in model.sent[0] if isinstance(m.get("content"), str) and m["content"].startswith("[harness] This request needs")]
-    assert len(notes) == 1 and "plan_long_answer" in notes[0] and "10000 words" in notes[0] and "about 10 parts" in notes[0]
+    assert len(notes) == 1 and "plan_long_answer" in notes[0] and "10000 words" in notes[0] and "about 5 parts" in notes[0]
     shown = "".join(e["text"] for e in ev.items if e["event"] == "delta" and e.get("kind") == "content")
     assert shown.count("Body of part") == 3
     progress = [e["data"] for e in ev.items if e["event"] == "agent" and e["data"].get("type") == "long_answer"]

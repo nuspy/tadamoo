@@ -331,6 +331,20 @@ def test_markdown_output():
     assert "### Title" in md                                                           # the answer's "# Title" sits under "## Assistant"
 
 
+def test_one_message_saved_bare_is_the_text_alone_in_every_format():
+    items = [{"kind": "answer", "turn": 1, "time": 1792000000, "text": "# Chapter one\n\nThe river runs\n\n## Part\n\n- one\n- two"}]
+    doc = E.build(snapshot(items=items, title="A long chapter"), {"answers": True}, bare=True)
+    md = E.write_md(doc).decode()
+    assert md == "# Chapter one\n\nThe river runs\n\n## Part\n\n- one\n- two\n"                  # no title line, no export header, no speaker, headings in place
+    html = E.write_html(doc).decode()
+    assert "<title>A long chapter</title>" in html and html.count("<h1>") == 1 and "Assistant" not in html
+    for fmt, data in all_writers(doc).items():
+        text = readable(fmt, data)
+        assert "The river runs" in text and "Exported" not in text and "Assistant" not in text, fmt
+    full = E.write_md(E.build(snapshot(items=items, title="A long chapter"), {"answers": True})).decode()
+    assert full.startswith("# A long chapter") and "## Assistant" in full and "### Chapter one" in full
+
+
 def test_markdown_does_not_turn_text_into_structure():
     items = [{"kind": "prompt", "text": "# not a heading\n- not a list\n1. not numbered\n*stars* and _under_ and [x](y) <b>"}]
     md = E.write_md(E.build(snapshot(items=items), {"prompts": True})).decode()

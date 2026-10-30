@@ -25,3 +25,7 @@ dialog.exp[aria-busy="true"] .exp-status::after { content: ""; display: inline-b
 @keyframes exp-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { dialog.exp[aria-busy="true"] .exp-status::after { animation: none; } }
 @media (max-width: 480px) { .exp-foot .btn { flex: 1 1 40%; } }
+
+/* "Save as file" beside Copy under a message */
+.btn.savefile { min-height: 30px; margin-left: 8px; }
+.aacts .btn.savefile { margin-left: 0; }

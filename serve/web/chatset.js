@@ -31,7 +31,9 @@ const chatSettings = (() => {
     { key: "retries", id: "cs-retries", min: 0, max: 5, kind: "int", label: "cs.retries" },
     { key: "max_turns", id: "cs-max_turns", min: -1, kind: "int", label: "cs.max_turns" },     // for the Agent, not for the model: -1 or empty is no limit
     { key: "max_answer_tokens", id: "cs-max_answer_tokens", min: 1, kind: "int", label: "cs.max_answer_tokens" },
+    { key: "auto_continue", id: "cs-auto_continue", min: 0, max: 20, kind: "int", label: "cs.auto_continue" },     // for the Chat's own continuing, not sent to the model
   ];
+  const AUTO_CONTINUE = 4;
   // what the engine does with a key that neither the request nor the model file sets (the GEN line's defaults)
   const ENGINE_SAMPLING = { temperature: 0, top_p: 1, top_k: 20, min_p: 0, repetition_penalty: 1,
     presence_penalty: 0, frequency_penalty: 0, penalty_last_n: 64, end_turn_bias: 0 };
@@ -132,7 +134,7 @@ const chatSettings = (() => {
       if (s[f.key] === "" || problem(f, s[f.key])) continue;
       const n = Number(s[f.key]);
       if (f.key === "reasoning_budget_tokens" && n === 0) continue;
-      if (f.key === "retries" || f.key === "max_turns") continue;
+      if (f.key === "retries" || f.key === "max_turns" || f.key === "auto_continue") continue;
       out[f.key] = n;
     }
     const stops = s.stop.split("\n").map(x => x.replace(/\r$/, "")).filter(Boolean).slice(0, 4);
@@ -146,6 +148,7 @@ const chatSettings = (() => {
   const system = () => read().system.trim();
   const policy = () => read().policy;
   const threshold = () => { const v = Number(read().threshold); return Number.isFinite(v) && v >= 30 && v <= 100 ? v / 100 : 0.8; };
+  const autoContinue = () => { const v = read().auto_continue, n = v === "" ? AUTO_CONTINUE : Number(v); return Number.isInteger(n) && n >= 0 && n <= 20 ? n : AUTO_CONTINUE; };
   const structured = () => { const f = read().format; return f === "json_object" || f === "json_schema"; };
   /* what the Agent takes from the panel: the steps one answer may take (-1 or empty: no limit) and the end-of-turn bias (empty: off);
      a field that is not valid is left out, so the server's own value stays */
@@ -368,5 +371,5 @@ const chatSettings = (() => {
   fetchPresets();
   if (load("basalt.chatset.open", false) && innerWidth > 980) openPanel(true);
   const patterns = () => read().context_patterns || {};
-  return { body, system, policy, threshold, structured, showReasoning, patterns, live };
+  return { body, system, policy, threshold, structured, showReasoning, autoContinue, patterns, live };
 })();

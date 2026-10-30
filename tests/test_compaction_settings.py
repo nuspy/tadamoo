@@ -173,3 +173,79 @@ def test_the_process_of_a_conversation_is_started_with_the_settings_and_they_rea
     assert "--no-compaction" in manager._command("s2", {**rec, "ask_only": True}, tmp_path / "h")          # a chat without tools too
     settings = agent_settings(session_args(flags))
     assert settings["compaction"] is False and settings["compaction_threshold"] == 0.6
+
+
+# -- the choice survives a restart, and the summary never leaves this PC unless the person pointed the function elsewhere --------------
+
+
+def test_the_choice_is_kept_in_compaction_json_and_survives_a_restart_of_the_manager(tmp_path):
+    from serve.agent_sessions import SessionManager
+    path = tmp_path / "data" / "compaction.json"
+    rec = {"mode": "default", "workspace": str(tmp_path)}
+
+    def manager():                                                  # what the server builds at its start: the settings are read from the file each time
+        return SessionManager(tmp_path / "j", "http://127.0.0.1:1", compaction_flags=CompactionPrefs(path).flags, command=None)
+    assert "--no-compaction" not in manager()._command("s1", rec, tmp_path / "h")                       # nothing saved yet: on
+    CompactionPrefs(path).write({"compaction": False, "compaction_threshold": 0.7})
+    assert json.loads(path.read_text(encoding="utf-8")) == {"compaction": False, "compaction_threshold": 0.7}
+    restarted = manager()._command("s2", rec, tmp_path / "h")                                         # a new manager, as after a restart
+    assert "--no-compaction" in restarted and restarted[restarted.index("--compaction-threshold") + 1] == "0.7"
+    CompactionPrefs(path).write({"compaction": True})
+    again = manager()._command("s3", rec, tmp_path / "h")
+    assert "--no-compaction" not in again and again[again.index("--compaction-threshold") + 1] == "0.7"
+    assert CompactionPrefs(path).read()["compaction"] is True and CompactionPrefs(tmp_path / "none.json").read()["compaction"] is True
+
+
+def test_the_settings_page_writes_compaction_json_in_the_data_folder(api, tmp_path):
+    assert api("POST", "/api/compaction", {"compaction": False})[0] == 200
+    saved = json.loads((tmp_path / "data" / "compaction.json").read_text(encoding="utf-8"))
+    assert saved["compaction"] is False
+    assert api("GET", "/api/compaction")[1]["compaction"] is False
+
+
+class Route:
+    """A conversation client with a route: `local` is whether every route its function may take stays on this PC."""
+
+    def __init__(self, local):
+        self.local = local
+
+    def stays_local(self):
+        return self.local
+
+    def chat_completion(self, messages, **kwargs):
+        return {"choices": [{"message": {"role": "assistant", "content": "Goal: carry on\nOpen items: none"}}]}
+
+
+def test_the_summary_goes_to_a_cloud_route_only_when_the_compaction_function_is_pointed_at_it(tmp_path):
+    cloud = Route(False)
+    _, _, without = make(tmp_path / "a", cloud)                                                         # the conversation is on a cloud route, the function is not
+    assert without.agent.context.compaction.summarize is None
+    _, _, own = make(tmp_path / "b", Route(True))
+    assert own.agent.context.compaction.summarize is not None                                           # a route that stays on this PC may write it
+    ws = tmp_path / "c" / "ws"
+    ws.mkdir(parents=True)
+    pointed = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "c" / "data"), use_memory=False, use_checkpoints=False), client=cloud, summarizer=cloud)
+    assert pointed.agent.context.compaction.summarize is not None                                       # the person chose that route for the function
+    plain = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "c" / "data2"), use_memory=False, use_checkpoints=False), client=Asked())
+    assert plain.agent.context.compaction.summarize is not None                                         # a client with no routing is the loaded model
+
+
+def test_with_the_real_registry_the_compaction_function_stays_on_this_pc_until_it_is_pointed_elsewhere(tmp_path):
+    from harness.llm.client import RoutedClient
+    from harness.llm.credentials import FileCredentials
+    from harness.llm.store import Ledger, SecureRegistry
+    reg = SecureRegistry(tmp_path / "p.json", credentials=FileCredentials(tmp_path / "c.json"))
+    reg.local_hosts = ()
+    cloud = reg.add({"type": "openai_compat", "base_url": "https://api.example.com/v1", "api_key": "sk-test-abcdef", "model": "m"})["id"]
+    reg.set_consent("executor", True)
+    reg.assign_checked("executor", cloud)                                                        # the conversation itself is on a cloud route
+    ledger = Ledger(tmp_path / "u.json")
+    executor = RoutedClient("executor", reg, Asked(), ledger)
+    compaction = RoutedClient("compaction", reg, Asked(), ledger)
+    assert executor.stays_local() is False and compaction.stays_local() is True
+    assert reg.fallback_chain("compaction") == [None]
+    ok, why = reg.check("compaction", cloud)                                                     # and it cannot be pointed there without a yes for personal data
+    assert ok is False and "personal data" in why
+    reg.set_consent("compaction", True)
+    reg.assign_checked("compaction", cloud)
+    assert RoutedClient("compaction", reg, Asked(), ledger).stays_local() is False

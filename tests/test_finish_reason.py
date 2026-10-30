@@ -63,19 +63,37 @@ def wire_text(messages):
 
 def test_a_cut_answer_is_asked_to_go_on_and_the_pieces_join(ws, tmp_path):
     audit = AuditLedger(tmp_path / "audit.jsonl")
-    client = Client(reply("The first half of the", "length"), reply(" answer, and the rest."))
+    client = Client(reply("The first half of the", "length"), reply("the answer, and the rest."))
     agent, events = make(ws, client, audit=audit)
     turns = agent.run("write it")
     assert agent.stop_reason == FINAL and not agent.cut and agent.length_stops == 1 and len(turns) == 2
     second = client.sent[1]
-    assert second[-2] == {"role": "assistant", "content": "The first half of the"}
+    assert second[-2] == {"role": "assistant", "content": "The first half of "}                # the unfinished last word is written again by the model
     assert "Continue exactly where you stopped" in second[-1]["content"] and second[-1]["role"] == "user"
     assert client.sent[0] == second[:len(client.sent[0])]                      # the cached prefix is untouched: the note is at the tail
     assert turns[0].cut and turns[1].continues and not turns[1].cut
     assert answer_text(turns) == "The first half of the answer, and the rest."
     cut = [e for e in events if e["type"] == "answer_truncated"]
-    assert cut == [{"type": "answer_truncated", "final": False, "continuation": 1, "degenerate": False}]
+    assert cut == [{"type": "answer_truncated", "final": False, "continuation": 1, "of": MAX_CONTINUATIONS, "degenerate": False}]
     assert [r["details"]["final"] for r in audit.records if r["action"] == "answer_truncated"] == [False]
+
+
+def test_the_pieces_join_at_a_word_boundary_without_a_doubled_space_or_a_repeat(ws):
+    cut = "Rome was not built in a day, and the people who built it knew that every wall needed patience, so they began with the foundations and went up"
+    client = Client(reply(cut, "length"), reply("went up one course at a time.\n\nThe second paragraph.", "length"), reply("paragraph.\n\nThird."))
+    agent, _ = make(ws, client)
+    turns = agent.run("write it")
+    assert client.sent[1][-2]["content"] == cut[:-len("up")]                       # kept up to the last whitespace: "up" is written again
+    assert answer_text(turns) == cut[:-len("went up")] + "went up one course at a time.\n\nThe second paragraph.\n\nThird."
+    assert "went up went up" not in answer_text(turns) and "\n\n\n" not in answer_text(turns)
+
+
+def test_a_cut_in_the_middle_of_a_word_is_finished_by_the_word_written_again(ws):
+    client = Client(reply("The international rel", "length"), reply("relations of states are old."))
+    agent, _ = make(ws, client)
+    turns = agent.run("go")
+    assert client.sent[1][-2]["content"] == "The international "
+    assert answer_text(turns) == "The international relations of states are old."
 
 
 def test_the_note_is_marked_so_it_never_counts_as_a_request(ws):
