@@ -160,8 +160,6 @@ def create_standard_tool_registry(
     register_repo_diagram(registry, sandbox.resolve_safe)
     from harness.todo import register_todo_tool
     register_todo_tool(registry)
-    from harness.longform_tool import register_plan_long_answer
-    register_plan_long_answer(registry).resolve = sandbox.resolve_safe
     registry.mark_stable()
 
     return registry, sandbox

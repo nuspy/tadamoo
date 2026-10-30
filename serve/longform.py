@@ -35,6 +35,9 @@ TRANSCRIPT_SHARE = 0.6                  # past this share of the context the ear
 ANCHOR_WORDS = 120                      # the end of the text so far, repeated in a prompt that carries no earlier segments
 CONTINUATIONS = 2
 CHARS_PER_TOKEN = 3.0
+SAMPLING_FIELDS = ("temperature", "top_p", "top_k", "min_p", "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n",
+                   "seed")      # the request's own sampling, passed on to every call that writes
+SIDE_TIMEOUT_S = 180.0                  # a short technical call is not waited for longer than this
 STOP_SHORT_SEGMENTS = 2                 # a written text stops after this many segments in a row under half their target
 
 BLOCK_KINDS = ("FM", "CODE", "MATH", "HTML", "REF")     # markers that stand alone on a line and keep their order
@@ -269,6 +272,25 @@ def detect_long_request(text: str, source_words: int = 0) -> Optional[Dict[str, 
     if not asked and CHAPTER_RE.search(text) and WRITE_VERB_RE.search(text) and over(CHAPTER_WORDS):
         return found("write", CHAPTER_WORDS, "chapter")
     return None
+
+
+TARGET_RE = re.compile(r"\b(?:into|in|to|a|en|al|ins|auf|para|vers|em)\s+(" + "|".join(sorted(map(re.escape, LANGUAGE_NAMES), key=len, reverse=True)) + r")\b", re.I)
+INSTRUCTION_WORDS = 60              # a request's first paragraph is its instruction when it is this short and the source follows
+
+
+def target_language(text: str) -> str:
+    """The language a request names as the one to translate into ("into Italian", "in inglese"), as a code; '' when it names none."""
+    m = TARGET_RE.search(text[:400])
+    return language_code(m.group(1)) if m else ""
+
+
+def split_request(text: str) -> Tuple[str, str]:
+    """(instruction, source) of a translate or rewrite request that holds both: the first paragraph when it is short and a text follows it;
+    otherwise ('', the whole request)."""
+    head, sep, rest = text.strip().partition("\n\n")
+    if sep and rest.strip() and 0 < len(head.split()) <= INSTRUCTION_WORDS:
+        return head.strip(), rest.strip()
+    return "", text.strip()
 
 
 # -- splitting -----------------------------------------------------------------------------------------------------
@@ -640,6 +662,7 @@ class Segment:
     words: int = 0                      # the words it should have
     marks: List[str] = field(default_factory=list)
     rows: List[Tuple[int, str, bool]] = field(default_factory=list)     # outline sections it covers: (number, heading, begins here)
+    instruction: str = ""               # the exact task for the writer of this part, when the planner handed one over
 
 
 # -- the plan ----------------------------------------------------------------------------------------------------------
@@ -814,7 +837,9 @@ def segment_request(spec: Spec, seg: Segment, total: int, ask: int, headings: bo
             begins = [h for _, h, first in seg.rows if first and h] if seg.rows else ([seg.heading] if seg.heading else [])
             if begins:
                 out.append("Write these headings where their sections start: " + ", ".join(f"`## {h}`" for h in begins) + ".")
-        if seg.goal:
+        if seg.instruction:
+            out.append("Your task for this part:\n" + seg.instruction)
+        elif seg.goal:
             out.append(f"Goal: {seg.goal}")
         if seg.points:
             out.append("Key points:\n" + "\n".join(f"- {p}" for p in seg.points))
@@ -846,6 +871,15 @@ CONTINUE_NOTE = "Continue exactly where you stopped. Do not repeat anything alre
 
 def estimate_tokens(messages: List[Dict[str, Any]]) -> int:
     return int(sum(len(str(m.get("content") or "")) for m in messages) / CHARS_PER_TOKEN) + 8 * len(messages)
+
+
+def _side() -> Dict[str, Any]:
+    """The request fields that select the short technical session for the short calls (estimate, plan, review); empty where this build has none."""
+    try:
+        from harness.side import side_extra
+    except ImportError:
+        return {}
+    return dict(side_extra())
 
 
 # -- the run -----------------------------------------------------------------------------------------------------------
@@ -892,8 +926,10 @@ class LongAnswer:
 
     # -- model calls
 
-    def _call(self, messages: List[Dict[str, Any]], max_tokens: int) -> Iterator[Any]:
-        """Yields None or a segment_progress event while the model writes; returns (text, finish)."""
+    def _call(self, messages: List[Dict[str, Any]], max_tokens: int, *, side: bool = False,
+              response_format: Optional[Dict[str, Any]] = None) -> Iterator[Any]:
+        """Yields None or a segment_progress event while the model writes; returns (text, finish). A `side` call is a short technical
+        one: sampling off, the side session's fields added, and `response_format` constrains the reply."""
         out: "queue.Queue[Tuple[str, Any]]" = queue.Queue()
         text: List[str] = []
 
@@ -906,11 +942,15 @@ class LongAnswer:
 
         def work() -> None:
             try:
-                extra = {"reasoning_effort": "none", **self.sampling}
-                if self.spec.end_turn_bias is not None:
-                    extra["end_turn_bias"] = self.spec.end_turn_bias
-                out.put(("done", self.client.chat_completion(messages=messages, max_tokens=max_tokens, extra=extra,
-                                                              timeout=3600.0, on_delta=on_delta)))
+                if side:
+                    result = self.client.chat_completion(messages=messages, max_tokens=max_tokens, temperature=0.0, response_format=response_format,
+                                                         extra={"reasoning_effort": "none", **_side()}, timeout=SIDE_TIMEOUT_S, on_delta=on_delta)
+                else:
+                    extra = {"reasoning_effort": "none", **self.sampling}
+                    if self.spec.end_turn_bias is not None:
+                        extra["end_turn_bias"] = self.spec.end_turn_bias
+                    result = self.client.chat_completion(messages=messages, max_tokens=max_tokens, extra=extra, timeout=3600.0, on_delta=on_delta)
+                out.put(("done", result))
             except BaseException as exc:                 # handed to the caller's thread
                 out.put(("error", exc))
         thread = threading.Thread(target=work, daemon=True, name="longform-call")
@@ -921,7 +961,7 @@ class LongAnswer:
                 kind, value = out.get(timeout=0.5)
             except queue.Empty:
                 now = self.clock()
-                if now - last >= 1.0:
+                if now - last >= 1.0 and not side:
                     last = now
                     yield {"event": "segment_progress", "index": self._at, "words": sum(len(p.split()) for p in text)}
                 else:
@@ -991,7 +1031,7 @@ class LongAnswer:
         cap = max(256, int(max(hi, seg.words * HIGH_RATIO) * TOKENS_PER_WORD) + 64)
         language = language_code(spec.language)
         earlier = "\n\n".join(self.parts)
-        anchor = " ".join(earlier.split()[-ANCHOR_WORDS:]) if rolling and earlier else ""
+        anchor = " ".join(earlier.split()[-ANCHOR_WORDS:]) if (rolling or seg.instruction) and earlier else ""
         done = [done_line(p) for p in plan[:seg.index]] if rolling else None
         user = segment_request(spec, seg, len(plan), ask, headings, anchor, done)
         base = [{"role": "system", "content": system}, *self.prior, *([] if rolling else history)]

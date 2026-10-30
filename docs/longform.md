@@ -2,8 +2,9 @@
 
 A model asked for a long final text ends its turn early, well short of the length asked, however large the output limit is. This page describes what Basalt does about it. The reasons and the design are in
 [harness-study/long-answers.md](harness-study/long-answers.md). Code: `serve/longform.py` (the engine of the mode: pure functions and
-`LongAnswer`), `serve/api/longform.py` (the `long_answer` field), `harness/longform_tool.py` (`plan_long_answer`),
-`serve/web/longform.js` and `longform.css` (the control), and the guards in `serve/service.py` and `serve/util/ngram.py`.
+`LongAnswer`), `serve/longflow.py` (the flow the harness drives: estimate, plan, parts, check), `serve/api/longform.py` (the `long_answer`
+field), `serve/web/longform.js` and `longform.css` (the control), `harness/session.py` (`_long_step`, `_long_run`), and the guards in
+`serve/service.py` and `serve/util/ngram.py`.
 
 ## A reply that is cut is shown as cut
 
@@ -37,30 +38,65 @@ A model asked for a long final text ends its turn early, well short of the lengt
 For a final text that is too long for one turn the text is planned, then written one **segment** per model call (about 2000 words, never
 over 2500), and the segments are put together. Each segment is checked by plain code before it is kept.
 
-Three ways to start it, all with the same engine:
+Two ways to start it, both with the same engine:
 
 1. **By hand.** The **Long answer** button beside Send (Chat and Agent). A small dialog asks what to write (a new text from the message,
    a translation of it, a rewrite of it), the length, the language, a style, a glossary, and whether images, links, code, tables and
    diagrams are kept as they are. It applies to the next message only. In the Chat the options go to the server as `long_answer`; in the
-   Agent the message ends with one line, `[long answer: mode=translate; language=Italian]`, which the harness reads.
+   Agent the message ends with one line, `[long answer: mode=translate; language=Italian]`, which the harness reads and acts on at once:
+   no card, and for a new text no length estimate (the person chose it).
 2. **By the harness.** A deterministic check of the person's request (`detect_long_request`): a length asked for above 3000 tokens (about
    2000 words; "10,000 words", "10.000 parole", "20 pages", "5k words") with a writing verb or a document kind, a chapter, a translation or
    rewrite of a text over 3000 tokens, an analysis of a very large text. Words become tokens in one place (`tokens_for_words`): 1.35 tokens a
    word for English and 1.5 for Italian and any language not recognised, by the language of the request, so 2100 words ask for parts in
    Italian (3150 tokens) and not in English (2835). A chapter with no length counts as 2500 words. Where the person is, a card offers "About
    10,000 words (13,500 tokens): write it in 5 parts?" (the first option is recommended) and the turn ends on it; where nobody watches (a routine, `--unattended`) the offer is taken at once and
-   noted as an assumption. Either way the model is told, with a note after the message, to hand its plan to `plan_long_answer`.
-3. **By the model.** The tool `plan_long_answer`, in the fixed group at the start of the tool list (so the cached prefix is untouched) and
-   marked pure: it changes no file. The model declares that the answer does not fit a turn and hands over the plan in a constrained
-   shape: `sections` (heading, goal, target_words, key_points), `total_words`, `language`, `style`, `glossary`; for a translation or
-   rewrite, `mode` and `source_path` (a file in the workspace) or `use_message`. The harness writes the text, shows it to the person as it
-   passes its checks and gives the model a short report; the model should not write the text again.
+   noted as an assumption. Once taken, **the harness writes the text itself**: the model is not asked to call anything. There is no tool for it
+   (`plan_long_answer` was removed, so the stable tool list lost one entry once: a conversation saved before that has a different cached
+   prefix on its first request).
+
+A translation or rewrite found by the rules needs what the model used to give: the language comes from the request ("into Italian", "in
+inglese"), the instruction of a rewrite and the source from the request's first paragraph when it is short and a text follows it
+(`split_request`). When the language or the instruction cannot be read, the harness leaves the request to the model. The Agent's control
+line carries them explicitly.
+
+### The flow for a new text
+
+`LongFlow` (`serve/longflow.py`) is `LongAnswer` with a step before the parts and one after. Calls 1, 2 and 4 are short and carry only
+what they need (no tools, no history, thinking off, temperature 0, a grammar-constrained form); they also carry the side session's request
+fields (`serve.longform._side`, empty where the build has no side session). The parts (3) and the rewritten passages stay on the
+conversation's own session, with the earlier text turns of the conversation ahead of them.
+
+1. **Estimate.** The question alone, the form `{words, reason}`. The words are clamped to 50..200000 and bounded: within 0.8 to 1.25 times
+   a length the request states, else within a quarter to four times the rule-based words. A reply that cannot be read falls back to the
+   rule-based words (`source: rule`). At or under the threshold (3000 tokens) the harness stops and the model answers as usual
+   (`estimate` event with `long: false`).
+2. **Plan.** The question, the words and the number of parts (about one per 2000 words); the form is `{title, chunks: [{id, heading, goal,
+   target_words, key_points, instruction}]}`. Caps are enforced in code: the count must allow parts of 700 to 2500 words (one more try
+   with the allowed range, then an even plan with `fallback: true`), the parts are numbered in order (the model's `id` is not trusted),
+   their words are scaled to the total and kept within 700..2500, and every field is cut to a limit. `instruction` is the exact task
+   for the writer of that part.
+3. **Parts.** One call each, by `LongAnswer`: protected content, the checks after each part, continuation of a cut part. The part's message
+   carries its `instruction` and key points, and the harness adds where the previous part ended (the last 120 words).
+4. **Check.** For each piece of the text that fits (consecutive parts up to 3000 words) a short call sees the request, the plan and the
+   piece, and lists fixes `{op: replace | insert_after | delete, chunk, anchor, instruction}`, the anchor being 6 to 12 words copied from the
+   text. The harness finds the anchor itself: exact, then ignoring whitespace, quote marks and dashes, in the named part only; under 4
+   words, not found, found twice, or crossing two paragraphs, the fix is not applied. The passage is the paragraph that holds the anchor;
+   code blocks, formulas, HTML, headings and tables are never rewritten or deleted. A replace or an insert is written by a focused call
+   (the passage with its protected content masked, the text just before and after, the instruction), checked as a part is (markers once
+   each, language, no remark about the task, fences, tables), its length kept within 0.4 to 3 times the old passage (an insert 15 to 450
+   words) and the part within half of its planned words, and then put in. A passage that fails twice is rejected. At most 2 rounds and 10
+   fixes a round; the check stops when the verifier lists nothing or nothing could be applied.
+
+Everything found and not applied is reported: `unapplied` in the final event (round, part, op, anchor, instruction, reason), and a
+`fix_not_applied` warning each. The final text replaces the text shown while the parts were written (`revised` event) and is the answer
+of the turn: the history holds it whole, so a later message can refer to it, and the **Save as file** button saves it.
 
 ### Parts from a plan
 
 The number of parts comes from the total, not from the sections: `chunk_count(total, segment_words)` rounds `total / segment_words`
 (`segment_words` is 2000 by default, kept between 700 and 2500) and adds parts until none is over 2500 words. So 10,000 words is 5
-parts, or 7 with `segment_words: 1500`. A plan the model makes (`plan_long_answer`) follows the same rule. Each section is then placed on the word axis and a part takes the sections that fall in its
+parts, or 7 with `segment_words: 1500`. A plan given in the request (`outline`) follows the same rule. Each section is then placed on the word axis and a part takes the sections that fall in its
 share: a long section is written over several parts ("continues from the previous part"), several short ones share one part, and each
 heading is written where its section starts.
 
@@ -141,10 +177,11 @@ with an empty delta and a `long_answer` event: `plan` (segments, words, `fallbac
 `long_answer` totals; without `stream` the response has them as `long_answer`. Closing the connection stops the call in flight; nothing
 is written after it. A model error is raised after the segments already delivered.
 
-The same engine drives `plan_long_answer` with the conversation's own client, so it works the same on the loaded model and on a cloud
-route. In the Agent tab the text is shown in the conversation as it passes its checks, with one line of progress ("writing part 3 of
-10") and the totals; the model sees only a short report with the start and end of the text. The text is not saved to a file and is not in
-the model's history.
+In the Agent tab the harness drives the same engine with the conversation's own client, so it works the same on the loaded model and on a
+cloud route. Its events arrive as `long_answer` agent events: `estimate` (words, `source` model, rule or asked, `long`), then those above,
+then `review` (round) and `fix` (round, `n` of `of`, `op`, `chunk`, `status` applied, unlocated or rejected, `reason`), `revised` (the whole
+text, when a fix was put in) and `done` with `applied`, `rounds` and `unapplied`. The page shows one line that follows the phase ("writing
+part 3 of 10", "correction 2 of 3 made in part 4"), the totals and what was not applied.
 
 ## Save as file
 
@@ -162,14 +199,18 @@ headings as written (`serve/exportdoc.py`, `serve/exportoffice.py`); the system'
 - Streaming inside a segment: text appears when its segment has passed the checks, a part at a time.
 - `max_answer_tokens` for Agent sessions, a bigger room for the Chat context reserve, and a notice when the server clamps `max_tokens`.
 - Map-reduce summaries of a source larger than the context.
-- A tool or a plan that writes the assembled text to a file by itself: `plan_long_answer` stays pure, and the text is saved only by the person.
+- The text is never saved to a file by the harness; only the person saves it.
+- The check and the estimate for a translation or rewrite (their source is the plan, and the parts are checked against it).
+- Gathering material with tools before a long text: the parts are written from the request and the conversation, not from files the model reads first.
+- Finding the language or the instruction of a translation or rewrite that the request does not state plainly.
 
-Real-model checks of the parts are rows 57 to 62 of `tests/QUEUE_daytime.md`.
+Real-model checks of the parts are rows 57 to 62 of `tests/QUEUE_daytime.md`, those of the estimate, the plan and the check are rows 70 to 73.
 
 ## Tests
 
-`tests/test_longform.py` (protection, splitting, checks, plan, chunking, the run with a scripted client), `tests/test_longform_tool.py` (the
-tool, the card, the unattended offer, the control line), `serve/tests/test_longform_api.py` (the request field against the mock engine,
+`tests/test_longform.py` (protection, splitting, checks, plan, chunking, the run with a scripted client), `tests/test_longform_flow.py` (the estimate, the plan, the
+parts with their own task, the check and the placing of its fixes, the side fields), `tests/test_longform_session.py` (the card, the
+unattended offer, the control line, the harness writing the text, the tool's removal), `serve/tests/test_longform_api.py` (the request field against the mock engine,
 `max_answer_tokens`, the passage guard), `serve/tests/test_longform_page.py` (the markup and strings), `serve/tests/test_chat_continue.py` (the
 Chat's own continuing, run in node against the page's script), `tests/test_continuation.py` (the join, in Python and in the page's script).
 Real-model checks of the continuing, the part size and Save as file are rows 66 to 68 of `tests/QUEUE_daytime.md`.
