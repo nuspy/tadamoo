@@ -52,6 +52,7 @@ from typing import Any, Callable, Dict, List, Optional, TextIO, Tuple
 from harness import agent_loop as al
 from harness import error_classifier
 from harness import intake as it
+from serve import longform as lf
 from harness import questions as qs
 from harness import suggestions as sg
 from harness.client import StreamCancelled
@@ -285,6 +286,8 @@ class Session:
         self.ask_only = False                                   # a conversation without tools
         self._suggest_cancel = threading.Event()                # set when the person sends something: a suggestion call in flight stops
         self._card_at: Optional[float] = None                   # when the card now on the screen was shown
+        self._long_asked: Optional[List[str]] = None            # the labels that refuse the parts, while the card that offered them is open
+        self._long_request: Optional[Dict[str, Any]] = None     # the request that needs a long text: its words, and what plan_long_answer may take from it
         self.endpoint, self.api_key = "", None
         self._window: Optional[Tuple[int, float]] = None
         self._announced: set = set()                            # what the planner already woke the conversation about
@@ -312,6 +315,11 @@ class Session:
         a.on_turn_end = lambda turn, t=task: self._on_turn_end(turn, t)
         a.on_delta = lambda k, x, t=task: self._on_delta(k, x, t)
         a.before_inference = lambda t=task: self._safe_point(t)
+        longform = getattr(a.tools, "longform", None)
+        if longform is not None:                                  # plan_long_answer shows its text and its progress in this conversation
+            longform.deliver = lambda text, t=task: self._on_delta("content", text, t)
+            longform.progress = lambda ev, t=task: self._on_event({"type": "long_answer", **ev}, t)
+            longform.message = lambda: str((self._long_request or {}).get("text") or "")
 
     # -- the history -----------------------------------------------------------------------------------
 
@@ -1066,6 +1074,8 @@ class Session:
         if agent.last_user_text.startswith(qs.ANSWER_HEADER) and self._card_at is not None:
             self._audit("question_answered", {"seconds": round(time.time() - self._card_at, 1), "chars": len(agent.last_user_text)})
             self._card_at = None
+        if facts and self._long_step(task):
+            return True
         if self.intake is None or self.intake.mode == "off" or not facts or not agent.last_user_text.strip():
             return False
         try:
@@ -1098,6 +1108,80 @@ class Session:
         agent.stop_reason, agent.error = al.ASKED, ""
         self._save()
         return True
+
+    LONG_TEXT = {
+        "en": {"q": "This asks for about {words} words, more than one reply writes well. Write it in {parts} parts?",
+               "yes": "Yes, in {parts} parts", "yes_d": "Each part is planned, written and checked on its own; you see the text as it comes.",
+               "no": "No, in one go", "no_d": "One reply; it will probably come out shorter than asked."},
+        "it": {"q": "La richiesta è di circa {words} parole, più di quante una risposta ne scriva bene. La scrivo in {parts} parti?",
+               "yes": "Sì, in {parts} parti", "yes_d": "Ogni parte è pianificata, scritta e controllata da sola; vedi il testo man mano.",
+               "no": "No, in un colpo solo", "no_d": "Una sola risposta; probabilmente sarà più corta del richiesto."},
+    }
+    LONG_NOTE = ("[harness] This request needs a text of about {words} words, more than one reply writes well. {how} The harness then writes "
+                 "it in about {parts} parts and shows it to the person: do not write the text yourself.")
+    LONG_HOW = {"write": "When the material is ready, call plan_long_answer with your outline (sections, total_words, language).",
+                "translate": "Call plan_long_answer with mode translate, the language, and use_message true (the text is in the person's message).",
+                "rewrite": "Call plan_long_answer with mode rewrite, the task, and use_message true (the text is in the person's message)."}
+
+    def _long_step(self, task: Task) -> bool:
+        """A request for a text too long for one reply (serve/longform.py): where the person is, a card offers to write it in parts and the
+        turn ends on it (True); where nobody watches the offer is taken at once. The model is told to hand its plan to plan_long_answer.
+        Never raises."""
+        agent = task.agent
+        try:
+            text = agent.last_user_text
+            if text.startswith(qs.ANSWER_HEADER) and self._long_asked is not None:
+                refused, self._long_asked = self._long_asked, None
+                if any(label in text for label in refused):
+                    self._long_request = None
+                    self._audit("long_answer", {"choice": "one_go"})
+                elif self._long_request:
+                    self._long_note(agent)
+                return False
+            if self.ask_only or agent.tools.get("plan_long_answer") is None or text.startswith(qs.ANSWER_HEADER):
+                return False
+            asked = lf.parse_hint(text)
+            if asked is not None:                             # the person turned the control on: no card, the model is told what was chosen
+                self._long_request = asked
+                self._audit("long_answer", {"asked": asked["parts"], "words": asked["words"], "mode": asked["mode"]})
+                self._long_note(agent)
+                return False
+            found = lf.detect_long_request(text)
+            if found is None:
+                return False
+            self._long_request = {**found, "text": text}
+            words = (found["words"] // 100) * 100 or found["words"]
+            strings = self.LONG_TEXT["it" if lf.detect_language(text) == "it" else "en"]
+            fill = {"words": f"{words:,}".replace(",", "." if strings is self.LONG_TEXT["it"] else ","), "parts": found["parts"]}
+            payload = qs.normalise({"questions": [{"id": "long_parts", "text": strings["q"].format(**fill), "kind": "single", "allow_other": False,
+                "options": [{"label": strings["yes"].format(**fill), "description": strings["yes_d"], "recommended": True},
+                            {"label": strings["no"], "description": strings["no_d"]}]}]})
+            self._long_asked = [strings["no"]]
+            self._audit("long_answer", {"proposed": found["parts"], "words": found["words"], "reason": found["reason"]})
+            said = self._question(payload)
+            if said is not None:                              # nobody to ask: the parts are taken, and the model is told
+                self._long_asked = None
+                agent.append({"role": "user", "content": said, "note": True})
+                self._long_note(agent)
+                return False
+            self._card_at = time.time()
+            shown = qs.history_text(payload)
+            agent.append({"role": "assistant", "content": shown})
+            agent.turns.append(al.AgentTurn(len(agent.turns) + 1, task.text, "", shown))
+            agent.stop_reason, agent.error = al.ASKED, ""
+            self._save()
+            return True
+        except Exception as exc:
+            self._long_asked = None
+            it.log.warning("long answer: failed: %s", type(exc).__name__)
+            return False
+
+    def _long_note(self, agent: Any) -> None:
+        found = self._long_request or {}
+        chosen = "; ".join(f"{k} {v}" for k, v in (found.get("fields") or {}).items() if k in ("language", "style", "task") and v)
+        agent.append({"role": "user", "note": True, "content": self.LONG_NOTE.format(
+            words=found.get("words"), parts=found.get("parts"), how=self.LONG_HOW.get(found.get("mode"), self.LONG_HOW["write"]))
+            + (f" The person chose: {chosen}." if chosen else "")})
 
     def _register_subtasks(self, task: Task, subtasks: List[Dict[str, Any]]) -> None:
         """A large request as a parent and its parts in the server's task registry (`req-<turn>`, `req-<turn>.1`, ...)."""

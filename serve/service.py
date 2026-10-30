@@ -17,6 +17,7 @@ from serve.util.logbuf import LogBuffer
 from serve.util.reqlog import RequestLog
 from serve.util.reqtrace import GpuTicker
 from serve.prompt import CTX_SLACK, PromptText, overflow_error, room_error
+from serve.util.ngram import NgramLoop
 from serve.util.text import Detokenizer, IM_END, StopMatcher, control_literals, stop_strings
 from serve.engine.vision import Vision
 from serve.api.grammar import grammar_spec, unenforced
@@ -33,6 +34,9 @@ EFFORT_TEXT = {"low": "Reasoning effort is set to low. Keep your thinking brief 
 VISION_START = "<|vision_start|>"
 # a reply repeating one token this many times in a row is ended ("length"); Service.repeat_stop_tokens, 0: off
 REPEAT_STOP_TOKENS = 256
+# a passage of this many tokens written this many times within this many tokens is a loop, and ends the reply ("length");
+# Service.repeat_ngram, None: off. Code fences are not watched.
+REPEAT_NGRAM = (12, 4, 2000)
 # closes the thinking at reasoning_budget_tokens
 REASONING_WRAP_UP = "\n\nI have thought about this long enough; time to give my answer.\n</think>\n\n"
 # closes the thinking when the model ends its turn inside it
@@ -109,6 +113,8 @@ class Service:
         self.vram_reserve = None                         # last POST /v1/vram reserve (None: the start's)
         self.reasoning_budget_tokens = 0                 # default thinking budget (0: none)
         self.repeat_stop_tokens = REPEAT_STOP_TOKENS     # see REPEAT_STOP_TOKENS
+        self.repeat_ngram = REPEAT_NGRAM                 # see REPEAT_NGRAM
+        self.max_answer_tokens = 0                       # default cap on the answer text, apart from the thinking (0: none)
         self.anthropic_think_unasked = True               # "anthropic_thinking": "on_request" -> False
         self.stop_ids = set(tokenizer.encode(IM_END, parse_special=True) +
                             tokenizer.encode("<|endoftext|>", parse_special=True))
@@ -174,6 +180,18 @@ class Service:
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError(f"reasoning_budget_tokens: expected a whole number (0 = none), not {value!r}")
         return value if value > 0 else None
+
+    def answer_cap(self, req) -> int:
+        """The request's `max_answer_tokens`: the most the answer text may take, not counting the thinking (0: none); ValueError for a
+        value that is not a whole number of 0 or more. The reply ends as "length" when it is reached."""
+        value = (req if isinstance(req, dict) else {}).get("max_answer_tokens")
+        if value is None:
+            return self.max_answer_tokens
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"max_answer_tokens: a whole number of tokens, 0 or more (0 = none), not {value!r}")
+        return value
 
     def _vision_down(self) -> bool:
         return self.vision is not None and hasattr(self.vision, "alive") and not self.vision.alive()
@@ -715,6 +733,12 @@ class Service:
         detok, n, finish = Detokenizer(self.tok), 0, "length"
         run_tok, run_len, repeated = None, 0, False     # current run of one repeated token
         thinking_n = 0                                  # tokens written while thinking
+        answer_cap, answer_n = self.answer_cap(sampling), 0     # the answer text's own cap, and the tokens written so far
+        capped = looped = False
+        rf = (sampling or {}).get("response_format")
+        structured = isinstance(rf, dict) and rf.get("type") in ("json_object", "json_schema")     # JSON repeats its own keys: not a loop
+        loop_guard = NgramLoop(*self.repeat_ngram) if self.repeat_ngram and not structured else None
+        in_fence, fence_tail = False, ""                # inside a code fence (the passage guard does not look there), and the last 2 characters
         stop_list = stop_strings(sampling)
         stops = StopMatcher(stop_list) if stop_list else None
         trace = getattr(self.request_ctx, "trace", None)    # the request log's entries for this request, if any
@@ -852,6 +876,8 @@ class Service:
                                 raw_ids.append(t)
                                 seg.append(t)
                                 thinking_n += parser.state == "reasoning"
+                                writing = parser.state == "content"     # this token is answer text
+                                answer_n += writing
                                 run_len = run_len + 1 if t == run_tok else 1
                                 run_tok = t
                                 if self.repeat_stop_tokens and run_len >= self.repeat_stop_tokens:
@@ -877,6 +903,16 @@ class Service:
                                 if stops is not None and stops.hit is not None:
                                     finish = "stop"         # gen.close() below STOPs the engine
                                     break
+                                if writing:
+                                    seen = fence_tail + piece
+                                    in_fence ^= seen.count("```") % 2 == 1
+                                    fence_tail = seen[-2:]
+                                    if loop_guard is not None and not in_fence and loop_guard.push(t):
+                                        looped = True
+                                        break
+                                    if answer_cap and answer_n >= answer_cap:
+                                        capped = True
+                                        break
                                 if budget and parser.state == "reasoning":
                                     thought += 1
                                     # only at a clean point: no held tag or split character
@@ -957,6 +993,12 @@ class Service:
                     elif repeated:
                         print(f"[server] warning: the reply repeated one token ({self.tok.decode([run_tok])!r}) "
                               f"{run_len} times, stopped as length (repeat_stop_tokens, 0 = off)", flush=True)
+                    elif looped:
+                        repeated = True
+                        print(f"[server] warning: the reply repeated a passage of {loop_guard.n} tokens {loop_guard.times} times "
+                              f"within {loop_guard.window} tokens, stopped as length (repeat_ngram, None = off)", flush=True)
+                    elif capped:
+                        print(f"[server] answer cap of {answer_cap} tokens reached, stopped as length (max_answer_tokens)", flush=True)
                 except GeneratorExit:                   # client disconnected
                     finish = "disconnect"
                     raise
@@ -1035,6 +1077,10 @@ class Service:
                 "timings": timings, "reasoning_tokens": thinking_n}
         if stops is not None and stops.hit is not None:
             done["stop_sequence"] = stops.hit
+        if repeated:
+            done["repeated"] = True                     # the reply was a loop: going on would only write it again
+        if capped:
+            done["answer_capped"] = True
         if trace is not None:
             trace.run_done(done)
         yield "done", done

@@ -26,6 +26,7 @@
 <link rel="stylesheet" href="web/netwatch.css">
 <link rel="stylesheet" href="web/rea.css">
 <link rel="stylesheet" href="web/target.css">
+<link rel="stylesheet" href="web/longform.css">
 <script defer src="web/i18n.js"></script>
 <script defer src="web/risk.js"></script>
 <script defer src="web/app.js"></script>
@@ -39,6 +40,7 @@
 <script defer src="web/askcard.js"></script>
 <script defer src="web/agentchat.js"></script>
 <script defer src="web/target.js"></script>
+<script defer src="web/longform.js"></script>
 <script defer src="web/checkpoints.js"></script>
 <script defer src="web/billioncontext.js"></script>
 <script defer src="web/slash.js"></script>
@@ -195,6 +197,42 @@
   </div>
 </dialog>
 
+<dialog class="lad" id="long-dlg" aria-labelledby="la-title">
+  <form id="la-form" class="lad-form" novalidate>
+    <div class="lad-h"><h2 id="la-title" data-t="la.title">Long answer</h2><span class="lad-grow"></span>
+      <button type="button" class="btn" id="la-close" data-t="la.close" data-t-title="la.close.tip">Close</button></div>
+    <p class="lad-dim" data-t="la.help"></p>
+    <div class="lad-row"><label for="la-mode" data-t="la.mode">What to write</label>
+      <select id="la-mode" aria-describedby="la-mode-h">
+        <option value="write" data-t="la.mode.write">A new text from my message</option>
+        <option value="translate" data-t="la.mode.translate">A translation of my message</option>
+        <option value="rewrite" data-t="la.mode.rewrite">A rewrite of my message</option>
+      </select>
+      <p class="lad-dim" id="la-mode-h" data-t="la.mode.h"></p></div>
+    <div class="lad-row" id="la-words-box"><label for="la-words" data-t="la.words">Length in words</label>
+      <input id="la-words" type="number" inputmode="numeric" min="50" max="200000" step="100" value="3000" aria-describedby="la-words-h">
+      <p class="lad-dim" id="la-words-h" data-t="la.words.h"></p></div>
+    <div class="lad-row" id="la-lang-box"><label for="la-lang" data-t="la.lang">Language of the text</label>
+      <input id="la-lang" type="text" autocomplete="off" aria-describedby="la-lang-h" data-t-ph="la.lang.ph">
+      <p class="lad-dim" id="la-lang-h" data-t="la.lang.h"></p></div>
+    <div class="lad-row" id="la-instr-box"><label for="la-instr" data-t="la.instr">What to change</label>
+      <input id="la-instr" type="text" autocomplete="off" aria-describedby="la-instr-h" data-t-ph="la.instr.ph">
+      <p class="lad-dim" id="la-instr-h" data-t="la.instr.h"></p></div>
+    <div class="lad-row"><label for="la-style" data-t="la.style">Style (optional)</label>
+      <input id="la-style" type="text" autocomplete="off" aria-describedby="la-style-h">
+      <p class="lad-dim" id="la-style-h" data-t="la.style.h"></p></div>
+    <div class="lad-row"><label for="la-gloss" data-t="la.gloss">Glossary (optional)</label>
+      <textarea id="la-gloss" rows="3" spellcheck="false" aria-describedby="la-gloss-h" data-t-ph="la.gloss.ph"></textarea>
+      <p class="lad-dim" id="la-gloss-h" data-t="la.gloss.h"></p></div>
+    <div class="lad-check"><input id="la-protect" type="checkbox" checked aria-describedby="la-protect-h"><label for="la-protect" data-t="la.protect">Keep images, links, code, tables and diagrams as they are</label></div>
+    <p class="lad-dim" id="la-protect-h" data-t="la.protect.h"></p>
+    <p class="lad-msg" id="la-msg" role="alert"></p>
+    <div class="lad-actions">
+      <button type="submit" class="btn primary" id="la-on" data-t="la.on" data-t-title="la.on.tip">Use for the next message</button>
+      <button type="button" class="btn" id="la-off" data-t="la.off" data-t-title="la.off.tip">Turn off</button></div>
+  </form>
+</dialog>
+
 <dialog class="brd" id="branches" aria-labelledby="br-title">
   <div class="brd-h"><h2 id="br-title" data-t="br.title">Branches</h2><button type="button" class="btn" id="br-close" data-t="br.close">Close</button></div>
   <div class="brd-b">
@@ -335,6 +373,7 @@
             <span class="ctxm-t" id="ctx-text">Context: —</span><span class="ctxm-bar" aria-hidden="true"><i id="ctx-bar"></i></span>
           </div>
           <button type="button" class="btn" id="stop" hidden>Stop</button>
+          <button type="button" class="btn" id="long-open" aria-haspopup="dialog" aria-pressed="false" data-t="la.open" data-t-title="la.open.tip">Long answer</button>
           <button type="button" class="btn" id="target-open" aria-haspopup="dialog" data-t="tg.open" data-t-title="tg.open.tip">Target Loop</button>
           <button type="submit" class="btn primary" id="send">Send</button>
         </div>
@@ -451,6 +490,9 @@
             <div class="csnum"><label for="cs-max_tokens" data-t="cs.max_tokens">Max output tokens</label>
               <input id="cs-max_tokens" type="number" inputmode="numeric" min="1" step="256" aria-describedby="cs-max_tokens-h">
               <p class="help" id="cs-max_tokens-h" data-t="cs.max_tokens.help"></p></div>
+            <div class="csnum"><label for="cs-max_answer_tokens" data-t="cs.max_answer_tokens">Max answer tokens</label>
+              <input id="cs-max_answer_tokens" type="number" inputmode="numeric" min="1" step="256" aria-describedby="cs-max_answer_tokens-h">
+              <p class="help" id="cs-max_answer_tokens-h" data-t="cs.max_answer_tokens.help"></p></div>
             <div class="csnum"><label for="cs-max_turns" data-t="cs.max_turns">Max steps per answer</label>
               <input id="cs-max_turns" type="number" inputmode="numeric" min="-1" step="1" placeholder="-1" aria-describedby="cs-max_turns-h">
               <p class="help" id="cs-max_turns-h" data-t="cs.max_turns.help"></p>

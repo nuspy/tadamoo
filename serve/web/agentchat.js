@@ -379,6 +379,8 @@
           addBlock({ t: "note", s: d.ok ? T("ch.verify.ok", (d.constraints || []).length) : d.retry ? T("ch.verify.retry", list) : T("ch.verify.unmet", list) }, e.turn);
         } else if (d.type === "gate" || d.type === "budget_warning" || d.type === "budget_grace" || d.type === "stop_denied") {      // the checks before the end, and the limits: one line each
           addBlock({ t: "note", s: T(d.type === "gate" ? "ch.gate." + d.decision : "ch.ev." + d.type, d.round, d.of) }, e.turn);
+        } else if (d.type === "long_answer") {                                    // plan_long_answer: one line that follows the parts (serve/longform.py)
+          longNote(e.turn, d);
         } else if (d.type === "tool_end") {
           if (d.name === "ask_user") break;
           const b = toolBlock(d.call_id) || addBlock({ t: "tool", id: d.call_id, name: d.name, args: {}, status: "running", output: "" }, e.turn);
@@ -396,7 +398,7 @@
       case "stalled": addBlock({ t: "note", s: T("ch.stalled") }); break;
       case "blocked": addBlock({ t: "blocked", reason: e.reason, detail: e.detail, options: e.options || [] }, e.turn); break;
       case "done": {
-        const a = assistant(e.turn); a.done = true; a.stop = e.stop_reason; a.steps = e.max_turns;
+        const a = assistant(e.turn); a.done = true; a.stop = e.stop_reason; a.steps = e.max_turns; a.cut = !!e.cut;
         a.meta = e.stop_reason === "cancelled" ? T("ch.cancelled") : e.stop_reason === "asked" ? "" : e.error ? e.error : e.stop_reason === "error" ? T("ch.stop.error") : "";
         a.blocks.forEach(b => { if (b.t === "reasoning") b.over = true; });
         if (copyShown) loadCopy();
@@ -404,6 +406,15 @@
       }
       default: break;
     }
+  }
+  function longNote(turn, d) {
+    const text = d.event === "plan" ? T("la.p.plan", d.segments.length) : d.event === "segment_start" ? T("la.p.part", d.index, d.of)
+      : d.event === "segment_progress" ? T("la.p.words", d.index, d.words) : d.event === "segment_done" ? T("la.p.done", d.index, d.of, d.words)
+      : d.event === "done" ? T("la.summary", d.words, d.target_words, d.segments, d.of) + ((d.warnings || []).length ? " " + T("la.warn", d.warnings.length, d.warnings.slice(0, 6).map(w => `${w.segment}: ${w.code}`).join("; ")) : "") : "";
+    if (!text) return;
+    const a = assistant(turn);
+    const b = a.blocks.find(x => x.t === "note" && x.long);
+    if (b) { b.s = text; b.dirty = true; } else addBlock({ t: "note", s: text, long: true }, turn);
   }
   function started(turn) {                                                      // a waiting request has begun (or was taken out): no more buttons
     items.forEach(it => { if (it.kind === "note" && it.route === turn && !it.over) { it.over = true; it.dirty = true; } });
@@ -714,8 +725,8 @@
   }
   /* why an answer ended when it did not simply finish: out of steps (with a button to go on), out of budget, or repeating itself */
   function paintStop(it) {
-    const kind = it.done ? it.stop : "";
-    if (!["max_turns", "budget", "loop"].includes(kind)) return;
+    const kind = it.done ? (it.cut && !["max_turns", "budget", "loop"].includes(it.stop) ? "length" : it.stop) : "";   // an answer the output limit ended is cut, whatever else ended the run
+    if (!["max_turns", "budget", "loop", "length"].includes(kind)) return;
     if (!it.stopEl) {
       const steps = it.steps > 0 ? it.steps : (rec && rec.max_turns > 0 ? rec.max_turns : "?");
       it.stopEl = mk("div", "astop"); it.stopEl.setAttribute("role", "status");
@@ -723,6 +734,9 @@
       if (kind === "max_turns") {
         it.goEl = btn(T("ch.continue"), "primary", () => send(T("ch.continue.text")));
         it.stopEl.append(it.goEl, mk("span", "aask-h", T("ch.stop.max_turns.h")));
+      } else if (kind === "length") {
+        it.goEl = btn(T("ch.continue"), "primary", () => send(T("ch.continue.cut.text")));
+        it.stopEl.append(it.goEl, mk("span", "aask-h", T("ch.stop.length.h")));
       }
       it.body.after(it.stopEl);
     }

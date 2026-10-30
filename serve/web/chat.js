@@ -166,7 +166,8 @@
       el.innerHTML = `<details class="think" hidden><summary><span class="think-t"></span></summary><div class="think-b" tabindex="0" role="region" aria-label="Reasoning"></div></details>` +
         `<div class="answer"></div><div class="meta"><span class="meta-t"></span>` +
         `<button type="button" class="btn ghost copy" hidden>Copy</button>` +
-        `<button type="button" class="btn ghost retry" hidden></button></div>`;
+        `<button type="button" class="btn ghost retry" hidden></button>` +
+        `<button type="button" class="btn ghost goon" hidden></button></div>`;
       const row = document.createElement("div"), body = document.createElement("div");
       row.className = "arow"; body.className = "abody";
       while (el.firstChild) body.append(el.firstChild);
@@ -213,18 +214,31 @@
     if (m.error) {
       a.replaceChildren(Object.assign(document.createElement("p"), { className: "err", textContent: `Error: ${m.error}` }));
     } else if (!m.text && streaming) {
-      a.innerHTML = `<p class="wait">${m.reasoning ? "Thinking" : "Waiting for the model"}<span class="dots" aria-hidden="true"></span></p>`;
+      a.innerHTML = `<p class="wait">${m.progress ? esc(m.progress) : m.reasoning ? "Thinking" : "Waiting for the model"}<span class="dots" aria-hidden="true"></span></p>`;
     } else {
       a.innerHTML = markdown(m.text || "");
     }
     if (m.notice) a.insertBefore(Object.assign(document.createElement("p"), { className: "ctx-notice", textContent: m.notice }), a.firstChild);
+    if (m.text && streaming && m.progress) a.append(Object.assign(document.createElement("p"), { className: "ctx-notice", textContent: m.progress }));
+    if (!streaming && m.long && m.long.warnings && m.long.warnings.length) {
+      a.append(Object.assign(document.createElement("p"), { className: "ctx-notice", textContent: T("la.warn", m.long.warnings.length, m.long.warnings.slice(0, 6).map(w => `${w.segment}: ${w.code}`).join("; ")) }));
+    }
     el.querySelector(".meta-t").textContent = m.meta || (streaming ? "" : m.stopped ? "Stopped" : "");
     el.querySelector(".copy").hidden = streaming || !m.text;
-    const retry = el.querySelector(".retry");
-    retry.hidden = streaming || !m.cut;
-    if (m.cut && !streaming) el.querySelector(".meta-t").textContent = `${m.meta ? m.meta + " · " : ""}${T("chat.cut")}`;
+    const retry = el.querySelector(".retry"), goon = el.querySelector(".goon");
+    retry.hidden = streaming || !(m.cut || m.repeated);
+    const limit = !streaming && lengthCut(m);
+    goon.hidden = !limit;
+    if (!streaming && (m.cut || m.repeated || limit || m.long)) {
+      const why = m.long ? T("la.summary", m.long.words, m.long.target_words, m.long.segments, m.long.of) : m.repeated ? T("chat.repeated") : limit ? T("chat.length") : T("chat.cut");
+      el.querySelector(".meta-t").textContent = `${m.meta ? m.meta + " · " : ""}${why}`;
+    }
     retry.textContent = T("chat.retry");
+    goon.textContent = T("chat.continue");
   }
+  /* a reply the output limit ended: the text is whole up to there and the model can go on from it */
+  const lengthCut = m => m.role === "assistant" && m.finish === "length" && !m.error && !m.stopped && !m.repeated && !m.long;
+  const CONTINUE_NOTE = "Continue exactly where you stopped. Do not repeat anything already written.";
   /* a reply the model ended in the middle of a word: no stop, no length limit, no error. Sent back with the
      conversation it teaches the model to end the next replies the same way, so it is kept on the page but not sent;
      the reader can ask again with it removed */
@@ -253,6 +267,12 @@
         messages.splice(i, 1, ...(s.originals || []));
         save(); render(); status(T("compact.undone")); meter();
       }
+      return;
+    }
+    const go = e.target.closest(".goon");
+    if (go && !busy) {                                  // the limit ended the reply: ask the model to go on, in the same message
+      const m = messages[+go.closest(".cmsg").dataset.i];
+      if (m && lengthCut(m)) send(m);
       return;
     }
     const rt = e.target.closest(".retry");
@@ -385,31 +405,41 @@
   // the conversations mode (agentchat.js) takes the composer when it is on; this file keeps the model-only chat
   const agent = () => (window.agentChat && window.agentChat.active() ? window.agentChat : null);
 
-  async function send() {
-    if (prompt.value.startsWith("/") && window.slash) {              // a command is run, not sent; an unknown one stays to be edited
-      const done = window.slash.run(prompt.value.trim());
-      if (done === "keep") return;
-      if (done) { prompt.value = ""; autosize(); return; }
+  /* `cont`: an assistant message the output limit ended; the model is asked to go on and its words join that message */
+  async function send(cont) {
+    let m, long = null, text = "";
+    if (cont) {
+      if (busy) return;
+      m = cont;
+      delete m.finish; m.stopped = false; m.cut = false; m.error = "";
+      m.base = (m.text || "").length;
+    } else {
+      if (prompt.value.startsWith("/") && window.slash) {              // a command is run, not sent; an unknown one stays to be edited
+        const done = window.slash.run(prompt.value.trim());
+        if (done === "keep") return;
+        if (done) { prompt.value = ""; autosize(); return; }
+      }
+      const a = agent();
+      if (a) { const t = prompt.value.trim(); if (t) { prompt.value = ""; autosize(); a.send(window.longAnswer ? window.longAnswer.decorate(t) : t); } return; }
+      text = prompt.value.trim();
+      if ((!text && !attachments.length) || busy) return;
+      long = window.longAnswer ? window.longAnswer.request() : null;      // the person asked for a long answer: written in parts by the server
+      messages.push({ role: "user", text, images: attachments, time: Date.now() });
+      attachments = []; drawAttachments();
+      prompt.value = ""; autosize();
+      m = { role: "assistant", text: "", reasoning: "", time: Date.now() };
+      messages.push(m);
     }
-    const a = agent();
-    if (a) { const t = prompt.value.trim(); if (t) { prompt.value = ""; autosize(); a.send(t); } return; }
-    const text = prompt.value.trim();
-    if ((!text && !attachments.length) || busy) return;
-    messages.push({ role: "user", text, images: attachments, time: Date.now() });
-    attachments = []; drawAttachments();
-    prompt.value = ""; autosize();
-    const m = { role: "assistant", text: "", reasoning: "", time: Date.now() };
-    messages.push(m);
     render();
-    let el = msgs.lastElementChild;
+    let el = cont ? msgs.querySelector(`.cmsg[data-i="${messages.indexOf(m)}"]`) : msgs.lastElementChild;
     const controller = new AbortController();
-    busy = { controller, msg: m, el };
+    busy = { controller, msg: cont ? null : m, el };
     setBusy(true);
     let first = null, thinkStart = null, usage = null, frame = 0;
     const draw = () => { frame = 0; paint(el, m, true); scrollDown(); };
-    if (chatSettings.policy() === "compact") status(T("ctx.compacting"));
-    const fits = await fitContext(m);
-    if (busy && busy.msg === m) { render(); el = busy.el = msgs.lastElementChild; paint(el, m, true); }
+    if (!cont && chatSettings.policy() === "compact") status(T("ctx.compacting"));
+    const fits = cont ? true : await fitContext(m);
+    if (!cont && busy && busy.msg === m) { render(); el = busy.el = msgs.lastElementChild; paint(el, m, true); }
     if (!fits || controller.signal.aborted) {
       if (controller.signal.aborted) m.stopped = true;
       busy = null; setBusy(false); paint(el, m, false);
@@ -424,10 +454,12 @@
     const body = { model: model || undefined, ...chatSettings.body(), stream: true };
     const api = apiMessages();                          // the sliding window leaves out what is marked outside
     body.messages = api.out.filter((x, k) => api.at[k] < 0 || !messages[api.at[k]].outside);
+    if (cont) body.messages.push({ role: "user", content: CONTINUE_NOTE });
     if (effort.value) body.reasoning_effort = effort.value;
+    if (long) { body.long_answer = long; for (const k of ["max_tokens", "max_answer_tokens", "response_format", "structured_retries"]) delete body[k]; }
     try {
       const r = await fetch("v1/chat/completions", { method: "POST", signal: controller.signal,
-        headers: { "Content-Type": "application/json", "X-Basalt-Compress": "1", ...authHeaders() }, body: JSON.stringify(body) });
+        headers: { "Content-Type": "application/json", ...(long ? {} : { "X-Basalt-Compress": "1" }), ...authHeaders() }, body: JSON.stringify(body) });
       if (!r.ok) {
         let msg = `HTTP ${r.status}`;
         try { msg = (await r.json()).error.message || msg; } catch (e) { /* not JSON */ }
@@ -451,6 +483,8 @@
           try { j = JSON.parse(data); } catch (e) { continue; }
           if (j.error) throw new Error(j.error.message || "the engine reported an error");
           if (j.usage) usage = j.usage;
+          if (j.long_answer) longEvent(m, j.long_answer);
+          if (j.repeated) m.repeated = true;
           if (j.structured_output) m.structured = j.structured_output;
           if (j.choices && j.choices[0] && j.choices[0].finish_reason) m.finish = j.choices[0].finish_reason;
           const d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
@@ -479,6 +513,7 @@
       try { m.text = "```json\n" + JSON.stringify(JSON.parse(m.text), null, 2) + "\n```"; } catch (e) { /* left as sent */ }
     }
     m.cut = looksCut(m);
+    delete m.progress;
     busy = null;
     setBusy(false);
     paint(el, m, false);
@@ -488,6 +523,14 @@
     meter();
   }
 
+  /* the events of a long answer (serve/longform.py) as one line under the text, and the totals at the end */
+  function longEvent(m, ev) {
+    if (ev.event === "plan") m.progress = T("la.p.plan", ev.segments.length);
+    else if (ev.event === "segment_start") m.progress = T("la.p.part", ev.index, ev.of);
+    else if (ev.event === "segment_progress") m.progress = T("la.p.words", ev.index, ev.words);
+    else if (ev.event === "segment_done") m.progress = T("la.p.done", ev.index, ev.of, ev.words);
+    else if (ev.event === "done") { m.long = ev; m.progress = ""; }
+  }
   $("#composer").onsubmit = e => { e.preventDefault(); send(); };
   $("#stop").onclick = () => { const a = agent(); if (a) a.stop(); else if (busy) busy.controller.abort(); };
   prompt.addEventListener("keydown", e => {
