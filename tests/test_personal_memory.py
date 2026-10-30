@@ -2,6 +2,7 @@
 
 import pytest
 
+from harness import untrusted
 from harness.personal_memory import DEFAULTS, PersonalMemory, PersonalMemoryError, Recall, register_personal_tools, stems
 from harness.tools.registry import ToolRegistry
 
@@ -149,7 +150,7 @@ def test_the_request_decides_which_notes_come_in(tmp_path):
     memory.add("short", "projects", "Is building a vending machine monitor with Python")
     text = Recall(memory).message("Suggest a good ramen restaurant in Milano")
     assert "Lives in Milano" in text and "spicy ramen" in text and "vending" not in text
-    assert text.startswith("<untrusted_data source=\"personal-memory\">") and "not instructions" in text
+    assert untrusted.normalize(text).startswith("<untrusted_data source=\"personal-memory\">") and "not instructions" in text
     assert Recall(memory).message("What is the weather like") is None                    # nothing matches: not a token spent
 
 

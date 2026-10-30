@@ -56,6 +56,9 @@ the Chat can reach, the others can reach:
 | `--interactive`, `--ask-server` | (headless) ask on the terminal, or on the server's pages, before risky actions, payments and plans |
 | `--max-tokens-budget`, `--timeout-seconds` | (headless) stop after this much |
 | `--max-turns` | the model turns one answer may take; below 1 or not given: no limit |
+| `--temperature T` | the sampling temperature of every model call; not given, none is sent and the model file's own sampling applies (see "How a reply ends") |
+| `--max-tokens N` | the most one reply may write; not given, the server's own limit applies |
+| `--instruction-blocks` | six short working rules in the system prompt (see "Working rules"); off unless asked for |
 | `--unattended` | (conversations) nobody answers: a question is approved at once, or says the data is not available, or, if it is for another person, the user, a resource that is not the PC's own or a booking, is parked in the `pending` list while the model goes on |
 
 A headless run has nobody to type a second-factor code; a login that needs one fails there. Payments and plans go through the same question as
@@ -233,8 +236,8 @@ about plans never follows a message from outside.
 
 ## How a tool call is decided
 
-Every call goes through the same gate, in this order: the arguments are checked against the tool's schema (the model gets
-a message saying what to change); pre-tool hooks (dangerous commands are refused even when everything is allowed, and a hook
+Every call goes through the same gate, in this order: a tool name or arguments that are nearly right are mended (see "Mended calls");
+the arguments are checked against the tool's schema (the model gets a message saying what to change); pre-tool hooks (dangerous commands are refused even when everything is allowed, and a hook
 that fails refuses too); the permission manager; a checkpoint of the files the call changes (one per turn, filled as calls come); the
 tool; secrets masked in the result; results of untrusted tools fenced as data; an audit record.
 
@@ -297,7 +300,9 @@ secrets are masked), `arguments` (a masked preview with every value cut at 60 ch
 `not_required` with no permission manager, or `not_reached` when something earlier refused it), `outcome` (`ok`, `error`, `refused`, `cancelled`)
 and `duration_ms` (how long the tool ran), with the reason for a refusal or an error. Actions: `permission_granted` (written before the tool runs, with
 outcome `started`, so a crash leaves a trace), then `tool_executed`, `tool_error` or `tool_cancelled`; `permission_denied`, `tool_blocked`
-(a hook or a failed checkpoint), `tool_invalid` and `tool_loop` for calls that were not run; `plan_approved`, `plan_rejected`. Records
+(a hook or a failed checkpoint), `tool_invalid` and `tool_loop` for calls that were not run; `plan_approved`, `plan_rejected`. A call that was mended
+before it was checked carries `"repaired": true`. Other actions of the loop: `answer_truncated`, `tool_call_cut`, `answer_empty`, `output_degenerate`
+(see "How a reply ends"). Records
 written earlier, with the arguments in full, stay in the file and still verify (the chain covers whatever the details hold).
 `AuditLedger.verify_integrity()` never raises: a line that cannot be read, a record with a missing field, a broken link, a tampered
 record, a damaged head file or a shortened ledger each come back as a reason, and `problems()` lists every one instead of stopping at
@@ -308,8 +313,8 @@ the first.
 In plan mode the tools that read work and nothing else does. The model has one more tool, `present_plan(plan)`: the plan is put to the
 person like any question the harness asks (a button in the Chat, a prompt in the terminal, the editor's permission dialog in ACP, a page in
 the server's approvals), with a note when the agent read content from outside before writing it. A yes ends plan mode and the run goes on, in the
-same turn, in the mode the person chose (`--after-plan default|auto`; ACP offers one button for each); `present_plan` goes away with it, and
-`session/set_mode` to `plan` brings it back. A no, a Stop, or a run with nobody to ask leaves plan mode on and tells the model so. The approval
+same turn, in the mode the person chose (`--after-plan default|auto`; ACP offers one button for each). `present_plan` is in the tool list in every
+mode, so a change of mode never rewrites the cached start of the prompt; outside plan mode it answers that there is nothing to approve. A no, a Stop, or a run with nobody to ask leaves plan mode on and tells the model so. The approval
 and the rejection are in the audit log.
 
 ### Stopping and time limits
@@ -329,7 +334,59 @@ something inside the tool (a plan change, a payment, a code). A shell command ke
 Besides the same call three times in a row, the same error from the same tool twice in a row (the same message, whatever the arguments) adds a
 note to the second result telling the model to change what it asks or to take another way; from the third time in a row each one also counts
 as a strike, the same strikes that refused identical calls give, and a run with more than two strikes ends as a loop. A model message that is only calls that are cut off or not valid
-JSON is sent back with the reason, never taken as the final answer.
+JSON is sent back with the reason, never taken as the final answer. A strike for calls that could not be read (the same error three times in a row)
+counts only when none of the calls of that turn was valid; the valid calls of a mixed batch run, and only the invalid ones get an error.
+
+### How a reply ends
+
+The loop reads `finish_reason` of every reply (`harness/agent_loop.py`, `_complete`):
+
+- **Cut by the output limit, with text and no tool call.** The text is kept as an assistant message and a `[harness]` note (`note: true`, at the
+  tail, so the cached start is untouched) asks the model to go on exactly where it stopped, at most 2 times per request. After that the answer
+  is delivered as it is, flagged cut (`AgentLoop.cut`, `cut` in the `done` event, `turn.cut`). The pieces are joined by `answer_text(turns)`.
+  Every cut gives an `answer_truncated` event and audit record. A text that is a repetition loop is never continued.
+- **A tool call cut inside its arguments** is never run. The reply is dropped from the conversation and asked again with the ceiling doubled (from the
+  setting, else from what the reply had written), up to 3 times, and the larger ceiling is kept for the rest of the request; if it is still cut the
+  run ends as `length` with a notice in `error`. Events and records: `tool_call_cut`.
+- **No text after thinking** (an empty reply with reasoning, or one the limit ended). Asked once per request, at a lower thinking level
+  (`high` and `medium` to `low`, `low` to `none`) and with a note to answer shortly. A second empty reply ends the run as `empty` with a notice in `error`
+  ("The model produced no answer: its thinking used up the whole output..."), never as a silent empty final. Records: `answer_empty`.
+- **A repetition loop** (`harness/output_guard.py`). A stream is watched while it is written: the end of the text (answer and reasoning apart) is looked
+  at when it first passes 16,384 characters and each time its length doubles; a 60-character unit that comes back 5 or more times and covers at least half
+  of a fragment of 400 characters or more is a loop, unless the lines of the fragment mostly differ (tables, logs). The stream is closed, the partial
+  answer and any partial tool call are dropped, and the request is made once more with `repetition_penalty` a step higher (1.1 more than the session's,
+  at most 1.5; only this server receives it). A reply that the limit ended and that is a loop gets the same treatment. A second loop in the request ends
+  the run as `degenerate`. Records: `output_degenerate`. A run without streaming only judges a reply the limit ended.
+- `length_stops` (replies the limit ended, per run) is in every trial of `python -m harness.eval` and in its report; so is the number of calls that were mended.
+
+The loop passes no temperature and no `max_tokens` unless the session sets them (`--temperature`, `--max-tokens`, the `settings` command of the
+conversation's process, `/status`): without a temperature the model file's own sampling applies. **A temperature above 0 makes tool calls less
+repeatable**, which is why a session that needs repeatable calls (and every test) sets it. Whether the model file's sampling is as good as 0 for tool calls
+is measured with `python -m harness.eval --set core --k 5` (and `--set toolcalls`), once with `--temperature model` (none sent) and once with
+`--temperature 0`; the A/B is in `tests/QUEUE_daytime.md`.
+
+### Mended calls
+
+Before the checks and the permission layer see a tool call, `harness/tools/repair.py` mends what is not in doubt and leaves the rest:
+
+- **JSON** by passes: raw control characters inside strings, trailing commas, brackets left open (closed in the order they were opened, not inside a
+  string), closing brackets after the end. Text that ends inside a string or after a colon is never completed; a JSON string that holds the JSON of an object
+  is read as the object.
+- **Value types** against the tool's schema: `"42"` to 42, `"3.5"` to 3.5, `"true"` to true, a JSON text to an array or an object, a single value to a
+  one-element array. Anything in doubt stays as it was and fails the check: a property with an `enum` is never changed, `"00123"` stays a string, `"007"`
+  is not an integer, `"yes"` is not a boolean.
+- **Tool names**: case, separators, CamelCase, a `_tool` suffix, a namespace prefix (`functions.read_file`), text after a quote or bracket, then a spelling at least
+  0.7 alike and at most two characters apart (`write_files` is `write_file`; `read_file` is never taken for `write_file`), and only when one tool fits clearly. An unknown name gets up to three near matches, not the list of all tools.
+
+The call that ran is the mended one (it is also what the conversation keeps), with `repaired` in its audit record and on its result.
+
+### Working rules
+
+`--instruction-blocks` adds six lines under `# Working rules` right after the core of the system prompt (`harness/prompt_blocks.py`): act on a request now, change
+the query, path or command once before concluding that nothing is there, check what can change, say that something is done only with a tool result or a named blocker,
+never invent a result, never end a turn on a promise. A line that names tools names only those the conversation has and is left out when it has none. It is
+off by default until `python -m harness.eval --set core --k 5 --instruction-blocks` shows a gain against the same run without the flag (the A/B is in
+`tests/QUEUE_daytime.md`).
 
 ### Hooks you write
 
@@ -477,7 +534,18 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   (which module imports which: Python, JavaScript/TypeScript and C/C++ imports that resolve to a file in the folder, one node per file or, when there are too
   many, per folder with the number of imports on each arrow; the least-connected nodes go first past `max_nodes`) or `folders` (the folder tree with the count of
   source files in each). It reads files only (pure effect), stays inside the workspace and the result carries a `mermaid` block the model puts in its answer.
-- `AGENTS.md` (else `CLAUDE.md`, else `GEMINI.md`), searched from the workspace up to the repository root, is part of the prompt.
+- `AGENTS.md` (else `CLAUDE.md`, else `GEMINI.md`), searched from the workspace up to the repository root, is part of the prompt. Only its first 32 KiB are
+  read; a longer file ends with the line `[AGENTS.md was cut at 32 KiB; N bytes ignored; read the file directly]` in the prompt, and `/context` and `/status` show it (`notices`).
+- The start of every request is the system prompt and then the tool list, and the server reuses it only while it is identical. The tools come in three groups,
+  each by name: the fixed ones, those the conversation's setup adds, and those of outside servers last, so adding a server or a mode change moves nothing before it.
+  `/context` lists the size in bytes and a short hash of each block of the prompt (`system_core`, `environment`, `project_rules`...) and of each group of tools
+  (`tools:stable`, `tools:session`, `tools:external`), then of the whole start (`prefix_sha`): when a hash changes between two requests, everything after that
+  part was read again.
+- Text from outside is written as `<untrusted_data source="name" id="16 hex digits">...</untrusted_data id="...">` (`harness/untrusted.py`): the id is random for
+  each block, so no text can close it; before the text is placed in it, the boundary tag in any form (full-width letters, CJK brackets, zero-width characters,
+  spaces) is replaced by `[/untrusted_data]` and the control tokens of chat templates (`<|im_start|>`, `<|endoftext|>`, `[INST]`, `<<SYS>>`, `<start_of_turn>`, any
+  `<|...|>`) by `[REMOVED_SPECIAL_TOKEN]`. Code that compares two fenced texts compares `untrusted.normalize(text)`. The working folder in the prompt has its
+  control, format and separator characters removed.
 - Memory is SQLite full-text search per workspace, kept in the user data folder (never in the repository); identifiers such as
   `sm_120` are searchable, and a question whose words are not all in a note still finds it. The model keeps notes itself with
   `remember` (a note and a category; the same text is kept once, with no limit on its length or on how many are kept), reads them with `recall` and deletes
@@ -1118,6 +1186,7 @@ holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/
 ```powershell
 python -m harness.eval --set core --k 5 --endpoint http://127.0.0.1:7232 --gpu-power-limit-w 450 --out report.md
 python -m harness.eval --set toolcalls --k 5
+python -m harness.eval --set core --k 5 --temperature model --instruction-blocks   # no temperature sent (the model file's own); the working rules added
 python -m harness.eval --set knowledge --k 3 --strategies none,rag,cag
 python -m harness.eval --compare-strategies --k 5          # the same, and the report gets a none / RAG / CAG table
 python -m harness.eval --bfcl D:\data\bfcl --k 5 --limit 200
@@ -1135,6 +1204,9 @@ commit, the model, the hardware, the GPU power limit (or says it was not recorde
 validity, cost per trial and the prefix cache hit rate. These are development A/Bs, not headline numbers; a difference under about 3
 points is noise until repeated. The task sets are small starting points; add private tasks of your own. Running other
 harnesses against the same endpoint is not automated.
+
+The trials also count `length_stops` (replies the output limit ended) and the calls the harness mended before they ran (`repaired_calls`: a model that passes only
+because of the mending shows it there); the report gives both. Checks on a call's arguments (`tool_args`, BFCL) read the arguments as the model wrote them, so a mended value does not pass.
 
 A `--k` below 5 is accepted but warned about, on stderr and at the top of the report: pass^k over so few repetitions says little. The
 report also carries what the server itself measured: with the request log on (the default) each trial reads the `timing` events of its

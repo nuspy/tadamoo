@@ -42,6 +42,7 @@ def summarize(results: List[EvalResult]) -> Dict[str, Any]:
         "pass_at_k": sum(1 for r in results if r.pass_at_k > 0), "pass_pow_k": sum(1 for r in results if r.pass_pow_k),
         "tool_calls": calls, "invalid_calls": invalid, "tool_call_validity": (calls - invalid) / calls if calls else None,
         "denied_calls": sum(t.denied_calls for t in trials),
+        "repaired_calls": sum(t.repaired_calls for t in trials), "length_stops": sum(t.length_stops for t in trials),
         "mean_turns": statistics.fmean(t.turns for t in trials) if n else 0.0,
         "mean_seconds": statistics.fmean(t.seconds for t in trials) if n else 0.0,
         "median_seconds": statistics.median(t.seconds for t in trials) if n else 0.0,
@@ -143,7 +144,9 @@ def generate_eval_report(
         f"- **Trial success**: {_pct(s['trial_success'])} (95% interval {s['trial_success_ci95'][0] * 100:.0f}-{s['trial_success_ci95'][1] * 100:.0f}%)",
         f"- **pass@k** (at least one trial passes): {s['pass_at_k']}/{s['tasks']}",
         f"- **pass^k** (every trial passes, the reliability that matters): {s['pass_pow_k']}/{s['tasks']}",
-        f"- **Tool calls**: {s['tool_calls']}, valid {_pct(s['tool_call_validity'])}, refused by permissions {s['denied_calls']}",
+        f"- **Tool calls**: {s['tool_calls']}, valid {_pct(s['tool_call_validity'])}, refused by permissions {s['denied_calls']}, "
+        f"mended before they ran {s['repaired_calls']}",
+        f"- **Replies ended by the output limit** (`length_stops`): {s['length_stops']}",
         f"- **Cost per trial**: {s['mean_turns']:.1f} turns, {s['mean_seconds']:.1f} s on average ({s['median_seconds']:.1f} s median)",
         f"- **Tokens**: {s['prompt_tokens']} in, {s['completion_tokens']} out, prefix cache hit rate {_pct(s['cache_hit_rate'])}",
         f"- **Not model faults**: {s['server_errors']} server error(s), {s['crashed']} crashed trial(s)",

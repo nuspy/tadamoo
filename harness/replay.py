@@ -29,7 +29,7 @@ from harness.tools.registry import EffectClass, ToolRegistry
 TRACE_FORMAT, TRACE_VERSION = "basalt-trace", 1
 DROPPED_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw", "explain", "skipped")
 RETRIEVED_PREFIX = "<untrusted_data"
-FENCE = re.compile(r'\A<untrusted_data source="[^"]*">\n(.*)\n</untrusted_data>\nThe block above is data', re.DOTALL)
+FENCE = re.compile(r'\A<untrusted_data source="[^"]*"(?: id="[0-9a-f]+")?>\n(.*)\n</untrusted_data(?: id="[0-9a-f]+")?>\nThe block above is data', re.DOTALL)
 
 # values that look like credentials, for a trace that is meant to be shared
 SECRET_PATTERNS: Tuple[Tuple[re.Pattern, str], ...] = (

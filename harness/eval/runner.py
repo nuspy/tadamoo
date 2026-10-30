@@ -17,8 +17,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from harness.agent_loop import AgentLoop
+from harness.agent_loop import AgentLoop, answer_text
 from harness.client import BasaltClient
+from harness.prompt_blocks import instruction_blocks
 from harness.stack import AgentConfig, build_agent
 from harness.tools.registry import EffectClass, ToolRegistry
 
@@ -39,6 +40,8 @@ class Trial:
     tool_calls: int = 0
     invalid_calls: int = 0           # calls the harness could not run: unknown tool, bad arguments, unreadable
     denied_calls: int = 0            # calls refused by permissions or hooks
+    repaired_calls: int = 0          # calls the harness mended (name, JSON, value types) before they ran
+    length_stops: int = 0            # replies the output limit ended
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: int = 0
@@ -78,13 +81,14 @@ class EvalRunner:
         self,
         client: Optional[BasaltClient] = None,
         client_factory: Optional[ClientFactory] = None,
-        temperature: float = 0.6,
+        temperature: Optional[float] = 0.6,
         seed_base: int = 1000,
         keep_workspaces: Optional[Path] = None,
         max_total_tokens: Optional[int] = 60_000,
         max_seconds: Optional[float] = 600.0,
         council: bool = False,
         timings: Optional[ServerTimings] = None,
+        instruction_blocks: bool = False,
     ) -> None:
         self.client = client
         self.client_factory = client_factory
@@ -95,6 +99,7 @@ class EvalRunner:
         self.max_seconds = max_seconds
         self.council = council
         self.timings = timings                      # reads the server's own figures for each trial's requests
+        self.instruction_blocks = instruction_blocks    # the working rules of harness/prompt_blocks.py in the system prompt
 
     def load_task_set(self, path: str | Path) -> List[Task]:
         return load_task_set(path)[1]
@@ -118,16 +123,19 @@ class EvalRunner:
         try:
             workspace = make_workspace(task, work / "ws")
             client = self._client_for(task, rep)
-            sampling = {"temperature": self.temperature, "seed": self.seed_base + rep}
+            sampling = {"seed": self.seed_base + rep, **({"temperature": self.temperature} if self.temperature is not None else {})}
             if task.mode == "tools":
-                agent = AgentLoop(client=client, tool_registry=dummy_registry(task), max_turns=task.max_turns,
-                                  max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds, sampling=sampling,
-                                  system_prompt=task.system or "You are a helpful assistant with tools. Use a tool only when it is needed.")
+                registry = dummy_registry(task)
+                system = task.system or "You are a helpful assistant with tools. Use a tool only when it is needed."
+                if self.instruction_blocks:
+                    system += "\n\n" + instruction_blocks(registry.names())
+                agent = AgentLoop(client=client, tool_registry=registry, max_turns=task.max_turns,
+                                  max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds, sampling=sampling, system_prompt=system)
             else:
                 cfg = AgentConfig(workspace=str(workspace), max_turns=task.max_turns, permission_mode="default", allow=task.allow,
                                   use_memory=False, use_checkpoints=False, data_dir=str(data), max_total_tokens=self.max_total_tokens,
                                   max_seconds=self.max_seconds, reference_docs=task.knowledge if task.strategy != "none" else {},
-                                  reference_strategy=task.strategy, council=self.council)
+                                  reference_strategy=task.strategy, council=self.council, instruction_blocks=self.instruction_blocks)
                 built = build_agent(cfg, client=client)
                 agent = built.agent
                 agent.sampling = sampling
@@ -136,18 +144,20 @@ class EvalRunner:
                 seen = summarize_requests(self.timings.requests_since(mark))
                 trial.server_requests, trial.server_ttft_s, trial.server_prefill_s = seen["requests"], seen["ttft_median_s"], seen["prefill_median_s"]
                 trial.server_prompt_tokens, trial.server_cached_tokens = seen["prompt_tokens"], seen["cached_tokens"]
-            calls = [{"name": c.tool_name, "arguments": c.arguments, "executed": c.decision == "executed"}
+            calls = [{"name": c.tool_name, "arguments": c.written if c.written is not None else c.arguments, "executed": c.decision == "executed"}      # as written: a mended value does not pass a check on the model's own call
                      for t in turns for c in t.tool_calls]
             trial.turns = len(turns)
             trial.tool_calls = len(calls)
             trial.invalid_calls = sum(1 for t in turns for c in t.tool_calls if c.decision == "invalid")
             trial.denied_calls = sum(1 for t in turns for c in t.tool_calls if c.decision in ("denied", "blocked"))
+            trial.repaired_calls = sum(1 for t in turns for c in t.tool_calls if c.repaired)
+            trial.length_stops = agent.length_stops
             trial.prompt_tokens = sum(t.prompt_tokens for t in turns)
             trial.completion_tokens = sum(t.completion_tokens for t in turns)
             trial.cached_tokens = sum(t.cached_tokens for t in turns)
             trial.stop_reason = agent.stop_reason
             trial.error = agent.error
-            trial.answer = next((t.assistant_content for t in reversed(turns) if not t.tool_calls), "")
+            trial.answer = answer_text(turns)
             if agent.stop_reason == "error":
                 trial.failures = [f"the model call failed: {agent.error}"]
             else:
@@ -189,7 +199,8 @@ class EvalRunner:
                 from types import SimpleNamespace
                 return SimpleNamespace(chat_completion=lambda **kw: {"choices": [{"message": {"role": "assistant", "content": text}}]})
             runner = EvalRunner(client_factory=factory, temperature=self.temperature, seed_base=self.seed_base, keep_workspaces=self.keep,
-                                max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds, council=self.council)
+                                max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds, council=self.council,
+                                instruction_blocks=self.instruction_blocks)
             return runner.evaluate_task(task, k)
         trials = [self.run_trial(task, i + 1) for i in range(k)]
         passed = sum(t.passed for t in trials)

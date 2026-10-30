@@ -108,6 +108,7 @@ def _collect_stream(resp: Any, on_delta: Callable[[str, str], None]) -> Dict[str
         whole = [c for c in whole if _is_json_text(c["function"]["arguments"])]       # a call the output ended inside
     if whole:
         message["tool_calls"] = whole
+    meta["cut_calls"] = len(calls) - len(whole)                                     # calls left out because they ended mid-argument
     return {"choices": [{"index": 0, "message": message, "finish_reason": finish}], "usage": usage or {}, **meta}
 
 
@@ -162,7 +163,7 @@ class BasaltClient:
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[str | Dict[str, Any]] = None,
-        temperature: float = 0.0,
+        temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         timeout: float = 60.0,
         response_format: Optional[Dict[str, Any]] = None,
@@ -171,11 +172,10 @@ class BasaltClient:
     ) -> Dict[str, Any]:
         """Sends a request to /v1/chat/completions. With `on_delta(kind, text)` the answer is asked for as a stream
         and each piece of text ("content" or "reasoning") is handed on as it arrives; the return value is the same
-        whole answer as without it."""
-        payload: Dict[str, Any] = {
-            "messages": messages,
-            "temperature": temperature,
-        }
+        whole answer as without it. Without a `temperature` or `max_tokens` the request carries none, so the server's own apply."""
+        payload: Dict[str, Any] = {"messages": messages}
+        if temperature is not None:
+            payload["temperature"] = temperature
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         if tools is not None:

@@ -130,7 +130,7 @@ def run_headless(cfg: AgentConfig, prompt: str, client: Any = None) -> Dict[str,
                 built.reporter.finish("error", error=f"{type(exc).__name__}: {exc}")
             raise
         agent = built.agent
-        final = next((t.assistant_content for t in reversed(turns) if not t.tool_calls), "")
+        final = al.answer_text(turns)
         if built.reporter:
             built.reporter.finish(agent.stop_reason, final, agent.error)
         return {

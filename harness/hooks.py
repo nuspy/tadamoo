@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from harness import untrusted
+
 EVENTS = ("session_start", "turn_end", "session_end")
 CONFIG_EVENTS = ("pre_tool", "post_tool", "turn_end", "session_start", "session_end")
 HOOK_KEYS = {"event", "name", "tool", "match", "command", "action", "reason", "timeout", "text"}
@@ -229,9 +231,7 @@ def _clip(text: str, limit: int = HOOK_TEXT) -> str:
 
 
 def _fenced(name: str, text: str) -> str:
-    text = text.replace("</untrusted_data>", "[/untrusted_data]")
-    source = re.sub(r"[^A-Za-z0-9_.:-]", "_", name)
-    return f"<untrusted_data source=\"hook:{source}\">\n{text}\n</untrusted_data>"
+    return untrusted.fence("hook:" + re.sub(r"[^A-Za-z0-9_.:-]", "_", name), text)
 
 
 def _shorten(value: Any) -> Any:

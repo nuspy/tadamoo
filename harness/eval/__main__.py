@@ -18,13 +18,25 @@ from .serverlog import ServerTimings
 from .tasks import expand_strategies, load_task_set
 
 
+def _temperature(text: str) -> Optional[float]:
+    """A temperature, or `model` for none (the model file's own sampling)."""
+    if text.strip().lower() == "model":
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError("a number, or 'model'") from None
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(prog="python -m harness.eval", description="Runs a task set against a Basalt server and reports pass^k, cost and cache use")
     p.add_argument("--set", default="core", help="a set name (core, toolcalls) or the path of a JSON file")
     p.add_argument("--k", type=int, default=5, help="repetitions per task (5 or more for a meaningful pass^k)")
     p.add_argument("--endpoint", default="http://127.0.0.1:7232")
     p.add_argument("--api-key", default=None)
-    p.add_argument("--temperature", type=float, default=0.6, help="above 0 so that repetitions differ; each uses its own seed")
+    p.add_argument("--temperature", type=_temperature, default=0.6,
+                   help="above 0 so that repetitions differ, each with its own seed; 'model' sends none, so the model file's own sampling applies")
+    p.add_argument("--instruction-blocks", action="store_true", help="add the working rules of harness/prompt_blocks.py to the system prompt (compare a run with and without)")
     p.add_argument("--only", action="append", default=[], metavar="TASK_ID")
     p.add_argument("--strategies", default="none,rag,cag", help="for tasks that use reference documents: which ways to offer them")
     p.add_argument("--gpu-power-limit-w", type=float, default=None, help="the GPU power limit this run used (it labels every number)")
@@ -77,8 +89,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     env = collect_environment(client, args.endpoint, gpu_power_limit_w=args.gpu_power_limit_w)
     timings = None if args.no_server_timings else ServerTimings(args.endpoint, args.api_key)
     runner = EvalRunner(client=client, temperature=args.temperature, keep_workspaces=Path(args.keep_workspaces) if args.keep_workspaces else None, council=args.council,
-                        timings=timings)
-    config = {"k": args.k, "temperature": args.temperature, "seeds": "1000 + repetition", "max turns": "per task", "council": "on" if args.council else "off",
+                        timings=timings, instruction_blocks=args.instruction_blocks)
+    config = {"k": args.k, "temperature": "the model file's own" if args.temperature is None else args.temperature,
+              "instruction blocks": "on" if args.instruction_blocks else "off", "seeds": "1000 + repetition", "max turns": "per task", "council": "on" if args.council else "off",
               "server timings": "off" if timings is None else "from the request log"}
 
     def show(r):

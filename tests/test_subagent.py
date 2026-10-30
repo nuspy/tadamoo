@@ -7,6 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from harness import untrusted
 from harness.agent_loop import AgentLoop, FINAL
 from harness.audit import AuditLedger
 from harness.permissions import PermissionLevel, PermissionManager
@@ -141,7 +142,7 @@ def test_what_it_read_from_outside_is_fenced_in_the_summary(ws, tmp_path, monkey
         out = runner.run("search", tools=["search_web"])
     finally:
         clear_backends()
-    assert out["summary"].startswith("<untrusted_data source=\"subagent\">")
+    assert untrusted.normalize(out["summary"]).startswith("<untrusted_data source=\"subagent\">")
     assert permissions.untrusted_input                              # and the parent is tainted too, through the shared permissions
 
 

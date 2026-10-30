@@ -19,7 +19,8 @@ SHARED = ["--workspace", "W", "--permission-mode", "auto", "--allow", "shell_com
           "--browser-profile", "B", "--vault-dir", "V", "--capabilities", "--lsp", "--wiki", "--wiki-project", "proj", "--phone",
           "--on-behalf-of", "Mario", "--context-patterns", '{"summary": {"on": false}}', "--context-threshold", "0.5", "--end-turn-bias", "0.2",
           "--attachments-dir", "A", "--outputs-dir", "O", "--hooks", "H.json", "--workspace-hooks", "--after-plan", "auto",
-          "--tool-timeout", "40", "--tool-timeout", "shell_command=0", "--no-memory", "--no-checkpoints", "--max-turns", "7"]
+          "--tool-timeout", "40", "--tool-timeout", "shell_command=0", "--no-memory", "--no-checkpoints", "--max-turns", "7",
+          "--temperature", "0.3", "--max-tokens", "2048", "--instruction-blocks"]
 
 
 def test_headless_and_the_chat_process_set_the_same_agent_from_the_same_options():
@@ -29,7 +30,7 @@ def test_headless_and_the_chat_process_set_the_same_agent_from_the_same_options(
     for key, value in [("browser", True), ("vault_dir", "V"), ("payments_dir", "P"), ("capabilities", True), ("lsp", True), ("wiki", True),
                        ("phone", True), ("council", False), ("hooks_file", "H.json"), ("workspace_hooks", True), ("after_plan", "auto"),
                        ("tool_timeout", 40.0), ("tool_timeouts", {"shell_command": 0.0}), ("use_memory", False), ("max_turns", 7),
-                       ("secret_hosts", {"TOKEN": ["example.com"]}), ("browser_profile", "B")]:
+                       ("secret_hosts", {"TOKEN": ["example.com"]}), ("browser_profile", "B"), ("temperature", 0.3), ("max_tokens", 2048), ("instruction_blocks", True)]:
         assert from_cli[key] == value, key
     cfg = config_from_args(parse_args(["-p", "task", *SHARED]))
     assert isinstance(cfg, AgentConfig) and cfg.vault_dir == "V" and cfg.lsp and cfg.capabilities and cfg.browser

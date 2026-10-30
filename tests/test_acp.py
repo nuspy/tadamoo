@@ -448,7 +448,15 @@ def test_a_plan_is_put_to_the_editor_with_one_button_for_each_mode_it_can_go_on_
     assert {"sessionUpdate": "current_mode_update", "currentModeId": "auto"} in e.updates("current_mode_update")
 
 
-def test_a_plan_the_editor_rejects_stays_a_plan_and_set_mode_brings_the_tool_back(editor_factory):
+def test_a_run_that_ends_without_an_answer_tells_the_editor_why(editor_factory):
+    empty = {"choices": [{"message": {"role": "assistant", "content": "", "reasoning_content": "thinking"}, "finish_reason": "length"}]}
+    e = editor_factory(ScriptedClient(empty, empty))
+    sid = e.new_session()
+    assert e.response(e.prompt(sid))["result"]["stopReason"] == "end_turn"
+    assert any("produced no answer" in u["content"]["text"] for u in e.updates("agent_message_chunk"))
+
+
+def test_a_plan_the_editor_rejects_stays_a_plan_and_the_tool_is_there_in_every_mode(editor_factory):
     client = ScriptedClient(call("present_plan", {"plan": "p"}, "p1"), say("ok"))
     e = editor_factory(client, answer=lambda p: "reject_once", settings={"permission_mode": "plan"})
     sid = e.new_session()
@@ -456,7 +464,7 @@ def test_a_plan_the_editor_rejects_stays_a_plan_and_set_mode_brings_the_tool_bac
     built = e.server.sessions[sid].built
     assert built.permissions.plan_mode
     assert e.call("session/set_mode", {"sessionId": sid, "modeId": "default"})["result"] == {}
-    assert not built.permissions.plan_mode and built.agent.tools.get("present_plan") is None
+    assert not built.permissions.plan_mode and built.agent.tools.get("present_plan") is not None
     e.call("session/set_mode", {"sessionId": sid, "modeId": "plan"})
     assert built.permissions.plan_mode and built.agent.tools.get("present_plan") is not None
     assert e.call("session/set_mode", {"sessionId": sid, "modeId": "read_only"})["result"] == {}

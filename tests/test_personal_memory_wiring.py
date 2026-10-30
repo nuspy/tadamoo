@@ -39,7 +39,7 @@ def test_the_notes_that_matter_come_in_at_the_tail_once(tmp_path):
     try:
         assert "recall_about_user" in built.agent.tools.names()
         message = built.retrieved_message("find a restaurant in Milano")
-        assert message["role"] == "user" and '<untrusted_data source="personal-memory">' in message["content"]
+        assert message["role"] == "user" and '<untrusted_data source="personal-memory" id="' in message["content"]
         assert "Lives in Milano" in message["content"] and "invoice" not in message["content"]
         assert "Milano" not in built.builder.assemble_system_message()                  # the start of the prompt stays as it was
         assert built.retrieved_message("and a museum in Milano") is None                # not repeated
