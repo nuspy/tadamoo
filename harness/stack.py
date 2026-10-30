@@ -16,6 +16,7 @@ from harness.agent_loop import AgentLoop, local_now
 from harness.audit import AuditLedger
 from harness.checkpoints import CheckpointManager
 from harness.client import BasaltClient
+from harness.compaction import DEFAULT_THRESHOLD as DEFAULT_COMPACTION_THRESHOLD, MAX_THRESHOLD as MAX_COMPACTION_THRESHOLD, MIN_THRESHOLD as MIN_COMPACTION_THRESHOLD, Compaction
 from harness.context import ContextBuilder, ContextManager, TokenJuiceCompactor, available_budget
 from harness.context_patterns import PatternContext, Snapshots, normalize_config
 from harness.gate import DEFAULT_ROUNDS, MAX_ROUNDS, MODES as VERIFY_MODES, VerifyGate, clean_commands
@@ -54,6 +55,9 @@ PERMISSION_MODES = {
 FALLBACK_CONTEXT_TOKENS = 32768       # the window assumed when the server cannot say its own
 ANSWER_RESERVE_TOKENS = 8192          # room kept for the model's answer when the window comes from the server (a small window keeps a quarter)
 MIN_BUDGET_TOKENS = 1024              # the least the context manager is ever given
+COMPACTION_TOKENS = 1500              # the most a compaction summary may write
+SUMMARY_READ_CHARS = 120_000          # the most a summary call is sent
+SUMMARY_TIMEOUT_S = 240.0             # a summary call that takes longer is given up and the notes are made without the model
 
 
 def context_budget(window: int, reserve: int) -> int:
@@ -157,6 +161,10 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--on-behalf-of", default="", help="name the phone assistant gives when it calls")
     parser.add_argument("--context-patterns", default="", metavar="JSON", help="what shapes the context (harness/context_patterns.py)")
     parser.add_argument("--context-threshold", type=float, default=0.7, help="the share of the context window at which pruning or a summary starts")
+    parser.add_argument("--no-compaction", action="store_true",
+                        help="do not summarise the older steps when the context is still near the window after old results are masked (harness/compaction.py)")
+    parser.add_argument("--compaction-threshold", type=float, default=DEFAULT_COMPACTION_THRESHOLD,
+                        help=f"the share of the prompt budget at which the older steps are summarised ({MIN_COMPACTION_THRESHOLD} to {MAX_COMPACTION_THRESHOLD}); never before masking starts")
     parser.add_argument("--end-turn-bias", type=float, default=0.0, help="0 or less: how much less ready the model is to end its turn (0 is off)")
     parser.add_argument("--temperature", type=float, default=None,
                         help="sampling temperature of every model call; unset: the model file's own sampling applies. A temperature above 0 makes tool calls less repeatable")
@@ -201,6 +209,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         reference_docs=read_reference(args.reference), reference_strategy=args.reference_strategy,
         memory_min_score=args.memory_min_score, memory_notes=args.memory_notes, memory_budget_tokens=args.memory_budget, phone_on_behalf_of=args.on_behalf_of,
         context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold,
+        compaction=not args.no_compaction, compaction_threshold=args.compaction_threshold,
         end_turn_bias=args.end_turn_bias, temperature=args.temperature, max_tokens=args.max_tokens, instruction_blocks=args.instruction_blocks,
         verify_commands=args.verify_command, verify_gate=args.verify_gate, verify_rounds=args.verify_rounds, budget_grace=not args.no_budget_grace,
         error_classifier=args.error_classifier,
@@ -278,6 +287,8 @@ class AgentConfig:
     data_dir: Optional[str] = None
     context_patterns: Dict[str, Any] = field(default_factory=dict)   # harness/context_patterns.py: what shapes the context
     context_threshold: float = 0.7      # the share of the context window at which pruning or a summary starts
+    compaction: bool = True             # summarise the older steps when the context is still near the window (harness/compaction.py)
+    compaction_threshold: float = DEFAULT_COMPACTION_THRESHOLD   # the share of the prompt budget at which that starts
     end_turn_bias: float = 0.0          # 0 or less: how much less ready the model is to end its turn (0 is off)
     temperature: Optional[float] = None  # sampling temperature of every model call; None: the model file's own sampling applies
     max_tokens: Optional[int] = None    # most tokens one reply may write; None: the server's own limit
@@ -386,14 +397,17 @@ class BuiltAgent:
             self.mcp.close()
 
 
-def _summarizer(client: Optional[Any]):
-    """(instructions, text) -> summary, written by the model the compaction function is pointed at; None without a client."""
+def _summarizer(client: Optional[Any], max_tokens: int = 900):
+    """(instructions, text) -> summary, written by the model the compaction function is pointed at; None without a client. A text over the
+    limit loses its middle, so the start and the newest part are both read."""
     if client is None:
         return None
 
     def summarize(instructions: str, text: str) -> str:
-        reply = client.chat_completion(messages=[{"role": "system", "content": instructions}, {"role": "user", "content": text[:24000]}],
-                                       temperature=0.0, max_tokens=900, extra={"reasoning_effort": "none"})
+        if len(text) > SUMMARY_READ_CHARS:
+            text = text[:SUMMARY_READ_CHARS // 4] + "\n[... left out ...]\n" + text[-(SUMMARY_READ_CHARS * 3 // 4):]
+        reply = client.chat_completion(messages=[{"role": "system", "content": instructions}, {"role": "user", "content": text}],
+                                       temperature=0.0, max_tokens=max_tokens, timeout=SUMMARY_TIMEOUT_S, extra={"reasoning_effort": "none"})
         return (reply["choices"][0]["message"].get("content") or "").strip()
     return summarize
 
@@ -572,7 +586,8 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     patterns = normalize_config(cfg.context_patterns)
     snapshots = Snapshots(Path(cfg.snapshot_dir) if cfg.snapshot_dir else data / "snapshots" / (cfg.run_id or "default")) if patterns["versioning"]["on"] else None
     context = PatternContext(compactor, budget_tokens=budget, patterns=patterns, snapshots=snapshots, mask_at=min(0.95, max(0.3, cfg.context_threshold)),
-                             summarize=_summarizer(summarizer or client) if patterns["summary"]["on"] else None)
+                             summarize=_summarizer(summarizer or client) if patterns["summary"]["on"] else None,
+                             compaction=Compaction(_summarizer(summarizer or client, COMPACTION_TOKENS), cfg.compaction, cfg.compaction_threshold))
 
     def refresh_budget() -> None:
         """Asks the server again, so a model loaded or changed since the conversation began sets the budget; no answer leaves it as it is."""

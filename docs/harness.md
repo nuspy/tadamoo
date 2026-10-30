@@ -60,6 +60,7 @@ the Chat can reach, the others can reach:
 | `--max-tokens N` | the most one reply may write; not given, the server's own limit applies |
 | `--instruction-blocks` | six short working rules in the system prompt (see "Working rules"); off unless asked for |
 | `--verify-command CMD`, `--verify-gate {off,unattended,always}`, `--verify-rounds N` | the project's own checks, run before a turn that changed files ends; off by default (see [harness-gates.md](harness-gates.md)) |
+| `--no-compaction`, `--compaction-threshold SHARE` | off, or the share of the prompt budget (0.5 to 0.98, default 0.85) at which the older steps of a long turn are summarised (see [compaction.md](compaction.md)) |
 | `--no-budget-grace` | a budget that runs out ends the answer at once, without the warning and the last report |
 | `--error-classifier` | proposal awaiting the owner: a model error that waiting cannot cure ends the turn instead of being retried (see [harness-gates.md](harness-gates.md)) |
 | `--unattended` | (conversations) nobody answers: a question is approved at once, or says the data is not available, or, if it is for another person, the user, a resource that is not the PC's own or a booking, is parked in the `pending` list while the model goes on |
@@ -154,7 +155,7 @@ Code that make sense here, plus Basalt's own:
   `/branch`, `/branches`, `/resume`, `/rewind` (points at the *Back* button), `/stop`, `/diff` (the conversation's copy of the folder),
   `/plans` and `/wallet`;
 * **answered by the conversation's process** (`harness/commands.py`, data the page words in its language): `/status`, `/context`,
-  `/compact` (the older half of the conversation becomes a summary, only when nothing is under way), `/tools`, `/hooks`, `/mcp`,
+  `/compact` (the older steps become a summary and the newest stay as written, only when nothing is under way), `/tools`, `/hooks`, `/mcp`,
   `/memory [search]`, `/permissions` (the mode, the rules, the refusals), `/audit` (whether the audit log is whole);
 * **requests worded for the model**: `/init` (write AGENTS.md), `/review` and `/security-review` (the changes in the folder), and
   `/research question` (also `/search`), which asks to read the sources themselves and to name the pages it could not open;
@@ -536,6 +537,8 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   placeholder; long outputs keep their head, tail and **every error line** (a line over 2000 characters is cut in the middle and a whole result is held to 40,000 characters, with the
   full text saved and named at the end); JSON is trimmed and HTML reduced to text. The
   system block is byte-stable so the engine's prefix checkpoint is reused; retrieved memories go after the goal as untrusted data.
+- When masking is not enough, the older steps of a long turn become a structured summary and the newest stay as written, with an
+  identifier audit and a report of what the server reads again; Settings > General > Long work: [compaction.md](compaction.md).
 - `repo_map` lists the source files of a folder with the classes, functions and methods in each (Python through `ast`; JavaScript,
   TypeScript, C, C++, CUDA, Go, Rust and Java through cautious line patterns, so a miss is a missing line, never an invented one), the
   most relevant files first: changed lately (modified time), used by other files (how many mention the names they define), or named
