@@ -1,0 +1,151 @@
+# Long answers
+
+A model asked for a long final text ends its turn early, well short of the length asked, however large the output limit is. This page describes what Basalt does about it. The reasons and the design are in
+[harness-study/long-answers.md](harness-study/long-answers.md). Code: `serve/longform.py` (the engine of the mode: pure functions and
+`LongAnswer`), `serve/api/longform.py` (the `long_answer` field), `harness/longform_tool.py` (`plan_long_answer`),
+`serve/web/longform.js` and `longform.css` (the control), and the guards in `serve/service.py` and `serve/util/ngram.py`.
+
+## A reply that is cut is shown as cut
+
+- **Chat.** When the output limit ends a reply (`finish_reason: length`) the message says so and has a **Continue** button. It asks the
+  model to go on exactly where it stopped, and the new words join the same message. A reply that the server stopped because it was
+  repeating itself has no Continue (it would write the loop again), only *Ask again*.
+- **Agent.** The loop already asks the model to go on twice by itself (`docs/harness.md`, *How a reply ends*). An answer that is still cut
+  after that shows the line "The output limit ended this answer" and a **Continue** button that sends one more message.
+- **`max_answer_tokens`** (a request field and a Chat setting, *Max answer tokens*): the most the answer text may take, not counting the
+  thinking. `max_tokens` is one budget for thinking and answer together; this one is for the answer alone. The reply ends as `length`
+  and the final chunk carries `answer_capped: true`. The server default is off (`Service.max_answer_tokens`).
+- **Loop guard for a passage.** Besides the guard for one token repeated 256 times, a passage of 12 tokens written 4 times, apart from
+  each other, within the last 2000 tokens ends the reply as `length`, with a warning line in the server window and `repeated: true` in
+  the final chunk. A group of at most 3 different tokens (a table rule, a row of dashes) and everything inside a code fence are never
+  counted; nor is a request with a JSON `response_format`, whose keys repeat by nature. `Service.repeat_ngram = (12, 4, 2000)`; `None` turns it off.
+
+## The segmented mode
+
+For a final text that is too long for one turn the text is planned, then written one **segment** per model call (about 1000 words, never
+over 2000), and the segments are put together. Each segment is checked by plain code before it is kept.
+
+Three ways to start it, all with the same engine:
+
+1. **By hand.** The **Long answer** button beside Send (Chat and Agent). A small dialog asks what to write (a new text from the message,
+   a translation of it, a rewrite of it), the length, the language, a style, a glossary, and whether images, links, code, tables and
+   diagrams are kept as they are. It applies to the next message only. In the Chat the options go to the server as `long_answer`; in the
+   Agent the message ends with one line, `[long answer: mode=translate; language=Italian]`, which the harness reads.
+2. **By the harness.** A deterministic check of the person's request (`detect_long_request`): a length asked for above 1800 words ("10,000
+   words", "10.000 parole", "20 pages", "5k words") with a writing verb or a document kind, a chapter, a translation or rewrite of a text
+   over 1800 words, an analysis of a very large text. Where the person is, a card offers "About 10,000 words: write it in 10 parts?" (the
+   first option is recommended) and the turn ends on it; where nobody watches (a routine, `--unattended`) the offer is taken at once and
+   noted as an assumption. Either way the model is told, with a note after the message, to hand its plan to `plan_long_answer`.
+3. **By the model.** The tool `plan_long_answer`, in the fixed group at the start of the tool list (so the cached prefix is untouched) and
+   marked pure: it changes no file. The model declares that the answer does not fit a turn and hands over the plan in a constrained
+   shape: `sections` (heading, goal, target_words, key_points), `total_words`, `language`, `style`, `glossary`; for a translation or
+   rewrite, `mode` and `source_path` (a file in the workspace) or `use_message`. The harness writes the text, shows it to the person as it
+   passes its checks and gives the model a short report; the model should not write the text again.
+
+### Parts from a plan
+
+The number of parts comes from the total, not from the sections: `chunk_count(total, segment_words)` rounds `total / segment_words`
+(`segment_words` is 1000 by default, kept between 700 and 1500) and adds parts until none is over 2000 words. So 10,000 words is 10
+parts, or 7 with `segment_words: 1500`. Each section is then placed on the word axis and a part takes the sections that fall in its
+share: a long section is written over several parts ("continues from the previous part"), several short ones share one part, and each
+heading is written where its section starts.
+
+For every part the prompt is built from a stable start and a variable end:
+
+- the **stable start**: the rules (write only this part, start exactly after the previous text, never summarise or conclude unless it is the
+  last, copy every marker unchanged), the task, the glossary, the style and the **whole plan**;
+- what is **already written**: in the *transcript* layout the earlier parts themselves, as assistant turns, so the server's cache reads
+  only the new end; past 60% of the context, the *rolling* layout: one line per finished part and the last 120 words as an anchor;
+- "**now write part k**": the sections it covers, the goal, the key points, about N words, and whether it is the first or the last.
+
+Without a plan (`long_answer` with only a task and a length) the model is asked once for an outline in JSON; if it cannot give one, even
+parts are used and the plan event says `fallback: true`.
+
+For a translation or rewrite the source blocks are the plan: a Markdown-aware splitter cuts the source at paragraph, list and heading
+boundaries into parts of about `segment_words`; a table is never cut, a heading stays with the text after it, and a part's expected length
+comes from its source (English to Italian about 1.15 times the words).
+
+### Content that must not change
+
+Before any model call the source is scanned and these are replaced by markers `⟦NAME12⟧`, which the model must copy:
+
+| Kind | Marker | Kept as |
+|---|---|---|
+| fenced code (including mermaid), `$$` math, HTML blocks, front matter, link reference lines | `CODE`, `MATH`, `HTML`, `FM`, `REF` | a block, in order |
+| images `![alt](src)` | `IMG` | whole |
+| link targets, bare URLs, `basalt-file:` ids | `URL` | the target only; the link text is still translated |
+| inline code | `IC` | whole |
+| citation keys `[S1, S2]`, footnote references `[^1]` | `CITE`, `FN` | whole |
+
+Tables are not masked (their cells are text) but never split, and their shape is checked. At the end every marker is replaced by its
+original byte for byte; a marker the model made up is dropped; a marker used twice is kept once. Diagrams are carried through unchanged:
+translating the labels of a mermaid diagram is not done.
+
+### Checks after each segment
+
+Plain code, no model: not cut (`finish_reason`, and a paragraph ending on a letter, which is continued), every marker present once and
+the block markers in order, length within 0.7 to 1.6 of what was asked, language (a stopword count over English, Italian, Spanish,
+French, German and Portuguese), no remark about the task ("Here is the translation"), no repeated 6-word groups (over 30%), no paragraph
+of an earlier segment written again, fences closed, tables with a constant column count and the source's shape, and for a translation:
+heading levels, the numbers of the source, the glossary terms.
+
+A cut part is continued (up to twice). A part with a hard problem, or too short, is written again once with the reasons in the
+message (`retries`, 0 to 3); the failed text is never sent back. What remains after that is **reported, never hidden**: the segment
+carries `warnings`, the final event lists them, a marker that was lost is put back at the end of its part (blocks and images) and
+named, and the answer's `finish_reason` is `length` when any part is still cut or the text stopped early. In a new text, two segments
+in a row under half of what was asked stop the run (`stopped: "short_segments"`). Segments are never rewritten as a whole document.
+
+### The request
+
+`POST /v1/chat/completions` with `long_answer`: `true` (defaults), or an object:
+
+| Field | Meaning |
+|---|---|
+| `mode` | `write` (default), `translate`, `rewrite` |
+| `task` / `instruction` | write: what to write (default: the last user message); rewrite: what to change |
+| `source` | translate, rewrite: the text (default: the last user message) |
+| `target_words` | the length of a new text (50 to 200000, default 2000) |
+| `target_language`, `style`, `glossary` | language, style, `{term: translation}` |
+| `outline`, `title` | a plan: `[{heading, goal, target_words, key_points}]` (new text only) |
+| `segment_words` | 200 to 3000, default 1000; a plan's parts stay within 700 to 1500 |
+| `sections` | the number of sections to ask the model for |
+| `headings` | write the section headings (default: for 3 parts or more) |
+| `retries` | 0 to 3, default 1 |
+| `protect` | keep images, links, code and the like (default true) |
+| `max_segments`, `max_seconds` | refuse a text needing more parts; stop after this time (default none) |
+| `end_turn_bias` | passed to every call |
+
+System messages and earlier turns ride ahead of the parts (so material gathered in the conversation is there); thinking is off for the
+parts; the request's sampling fields apply to every call. `tools`, `response_format` and images are refused. A bad field is a 400
+before anything is written. Billion Context never compresses a long answer: the Chat leaves its header off, and a client of the API
+must do the same.
+
+The stream is ordinary chat completion chunks. Text arrives as content deltas, one checked segment at a time. Progress arrives as chunks
+with an empty delta and a `long_answer` event: `plan` (segments, words, `fallback`), `segment_start` (index, of, layout),
+`segment_progress` (words so far, about once a second), `segment_done` (words, target, retries, warnings), `verify`, `done` (finish,
+`stopped`, words, segments, warnings, seconds, usage with cached tokens). The last chunk carries `finish_reason`, `usage` and the same
+`long_answer` totals; without `stream` the response has them as `long_answer`. Closing the connection stops the call in flight; nothing
+is written after it. A model error is raised after the segments already delivered.
+
+The same engine drives `plan_long_answer` with the conversation's own client, so it works the same on the loaded model and on a cloud
+route. In the Agent tab the text is shown in the conversation as it passes its checks, with one line of progress ("writing part 3 of
+10") and the totals; the model sees only a short report with the start and end of the text. The text is not saved to a file and is not in
+the model's history.
+
+## Not done
+
+- Abort and resume across connections (`POST /api/chat/long`): closing the connection stops the run, and a new one starts again.
+- A glossary or style sheet made by the model, and a one-line "memory" call between parts (new terms, open threads).
+- Translating the labels of a mermaid diagram, renumbering footnotes across parts, a reference list built from the citation keys.
+- Streaming inside a segment: text appears when its segment has passed the checks, a part at a time.
+- `max_answer_tokens` for Agent sessions, a bigger room for the Chat context reserve, and a notice when the server clamps `max_tokens`.
+- Map-reduce summaries of a source larger than the context.
+- Saving the assembled text as an output file and exporting it.
+
+Real-model checks are rows 57 to 62 of `tests/QUEUE_daytime.md`.
+
+## Tests
+
+`tests/test_longform.py` (protection, splitting, checks, plan, chunking, the run with a scripted client), `tests/test_longform_tool.py` (the
+tool, the card, the unattended offer, the control line), `serve/tests/test_longform_api.py` (the request field against the mock engine,
+`max_answer_tokens`, the passage guard), `serve/tests/test_longform_page.py` (the markup and strings).

@@ -26,6 +26,7 @@ from serve.engine.errors import EngineDied, EngineStarting, EngineStuck, GpuBusy
 from serve.api.grammar import REQUEST_KEY as GRAMMAR_KEY
 from serve.api.logit_bias import REQUEST_KEY as BIAS_KEY, add_end_turn, checked as checked_bias
 from serve.frontend import anthropic_to_messages, forced_call, openai_to_messages
+from serve.api.longform import long_answer_chunks, long_request
 from serve.api.openai import (openai_chunks, openai_collect, retry_messages, structured_retries,
                               structured_retry_chunks)
 from serve.api.responses import ResponsesError
@@ -2644,6 +2645,8 @@ def make_handler(svc: Service, remote: bool = False):
             self.end_headers()
 
         def _openai(self, req):
+            if req.get("long_answer"):
+                return self._openai_long(req)
             messages, tools, kw = openai_to_messages(req)
             tools, force = forced_call(req.get("tool_choice"), tools)   # a bad choice is a 400 before streaming
             if check_format(req.get("response_format")) and tools:
@@ -2661,6 +2664,7 @@ def make_handler(svc: Service, remote: bool = False):
                                                req.get("response_format"))
             asked = int(req.get("max_completion_tokens") or req.get("max_tokens") or 0)   # 0/-1: the rest of the context
             svc.reasoning_budget(req)                         # a bad value is a 400 before streaming
+            svc.answer_cap(req)                               # likewise a bad answer cap
             stop_strings(req)                                 # likewise a bad stop
             ids, thinking, max_new = svc.prepare(messages, tools, kw, asked, force=force)
             _debug_req("openai", req, messages, tools, max_new, thinking, len(ids))
@@ -2681,6 +2685,21 @@ def make_handler(svc: Service, remote: bool = False):
                                                  constrained=bool(req.get(GRAMMAR_KEY)))
             if not req.get("stream"):
                 return self._json(200, openai_collect(chunks))
+            self._send_chunks(chunks, cancel)
+
+        def _openai_long(self, req):
+            """A chat completion with `long_answer`: written in segments (serve/longform.py), answered as the others are."""
+            spec, system, prior = long_request(req)
+            svc.load()
+            cancel = threading.Event()
+            self._watch_client(cancel)
+            chunks = long_answer_chunks(svc, req, spec, system, prior, cancel)
+            if not req.get("stream"):
+                return self._json(200, openai_collect(chunks))
+            self._send_chunks(chunks, cancel)
+
+        def _send_chunks(self, chunks, cancel):
+            """The chunks of a streamed chat completion as server-sent events; an error after the start is told in the stream."""
             self._sse()
             try:
                 for c in chunks:
