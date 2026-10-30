@@ -14,11 +14,11 @@ from serve.intake_prefs import IntakeError, IntakePrefs
 from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)
 
 
-def test_defaults_are_rules_chips_on_and_a_bounded_size(tmp_path):
+def test_defaults_are_off_chips_on_and_a_bounded_size(tmp_path):
     prefs = IntakePrefs(tmp_path / "i.json")
-    assert prefs.read() == {"intake": "rules", "suggestions": True, "side_call_tokens": 6000}
+    assert prefs.read() == {"intake": "off", "suggestions": True, "side_call_tokens": 6000}
     view = prefs.view()
-    assert view["modes"] == ["off", "rules", "full"] and view["defaults"]["intake"] == "rules" and view["limits"]["side_call_tokens"] == [500, 200000]
+    assert view["modes"] == ["off", "rules", "full"] and view["defaults"]["intake"] == "off" and view["limits"]["side_call_tokens"] == [500, 200000]
 
 
 def test_values_are_saved_checked_and_a_refused_value_changes_nothing(tmp_path):
@@ -32,17 +32,28 @@ def test_values_are_saved_checked_and_a_refused_value_changes_nothing(tmp_path):
         assert raised.value.field == field and str(raised.value)
     assert prefs.read() == saved
     (tmp_path / "i.json").write_text("{broken", encoding="utf-8")
-    assert prefs.read()["intake"] == "rules"
+    assert prefs.read()["intake"] == "off"
+
+
+def test_the_choice_is_kept_in_the_file_and_a_new_handler_reads_it_again(tmp_path):
+    path = tmp_path / "data" / "intake.json"
+    assert IntakePrefs(path).read()["intake"] == "off"                          # no file: off
+    IntakePrefs(path).write({"intake": "full"})
+    assert IntakePrefs(path).read()["intake"] == "full" and session_args(IntakePrefs(path).flags()).intake == "full"
+    IntakePrefs(path).write({"intake": "rules"})
+    assert IntakePrefs(path).read()["intake"] == "rules" and IntakePrefs(path).read()["suggestions"] is True
+    IntakePrefs(path).write({"intake": IntakePrefs(path).view()["defaults"]["intake"]})        # the defaults button
+    assert IntakePrefs(path).read()["intake"] == "off"
 
 
 def test_the_flags_reach_the_session_process_arguments(tmp_path):
     prefs = IntakePrefs(tmp_path / "i.json")
     args = session_args(prefs.flags())
-    assert (args.intake, args.suggestions, args.side_call_tokens) == ("rules", "on", 6000)
+    assert (args.intake, args.suggestions, args.side_call_tokens) == ("off", "on", 6000)
     prefs.write({"intake": "off", "suggestions": False, "side_call_tokens": 1234})
     args = session_args(prefs.flags())
     assert (args.intake, args.suggestions, args.side_call_tokens) == ("off", "off", 1234)
-    assert session_args([]).suggestions == "off" and session_args([]).intake == "rules"
+    assert session_args([]).suggestions == "off" and session_args([]).intake == "off"
 
 
 @pytest.fixture
@@ -63,10 +74,12 @@ def api(tmp_path, monkeypatch, start_server):  # noqa: F811
 
 def test_the_settings_page_reads_and_saves(api):
     code, view = api("GET", "/api/intake")
-    assert code == 200 and view["intake"] == "rules" and view["suggestions"] is True
+    assert code == 200 and view["intake"] == "off" and view["suggestions"] is True
     code, view = api("POST", "/api/intake", {"intake": "full", "suggestions": False})
     assert code == 200 and view["intake"] == "full" and view["suggestions"] is False
     assert api("GET", "/api/intake")[1]["intake"] == "full"
     code, body = api("POST", "/api/intake", {"side_call_tokens": 3})
     assert code == 400 and body["error"]["field"] == "side_call_tokens"
     assert api("POST", "/api/intake", [1])[0] == 400
+    code, view = api("POST", "/api/intake", {"intake": "off"})                 # nothing running to tell: the saved choice is what a new conversation takes
+    assert code == 200 and view["intake"] == "off"

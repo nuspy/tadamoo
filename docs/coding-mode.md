@@ -14,7 +14,7 @@ conversation (the selector in the Agent tab, `--role`, the `role` field when a c
 
 | role | tools | writes | instructions in short |
 |---|---|---|---|
-| `build` (the coding role) | read, search, `edit_file`, `write_file`, `shell_command`, memory, skills, LSP | anywhere in the folder | look first, change in small steps, run the project's checks, report what they showed |
+| `build` (the coding role, shown as Developer) | read, search, `edit_file`, `write_file`, `shell_command`, memory, skills, LSP | anywhere in the folder | look first, change in small steps, run the project's checks, report what they showed |
 | `plan` | read tools, `edit_file`, `write_file` | only `.basalt/plans/*.md` | no changes to the project; at most three questions; a plan file, a checklist, a summary |
 | `ask` | read tools | nothing | answer about the project with file and line for each claim |
 | `debug` | the same as `build` | anywhere in the folder | run the failure, list at most four causes, narrow to one or two, confirm, fix, run again |
@@ -24,8 +24,8 @@ conversation (the selector in the Agent tab, `--role`, the `role` field when a c
 The read tools are `read_file`, `list_directory`, `tree`, `search_code`, `repo_map`, `repo_diagram`, `diagnostics`, `go_to_definition`,
 `find_references`, `recall` and `load_skill`. `ask_user`, `todo_write` and `present_plan` are allowed in every role, so the checklist and
 the way out of the Plan only permission mode always work. The browser, the web tools, the planner, the phone, the vault and MCP tools are
-not in a coding role; `general` has them. The coding role has one name, the constant `CODING_ROLE` in `harness/roles.py` (its label in the
-page is the string `cd.role.build`).
+not in a coding role; `general` has them. The coding role has one name, the constant `CODING_ROLE` in `harness/roles.py` (its id is `build`; the page shows it as
+"Developer" in both languages, the string `cd.role.build`, and it is the Agent tab's default role).
 
 ### How a role is applied, and the cache
 
@@ -106,7 +106,7 @@ In the Agent tab (not in the Chat) the head of the page has a **Role** selector,
   script and state in words (not accepted, accepted, changed since accepted), the two checkboxes, a box for the person's own checks, the
   read-only commands, the state of the verify gate and **Save**. A folder with nothing in it offers the Plan role with a button; it never
   switches by itself.
-- After a plan in the Plan role a button **Continue in Build** switches the role and sends "Go ahead and carry out the plan." A message
+- After a plan in the Plan role a button **Continue in Developer** switches the role and sends "Go ahead and carry out the plan." A message
   that looks like a fault report, sent in the coding role, offers **Switch to Debug**. Both are buttons: the role never changes without one.
 - Buttons are 30 px high (the app's `--btn-h`), long commands wrap, the list scrolls inside the card, and nothing needs sideways scrolling
   from 1024 px up. All texts exist in English and Italian (`cd.*` in `serve/web/i18n.js`) and are put in the page as text.

@@ -131,7 +131,7 @@ def test_the_script_fills_the_selector_shows_the_card_and_saves_what_is_ticked(t
     assert out["post"] == {"workspace": "C:/proj", "accepted": [{"command": "npm test", "gate": True}], "own": "ruff check ."}
     assert out["rolePost"] == {"role": "plan"} and out["goVisibleInPlan"] is True
     assert out["afterGo"] == {"role": CODING_ROLE, "sent": ["cd.go.text"]}
-    assert out["bugVisible"] is True                                           # a message about a fault, sent in Build, only offers Debug: the role does not change by itself
+    assert out["bugVisible"] is True                                           # a message about a fault, sent in Developer, only offers Debug: the role does not change by itself
     assert out["roleStillBuild"] == CODING_ROLE and out["hiddenOutsideAgent"] is True
 
 
@@ -174,7 +174,10 @@ def test_every_string_exists_in_both_languages_with_the_same_placeholders():
         assert sorted(k for k in used if k not in strings[lang]) == [], lang
     for key in used:
         assert sorted(re.findall(r"\{\d+\}", strings["en"][key])) == sorted(re.findall(r"\{\d+\}", strings["it"][key])), key
-    for key in ("cd.role.build", "cd.card.help", "cd.card.title", "cd.go", "cd.bug", "cd.empty", "cd.role.tip"):
+    assert strings["en"]["cd.role.build"] == strings["it"]["cd.role.build"] == "Developer"        # the coding role has one name, not translated
+    assert "Build" not in strings["en"]["cd.role.build.d"] and "Costruisci" not in strings["it"]["cd.role.build.d"] and "Developer" in strings["it"]["cd.role.debug.d"]
+    assert "Developer" in strings["en"]["cd.go.tip"] and "Developer" in strings["it"]["cd.go.tip"] and "Costruisci" not in json.dumps(strings["it"], ensure_ascii=False)
+    for key in ("cd.card.help", "cd.card.title", "cd.go", "cd.bug", "cd.empty", "cd.role.tip"):
         assert strings["en"][key] != strings["it"][key], key                                     # translated, not copied
 
 

@@ -119,6 +119,8 @@ def test_the_process_takes_a_mode_a_level_and_a_command_while_it_lives(tmp_path,
     feed.put({"cmd": "mode", "mode": "everything"})                  # refused: not one of the modes
     feed.put({"cmd": "effort", "level": "high"})
     feed.put({"cmd": "effort", "level": "maximum"})                  # refused
+    feed.put({"cmd": "intake", "mode": "full"})
+    feed.put({"cmd": "intake", "mode": "always"})                    # refused
     feed.put({"cmd": "command", "id": "k1", "name": "status", "args": ""})
     feed.put({"cmd": "command", "id": "k2", "name": "nothing", "args": ""})
 
@@ -131,10 +133,11 @@ def test_the_process_takes_a_mode_a_level_and_a_command_while_it_lives(tmp_path,
     t.join(10)
     assert seen(lambda e: e["event"] == "mode") == [{"event": "mode", "mode": "plan"}]
     assert seen(lambda e: e["event"] == "effort") == [{"event": "effort", "level": "high"}]
+    assert seen(lambda e: e["event"] == "intake_mode") == [{"event": "intake_mode", "mode": "full"}]
     status = seen(lambda e: e["event"] == "command" and e["id"] == "k1")[0]
     assert status["ok"] and status["data"]["mode"] == "plan" and status["data"]["effort"] == "high"
     assert seen(lambda e: e["event"] == "command" and e["id"] == "k2")[0]["ok"] is False
-    assert len(seen(lambda e: e.get("code") == "bad_command")) == 2
+    assert len(seen(lambda e: e.get("code") == "bad_command")) == 3
 
 
 def test_the_process_takes_the_steps_and_the_end_of_turn_bias_while_it_lives(tmp_path, monkeypatch):

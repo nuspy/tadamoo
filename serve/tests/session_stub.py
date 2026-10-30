@@ -182,6 +182,8 @@ for line in sys.stdin:
         emit({"event": "checks", "safe": len(cmd.get("safe", [])), "checks": len(cmd.get("checks", []))})
     elif name == "effort":
         emit({"event": "effort", "level": cmd.get("level")})
+    elif name == "intake":
+        emit({"event": "intake_mode", "mode": cmd.get("mode")})
     elif name == "settings":
         emit({"event": "settings", **{k: cmd[k] for k in ("max_turns", "end_turn_bias") if k in cmd}})
     elif name == "command":
