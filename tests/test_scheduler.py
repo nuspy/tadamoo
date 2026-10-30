@@ -402,6 +402,13 @@ def test_a_question_that_ends_the_turn_is_listed_and_the_run_is_parked_not_faile
     assert manager.get(out["session"])["state"] == "closed"
 
 
+def test_what_the_harness_decided_for_the_person_is_listed_in_the_result(manager, folder):
+    runner = SessionRoutineRunner(manager, poll_s=0.05, cancel_grace_s=1)
+    out = runner.run(routine(folder, "assume"), threading.Event())
+    assert out["status"] == "done" and out["summary"].startswith("all done")
+    assert "Assumptions made" in out["summary"] and "- Which database? -> PostgreSQL" in out["summary"] and "Call the vet" not in out["summary"]   # a parked one is not an assumption
+
+
 def test_the_steps_limit_is_optional_and_a_time_limit_ends_the_run(manager, folder):
     runner = SessionRoutineRunner(manager, poll_s=0.05, cancel_grace_s=1)
     steps, real = [], manager.create

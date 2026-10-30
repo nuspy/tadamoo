@@ -1,6 +1,6 @@
 # ask_user v2 and next-prompt suggestions (design)
 
-Spec, UI, files and tests. Survey and sources: [clarification-survey.md](clarification-survey.md). Not built yet. Real-model behaviour (does a Qwen-class model ask at the right times, are the suggestions sensible) is unmeasured and goes through `harness.eval` and `tests/QUEUE_daytime.md`.
+Spec, UI, files and tests. Survey and sources: [clarification-survey.md](clarification-survey.md). Built as described in [../intake.md](../intake.md). Real-model behaviour (does a Qwen-class model ask at the right times, are the suggestions sensible) is unmeasured and goes through `harness.eval` and `tests/QUEUE_daytime.md`.
 
 4. (c) SPEC: ask_user v2
 Replaces v1 outright (no alias, per AGENTS.md "no shims"). Tests and prompt text are updated in the same change.

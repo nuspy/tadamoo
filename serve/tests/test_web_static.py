@@ -318,7 +318,7 @@ class ConversationChatTest(unittest.TestCase):
 
     def test_the_questions_have_buttons_that_answer_or_send_and_the_stop_works(self):
         js = (WEB / "agentchat.js").read_text(encoding="utf-8")
-        for needle in ("`/${sid}/answer`", "`/${sid}/cancel`", "send(value)", "ch.answered"):
+        for needle in ("`/${sid}/answer`", "`/${sid}/cancel`", "answerCard", "ch.answered"):
             self.assertIn(needle, js)
         self.assertIn("agent()", (WEB / "chat.js").read_text(encoding="utf-8"))               # the composer is handed over in this mode
 

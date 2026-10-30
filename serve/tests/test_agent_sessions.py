@@ -286,6 +286,70 @@ def test_a_question_that_ends_the_turn_stays_until_the_next_message(make, ws):
     assert [m["content"] for m in mgr.history(sid)["messages"]][-2:] == ["Saturday", "echo: Saturday"]
 
 
+def ask_json(**per):
+    return "ask:" + json.dumps({"v": 1, "status": per.pop("status", "submitted"), "answers": per})
+
+
+def test_the_answer_to_a_card_is_checked_against_the_stored_card_and_sent_as_the_next_message_in_words(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "card")
+    until(lambda: "done" in kinds(mgr, sid))
+    card = mgr.get(sid)["question"]
+    assert card["id"] == "k2" and card["questions"][0]["options"][0]["recommended"] is True
+    for bad in ("hello", ask_json(q1={"picked": ["o9"]}), ask_json(q1={"picked": []}), ask_json(q1={"picked": ["o1"]}, q7={"picked": []}),
+                ask_json(q1={"picked": ["o1", "o2"]}), "ask:" + "x" * 5000):
+        with pytest.raises(RunError) as raised:
+            mgr.answer(sid, "k2", bad)
+        assert raised.value.code == "bad_answer"
+    assert mgr.get(sid)["question"] is not None                                  # a refused answer changes nothing
+    with pytest.raises(RunError, match="not waiting"):
+        mgr.answer(sid, "nope", ask_json(q1={"picked": ["o1"]}))
+    mgr.answer(sid, "k2", ask_json(q1={"picked": ["o1"]}))
+    until(lambda: kinds(mgr, sid).count("done") == 2)
+    sent = [m["content"] for m in mgr.history(sid)["messages"] if m["role"] == "user"][-1]
+    assert sent == "The user answered your questions:\n1. Which database? -> PostgreSQL (your recommended option)\nGo on with these answers. Do not ask them again."
+    assert mgr.get(sid)["question"] is None
+    assert [e for e in mgr.events(sid)["events"] if e["event"] == "answered"][-1]["ask"] == "k2"
+
+
+def test_skip_sends_the_skip_text_and_answering_in_the_chat_sends_nothing(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "card")
+    until(lambda: "done" in kinds(mgr, sid))
+    mgr.answer(sid, "k2", ask_json(status="chat"))
+    assert mgr.get(sid)["question"] is None and kinds(mgr, sid).count("accepted") == 1
+    mgr.send(sid, "card")
+    until(lambda: kinds(mgr, sid).count("done") == 2)
+    mgr.answer(sid, "k2", ask_json(status="skipped"))
+    until(lambda: kinds(mgr, sid).count("done") == 3)
+    assert [m["content"] for m in mgr.history(sid)["messages"] if m["role"] == "user"][-1].startswith("The user skipped the questions")
+
+
+def test_suggestions_are_kept_for_a_reload_and_dropped_at_the_next_message(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "chips")
+    until(lambda: "suggestions" in kinds(mgr, sid))
+    assert mgr.get(sid)["suggestions"] == [{"label": "More", "prompt": "Tell me more"}]
+    mgr.send(sid, "next")
+    assert mgr.get(sid)["suggestions"] is None
+
+
+def test_the_process_is_started_with_the_intake_and_suggestion_options(tmp_path):
+    from serve.intake_prefs import IntakePrefs
+    prefs = IntakePrefs(tmp_path / "i.json")
+    mgr = SessionManager(tmp_path / "j", "http://127.0.0.1:1", intake_flags=prefs.flags)
+    rec = {"id": "x", "mode": "default", "workspace": str(tmp_path)}
+    cmd = mgr._command("x", rec, tmp_path / "h")
+    assert cmd[cmd.index("--intake") + 1] == "rules" and cmd[cmd.index("--suggestions") + 1] == "on" and "--side-call-tokens" in cmd
+    prefs.write({"intake": "full", "suggestions": False, "side_call_tokens": 3000})
+    cmd = mgr._command("x", rec, tmp_path / "h")
+    assert cmd[cmd.index("--intake") + 1] == "full" and cmd[cmd.index("--suggestions") + 1] == "off" and cmd[cmd.index("--side-call-tokens") + 1] == "3000"
+    mgr.shutdown()
+
+
 def test_a_process_that_dies_while_it_waits_for_an_answer_is_started_again_and_the_question_is_gone(make, ws):
     mgr = make(command=stub_command(die_times=0))
     sid = mgr.create(ws)["id"]

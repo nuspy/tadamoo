@@ -28,6 +28,7 @@ from harness.integrations.planner_client import PlannerClient
 from harness.planner.bridge import classify_diff
 from harness.planner.dag import PlanError, clean_outputs
 from harness.planner.involvement import split_diff, step_facts
+from harness.questions import KINDS as QUESTION_KINDS, AskGuard, QuestionError, summary
 from harness.tools.registry import EffectClass, ToolRegistry
 
 MIN_QUOTE = 6
@@ -35,7 +36,6 @@ STATUSES = ("pending", "in_progress", "completed", "failed", "blocked", "skipped
 KINDS = ("constant", "occasional")
 ASSIGNEES = ("agent", "user", "third_party")
 MAX_STEPS = 40
-MAX_OPTIONS, LABEL_CHARS, VALUE_CHARS, QUESTION_CHARS = 6, 60, 300, 600
 SUMMARY_PLANS, SUMMARY_OPEN = 8, 3
 CONFIRM_OPTIONS = [{"label": "Confirm", "value": "confirm"}, {"label": "Cancel", "value": "cancel"}]
 
@@ -726,31 +726,35 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                       obj({"plan_id": {"type": "string"}, "quote": quote_param}, ["plan_id"]), EffectClass.REVERSIBLE, plan_archive)
 
 
-def register_ask_tool(registry: ToolRegistry, agent: Any, question: Callable[[Dict[str, Any]], bool]) -> None:
-    """`ask_user`: a question with buttons. The turn ends; the button the person presses is their next message."""
+def register_ask_tool(registry: ToolRegistry, agent: Any, question: Callable[[Dict[str, Any]], Optional[str]]) -> None:
+    """`ask_user`: 1 to 4 questions with proposed answers. Where the person is, the card is shown and the turn ends (their answer is the
+    next message, put in words by the harness); where nobody answers, `question` returns the text the model reads at once."""
+    guard = AskGuard()
 
-    def ask_user(question_text: str, options: Optional[List[Dict[str, str]]] = None) -> str:
-        q = str(question_text).strip()
-        if not q:
-            return "Write the question."
-        opts = []
-        for o in (options or [])[:MAX_OPTIONS]:
-            if not isinstance(o, dict) or not str(o.get("label", "")).strip():
-                return "Each option needs a label and a value."
-            label, value = str(o["label"]).strip(), str(o.get("value", o["label"])).strip()
-            if len(label) > LABEL_CHARS or len(value) > VALUE_CHARS or not value:
-                return f"A label is at most {LABEL_CHARS} characters and a value at most {VALUE_CHARS}."
-            opts.append({"label": label, "value": value})
-        if not question({"mode": "question", "question": q[:QUESTION_CHARS], "options": opts}):
-            return "Nobody can answer in this run: decide with what you know, or say what is missing."
+    def ask_user(questions: List[Any], intro: str = "") -> str:
+        try:
+            payload = guard.check({"questions": questions, "intro": intro}, getattr(agent, "last_user_text", ""))
+        except QuestionError as exc:
+            return str(exc)
+        said = question({"mode": "question", "kind": "questions", **payload, "question": summary(payload), "options": []})
+        notes = " ".join(payload["notes"])
+        if said is not None:
+            return f"{said} {notes}".strip()
         agent.request_end_turn()
-        return "The question is on the user's screen with its buttons; whatever they press or write is their next message. Say nothing more now."
+        return ("The questions are on the user's screen with their proposed answers; their answer is their next message. Say nothing more now. " + notes).strip()
 
-    registry.register("ask_user", "Asks the user a question, with buttons for the likely answers (they can always write instead). "
-                                  "Use it when you need a choice or a missing fact; the answer comes as their next message.",
-                      {"type": "object", "properties": {"question_text": {"type": "string"},
-                                                        "options": {"type": "array", "items": {"type": "object", "properties": {
-                                                            "label": {"type": "string", "description": "what the button says"},
-                                                            "value": {"type": "string", "description": "what is sent as the user's message when it is pressed"}},
-                                                            "required": ["label"]}}},
-                       "required": ["question_text"]}, EffectClass.PURE, ask_user)
+    registry.register("ask_user", "Asks the user 1 to 3 questions with proposed answers and waits. Use only for a decision that is theirs and that tools cannot answer. "
+                                  "See the rules in the system prompt.",
+                      {"type": "object", "properties": {
+                          "intro": {"type": "string", "description": "optional, one sentence: why you ask"},
+                          "questions": {"type": "array", "description": "1 to 3 questions", "items": {"type": "object", "properties": {
+                              "text": {"type": "string", "description": "one sentence, no options inside"},
+                              "kind": {"type": "string", "enum": list(QUESTION_KINDS)},
+                              "options": {"type": "array", "description": "2 to 4 for single and multi; none for free and confirm", "items": {"type": "object", "properties": {
+                                  "label": {"type": "string", "description": "1 to 6 words"}, "description": {"type": "string"}, "recommended": {"type": "boolean"}},
+                                  "required": ["label"]}},
+                              "required": {"type": "boolean"}, "placeholder": {"type": "string"}, "default": {"type": "string", "description": "free kind: used when nobody can answer"},
+                              "recommended": {"type": "boolean", "description": "confirm kind: true when yes is the suggested answer"},
+                              "involves": {"type": "array", "items": {"type": "string"}, "description": "what the answer touches that is not the user's own: \"people: ...\", \"booking: ...\", \"resource: ...\""}},
+                              "required": ["text", "kind"]}}},
+                       "required": ["questions"]}, EffectClass.PURE, ask_user)

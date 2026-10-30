@@ -230,22 +230,39 @@ def test_a_bad_plan_is_refused_with_what_to_fix(world):
     assert ask.asked == []
 
 
-def test_the_question_tool_ends_the_turn_and_checks_its_buttons():
+def test_the_question_tool_ends_the_turn_and_repairs_its_call():
     agent, shown = AgentState(), []
     reg = ToolRegistry()
-    register_ask_tool(reg, agent, lambda p: shown.append(p) or True)
-    out = reg.execute("ask_user", {"question_text": "Quale giorno?", "options": [{"label": "Sabato", "value": "Sabato sera"}, {"label": "Domenica"}]})
+    register_ask_tool(reg, agent, lambda p: shown.append(p))
+    out = reg.execute("ask_user", {"questions": [{"text": "Quale giorno?", "kind": "single", "options": [{"label": "Sabato (Consigliato)"}, "Domenica", {"label": "Altro"}]}]})
     assert agent.ended and "next message" in out
-    assert shown[0]["mode"] == "question" and shown[0]["options"] == [{"label": "Sabato", "value": "Sabato sera"}, {"label": "Domenica", "value": "Domenica"}]
+    card = shown[0]
+    assert card["mode"] == "question" and card["kind"] == "questions" and card["question"] == "Quale giorno?" and card["options"] == []
+    assert [o["label"] for o in card["questions"][0]["options"]] == ["Sabato", "Domenica"] and card["questions"][0]["options"][0]["recommended"]
     agent.ended = False
-    assert "at most" in reg.execute("ask_user", {"question_text": "?", "options": [{"label": "Sì", "value": "x" * 301}]})
-    assert not agent.ended
-    lots = [{"label": f"o{i}"} for i in range(10)]
-    reg.execute("ask_user", {"question_text": "scegli", "options": lots})
-    assert len(shown[-1]["options"]) == 6
-    reg2 = ToolRegistry()
-    register_ask_tool(reg2, agent, lambda p: False)
-    assert "Nobody can answer" in reg2.execute("ask_user", {"question_text": "?"})
+    assert "Example" in reg.execute("ask_user", {"questions": [{"text": " "}]}) and not agent.ended
+
+
+def test_the_question_tool_refuses_a_third_ask_and_a_repeat_for_one_request():
+    agent, shown = AgentState(), []
+    agent.last_user_text = "organizza"
+    reg = ToolRegistry()
+    register_ask_tool(reg, agent, lambda p: shown.append(p))
+    ask = lambda text: reg.execute("ask_user", {"questions": [{"text": text, "kind": "free"}]})
+    ask("Quale giorno?")
+    assert "already asked" in ask("quale giorno")
+    ask("Dove?")
+    assert "Do not ask again" in ask("Con chi?") and len(shown) == 2
+    agent.last_user_text = "altra richiesta"
+    assert "next message" in ask("Con chi?")
+
+
+def test_the_question_tool_hands_the_model_the_text_an_unattended_run_made():
+    agent = AgentState()
+    reg = ToolRegistry()
+    register_ask_tool(reg, agent, lambda p: "The user answered your questions:\n1. ? -> A (chosen automatically: your recommended option)")
+    out = reg.execute("ask_user", {"questions": [{"text": "?", "kind": "single", "options": [{"label": "A", "recommended": True}, {"label": "B"}]}]})
+    assert "chosen automatically" in out and not agent.ended
 
 
 def test_the_summary_shows_the_most_recent_plans_and_says_how_many_are_left_out():

@@ -491,18 +491,21 @@ def test_an_answer_that_is_not_one_of_the_buttons_is_ignored_and_a_cancel_ends_t
     assert ev.wait("done")["stop_reason"] == al.CANCELLED and plans.archived == []
 
 
-def test_a_question_tool_ends_the_turn_and_the_button_is_the_next_message(tmp_path):
-    client = Scripted(call("ask_user", question_text="Quale giorno?", options=[{"label": "Sabato", "value": "Parto sabato"}]), say("Va bene sabato."))
+def test_a_question_tool_ends_the_turn_and_the_answer_is_the_next_message(tmp_path):
+    client = Scripted(call("ask_user", questions=[{"text": "Quale giorno?", "kind": "single", "options": [{"label": "Sabato", "recommended": True}, {"label": "Domenica"}]}]),
+                      say("Va bene sabato."))
     session, ev, plans, built = with_planner(tmp_path, client)
     session.send("m1", "organizza il weekend")
     ask = ev.wait("ask")
-    assert ask["mode"] == "question" and ask["options"] == [{"label": "Sabato", "value": "Parto sabato"}]
+    assert ask["mode"] == "question" and ask["kind"] == "questions" and ask["questions"][0]["options"][0]["recommended"] and ask["question"] == "Quale giorno?"
     done = ev.wait("done")
     assert done["stop_reason"] == al.ASKED and len(client.sent) == 1                  # the model was not called again
     n = len(ev.items)
-    session.send("m2", ask["options"][0]["value"])                                      # the button is pressed
+    text = "The user answered your questions:\n1. Quale giorno? -> Sabato (your recommended option)\nGo on with these answers. Do not ask them again."
+    session.send("m2", text)                                                           # the server puts the card's answer in words
     assert ev.wait("done", after=n)["final"] == "Va bene sabato."
-    assert [m["content"] for m in client.sent[1] if m["role"] == "user"][-1] == "Parto sabato"
+    assert [m["content"] for m in client.sent[1] if m["role"] == "user"][-1] == text
+    assert "Asking the user (ask_user)" in client.sent[0][0]["content"]               # the rules are in the prompt when the tool is
 
 
 def test_the_permission_question_is_put_in_the_conversation(tmp_path):
@@ -867,15 +870,25 @@ def test_the_rule_of_two_question_has_the_three_levels_and_an_always_answer_stop
     assert len(ran) == 2 and len([e for e in ev.items if e["event"] == "ask"]) == 1
 
 
-def test_a_question_tool_does_not_end_the_turn_of_an_unattended_session_and_the_model_decides(tmp_path):
-    client = Scripted(call("ask_user", question_text="Quale giorno?", options=[]), say("Scelgo sabato."))
+def test_an_unattended_session_answers_the_card_itself_parks_what_involves_people_and_does_not_end_the_turn(tmp_path):
+    card = [{"text": "Quale giorno?", "kind": "single", "options": [{"label": "Sabato", "recommended": True}, {"label": "Domenica"}]},
+            {"text": "Chiamo il veterinario?", "kind": "confirm", "recommended": True, "involves": ["people: il veterinario"]},
+            {"text": "Il nome?", "kind": "free", "default": "Rex"}, {"text": "Quanti giorni?", "kind": "free"}]
+    client = Scripted(call("ask_user", questions=card), say("Scelgo sabato."))
     session, ev, store, built = unattended_session(tmp_path, client)
     session.enable_planner(FakePlans())
     session.send("m1", "organizza")
     done = ev.wait("done")
     assert done["final"] == "Scelgo sabato." and "ask" not in ev.kinds() and done["stop_reason"] != al.ASKED
-    assert ev.wait("auto_answered")["kind"] == "question"
-    assert "Nobody can answer in this run" in json.dumps(client.sent[1])
+    autos = [e for e in ev.items if e["event"] == "auto_answered"]
+    assert [e["chosen"] for e in autos] == ["recommended", "parked", "default", "none"] and all(e["kind"] == "question" for e in autos)
+    assert autos[1]["source"]["named"] == "people"
+    told = json.dumps(client.sent[1])
+    assert "Sabato (chosen automatically: your recommended option)" in told and "Rex (default)" in told and "the person will answer later" in told
+    assert "decide yourself, conservatively" in told
+    pending = ev.wait("pending")
+    assert pending["kind"] == "parked_question" and pending["question"] == "Chiamo il veterinario?" and pending["source"]["named"] == "people"
+    assert session.answer(pending["id"], "yes") is True and ev.wait("pending_done")["value"] == "Yes"
 
 
 def test_a_skill_run_asked_while_a_task_is_under_way_is_queued_and_started_when_it_is_free(tmp_path):

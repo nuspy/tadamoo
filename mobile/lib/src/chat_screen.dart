@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import 'answer_view.dart';
 import 'api.dart';
+import 'ask_card.dart';
 import 'chat_model.dart';
 import 'files.dart';
 import 'i18n.dart';
@@ -36,6 +37,7 @@ class _Attached {
 class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   late final ChatController ctl;
   final input = TextEditingController();
+  final inputFocus = FocusNode();
   final scroll = ScrollController();
   final List<_Attached> attached = [];
   String uploading = '';
@@ -89,6 +91,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     widget.voice.removeListener(_changed);
     ctl.dispose();
     input.dispose();
+    inputFocus.dispose();
     scroll.dispose();
     super.dispose();
   }
@@ -408,9 +411,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final theme = Theme.of(context);
     final done = b.answered != null;
     if (b.kind == 'code') return _CodeCard(key: ValueKey('code-${b.id}'), question: b.question, done: done, onSend: (code) => ctl.answer(b, code));
+    if (b.kind == 'questions') {
+      return QuestionsCard(
+        key: ValueKey('ask-${b.id}'),
+        questions: b.questions,
+        intro: b.intro,
+        answered: b.answered,
+        onSend: (value, how) async {
+          try {
+            await ctl.answerCard(b, value, how);
+            if (how == 'chat') inputFocus.requestFocus();
+          } on ApiError catch (e) {
+            _say(e.message);
+          }
+        },
+      );
+    }
     String label(Map<String, dynamic> o) {
       final v = '${o['value']}';
-      if (b.mode == 'confirm') {
+      if (b.mode == 'confirm' && b.kind != 'parked_question') {
         if (v == 'always') return Texts.t('chat.always', ['${o['rule'] ?? ''}']);
         if (v == 'chat') return Texts.t('chat.chat', ['${o['rule'] ?? ''}']);
         return Texts.t(v == 'confirm' ? (b.kind == 'permission' ? 'chat.once' : 'chat.yes') : 'chat.no');
@@ -431,7 +450,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             for (final o in b.options)
               (b.mode == 'confirm' && o['value'] == 'confirm'
                   ? FilledButton(onPressed: done ? null : () => ctl.answer(b, '${o['value']}'), child: Text(label(o)))
-                  : OutlinedButton(onPressed: done || (b.mode == 'question' && ctl.busy) ? null : () => ctl.answer(b, '${o['value']}'), child: Text(label(o)))),
+                  : OutlinedButton(onPressed: done ? null : () => ctl.answer(b, '${o['value']}'), child: Text(label(o)))),
           ]),
           if (done && (b.answered ?? '').isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(Texts.t('chat.answered', [b.answered]), style: theme.textTheme.bodySmall)),
         ]),
@@ -455,11 +474,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 if (uploading.isNotEmpty) Padding(padding: const EdgeInsets.only(right: 6), child: Chip(label: Text(Texts.t('plus.uploading', [uploading])))),
               ]),
             ),
+          SuggestionChips(
+            items: ctl.suggestions,
+            onPick: (p) {
+              input.text = p;
+              input.selection = TextSelection.collapsed(offset: p.length);
+              inputFocus.requestFocus();
+            },
+          ),
           Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
             IconButton(tooltip: '+', icon: const Icon(Icons.add_circle_outline), onPressed: _plus),
             Expanded(
               child: TextField(
                 controller: input,
+                focusNode: inputFocus,
                 minLines: 1,
                 maxLines: 6,
                 textCapitalization: TextCapitalization.sentences,

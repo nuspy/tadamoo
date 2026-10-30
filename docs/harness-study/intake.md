@@ -2,7 +2,7 @@
 
 Survey, evidence and a design for our harness. Sources: the cloned harnesses, `docs/harness.md`, the Anthropic, Claude Code,
 Cursor, Aider, Kiro, Spec Kit, Deep Research and Manus material, and papers; every threshold below is a starting value to tune,
-not a measurement. Not built. Verified gaps of the study: Devin and Windsurf docs, the exact Claude Code question limits, the
+not a measurement. Built as described in [../intake.md](../intake.md) (phase 1, and the registry part of phase 2). Verified gaps of the study: Devin and Windsurf docs, the exact Claude Code question limits, the
 engine's grammar subset (`maxItems`, `maxLength`) and how a second request affects our prefix-cache checkpoints.
 
 ## 1. What other systems do

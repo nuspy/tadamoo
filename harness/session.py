@@ -10,7 +10,8 @@ Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd
 -1 for no limit, the end-of-turn bias, the sampling temperature, null for the model file's own, and the most a reply may write, null for the server's own; any of them), {"cmd": "command", "id", "name", "args"} (a slash command: harness/commands.py),
 {"cmd": "skill", "id", "name", "display", "script", "values", "timeout", "cache_dir"} (runs a personal skill in the conversation).
 Events: ready, accepted, queued, routed, started, suspended, resumed, agent (an assistant text or a tool start or end), delta
-(text as it is written), ask (a question with buttons: a confirmation the task waits for, or a question that ends the turn),
+(text as it is written), ask (a confirmation the task waits for, or a card of questions that ends the turn), intake (what the look at a request assumed
+or recorded), suggestions (the next-message chips after an answer),
 retrying, done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, effort, settings, command, skill, skill_say, heartbeat, error.
 
 A message that comes while a task is under way is looked at before the task's next model call (harness/router.py): it goes into
@@ -27,8 +28,9 @@ repeated; the work itself goes on.
 A session flagged `unattended` (--unattended) never waits for a question: one that is not a named exception (another person, the
 user, a resource that is not the PC's own, a booking) is answered at once as approved, or as "not available" when only the person
 could give the data; a named exception is parked in a visible list (`pending` events, answered later with the same `answer` command)
-while the model is told the answer is pending; the `ask_user` tool does not end the turn: the model is told nobody can answer and goes
-on with its own judgement. A conversation that is not flagged always waits for the person: at the Auto level the harness itself asks
+while the model is told the answer is pending; the `ask_user` tool does not end the turn: each question is answered at once with the
+option the model recommended (or its default text, or its recommended side), what involves other people, a booking or a resource is
+parked, and the rest is left to the model's own judgement, with every choice the harness made reported as an assumption. A conversation that is not flagged always waits for the person: at the Auto level the harness itself asks
 nothing, and what is still asked (the Rule of Two the person set) is theirs to answer.
 """
 from __future__ import annotations
@@ -47,6 +49,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TextIO, Tuple
 
 from harness import agent_loop as al
+from harness import intake as it
+from harness import questions as qs
+from harness import suggestions as sg
 from harness.client import StreamCancelled
 from harness.pipeline import Pipeline
 from harness.router import QUEUE, STEER, STRONG_URGENT, URGENT, Router
@@ -172,6 +177,8 @@ class Task:
     skill: Optional[Dict[str, Any]] = None        # a personal skill this task runs, instead of a model working on the request
     interrupt: bool = False                       # asked to stop its model call now, to be put aside
     state_running: bool = False                   # a model call or a tool is in progress
+    intake: Optional[Dict[str, Any]] = None       # the facts of a request of the person that intake has not looked at yet
+    registered: Optional[Tuple[str, List[str]]] = None   # the parent and the parts this request has in the task registry
 
 
 class _Current:
@@ -204,7 +211,8 @@ def question_source(payload: Dict[str, Any]) -> Dict[str, Any]:
     elif kind == "permission" and str(payload.get("tool")) in EXCEPTION_TOOLS:
         named = EXCEPTION_TOOLS[str(payload.get("tool"))]
     elif involves:
-        named = "people" if any(x.startswith("people") or "someone else" in x or "phone call" in x for x in involves) else "booking"
+        named = ("people" if any(x.startswith("people") or "someone else" in x or "phone call" in x for x in involves)
+                 else "resource" if any(x.startswith("resource") for x in involves) else "booking")
     return {"kind": kind, "named": named or None, "needs_data": kind in ("code", "mcp_elicitation", "capability_choice"),
             **({"involves": involves} if involves else {})}
 
@@ -267,6 +275,12 @@ class Session:
         self.reporter: Any = None                               # sends the file edits to the server's Changes panel, when asked to
         self._summary = ""                                      # the plans summary the conversation last got
         self.attachment_store: Any = None                       # AttachmentStore of this conversation's files, when it has one
+        self.intake: Optional[it.Intake] = None                 # what runs between the person's text and the model's first step (harness/intake.py)
+        self.task_sink: Optional[it.TaskSink] = None            # the server's task registry, where a large request's parts are recorded
+        self.suggester: Optional[sg.Suggester] = None           # the next-prompt chips (harness/suggestions.py)
+        self.ask_only = False                                   # a conversation without tools
+        self._suggest_cancel = threading.Event()                # set when the person sends something: a suggestion call in flight stops
+        self._card_at: Optional[float] = None                   # when the card now on the screen was shown
         self.endpoint, self.api_key = "", None
         self._window: Optional[Tuple[int, float]] = None
         self._announced: set = set()                            # what the planner already woke the conversation about
@@ -465,6 +479,8 @@ class Session:
         with self._ask_lock:
             self._parked.pop(item["id"], None)
         shown = "" if free else str(value)
+        if payload.get("kind") == "parked_question":
+            shown = str(options[value].get("label")) if value in options else str(value)[len(prefix):]
         if payload.get("kind") == "permission" and value in ("confirm", "chat", "always"):
             self._granted.append(self._call_key(str(payload.get("tool")), payload.get("arguments") or {}))
             self._remember_rules(str(value), options.get(str(value), {}).get("rules") or [])
@@ -487,15 +503,28 @@ class Session:
         with self._ask_lock:
             return list(self._parked.values())
 
-    def _question(self, payload: Dict[str, Any]) -> bool:
-        """A question that ends the turn: the button the person presses is their next message. Where nobody watches (`unattended`) it does not
-        end the turn: it is recorded as unanswered and False comes back, so the model goes on with its own best judgement."""
-        if self.unattended:
-            self.emit({"event": "auto_answered", "id": uuid.uuid4().hex[:8], "turn": self._cur_turn(), "kind": "question", "value": "", "available": False,
-                       "source": {"kind": "question", "named": "", "needs_data": False}, "question": str(payload.get("question") or "")[:300]})
-            return False
-        self.emit({"event": "ask", "id": uuid.uuid4().hex[:8], "turn": self._cur_turn(), **payload})
-        return True
+    def _question(self, payload: Dict[str, Any]) -> Optional[str]:
+        """The `ask_user` card. Where the person is, it is shown and the turn ends (None comes back): their answer is the next message. Where
+        nobody watches (`unattended`) it never waits: every question is answered at once from what the model proposed (recommended option,
+        default text, recommended side), one that involves another person, a booking or a resource is parked for the person, and the text
+        the model reads comes back with a tag on each choice the harness made."""
+        if not self.unattended:
+            self.emit({"event": "ask", "id": uuid.uuid4().hex[:8], "turn": self._cur_turn(), **payload})
+            self._card_at = time.time()
+            self._audit("question_shown", {"source": "model", "questions": [{"id": q["id"], "kind": q["kind"], "options": len(q["options"]),
+                                                                              "recommended": [o["id"] for o in q["options"] if o.get("recommended")]} for q in payload["questions"]]})
+            return None
+        checked, tags = qs.auto_answers(payload)
+        self._audit("question_auto", {"source": "model", "chosen": tags})
+        for q in payload["questions"]:
+            named = question_source({"kind": "question", "facts": {"involves": q.get("involves", [])}})
+            if tags[q["id"]] == "parked":
+                self._park(qs.parked_payload(q), named)
+                self._tl.parked = None
+            answer = checked["answers"][q["id"]]
+            self.emit({"event": "auto_answered", "id": uuid.uuid4().hex[:8], "turn": self._cur_turn(), "kind": "question", "value": answer["text"] or ",".join(answer["picked"]), "answer": qs.answer_label(q, answer),
+                       "available": tags[q["id"]] in ("recommended", "default"), "chosen": tags[q["id"]], "source": named, "question": q["text"][:300]})
+        return qs.format_answer(payload, checked, tags)
 
     def ask_code(self, who: str) -> str:
         """A second-factor code typed by the person. It goes to the tool that needs it and nowhere else: not to the model, not to the history."""
@@ -569,6 +598,8 @@ class Session:
             hooks.plan_event_sink = lambda text, source: client.ingest(text, source)
         register_planner_tools(self.agent.tools, client, Confirmer(self.current, ask=self._ask, auto=lambda: self.built.permissions.level.value == "auto"))
         register_ask_tool(self.agent.tools, self.current, self._question)
+        self.agent.system_prompt += "\n\n" + qs.PROMPT_RULES
+        self.agent.messages[0] = self.agent._system_message()
 
     def _plans_note(self) -> Optional[str]:
         """What the conversation should be told about the plans: only when they changed since it last was, and before the
@@ -600,7 +631,7 @@ class Session:
             agent.taint("memories", private=bool(retrieved.get("private")))
             agent.append(retrieved)
         self._save()                                   # the message is kept before the model sees it
-        task = Task(turn, text, agent)
+        task = Task(turn, text, agent, intake={"origin": origin, "attachments": list(attachments or [])} if origin == "user" else None)
         self._adopt(task)
         self.tasks[turn] = task
         return task
@@ -621,6 +652,10 @@ class Session:
         threading.Thread(target=self._work, args=(task,), name=f"session-task-{task.turn}", daemon=True).start()
 
     def send(self, turn_id: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None) -> bool:
+        if origin == "user":
+            self._suggest_cancel.set()                 # a suggestion call in flight stops: the person's message is next
+            if self.suggester is not None:
+                self.suggester.sent(text)
         with self._lock:
             busy = self._workers > 0
             if busy and origin != "user":
@@ -692,6 +727,8 @@ class Session:
         person's words after; what the person can confirm with is only their words. The phrases they marked with # (a skill's variable parts)
         are given to the model as plain text; what they wrote is kept beside it, for a skill made from it."""
         raw = text
+        if origin == "user" and self.intake is not None and self.intake.mode != "off":
+            text = it.clean(text)                                    # the model reads the cleaned text; the person's own stays as `raw`
         if origin == "user" and "#" in text:
             from harness.personal_skills import markers
             text = markers.clean(text)
@@ -997,6 +1034,121 @@ class Session:
         except Exception as exc:                                       # the Loader's own words: another model holds the memory, no model chosen
             return "the Loader to accept the load of the model", str(exc)
 
+    # -- intake: what is looked at before the model's first step -----------------------------------------------
+
+    def _audit(self, action: str, details: Dict[str, Any]) -> None:
+        audit = getattr(self.agent, "audit", None)
+        if audit is not None:
+            try:
+                audit.record("harness", action, details)
+            except Exception:
+                pass                                         # the record is a courtesy: it never changes what is asked
+
+    def _intake_context(self, task: Task, facts: Dict[str, Any]) -> it.Context:
+        agent = task.agent
+        last = agent.turns[-1] if agent.turns else None
+        return it.Context(origin=str(facts.get("origin") or "user"), attachments=[str(a) for a in facts.get("attachments") or []],
+                          attended=not self.unattended, ask_only=self.ask_only, auto=self.built.permissions.level.value == "auto",
+                          started=any(m.get("tool_calls") for m in agent.messages), answers_card=agent.last_user_text.startswith(qs.ANSWER_HEADER),
+                          history_tokens=last.prompt_tokens if last else 0, warm=bool(last and last.prompt_tokens and last.cached_tokens * 2 >= last.prompt_tokens),
+                          now=agent.clock() if agent.clock else None, turn=task.turn)
+
+    def _intake_step(self, task: Task) -> bool:
+        """Intake for a request of the person, once, before the model's first step: the note is put after their message, a large request is
+        recorded in the task registry, and a card is shown when the facts it lacks are worth a question (True: the turn ends on the card).
+        Never raises and never waits for a model that is down."""
+        facts, task.intake = task.intake, None
+        agent = task.agent
+        if agent.last_user_text.startswith(qs.ANSWER_HEADER) and self._card_at is not None:
+            self._audit("question_answered", {"seconds": round(time.time() - self._card_at, 1), "chars": len(agent.last_user_text)})
+            self._card_at = None
+        if self.intake is None or self.intake.mode == "off" or not facts or not agent.last_user_text.strip():
+            return False
+        try:
+            outcome = self.intake.run(agent.last_user_text, self._intake_context(task, facts))
+        except Exception as exc:
+            it.log.warning("intake: failed: %s", type(exc).__name__)
+            return False
+        shown = {"assumptions": outcome.assumptions[:6], "subtasks": [s["title"] for s in outcome.subtasks], "parked": [m["what"] for m in outcome.parked]}
+        if outcome.note or outcome.card or outcome.parked:
+            self.emit({"event": "intake", "turn": task.turn, "triaged": outcome.triaged, "asked": outcome.card is not None, **shown})
+        if outcome.note:
+            agent.append({"role": "user", "content": outcome.note, "note": True})
+        if outcome.subtasks:
+            self._register_subtasks(task, outcome.subtasks)
+        for m in outcome.parked:                             # another person, a booking or a resource: left for the person, the rest goes on
+            card = it.card_from([m])["questions"][0]
+            self._park(qs.parked_payload(card), question_source({"kind": "question", "facts": {"involves": card.get("involves", [])}}))
+            self._tl.parked = None
+        if outcome.card is None:
+            return False
+        said = self._question({"mode": "question", "kind": "questions", "source": "intake", **outcome.card, "question": qs.summary(outcome.card), "options": []})
+        if said is not None:                                 # nobody to ask: what was proposed is taken, and the model is told
+            agent.append({"role": "user", "content": said, "note": True})
+            return False
+        self._card_at = time.time()
+        self._audit("question_shown", {"source": "intake", "questions": [{"id": q["id"], "kind": q["kind"], "options": len(q["options"])} for q in outcome.card["questions"]]})
+        text = qs.history_text(outcome.card)
+        agent.append({"role": "assistant", "content": text})
+        agent.turns.append(al.AgentTurn(len(agent.turns) + 1, task.text, "", text))
+        agent.stop_reason, agent.error = al.ASKED, ""
+        self._save()
+        return True
+
+    def _register_subtasks(self, task: Task, subtasks: List[Dict[str, Any]]) -> None:
+        """A large request as a parent and its parts in the server's task registry (`req-<turn>`, `req-<turn>.1`, ...)."""
+        if self.task_sink is None:
+            return
+        parent, title = it.TASK_PREFIX + task.turn, " ".join(task.agent.last_user_text.split())
+        ids = [f"{parent}.{i}" for i in range(1, len(subtasks) + 1)]
+        self.task_sink.record(parent, "running", title[:200], children=ids, metadata={"kind": "intake", "title": title[:80]})
+        for tid, st in zip(ids, subtasks):
+            self.task_sink.record(tid, "pending", st["title"], metadata={"kind": "intake", "title": st["title"], "span": st["span"], "acceptance": st["acceptance"],
+                                                                         "depends_on": [ids[d] for d in st["depends_on"]]})
+        task.registered = (parent, ids)
+
+    def _close_registry(self, task: Task) -> None:
+        """When the request ends: the parent is done if the model finished, else closed; the parts are closed, never marked done on the model's word."""
+        if task.registered is None or self.task_sink is None:
+            return
+        parent, ids = task.registered
+        task.registered = None
+        self.task_sink.record(parent, "done" if task.agent.stop_reason == al.FINAL else "closed", al.answer_text(task.agent.turns)[:200] or task.agent.stop_reason)
+        for tid in ids:
+            self.task_sink.record(tid, "closed", "")
+
+    # -- suggestions: the chips after an answer --------------------------------------------------------------
+
+    def _maybe_suggest(self, task: Task) -> None:
+        """Starts the suggestion call for the answer that just ended, if every condition holds (see harness/suggestions.py)."""
+        s, agent = self.suggester, task.agent
+        if s is None or task.side or task.skill is not None:
+            return
+        last = agent.turns[-1] if agent.turns else None
+        reason = s.skip_reason(answer=al.answer_text(agent.turns), stop_reason=agent.stop_reason, cut=agent.cut, error=agent.error, attended=not self.unattended,
+                               plan_mode=bool(getattr(self.built.permissions, "plan_mode", False)),
+                               idle=not self._more() and not self._waiting_n and not self.blocked, prompt_tokens=last.prompt_tokens if last else 0,
+                               cached_tokens=last.cached_tokens if last else 0)
+        if reason:
+            it.log.info("suggestions: skipped (%s)", reason)
+            return
+        self._suggest_cancel.clear()
+        from harness.context import wire_messages
+        threading.Thread(target=self._suggest, args=(task.turn, wire_messages(agent.messages), agent.tools.schemas()), name="session-suggest", daemon=True).start()
+
+    def _suggest(self, turn: str, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]) -> None:
+        deadline = time.monotonic() + 3.0
+        while self._workers > 0 and time.monotonic() < deadline and not self._suggest_cancel.is_set():
+            time.sleep(0.02)                                 # the answer's own task is still closing
+        if self._suggest_cancel.is_set() or not self.idle():
+            return
+        got = self.suggester.generate(messages, tools, self._suggest_cancel.is_set)
+        if not got["items"] or self._suggest_cancel.is_set():
+            return
+        self.suggester.offered = [i["prompt"] for i in got["items"]]
+        self._audit("suggestions", {"count": len(got["items"]), "ms": got["ms"], "tokens": got["tokens"]})
+        self.emit({"event": "suggestions", "turn": turn, "items": got["items"], "ms": got["ms"], "tokens": got["tokens"]})
+
     def _run_task(self, task: Task) -> str:
         """Runs one task to where it stops, with new tries while the model is busy, not loaded or not answering. Returns "done", "suspended" or "blocked"."""
         agent = task.agent
@@ -1015,6 +1167,8 @@ class Session:
         refresh = getattr(self.built, "refresh_budget", None)       # the model may have been loaded or changed since the last request
         if refresh is not None:
             refresh()
+        if task.intake is not None and self._intake_step(task):
+            return "done"
         while True:
             self.last_progress = time.monotonic()
             task.state_running = True
@@ -1069,6 +1223,9 @@ class Session:
                            "tokens": agent.total_tokens, "max_turns": agent.max_turns, "cut": agent.cut, "more": self._more() and not agent.cancel.is_set(),
                            "denied": self.permission_denials["total"]})
                 self.tasks.pop(task.turn, None)
+                self._close_registry(task)
+                if not self._more() and not agent.cancel.is_set():
+                    self._maybe_suggest(task)
                 task = self._next_after(task)
         except BaseException as exc:                       # the process stays up: the task ends with an error
             self._block(task, "crash", f"{type(exc).__name__}: {exc}")
@@ -1176,6 +1333,11 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
                         help="how a message that comes during a task is judged when its words do not decide: by the model, or not at all")
     parser.add_argument("--pipeline", choices=["off", "light", "full"], default="full",
                         help="the check of an answer against what the request asked: nothing, measured only, or measured and judged")
+    parser.add_argument("--intake", choices=it.MODES, default=it.DEFAULT_MODE,
+                        help="what is looked at before the model's first step: nothing, cleaning and a note from rules (no model call), or also one triage call when the message calls for it")
+    parser.add_argument("--side-call-tokens", type=int, default=it.DEFAULT_SIDE_CALL_TOKENS, metavar="TOKENS",
+                        help="the largest conversation in which the extra model calls (triage, suggestions) are made")
+    parser.add_argument("--suggestions", choices=("on", "off"), default="off", help="offer next-prompt chips after an answer (an unattended run never does)")
     parser.add_argument("--heartbeat", type=float, default=HEARTBEAT_S)
     parser.add_argument("--watch-plans", type=float, default=15.0, metavar="SECONDS", help="how often the plans are looked at in a quiet moment (0: never)")
     return parser.parse_args(args)
@@ -1246,6 +1408,10 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         from harness.attachments import AttachmentStore
         session.attachment_store = AttachmentStore(Path(args.attachments_dir))
     session.endpoint, session.api_key = cfg.endpoint, cfg.api_key
+    session.ask_only = args.ask_only
+    session.intake = it.Intake(args.intake, built.agent.client, args.side_call_tokens)
+    session.task_sink = it.TaskSink(cfg.endpoint, cfg.api_key) if args.report_changes else None
+    session.suggester = sg.Suggester(built.agent.client, args.suggestions == "on" and not args.unattended, args.side_call_tokens)
     session.set_effort(args.effort)
     if built.agent.secrets is not None:
         built.agent.secrets.ask_code = session.ask_code
