@@ -43,6 +43,7 @@
 .tgd-optgrid { display: grid; gap: 6px; max-width: 800px; padding-bottom: 8px; }
 .tgd-optgrid label { font-weight: 500; margin-top: 6px; }
 .tgd-optgrid textarea { width: 100%; resize: vertical; }
+.tgd-optgrid select { width: 100%; max-width: 100%; }
 .tgd-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
 /* a target that is running or was run */

@@ -43,7 +43,9 @@ Every edit goes through the browser's editing command, so Ctrl+Z works. The logi
    whole text) and one task. Each configured command and file becomes a *check criterion* that decides by itself.
 2. **Execute** the tasks in dependency order (a group waits for its parts). Each task is a message to the same conversation, so queue,
    steering, questions, permission gate, hooks and the Stop button are the conversation's own. The first message is the person's text,
-   then a separator, then the first task; the others hold only what they need: the target (cut at 1,500 characters; the conversation has
+   then a separator, then the first task (option *First message*, `first_message` in the options: `joined`, the default; with `separate` the
+   text is sent alone as the first message and every task, the first included, follows as a message of its own; which is better is
+   experiment E1 in [experiments.md](experiments.md)); the others hold only what they need: the target (cut at 1,500 characters; the conversation has
    the rest), the criteria they serve and what is still missing, what is achieved ("do not redo"), the results of the tasks they build on and
    the person's notes. A message starts with `Target Loop ·` and never with `[harness]`, so the Android app shows it as an ordinary message.
 3. **Verify.** The evidence of the pass is numbered (E1, E2...): each task's answer and tool calls, the file edits since the pass began (the
@@ -87,7 +89,7 @@ dialog, and is removed when the conversation is deleted). The last 100 are kept.
 
 ```
 target  {id, session, text, created, updated, ended, state: running|achieved|stopped|blocked, stop_reason: ""|person|stalled|limit|
-         interrupted|error, phase, options {verify[], files[], stall_passes, max_iterations}, posted, approach_tried, origin, summary,
+         interrupted|error, phase, options {verify[], files[], stall_passes, max_iterations, first_message}, posted, approach_tried, origin, summary,
          criteria[], tasks[], iterations[]}
 criteria {id, text, source, kind: judged|check, check {kind: command|file, value}, status: pending|achieved|partial|not_met|blocked,
          note, evidence, missing, flags[], refs[], by: ""|person}
@@ -120,7 +122,7 @@ event stream; the chat shows them as notes and the dialog refreshes on them. Oth
 ## Settings and limits
 
 - Per target (Options; last values remembered by the browser): commands that must succeed, files that must exist, passes before a different
-  approach (3), most passes (0). The structured calls use the model loaded, thinking effort `low` and temperature 0.
+  approach (3), most passes (0), first message (joined or separate). The structured calls use the model loaded, thinking effort `low` and temperature 0.
 - One target runs at a time in a conversation; the person's own messages go through the conversation's router as always (a message typed
   meanwhile may steer or queue behind a task).
 - The judge reads at most 24,000 characters of evidence and 1,500 per item (checks and failures first, then the newest); the target text

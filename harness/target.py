@@ -30,6 +30,8 @@ SETTLED = ("done", "failed", "blocked")             # a task that nothing waits 
 STOP_REASONS = ("person", "stalled", "limit", "interrupted", "error")
 
 DEFAULT_STALL_PASSES = 3
+FIRST_MESSAGES = ("joined", "separate")                       # joined: the person's text and the first task in one message; separate: the text alone, then one message per task
+DEFAULT_FIRST_MESSAGE = "joined"
 TEXT_CHARS = 60_000                                           # the longest target text accepted
 PROMPT_TARGET_CHARS = 1_500                                   # how much of the target text a focused prompt repeats
 RESULT_CHARS = 600
@@ -187,7 +189,8 @@ def new_target(text: str, options: Optional[Dict[str, Any]] = None, session: str
 
 
 def clean_options(raw: Any) -> Dict[str, Any]:
-    """The person's choices for one target: commands that must succeed, files that must exist, the stall length and an optional cap."""
+    """The person's choices for one target: commands that must succeed, files that must exist, the stall length, an optional cap and how the
+    first message is sent."""
     raw = raw if isinstance(raw, dict) else {}
 
     def lines(value: Any, limit: int) -> List[str]:
@@ -202,8 +205,10 @@ def clean_options(raw: Any) -> Dict[str, Any]:
             return default
         return max(low, min(high, int(value)))
 
+    first = raw.get("first_message")
     return {"verify": lines(raw.get("verify"), 10), "files": lines(raw.get("files"), 30),
-            "stall_passes": whole(raw.get("stall_passes"), DEFAULT_STALL_PASSES, 2, 20), "max_iterations": whole(raw.get("max_iterations"), 0, 0, 1000)}
+            "stall_passes": whole(raw.get("stall_passes"), DEFAULT_STALL_PASSES, 2, 20), "max_iterations": whole(raw.get("max_iterations"), 0, 0, 1000),
+            "first_message": first if first in FIRST_MESSAGES else DEFAULT_FIRST_MESSAGE}
 
 
 def counts(target: Dict[str, Any]) -> Dict[str, int]:
@@ -573,7 +578,22 @@ class TargetLoop:
             self.save(self.t)
         self._say("planned", criteria=len(self.t["criteria"]), tasks=len(leaves(self.t["tasks"])))
 
+    def _post_text(self, evidence: Evidence) -> None:
+        """The person's text as a message of its own (first_message "separate"); the tasks follow as messages of their own."""
+        self._touch(phase="executing")
+        result = self.conv.run(self.t["text"], self.cancel)
+        with self.lock:
+            if result.stop_reason != "cancelled" and not self.cancel.is_set():
+                self.t["posted"] = True
+            self.save(self.t)
+        if self.t["posted"]:
+            evidence.add_turn("the target text", result)
+        self._check_cancel()
+
     def _run_task(self, task: Dict[str, Any], evidence: Evidence, n_done: int, total: int, first: bool) -> None:
+        if first and self.t["options"].get("first_message", DEFAULT_FIRST_MESSAGE) == "separate":
+            self._post_text(evidence)
+            first = False
         with self.lock:
             task.update(status="running", attempts=task["attempts"] + 1)
             self._sync(task)
