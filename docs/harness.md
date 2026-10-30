@@ -1254,6 +1254,10 @@ the datasets are described as having and were written without a copy of them, so
 `python -m harness.eval.alternate` measures what it costs when two conversations take turns on one model (the time to the first token and the share of the
 prompt read from the cache, taking turns against one after the other). It decides whether a queue that groups requests by conversation is worth building.
 
+`python -m harness.eval.cases` runs the case studies E1 to E7, the design questions that reasoning cannot settle (the Target Loop's first message, the verify gate, the error
+classifier, intake, compaction in a long turn, long answers, prefix-cache survival): each has a fixture, a plain-code scorer, an A/A control that measures the noise and a
+decision rule written before the run. See [experiments.md](experiments.md).
+
 ## Replay of a recorded session
 
 `harness/replay.py` runs a recorded conversation again with a model that answers with the recorded answers, one after the other,

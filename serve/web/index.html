@@ -192,6 +192,12 @@
             <label for="tg-max" data-t="tg.opt.max">Most passes (0 is no limit)</label>
             <input id="tg-max" type="number" min="0" max="1000" value="0" aria-describedby="tg-max-h">
             <p class="tgd-dim" id="tg-max-h" data-t="tg.opt.max.help"></p>
+            <label for="tg-first" data-t="tg.opt.first">First message</label>
+            <select id="tg-first" aria-describedby="tg-first-h">
+              <option value="joined" data-t="tg.opt.first.joined">My text and the first task in one message</option>
+              <option value="separate" data-t="tg.opt.first.separate">My text alone, then one message for each task</option>
+            </select>
+            <p class="tgd-dim" id="tg-first-h" data-t="tg.opt.first.help"></p>
           </div>
         </details>
         <div class="tgd-actions"><button type="submit" class="btn primary" id="tg-start" data-t="tg.start" data-t-title="tg.start.tip">Start</button></div>

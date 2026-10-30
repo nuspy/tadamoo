@@ -101,12 +101,14 @@
   /* ---- a new target ---- */
   function readOptions() {
     const lines = id => $t(id).value.split("\n").map(x => x.trim()).filter(Boolean);
-    return { verify: lines("tg-verify"), files: lines("tg-files"), stall_passes: parseInt($t("tg-stall").value, 10) || 3, max_iterations: parseInt($t("tg-max").value, 10) || 0 };
+    return { verify: lines("tg-verify"), files: lines("tg-files"), stall_passes: parseInt($t("tg-stall").value, 10) || 3, max_iterations: parseInt($t("tg-max").value, 10) || 0,
+             first_message: $t("tg-first").value };
   }
   function putOptions(o) {
     const opts = o || {};
     $t("tg-verify").value = (opts.verify || []).join("\n"); $t("tg-files").value = (opts.files || []).join("\n");
     $t("tg-stall").value = opts.stall_passes || 3; $t("tg-max").value = opts.max_iterations || 0;
+    $t("tg-first").value = opts.first_message === "separate" ? "separate" : "joined";
   }
   function showNew(draft, options) {
     shownId = ""; signature = "";

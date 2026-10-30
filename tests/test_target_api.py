@@ -171,6 +171,15 @@ def test_a_target_runs_and_every_one_of_the_conversation_is_kept_for_the_dialog(
     assert (sessions.history_dir(sid) / "targets.json").is_file()
 
 
+def test_the_first_message_option_is_kept_with_the_target_and_listed_with_its_default(world):
+    _, manager, sid = world(FakeLLM(**ONE))
+    assert manager.listing(sid)["defaults"]["first_message"] == "joined"
+    made = manager.create(sid, "Make A and B.", {"first_message": "separate"})
+    assert made["options"]["first_message"] == "separate"
+    until(lambda: manager.get(sid, made["id"])["state"] == "achieved")
+    assert manager.get(sid, made["id"])["options"]["first_message"] == "separate"
+
+
 def test_a_target_that_was_running_when_the_server_ended_comes_back_stopped(world, tmp_path):
     sessions, manager, sid = world(FakeLLM(**ONE))
     stuck = tg.new_target("Left running", session=sid)

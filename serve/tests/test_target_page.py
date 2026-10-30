@@ -36,10 +36,19 @@ class PageWiringTest(unittest.TestCase):
         self.assertGreater(HTML.index('id="target-open"'), HTML.index('id="stop"'))
         dialog = HTML[HTML.index('<dialog class="tgd"'):HTML.index('</dialog>', HTML.index('<dialog class="tgd"'))]
         for needle in ('id="tg-text"', 'id="tg-start"', 'id="tg-list"', 'id="tg-new"', 'id="tg-close"', 'id="tg-bar"', 'id="tg-view"', 'id="tg-verify"',
-                       'id="tg-files"', 'id="tg-stall"', 'id="tg-max"', 'id="tg-status"', 'role="status"', 'aria-labelledby="tg-title"'):
+                       'id="tg-files"', 'id="tg-stall"', 'id="tg-max"', 'id="tg-first"', 'id="tg-status"', 'role="status"', 'aria-labelledby="tg-title"'):
             self.assertIn(needle, dialog, needle)
         for ident in re.findall(r'\$t\("([\w-]+)"\)', TARGET_JS):
             self.assertIn(f'id="{ident}"', dialog, ident)
+
+    def test_the_first_message_option_is_a_labelled_choice_the_script_reads_and_writes(self):
+        dialog = HTML[HTML.index('<dialog class="tgd"'):HTML.index('</dialog>', HTML.index('<dialog class="tgd"'))]
+        self.assertRegex(dialog, r'<label for="tg-first"')
+        self.assertRegex(dialog, r'<select id="tg-first"[^>]*aria-describedby="tg-first-h"')
+        self.assertIn('value="joined"', dialog)
+        self.assertIn('value="separate"', dialog)
+        self.assertIn("first_message: $t(\"tg-first\").value", TARGET_JS)
+        self.assertIn("opts.first_message", TARGET_JS)
 
     def test_the_scripts_load_in_the_order_they_need(self):
         self.assertLess(HTML.index("web/app.js"), HTML.index("web/listtools.js"))

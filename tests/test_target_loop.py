@@ -387,3 +387,56 @@ def test_a_criterion_keeps_its_source_words_only_when_they_are_really_in_the_tex
     tg.apply_plan(target, {"criteria": [{"id": "c1", "text": "Builds", "source": "1. Builds."}, {"id": "c2", "text": "Title", "source": "invented words"}],
                            "tasks": [task("a", "A", ["c1", "c2"])]})
     assert [c["source"] for c in target["criteria"]] == ["1. Builds.", ""]
+
+
+# -- the first message ---------------------------------------------------------------------------------------------
+
+def test_first_message_is_an_option_that_defaults_to_joined_and_ignores_anything_else():
+    assert tg.clean_options({})["first_message"] == "joined" and tg.clean_options(None)["first_message"] == "joined"
+    assert tg.clean_options({"first_message": "separate"})["first_message"] == "separate"
+    assert tg.clean_options({"first_message": "both"})["first_message"] == "joined" and tg.clean_options({"first_message": 3})["first_message"] == "joined"
+    assert tg.new_target("t", {"first_message": "separate"})["options"]["first_message"] == "separate"
+
+
+def two_task_llm():
+    return FakeLLM(target_plan=[plan([("c1", "A"), ("c2", "B")], [task("a", "Write A", ["c1"]), task("b", "Write B", ["c2"])])],
+                   target_verdict=[verdicts(verdict("c1", "achieved", refs=("E1",)), verdict("c2", "achieved", refs=("E2",)))])
+
+
+def test_joined_sends_the_text_with_the_first_task_and_separate_sends_it_alone_then_one_message_per_task(journal):
+    joined = FakeConversation()
+    target, _, _ = run_loop(two_task_llm(), joined, journal, text="Make A and B.", options={"first_message": "joined"})
+    assert target["state"] == "achieved" and len(joined.prompts) == 2
+    assert joined.prompts[0].startswith("Make A and B.\n\n---\nTarget Loop · task 1 of 2")
+    alone = FakeConversation()
+    target, _, _ = run_loop(two_task_llm(), alone, journal, text="Make A and B.", options={"first_message": "separate"})
+    assert target["state"] == "achieved" and target["posted"] is True and len(alone.prompts) == 3
+    assert alone.prompts[0] == "Make A and B."
+    assert alone.prompts[1].startswith("Target Loop · task 1 of 2") and "Target:\nMake A and B." in alone.prompts[1]
+    assert alone.prompts[2].startswith("Target Loop · task 2 of 2")
+
+
+def test_the_text_alone_is_evidence_for_the_judge_and_is_posted_once_even_after_a_second_pass(journal):
+    llm = FakeLLM(target_plan=[plan([("c1", "A")], [task("a", "Write A", ["c1"])])],
+                  target_verdict=[verdicts(verdict("c1", "not_met", missing="no file")), verdicts(verdict("c1", "achieved", refs=("E1",)))],
+                  target_fix=[fix(task("r", "Write A again", ["c1"]), analysis=[("c1", "nothing written", "write it")])])
+    conv = FakeConversation(answer=lambda p: tg.TurnResult(final="seen: " + p.splitlines()[0][:30]))
+    target, _, _ = run_loop(llm, conv, journal, text="Make A.", options={"first_message": "separate"})
+    assert target["state"] == "achieved" and conv.prompts.count("Make A.") == 1 and len(conv.prompts) == 3
+    assert "the target text" in llm.of("target_verdict")[0] and "seen: Make A." in llm.of("target_verdict")[0]
+
+
+def test_stopping_while_the_text_alone_is_being_answered_leaves_it_unposted_so_a_resume_sends_it_again(journal):
+    box = {}
+
+    def answer(prompt):
+        box["loop"].cancel.set()
+        return tg.TurnResult(stop_reason="cancelled")
+    conv = FakeConversation(answer=answer)
+    target = tg.new_target("Make A.", {"first_message": "separate"}, session="s1")
+    llm = two_task_llm()
+    loop = tg.TargetLoop(target, conv, llm, journal, lambda t: None, waits=(0.01,))
+    box["loop"] = loop
+    loop.run()
+    assert target["state"] == "stopped" and target["stop_reason"] == "person" and target["posted"] is False and conv.prompts == ["Make A."]
+    assert all(t["attempts"] == 0 for t in target["tasks"])
