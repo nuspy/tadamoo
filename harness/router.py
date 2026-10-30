@@ -18,6 +18,8 @@ from __future__ import annotations
 import re
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from harness.side import side_extra
+
 STEER, QUEUE, URGENT = "steer", "queue", "urgent"
 HOWS = (STEER, QUEUE, URGENT)
 
@@ -44,7 +46,7 @@ def judge_with_model(client: Any) -> Callable[[str, Dict[str, Any]], Optional[st
         brief = f"Task in hand: {context.get('task', '')[:600]}\nWhat the assistant has done so far: {context.get('progress', '')[:600]}\nNew message: {text[:800]}"
         try:
             reply = client.chat_completion([{"role": "system", "content": JUDGE_PROMPT}, {"role": "user", "content": brief}],
-                                           temperature=0.0, max_tokens=8, timeout=30.0, extra={"reasoning_effort": "none"})
+                                           temperature=0.0, max_tokens=8, timeout=30.0, extra={"reasoning_effort": "none", **side_extra(client)})
             word = (reply["choices"][0]["message"].get("content") or "").strip().lower()
         except Exception:
             return None

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import urllib.request
 import urllib.error
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -143,6 +144,22 @@ class BasaltClient:
     def metrics(self, timeout: float = 5.0) -> Dict[str, Any]:
         """Fetches telemetry and engine status from /metrics."""
         return self._get("/metrics", timeout)
+
+    SIDE_ASK_S = 30.0          # how long the server's answer about its technical session is kept
+
+    def side_context(self, timeout: float = 3.0) -> int:
+        """The tokens the server's technical session holds, as /v1/status reports them; 0 when it has none or cannot
+        be reached. Asked at most once per SIDE_ASK_S."""
+        asked = self.__dict__.get("_side")
+        if asked is not None and time.monotonic() - asked[0] < self.SIDE_ASK_S:
+            return asked[1]
+        try:
+            side = (self._get("/v1/status", timeout).get("concurrency") or {}).get("side_slot")
+            tokens = int(side.get("context") or 0) if isinstance(side, dict) else 0
+        except (BasaltError, TypeError, ValueError):
+            tokens = 0
+        self._side = (time.monotonic(), tokens)
+        return tokens
 
     def _get(self, path: str, timeout: float) -> Dict[str, Any]:
         req = urllib.request.Request(f"{self.base_url}{path}", headers=self._headers(), method="GET")

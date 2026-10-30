@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from harness import control_secret
 from harness import questions as qs
+from harness.side import side_extra
 
 log = logging.getLogger("harness.intake")
 
@@ -383,7 +384,8 @@ class Intake:
         try:
             resp = self.client.chat_completion(
                 messages=[{"role": "system", "content": TRIAGE_PROMPT}, {"role": "user", "content": f"FACTS\n{facts}\n\nMESSAGE\n{text[:TRIAGE_INPUT_CHARS]}"}],
-                temperature=0.0, max_tokens=TRIAGE_TOKENS, timeout=TRIAGE_TIMEOUT_S, response_format=RESPONSE_FORMAT, extra={"reasoning_effort": "none"})
+                temperature=0.0, max_tokens=TRIAGE_TOKENS, timeout=TRIAGE_TIMEOUT_S, response_format=RESPONSE_FORMAT,
+                extra={"reasoning_effort": "none", **side_extra(self.client)})
             content = resp["choices"][0]["message"].get("content") or ""
             return validate(json.loads(content), text)
         except Exception as exc:                                  # any failure of an extra call is a skipped call, never an error for the person

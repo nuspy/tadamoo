@@ -32,6 +32,7 @@
   "server.parallel": 1,
   "server.port": 7232,
   "server.reasoning-budget-tokens": 0,
+  "server.side-slot": 0,
   "server.slot-full-context": false,
   "server.vision": "off",
   "server.vision-hold": "keep",
@@ -42,6 +43,7 @@
   "server.port",
   "server.parallel",
   "server.slot-full-context",
+  "server.side-slot",
   "server.vision",
   "server.vision-projector",
   "server.vision-hold",
@@ -210,6 +212,7 @@
     "p": 0.0,
     "why": []
    },
+   "side_context": 0,
    "slot_context": 262144,
    "unknown": [],
    "values": {
@@ -245,6 +248,7 @@
     "server.parallel": 1,
     "server.port": 7232,
     "server.reasoning-budget-tokens": 0,
+    "server.side-slot": 0,
     "server.slot-full-context": false,
     "server.vision": "dynamic",
     "server.vision-hold": "keep",
@@ -380,6 +384,7 @@
     "p": 0.0,
     "why": []
    },
+   "side_context": 0,
    "slot_context": 65536,
    "unknown": [],
    "values": {
@@ -415,6 +420,7 @@
     "server.parallel": 1,
     "server.port": 7232,
     "server.reasoning-budget-tokens": 0,
+    "server.side-slot": 0,
     "server.slot-full-context": false,
     "server.vision": "off",
     "server.vision-hold": "keep",
@@ -614,6 +620,7 @@
    "p": 0.0,
    "why": []
   },
+  "side_context": 0,
   "slot_context": 32768,
   "speed": {
    "accept": 0.566,
@@ -674,6 +681,7 @@
    "server.parallel": 1,
    "server.port": 7232,
    "server.reasoning-budget-tokens": 0,
+   "server.side-slot": 0,
    "server.slot-full-context": false,
    "server.vision": "dynamic",
    "server.vision-hold": "keep",

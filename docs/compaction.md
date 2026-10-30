@@ -137,9 +137,9 @@ it survives a restart of the server and of the app; with no file it is on. Off l
 The summary should not disturb the cache of the main conversation. What the code does today, from `serve/service.py`, `serve/engine/process.py`
 and the engine's headers:
 
-- **No request can pick or pin a slot.** `Service.run` calls `engine.generate(prompt, max_new, sampling, cancel)`; no request field, in
-  `serve/api` or anywhere else, names a slot or a cache identity. The "slot" in `/slots`, `/metrics` and the console (`slot_table`,
-  `_slot_of`) is a label given to a running request for display. The engine's choice is made from the prompt alone.
+- **One request key picks a kind of slot.** `Service.run` calls `engine.generate(prompt, max_new, sampling, cancel)`; the only field that
+  names a slot is `cache_slot: "side"` (see *The technical session* below); nothing pins a conversation's slot or a cache identity. The
+  engine's choice among the conversations' slots is made from the prompt alone.
 - **`--parallel 1` (the default), one session.** The KV cache is positional, "one arena that holds one branch of history at a time", and a
   checkpoint is kept only while its tokens are a prefix of the current prompt (`include/basalt/program/conv_cache.hpp`). The summary prompt has its
   own system message and no tool list, so it shares no prefix: the conversation's cache is overwritten from token 0, its stable head (system
@@ -154,16 +154,18 @@ and the engine's headers:
   shares its prefix (`generate.cpp`, "conversation cache: parked / restored"). That is the existing way to run a side request without losing
   the main one, at the price of host RAM and a copy back; it needs only the option. Not measured for the summary call yet (row 69).
 
-So a detached summary on the default server needs the engine. **Proposal (engine, not done).** A request key `scratch=1` on the `GEN`, `GENT`
-and `SGEN` lines (`ProcessEngine.sampling_keys` passes it): the engine parks the running conversation into the conversation cache before the
-request, even with `--conversation-cache-mib 0` (a small budget of its own, one conversation), runs the request on the cleared session
-without writing a checkpoint, and restores the parked conversation after `DONE`; if parking is not possible it says so in `DONE` and the
-request runs as it does today. On the Python side: `scratch` as a `cache_scratch` field of the chat request (listed with the other fields in
-`serve/api/openai.py`, off by default), `_summarizer` in `harness/stack.py` sending it in `extra`, and `THIS_SERVER_ONLY` in
-`harness/llm/client.py` holding it back from any cloud route. Tests: a mock engine that records the keys of the request; a real-engine check
-that `cached_tokens` of the first call after a compaction equals the stable head (row 69). A smaller alternative with no engine change would be
-to begin the summary call with the conversation's own system message and tool list, so only the tail is overwritten and the head stays
-cached; it changes the summary prompt and the model's view of its tools, so it is not done either.
+### The technical session
+
+With `--side-slot TOKENS` (default 30000 when on; off by default) the engine has one more slot, with a context of its own, that only
+calls carrying `"cache_slot": "side"` use ([running](running.md#the-technical-session---side-slot-tokens)). `_summarizer` in
+`harness/stack.py` sends it (through `harness/side.py`, `side_extra`) when the server reports a session, and `THIS_SERVER_ONLY` in
+`harness/llm/client.py` holds it back from any cloud route. The summary prompt keeps its own system message and no tools, so in the
+session it shares nothing with a conversation and writes nothing into one: the conversations' slots keep their cache, and the
+summary's own slot keeps no checkpoint. A summary whose text does not fit the session's context (the call reads up to
+`SUMMARY_READ_CHARS`, 120000 characters, which can be more than 30000 tokens) is served by the ordinary slots, as before, so the longest
+summaries still overwrite a conversation's cache there. The cost is the one of
+the setting: the engine's batch mode is on, and the memory of one more session. The effect on `cached_tokens` of the first call after a
+compaction, and on a conversation's speed, is queue rows 69 to 75.
 
 ## Tests
 

@@ -131,6 +131,7 @@ _MCP_AUTH = None                                       # the sign-in of the remo
 _PLANS = None                                          # the planner's service, made on first use
 from serve.util.reqtrace import RequestTrace
 from serve.util.text import IM_END, stop_strings
+from serve.api.cache_slot import check_cache_slot
 
 
 BODY_MAX = 256 << 20                        # the most a JSON request body may hold (read into memory)
@@ -945,9 +946,13 @@ def make_handler(svc: Service, remote: bool = False):
                                "presence_penalty", "frequency_penalty", "penalty_last_n")}
             params["n_predict"] = -1
             props = {"default_generation_settings": {"n_ctx": svc.engine.max_context, "params": params},
-                     "total_slots": svc.slot_stats()["total"], "model_alias": svc.model, "chat_template": svc.template.source,
+                     "total_slots": svc.slot_stats()["conversations"], "model_alias": svc.model, "chat_template": svc.template.source,
                      "modalities": {"vision": svc.vision is not None}, "models_autoload": hasattr(svc.engine, "restart"),
                      "is_sleeping": not svc.loaded()}
+            side = svc.side_slot_info()
+            if side is not None:                             # the technical session: one more slot, with a context of its own
+                props["side_slot"] = side
+                props["slot_contexts"] = [svc._slot_context(i) for i in range(svc.slot_stats()["total"])]
             if getattr(svc.engine, "model_path", None):
                 props["model_path"] = svc.engine.model_path
             version = getattr(svc.engine, "info", {}).get("version")
@@ -2695,6 +2700,7 @@ def make_handler(svc: Service, remote: bool = False):
             svc.reasoning_budget(req)                         # a bad value is a 400 before streaming
             svc.answer_cap(req)                               # likewise a bad answer cap
             stop_strings(req)                                 # likewise a bad stop
+            check_cache_slot(req)                             # likewise a bad cache_slot
             ids, thinking, max_new = svc.prepare(messages, tools, kw, asked, force=force)
             _debug_req("openai", req, messages, tools, max_new, thinking, len(ids))
             cancel = threading.Event()
@@ -2875,6 +2881,10 @@ def make_handler(svc: Service, remote: bool = False):
                 stop_strings(req)
             except ValueError as e:
                 raise ResponsesError(str(e), "stop") from None
+            try:
+                check_cache_slot(req)
+            except ValueError as e:
+                raise ResponsesError(str(e), "cache_slot") from None
             svc.load()
             try:
                 ids, thinking, max_new = svc.prepare(messages, tools, kw, req.get("max_output_tokens") or 0, force=force)
@@ -2911,6 +2921,7 @@ def make_handler(svc: Service, remote: bool = False):
             req[GRAMMAR_KEY] = svc.grammar_for(tools, req.get("tool_choice"), req.get("tools"), response_format)
             svc.reasoning_budget(req)                         # a bad value is a 400 before streaming
             stop_strings(req)                                 # likewise a bad stop
+            check_cache_slot(req)                             # likewise a bad cache_slot
             ids, thinking, max_new = svc.prepare(messages, tools, kw, max_new, force=force)
             _debug_req("anthropic", req, messages, tools, max_new, thinking, len(ids))
             cancel = threading.Event()

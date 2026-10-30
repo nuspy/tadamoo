@@ -173,6 +173,9 @@ struct Options {
     /// sent as `BGEN <slot> <max_new> ...` reads its prompt and its first token through the usual path, then
     /// continues in slot <slot> of the batch windows (`BT <slot> <id> [<id> ...]` lines, then `BDONE <slot> ...`).
     int batch = 0;
+    /// --side-context N: the last --batch slot is the side slot and holds N cells (at most --max-context), for short
+    /// calls beside the conversations in the other slots.  0 = off.  It keeps no conversation checkpoints.
+    int64_t side_context = 0;
     /// The --batch slots in this many groups pipelined through the stages of a layer split (stage k
     /// runs one group while stage k+1 runs another).  1 = every slot in one window, stage after stage.
     int batch_groups = 1;

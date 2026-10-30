@@ -421,8 +421,41 @@ class Service:
             queued = int(self.status.get("queued") or 0)
         depth = getattr(self.engine, "queue_depth", None)
         waiting = depth() if total and depth else 0
+        side = self._side_slot()
         return {"total": max(1, total), "active": max(0, min(max(1, total), running - waiting)),
-                "queue_depth": queued + waiting}
+                "queue_depth": queued + waiting, "side_slot": side,
+                "conversations": max(1, total - (1 if side is not None else 0))}
+
+    def _side_slot(self) -> int | None:
+        """The technical session's slot among the engine's batch slots; None when it has none."""
+        side = getattr(self.engine, "side_slot", None)
+        return side if isinstance(side, int) and not isinstance(side, bool) else None
+
+    def _slot_context(self, slot: int) -> int:
+        """The context `slot` holds."""
+        of = getattr(self.engine, "slot_context", None)
+        return int(of(slot)) if callable(of) else int(self.engine.max_context)
+
+    def _free_slot(self, taken: set, total: int) -> int | None:
+        """The lowest slot no request holds, apart from the technical session's (only its own calls run there)."""
+        side = self._side_slot()
+        return next((i for i in range(total) if i not in taken and i != side), None)
+
+    def _claim_side(self, st: dict) -> None:
+        """A request the engine runs in the technical session holds that slot in the table."""
+        served, side = getattr(self.engine, "served_slot", None), self._side_slot()
+        if side is None or not callable(served):
+            return
+        with self.status_lock:
+            if served() == "side":
+                st["slot"] = side
+            elif st.get("slot") == side:
+                st["slot"] = None
+
+    def side_slot_info(self) -> dict | None:
+        """The technical session as the status routes show it: {"slot": index, "context": tokens}, or None."""
+        side = self._side_slot()
+        return None if side is None else {"slot": side, "context": self._slot_context(side)}
 
     def slot_table(self) -> tuple[list[dict], list[dict]]:
         """Per-slot rows and the waiting requests. The oldest running requests take the slots, each keeping its
@@ -442,7 +475,7 @@ class Service:
             taken = {st["slot"] for st in running if st.get("slot") is not None and st["slot"] < total}
             for st in running:
                 if st.get("slot") is None or st["slot"] >= total:
-                    st["slot"] = next((i for i in range(total) if i not in taken), None)
+                    st["slot"] = self._free_slot(taken, total)
                     taken.add(st["slot"])
             by_slot = {st["slot"]: (dict(st), rates.get(id(st), [])) for st in running}
             queue = [{"api": st.get("api"), "model": st.get("model"), "prompt_tokens": st.get("prompt_tokens"),
@@ -457,7 +490,8 @@ class Service:
             bd = (getattr(self.engine, "slot_drafts", None) or {}).get(i)
             if bd and bd[2] >= held.get("at", 0):      # a batch slot's own counts, when newer than a solo request's
                 held.update(accepted=bd[0], offered=bd[1])
-            row = {"id": i, "n_ctx": self.engine.max_context, "is_processing": i in by_slot, "state": "idle",
+            row = {"id": i, "n_ctx": self._slot_context(i), "side": i == base["side_slot"],
+                   "is_processing": i in by_slot, "state": "idle",
                    "api": None, "model": None, "tok_s": 0.0, "generated": 0, "max_tokens": None, "prompt_tokens": 0,
                    "prefill_done": 0, "reused": None, "ttft_s": None, "draft_len": None,
                    "ctx_used": held.get("ctx", 0), "drafts_offered": held.get("offered"),
@@ -553,8 +587,9 @@ class Service:
             "started": int(self.started_at), "uptime_s": int(time.time() - self.started_at),
             "cache_max_tokens": ctx,
             "context": {"native": ctx, "max_positions": ctx},
-            "concurrency": {"serving": max(1, int(getattr(self.engine, "batch", 0) or 0)),
-                            "requested": max(1, int(getattr(self.engine, "batch", 0) or 0))},
+            "concurrency": {"serving": self.slot_stats()["conversations"],
+                            "requested": self.slot_stats()["conversations"],
+                            "side_slot": self.side_slot_info()},
             "dialects": ["/v1/chat/completions", "/v1/messages", "/v1/responses"],
             "vision": {"enabled": images, "available": images, "error": None},
             "activity": {"requests": self.requests_done + int(busy), "in_flight": int(busy) + int(s.get("queued") or 0),
@@ -720,7 +755,7 @@ class Service:
         if st.get("slot") is None or st["slot"] >= total:
             taken = {o["slot"] for o, _ in self.live_reqs.values()
                      if o is not st and o.get("slot") is not None and o["slot"] < total}
-            st["slot"] = next((i for i in range(total) if i not in taken), None)
+            st["slot"] = self._free_slot(taken, total)
         return st["slot"]
     def run(self, ids, thinking, tools, max_new, sampling, cancel, force=None) -> Iterator[tuple[str, object]]:
         """Yield ("event", Event) as text arrives, ("ping", None) as heartbeat, then ("done", {...}).
@@ -835,6 +870,9 @@ class Service:
                         if par:
                             self.live_reqs[id(st)] = (st, rate)
                             self.status.update(st)
+                        if par and (sampling or {}).get("cache_slot") == "side" and self._side_slot() is not None \
+                                and len(ids) + 8 < self._slot_context(self._side_slot()):
+                            st["slot"] = self._side_slot()      # the engine confirms or releases it once it has routed the request
                         self.last_request_at = time.time()
                         rate.clear()                    # drop the previous request's samples
                     before = getattr(self.engine, "last", None)
@@ -856,6 +894,8 @@ class Service:
                             # a held-back tool argument can leave the stream silent for long: ping after a quiet spell
                             last_out = time.monotonic()
                             for t in gen:
+                                if par and (sampling or {}).get("cache_slot") == "side":
+                                    self._claim_side(st)
                                 if t is None:               # heartbeat
                                     if isinstance(ids, PromptText) and ids.n is not None and st.get("prompt_tokens") != ids.n:
                                         with self.status_lock:  # the engine has counted the prompt
@@ -1081,6 +1121,9 @@ class Service:
             done["repeated"] = True                     # the reply was a loop: going on would only write it again
         if capped:
             done["answer_capped"] = True
+        if (sampling or {}).get("cache_slot") is not None:      # the request chose a slot: say which kind served it
+            served = getattr(self.engine, "served_slot", None)
+            done["cache_slot"] = (served() if callable(served) else None) or "main"
         if trace is not None:
             trace.run_done(done)
         yield "done", done

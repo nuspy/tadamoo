@@ -10,7 +10,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from serve.config import PARALLEL_MAX, REMOVED_ENGINE_KEYS, build_parser, parse_settings
+from serve.config import PARALLEL_MAX, REMOVED_ENGINE_KEYS, SIDE_SLOT_DEFAULT, SIDE_SLOT_MIN, build_parser, parse_settings
 from serve.engine.vision import VISION_MODES, vision_mode
 
 KV_MODES = ("fp16", "int8", "q4_0", "k8v4")          # the engine's --kv (q4 is read as q4_0)
@@ -27,7 +27,7 @@ FIELDS = (("server", "port"), ("server", "parallel"), ("server", "vision"),
           ("engine", "expert-cache"), ("engine", "prefill"))
 READ_ONLY = (("server", "model"),)
 # the Loader's fields: the settings page's engine fields and the memory and slot switches
-LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-full-context"), ("server", "vision"),
+LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-full-context"), ("server", "side-slot"), ("server", "vision"),
                  ("server", "vision-projector"), ("server", "vision-hold"),
                  ("engine", "max-context"), ("engine", "kv"), ("engine", "prefill"), ("engine", "spec"),
                  ("engine", "relaxed-drafting"), ("engine", "expert-cache"), ("engine", "resident-experts"),
@@ -113,6 +113,13 @@ def check_value(section: str, key: str, value):
         return _whole(value, what, 1, 65535)
     if key == "parallel":
         return _whole(value, what, 1, PARALLEL_MAX)
+    if key == "side-slot":                               # the technical session: 0 (off) or its context in tokens
+        if isinstance(value, bool):
+            return SIDE_SLOT_DEFAULT if value else 0
+        n = _whole(value, what, 0, CONTEXT_MAX)
+        if 0 < n < SIDE_SLOT_MIN:
+            raise ValueError(f"{what}: 0 (off) or a number of tokens from {SIDE_SLOT_MIN}, not {value!r}")
+        return n
     if key == "vision":
         value = {"on": "0", "peer": "1"}.get(str(value).strip().lower(), value)   # the old names of a card-numbered encoder
         try:

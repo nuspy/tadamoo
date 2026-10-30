@@ -49,6 +49,7 @@ def settings_info(a, words: list[str], argv: list[str]) -> dict:
                "server.vision-projector": getattr(a, "vision_projector", "auto"),
                "server.vision-hold": getattr(a, "vision_hold", "keep"),
                "server.slot-full-context": bool(a.slot_full_context),
+               "server.side-slot": a.side_slot if isinstance(getattr(a, "side_slot", 0), int) else 0,
                "server.grammar": bool(getattr(a, "grammar", True)),
                "server.reasoning-budget-tokens": getattr(a, "reasoning_budget_tokens", None)}
     for name in ("max-context", "kv", "spec", "relaxed-drafting", "expert-cache", "prefill", "resident-experts",
