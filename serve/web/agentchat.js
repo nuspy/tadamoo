@@ -380,6 +380,10 @@
         } else if (d.type === "verify") {                                        // the answer measured against what was asked
           const list = (d.violations || []).join(" ");
           addBlock({ t: "note", s: d.ok ? T("ch.verify.ok", (d.constraints || []).length) : d.retry ? T("ch.verify.retry", list) : T("ch.verify.unmet", list) }, e.turn);
+        } else if (d.type === "compaction") {                                            // the older steps were summarised: what the server reads again
+          addBlock({ t: "note", s: T("ch.ev.compaction", d.tokens_before, d.tokens_after, d.prefix.reread_tokens) }, e.turn);
+        } else if (d.type === "compaction_cache") {
+          addBlock({ t: "note", s: T("ch.ev.compaction_cache", d.prompt_tokens, d.cached_tokens) }, e.turn);
         } else if (d.type === "gate" || d.type === "budget_warning" || d.type === "budget_grace" || d.type === "stop_denied") {      // the checks before the end, and the limits: one line each
           addBlock({ t: "note", s: T(d.type === "gate" ? "ch.gate." + d.decision : "ch.ev." + d.type, d.round, d.of) }, e.turn);
         } else if (d.type === "long_answer") {                                    // plan_long_answer: one line that follows the parts (serve/longform.py)
