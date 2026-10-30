@@ -228,6 +228,7 @@ class AgentLoop:
         changes: Optional[Callable[[], int]] = None,
         budget_grace: bool = True,
         subagent: bool = False,
+        role: Optional[Any] = None,
     ) -> None:
         self.client = client
         self.tools = tool_registry
@@ -257,6 +258,7 @@ class AgentLoop:
         self.gate = gate                          # the project's own checks, run before a turn ends after edits (harness/gate.py)
         self.changes = changes                    # how many file changes have been recorded: a change is progress, and what the gate looks at
         self.budget_grace = budget_grace          # a budget that runs out first warns, then allows one last report with no tools
+        self.role = role                          # what the conversation is for (harness/roles.py): refuses the calls outside it, adds its note to each request
         self.subagent = subagent                  # a subagent has no gate, stop hook or last report of its own: its parent's turn has them
         self._edits_seen = changes() if changes else 0
         self.loop_detector = LoopDetector()
@@ -300,7 +302,8 @@ class AgentLoop:
             secrets=self.secrets, output_filter=self.output_filter, max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds,
             cancel=threading.Event(), max_loop_strikes=self.max_loop_strikes, context=self.context, on_event=self.on_event,
             sampling=self.sampling, on_delta=self.on_delta, pipeline=self.pipeline, clock=self.clock, max_tokens=self.max_tokens,
-            gate=self.gate.clone() if self.gate is not None else None, changes=self.changes, budget_grace=self.budget_grace)
+            gate=self.gate.clone() if self.gate is not None else None, changes=self.changes, budget_grace=self.budget_grace,
+            role=self.role)
 
     def append(self, message: Dict[str, Any]) -> None:
         """Puts a message at the end of the conversation; with a clock it carries the time it was made, which never goes to the server."""
@@ -552,6 +555,10 @@ class AgentLoop:
             return refused("invalid", f"Unknown tool '{name}'. {hint}", "tool_invalid")
         args, coerced = self.tools.coerce(name, args)
         repaired = repaired or coerced
+        if self.role is not None:
+            why = self.role.check(name, args)
+            if why:
+                return refused("blocked", why, "role_denied")
         try:
             self.tools.validate(name, args)
         except ToolArgumentError as exc:
@@ -888,7 +895,11 @@ class AgentLoop:
                 if guard is not None and guard.feed(kind, text):
                     raise RepetitionAbort(guard.kind)
             kwargs["on_delta"] = on_delta
-        return self.client.chat_completion(messages=wire_messages(self.messages), tools=self.tools.schemas(), **kwargs)
+        messages = wire_messages(self.messages)
+        note = self.role.note() if self.role is not None else ""
+        if note:
+            messages.append({"role": "user", "content": note})          # the role's note ends the request and is not kept, so the start of the prompt never changes
+        return self.client.chat_completion(messages=messages, tools=self.tools.schemas(), **kwargs)
 
     def _complete(self) -> "_Completion":
         """The model's reply for the conversation as it stands. Two failures are put right without touching the conversation: a stream

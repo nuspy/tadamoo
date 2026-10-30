@@ -26,6 +26,7 @@
 <link rel="stylesheet" href="web/netwatch.css">
 <link rel="stylesheet" href="web/rea.css">
 <link rel="stylesheet" href="web/target.css">
+<link rel="stylesheet" href="web/coding.css">
 <script defer src="web/i18n.js"></script>
 <script defer src="web/risk.js"></script>
 <script defer src="web/app.js"></script>
@@ -39,6 +40,7 @@
 <script defer src="web/askcard.js"></script>
 <script defer src="web/agentchat.js"></script>
 <script defer src="web/target.js"></script>
+<script defer src="web/coding.js"></script>
 <script defer src="web/checkpoints.js"></script>
 <script defer src="web/billioncontext.js"></script>
 <script defer src="web/slash.js"></script>
@@ -280,6 +282,9 @@
             <option value="direct" data-t="ch.mode.direct">Model only</option>
           </select>
         </label>
+        <label class="effort coderole" for="coderole" id="coderole-label" hidden><span data-t="cd.role">Role</span>
+          <select id="coderole" data-t-title="cd.role.tip"></select>
+        </label>
         <label class="effort" for="effort"><span>Thinking</span>
           <select id="effort">
             <option value="">High (default)</option>
@@ -295,6 +300,19 @@
         <button type="button" class="btn" id="acopy-open" aria-expanded="false" aria-controls="acopy-panel" hidden></button>
       </div>
       <div class="acopy-panel" id="acopy-panel" hidden></div>
+      <section class="codingcard" id="coding-card" aria-labelledby="coding-h" hidden>
+        <div class="cc-head">
+          <b id="coding-h" data-t="cd.card.title">Project checks</b>
+          <span class="cc-sum" id="coding-sum" role="status"></span>
+          <span class="grow"></span>
+          <button type="button" class="btn" id="coding-toggle" aria-expanded="false" aria-controls="coding-body" data-t-title="cd.card.tip">Review</button>
+        </div>
+        <div class="cc-next" id="coding-next">
+          <button type="button" class="btn" id="coding-go" data-t-title="cd.go.tip" hidden></button>
+          <button type="button" class="btn" id="coding-bug" data-t-title="cd.bug.tip" hidden></button>
+        </div>
+        <div class="cc-body" id="coding-body" hidden></div>
+      </section>
       <section class="rea" id="rea-box" aria-labelledby="rea-title">
         <label class="rea-check"><input type="checkbox" id="rea-on" aria-describedby="rea-hint"><span id="rea-title" data-t="rea.title">Reverse engineering (REA)</span></label>
         <p class="rea-hint" id="rea-hint" data-t="rea.hint"></p>

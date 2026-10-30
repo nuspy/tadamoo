@@ -63,6 +63,8 @@ from serve.wallet_api import WalletApi, WalletError
 from harness.context_patterns import catalog as context_patterns_catalog
 from serve.capabilities_api import CapabilityApi, CapabilityError
 from serve.intake_prefs import IntakeError, IntakePrefs
+from harness.roles import CODING_ROLE, ROLE_IDS
+from serve.coding_prefs import CodingError, CodingPrefs
 from serve.gate_prefs import GateError, GatePrefs
 from serve.knowledge_prefs import KnowledgeError, KnowledgePrefs, check_wiki, clean_url
 from serve.llm_api import LlmApi, LlmError
@@ -503,6 +505,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/gate":
                 if self._authorized():
                     self._json(200, GatePrefs(userdata.path("gate.json")).view())
+            elif path == "/api/coding":
+                if self._authorized():
+                    self._coding_get()
             elif path == "/api/memories":
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
@@ -703,6 +708,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/gate":
                 self._gate_post()
+                return
+            if path == "/api/coding":
+                self._coding_post()
                 return
             if path in ("/api/mcp/auth/start", "/api/mcp/auth/signout"):
                 self._mcp_auth_post(path)
@@ -1816,6 +1824,41 @@ def make_handler(svc: Service, remote: bool = False):
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"message": str(e)}})
 
+        def _coding_get(self):
+            """The checks a folder suggests and what the person accepted for it; only this PC, since accepting lets commands run here."""
+            if not settings.is_loopback(self.client_address[0]):
+                return self._json(403, {"error": {"type": "forbidden", "message": "the project checks are shown only on the PC the server runs on"}})
+            asked = (parse_qs(urlsplit(self.path).query).get("workspace") or [""])[0]
+            if not asked:
+                return self._json(200, {"roles": list(ROLE_IDS), "coding_role": CODING_ROLE})
+            try:
+                folder = AgentRunner.check_workspace(asked)
+                return self._json(200, {**CodingPrefs(userdata.path("coding.json")).view(folder), "verify_gate": GatePrefs(userdata.path("gate.json")).read()["verify_gate"]})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"message": str(e), "code": getattr(e, "code", "")}})
+
+        def _coding_post(self):
+            """Saves what the person accepted for a folder, and tells the conversations running in it."""
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the project checks can be changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 15)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                folder = AgentRunner.check_workspace(req.get("workspace"))
+                view = CodingPrefs(userdata.path("coding.json")).accept(folder, req.get("accepted"), req.get("own"))
+                told = self._agent_sessions().update_checks(folder)
+                return self._json(200, {**view, "told": told, "verify_gate": GatePrefs(userdata.path("gate.json")).read()["verify_gate"]})
+            except CodingError as e:
+                return self._json(400, {"error": {"type": "coding", "message": str(e), "field": e.field}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"message": str(e), "code": getattr(e, "code", "")}})
+
         def _mcp_auth(self) -> McpAuthApi:
             global _MCP_AUTH
             if _MCP_AUTH is None:
@@ -2245,7 +2288,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
                                            browser_prefs=BrowserPrefs(userdata.path("browser.json")).read, knowledge_flags=KnowledgePrefs(userdata.path("knowledge.json")).flags,
                                            intake_flags=IntakePrefs(userdata.path("intake.json")).flags,
-                                           gate_flags=GatePrefs(userdata.path("gate.json")).flags,
+                                           gate_flags=GatePrefs(userdata.path("gate.json")).flags, coding=CodingPrefs(userdata.path("coding.json")),
                                            rule_of_two=RuleOfTwoPrefs(userdata.path("rule_of_two.json")).read, allow_rules=AllowRules(userdata.path("allow_rules.json")),
                                            rule_of_two_prefs=RuleOfTwoPrefs(userdata.path("rule_of_two.json")),
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
@@ -2374,7 +2417,7 @@ def make_handler(svc: Service, remote: bool = False):
                                                                       req.get("context_threshold", 0.8), req.get("end_turn_bias"),
                                                                       req.get("worktree", "auto"), req.get("effort", ""),
                                                                       req.get("images", ""), req.get("charts", ""),
-                                                                      req.get("unattended") is True)})
+                                                                      req.get("unattended") is True, req.get("role", "general"))})
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
                         return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
@@ -2399,6 +2442,8 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, {"session": mgr.answer(parts[1], req.get("ask"), req.get("value"))})
                     if len(parts) == 3 and parts[2] == "mode":
                         return self._json(200, {"session": mgr.set_mode(parts[1], req.get("mode"))})
+                    if len(parts) == 3 and parts[2] == "role":
+                        return self._json(200, {"session": mgr.set_role(parts[1], req.get("role"))})
                     if len(parts) == 4 and parts[2] == "checkpoints" and parts[3] == "restore":
                         return self._json(200, checkpoints_api.restore(mgr.get(parts[1]), req.get("checkpoint")))
                     if len(parts) == 4 and parts[2] == "checkpoints" and parts[3] == "delete":

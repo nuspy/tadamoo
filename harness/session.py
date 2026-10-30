@@ -6,13 +6,14 @@ for the start, and saves the history after every model turn, so a process that d
 
 Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd": "cancel"}, {"cmd": "resume"}, {"cmd": "close"},
 {"cmd": "promote", "id"}, {"cmd": "drop", "id"}, {"cmd": "ping"}, {"cmd": "mode", "mode"} (the permission mode of the conversation),
+{"cmd": "role", "role"} (what the agent is for: harness/roles.py), {"cmd": "checks", "safe", "checks"} (the commands that run without a question and the accepted checks of the verify gate),
 {"cmd": "effort", "level"} (how long the model thinks), {"cmd": "settings", "max_turns", "end_turn_bias", "temperature", "max_tokens"} (the steps one answer may take,
 -1 for no limit, the end-of-turn bias, the sampling temperature, null for the model file's own, and the most a reply may write, null for the server's own; any of them), {"cmd": "command", "id", "name", "args"} (a slash command: harness/commands.py),
 {"cmd": "skill", "id", "name", "display", "script", "values", "timeout", "cache_dir"} (runs a personal skill in the conversation).
 Events: ready, accepted, queued, routed, started, suspended, resumed, agent (an assistant text or a tool start or end), delta
 (text as it is written), ask (a confirmation the task waits for, or a card of questions that ends the turn), intake (what the look at a request assumed
 or recorded), suggestions (the next-message chips after an answer),
-retrying, model_error (only with the error-classifier proposal), done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, effort, settings, command, skill, skill_say, heartbeat, error.
+retrying, model_error (only with the error-classifier proposal), done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, role, checks, effort, settings, command, skill, skill_say, heartbeat, error.
 
 A message that comes while a task is under way is looked at before the task's next model call (harness/router.py): it goes into
 that task (steer), waits its turn (queue), or, when it cannot wait and has nothing to do with the task, the task is put aside where
@@ -56,6 +57,7 @@ from harness import questions as qs
 from harness import suggestions as sg
 from harness.client import StreamCancelled
 from harness.pipeline import Pipeline
+from harness.roles import valid as valid_role
 from harness.router import QUEUE, STEER, STRONG_URGENT, URGENT, Router
 from harness.stack import PERMISSION_MODES, AgentConfig, BuiltAgent, add_agent_arguments, agent_settings, build_agent, data_dir_for, split_secret_specs
 from harness.tools.registry import clock_paused
@@ -1484,6 +1486,12 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
             elif name == "mode" and cmd.get("mode") in PERMISSION_MODES and not args.ask_only:
                 built.set_mode(cmd["mode"])
                 emit({"event": "mode", "mode": cmd["mode"]})
+            elif name == "role" and valid_role(cmd.get("role")) and not args.ask_only:
+                built.set_role(cmd["role"])
+                emit({"event": "role", "role": cmd["role"]})
+            elif name == "checks" and isinstance(cmd.get("safe"), list) and isinstance(cmd.get("checks"), list) and not args.ask_only:
+                built.set_checks([str(x) for x in cmd["safe"]], [str(x) for x in cmd["checks"]])
+                emit({"event": "checks", "safe": len(built.permissions.safe_commands), "checks": len(cmd["checks"])})
             elif name == "effort" and cmd.get("level", "") in ("", *EFFORT_LEVELS):
                 session.set_effort(cmd.get("level", ""))
                 emit({"event": "effort", "level": cmd.get("level", "")})
