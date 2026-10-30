@@ -488,3 +488,40 @@ def test_cancel_while_planning_ends_cleanly():
     la = lf.LongAnswer(Model(lambda n, m: ("{}", "stop")), lf.Spec.from_request({"mode": "write", "task": "t", "target_words": 3000}, ""), cancel=cancel)
     events = [e for e in la.run() if e]
     assert events[-1]["event"] == "done" and events[-1]["stopped"] == "cancelled" and events[-1]["segments"] == 0
+
+
+def test_a_request_is_split_into_its_instruction_and_its_source():
+    assert lf.split_request("Translate into Italian\n\nThe river runs.\n\nIt is long.") == ("Translate into Italian", "The river runs.\n\nIt is long.")
+    assert lf.split_request("Just one paragraph of text to translate.") == ("", "Just one paragraph of text to translate.")
+    long_head = " ".join(["word"] * 80)
+    assert lf.split_request(long_head + "\n\nsecond") == ("", long_head + "\n\nsecond")          # a long first paragraph is the text itself
+
+
+@pytest.mark.parametrize("text,code", [("Traduci in inglese questo testo", "en"), ("Translate this English text into Italian:", "it"),
+                                       ("Please translate into German", "de"), ("Translate this", ""), ("Rewrite it in a friendlier tone", "")])
+def test_the_language_a_request_translates_into(text, code):
+    assert lf.target_language(text) == code
+
+
+def test_a_segment_asks_the_writer_for_the_planned_task_and_adds_where_the_text_ended():
+    spec = lf.Spec(mode="write", task="t", target_words=4000)
+    seg = lf.Segment(1, heading="H", goal="the goal", points=["a"], words=2000, rows=[(2, "H", True)], instruction="Write the second chapter.")
+    asked = lf.segment_request(spec, seg, 2, 2000, True, anchor="the end of it")
+    assert "Your task for this part:\nWrite the second chapter." in asked and "Goal:" not in asked and "- a" in asked and "the end of it" in asked
+    seg.instruction = ""
+    assert "Goal: the goal" in lf.segment_request(spec, seg, 2, 2000, True)
+
+
+def test_the_short_calls_take_the_side_fields_and_a_form_and_the_writer_neither(monkeypatch):
+    monkeypatch.setattr(lf, "_side", lambda: {"session": "tech"})
+    seen = []
+
+    class Spy:
+        def chat_completion(self, messages, max_tokens=None, extra=None, timeout=0, on_delta=None, **kw):
+            seen.append((extra, kw))
+            return {"choices": [{"message": {"role": "assistant", "content": "{}"}, "finish_reason": "stop"}], "usage": {}}
+    la = lf.LongAnswer(Spy(), lf.Spec(mode="write", task="t", target_words=100), clock=iter(range(10 ** 6)).__next__)
+    list(la._call([{"role": "user", "content": "x"}], 50, side=True, response_format={"type": "json_schema"}))
+    list(la._call([{"role": "user", "content": "x"}], 50))
+    assert seen[0][0]["session"] == "tech" and seen[0][1] == {"temperature": 0.0, "response_format": {"type": "json_schema"}}
+    assert "session" not in seen[1][0] and seen[1][1] == {}
