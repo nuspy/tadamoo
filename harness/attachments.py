@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from xml.etree import ElementTree as ET
 
+from harness import untrusted
 from harness.context_patterns import bm25_scores
 
 NAME_CHARS = 120
@@ -334,8 +335,7 @@ def _lines(text: str) -> List[str]:
 
 
 def _fence(source: str, text: str) -> str:
-    text = text.replace("</untrusted_data>", "[/untrusted_data]").replace("</document_content>", "[/document_content]")
-    return f'<untrusted_data source="attachment:{source}">\n{text}\n</untrusted_data>'
+    return untrusted.fence(f"attachment:{source}", text, ("</document_content>",))
 
 
 def data_summary(name: str, kind: str, text: str) -> str:

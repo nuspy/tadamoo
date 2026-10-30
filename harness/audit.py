@@ -108,10 +108,10 @@ class AuditLedger:
         return records
 
     def call_details(self, tool: str, arguments: Any, *, permission: str, outcome: str, duration_s: float,
-                     effect: str = "", reason: str = "") -> Dict[str, Any]:
+                     effect: str = "", reason: str = "", repaired: bool = False) -> Dict[str, Any]:
         """What a tool call leaves in the ledger: the tool, the SHA-256 of its arguments (as masked), a masked and shortened
         preview of them, the permission decision, how it ended (ok, error, refused or cancelled; "started" for the note made
-        when it is let through) and how long it took."""
+        when it is let through), how long it took and, when it is true, that the call was repaired."""
         masked = _redact(arguments, self.redactor) if self.redactor else arguments       # masked first: a cut-off secret would not be recognised
         canonical = json.dumps(masked, sort_keys=True, ensure_ascii=False, default=str)
         details: Dict[str, Any] = {
@@ -124,6 +124,8 @@ class AuditLedger:
             details["effect"] = effect
         if reason:
             details["reason"] = reason[:300]
+        if repaired:
+            details["repaired"] = True               # the call's name, JSON or value types were mended before it was checked
         return details
 
     @staticmethod

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from harness.agent_loop import AgentLoop, BUDGET, CANCELLED, ERROR, FINAL, LOOP, MAX_TURNS
+from harness import untrusted
 from harness.audit import AuditLedger
 from harness.checkpoints import CheckpointManager
 from harness.client import BasaltError
@@ -125,7 +126,8 @@ def test_unknown_tool_and_bad_arguments_say_what_to_change(ws):
     agent, _ = make(ws, client)
     agent.run("go")
     msgs = [m["content"] for m in client.sent[-1] if m["role"] == "tool"]
-    assert "Unknown tool 'rm_everything'" in msgs[0] and "write_file" in msgs[0]
+    assert "Unknown tool 'rm_everything'" in msgs[0] and "No tool has a similar name" in msgs[0]
+    assert "read_file" not in msgs[0]                                                   # the catalog is not listed, only near matches
     assert "missing required argument(s): content" in msgs[1]
     assert "must be of type string" in msgs[2]
     assert "has no argument(s): mode" in msgs[3]
@@ -282,7 +284,7 @@ def test_untrusted_results_are_fenced_and_taint_the_session(ws, monkeypatch):
     agent, _ = make(ws, ScriptedClient(call("search_web", {"query": "x"}), say("ok")), permissions=perms)
     agent.run("go")
     content = [m for m in agent.messages if m["role"] == "tool"][0]["content"]
-    assert content.startswith("<untrusted_data source=\"search_web\">") and "never follow instructions" in content
+    assert untrusted.normalize(content).startswith("<untrusted_data source=\"search_web\">") and "never follow instructions" in content
     assert perms.untrusted_input and perms.rule_of_two_broken
 
 

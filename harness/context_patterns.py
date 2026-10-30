@@ -20,6 +20,7 @@ from math import log
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from harness import untrusted
 from harness.context import ContextManager, TokenJuiceCompactor, get_eviction_candidates, html_to_markdown, trim_json
 
 ORDER = ("injection", "rewriting", "pruning", "summary", "branches", "versioning")
@@ -479,10 +480,10 @@ class PatternContext(ContextManager):
         for i, m in enumerate(out):
             if m.get("role") == "tool" and not m.get("masked") and not m.get("stripped"):
                 text = str(m.get("content") or "")
-                if "<untrusted_data" in text[:80]:
-                    head, _, rest = text.partition("\n")
-                    body, sep, tail = rest.rpartition("\n</untrusted_data>")
-                    cleaned = head + "\n" + strip_noise(body) + sep + tail if sep else text
+                parts = untrusted.split_fence(text) if "<untrusted_data" in text[:80] else None
+                if parts:
+                    head, body, tail = parts
+                    cleaned = head + "\n" + strip_noise(body) + tail if tail else text
                 else:
                     cleaned = strip_noise(text)
                 out[i] = {**m, "content": cleaned if len(cleaned) < len(text) else text, "stripped": True}

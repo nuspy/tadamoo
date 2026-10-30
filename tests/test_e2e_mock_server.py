@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from harness import untrusted
 from harness.client import BasaltClient
 from harness.headless import EXIT_CODES, main, parse_args, run_headless
 from harness.stack import AgentConfig, build_agent
@@ -128,7 +129,7 @@ def test_agents_md_reaches_the_model_and_memories_follow_the_goal(start_server, 
     built.agent.run("how do I build for sm_120", retrieved=built.retrieved_message("how do I build for sm_120"))
     built.close()
     assert "Always answer in Latin." in sent[0][0]["content"]
-    assert sent[0][-1]["content"].startswith("<untrusted_data source=\"memory\">") and "CMake" in sent[0][-1]["content"]
+    assert untrusted.normalize(sent[0][-1]["content"]).startswith("<untrusted_data source=\"memory\">") and "CMake" in sent[0][-1]["content"]
     assert sent[0][1]["content"] == "how do I build for sm_120"
 
 

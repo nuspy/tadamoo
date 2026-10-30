@@ -15,6 +15,8 @@ import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from harness import untrusted
+
 PYTHON_NAMES = ("python", "python3", "py")
 _PROBE_TIMEOUT = 5.0
 _VERSION = re.compile(r"^Python\s+\d+\.\d+", re.I)
@@ -114,7 +116,7 @@ def environment_paragraph(workspace: str | Path, output_files: bool = False) -> 
     else:
         parts.append("shell_command runs commands with sh. A command of several lines is run as is.")
     parts.append(python_sentence())
-    parts.append(f"The working folder is {Path(workspace).resolve()}; relative paths, in the file tools and in commands, are relative to it.")
+    parts.append(f"The working folder is {untrusted.strip_controls(str(Path(workspace).resolve()))}; relative paths, in the file tools and in commands, are relative to it.")
     if output_files:
         parts.append("A file made with write_output_file is handed to the person and is not in the working folder; a file made with write_file "
                      "in the working folder can be read, counted and edited, and publish_output_file hands it to the person.")

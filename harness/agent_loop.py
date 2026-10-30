@@ -24,19 +24,38 @@ from harness.repeat_guard import RepeatGuard
 from harness.rule_of_two import leak_question
 from harness import outward_calls
 from harness.hooks import HookManager
+from harness.output_guard import RepetitionAbort, RepetitionWatch, raised_penalty, repetition_dominated
 from harness.permissions import PermissionManager
 from harness.pipeline import Card, Pipeline, feedback
 from harness.sandbox import cancel_scope
 from harness.secrets_broker import SecretsBroker
 from harness.tools.registry import EffectClass, ToolArgumentError, ToolRegistry
+from harness.tools.repair import repair_json
 
 TOOL_CALL_REGEX = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL)
 FUNCTION_REGEX = re.compile(r"<function=([^>\s]+)>(.*?)</function>", re.DOTALL)
 PARAMETER_REGEX = re.compile(r"<parameter=([^>\s]+)>\n?(.*?)\n?</parameter>", re.DOTALL)
 FINAL, MAX_TURNS, CANCELLED, BUDGET, LOOP, ERROR = "final", "max_turns", "cancelled", "budget", "loop", "error"
+LENGTH = "length"          # a tool call was cut by the output limit again and again; nothing was run
+EMPTY = "empty"            # the model's thinking used the whole output and no answer came, also after a second try
+DEGENERATE = "degenerate"  # the model's output fell into a repetition loop, also after a second try
 SUSPENDED = "suspended"   # put aside at a safe point for something more urgent; it can go on from where it stands
 ASKED = "asked"       # the turn ended on a question for the person; their answer is the next message
 MAX_CALLS_PER_MESSAGE = 16     # tool calls run from one model message; the rest are answered "not run"
+MAX_CONTINUATIONS = 2          # times a reply cut by the output limit is asked to go on, per request
+MAX_CUT_RETRIES = 3            # times a tool call cut by the output limit is asked for again, each with twice the room
+RETRY_TOKENS = 8192            # the room a cut tool call is asked again with when neither the setting nor the answer says how much it had
+RETRY_TOKENS_MAX = 131072
+CONTINUE_NOTE = ("[harness] Your reply was cut by the output limit. Continue exactly where you stopped: do not repeat what is already "
+                 "written, and do not start over.")
+SHORT_ANSWER_NOTE = ("[harness] Your last reply had no answer: the thinking used up the whole output. Think very briefly now and write "
+                     "the answer itself, in a few sentences.")
+EMPTY_NOTICE = ("The model produced no answer: its thinking used up the whole output, also on a second try with less thinking. "
+                "Ask again, more narrowly, or lower the thinking level.")
+DEGENERATE_NOTICE = "The model's output fell into a repetition loop, also on a second try with a higher repetition penalty; it was stopped."
+LENGTH_NOTICE = ("A tool call was cut by the output limit, also with {tokens} tokens of room, so it was not run. "
+                 "Raise the answer limit (--max-tokens) or ask for smaller steps.")
+LOWER_EFFORT = {"high": "low", "medium": "low", "low": "none", "none": "none", "": "low"}      # thinking level for the second try, by the session's level
 _call_note = threading.local()    # the person's sentence for the call this thread is running
 
 
@@ -67,6 +86,8 @@ class ToolExecutionResult:
     call_id: str = ""
     decision: str = ""      # "executed", "denied", "blocked", "invalid", "loop" or "skipped"
     description: str = ""   # the model's own sentence for the person; display text only
+    repaired: bool = False  # the call's name, JSON or value types were mended before it ran (harness/tools/repair.py)
+    written: Any = None     # the arguments as the model wrote them, before the value types were mended
 
 
 @dataclass
@@ -80,6 +101,10 @@ class AgentTurn:
     completion_tokens: int = 0
     cached_tokens: int = 0
     seconds: float = 0.0
+    finish_reason: str = ""
+    cut: bool = False         # the output limit ended this reply (it was asked to go on, or delivered as it is)
+    continues: bool = False   # this reply goes on from the end of the one before it
+    raw_content: str = ""     # the text as written, for joining a reply that went on
 
 
 @dataclass
@@ -88,6 +113,21 @@ class ParsedCall:
     name: str
     arguments: Any
     error: str = ""         # set when the call could not be read at all
+    repaired: bool = False  # its name or its JSON was mended (harness/tools/repair.py)
+
+
+def answer_text(turns: List[AgentTurn]) -> str:
+    """The text of the last answer: the last turn that has text and no tool call, with the turns it goes on from put before it."""
+    for i in range(len(turns) - 1, -1, -1):
+        if not turns[i].tool_calls and turns[i].assistant_content:
+            pieces = [turns[i]]
+            while pieces[0].continues and i > 0 and not turns[i - 1].tool_calls:
+                i -= 1
+                pieces.insert(0, turns[i])
+            if len(pieces) == 1:
+                return pieces[0].assistant_content
+            return "".join(t.raw_content or t.assistant_content for t in pieces).strip()
+    return ""
 
 
 class LoopDetector:
@@ -122,6 +162,24 @@ def _fence_untrusted(name: str, text: str) -> str:
     return fence_untrusted(name, text)
 
 
+@dataclass
+class _Completion:
+    """What one call for the model's reply came to, with the usage of every attempt it took."""
+    message: Dict[str, Any] = field(default_factory=dict)
+    finish: str = ""
+    ceiling: Optional[int] = None       # the most the reply could write, when it was set
+    degenerate: bool = False            # the output was a repetition loop, also on the second try
+    cut_call: bool = False              # the output limit ended a tool call inside its arguments, also after the retries
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cached_tokens: int = 0
+
+    def add_usage(self, usage: Dict[str, Any]) -> None:
+        self.prompt_tokens += int(usage.get("prompt_tokens") or 0)
+        self.completion_tokens += int(usage.get("completion_tokens") or 0)
+        self.cached_tokens += int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+
+
 class AgentLoop:
     def __init__(
         self,
@@ -147,6 +205,7 @@ class AgentLoop:
         before_inference: Optional[Callable[[], Optional[str]]] = None,
         pipeline: Optional[Pipeline] = None,
         clock: Optional[Callable[[], datetime]] = None,
+        max_tokens: Optional[int] = None,
     ) -> None:
         self.client = client
         self.tools = tool_registry
@@ -171,7 +230,8 @@ class AgentLoop:
         self.clock = clock                        # when set: each request is preceded by the local time, and each message carries its time (`ts`)
         self._card: Optional[Card] = None
         self._retried = False
-        self.sampling = dict(sampling or {})      # temperature, seed, top_p...; the default is greedy
+        self.sampling = dict(sampling or {})      # temperature, seed, top_p...; what is not set is the model file's own
+        self.max_tokens = max_tokens              # the most one reply may write; None: the server's own limit
         self.loop_detector = LoopDetector()
         self.repeat_guard = RepeatGuard()         # a web read made twice in one request is not made again (harness/repeat_guard.py)
         self.messages: List[Dict[str, Any]] = [self._system_message()]
@@ -185,6 +245,19 @@ class AgentLoop:
         self.last_user_text = ""                      # the words of the person's latest message
         self.untrusted_since_user = False             # content from outside came in after that message
         self._end_turn = False
+        self.length_stops = 0                         # replies the output limit ended, in the latest run
+        self.cut = False                              # the answer delivered by the latest run was ended by the output limit
+        self._restart_request()
+
+    def _restart_request(self) -> None:
+        """What a person's request is allowed once is allowed again."""
+        self._continuations = 0
+        self._empty_retried = False
+        self._loop_retried = False
+        self._ceiling = self.max_tokens               # raised for the rest of a request by a tool call that was cut
+        self._effort_once = ""                        # thinking level for the next model call only
+        self._continuing = False                      # the next reply goes on from a cut one
+        self._invalid_strike = False
 
     def fork(self) -> "AgentLoop":
         """Another conversation with the same tools, permissions, audit and model but its own messages: for a request that has
@@ -194,7 +267,7 @@ class AgentLoop:
             on_turn_end=self.on_turn_end, permissions=self.permissions, hooks=self.hooks, audit=self.audit, checkpoints=self.checkpoints,
             secrets=self.secrets, output_filter=self.output_filter, max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds,
             cancel=threading.Event(), max_loop_strikes=self.max_loop_strikes, context=self.context, on_event=self.on_event,
-            sampling=self.sampling, on_delta=self.on_delta, pipeline=self.pipeline, clock=self.clock)
+            sampling=self.sampling, on_delta=self.on_delta, pipeline=self.pipeline, clock=self.clock, max_tokens=self.max_tokens)
 
     def append(self, message: Dict[str, Any]) -> None:
         """Puts a message at the end of the conversation; with a clock it carries the time it was made, which never goes to the server."""
@@ -215,6 +288,7 @@ class AgentLoop:
             self.taint(f"{origin} note")                                       # text made from an event is no one's instruction
             return
         self.loop_detector = LoopDetector()                              # a request of the person starts the count again: asking for the same thing twice is not a loop
+        self._restart_request()
         self.repeat_guard.restart(len(self.turns))
         rewrite = getattr(self.context, "rewrite", None)
         words = shown if shown is not None else text                     # `shown`: the person's own words, when `text` also holds their files
@@ -267,27 +341,53 @@ class AgentLoop:
                     args[key] = raw
         return args
 
-    def parse_calls(self, message: Dict[str, Any], content: str) -> List[ParsedCall]:
+    def _read_arguments(self, name: str, raw: str, repair: bool) -> "tuple[Any, str, bool]":
+        """(arguments, error, repaired) for arguments written as JSON text. Text that is not valid is mended when the mending is not in doubt
+        (harness/tools/repair.py); a string that holds the JSON of an object is read as that object."""
+        try:
+            value: Any = json.loads(raw or "{}")
+            fixed = False
+        except json.JSONDecodeError as exc:
+            value = repair_json(raw) if repair else None
+            if not isinstance(value, dict):
+                return raw, (f"The arguments of '{name}' are not valid JSON ({exc.msg} at position {exc.pos}). "
+                             "Call the tool again with a valid JSON object."), False
+            fixed = True
+        if isinstance(value, str):
+            try:
+                inner = json.loads(value)
+            except ValueError:
+                inner = None
+            if isinstance(inner, dict):
+                value, fixed = inner, True
+        return value, "", fixed
+
+    def _fix_name(self, name: str) -> "tuple[str, bool]":
+        """The registered tool a written name stands for, when it is not in doubt; else the name as it was."""
+        if not isinstance(name, str) or self.tools.get(name) is not None:
+            return name, False
+        found, _ = self.tools.resolve(name)
+        return (found, True) if found else (name, False)
+
+    def parse_calls(self, message: Dict[str, Any], content: str, repair: bool = True) -> List[ParsedCall]:
         """Tool calls of one assistant message: the structured field if present, else tags in `content`.
 
-        `content` is the visible text without reasoning, so a call quoted inside <think> never runs."""
+        `content` is the visible text without reasoning, so a call quoted inside <think> never runs. A name or arguments that can be mended
+        without a guess are (the call is marked `repaired`); with `repair` off nothing is."""
         calls: List[ParsedCall] = []
         for tc in message.get("tool_calls") or []:
             fn = tc.get("function") or {}
-            name = fn.get("name") or ""
+            name, renamed = self._fix_name(fn.get("name") or "") if repair else (fn.get("name") or "", False)
             raw_args = fn.get("arguments", "{}")
             call_id = tc.get("id") or f"call_{uuid.uuid4().hex[:12]}"
             if isinstance(raw_args, str):
-                try:
-                    args: Any = json.loads(raw_args or "{}")
-                except json.JSONDecodeError as exc:
-                    calls.append(ParsedCall(call_id, name, raw_args,
-                                            f"The arguments of '{name}' are not valid JSON ({exc.msg} at position {exc.pos}). "
-                                            "Call the tool again with a valid JSON object."))
+                args, error, fixed = self._read_arguments(name, raw_args, repair)
+                if error:
+                    calls.append(ParsedCall(call_id, name, args, error))
                     continue
             else:
-                args = raw_args
-            calls.append(ParsedCall(call_id, name, args))
+                args, fixed = raw_args, False
+            calls.append(ParsedCall(call_id, name, args, repaired=renamed or fixed))
         if calls:
             return calls
 
@@ -295,18 +395,31 @@ class AgentLoop:
             call_id = f"call_{uuid.uuid4().hex[:12]}"
             fn = FUNCTION_REGEX.search(body)
             if fn:
-                calls.append(ParsedCall(call_id, fn.group(1), self._decode_parameters(fn.group(1), fn.group(2))))
+                name, renamed = self._fix_name(fn.group(1)) if repair else (fn.group(1), False)
+                calls.append(ParsedCall(call_id, name, self._decode_parameters(name, fn.group(2)), repaired=renamed))
                 continue
             try:
                 parsed = json.loads(body)
+                fixed = False
             except json.JSONDecodeError as exc:
-                calls.append(ParsedCall(call_id, "", body, f"A tool call was not valid JSON ({exc.msg}). Use "
-                                        '{"name": ..., "arguments": {...}}.'))
-                continue
+                parsed = repair_json(body) if repair else None
+                fixed = isinstance(parsed, dict)
+                if not fixed:
+                    calls.append(ParsedCall(call_id, "", body, f"A tool call was not valid JSON ({exc.msg}). Use "
+                                            '{"name": ..., "arguments": {...}}.'))
+                    continue
             if not isinstance(parsed, dict) or not parsed.get("name"):
                 calls.append(ParsedCall(call_id, "", body, 'A tool call needs a "name".'))
                 continue
-            calls.append(ParsedCall(call_id, parsed["name"], parsed.get("arguments", {})))
+            name, renamed = self._fix_name(parsed["name"]) if repair else (parsed["name"], False)
+            arguments = parsed.get("arguments", {})
+            if isinstance(arguments, str) and repair:
+                arguments, error, again = self._read_arguments(name, arguments, repair)
+                if error:
+                    calls.append(ParsedCall(call_id, name, arguments, error))
+                    continue
+                fixed = fixed or again
+            calls.append(ParsedCall(call_id, name, arguments, repaired=renamed or fixed))
         if not calls and "<tool_call>" in content:        # opened and never closed: the answer was cut off, it is not a final answer
             calls.append(ParsedCall(f"call_{uuid.uuid4().hex[:12]}", "", content.partition("<tool_call>")[2],
                                     "A tool call was cut off: it has no closing </tool_call>. Write the whole call again."))
@@ -324,11 +437,12 @@ class AgentLoop:
             self.audit.record("agent", action, details)
 
     def _audit_call(self, action: str, name: str, args: Any, permission: str, outcome: str, started: float,
-                    reason: str = "", effect: str = "") -> None:
+                    reason: str = "", effect: str = "", repaired: bool = False) -> None:
         """One record about one tool call: the arguments only as a hash and a short masked preview (see AuditLedger.call_details)."""
         if self.audit:
             self.audit.record("agent", action, self.audit.call_details(
-                name, args, permission=permission, outcome=outcome, duration_s=time.monotonic() - started, effect=effect, reason=reason))
+                name, args, permission=permission, outcome=outcome, duration_s=time.monotonic() - started, effect=effect, reason=reason,
+                repaired=repaired))
 
     def _stringify(self, name: str, output: Any) -> str:
         text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False, default=str)
@@ -387,17 +501,21 @@ class AgentLoop:
         name = call.name
         started = time.monotonic()
         permission = "not_required" if self.permissions is None else "not_reached"
+        repaired, written = call.repaired, args
 
         def refused(decision: str, message: str, audit_action: str) -> ToolExecutionResult:
-            self._audit_call(audit_action, name, args, permission, "refused", started, reason=message)
-            return ToolExecutionResult(name, args if isinstance(args, dict) else {}, message, True, call.call_id, decision)
+            self._audit_call(audit_action, name, args, permission, "refused", started, reason=message, repaired=repaired)
+            return ToolExecutionResult(name, args if isinstance(args, dict) else {}, message, True, call.call_id, decision, repaired=repaired, written=written)
 
         if call.error:
             return refused("invalid", call.error, "tool_invalid")
         tool = self.tools.get(name)
         if tool is None:
-            return refused("invalid", f"Unknown tool '{name}'. Available tools: {', '.join(self.tools.names())}.",
-                           "tool_invalid")
+            _, near = self.tools.resolve(name)
+            hint = f"Did you mean {', '.join(near)}?" if near else "No tool has a similar name; use only the tools in your tool list."
+            return refused("invalid", f"Unknown tool '{name}'. {hint}", "tool_invalid")
+        args, coerced = self.tools.coerce(name, args)
+        repaired = repaired or coerced
         try:
             self.tools.validate(name, args)
         except ToolArgumentError as exc:
@@ -425,7 +543,7 @@ class AgentLoop:
             permission = "allowed" if allowed else "denied"
             if not allowed:
                 return refused("denied", f"Permission denied: {reason}", "permission_denied")
-            self._audit_call("permission_granted", name, args, permission, "started", started, reason=reason, effect=tool.effect.value)
+            self._audit_call("permission_granted", name, args, permission, "started", started, reason=reason, effect=tool.effect.value, repaired=repaired)
         cp_note = ""
         mode = self.checkpoints.effective_mode(self.permissions.level.value if self.permissions else "default") if self.checkpoints else "off"
         if mode != "off" and tool.effect != EffectClass.PURE:
@@ -460,8 +578,8 @@ class AgentLoop:
             self.hooks.trigger_post_tool(name, args, output)
         self._audit_call("tool_cancelled" if cancelled else "tool_error" if is_error else "tool_executed", name, args, permission,
                          "cancelled" if cancelled else "error" if is_error else "ok", ran, effect=tool.effect.value,
-                         reason=str(output) if is_error else "")
-        return ToolExecutionResult(name, args, output, is_error, call.call_id, "executed")
+                         reason=str(output) if is_error else "", repaired=repaired)
+        return ToolExecutionResult(name, args, output, is_error, call.call_id, "executed", repaired=repaired, written=written)
 
     # -- main loop -------------------------------------------------------------------------------
 
@@ -477,6 +595,7 @@ class AgentLoop:
         self.loop_detector = LoopDetector()
         self.repeat_guard.restart(0)
         self.total_tokens = 0
+        self._restart_request()
 
     def close(self) -> None:
         if self.hooks and self._started:
@@ -491,6 +610,7 @@ class AgentLoop:
         nothing is added to the conversation: it goes on from where it stands, as after a failed model call."""
         started = time.monotonic()
         self.stop_reason, self.error, self.error_status, self._loop_strikes = "", "", None, 0
+        self.length_stops, self.cut, self._invalid_strike = 0, False, False
         if not self._started:
             self._started = True
             if self.hooks:
@@ -523,12 +643,7 @@ class AgentLoop:
             try:
                 if self.context:
                     self.messages = self.context.prepare(self.messages)
-                opts = dict(self.sampling)
-                temperature = opts.pop("temperature", 0.0)
-                resp = self.client.chat_completion(messages=wire_messages(self.messages), tools=self.tools.schemas(),
-                                                   temperature=temperature, **({"extra": opts} if opts else {}),
-                                                   **({"on_delta": self.on_delta} if self.on_delta else {}))
-                msg = resp["choices"][0]["message"]
+                done = self._complete()
             except StreamCancelled:                     # the person stopped the answer while it was being written
                 self.stop_reason = CANCELLED
                 break
@@ -536,26 +651,52 @@ class AgentLoop:
                 self.stop_reason, self.error = ERROR, str(exc) or type(exc).__name__
                 self.error_status = exc.status if isinstance(exc, BasaltError) else None
                 break
+            msg, finish = done.message, done.finish
             reasoning, content = extract_reasoning_and_content(msg)
-            usage = resp.get("usage") or {}
             turn = AgentTurn(
                 turn_index=turn_idx,
                 user_input=(user_goal or "") if turn_idx == 1 else "",
                 reasoning=reasoning,
                 assistant_content=content,
-                prompt_tokens=int(usage.get("prompt_tokens") or 0),
-                completion_tokens=int(usage.get("completion_tokens") or 0),
-                cached_tokens=int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0),
+                prompt_tokens=done.prompt_tokens,
+                completion_tokens=done.completion_tokens,
+                cached_tokens=done.cached_tokens,
+                finish_reason=finish,
+                continues=self._continuing,
+                raw_content=msg.get("content") or "",
             )
+            self._continuing = False
             self.total_tokens += turn.prompt_tokens + turn.completion_tokens
 
-            self._emit({"type": "assistant", "reasoning": reasoning, "content": content})
+            if done.degenerate:                          # a loop, twice: what was written is not kept
+                self.stop_reason, self.error = DEGENERATE, DEGENERATE_NOTICE
+                self._emit({"type": "answer_degenerate"})
+                self._audit("output_degenerate", {"final": True})
+                self._finish_turn(turn, run_turns)
+                break
+            if done.cut_call:                            # a tool call ended inside its arguments, at every size tried: nothing of it runs
+                self.stop_reason, self.error = LENGTH, LENGTH_NOTICE.format(tokens=done.ceiling)
+                self._emit({"type": "tool_call_cut", "final": True, "max_tokens": done.ceiling})
+                self._audit("tool_call_cut", {"final": True, "max_tokens": done.ceiling})
+                self._finish_turn(turn, run_turns)
+                break
+
+            self._emit({"type": "assistant", "reasoning": reasoning, "content": content, **({"finish_reason": finish} if finish == "length" else {})})
             calls = self.parse_calls(msg, content)
             if not calls:
+                if not content and (reasoning or finish == "length"):
+                    if self._answer_missing(turn, run_turns, t0, finish):
+                        continue
+                    break
+                if finish == "length" and content:
+                    if self._answer_cut(turn, run_turns, t0, content):
+                        continue
+                    self.stop_reason = FINAL
+                    break
                 self.append({"role": "assistant", "content": content})
                 turn.seconds = round(time.monotonic() - t0, 3)
                 self._finish_turn(turn, run_turns)
-                if self._check_answer(content):
+                if self._check_answer(answer_text(self.turns) if turn.continues else content):
                     continue                         # one more try, with what was not respected
                 self.stop_reason = FINAL
                 break
@@ -621,6 +762,10 @@ class AgentLoop:
                 self._emit({"type": "calls_skipped", "repeated": repeated, "surplus": surplus})
                 self._audit("calls_skipped", {"repeated": repeated, "surplus": surplus, "ran": ran})
 
+            if self._invalid_strike:                  # a call that could not be read counts against the model only when none of the turn's calls could
+                self._invalid_strike = False
+                if all(r.decision == "invalid" for r in turn.tool_calls):
+                    self._loop_strikes += 1
             turn.seconds = round(time.monotonic() - t0, 3)
             self._finish_turn(turn, run_turns)
             if self._end_turn:                       # a tool asked the person something: nothing goes on until they answer
@@ -654,9 +799,140 @@ class AgentLoop:
         if repeats < 2:
             return ""
         if repeats >= 3:
-            self._loop_strikes += 1
+            if result.decision == "invalid":
+                self._invalid_strike = True
+            else:
+                self._loop_strikes += 1
         return (f"\n[harness] '{name}' has now failed {repeats} times in a row with this same error. Repeating it will not help: "
                 "read the error, then change what you ask or take another way.")
+
+    # -- one model call, and what its ending means -----------------------------------------------
+
+    def _ask(self, ceiling: Optional[int], extra: Dict[str, Any], watch: Optional[RepetitionWatch]) -> Dict[str, Any]:
+        """One request to the model for the conversation as it stands."""
+        temperature = extra.pop("temperature", None)
+        kwargs: Dict[str, Any] = {}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if ceiling:
+            kwargs["max_tokens"] = ceiling
+        if extra:
+            kwargs["extra"] = extra
+        if self.on_delta:
+            shown, guard = self.on_delta, watch
+
+            def on_delta(kind: str, text: str) -> None:
+                shown(kind, text)
+                if guard is not None and guard.feed(kind, text):
+                    raise RepetitionAbort(guard.kind)
+            kwargs["on_delta"] = on_delta
+        return self.client.chat_completion(messages=wire_messages(self.messages), tools=self.tools.schemas(), **kwargs)
+
+    def _complete(self) -> "_Completion":
+        """The model's reply for the conversation as it stands. Two failures are put right without touching the conversation: a stream
+        that fell into a repetition loop (asked again once per request, with a higher repetition penalty) and a tool call that the
+        output limit ended inside its arguments (asked again up to MAX_CUT_RETRIES times, each time with twice the room). The usage of
+        every attempt is added up."""
+        extra = dict(self.sampling)
+        if self._effort_once:
+            extra["reasoning_effort"], self._effort_once = self._effort_once, ""
+        ceiling, cut_tries = self._ceiling, 0
+        done = _Completion()
+        while True:
+            watch = RepetitionWatch() if self.on_delta else None
+            try:
+                resp = self._ask(ceiling, dict(extra), watch)
+            except RepetitionAbort:
+                if self._loop_retried:
+                    done.degenerate = True
+                    return done
+                self._restart_after_loop(extra, "stream")
+                continue
+            choice = resp["choices"][0]
+            msg, finish = choice["message"], choice.get("finish_reason") or ""
+            done.add_usage(resp.get("usage") or {})
+            if finish == "length":
+                self.length_stops += 1
+                if self._cut_in_call(resp, msg):
+                    if cut_tries >= MAX_CUT_RETRIES:
+                        done.cut_call, done.ceiling = True, ceiling
+                        return done
+                    cut_tries += 1
+                    ceiling = min(RETRY_TOKENS_MAX, 2 * max(ceiling or 0, int((resp.get("usage") or {}).get("completion_tokens") or 0), RETRY_TOKENS // 2))
+                    self._ceiling = ceiling
+                    self._emit({"type": "tool_call_cut", "final": False, "attempt": cut_tries, "max_tokens": ceiling})
+                    self._audit("tool_call_cut", {"final": False, "attempt": cut_tries, "max_tokens": ceiling})
+                    continue
+                _, text = extract_reasoning_and_content(msg)
+                if text and not msg.get("tool_calls") and repetition_dominated(text):
+                    if self._loop_retried:
+                        done.degenerate = True
+                        return done
+                    self._restart_after_loop(extra, "reply")
+                    continue
+            done.message, done.finish, done.ceiling = msg, finish, ceiling
+            return done
+
+    def _restart_after_loop(self, extra: Dict[str, Any], where: str) -> None:
+        self._loop_retried = True
+        extra["repetition_penalty"] = raised_penalty(extra.get("repetition_penalty"))
+        self._emit({"type": "stream_restart", "reason": "repetition"})
+        self._audit("output_degenerate", {"final": False, "in": where, "repetition_penalty": extra["repetition_penalty"]})
+
+    @staticmethod
+    def _cut_in_call(resp: Dict[str, Any], msg: Dict[str, Any]) -> bool:
+        """Whether a reply that the output limit ended was ended inside a tool call: the client left one out because it was unfinished, a
+        call's arguments are not complete JSON, or a <tool_call> tag was never closed."""
+        if resp.get("cut_calls"):
+            return True
+        for tc in msg.get("tool_calls") or []:
+            raw = (tc.get("function") or {}).get("arguments")
+            if isinstance(raw, str):
+                try:
+                    json.loads(raw or "{}")
+                except ValueError:
+                    return True
+        _, text = extract_reasoning_and_content(msg)
+        return text.count("<tool_call>") > text.count("</tool_call>")
+
+    def _answer_missing(self, turn: AgentTurn, run_turns: List[AgentTurn], t0: float, finish: str) -> bool:
+        """The reply has no text although the model thought (or the output limit ended it): the thinking used the output. Asked again once
+        per request, at a lower thinking level and with a note to answer shortly; True when the run goes on. Otherwise the run ends as
+        `empty`, with a notice in `error`."""
+        turn.seconds = round(time.monotonic() - t0, 3)
+        if not self._empty_retried and not self.cancel.is_set():
+            self._empty_retried = True
+            self._effort_once = LOWER_EFFORT.get(str(self.sampling.get("reasoning_effort") or ""), "low")
+            self.append({"role": "user", "content": SHORT_ANSWER_NOTE, "note": True})
+            self._emit({"type": "answer_empty", "final": False, "effort": self._effort_once})
+            self._audit("answer_empty", {"final": False, "finish_reason": finish, "effort": self._effort_once})
+            self._finish_turn(turn, run_turns)
+            return True
+        self.stop_reason, self.error = EMPTY, EMPTY_NOTICE
+        self._emit({"type": "answer_empty", "final": True})
+        self._audit("answer_empty", {"final": True, "finish_reason": finish})
+        self._finish_turn(turn, run_turns)
+        return False
+
+    def _answer_cut(self, turn: AgentTurn, run_turns: List[AgentTurn], t0: float, content: str) -> bool:
+        """The output limit ended an answer that has text and no tool call. It is asked to go on, up to MAX_CONTINUATIONS times per request,
+        unless the text is a repetition loop; then it is delivered as it is, flagged `cut`. True when the run goes on."""
+        turn.cut = True
+        degenerate = repetition_dominated(content)
+        go_on = self._continuations < MAX_CONTINUATIONS and not degenerate and not self.cancel.is_set()
+        self._emit({"type": "answer_truncated", "final": not go_on, "continuation": self._continuations + 1 if go_on else self._continuations,
+                    "degenerate": degenerate})
+        self._audit("answer_truncated", {"final": not go_on, "continuations": self._continuations, "degenerate": degenerate, "chars": len(content)})
+        self.append({"role": "assistant", "content": content})
+        turn.seconds = round(time.monotonic() - t0, 3)
+        self._finish_turn(turn, run_turns)
+        if not go_on:
+            self.cut = True
+            return False
+        self._continuations += 1
+        self._continuing = True
+        self.append({"role": "user", "content": CONTINUE_NOTE, "note": True})
+        return True
 
     def _check_answer(self, content: str) -> bool:
         """Measures the answer against the request's card; True when it asks for a second try (once per request)."""
