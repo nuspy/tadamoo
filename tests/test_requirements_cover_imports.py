@@ -14,6 +14,8 @@ OPTIONAL = {
     "referencing": "comes with jsonschema",
     "pypdf": "a PDF is read with pypdf or PyMuPDF, whichever is installed",
     "fitz": "PyMuPDF, the other PDF reader",
+    "tomllib": "standard library from Python 3.11; the TOML syntax check is skipped when neither it nor tomli is there",
+    "tomli": "the TOML parser for Python before 3.11, used only by the syntax check",
 }
 # modules of this repository that the code reaches through sys.path (tools/ is added at run time)
 # (the personal skills' runtime folder holds basalt_skill, which a skill's script imports from the process that runs it)

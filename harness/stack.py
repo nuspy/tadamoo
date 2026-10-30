@@ -24,6 +24,7 @@ from harness.memory import MemoryStore, default_db_path, register_memory_tools
 from harness.permissions import PermissionLevel, PermissionManager
 from harness.plan_mode import MODES_AFTER_PLAN, PlanGate, register_plan_tool
 from harness.rule_of_two import LEVELS
+from harness.syntax_check import DEFAULT_GUARD as DEFAULT_EDIT_GUARD, GUARD_LEVELS as EDIT_GUARD_LEVELS
 from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
 from harness.prompt_blocks import instruction_blocks
 from harness.skills import SkillCatalog, guidelines_cut_notice, read_project_guidelines, register_skill_tool
@@ -129,6 +130,9 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--rule-of-two", default="ask", choices=list(LEVELS),
                         help="when the agent has read content from outside and touched private data, an outward action (a web address, a query, a form) asks first (ask); "
                              "strict: it asks after untrusted content alone; off: it never asks. A known secret never leaves inside an address whatever the level")
+    parser.add_argument("--edit-guard", default=DEFAULT_EDIT_GUARD, choices=list(EDIT_GUARD_LEVELS),
+                        help="when an edit or a write leaves a file that parsed before unparsable (Python, JSON, TOML, YAML, JavaScript): warn (written, with the error "
+                             "in the answer), block (nothing written), or off")
     parser.add_argument("--vault-dir", default="", help="the person's vault: the model writes {{vault:ENTRY.FIELD}} and the value is filled in for it")
     parser.add_argument("--capabilities", action="store_true", help="offer the search for skills, plugins and MCP servers found on this PC, and the visual analysis")
     parser.add_argument("--images", default="", choices=["", "very_low", "low", "normal", "high", "very_high", "highest"],
@@ -180,7 +184,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         workspace=args.workspace, endpoint=args.endpoint, api_key=args.api_key, max_turns=args.max_turns, permission_mode=args.permission_mode,
         allow=args.allow, deny=args.deny, secret_names=secret_names, secret_hosts=secret_hosts, skill_paths=args.skills,
         payments_dir=args.payments_dir, browser=args.browser, browser_headless=args.browser_headless, browser_private=args.browser_private,
-        browser_profile=args.browser_profile, browser_consent=args.browser_consent, browser_permissions=args.browser_permissions, vault_dir=args.vault_dir, rule_of_two=args.rule_of_two, capabilities=args.capabilities, lsp=args.lsp, council=args.council,
+        browser_profile=args.browser_profile, browser_consent=args.browser_consent, browser_permissions=args.browser_permissions, vault_dir=args.vault_dir, rule_of_two=args.rule_of_two, edit_guard=args.edit_guard, capabilities=args.capabilities, lsp=args.lsp, council=args.council,
         wiki=args.wiki, wiki_url=args.wiki_url, wiki_project=args.wiki_project, phone=args.phone,
         reference_docs=read_reference(args.reference), reference_strategy=args.reference_strategy,
         memory_min_score=args.memory_min_score, memory_notes=args.memory_notes, memory_budget_tokens=args.memory_budget, phone_on_behalf_of=args.on_behalf_of,
@@ -229,6 +233,7 @@ class AgentConfig:
     browser: bool = False               # offer the browser tools (Edge or Chrome on this PC): forms, purchases, bookings
     browser_headless: bool = False      # without a window
     rule_of_two: str = "ask"            # off, ask or strict: when an outward action asks (harness/rule_of_two.py)
+    edit_guard: str = DEFAULT_EDIT_GUARD   # off, warn or block: an edit or write that leaves a file unparsable (harness/syntax_check.py)
     browser_private: bool = False       # may open pages on this PC or its network (off: only sites on the internet)
     browser_profile: str = ""           # a profile folder that keeps the browser's sign-ins between conversations (empty: a new one each time)
     browser_consent: str = "follow"     # cookie banners: follow (accept at Auto, necessary otherwise), necessary, accept, reject, off (the model deals with them)
@@ -494,6 +499,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         permissions.add_rule(pattern, "allow")
 
     registry, sandbox = create_standard_tool_registry(workspace, secrets=secrets, allow_private_pages=cfg.browser_private, permissions=permissions)
+    sandbox.edit_guard = cfg.edit_guard if cfg.edit_guard in EDIT_GUARD_LEVELS else DEFAULT_EDIT_GUARD
     payment_confirm = None
     if cfg.payments_dir:
         from harness.payments_broker import PaymentsBroker, register_payment_tool

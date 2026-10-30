@@ -47,7 +47,8 @@ def test_a_file_over_the_limit_says_how_long_it_is_and_the_next_offset(sb):
 
 def test_an_offset_past_the_end_and_a_line_longer_than_the_limit_are_stated(sb):
     (sb.root / "short.txt").write_text("a\nb\n", encoding="utf-8")
-    assert "past the end" in sb.read_file("short.txt", offset=9) and "2 lines" in sb.read_file("short.txt", offset=9)
+    past = sb.read_file("short.txt", offset=9)
+    assert "past the end" in past and "2 lines" in past
     (sb.root / "one.txt").write_text("y" * 9000, encoding="utf-8")
     out = sb.read_file("one.txt", max_chars=1000)
     assert out.startswith("y" * 1000) and "line 1 has 9000 characters and only the first 1000 are shown" in out
