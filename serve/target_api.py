@@ -57,7 +57,8 @@ class SessionConversation:
                 elif kind == "agent" and mine and isinstance(e.get("data"), dict):
                     d = e["data"]
                     if d.get("type") == "tool_start":
-                        calls[d.get("call_id")] = {"name": d.get("name"), "arguments": d.get("arguments") or {}, "status": "running", "output": ""}
+                        calls[d.get("call_id")] = {"name": d.get("name"), "arguments": d.get("arguments") or {}, "status": "running", "output": "",
+                                                   **({"effect": d["effect"]} if d.get("effect") else {}), **({"gate": True} if d.get("gate") else {})}
                         order.append(d.get("call_id"))
                     elif d.get("type") == "tool_end" and d.get("call_id") in calls:
                         calls[d["call_id"]].update(status=d.get("status") or "completed", output=str(d.get("output") or "")[:OUTPUT_CHARS])

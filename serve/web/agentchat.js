@@ -367,6 +367,8 @@
         } else if (d.type === "verify") {                                        // the answer measured against what was asked
           const list = (d.violations || []).join(" ");
           addBlock({ t: "note", s: d.ok ? T("ch.verify.ok", (d.constraints || []).length) : d.retry ? T("ch.verify.retry", list) : T("ch.verify.unmet", list) }, e.turn);
+        } else if (d.type === "gate" || d.type === "budget_warning" || d.type === "budget_grace" || d.type === "stop_denied") {      // the checks before the end, and the limits: one line each
+          addBlock({ t: "note", s: T(d.type === "gate" ? "ch.gate." + d.decision : "ch.ev." + d.type, d.round, d.of) }, e.turn);
         } else if (d.type === "tool_end") {
           if (d.name === "ask_user") break;
           const b = toolBlock(d.call_id) || addBlock({ t: "tool", id: d.call_id, name: d.name, args: {}, status: "running", output: "" }, e.turn);

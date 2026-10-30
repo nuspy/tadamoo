@@ -136,7 +136,7 @@ def test_the_sentence_never_changes_a_decision():
 
 def test_a_finite_limit_stops_at_n_steps_with_max_turns():
     seen = []
-    agent = AgentLoop(Endless(distinct=True), registry(seen), max_turns=4)
+    agent = AgentLoop(Endless(distinct=True), registry(seen), max_turns=4, budget_grace=False)
     turns = agent.run("go")
     assert agent.stop_reason == MAX_TURNS and len(turns) == 4 and len(seen) == 4
 
@@ -147,7 +147,7 @@ def test_below_one_is_no_limit_and_the_other_guards_still_end_the_run():
         turns = agent.run("go")
         assert agent.stop_reason == LOOP and 3 <= len(turns) < 15, value            # the loop detector, not the step count
     seen = []
-    agent = AgentLoop(Endless(distinct=True, tokens=100), registry(seen), max_turns=-1, max_total_tokens=4000)
+    agent = AgentLoop(Endless(distinct=True, tokens=100), registry(seen), max_turns=-1, max_total_tokens=4000, budget_grace=False)
     turns = agent.run("go")
     assert agent.stop_reason == BUDGET and len(turns) == 40                         # more than the old default of 15
     agent = AgentLoop(Endless(distinct=True), registry([]), max_turns=-1)
@@ -159,7 +159,7 @@ def test_below_one_is_no_limit_and_the_other_guards_still_end_the_run():
 
 
 def test_the_limit_can_change_between_two_steps():
-    agent = AgentLoop(Endless(distinct=True), registry([]), max_turns=-1)
+    agent = AgentLoop(Endless(distinct=True), registry([]), max_turns=-1, budget_grace=False)
     agent.on_turn_end = lambda t: setattr(agent, "max_turns", 6) if t.turn_index == 2 else None
     agent.run("go")
     assert agent.stop_reason == MAX_TURNS and len(agent.turns) == 6

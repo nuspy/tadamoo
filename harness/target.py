@@ -496,6 +496,7 @@ class TargetLoop:
         self.waits = waits
         self.prints: List[str] = []                       # the fingerprint of each pass since the last change of approach
         self.tried: List[str] = []                        # what was changed so far, for the model that proposes another approach
+        self.gate_runs: Dict[str, Tuple[bool, str]] = {}  # command -> (ok, output) of a check the conversation's verify gate ran after the last change
 
     # state ---------------------------------------------------------------------------------------------------
 
@@ -586,6 +587,7 @@ class TargetLoop:
                 prompt = self.t["text"] + SEPARATOR + prompt
         self._say("task", task=task["id"], title=task["title"], n=n_done + 1, of=total)
         result = self.conv.run(prompt, self.cancel)
+        self._note_gate(result)
         with self.lock:
             task["result"] = _clip(result.final or result.error, RESULT_CHARS)
             if result.stop_reason == "cancelled" or self.cancel.is_set():
@@ -631,6 +633,17 @@ class TargetLoop:
                         have.add((kind, value))
             self.save(self.t)
 
+    def _note_gate(self, result: TurnResult) -> None:
+        """Remembers the checks the conversation's verify gate ran in this turn (they pass the same gate as any command, and the gate runs a
+        command only after files changed). A later call that can change files makes what was remembered stale."""
+        for call in result.tools:
+            if call.get("gate"):
+                args = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
+                command = " ".join(str(args.get("command", "")).split())
+                self.gate_runs[command] = command_outcome(TurnResult(tools=[call]), command)
+            elif call.get("effect") in ("reversible", "irreversible"):
+                self.gate_runs.clear()
+
     def _checks(self, evidence: Evidence) -> List[Dict[str, Any]]:
         results: List[Dict[str, Any]] = []
         with self.lock:
@@ -640,6 +653,9 @@ class TargetLoop:
             if check["kind"] == "file":
                 ok = self.conv.file_exists(check["value"])
                 output = "exists" if ok else "missing"
+            elif " ".join(check["value"].split()) in self.gate_runs:        # already run by the verify gate on the files as they are: not run twice
+                ok, output = self.gate_runs[" ".join(check["value"].split())]
+                output = f"{output}\n(run by the verify gate after the last change)"
             else:
                 self._touch(phase="checking")
                 result = self.conv.run(check_prompt(check["value"]), self.cancel)

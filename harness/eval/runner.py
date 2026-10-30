@@ -130,12 +130,14 @@ class EvalRunner:
                 if self.instruction_blocks:
                     system += "\n\n" + instruction_blocks(registry.names())
                 agent = AgentLoop(client=client, tool_registry=registry, max_turns=task.max_turns,
-                                  max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds, sampling=sampling, system_prompt=system)
+                                  max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds, sampling=sampling, system_prompt=system,
+                                  budget_grace=False)
             else:
                 cfg = AgentConfig(workspace=str(workspace), max_turns=task.max_turns, permission_mode="default", allow=task.allow,
                                   use_memory=False, use_checkpoints=False, data_dir=str(data), max_total_tokens=self.max_total_tokens,
                                   max_seconds=self.max_seconds, reference_docs=task.knowledge if task.strategy != "none" else {},
-                                  reference_strategy=task.strategy, council=self.council, instruction_blocks=self.instruction_blocks)
+                                  reference_strategy=task.strategy, council=self.council, instruction_blocks=self.instruction_blocks,
+                                  budget_grace=False)
                 built = build_agent(cfg, client=client)
                 agent = built.agent
                 agent.sampling = sampling
