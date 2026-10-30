@@ -30,6 +30,7 @@ const chatSettings = (() => {
     { key: "max_tokens", id: "cs-max_tokens", min: 1, kind: "int", label: "cs.max_tokens" },
     { key: "retries", id: "cs-retries", min: 0, max: 5, kind: "int", label: "cs.retries" },
     { key: "max_turns", id: "cs-max_turns", min: -1, kind: "int", label: "cs.max_turns" },     // for the Agent, not for the model: -1 or empty is no limit
+    { key: "max_answer_tokens", id: "cs-max_answer_tokens", min: 1, kind: "int", label: "cs.max_answer_tokens" },
   ];
   // what the engine does with a key that neither the request nor the model file sets (the GEN line's defaults)
   const ENGINE_SAMPLING = { temperature: 0, top_p: 1, top_k: 20, min_p: 0, repetition_penalty: 1,

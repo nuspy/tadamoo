@@ -1,0 +1,22 @@
+/* The Long answer dialog. Colours are the app's own variables; the button says "on" in words as well as in its border. */
+#long-open[data-on="1"] { border-color: var(--accent); }
+
+.lad { width: min(640px, 96vw); max-height: calc(94vh / var(--z, 1)); padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--fg); overflow: auto; }
+.lad::backdrop { background: rgba(0, 0, 0, .65); }
+.lad :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lad-form { display: flex; flex-direction: column; gap: 10px; padding: 14px 20px 20px; }
+.lad-h { display: flex; align-items: center; gap: 12px; }
+.lad-h h2 { margin: 0; font: 600 16px/1.3 var(--font-sans); }
+.lad-grow { flex: 1; }
+.lad-dim { margin: 0; color: var(--fg-2); font-size: 13.5px; line-height: 1.5; }
+.lad-row { display: flex; flex-direction: column; gap: 4px; }
+.lad-row[hidden] { display: none; }
+.lad-row label { font-weight: 600; }
+.lad input[type="text"], .lad input[type="number"], .lad select, .lad textarea { width: 100%; min-height: 36px; padding: 6px 10px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: 400 16px/1.5 var(--font-sans); }
+.lad textarea { resize: vertical; }
+.lad-check { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.lad-check input { width: 18px; height: 18px; flex: none; }
+.lad-msg { min-height: 1.4em; margin: 0; color: var(--pl-fail); }
+.lad-msg:empty { display: none; }
+.lad-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.msgs .goon { margin-left: 8px; }
