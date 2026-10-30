@@ -502,7 +502,7 @@ def test_going_back_while_the_agent_works_stops_it(make, ws):
     mgr = make()
     sid = mgr.create(ws)["id"]
     mgr.send(sid, "hang")                                   # the stand-in goes on working
-    until(lambda: mgr.get(sid)["state"] == "busy")
+    until(lambda: mgr.get(sid)["state"] == "busy" and mgr._read_history(sid))
     back = mgr.go_back(sid, 1)
     assert back["state"] == "dormant" and back["turns"] == 1
 
