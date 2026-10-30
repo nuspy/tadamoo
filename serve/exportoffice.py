@@ -270,7 +270,7 @@ class _Word:
 
 def write_docx(doc: Doc) -> bytes:
     w = _Word(doc)
-    body = w.para("Title", w.text(doc.title, "")) + w.blocks(doc.blocks)
+    body = ("" if doc.bare else w.para("Title", w.text(doc.title, ""))) + w.blocks(doc.blocks)
     sect = ('<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" '
             'w:header="567" w:footer="567" w:gutter="0"/></w:sectPr>')
     document = XML_HEAD + f"<w:document {W_NS}><w:body>{body}{sect}</w:body></w:document>"
@@ -497,7 +497,7 @@ def _odf_styles(lang: str) -> str:
 
 def write_odt(doc: Doc) -> bytes:
     o = _Odf(doc)
-    body = f'<text:p text:style-name="Title">{esc(doc.title)}</text:p>' + o.blocks(doc.blocks)
+    body = ("" if doc.bare else f'<text:p text:style-name="Title">{esc(doc.title)}</text:p>') + o.blocks(doc.blocks)
     levels_b = "".join(
         f'<text:list-level-style-bullet text:level="{n}" text:bullet-char="{BULLETS[(n - 1) % 3]}"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment">'
         f'<style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="{0.9 * n:.2f}cm" fo:text-indent="-0.6cm" fo:margin-left="{0.9 * n:.2f}cm"/></style:list-level-properties></text:list-level-style-bullet>'

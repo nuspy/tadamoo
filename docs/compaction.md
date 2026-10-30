@@ -39,8 +39,10 @@ folded into the new one, so there is always one. What leaves the model's view is
 
 ## The summary call
 
-A separate call through the same client the compaction function points to (the model route of the function "Context compaction"; the executor
-client when none is set). It has no tools, temperature 0, thinking off, at most 1500 tokens out and a 240 s limit; a failed, empty or
+A separate call through the client the function "Context compaction" points to: the loaded model unless the person pointed it at a cloud
+route in Settings (which also needs their yes for personal data). Where the function is not set, the conversation's own client writes the
+summary only if it stays on this PC (`harness/stack.py`, `_compaction_client`); a conversation that runs on a cloud route never sends its
+history to it for a summary unless the person chose that route for the function. It has no tools, temperature 0, thinking off, at most 1500 tokens out and a 240 s limit; a failed, empty or
 slow call gives the **plain notes** instead (below), flagged `summary_by: "extract"` with the reason. Nothing waits for the call but the
 turn itself.
 
@@ -74,8 +76,9 @@ Whatever the summary lacks is added to the note as a **Re-read these** list, at 
 - otherwise the line of the earlier work that held it.
 
 Two more additions, both marked in the note: the files changed (from the calls, exact) that the summary did not name, and, when the model
-wrote the notes, paths, URLs and ids in its open items that appear nowhere in the work ("not found in the work: check before relying on
-it"). The report counts what was carried, what was missing and what was not found.
+wrote the notes, paths, URLs and ids in its open items that appear nowhere in the work, under the line "Not contained in the memory of this
+session (check before relying on it)" (in Italian «Non contenuto nella memoria di questa sessione (verifica prima di farci affidamento)»,
+when the person's request is in Italian). The report counts what was carried, what was missing and what was not found.
 
 ## The prefix-cache report
 
@@ -114,13 +117,14 @@ system message and the tool list of every request are byte-identical before and 
 | start at | `--compaction-threshold SHARE` (0.5 to 0.98) | 0.85 |
 
 Settings > General > Long work has both, each with its explanation in English and Italian, and takes effect for conversations started
-afterwards. Off leaves masking only; a request that outgrows the window can then fail at the server. The mobile app has no card for it.
+afterwards. The choice is kept in `compaction.json` in the user data folder, read afresh each time a conversation's process is started, so
+it survives a restart of the server and of the app; with no file it is on. Off leaves masking only; a request that outgrows the window can then fail at the server. The mobile app has no card for it.
 
 ## Costs and limits
 
 - One extra model call per compaction, on the same GPU, and the server reads the shortened conversation from the first changed token
   (the report says how many). The summary call has a different prefix, so on a server with a single cache slot it also evicts the
-  main conversation's cache: the report's `observed` shows the cost. Queue row 64 in `tests/QUEUE_daytime.md`.
+  main conversation's cache: the report's `observed` shows the cost (see *The summary call and the engine's cache*). Queue rows 64 and 69.
 - The summary can lose detail or get something wrong; the audit catches identifiers, not meaning. The full text of masked results and of the
   results the audit named is on disk; the person's record keeps everything.
 - A conversation whose newest steps alone fill the window cannot be helped: the tail is kept as written.
@@ -128,8 +132,41 @@ afterwards. Off leaves masking only; a request that outgrows the window can then
 - The estimate is characters over 3.5 plus the learned overhead; a model whose text tokenizes very differently shifts the real start.
 - The chat page's own context policy (`serve/chatctx.py`, POST `/api/chat/context`) is a separate path for plain chat and is not changed.
 
+## The summary call and the engine's cache
+
+The summary should not disturb the cache of the main conversation. What the code does today, from `serve/service.py`, `serve/engine/process.py`
+and the engine's headers:
+
+- **No request can pick or pin a slot.** `Service.run` calls `engine.generate(prompt, max_new, sampling, cancel)`; no request field, in
+  `serve/api` or anywhere else, names a slot or a cache identity. The "slot" in `/slots`, `/metrics` and the console (`slot_table`,
+  `_slot_of`) is a label given to a running request for display. The engine's choice is made from the prompt alone.
+- **`--parallel 1` (the default), one session.** The KV cache is positional, "one arena that holds one branch of history at a time", and a
+  checkpoint is kept only while its tokens are a prefix of the current prompt (`include/basalt/program/conv_cache.hpp`). The summary prompt has its
+  own system message and no tool list, so it shares no prefix: the conversation's cache is overwritten from token 0, its stable head (system
+  message, tools, first request) included, and its next call reads everything again. The report's `prefix.stable_tokens` is what the
+  *conversation* leaves unchanged, not what the server still holds.
+- **`--parallel N`, N of 2 or more.** `ProcessEngine.pick_slot` takes, among the free slots, the one whose held tokens are the longest prefix of
+  the prompt, else an empty one, else the least recently used. The summary has no shared prefix, so it goes to an empty or least recently
+  used slot and the conversation's slot, idle but the most recent, is kept; only when it is the only free slot is it overwritten. Each slot
+  keeps its own two checkpoints. This costs N times the KV cache (the context is divided among the slots) and is not a guarantee.
+- **`--conversation-cache-mib N` (default 0, off; `--conversation-cache-slots`, default 4).** When a request that does not continue the
+  running conversation arrives, the engine parks the outgoing conversation (state and KV) in host RAM and restores it for a request that
+  shares its prefix (`generate.cpp`, "conversation cache: parked / restored"). That is the existing way to run a side request without losing
+  the main one, at the price of host RAM and a copy back; it needs only the option. Not measured for the summary call yet (row 69).
+
+So a detached summary on the default server needs the engine. **Proposal (engine, not done).** A request key `scratch=1` on the `GEN`, `GENT`
+and `SGEN` lines (`ProcessEngine.sampling_keys` passes it): the engine parks the running conversation into the conversation cache before the
+request, even with `--conversation-cache-mib 0` (a small budget of its own, one conversation), runs the request on the cleared session
+without writing a checkpoint, and restores the parked conversation after `DONE`; if parking is not possible it says so in `DONE` and the
+request runs as it does today. On the Python side: `scratch` as a `cache_scratch` field of the chat request (listed with the other fields in
+`serve/api/openai.py`, off by default), `_summarizer` in `harness/stack.py` sending it in `extra`, and `THIS_SERVER_ONLY` in
+`harness/llm/client.py` holding it back from any cloud route. Tests: a mock engine that records the keys of the request; a real-engine check
+that `cached_tokens` of the first call after a compaction equals the stable head (row 69). A smaller alternative with no engine change would be
+to begin the summary call with the conversation's own system message and tool list, so only the tail is overwritten and the head stays
+cached; it changes the summary prompt and the model's view of its tools, so it is not done either.
+
 ## Tests
 
 `tests/test_compaction.py` (cuts, the work, untrusted text, the audit, the report, the whole loop with a scripted model),
-`tests/test_compaction_settings.py` (the settings, the flags, the summary client, `/context`, `/compact`). Real-model checks are rows
-54 to 56 of `tests/QUEUE_daytime.md`.
+`tests/test_compaction_settings.py` (the settings and that they survive a restart of the manager, the flags, the summary client and that no cloud
+route is used unless the function is pointed at it, `/context`, `/compact`). Real-model checks are rows 63 to 65 and 69 of `tests/QUEUE_daytime.md`.

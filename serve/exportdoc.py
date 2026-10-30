@@ -137,6 +137,7 @@ class Doc:
     lang: str
     labels: Dict[str, str]
     blocks: List[Any] = field(default_factory=list)
+    bare: bool = False                  # one message as it is: no title line, no export header, no speaker heading
 
 
 # ---------------------------------------------------------------- cleaning
@@ -687,9 +688,9 @@ def _description(item: Dict[str, Any]) -> str:
     return ""
 
 
-def build(snapshot: Any, select: Any) -> Doc:
+def build(snapshot: Any, select: Any, bare: bool = False) -> Doc:
     """The document for a snapshot and a selection. Only the selected kinds appear; the sources and files an answer's actions found are
-    listed after it even when the actions themselves were not chosen."""
+    listed after it even when the actions themselves were not chosen. `bare`: the text of one message alone, as written."""
     chosen = _selection(select)
     if not isinstance(snapshot, dict) or not isinstance(snapshot.get("items"), list):
         raise ExportError("There is no conversation to export.")
@@ -698,11 +699,12 @@ def build(snapshot: Any, select: Any) -> Doc:
     ctx = Context(snapshot, labels)
     items = [x for x in snapshot["items"][:MAX_ITEMS] if isinstance(x, dict) and x.get("kind") in KINDS.values()]
     tz = snapshot.get("tz")
-    doc = Doc(one_line(snapshot.get("title"), 200) or labels["untitled"], lang, labels)
+    doc = Doc(one_line(snapshot.get("title"), 200) or labels["untitled"], lang, labels, bare=bare)
 
     stamp = _when({"time": snapshot.get("exported_at")}, tz)
     kinds = [labels["k_" + k] for k in ("prompt", "reasoning", "action", "answer") if chosen[k]]
-    doc.blocks.append(Meta([Run((labels["exported"].format(stamp) + " · " if stamp else "") + labels["contents"] + ": " + ", ".join(kinds))]))
+    if not bare:
+        doc.blocks.append(Meta([Run((labels["exported"].format(stamp) + " · " if stamp else "") + labels["contents"] + ": " + ", ".join(kinds))]))
 
     # an answer is one assistant item (its `turn`); a message of the person starts a new group
     keys: List[Any] = []
@@ -761,7 +763,8 @@ def build(snapshot: Any, select: Any) -> Doc:
                     doc.blocks.append(Paragraph([Run(image=img)]))
             continue
         if not headed:
-            doc.blocks.append(Heading(2, [Run(labels["assistant"] + (f" · {when}" if when else ""))]))
+            if not bare:
+                doc.blocks.append(Heading(2, [Run(labels["assistant"] + (f" · {when}" if when else ""))]))
             headed = True
         if kind == "reasoning":
             doc.blocks.append(Label([Run(labels["reasoning"], bold=True)]))
@@ -780,7 +783,7 @@ def build(snapshot: Any, select: Any) -> Doc:
                 doc.blocks.append(Meta([Run(labels["result"] + (f" ({labels['failed']})" if it.get("status") == "failed" else ""))]))
                 doc.blocks.append(Code(result))
         else:
-            doc.blocks.extend(parse_blocks(clean(it.get("text"))[:MAX_TEXT], ctx, shift=2))
+            doc.blocks.extend(parse_blocks(clean(it.get("text"))[:MAX_TEXT], ctx, shift=0 if bare else 2))
     close(current)
     return doc
 
@@ -887,7 +890,8 @@ def _md_block(b: Any, labels: Dict[str, str]) -> str:
 
 
 def write_md(doc: Doc) -> bytes:
-    text = "# " + md_inline([Run(doc.title)]).replace("\n", " ") + "\n\n" + _md_blocks(doc.blocks, doc.labels) + "\n"
+    title = "" if doc.bare else "# " + md_inline([Run(doc.title)]).replace("\n", " ") + "\n\n"
+    text = title + _md_blocks(doc.blocks, doc.labels) + "\n"
     return text.encode("utf-8")
 
 
@@ -987,10 +991,11 @@ def write_html(doc: Doc, print_hint: bool = False) -> bytes:
     """One self-contained file: embedded style, images as data addresses, no script. Its policy lets nothing else load."""
     hint = f'<p class="hint">{h(doc.labels["print_hint"])}</p>' if print_hint else ""
     body = "\n".join(_html_block(b, doc.labels) for b in doc.blocks)
+    heading = "" if doc.bare else f"<h1>{h(doc.title)}</h1>\n"
     text = (f'<!doctype html>\n<html lang="{doc.lang}">\n<head>\n<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
             '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data:; style-src \'unsafe-inline\'">\n'
-            f"<title>{h(doc.title)}</title>\n<style>{CSS}</style>\n</head>\n<body>\n{hint}<h1>{h(doc.title)}</h1>\n{body}\n</body>\n</html>\n")
+            f"<title>{h(doc.title)}</title>\n<style>{CSS}</style>\n</head>\n<body>\n{hint}{heading}{body}\n</body>\n</html>\n")
     return text.encode("utf-8")
 
 
@@ -1027,7 +1032,7 @@ def export(req: Any) -> Tuple[bytes, str, str]:
     fmt = req.get("format")
     if fmt not in EXTENSIONS:
         raise ExportError("Choose a format: docx, md, pdf, html or odt.")
-    doc = build(req.get("snapshot"), req.get("select"))
+    doc = build(req.get("snapshot"), req.get("select"), bare=req.get("bare") is True)
     name = file_name(req.get("name") or doc.title, fmt)
     if fmt == "md":
         data = write_md(doc)

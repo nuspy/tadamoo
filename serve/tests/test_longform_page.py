@@ -57,5 +57,49 @@ class LongAnswerPage(unittest.TestCase):
         self.assertIn('...(long ? {} : { "X-Basalt-Compress": "1" })', CHAT_JS)
 
 
+class AutoContinueAndSavePage(unittest.TestCase):
+    EXPORT_JS = (WEB / "export.js").read_text(encoding="utf-8")
+    SET_JS = (WEB / "chatset.js").read_text(encoding="utf-8")
+    EXPORT_CSS = (WEB / "export.css").read_text(encoding="utf-8")
+
+    def test_the_new_strings_exist_in_both_languages_with_the_same_placeholders(self):
+        keys = ("chat.auto", "cs.auto_continue", "cs.auto_continue.help", "sf.btn", "sf.tip", "sf.title", "sf.lead", "ch.ev.answer_truncated")
+        used = set(re.findall(r'T\("((?:chat\.auto|cs\.auto_continue|sf\.[a-z]+|ch\.ev\.answer_truncated)[\w.]*)"', CHAT_JS + AGENT_JS + self.EXPORT_JS)) | set(keys)
+        for key in sorted(used):
+            self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+        en = re.search(r'"chat\.auto": "([^"]*)"', I18N).group(1), re.search(r'"ch\.ev\.answer_truncated": "([^"]*)"', I18N).group(1)
+        for text in en:
+            self.assertEqual(sorted(re.findall(r"\{\d\}", text)), ["{0}", "{1}"])
+
+    def test_the_setting_is_a_chat_setting_a_preset_keeps_and_the_model_never_sees_it(self):
+        self.assertIn("auto_continue", profiles.INFERENCE_KEYS)
+        self.assertRegex(self.SET_JS, r'key: "auto_continue", id: "cs-auto_continue", min: 0, max: 20')
+        self.assertIn('f.key === "auto_continue"', self.SET_JS)
+        self.assertIn("autoContinue,", self.SET_JS)
+        self.assertRegex(HTML, r'<input id="cs-auto_continue"[^>]*placeholder="4"[^>]*aria-describedby="cs-auto_continue-h"')
+        self.assertIn('id="cs-auto_continue-h" data-t="cs.auto_continue.help"', HTML)
+        self.assertLess(HTML.index('src="web/cuttext.js"'), HTML.index('src="web/chat.js"'))
+        self.assertEqual(profiles.check_inference({"auto_continue": "3"})["auto_continue"], "3")
+        for bad in (-1, 21, True, "x", 1.5):
+            with self.assertRaises(ValueError):
+                profiles.check_inference({"auto_continue": bad})
+
+    def test_the_agent_page_says_it_is_asking_the_model_to_go_on_and_joins_the_pieces(self):
+        self.assertIn('d.type === "answer_truncated"', AGENT_JS)
+        self.assertIn('T("ch.ev.answer_truncated", it.contNote.n, it.contNote.of)', AGENT_JS)
+        self.assertIn("cutText.joinCut(a.joinHead, a.joinBuf)", AGENT_JS)
+
+    def test_save_as_file_is_a_button_beside_copy_in_both_chats_and_only_a_click_opens_it(self):
+        self.assertIn('class="btn ghost savefile" hidden', CHAT_JS)
+        self.assertIn('btn(T("sf.btn"), "ghost savefile"', AGENT_JS)
+        self.assertEqual(CHAT_JS.count("window.BasaltSave.message("), 1)
+        self.assertEqual(AGENT_JS.count("window.BasaltSave.message("), 1)
+        self.assertIn("min-height: 30px", re.search(r"\.btn\.savefile \{[^}]*\}", self.EXPORT_CSS).group(0))
+        self.assertIn("bare: true", self.EXPORT_JS)                                    # the message alone, through the export route
+        self.assertIn('select: { answers: true }', self.EXPORT_JS)
+        self.assertIn('aria-labelledby", "sf-title"', self.EXPORT_JS)
+        self.assertNotIn("innerHTML", self.EXPORT_JS)
+
+
 if __name__ == "__main__":
     unittest.main()

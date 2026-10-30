@@ -33,7 +33,7 @@ LOAD_FIELDS = [f"{s}.{k}" for s, k in settings.LOADER_FIELDS]
 # the chat settings a preset keeps (serve/web/chatset.js)
 INFERENCE_KEYS = ("system", "stop", "policy", "threshold", "effort", "temperature", "top_p", "top_k", "min_p",
                   "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n", "seed",
-                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias", "max_turns", "max_answer_tokens")
+                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias", "max_turns", "max_answer_tokens", "auto_continue")
 
 
 def path() -> Path:
@@ -159,6 +159,12 @@ def check_inference(values) -> dict:
             steps = int(steps)
         if isinstance(steps, bool) or not isinstance(steps, int) or not (steps == -1 or steps >= 1):
             raise ValueError("max_turns: -1 for no limit, or a whole number from 1")
+    if out.get("auto_continue") not in (None, ""):
+        times = out["auto_continue"]
+        if isinstance(times, str) and re.fullmatch(r"\d{1,3}", times.strip()):
+            times = int(times)
+        if isinstance(times, bool) or not isinstance(times, int) or not 0 <= times <= 20:
+            raise ValueError("auto_continue: a whole number from 0 (off) to 20")
     if len(json.dumps(out)) > 256 << 10:
         raise ValueError("settings: larger than 256 KiB")
     return out

@@ -17,7 +17,7 @@ SOURCE_MAX_BYTES = 8 << 20
 PREVIEW_WORDS = 60
 
 DESCRIPTION = (
-    "Use this when the final text you must write is longer than about 1500 words (a chapter, a report, a long translation or rewrite, a "
+    "Use this when the final text you must write is longer than about 2000 words, 3000 tokens (a chapter, a report, a long translation or rewrite, a "
     "detailed analysis): such a text does not come out whole in one reply. Send the plan and the harness writes it part by part, checks each "
     "part and shows the text to the person itself, so do not write the text yourself afterwards. For a new text give `sections` (the "
     "outline) and `total_words`; for a translation or rewrite give `mode` and `source_path` (a file in the workspace) and no sections. "

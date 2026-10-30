@@ -122,7 +122,7 @@ class ModeLabelWiringTest(unittest.TestCase):
 
     def test_the_chat_hands_a_typed_command_over_before_it_sends(self):
         js = (WEB / "chat.js").read_text(encoding="utf-8")
-        self.assertRegex(js, r'async function send\(cont\) \{[^}]*\}\s*else \{\s*if \(prompt\.value\.startsWith\("/"\) && window\.slash\)')
+        self.assertRegex(js, r'async function send\(cont, auto\) \{[^}]*\}\s*else \{\s*if \(prompt\.value\.startsWith\("/"\) && window\.slash\)')
 
     def test_the_thinking_list_follows_the_conversation(self):
         self.assertIn("effort: effortSel.value", self.chat)

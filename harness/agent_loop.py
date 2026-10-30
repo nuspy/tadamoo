@@ -21,6 +21,7 @@ from harness.audit import AuditLedger
 from harness.checkpoints import CheckpointManager, call_paths
 from harness.client import BasaltClient, BasaltError, StreamCancelled, extract_reasoning_and_content
 from harness.context import ContextManager, fence_untrusted, wire_messages
+from harness.continuation import cut_point, join_continuation
 from harness.gate import VerifyGate, event_data, read_result
 from harness.loop_guard import OutcomeGuard, Verdict
 from harness.repeat_guard import RepeatGuard
@@ -139,7 +140,10 @@ def answer_text(turns: List[AgentTurn]) -> str:
                 pieces.insert(0, turns[i])
             if len(pieces) == 1:
                 return pieces[0].assistant_content
-            return "".join(t.raw_content or t.assistant_content for t in pieces).strip()
+            text = pieces[0].raw_content or pieces[0].assistant_content
+            for piece in pieces[1:]:
+                text = join_continuation(text, piece.raw_content or piece.assistant_content)
+            return text.strip()
     return ""
 
 
@@ -995,9 +999,9 @@ class AgentLoop:
         degenerate = repetition_dominated(content)
         go_on = self._continuations < MAX_CONTINUATIONS and not degenerate and not self.cancel.is_set()
         self._emit({"type": "answer_truncated", "final": not go_on, "continuation": self._continuations + 1 if go_on else self._continuations,
-                    "degenerate": degenerate})
+                    "of": MAX_CONTINUATIONS, "degenerate": degenerate})
         self._audit("answer_truncated", {"final": not go_on, "continuations": self._continuations, "degenerate": degenerate, "chars": len(content)})
-        self.append({"role": "assistant", "content": content})
+        self.append({"role": "assistant", "content": content[:cut_point(content)] if go_on else content})     # a continuation starts at a word boundary
         turn.seconds = round(time.monotonic() - t0, 3)
         self._finish_turn(turn, run_turns)
         if not go_on:

@@ -1112,10 +1112,10 @@ class Session:
         return True
 
     LONG_TEXT = {
-        "en": {"q": "This asks for about {words} words, more than one reply writes well. Write it in {parts} parts?",
+        "en": {"q": "This asks for about {words} words ({tokens} tokens), more than one reply writes well. Write it in {parts} parts?",
                "yes": "Yes, in {parts} parts", "yes_d": "Each part is planned, written and checked on its own; you see the text as it comes.",
                "no": "No, in one go", "no_d": "One reply; it will probably come out shorter than asked."},
-        "it": {"q": "La richiesta è di circa {words} parole, più di quante una risposta ne scriva bene. La scrivo in {parts} parti?",
+        "it": {"q": "La richiesta è di circa {words} parole ({tokens} token), più di quante una risposta ne scriva bene. La scrivo in {parts} parti?",
                "yes": "Sì, in {parts} parti", "yes_d": "Ogni parte è pianificata, scritta e controllata da sola; vedi il testo man mano.",
                "no": "No, in un colpo solo", "no_d": "Una sola risposta; probabilmente sarà più corta del richiesto."},
     }
@@ -1154,7 +1154,8 @@ class Session:
             self._long_request = {**found, "text": text}
             words = (found["words"] // 100) * 100 or found["words"]
             strings = self.LONG_TEXT["it" if lf.detect_language(text) == "it" else "en"]
-            fill = {"words": f"{words:,}".replace(",", "." if strings is self.LONG_TEXT["it"] else ","), "parts": found["parts"]}
+            point = "." if strings is self.LONG_TEXT["it"] else ","
+            fill = {"words": f"{words:,}".replace(",", point), "tokens": f"{(found['tokens'] // 100) * 100 or found['tokens']:,}".replace(",", point), "parts": found["parts"]}
             payload = qs.normalise({"questions": [{"id": "long_parts", "text": strings["q"].format(**fill), "kind": "single", "allow_other": False,
                 "options": [{"label": strings["yes"].format(**fill), "description": strings["yes_d"], "recommended": True},
                             {"label": strings["no"], "description": strings["no_d"]}]}]})

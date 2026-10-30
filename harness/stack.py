@@ -436,6 +436,15 @@ def _summarizer(client: Optional[Any], max_tokens: int = 900):
     return summarize
 
 
+def _compaction_client(summarizer: Optional[Any], client: Optional[Any]) -> Optional[Any]:
+    """The client the compaction's summary call goes through: the route the function "Context compaction" is pointed at. Without one, the
+    conversation's own client, but only while it stays on this PC: a cloud route writes a summary only when the person pointed the function at it."""
+    if summarizer is not None:
+        return summarizer
+    stays = getattr(client, "stays_local", None)
+    return client if not callable(stays) or stays() else None
+
+
 def _oauth_for(url: str) -> Any:
     """The sign-in of a remote MCP server, as the person did it in Settings (the tokens are in the credential store)."""
     from harness.llm.credentials import default_store
@@ -612,7 +621,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     snapshots = Snapshots(Path(cfg.snapshot_dir) if cfg.snapshot_dir else data / "snapshots" / (cfg.run_id or "default")) if patterns["versioning"]["on"] else None
     context = PatternContext(compactor, budget_tokens=budget, patterns=patterns, snapshots=snapshots, mask_at=min(0.95, max(0.3, cfg.context_threshold)),
                              summarize=_summarizer(summarizer or client) if patterns["summary"]["on"] else None,
-                             compaction=Compaction(_summarizer(summarizer or client, COMPACTION_TOKENS), cfg.compaction, cfg.compaction_threshold))
+                             compaction=Compaction(_summarizer(_compaction_client(summarizer, client), COMPACTION_TOKENS), cfg.compaction, cfg.compaction_threshold))
 
     def refresh_budget() -> None:
         """Asks the server again, so a model loaded or changed since the conversation began sets the budget; no answer leaves it as it is."""

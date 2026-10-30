@@ -19,12 +19,14 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
+from harness.continuation import cut_point, join_continuation
+
 MODES = ("write", "translate", "rewrite")
-SEGMENT_WORDS = 1000            # words one segment aims at
-SEGMENT_WORDS_RANGE = (200, 3000)
+SEGMENT_WORDS = 2000            # words one segment aims at
+SEGMENT_WORDS_RANGE = (200, 2500)
 TARGET_WORDS_RANGE = (50, 200000)
-CHUNK_WORDS = (700, 1500)               # the words a part reliably holds when a plan is cut into parts
-CHUNK_MAX = 2000                        # a part is never planned longer than this
+CHUNK_WORDS = (700, 2500)               # the words a part reliably holds when a plan is cut into parts
+CHUNK_MAX = 2500                        # a part is never planned longer than this
 MAX_SEGMENTS = 60
 RETRIES_MAX = 3
 LOW_RATIO, HIGH_RATIO = 0.7, 1.6        # a segment outside this part of its target is flagged
@@ -180,8 +182,8 @@ def protect(text: str) -> Tuple[str, Protected]:
 
 # -- when a request needs parts -------------------------------------------------------------------------------------------
 
-LONG_MIN_WORDS = 1800               # a text asked for above this is not written reliably in one turn
-BIG_SOURCE_WORDS = 1800             # a text to translate or rewrite above this goes in parts
+LONG_MIN_TOKENS = 3000              # a text asked for above this is not written reliably in one turn
+TOKENS_PER_WORD_BY_LANGUAGE = {"en": 1.35, "it": 1.5}   # a language not listed (or not recognised) counts like Italian: a long request is not missed
 WORDS_ASKED_RE = re.compile(r"(?<![\w.])(\d{1,3}(?:[.,' ]\d{3})+|\d+(?:[.,]\d+)?)\s*(k\b)?\s*(?:-\s*)?(?:words?|parole|palabras|mots|wörter|palavras)\b", re.I)
 PAGES_ASKED_RE = re.compile(r"(?<![\w.])(\d+)\s*(?:pages?|pagine|páginas|paginas|seiten)\b", re.I)
 WORDS_PER_PAGE = 450
@@ -191,7 +193,25 @@ KIND_RE = re.compile(r"\b(?:report|relazione|rapporto|saggio|essay|ebook|libro|b
 TRANSLATE_RE = re.compile(r"\b(?:translate|traduci|traduzione|traducir|traduire|übersetze)\b", re.I)
 REWRITE_RE = re.compile(r"\b(?:rewrite|riscrivi|riscrittura|riformula|reescribe|réécris|umschreiben)\b", re.I)
 ANALYSE_RE = re.compile(r"\b(?:analy[sz]e|analysis|analizza|analisi|riassumi|summari[sz]e)\b", re.I)
-CHAPTER_WORDS = 2500                # a chapter asked for without a length
+CHAPTER_WORDS = 2500                # a chapter asked for without a length (over LONG_MIN_TOKENS in every language)
+
+
+def tokens_per_word(language: str = "") -> float:
+    return TOKENS_PER_WORD_BY_LANGUAGE.get(language, TOKENS_PER_WORD_BY_LANGUAGE["it"])
+
+
+def tokens_for_words(words: float, language: str = "") -> int:
+    """The tokens a text of `words` words takes in `language` (the one place words and tokens are converted)."""
+    return int(round(words * tokens_per_word(language)))
+
+
+def words_for_tokens(tokens: float, language: str = "") -> int:
+    return int(round(tokens / tokens_per_word(language)))
+
+
+def request_language(text: str) -> str:
+    """The language of a request, or '' when it cannot be told (a short request is judged from fewer words than a long text)."""
+    return detect_language(text, min_words=4)
 
 
 def asked_words(text: str) -> int:
@@ -221,7 +241,7 @@ def parse_hint(text: str) -> Optional[Dict[str, Any]]:
     fields = {k.strip(): v.strip() for k, v in (p.split("=", 1) for p in m.group(1).split(";") if "=" in p)}
     body = text[:m.start()].rstrip()
     mode = fields.get("mode") if fields.get("mode") in MODES else "write"
-    words = int(fields["words"]) if fields.get("words", "").isdigit() else max(count_words(body), LONG_MIN_WORDS)
+    words = int(fields["words"]) if fields.get("words", "").isdigit() else max(count_words(body), words_for_tokens(LONG_MIN_TOKENS, request_language(body)))
     return {"mode": mode, "words": words, "parts": chunk_count(words), "reason": "asked", "text": body, "fields": fields}
 
 
@@ -232,17 +252,21 @@ def detect_long_request(text: str, source_words: int = 0) -> Optional[Dict[str, 
         return None
     typed, asked = count_words(text), asked_words(text)
     size = max(typed, source_words)
+    lang = request_language(text)
+
+    def over(words: int, times: int = 1) -> bool:
+        return tokens_for_words(words, lang) > times * LONG_MIN_TOKENS
 
     def found(mode: str, words: int, reason: str) -> Dict[str, Any]:
-        return {"mode": mode, "words": words, "parts": chunk_count(words), "reason": reason}
+        return {"mode": mode, "words": words, "tokens": tokens_for_words(words, lang), "parts": chunk_count(words), "reason": reason}
     if TRANSLATE_RE.search(text) or REWRITE_RE.search(text):
         mode = "translate" if TRANSLATE_RE.search(text) else "rewrite"
-        return found(mode, size, "source") if size >= BIG_SOURCE_WORDS else None
-    if ANALYSE_RE.search(text) and size >= 2 * BIG_SOURCE_WORDS:
+        return found(mode, size, "source") if over(size) else None
+    if ANALYSE_RE.search(text) and over(size, 2):
         return found("write", size // 2, "source")
-    if asked >= LONG_MIN_WORDS and (WRITE_VERB_RE.search(text) or CHAPTER_RE.search(text) or KIND_RE.search(text) or asked >= 4000):
+    if over(asked) and (WRITE_VERB_RE.search(text) or CHAPTER_RE.search(text) or KIND_RE.search(text) or over(asked, 2)):       # twice the threshold needs no writing verb
         return found("write", asked, "length")
-    if not asked and CHAPTER_RE.search(text) and WRITE_VERB_RE.search(text):
+    if not asked and CHAPTER_RE.search(text) and WRITE_VERB_RE.search(text) and over(CHAPTER_WORDS):
         return found("write", CHAPTER_WORDS, "chapter")
     return None
 
@@ -372,10 +396,10 @@ def language_code(name: Any) -> str:
     return key if key in LANGUAGES else LANGUAGE_NAMES.get(key, "")
 
 
-def detect_language(text: str) -> str:
+def detect_language(text: str, min_words: int = 30) -> str:
     """The language of a text when it is clearly one of the known ones, else ''."""
     words = [w.lower() for w in re.findall(r"[^\W\d_]+", MARK_RE.sub(" ", text))]
-    if len(words) < 30:
+    if len(words) < min_words:
         return ""
     scores = sorted(((sum(1 for w in words if w in set(sw)) / len(words), code) for code, sw in STOPWORDS.items()), reverse=True)
     (best, code), (second, _) = scores[0], scores[1]
@@ -919,9 +943,9 @@ class LongAnswer:
         conts = 0
         while conts < CONTINUATIONS and (finish == "length" or (finish == "stop" and ends_midword(text))) and not self.cancel.is_set():
             conts += 1
-            more = [*messages, {"role": "assistant", "content": text}, {"role": "user", "content": CONTINUE_NOTE}]
+            more = [*messages, {"role": "assistant", "content": text[:cut_point(text)]}, {"role": "user", "content": CONTINUE_NOTE}]
             piece, finish = yield from self._call(more, cap)
-            text += piece
+            text = join_continuation(text, piece)
         return text, finish, conts
 
     # -- the plan
