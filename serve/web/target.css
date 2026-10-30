@@ -1,0 +1,98 @@
+/* The Target Loop dialog and the list tools of the text boxes. Colours are the app's own variables; a state is never told by colour alone
+   (each has a word and a mark), achieved text is struck through in red and also says "achieved". */
+:root { --tg-red: #FF6B6B; }
+
+/* list tools: two small buttons in the row of the prompt box, and in the dialog above its text box */
+.lt-bar { display: inline-flex; gap: 2px; align-items: center; }
+.lt-btn { min-width: var(--btn-h, 30px); min-height: var(--btn-h, 30px); border-radius: 6px; border: 1px solid transparent; color: var(--fg-2); display: inline-flex; align-items: center; justify-content: center; }
+.lt-btn:hover { background: var(--raised); color: var(--fg); border-color: var(--line); }
+.lt-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.lt-offer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg-2); }
+
+/* the dialog */
+.tgd { width: min(1400px, 96vw); height: calc(94vh / var(--z, 1)); max-height: calc(94vh / var(--z, 1)); padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--fg); overflow: hidden; }
+.tgd[open] { display: flex; flex-direction: column; }
+.tgd::backdrop { background: rgba(0, 0, 0, .65); }
+.tgd :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tgd-h { display: flex; align-items: center; gap: 12px; padding: 10px 20px; border-bottom: 1px solid var(--line-soft); flex: none; }
+.tgd-h h2 { margin: 0; font: 600 16px/1.3 var(--font-sans); }
+.tgd-grow { flex: 1; }
+.tgd-body { display: grid; grid-template-columns: minmax(200px, 270px) minmax(0, 1fr); gap: 0; min-height: 0; flex: 1; }
+.tgd-hist { padding: 14px 14px 14px 20px; border-right: 1px solid var(--line-soft); overflow: auto; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.tgd-hist h3 { margin: 0; font: 600 14px/1.3 var(--font-sans); }
+.tgd-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.tgd-item { display: grid; gap: 2px; width: 100%; text-align: left; min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); }
+.tgd-item:hover { border-color: var(--fg-3); }
+.tgd-item[aria-current="true"] { border-color: var(--accent); }
+.tgd-item-t { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.tgd-item-m { color: var(--fg-2); font-size: 12.5px; }
+.tgd-pane { padding: 14px 20px 24px; overflow: auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.tgd-dim { color: var(--fg-2); margin: 0; }
+.tgd-status { min-height: 1.4em; color: var(--fg-2); }
+.tgd-status:empty { display: none; }
+.tgd-status[data-bad="1"] { color: var(--pl-fail); }
+
+/* the text box: most of the window */
+.tgd-new { display: flex; flex-direction: column; gap: 8px; }
+.tgd-labelrow { display: flex; align-items: center; gap: 12px; }
+.tgd-labelrow label { flex: 1; font-weight: 600; }
+#tg-text { width: 100%; height: calc(60vh / var(--z, 1)); min-height: 220px; resize: vertical; padding: 12px 14px; font: 400 16px/1.55 var(--font-sans); }
+.tgd textarea, .tgd input[type="number"] { color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: 400 16px/1.5 var(--font-sans); padding: 8px 10px; }
+.tgd input[type="number"] { min-height: 44px; width: 8em; }
+.tgd-opt > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
+.tgd-optgrid { display: grid; gap: 6px; max-width: 800px; padding-bottom: 8px; }
+.tgd-optgrid label { font-weight: 500; margin-top: 6px; }
+.tgd-optgrid textarea { width: 100%; resize: vertical; }
+.tgd-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* a target that is running or was run */
+.tgd-view { display: flex; flex-direction: column; gap: 14px; }
+.tgd-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.tgd-badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border: 1px solid var(--fg-3); border-radius: 999px; font-weight: 600; font-size: 13px; }
+.tgd-badge[data-s="achieved"] { border-color: var(--pl-done); color: var(--pl-done); }
+.tgd-badge[data-s="running"] { border-color: var(--pl-run); color: var(--pl-run); }
+.tgd-badge[data-s="blocked"] { border-color: var(--pl-block); color: var(--pl-block); }
+.tgd-badge[data-s="stopped"] { border-color: var(--fg-3); color: var(--fg-2); }
+.tgd-prog { flex: 1 1 200px; height: 8px; border-radius: 4px; background: var(--raised); overflow: hidden; min-width: 120px; }
+.tgd-prog > i { display: block; height: 100%; background: var(--pl-done); }
+.tgd-view h3 { margin: 0 0 6px; font: 600 15px/1.3 var(--font-sans); }
+.tgd-text { white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); max-height: calc(40vh / var(--z, 1)); overflow: auto; font: 400 15px/1.6 var(--font-sans); }
+.tg-mark-achieved { text-decoration: line-through; text-decoration-color: var(--tg-red); text-decoration-thickness: 2px; color: var(--fg-2); }
+.tg-mark-partial { text-decoration: underline wavy var(--pl-block); }
+.tg-mark-blocked { text-decoration: underline dotted var(--pl-block); }
+.tgd-crits, .tgd-tasks, .tgd-tasks ul, .tgd-passes { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.tgd-tasks ul { margin-left: 22px; padding-left: 10px; border-left: 2px solid var(--line); margin-top: 6px; }
+.tgd-crit { padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); display: grid; gap: 6px; }
+.tgd-crit[data-s="achieved"] { border-color: var(--pl-done); }
+.tgd-crit-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.tgd-crit-st { font-weight: 600; font-size: 13px; white-space: nowrap; }
+.tgd-crit[data-s="achieved"] .tgd-crit-st { color: var(--pl-done); }
+.tgd-crit[data-s="partial"] .tgd-crit-st, .tgd-crit[data-s="blocked"] .tgd-crit-st { color: var(--pl-block); }
+.tgd-crit[data-s="not_met"] .tgd-crit-st { color: var(--pl-fail); }
+.tgd-crit-t { flex: 1 1 18em; min-width: 0; overflow-wrap: anywhere; }
+.tgd-crit[data-s="achieved"] .tgd-crit-t { text-decoration: line-through; text-decoration-color: var(--tg-red); text-decoration-thickness: 2px; color: var(--fg-2); }
+.tgd-crit-id { color: var(--fg-3); font-size: 12.5px; }
+.tgd-crit p { margin: 0; color: var(--fg-2); overflow-wrap: anywhere; white-space: pre-wrap; }
+.tgd-crit-f { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.tgd-crit-f textarea { flex: 1 1 20em; min-height: 44px; resize: vertical; font-size: 15px; }
+.tgd-crit-b { display: flex; flex-wrap: wrap; gap: 6px; }
+.tgd-task { display: grid; gap: 2px; }
+.tgd-task-h { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
+.tgd-task-s { font-weight: 600; font-size: 13px; }
+.tgd-task[data-s="done"] > .tgd-task-h .tgd-task-s { color: var(--pl-done); }
+.tgd-task[data-s="running"] > .tgd-task-h .tgd-task-s { color: var(--pl-run); }
+.tgd-task[data-s="failed"] > .tgd-task-h .tgd-task-s { color: var(--pl-fail); }
+.tgd-task[data-s="blocked"] > .tgd-task-h .tgd-task-s { color: var(--pl-block); }
+.tgd-task-m { color: var(--fg-2); font-size: 13px; overflow-wrap: anywhere; }
+.tgd-report { padding: 10px 14px; border-left: 3px solid var(--fg-3); background: var(--surface); overflow-wrap: anywhere; }
+.tgd-pass { padding: 6px 0; border-bottom: 1px solid var(--line-soft); overflow-wrap: anywhere; }
+.tgd-pass ul { margin: 4px 0 0 18px; padding: 0; color: var(--fg-2); }
+
+@media (max-width: 900px) {
+  .tgd { width: calc(100vw / var(--z, 1)); height: calc(100vh / var(--z, 1)); max-height: calc(100vh / var(--z, 1)); border-radius: 0; }
+  .tgd-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); overflow: auto; }
+  .tgd-hist { border-right: 0; border-bottom: 1px solid var(--line-soft); max-height: 30vh; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tgd-prog > i { transition: width .3s ease; }
+}
