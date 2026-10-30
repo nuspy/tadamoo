@@ -187,17 +187,21 @@
     const name = h("input"), url = h("input"), model = h("input"), key = h("input"), cap = h("input"), level = h("select", "", state.reasoning_levels.map(l => Object.assign(h("option", "", l.label || l.value), { value: l.value })));
     key.type = "password"; key.autocomplete = "off"; key.spellcheck = false;
     cap.type = "number"; cap.min = "0"; cap.step = "1000"; cap.inputMode = "numeric";
+    const ctx = h("input"), out = h("input");
+    [ctx, out].forEach(i => { i.type = "number"; i.min = "0"; i.step = "1000"; i.inputMode = "numeric"; });
     [name, url, model].forEach(i => { i.type = "text"; i.autocomplete = "off"; i.spellcheck = false; });
+    if (existing) { ctx.value = existing.context_window || ""; out.value = existing.max_output || ""; }
     if (existing) { profile.value = existing.profile || ""; type.value = existing.type; type.disabled = true; name.value = existing.name || ""; url.value = existing.base_url || ""; model.value = existing.model || ""; cap.value = existing.daily_token_cap || ""; level.value = existing.reasoning_level || "inherit"; }
     const hint = () => { const t = state.types.find(x => x.type === type.value) || {}; url.placeholder = t.base_url || ""; key.placeholder = existing && existing.has_key ? T("pv.key.keep") : ""; };
     const profileField = field("pv-profile", T("pv.f.profile"), profile, T("pv.f.profile.help"));
     const here = () => type.value === "basalt";
-    type.onchange = () => { hint(); profileField.hidden = !here(); }; hint(); profileField.hidden = !here();
+    const limitFields = [field("pv-ctx", T("pv.f.ctx"), ctx, T("pv.f.ctx.help")), field("pv-out", T("pv.f.out"), out, T("pv.f.out.help"))];
+    type.onchange = () => { hint(); profileField.hidden = !here(); limitFields.forEach(x => { x.hidden = here(); }); }; hint(); profileField.hidden = !here(); limitFields.forEach(x => { x.hidden = here(); });
     f.append(field("pv-type", T("pv.f.type"), type), field("pv-name", T("pv.f.name"), name), field("pv-url", T("pv.f.url"), url, T("pv.f.url.help")),
       field("pv-model", T("pv.f.model"), model), field("pv-key", T("pv.f.key"), key, T("pv.f.key.help")),
-      profileField, field("pv-level", T("pv.f.level"), level), field("pv-cap", T("pv.f.cap"), cap, T("pv.f.cap.help")));
+      profileField, field("pv-level", T("pv.f.level"), level), field("pv-cap", T("pv.f.cap"), cap, T("pv.f.cap.help")), ...limitFields);
     f.append(h("div", "pv-actions", btn(existing ? T("pv.save") : T("pv.add"), "primary", async () => {
-      const body = { type: type.value, name: name.value, base_url: url.value, model: model.value, api_key: key.value, reasoning_level: level.value, daily_token_cap: cap.value === "" ? 0 : cap.value, profile: here() ? profile.value : "" };
+      const body = { type: type.value, name: name.value, base_url: url.value, model: model.value, api_key: key.value, reasoning_level: level.value, daily_token_cap: cap.value === "" ? 0 : cap.value, profile: here() ? profile.value : "", context_window: here() ? 0 : ctx.value, max_output: here() ? 0 : out.value };
       const r = existing ? await call("POST", `api/llm/providers/${existing.id}`, body) : await call("POST", "api/llm/providers", body);
       if (r.ok) { editing = ""; key.value = ""; say(T("pv.saved")); await refresh(); } else say(explain(r), true);
     }), existing ? btn(T("pv.cancel"), "ghost", () => { editing = ""; draw(); }) : null));

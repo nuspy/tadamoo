@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import threading
 import time
@@ -20,6 +21,8 @@ from harness.audit import AuditLedger
 from harness.checkpoints import CheckpointManager, call_paths
 from harness.client import BasaltClient, BasaltError, StreamCancelled, extract_reasoning_and_content
 from harness.context import ContextManager, fence_untrusted, wire_messages
+from harness.gate import VerifyGate, event_data, read_result
+from harness.loop_guard import OutcomeGuard, Verdict
 from harness.repeat_guard import RepeatGuard
 from harness.rule_of_two import leak_question
 from harness import outward_calls
@@ -41,7 +44,16 @@ EMPTY = "empty"            # the model's thinking used the whole output and no a
 DEGENERATE = "degenerate"  # the model's output fell into a repetition loop, also after a second try
 SUSPENDED = "suspended"   # put aside at a safe point for something more urgent; it can go on from where it stands
 ASKED = "asked"       # the turn ended on a question for the person; their answer is the next message
+VERIFY_FAILED = "verify_failed"   # the project's checks still failed after the fixes allowed, or could not be run
 MAX_CALLS_PER_MESSAGE = 16     # tool calls run from one model message; the rest are answered "not run"
+MAX_STOP_DENIALS = 2           # times a stop hook may send the model back to work, per request
+BUDGET_WARN_AT = 0.9           # the share of a budget used at which the model is told it is nearly spent
+BUDGET_WARNING = ("[harness] The budget for this answer is nearly used up. Finish what matters most now, and let your last message say what "
+                  "is done and what is not.")
+GRACE_NOTE = ("[harness] The budget for this answer is used up. Do not call any tool. Write your final report now: what is done, what is "
+              "not done, and what the next step is.")
+TODO_NOTE = ("[harness] Your checklist still has unfinished items:\n{items}\nFinish them, or update the list with todo_write if they no longer "
+             "apply, then answer again.")
 MAX_CONTINUATIONS = 2          # times a reply cut by the output limit is asked to go on, per request
 MAX_CUT_RETRIES = 3            # times a tool call cut by the output limit is asked for again, each with twice the room
 RETRY_TOKENS = 8192            # the room a cut tool call is asked again with when neither the setting nor the answer says how much it had
@@ -88,6 +100,7 @@ class ToolExecutionResult:
     description: str = ""   # the model's own sentence for the person; display text only
     repaired: bool = False  # the call's name, JSON or value types were mended before it ran (harness/tools/repair.py)
     written: Any = None     # the arguments as the model wrote them, before the value types were mended
+    feedback: str = ""      # what the post-tool hooks said about the call, for the model
 
 
 @dataclass
@@ -138,6 +151,11 @@ class LoopDetector:
         self.history: List[str] = []
         self._last_error: Optional[str] = None
         self.error_repeats = 0                    # how many calls in a row ended with this same error
+
+    def progress(self) -> None:
+        """Something in the workspace changed: the same call again is no longer the same situation, and the failures counted so far are history."""
+        self.history.clear()
+        self._last_error, self.error_repeats = None, 0
 
     def check_and_record(self, tool_name: str, args: Any) -> bool:
         """Returns True if a forbidden loop is detected."""
@@ -206,6 +224,10 @@ class AgentLoop:
         pipeline: Optional[Pipeline] = None,
         clock: Optional[Callable[[], datetime]] = None,
         max_tokens: Optional[int] = None,
+        gate: Optional[VerifyGate] = None,
+        changes: Optional[Callable[[], int]] = None,
+        budget_grace: bool = True,
+        subagent: bool = False,
     ) -> None:
         self.client = client
         self.tools = tool_registry
@@ -232,7 +254,13 @@ class AgentLoop:
         self._retried = False
         self.sampling = dict(sampling or {})      # temperature, seed, top_p...; what is not set is the model file's own
         self.max_tokens = max_tokens              # the most one reply may write; None: the server's own limit
+        self.gate = gate                          # the project's own checks, run before a turn ends after edits (harness/gate.py)
+        self.changes = changes                    # how many file changes have been recorded: a change is progress, and what the gate looks at
+        self.budget_grace = budget_grace          # a budget that runs out first warns, then allows one last report with no tools
+        self.subagent = subagent                  # a subagent has no gate, stop hook or last report of its own: its parent's turn has them
+        self._edits_seen = changes() if changes else 0
         self.loop_detector = LoopDetector()
+        self.outcome_guard = OutcomeGuard()       # loops seen in what calls bring back, not only in what they ask (harness/loop_guard.py)
         self.repeat_guard = RepeatGuard()         # a web read made twice in one request is not made again (harness/repeat_guard.py)
         self.messages: List[Dict[str, Any]] = [self._system_message()]
         self.turns: List[AgentTurn] = []
@@ -258,6 +286,10 @@ class AgentLoop:
         self._effort_once = ""                        # thinking level for the next model call only
         self._continuing = False                      # the next reply goes on from a cut one
         self._invalid_strike = False
+        self._stop_denials = 0                        # times a stop hook sent the model back to work
+        self._todo_nudged = False
+        if self.gate is not None:
+            self.gate.restart()
 
     def fork(self) -> "AgentLoop":
         """Another conversation with the same tools, permissions, audit and model but its own messages: for a request that has
@@ -267,7 +299,8 @@ class AgentLoop:
             on_turn_end=self.on_turn_end, permissions=self.permissions, hooks=self.hooks, audit=self.audit, checkpoints=self.checkpoints,
             secrets=self.secrets, output_filter=self.output_filter, max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds,
             cancel=threading.Event(), max_loop_strikes=self.max_loop_strikes, context=self.context, on_event=self.on_event,
-            sampling=self.sampling, on_delta=self.on_delta, pipeline=self.pipeline, clock=self.clock, max_tokens=self.max_tokens)
+            sampling=self.sampling, on_delta=self.on_delta, pipeline=self.pipeline, clock=self.clock, max_tokens=self.max_tokens,
+            gate=self.gate.clone() if self.gate is not None else None, changes=self.changes, budget_grace=self.budget_grace)
 
     def append(self, message: Dict[str, Any]) -> None:
         """Puts a message at the end of the conversation; with a clock it carries the time it was made, which never goes to the server."""
@@ -288,6 +321,7 @@ class AgentLoop:
             self.taint(f"{origin} note")                                       # text made from an event is no one's instruction
             return
         self.loop_detector = LoopDetector()                              # a request of the person starts the count again: asking for the same thing twice is not a loop
+        self.outcome_guard.restart()
         self._restart_request()
         self.repeat_guard.restart(len(self.turns))
         rewrite = getattr(self.context, "rewrite", None)
@@ -467,6 +501,8 @@ class AgentLoop:
         if tool is not None and tool.untrusted and worked:
             text = _fence_untrusted(name, text)
             self.untrusted_since_user = True
+        if result.feedback:
+            text += "\n[harness] " + result.feedback
         self._emit({"type": "tool_end", "call_id": call.call_id, "name": name, "status": "completed" if worked else "failed",
                     "decision": result.decision, "output": text})
         self.append({"role": "tool", "tool_call_id": call.call_id, "name": name, "content": text})
@@ -574,12 +610,11 @@ class AgentLoop:
             output = f"{output}\n\n[{cp_note}]" if isinstance(output, str) else {**output, "checkpoint": cp_note} if isinstance(output, dict) else output
         if self.permissions:
             self.permissions.two.observe(name, args, output, untrusted=tool.untrusted, secrets=self.secrets)
-        if self.hooks:
-            self.hooks.trigger_post_tool(name, args, output)
+        feedback = (self.hooks.trigger_post_tool(name, args, output) or "") if self.hooks else ""
         self._audit_call("tool_cancelled" if cancelled else "tool_error" if is_error else "tool_executed", name, args, permission,
                          "cancelled" if cancelled else "error" if is_error else "ok", ran, effect=tool.effect.value,
                          reason=str(output) if is_error else "", repaired=repaired)
-        return ToolExecutionResult(name, args, output, is_error, call.call_id, "executed", repaired=repaired, written=written)
+        return ToolExecutionResult(name, args, output, is_error, call.call_id, "executed", repaired=repaired, written=written, feedback=feedback)
 
     # -- main loop -------------------------------------------------------------------------------
 
@@ -593,6 +628,7 @@ class AgentLoop:
         self.messages = [self._system_message()]
         self.turns = []
         self.loop_detector = LoopDetector()
+        self.outcome_guard.restart()
         self.repeat_guard.restart(0)
         self.total_tokens = 0
         self._restart_request()
@@ -611,6 +647,7 @@ class AgentLoop:
         started = time.monotonic()
         self.stop_reason, self.error, self.error_status, self._loop_strikes = "", "", None, 0
         self.length_stops, self.cut, self._invalid_strike = 0, False, False
+        warned = False
         if not self._started:
             self._started = True
             if self.hooks:
@@ -623,17 +660,26 @@ class AgentLoop:
         run_turns: List[AgentTurn] = []
 
         turn_idx = 0
+        grace = ""                                                            # the budget that ran out, while its last report is being written
         while True:
             turn_idx += 1
-            if 0 < (self.max_turns or 0) < turn_idx:                      # below 1: no limit on the steps; the other guards below stay
-                self.stop_reason = MAX_TURNS
-                break
-            if self.cancel.is_set():
-                self.stop_reason = CANCELLED
-                break
-            if self._out_of_budget(started):
-                self.stop_reason = BUDGET
-                break
+            over = MAX_TURNS if 0 < (self.max_turns or 0) < turn_idx else ""    # below 1: no limit on the steps; the other guards below stay
+            if not over:
+                if self.cancel.is_set():
+                    self.stop_reason = CANCELLED
+                    break
+                if self._out_of_budget(started):
+                    over = BUDGET
+            if over:
+                if grace or not self.budget_grace or self.subagent or self.cancel.is_set():
+                    self.stop_reason = over
+                    break
+                grace = over                                                  # one more call, with no tools, to say where things stand
+                self.append({"role": "user", "content": GRACE_NOTE, "note": True})
+                self._emit({"type": "budget_grace", "reason": over})
+                self._audit("budget_grace", {"reason": over, "turns": len(self.turns)})
+            elif not warned and self.budget_grace and not self.subagent:
+                warned = self._budget_warning(started, turn_idx)
 
             if self.before_inference is not None and self.before_inference() == SUSPENDED:
                 self.stop_reason = SUSPENDED          # between model calls and tools: nothing is half done
@@ -642,7 +688,7 @@ class AgentLoop:
             t0 = time.monotonic()
             try:
                 if self.context:
-                    self.messages = self.context.prepare(self.messages)
+                    self._prepare_context()
                 done = self._complete()
             except StreamCancelled:                     # the person stopped the answer while it was being written
                 self.stop_reason = CANCELLED
@@ -683,6 +729,13 @@ class AgentLoop:
 
             self._emit({"type": "assistant", "reasoning": reasoning, "content": content, **({"finish_reason": finish} if finish == "length" else {})})
             calls = self.parse_calls(msg, content)
+            if grace:                                    # the last report: what it says is kept, any call in it is not run
+                if content:
+                    self.append({"role": "assistant", "content": content})
+                turn.seconds = round(time.monotonic() - t0, 3)
+                self._finish_turn(turn, run_turns)
+                self.stop_reason = grace
+                break
             if not calls:
                 if not content and (reasoning or finish == "length"):
                     if self._answer_missing(turn, run_turns, t0, finish):
@@ -698,7 +751,9 @@ class AgentLoop:
                 self._finish_turn(turn, run_turns)
                 if self._check_answer(answer_text(self.turns) if turn.continues else content):
                     continue                         # one more try, with what was not respected
-                self.stop_reason = FINAL
+                if self._before_end(answer_text(self.turns) if turn.continues else content):
+                    continue                         # the project's checks, the checklist or a stop hook sent the model back to work
+                self.stop_reason = self.stop_reason or FINAL
                 break
 
             self.append({
@@ -741,12 +796,19 @@ class AgentLoop:
                             "effect": tool.effect.value if tool else None, **({"description": description} if description else {})})
                 result = self._execute(call, checkpointed)
                 turn.tool_calls.append(result)
-                text = self._stringify(call.name, result.output)
+                text = result_text = self._stringify(call.name, result.output)
                 if result.decision != "loop":
                     text += self._same_error_note(call.name, result, str(result.output))
+                seen_by_guard = self._observe(call, shown_args, result, tool, result_text)       # the result as it is, without the notes added to it
+                if seen_by_guard.stub:
+                    text = seen_by_guard.stub
                 if tool is not None and tool.untrusted and result.decision == "executed" and not result.is_error:
                     text = _fence_untrusted(call.name, text)
                     self.untrusted_since_user = True
+                if seen_by_guard.note:
+                    text += "\n" + seen_by_guard.note
+                if result.feedback:
+                    text += "\n[harness] " + result.feedback
                 self._emit({"type": "tool_end", "call_id": call.call_id, "name": call.name,
                             "status": "completed" if result.decision == "executed" and not result.is_error else "failed",
                             "decision": result.decision, "output": text})
@@ -949,6 +1011,141 @@ class AgentLoop:
             self._retried = True
             self.append({"role": "user", "content": feedback(verdict.violations)})
         return retry
+
+    # -- what is looked at before a turn ends, and while it goes on ---------------------------------------
+
+    def _observe(self, call: ParsedCall, args: Any, result: ToolExecutionResult, tool: Any, text: str) -> Verdict:
+        """Lets the loop guard see an executed call and what it brought back. A change to the files is progress and clears what was counted;
+        a strike counts toward ending the run."""
+        if result.decision != "executed" or tool is None:
+            return Verdict()
+        if call.name == "todo_write" and not result.is_error and getattr(self.tools, "todo", None) is not None:
+            self._emit({"type": "todo", "items": self.tools.todo.items})
+        recorded = self.changes() if self.changes else None
+        if recorded is not None:
+            mutated, self._edits_seen = recorded != self._edits_seen, recorded
+        else:
+            mutated = tool.effect == EffectClass.REVERSIBLE and not result.is_error
+        if mutated:
+            self.loop_detector.progress()
+        verdict = self.outcome_guard.observe(call.call_id, call.name, args, text, result.is_error, mutated=mutated,
+                                             pure=tool.effect == EffectClass.PURE and not tool.untrusted, held=self._held)
+        if verdict.strike:
+            self._loop_strikes += 1
+            self._audit("loop_guard", {"tool": call.name, "note": verdict.note[:200]})
+        return verdict
+
+    def _held(self, call_id: str) -> bool:
+        """Whether the result of this call is still in the conversation as it was written (not masked to save room)."""
+        return any(m.get("role") == "tool" and m.get("tool_call_id") == call_id and not m.get("masked") for m in self.messages)
+
+    def _budget_warning(self, started: float, turn_idx: int) -> bool:
+        """Tells the model once, in a hidden note, when a budget is nine tenths used. True when it did."""
+        if turn_idx < 2:
+            return False
+        spent = []
+        if self.max_turns and self.max_turns > 0 and turn_idx >= math.ceil(BUDGET_WARN_AT * self.max_turns):
+            spent.append("steps")
+        if self.max_total_tokens and self.total_tokens >= BUDGET_WARN_AT * self.max_total_tokens:
+            spent.append("tokens")
+        if self.max_seconds and time.monotonic() - started >= BUDGET_WARN_AT * self.max_seconds:
+            spent.append("time")
+        if not spent:
+            return False
+        self.append({"role": "user", "content": BUDGET_WARNING, "note": True})
+        self._emit({"type": "budget_warning", "spent": spent})
+        self._audit("budget_warning", {"spent": spent, "turns": len(self.turns)})
+        return True
+
+    def _prepare_context(self) -> None:
+        """Keeps the conversation inside its budget; the compaction hooks hear of it when the context is over its threshold and gets smaller."""
+        ctx = self.context
+        due, before = False, 0
+        if self.hooks is not None:
+            try:
+                before = ctx.estimate_tokens(self.messages)
+                due = before > ctx.budget_tokens * ctx.mask_at
+            except (AttributeError, TypeError):
+                due = False
+        if due:
+            self.hooks.trigger_event("pre_compact", {"tokens": before, "messages": len(self.messages)})
+        self.messages = ctx.prepare(self.messages)
+        if due:
+            after = ctx.estimate_tokens(self.messages)
+            if after < before:
+                self.hooks.trigger_event("post_compact", {"tokens_before": before, "tokens_after": after, "messages": len(self.messages),
+                                                          "actions": list(getattr(ctx, "last_actions", None) or [])})
+
+    def _before_end(self, content: str) -> bool:
+        """The answer is final unless the project's checks fail, the checklist has items open or a stop hook denies it: then a hidden message
+        says why and the model works again (True). A gate that gives up ends the run as `verify_failed` and False is returned."""
+        if self.subagent or self.cancel.is_set():
+            return False
+        if self._run_gate():
+            return True
+        if self.stop_reason == VERIFY_FAILED:
+            return False
+        todo = getattr(self.tools, "todo", None)
+        if todo is not None and not self._todo_nudged and todo.open_items():
+            self._todo_nudged = True
+            self.append({"role": "user", "content": TODO_NOTE.format(items=todo.render(open_only=True)), "note": True})
+            self._emit({"type": "todo_open", "count": len(todo.open_items())})
+            return True
+        if self.hooks is None:
+            return False
+        reason = self.hooks.trigger_stop({"final": content[:2000], "turns": len(self.turns), "stop_hook_active": self._stop_denials > 0})
+        if not reason:
+            return False
+        if self._stop_denials >= MAX_STOP_DENIALS:
+            self._emit({"type": "stop_denied", "final": True, "reason": reason[:300]})
+            self._audit("stop_denied", {"final": True, "denials": self._stop_denials})
+            return False
+        self._stop_denials += 1
+        self.append({"role": "user", "content": f"[harness] {reason}\nContinue the work, then answer again.", "note": True})
+        self._emit({"type": "stop_denied", "final": False, "n": self._stop_denials, "reason": reason[:300]})
+        self._audit("stop_denied", {"final": False, "denials": self._stop_denials})
+        return True
+
+    def _run_gate(self) -> bool:
+        """The verify gate (harness/gate.py): when files changed since it last looked, each listed command runs as a shell call of this
+        conversation. True when the checks failed and the model was told to fix them."""
+        gate = self.gate
+        if gate is None or not gate.due():
+            return False
+        if self.tools.get("shell_command") is None:
+            return False
+        results = []
+        for command in gate.commands:
+            results.append(self._gate_command(command))
+            if self.cancel.is_set():
+                return False
+        gate.looked()
+        self._edits_seen = self.changes() if self.changes else self._edits_seen
+        decision, text = gate.verdict(results)
+        self._emit({"type": "gate", "decision": decision, "round": gate.rounds, "of": gate.max_rounds, "results": event_data(results)})
+        self._audit("verify_gate", {"decision": decision, "round": gate.rounds, "commands": [r.command[:120] for r in results],
+                                    "failed": [r.command[:120] for r in results if not r.ok]})
+        if decision == "retry":
+            self.append({"role": "user", "content": text, "note": True})
+            return True
+        if decision == "stop":
+            self.stop_reason, self.error = VERIFY_FAILED, text
+        return False
+
+    def _gate_command(self, command: str) -> "Any":
+        """One of the person's check commands, through the same gate as any shell call; its start and end are shown like the model's calls."""
+        gate = self.gate
+        args = {"command": command, "timeout": gate.timeout}
+        if self.permissions is not None:
+            self.permissions.approve("shell_command", args)       # the person listed this exact command: it runs without asking, deny rules still hold
+        call = ParsedCall("call_gate_" + uuid.uuid4().hex[:10], "shell_command", args)
+        self._emit({"type": "tool_start", "call_id": call.call_id, "name": "shell_command", "arguments": args, "effect": "irreversible", "gate": True})
+        result = self._execute(call, [False], loop_check=False)
+        found = read_result(command, result.output, result.decision, result.is_error)
+        shown = result.output if isinstance(result.output, str) else json.dumps(result.output, ensure_ascii=False, default=str)
+        self._emit({"type": "tool_end", "call_id": call.call_id, "name": "shell_command", "status": "completed" if found.ok else "failed",
+                    "decision": result.decision, "output": self._stringify("shell_command", shown), "gate": True, "ok": found.ok})
+        return found
 
     def _finish_turn(self, turn: AgentTurn, run_turns: List[AgentTurn]) -> None:
         self.turns.append(turn)

@@ -15,6 +15,7 @@ import requests
 
 from harness.client import BasaltError, _collect_stream
 from harness.llm import functions
+from harness.llm.profile import RouteProfile, route_profile
 from harness.llm.store import Ledger, SecureRegistry, is_local
 from harness.llmswitch import reasoning
 from harness.llmswitch.providers import TYPES
@@ -47,7 +48,9 @@ def _http_error(prov: Dict[str, Any], resp: "requests.Response") -> BasaltError:
 
 # -- Anthropic: the messages and the tools in its own shape ----------------------------------------------------
 
-def to_anthropic(messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+def to_anthropic(messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]], cache: bool = False) -> Dict[str, Any]:
+    """Anthropic's shape of a request. With `cache`, the end of the tool list and the end of the system text are marked as cache points:
+    the stable start of the prompt, which is read from the provider's cache on the next call instead of being paid for again."""
     system = "\n\n".join(m["content"] for m in messages if m["role"] == "system" and isinstance(m.get("content"), str))
     out: List[Dict[str, Any]] = []
     for m in messages:
@@ -79,11 +82,14 @@ def to_anthropic(messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, 
             else:
                 out.append({"role": "user", "content": text if isinstance(text, (str, list)) else str(text)})
     body: Dict[str, Any] = {"messages": out}
+    mark = {"cache_control": {"type": "ephemeral"}}
     if system:
-        body["system"] = system
+        body["system"] = [{"type": "text", "text": system, **mark}] if cache else system
     if tools:
         body["tools"] = [{"name": t["function"]["name"], "description": t["function"].get("description", ""),
                           "input_schema": t["function"].get("parameters") or {"type": "object", "properties": {}}} for t in tools]
+        if cache:
+            body["tools"][-1].update(mark)
     return body
 
 
@@ -100,9 +106,14 @@ def from_anthropic(data: Dict[str, Any]) -> Dict[str, Any]:
     stop = data.get("stop_reason")
     usage = data.get("usage") or {}
     finish = "tool_calls" if calls else {"end_turn": "stop", "max_tokens": "length", "stop_sequence": "stop"}.get(stop, "stop")
-    return {"choices": [{"index": 0, "message": message, "finish_reason": finish}],
-            "usage": {"prompt_tokens": usage.get("input_tokens", 0), "completion_tokens": usage.get("output_tokens", 0),
-                      "total_tokens": usage.get("input_tokens", 0) + usage.get("output_tokens", 0)}}
+    read, written = int(usage.get("cache_read_input_tokens") or 0), int(usage.get("cache_creation_input_tokens") or 0)
+    prompt = usage.get("input_tokens", 0) + read + written                  # input_tokens leaves out what the cache served or stored
+    result = {"choices": [{"index": 0, "message": message, "finish_reason": finish}],
+              "usage": {"prompt_tokens": prompt, "completion_tokens": usage.get("output_tokens", 0),
+                        "total_tokens": prompt + usage.get("output_tokens", 0)}}
+    if read:
+        result["usage"]["prompt_tokens_details"] = {"cached_tokens": read}
+    return result
 
 
 class RoutedClient:
@@ -125,7 +136,15 @@ class RoutedClient:
         return self.local.metrics(*a, **k)
 
     def context_window(self, *a: Any, **k: Any) -> Any:
-        return self.local.context_window(*a, **k)
+        """The window the agent plans by: the one the person gave the assigned cloud route, else the loaded model's own."""
+        return self.profile().context_window or self.local.context_window(*a, **k)
+
+    def profile(self, pid: Optional[str] = None) -> RouteProfile:
+        """What the route this function is pointed at (or the provider `pid`) can do. The loaded model has the plain profile."""
+        data = self.registry.load()
+        pid = pid or (data.get("assignments") or {}).get(self.function) or ""
+        prov = self.registry._find(data, pid) if pid else None
+        return route_profile(prov, TYPES.get((prov or {}).get("type") or "", {}))
 
     def stays_local(self) -> bool:
         """Whether every route this function may take is the model loaded in this Basalt (nothing goes to another provider)."""
@@ -195,8 +214,9 @@ class RoutedClient:
         if not base:
             raise NotAllowed(f"{prov.get('name') or pid} has no address: set it first")
         headers = dict(self.registry.headers_for(self.function))
+        profile = route_profile(prov, spec)
         if api == "anthropic":
-            return self._anthropic(prov, base, key, model, messages, tools, temperature, max_tokens, timeout, on_delta)
+            return self._anthropic(prov, base, key, model, messages, tools, temperature, max_tokens, timeout, on_delta, profile)
         body: Dict[str, Any] = {"model": model, "messages": messages}
         if temperature is not None:
             body["temperature"] = temperature
@@ -211,7 +231,7 @@ class RoutedClient:
         shaped = self.registry.reasoning_for(self.function, self.level, base=body, max_tokens=max_tokens)
         body = dict(shaped["params"])                          # the request with the reasoning said in this provider's own words
         if shaped["max_tokens"]:
-            body["max_tokens"] = shaped["max_tokens"]
+            body["max_tokens"] = min(shaped["max_tokens"], profile.max_output) if profile.max_output else shaped["max_tokens"]
         if on_delta is not None:
             body["stream"] = True
             body["stream_options"] = {"include_usage": True}
@@ -227,16 +247,19 @@ class RoutedClient:
         self.ledger.record(pid, int((result.get("usage") or {}).get("total_tokens") or 0))
         return result
 
-    def _anthropic(self, prov, base, key, model, messages, tools, temperature, max_tokens, timeout, on_delta) -> Dict[str, Any]:
-        body = to_anthropic(messages, tools)
-        body.update({"model": model, "max_tokens": max_tokens or DEFAULT_MAX_TOKENS})
+    def _anthropic(self, prov, base, key, model, messages, tools, temperature, max_tokens, timeout, on_delta,
+                   profile: Optional[RouteProfile] = None) -> Dict[str, Any]:
+        profile = profile or RouteProfile()
+        body = to_anthropic(messages, tools, cache=profile.cache_control)
+        wanted = max_tokens or min(DEFAULT_MAX_TOKENS, profile.max_output or DEFAULT_MAX_TOKENS)
+        body.update({"model": model, "max_tokens": min(wanted, profile.max_output) if profile.max_output else wanted})
         if temperature is not None:
             body["temperature"] = temperature
         shaped = self.registry.reasoning_for(self.function, self.level, base={}, max_tokens=body["max_tokens"])
         for k, v in shaped["params"].items():
             body[k] = v
         if shaped.get("max_tokens"):
-            body["max_tokens"] = shaped["max_tokens"]
+            body["max_tokens"] = min(shaped["max_tokens"], profile.max_output) if profile.max_output else shaped["max_tokens"]
         headers = {"x-api-key": key, "anthropic-version": ANTHROPIC_VERSION, "Content-Type": "application/json"}
         try:
             resp = self.http.post(base.rstrip("/") + "/messages", data=json.dumps(body), headers=headers, timeout=timeout)

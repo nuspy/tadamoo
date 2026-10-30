@@ -59,6 +59,9 @@ the Chat can reach, the others can reach:
 | `--temperature T` | the sampling temperature of every model call; not given, none is sent and the model file's own sampling applies (see "How a reply ends") |
 | `--max-tokens N` | the most one reply may write; not given, the server's own limit applies |
 | `--instruction-blocks` | six short working rules in the system prompt (see "Working rules"); off unless asked for |
+| `--verify-command CMD`, `--verify-gate {off,unattended,always}`, `--verify-rounds N` | the project's own checks, run before a turn that changed files ends; off by default (see [harness-gates.md](harness-gates.md)) |
+| `--no-budget-grace` | a budget that runs out ends the answer at once, without the warning and the last report |
+| `--error-classifier` | proposal awaiting the owner: a model error that waiting cannot cure ends the turn instead of being retried (see [harness-gates.md](harness-gates.md)) |
 | `--unattended` | (conversations) nobody answers: a question is approved at once, or says the data is not available, or, if it is for another person, the user, a resource that is not the PC's own or a booking, is parked in the `pending` list while the model goes on |
 
 A headless run has nobody to type a second-factor code; a login that needs one fails there. Payments and plans go through the same question as
@@ -72,7 +75,7 @@ are left out, as are the changes of a command that writes more than 50 files; a 
 30 MB of text is not watched.
 
 Exit codes: 0 finished, 1 error, 2 bad usage, 3 turn limit, 4 budget, 5 stuck in a loop, 6 ended on a question for the person
-(the answer would be the next message), 7 put aside before it was done, 130 cancelled. With `--json` the result has the stop reason
+(the answer would be the next message), 7 put aside before it was done, 8 the project's checks still failed or could not be run (`verify_failed`), 130 cancelled. With `--json` the result has the stop reason
 (`status` is `success` only for a finished run), the changes, token and cache counts, how many calls the permission layer refused
 (`permission_denials`, in all and by tool) and the path of the audit log. The Chat's process reports the same count in each
 `heartbeat` and `done` (`denied`) and in `closed` (`permission_denials`); the `session_end` hook is given it too.
@@ -319,6 +322,8 @@ and the rejection are in the audit log.
 
 ### Stopping and time limits
 
+When the steps, tokens or time of an answer reach nine tenths the model is told in a note at the tail; when they run out it gets one more reply, with no tools, to say what is done and what is not (`--no-budget-grace` turns both off; [harness-gates.md](harness-gates.md)).
+
 Stop ends a command that is running: a shell command and everything it started (on Windows the whole job) end within a fraction of a second
 after the run is cancelled, instead of when the command finishes. Every tool also has a time limit, one hour unless set otherwise
 (`tool_timeout_s` in `limits.json`, which is never unlimited; or `--tool-timeout SECONDS`, or `NAME=SECONDS` for one tool; `0` for none; `ToolRegistry.set_timeout` in code).
@@ -336,6 +341,8 @@ note to the second result telling the model to change what it asks or to take an
 as a strike, the same strikes that refused identical calls give, and a run with more than two strikes ends as a loop. A model message that is only calls that are cut off or not valid
 JSON is sent back with the reason, never taken as the final answer. A strike for calls that could not be read (the same error three times in a row)
 counts only when none of the calls of that turn was valid; the valid calls of a mixed batch run, and only the invalid ones get an error.
+The loop guard also looks at what calls bring back (cycles of two to four calls, one result for many different calls, long results that repeat),
+and a change to the files clears what it counted: see [harness-gates.md](harness-gates.md).
 
 ### How a reply ends
 
@@ -407,7 +414,7 @@ from starting with the reason: a policy that is silently dropped protects nothin
 
 | key | meaning |
 |---|---|
-| `event` | `pre_tool`, `post_tool`, `turn_end`, `session_start` or `session_end` |
+| `event` | `pre_tool`, `post_tool`, `stop`, `turn_end`, `session_start`, `session_end`, `pre_compact`, `post_compact`, `subagent_start` or `subagent_stop` (what a `post_tool` and a `stop` hook can say back: [harness-gates.md](harness-gates.md)) |
 | `command` | what to run (text, or a list of words), in the workspace, with a scrubbed environment and the job limits of any command; the event is given as JSON on its standard input (`event`, `tool`, `arguments`, and for `post_tool` the `result`, masked; for the other events `turn`, `goal`, `stop_reason`, ...) and in `BASALT_HOOK_EVENT` and `BASALT_HOOK_TOOL` |
 | `action` | `block`, instead of a command, only on `pre_tool`: refuses a matching call with `reason`, running nothing; or `plan_event`, on any other event: gives the planner an event whose `text` is the one written here (`{event}` and `{tool}` are filled in, nothing else of the call goes in; only the Chat's conversation has a planner to tell) |
 | `text` | what a `plan_event` action tells the planner, up to 300 characters |
@@ -419,7 +426,8 @@ from starting with the reason: a policy that is silently dropped protects nothin
 A `pre_tool` command lets the call pass with exit code 0; it blocks it with exit code 2 (what it printed is the reason) or by printing
 `{"decision": "block", "reason": "..."}`. A hook that cannot decide, because it exited with another code, did not finish in time, could not
 start or is not allowed to run, blocks the call too, and says so: a check that cannot run never reads as approval. The built-in refusal of
-dangerous commands runs first and cannot be turned off by a file. Hooks of the other events cannot change the outcome; their failures are
+dangerous commands runs first and cannot be turned off by a file. A `post_tool` hook that exits 2 or prints `{"decision": "block", "reason": ...}`
+gives the model feedback beside the result, and a `stop` hook that does so sends it back to work (at most twice per request). Hooks of the other events cannot change the outcome; their failures are
 kept and reported, never raised. **What a hook prints is untrusted**: the model sees it cut to 500 characters, with secrets masked, inside an
 `<untrusted_data>` block that it cannot close, with the reason for the block outside it. A fixed `reason` you wrote is shown as it is.
 

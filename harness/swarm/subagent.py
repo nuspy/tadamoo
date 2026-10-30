@@ -56,10 +56,14 @@ class SubagentRunner:
             loop = AgentLoop(client=self.client, tool_registry=self._narrowed(names), max_turns=turns, system_prompt=SYSTEM,
                              permissions=self.permissions, hooks=self.hooks, audit=self.audit, checkpoints=self.checkpoints,
                              secrets=self.secrets, output_filter=self.output_filter, cancel=self.cancel,
-                             max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds)
+                             max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds, subagent=True)
             loop._started = True                       # the session start and end hooks belong to the parent's conversation
+            if self.hooks:
+                self.hooks.trigger_event("subagent_start", {"task": task[:500], "tools": names})
             loop.run(task)
             summary = self._summary(loop)
+            if self.hooks:
+                self.hooks.trigger_event("subagent_stop", {"stop_reason": loop.stop_reason, "turns": len(loop.turns), "summary": summary[:500]})
             self._audit("subagent_end", {"stop_reason": loop.stop_reason, "turns": len(loop.turns), "tokens": loop.total_tokens})
         if loop.untrusted_since_user:
             summary = _fence_untrusted("subagent", summary)

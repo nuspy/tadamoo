@@ -158,6 +158,8 @@ def create_standard_tool_registry(
     register_tree(registry, sandbox.resolve_safe, sandbox.root)
     register_repo_map(registry, sandbox.resolve_safe)
     register_repo_diagram(registry, sandbox.resolve_safe)
+    from harness.todo import register_todo_tool
+    register_todo_tool(registry)
     registry.mark_stable()
 
     return registry, sandbox

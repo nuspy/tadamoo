@@ -46,7 +46,7 @@ def server():
     root = Path(__file__).resolve().parents[1]
     tok = ByteTokenizer()
     svc = Service(MockEngine(tok, [tool_call("write_file", path="textutil.py", content="def reverse_words(s):\n    return ' '.join(reversed(s.split()))\n"),
-                                    answer("Done.")] * 14, max_context=16384), tok, ChatTemplate(root / "serve" / "chat_template.jinja"))
+                                    answer("Done.")] * 14, max_context=32768), tok, ChatTemplate(root / "serve" / "chat_template.jinja"))
     svc.telemetry = SimpleNamespace(snapshot=lambda: {"now": {"gpus": []}, "history": {}, "static": {"gpus": []}})
     httpd = serve(svc, port=0)
     yield f"http://127.0.0.1:{httpd.server_address[1]}"

@@ -62,6 +62,7 @@ from harness.scheduler import RoutineError
 from serve.wallet_api import WalletApi, WalletError
 from harness.context_patterns import catalog as context_patterns_catalog
 from serve.capabilities_api import CapabilityApi, CapabilityError
+from serve.gate_prefs import GateError, GatePrefs
 from serve.knowledge_prefs import KnowledgeError, KnowledgePrefs, check_wiki, clean_url
 from serve.llm_api import LlmApi, LlmError
 from serve.mcp_auth_api import McpAuthApi, McpAuthError, result_page
@@ -495,6 +496,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/knowledge":
                 if self._authorized():
                     self._json(200, KnowledgePrefs(userdata.path("knowledge.json")).view())
+            elif path == "/api/gate":
+                if self._authorized():
+                    self._json(200, GatePrefs(userdata.path("gate.json")).view())
             elif path == "/api/memories":
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
@@ -689,6 +693,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path in ("/api/knowledge", "/api/knowledge/wiki-check"):
                 self._knowledge_post(path)
+                return
+            if path == "/api/gate":
+                self._gate_post()
                 return
             if path in ("/api/mcp/auth/start", "/api/mcp/auth/signout"):
                 self._mcp_auth_post(path)
@@ -1760,6 +1767,27 @@ def make_handler(svc: Service, remote: bool = False):
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"message": str(e)}})
 
+        def _gate_post(self):
+            """The settings of the verify gate and the turn's end: only from this PC and the page itself, since the commands run on this PC."""
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "these settings can be changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 14)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            prefs = GatePrefs(userdata.path("gate.json"))
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                prefs.write(req)
+                return self._json(200, prefs.view())
+            except GateError as e:
+                return self._json(400, {"error": {"type": "gate", "message": str(e), "field": e.field}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"message": str(e)}})
+
         def _mcp_auth(self) -> McpAuthApi:
             global _MCP_AUTH
             if _MCP_AUTH is None:
@@ -2188,6 +2216,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
                                            browser_prefs=BrowserPrefs(userdata.path("browser.json")).read, knowledge_flags=KnowledgePrefs(userdata.path("knowledge.json")).flags,
+                                           gate_flags=GatePrefs(userdata.path("gate.json")).flags,
                                            rule_of_two=RuleOfTwoPrefs(userdata.path("rule_of_two.json")).read, allow_rules=AllowRules(userdata.path("allow_rules.json")),
                                            rule_of_two_prefs=RuleOfTwoPrefs(userdata.path("rule_of_two.json")),
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),

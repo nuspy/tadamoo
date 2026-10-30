@@ -2,7 +2,7 @@
 
 Exit codes: 0 finished, 1 error (server, setup or crash), 2 bad usage, 3 turn limit, 4 token or time
 budget, 5 stuck in a loop, 6 ended on a question for the person, 7 put aside before it was done,
-130 cancelled.
+8 the project's checks still failed (or could not be run), 130 cancelled.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from harness.plan_mode import gate_from_confirm
 from harness.stack import AgentConfig, add_agent_arguments, agent_settings, build_agent, split_secret_specs     # noqa: F401 (the last is used by `harness session`)
 from harness.tools.registry import clock_paused
 
-EXIT_CODES = {al.FINAL: 0, al.ERROR: 1, al.MAX_TURNS: 3, al.BUDGET: 4, al.LOOP: 5, al.ASKED: 6, al.SUSPENDED: 7, al.CANCELLED: 130}
+EXIT_CODES = {al.FINAL: 0, al.ERROR: 1, al.MAX_TURNS: 3, al.BUDGET: 4, al.LOOP: 5, al.ASKED: 6, al.SUSPENDED: 7, al.VERIFY_FAILED: 8, al.CANCELLED: 130}
 
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
@@ -105,7 +105,7 @@ def config_from_args(args: argparse.Namespace) -> AgentConfig:
     return AgentConfig(
         **agent_settings(args),
         max_total_tokens=args.max_tokens_budget, max_seconds=args.timeout_seconds,
-        report=not args.no_report,
+        report=not args.no_report, unattended=not args.interactive,
         confirm=_confirmer(args), run_id=args.run_id, progress=args.progress,
     )
 

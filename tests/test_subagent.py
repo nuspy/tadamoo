@@ -115,7 +115,10 @@ def test_the_turns_are_limited_only_when_asked_for(ws, tmp_path):
 
 
 def test_without_a_turn_limit_it_goes_on_past_twenty_turns(ws, tmp_path):
-    steps = [call("list_directory", {"path": "." + "/" * i}, f"c{i}") for i in range(25)] + [say("finished")]
+    for i in range(25):
+        (ws / f"d{i}").mkdir()
+        (ws / f"d{i}" / f"f{i}.txt").write_text(str(i), encoding="utf-8")
+    steps = [call("list_directory", {"path": f"d{i}"}, f"c{i}") for i in range(25)] + [say("finished")]
     client = ScriptedClient(*steps)
     _, runner, _, _ = build(ws, client, tmp_path)
     out = runner.run("look around")
