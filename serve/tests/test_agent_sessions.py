@@ -343,7 +343,7 @@ def test_the_process_is_started_with_the_intake_and_suggestion_options(tmp_path)
     mgr = SessionManager(tmp_path / "j", "http://127.0.0.1:1", intake_flags=prefs.flags)
     rec = {"id": "x", "mode": "default", "workspace": str(tmp_path)}
     cmd = mgr._command("x", rec, tmp_path / "h")
-    assert cmd[cmd.index("--intake") + 1] == "rules" and cmd[cmd.index("--suggestions") + 1] == "on" and "--side-call-tokens" in cmd
+    assert cmd[cmd.index("--intake") + 1] == "off" and cmd[cmd.index("--suggestions") + 1] == "on" and "--side-call-tokens" in cmd
     prefs.write({"intake": "full", "suggestions": False, "side_call_tokens": 3000})
     cmd = mgr._command("x", rec, tmp_path / "h")
     assert cmd[cmd.index("--intake") + 1] == "full" and cmd[cmd.index("--suggestions") + 1] == "off" and cmd[cmd.index("--side-call-tokens") + 1] == "3000"
@@ -1021,6 +1021,17 @@ def test_checks_the_person_accepts_are_told_to_the_running_conversations_of_that
     until(lambda: any(e["event"] == "checks" and e["safe"] == 1 and e["checks"] == 1 for e in mgr.events(here)["events"]))
     assert "checks" not in kinds(mgr, there)
     assert SessionManager(tmp_path / "j2", "http://127.0.0.1:1").update_checks(folder) == 0
+
+
+def test_the_look_at_a_request_is_told_to_the_running_conversations_and_to_no_closed_one(make, ws, tmp_path):
+    mgr = make()
+    live, idle = mgr.create(ws)["id"], mgr.create(ws)["id"]
+    mgr.send(live, "primo")
+    until(lambda: "done" in kinds(mgr, live))
+    assert mgr.update_intake("full") == 1                                         # the one with a process; the other takes the saved choice when it starts
+    until(lambda: any(e["event"] == "intake_mode" and e["mode"] == "full" for e in mgr.events(live)["events"]))
+    assert "intake_mode" not in kinds(mgr, idle)
+    assert SessionManager(tmp_path / "j2", "http://127.0.0.1:1").update_intake("off") == 0
 
 
 def test_the_thinking_level_is_kept_and_checked(make, ws):

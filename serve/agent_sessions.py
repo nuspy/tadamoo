@@ -1549,6 +1549,12 @@ class SessionManager:
             sids = [r["id"] for r in self.records if project_key(r.get("workspace", "")) == project_key(workspace) and r["state"] != "closed" and not r.get("ask_only")]
             return sum(1 for sid in sids if self._tell_if_running(sid, {"cmd": "checks", "safe": got["safe"], "checks": got["checks"]}))
 
+    def update_intake(self, mode: Any) -> int:
+        """Tells the running conversations how a request is looked at now; one started later takes it from the saved choice. Returns how many were told."""
+        with self._lock:
+            sids = [r["id"] for r in self.records if r["state"] != "closed"]
+            return sum(1 for sid in sids if self._tell_if_running(sid, {"cmd": "intake", "mode": mode}))
+
     def set_effort(self, sid: str, level: Any) -> Dict[str, Any]:
         """How long the model thinks in this conversation, from its next model call on."""
         if level not in EFFORTS:
