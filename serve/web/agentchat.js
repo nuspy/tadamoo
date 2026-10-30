@@ -9,7 +9,7 @@
   const MODES = ["agent", "ask", "direct"];
   const FAST_MS = 350, SLOW_MS = 3000, SHOWN_OUTPUT = 1500, EXPLAIN_MAX = 300;
   /* what an action is called when the model gave no sentence for it: a phrase by tool name (ch.act.*), else a generic one */
-  const ACTIONS = new Set(["shell_command", "write_file", "edit_file", "read_file", "list_directory", "search_web", "browse_url", "run_code", "spawn_subagent",
+  const ACTIONS = new Set(["shell_command", "write_file", "edit_file", "read_file", "list_directory", "search_code", "tree", "search_web", "browse_url", "run_code", "spawn_subagent",
     "browser_open", "read_attachment", "write_output_file", "find_online_capability"]);
   const explainOf = v => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, EXPLAIN_MAX) : "");   // the model's words: text only, cut short
   function actionText(b) {

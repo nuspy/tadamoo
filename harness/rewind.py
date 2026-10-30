@@ -74,7 +74,7 @@ def delete_checkpoints(data_dir: Path, workspace: Path, checkpoint_id: Optional[
 KNOWN_EFFECTS: Dict[str, str] = {
     **dict.fromkeys(("read_file", "list_directory", "search_web", "browse_url", "list_attachments", "read_attachment", "search_attachment",
                      "browser_open", "browser_read", "find_capability", "load_capability", "ask_council", "wiki_search", "wiki_page",
-                     "wiki_context", "diagnostics", "go_to_definition", "find_references", "plan_list", "plan_get", "ask_user", "repo_map", "repo_diagram", "recall"), "pure"),
+                     "wiki_context", "diagnostics", "go_to_definition", "find_references", "plan_list", "plan_get", "ask_user", "repo_map", "repo_diagram", "recall", "search_code", "tree"), "pure"),
     **dict.fromkeys(("write_file", "edit_file", "transcribe_attachment", "write_output_file", "publish_output_file", "plan_create", "plan_set_profile",
                      "plan_check", "plan_mark", "plan_step_start", "plan_propose_change", "plan_archive", "remember", "forget"), "reversible"),
     **dict.fromkeys(("shell_command", "browser_click", "browser_type", "browser_sign_in", "browser_select", "browser_press", "browser_back",
@@ -82,7 +82,8 @@ KNOWN_EFFECTS: Dict[str, str] = {
                      "delegate_to_acp_agent", "ask_a2a_agent"), "irreversible"),
 }
 FILE_TOOLS = ("write_file", "edit_file")
-NOT_RUN = ("Permission denied", "Cancelled before it ran", "Loop detected", "Unknown tool", "No checkpoint could be taken", "Tool '", "The arguments of")
+NOT_RUN = ("Permission denied", "Cancelled before it ran", "Loop detected", "Unknown tool", "No checkpoint could be taken", "Tool '", "The arguments of",
+           '{"status": "refused"', '{"status": "unchanged"')
 
 
 def tool_effect(name: str, learned: Optional[Dict[str, str]] = None) -> str:
