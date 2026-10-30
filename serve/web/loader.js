@@ -16,6 +16,7 @@
     { group: "context", name: "engine.rope-freq-base", kind: "num", min: 0, step: "any" },
     { group: "context", name: "server.parallel", kind: "int", min: 1, max: 8, step: 1 },
     { group: "context", name: "server.slot-full-context", kind: "bool" },
+    { group: "context", name: "server.side-slot", kind: "int", min: 0, max: 262144, step: 1024 },
     { group: "speed", name: "engine.prefill", kind: "text", list: ["auto", "auto:8192", "auto:16384", "auto:32768", "2048", "512"] },
     { group: "speed", name: "mtp", kind: "bool", virtual: true },
     { group: "speed", name: "engine.spec", kind: "int", min: 2, max: 8, step: 1 },
@@ -50,7 +51,7 @@
   const GiBn = 2 ** 30;
   const gib = n => nfmt(n / GiBn, 1);
   let INFO = null, PROF = null, seq = 0, timer = 0, poll = 0;
-  const RX = "engine.relaxed-drafting";
+  const RX = "engine.relaxed-drafting", SIDE = "server.side-slot";
   const fallback = { "engine.relaxed-drafting": "off", "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep", "engine.kv": "fp16", "engine.ple-io": "direct" };
 
   /* ---- the form ---- */
@@ -93,6 +94,7 @@
         }
         d.insertAdjacentHTML("beforeend", `<p class="help" id="${help}">${esc(T("h." + key))}</p>`);
         if (f.name === RX) d.insertAdjacentHTML("beforeend", '<div class="rx-note" id="rx-note" role="status" aria-live="polite"></div>');
+        if (f.name === SIDE) d.insertAdjacentHTML("beforeend", '<div class="rx-note" id="side-note" role="status" aria-live="polite" hidden></div>');
         d.insertAdjacentHTML("beforeend", `<p class="help unsup" hidden>${esc(T(f.windows ? "ld.windows" : "ld.unsupported"))}</p>`);
         grid.append(d);
       }
@@ -276,6 +278,12 @@
     const rx = !!el(RX).value;
     el("mtp").disabled = rx && el("mtp").checked;
     el("server.parallel").disabled = rx && par <= 1;
+    // the technical session: relaxed drafting and it exclude each other, and it takes one of the engine's 8 slots
+    const side = Number(el(SIDE).value || 0);
+    el(SIDE).disabled = rx && !(side > 0);
+    el("server.parallel").max = side > 0 ? "7" : "8";
+    const note = $("#side-note");
+    if (note) { note.hidden = !(side > 0); note.textContent = side > 0 ? T("side.on", nfmt(side)) : ""; }
   }
 
   /* ---- the prediction: resources, speed, the Load button ---- */
@@ -307,7 +315,7 @@
     // what the memory settings did to the figures: the KV split, the resident budget, the caches' formula
     const gb = n => gib(n || 0);
     const noteText = n => T("pn." + n.code, ...({
-      kv_stream: [nfmt(n.cells), gb(n.vram), gb(n.host)], kv_fits: [nfmt(n.cells)], kv_k8v4: [], mmap_wins: [],
+      kv_stream: [nfmt(n.cells), gb(n.vram), gb(n.host)], kv_fits: [nfmt(n.cells)], kv_k8v4: [], mmap_wins: [], side: [nfmt(n.context), gb(n.kv)],
       budget: [gb(n.bytes)], caches: [nfmt(n.checkpoints), nfmt(n.slots), gb(n.parked)],
     }[n.code] || []));
     const pnotes = (p.notes || []).map(noteText);

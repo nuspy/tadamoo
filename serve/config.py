@@ -17,6 +17,9 @@ from serve.util.console import tagged
 MIN_SLOT_CONTEXT = 256          # the least context a slot is given when --max-context is shared
 ENGINE_DEFAULT_CONTEXT = 4096     # the engine's context without --max-context
 PARALLEL_MAX = 8                            # the engine's batch slots
+SIDE_SLOT_DEFAULT = 30000                   # the technical session's context when --side-slot gives none
+SIDE_SLOT_MIN = 4096                        # ... and the least it may hold
+SIDE_SLOT_MAX = 2147483639
 CONFIG_PATHS = ("model", "tokenizer")       # relative to the config file
 RELAUNCH_EXIT_CODE = 75                     # --relaunch-on-model-change: start me again (EX_TEMPFAIL)
 GRAMMAR_DEFAULT = True                      # the `grammar` option when neither the file nor the command line sets it
@@ -121,6 +124,9 @@ def load_config_file(path: str, ap: argparse.ArgumentParser) -> tuple[list[str],
         if name == "request-log" and isinstance(value, bool):    # true or false in the file; on or off on the line
             argv += [flag, "on" if value else "off"]
             continue
+        if name == "side-slot" and isinstance(value, bool):      # true: the default size; false: off
+            argv += [flag, str(SIDE_SLOT_DEFAULT) if value else "0"]
+            continue
         if act.nargs == 0:                                 # a switch
             if not isinstance(value, bool):
                 raise ValueError(f"server.{key}: true or false")
@@ -164,12 +170,22 @@ def parse_settings(ap: argparse.ArgumentParser, cli: list[str]):
     for act in ap._actions:                                # a repeatable command-line option replaces the file's
         if isinstance(act, argparse._AppendAction) and getattr(a_cli, act.dest) != act.default:
             setattr(a, act.dest, getattr(a_cli, act.dest))
-    if a.parallel and a.parallel > 1:
+    main, side = a.parallel or 1, a.side_slot or 0
+    a.side_clamp = None
+    if main > 1 or side:
         for flag in ("--batch", "--slots"):
             if flag in file_words or flag in cli_words:
                 raise ValueError(f"parallel and engine {flag} both set: use parallel")
-        (cli_words if a_cli.parallel else file_words).extend(["--batch", str(a.parallel)])
-        if not a.slot_full_context:
+        if side and ("--side-context" in file_words or "--side-context" in cli_words):
+            raise ValueError("side-slot and engine --side-context both set: use side-slot")
+        if side and main + 1 > PARALLEL_MAX:             # the engine's batch holds PARALLEL_MAX slots, the side one among them
+            a.side_clamp = (main, PARALLEL_MAX - 1)
+            main = a.parallel = PARALLEL_MAX - 1
+        words = cli_words if a_cli.parallel or a_cli.side_slot else file_words
+        words.extend(["--batch", str(main + (1 if side else 0))])
+        if side:
+            words.extend(["--side-context", str(side)])
+        if main > 1 and not a.slot_full_context:
             # --max-context is shared by the slots, as in llama.cpp: each holds an equal part (the solo path, used while
             # a request is alone, has the same length, so a request never outgrows its slot)
             src = cli_words if "--max-context" in cli_words or "--max-context" not in file_words else file_words
@@ -177,7 +193,7 @@ def parse_settings(ap: argparse.ArgumentParser, cli: list[str]):
             if at is not None and at + 1 >= len(src):
                 raise ValueError("--max-context needs a value")
             ctx = int(src[at + 1]) if at is not None else ENGINE_DEFAULT_CONTEXT
-            part = str(max(MIN_SLOT_CONTEXT, ctx // a.parallel))
+            part = str(max(MIN_SLOT_CONTEXT, ctx // main))
             if at is None:
                 src += ["--max-context", part]
             else:
@@ -333,6 +349,19 @@ def parallel_count(text: str) -> int:
     return n
 
 
+def side_slot_tokens(text: str) -> int:
+    """argparse type: the technical session's context in tokens, 0 (off) or SIDE_SLOT_MIN and up."""
+    if str(text).strip().lower() in ("off", "no", "false"):
+        return 0
+    try:
+        n = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected 0 (off) or a whole number of tokens from {SIDE_SLOT_MIN}, not {text!r}") from None
+    if n != 0 and not SIDE_SLOT_MIN <= n <= SIDE_SLOT_MAX:
+        raise argparse.ArgumentTypeError(f"expected 0 (off) or a number of tokens from {SIDE_SLOT_MIN}, not {n}")
+    return n
+
+
 def budget_count(text: str) -> int:
     """argparse type: a thinking budget in tokens, a whole number >= 0 (0: none)."""
     try:
@@ -357,6 +386,12 @@ def build_parser() -> argparse.ArgumentParser:
                          "their turn. --max-context is shared: each slot holds that divided by N (so 4 slots of 262144 "
                          "need --max-context 1048576, or --slot-full-context). The slots' KV cache comes out of the "
                          "expert cache")
+    ap.add_argument("--side-slot", nargs="?", const=SIDE_SLOT_DEFAULT, default=0, type=side_slot_tokens, metavar="TOKENS",
+                    help=f"the technical session: one more slot of TOKENS (default {SIDE_SLOT_DEFAULT} when given bare; 0 = off, "
+                         "the default) kept for the short calls of the harness (triage, suggestions, summaries, judges), so they "
+                         "never wait behind or overwrite a conversation's cache. It adds one slot to --parallel (with 8, the "
+                         "conversations get 7), costs the KV cache and state of TOKENS tokens, and turns the engine's batch on: "
+                         "end_turn_bias, logit_bias and relaxed drafting are unavailable while it is on")
     ap.add_argument("--slot-full-context", action="store_true",
                     help="with --parallel, give every slot the whole --max-context instead of an equal part: N slots "
                          "cost N times the KV cache")

@@ -22,6 +22,7 @@ import requests
 from harness.llm import functions
 from harness.llm.client import RoutedClient
 from harness.llm.store import Ledger, SecureRegistry
+from harness.side import side_extra
 from harness.llmswitch.providers import TYPES
 
 EXCERPT_CHARS = 1500                                # the most of the context that goes to a service billed by what it reads
@@ -66,7 +67,7 @@ class Judge:
         system = f"{question[:QUESTION_CHARS]}\nAnswer with exactly one of these words and nothing else:\n{listing}"
         try:
             reply = client.chat_completion(messages=[{"role": "system", "content": system}, {"role": "user", "content": context[:4000]}],
-                                           temperature=0.0, max_tokens=8, timeout=timeout, extra={"reasoning_effort": "none"})
+                                           temperature=0.0, max_tokens=8, timeout=timeout, extra={"reasoning_effort": "none", **side_extra(client)})
             word = (reply["choices"][0]["message"].get("content") or "").strip().lower()
         except Exception:
             return None

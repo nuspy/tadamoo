@@ -28,6 +28,7 @@ from harness.plan_mode import MODES_AFTER_PLAN, PlanGate, register_plan_tool
 from harness.rule_of_two import LEVELS
 from harness.syntax_check import DEFAULT_GUARD as DEFAULT_EDIT_GUARD, GUARD_LEVELS as EDIT_GUARD_LEVELS
 from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
+from harness.side import side_extra, use as side_use
 from harness.prompt_blocks import instruction_blocks
 from harness.project_profile import clean_list
 from harness.roles import GENERAL as GENERAL_ROLE, ROLE_IDS, RolePolicy, valid as valid_role
@@ -431,7 +432,7 @@ def _summarizer(client: Optional[Any], max_tokens: int = 900):
         if len(text) > SUMMARY_READ_CHARS:
             text = text[:SUMMARY_READ_CHARS // 4] + "\n[... left out ...]\n" + text[-(SUMMARY_READ_CHARS * 3 // 4):]
         reply = client.chat_completion(messages=[{"role": "system", "content": instructions}, {"role": "user", "content": text}],
-                                       temperature=0.0, max_tokens=max_tokens, timeout=SUMMARY_TIMEOUT_S, extra={"reasoning_effort": "none"})
+                                       temperature=0.0, max_tokens=max_tokens, timeout=SUMMARY_TIMEOUT_S, extra={"reasoning_effort": "none", **side_extra(client)})
         return (reply["choices"][0]["message"].get("content") or "").strip()
     return summarize
 
@@ -545,6 +546,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         raise FileNotFoundError(f"workspace folder not found: {workspace}")
     data = Path(cfg.data_dir) if cfg.data_dir else data_dir_for(workspace)
     data.mkdir(parents=True, exist_ok=True)
+    side_use(client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key))      # the short calls ask this server for its technical session
 
     secrets = SecretsBroker.from_environment(cfg.secret_names, cfg.secret_hosts)
     if cfg.vault_dir:

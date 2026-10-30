@@ -22,7 +22,7 @@ from harness.llmswitch.providers import TYPES
 
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 4096
-THIS_SERVER_ONLY = ("end_turn_bias", "repetition_penalty")      # sampling options only the loaded model's server understands
+THIS_SERVER_ONLY = ("end_turn_bias", "repetition_penalty", "cache_slot")      # options only the loaded model's server understands (a sampling option, the slot a call runs in)
 
 
 class NotAllowed(BasaltError):
@@ -134,6 +134,11 @@ class RoutedClient:
 
     def metrics(self, *a: Any, **k: Any) -> Any:
         return self.local.metrics(*a, **k)
+
+    def side_context(self) -> int:
+        """The tokens the loaded model's technical session holds (0: it has none)."""
+        ask = getattr(self.local, "side_context", None)
+        return int(ask()) if callable(ask) else 0
 
     def context_window(self, *a: Any, **k: Any) -> Any:
         """The window the agent plans by: the one the person gave the assigned cloud route, else the loaded model's own."""

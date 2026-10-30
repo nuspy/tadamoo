@@ -152,6 +152,9 @@ class ProcessEngine:
     last_err = None                      # an ERR that was the last stdout line
     slot_drafts = {}                     # batch slot -> (accepted, offered, time) of its last BDONE, counts None when absent
     batch = 0                            # --batch: the engine's batch slots (0: one request at a time)
+    side_slot = None                     # INFO side_slot: the technical session's slot, among the batch slots, if the engine has one
+    slot_ctx: tuple = ()                 # INFO slot_contexts: each batch slot's context
+    side_queued = 0                      # side-routed requests waiting for the side slot
     takes_text = True                    # generate() accepts a PromptText (sent as GENT when the engine can tokenize)
     stderr_sink = None                   # callable(line): engine stderr when there is no log file
 
@@ -317,6 +320,10 @@ class ProcessEngine:
         if asked and self.batch != asked:
             print(f"[server] warning: {asked} parallel requests asked, the engine runs {self.batch or 'one'}", flush=True)
         self.slot_order = list(range(self.batch))
+        side = self.info.get("side_slot")
+        self.side_slot = side if isinstance(side, int) and 0 <= side < self.batch else None
+        ctxs = [int(x) for x in str(self.info.get("slot_contexts") or "").split(",") if x.isdigit()]
+        self.slot_ctx = tuple(ctxs) if len(ctxs) == self.batch else ()
         self.slot_q = [queue.Queue() for _ in range(self.batch)]
         self.slot_busy = [False] * self.batch
         # tokens each slot holds (for prefix reuse by a conversation's next turn) and when it was last used
@@ -861,10 +868,10 @@ class ProcessEngine:
         """A waiting prompt under half this length is worth giving way to, when `free` slots are free (the one it
         will run in, and the one the read waits in if it holds none yet)."""
         with self.slot_cv:
-            return (sum(1 for b in self.slot_busy if not b) >= free and
+            return (sum(1 for b in self.main_slots() if not self.slot_busy[b]) >= free and
                     any(e[0] * 2 <= plen for e in self.wait_lens))
 
-    def generate_batched(self, ids, max_new, sampling, cancel, embeddings=None):
+    def generate_batched(self, ids, max_new, sampling, cancel, embeddings=None, side=False):
         """--batch: run solo (GEN) while alone, move to a batch slot (BGEN) when others arrive, and return to solo
         when left alone. Prompt reads and admissions take the control lines one at a time; a long read may give way
         to a much shorter waiting one (BYIELD). An early-leaving consumer is STOPped/BSTOPped and drained."""
@@ -887,7 +894,7 @@ class ProcessEngine:
         solo_slot, run0 = None, 0
         phase = "none"            # solo -> admit -> slot; "none" once the engine is done with it
         stop_sent = False
-        yields, solo_again = 0, 0
+        yields, solo_again = (self.YIELDS_MAX if side else 0), 0     # a call in the technical session does not give way
         carry = [0, 0]            # draft counts (accepted, offered) of the runs before the current one
         first, last0 = [], self.last   # reused prefix of the first run; `last` before this request's first DONE
         self.read_ms = 0.0             # the prompt-read time of every run this request makes
@@ -906,8 +913,10 @@ class ProcessEngine:
                     # batch of one.
                     any_slot = bool(self.info.get("solo_any_slot"))
                     alone = not any(self.slot_busy) and self.waiting == 0 and (any_slot or not self.info.get("slot0_solo"))
+                    if side and not any_slot:
+                        alone = False                            # a call for the technical session never runs in the solo session
                     if alone and left > 1 and any_slot:
-                        solo_slot = self.pick_slot(prompt)       # the slot holding the longest start, else a free one
+                        solo_slot = self.pick_slot(prompt, side)  # the slot holding the longest start, else a free one
                         if solo_slot is None:
                             alone = False
                         else:
@@ -970,13 +979,15 @@ class ProcessEngine:
                         prompt = list(ids) + out            # continues in a batch slot
                 while True:
                     if slot is None:
-                        # prefer the slot holding this prompt's start, else the longest unused
+                        # prefer the slot holding this prompt's start, else the longest unused; a call for the technical
+                        # session waits for it alone, outside the conversations' admission order
                         with self.slot_cv:
-                            ticket = self.admission.join()
+                            ticket = None if side else self.admission.join()
+                            self.side_queued += 1 if side else 0
                             try:
                                 while True:
-                                    slot = self.pick_slot(prompt)
-                                    if slot is not None and self.admission.may_go(ticket, self._resumes(slot, prompt)):
+                                    slot = self.pick_slot(prompt, side)
+                                    if slot is not None and (side or self.admission.may_go(ticket, self._resumes(slot, prompt))):
                                         self.slot_busy[slot] = True
                                         break
                                     slot = None
@@ -990,7 +1001,9 @@ class ProcessEngine:
                                     if cancel.is_set():
                                         return
                             finally:
-                                self.admission.leave(ticket)
+                                if ticket is not None:
+                                    self.admission.leave(ticket)
+                                self.side_queued -= 1 if side else 0
                                 self.slot_cv.notify_all()
                     if not holding:                         # waited for the slot: take the control lines again
                         ok = yield from self._take_control(cancel, len(prompt))
@@ -1009,7 +1022,7 @@ class ProcessEngine:
                         if not ok:
                             return
                         holding, born = True, self.gen
-                    left = max(1, min(left, self.max_context - len(prompt) - SLOT_MARGIN))   # the slot's room
+                    left = max(1, min(left, self.slot_context(slot) - len(prompt) - SLOT_MARGIN))   # the slot's room
                     while not self.slot_q[slot].empty():
                         self.slot_q[slot].get_nowait()
                     head = f"BGENI {slot} {left}{gen_keys()} {embeddings}" if embeddings else f"BGEN {slot} {left}{gen_keys()}"
@@ -1159,12 +1172,39 @@ class ProcessEngine:
     def queue_depth(self) -> int:
         """Requests waiting for the engine or a free slot."""
         with self.slot_cv:
-            return self.waiting + len(self.admission)
+            return self.waiting + len(self.admission) + self.side_queued
 
-    def pick_slot(self, prompt: list[int]) -> int | None:
+    def main_slots(self) -> list[int]:
+        """The slots ordinary requests run in: every batch slot but the technical session's."""
+        return [b for b in range(self.batch) if b != self.side_slot]
+
+    def slot_context(self, slot: int) -> int:
+        """The tokens a prompt and its answer may take in `slot`."""
+        return self.slot_ctx[slot] if 0 <= slot < len(self.slot_ctx) else self.max_context
+
+    def side_context(self) -> int:
+        """The technical session's context; 0 when the engine has none."""
+        return self.slot_context(self.side_slot) if self.side_slot is not None else 0
+
+    def served_slot(self) -> str | None:
+        """Which kind of slot served this thread's last request: "side", "main", or None before one."""
+        return getattr(self.__dict__.setdefault("_stl", threading.local()), "served", None)
+
+    def _route_side(self, ids, max_new: int, sampling: dict | None, clip: bool) -> tuple[bool, int]:
+        """(whether a request asking for the technical session goes there, its max_new). It stays out of it, for the
+        ordinary slots, when the engine has none or the prompt and the answer do not fit its context."""
+        asked = (sampling or {}).get("cache_slot") == "side"
+        room = self.side_context() - SLOT_MARGIN - len(ids)
+        if not asked or self.side_slot is None or room < 1 or not (clip or max_new <= room):
+            return False, max_new
+        return True, min(max_new, room)
+
+    def pick_slot(self, prompt: list[int], side: bool = False) -> int | None:
         """A free slot for `prompt` (caller holds slot_cv): longest held prefix, else an empty one, then the least
-        recently used; None when none is free."""
-        free = [b for b in self.slot_order if not self.slot_busy[b]]
+        recently used; None when none is free. Only the technical session's slot when `side`, and never otherwise."""
+        if side:
+            return self.side_slot if self.side_slot is not None and not self.slot_busy[self.side_slot] else None
+        free = [b for b in self.slot_order if not self.slot_busy[b] and b != self.side_slot]
         if not free:
             return None
         def held_prefix(b):
@@ -1181,11 +1221,17 @@ class ProcessEngine:
         if not self.alive():
             raise EngineDied("the engine is unavailable; this request was not sent")
         text = ids if isinstance(ids, PromptText) else None
+        clip = bool(text is not None and text.clip)
+        asked_text = None
         if text is not None and (getattr(self, "batch", 0) or embeddings or not self.info.get("text_prompt")):
             ids, max_new = text.resolve(int(max_new), self.max_context)    # this engine takes ids
-            text = None
+            asked_text, text = text, None
         if getattr(self, "batch", 0):
-            yield from self.generate_batched(ids, max_new, sampling, cancel, embeddings)
+            side, max_new = self._route_side(ids, int(max_new), sampling, clip)
+            self.__dict__.setdefault("_stl", threading.local()).served = "side" if side else "main"
+            if side and asked_text is not None:
+                asked_text.max_new = max_new
+            yield from self.generate_batched(ids, max_new, sampling, cancel, embeddings, side=side)
             return
         self.progress = None
         self.prefill_tok_s_mean = None

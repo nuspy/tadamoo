@@ -29,6 +29,7 @@ slots = int(args[args.index("--batch") + 1]) if "--batch" in args else 0
 fit = int(args[args.index("--fit") + 1]) if "--fit" in args else slots
 fail = "--fail-window" in args        # the first window over two slots fails
 ready = int(args[args.index("--ready") + 1]) if "--ready" in args else 4096
+side = int(args[args.index("--side") + 1]) if "--side" in args else 0     # the side slot's context (the last slot)
 MULTI = int(args[args.index("--multi") + 1]) if "--multi" in args else 3
 nopp = "--nopp" in args               # no PP lines while a prompt is read: a read beside the windows reports none
 STEP = 0.02
@@ -54,7 +55,9 @@ def reader():
             lines.put(l)
     lines.put(None)
 threading.Thread(target=reader, daemon=True).start()
-print("INFO engine=0.0.1" + (f" batch_slots={fit}" if fit >= 2 else "") +
+sideinfo = (f" slot_contexts={','.join([str(ready)] * (fit - 1) + [str(min(side, ready))])}"
+            f" side_slot={fit - 1} side_context={min(side, ready)}") if side and fit >= 2 else ""
+print("INFO engine=0.0.1" + (f" batch_slots={fit}" if fit >= 2 else "") + sideinfo +
       (" slot_cache=1" if "--slotcache" in args else "") + (" slot0_solo=1" if s0 else "") +
       (" solo_any_slot=1" if s0 and "--soloany" in args else ""), flush=True)
 print(f"READY {ready} stop", flush=True)
@@ -115,6 +118,9 @@ while True:
         ids = f[-1].split(",")
         if bytes(int(x) & 255 for x in ids).find(b"REFUSEME") >= 0:   # refused up front, then idle (no DONE)
             print("ERR refused: images are not enabled", flush=True)
+            continue
+        if side and slot is not None and slot == fit - 1 and len(ids) + max_new + 8 > min(side, ready):   # as the engine
+            print(f"ERR prompt ({len(ids)} tokens) + max_new ({max_new}) exceeds slot {slot}'s context ({min(side, ready)})", flush=True)
             continue
         if log:
             log.write(f"{f[0]} {slot} {len(ids)} {max(len(active), 0)}\n"); log.flush()
@@ -213,11 +219,53 @@ class PickSlot(unittest.TestCase):
         self.assertEqual(e.pick_slot([1, 2, 3]), 1)                 # a held prompt is never the WHOLE prompt
 
 
+class PickSlotWithSide(unittest.TestCase):
+    def engine(self, n, side):
+        e = ProcessEngine("missing-executable", [], lazy=True)
+        e.batch, e.side_slot = n, side
+        e.slot_order = list(range(n))
+        e.slot_busy = [False] * n
+        e.slot_held = [[] for _ in range(n)]
+        e.slot_used = [0.0] * n
+        return e
+
+    def test_an_ordinary_request_never_gets_the_side_slot(self):
+        e = self.engine(3, 2)
+        e.slot_held = [[1, 2, 3], [], [1, 2, 3, 4, 5]]          # the side slot holds the longest start: still not its
+        self.assertEqual(e.pick_slot([1, 2, 3, 4, 5, 6]), 0)
+        e.slot_busy[0] = True
+        self.assertEqual(e.pick_slot([7, 8]), 1)
+        e.slot_busy[1] = True
+        self.assertIsNone(e.pick_slot([7, 8]))                    # both conversation slots busy: it waits, the side slot idle
+        self.assertEqual(e.main_slots(), [0, 1])
+
+    def test_a_side_call_takes_only_the_side_slot(self):
+        e = self.engine(3, 2)
+        self.assertEqual(e.pick_slot([7, 8], side=True), 2)
+        e.slot_busy[2] = True
+        self.assertIsNone(e.pick_slot([7, 8], side=True))         # busy: it waits; the conversation slots are not offered
+        e.slot_busy[2] = False
+        e.side_slot = None                                        # an engine without one
+        self.assertIsNone(e.pick_slot([7, 8], side=True))
+
+    def test_the_side_call_fits_or_falls_back(self):
+        e = self.engine(3, 2)
+        e.max_context, e.slot_ctx = 4096, (4096, 4096, 1024)
+        self.assertEqual(e._route_side(list(range(100)), 50, {"cache_slot": "side"}, False), (True, 50))
+        self.assertEqual(e._route_side(list(range(100)), 2000, {"cache_slot": "side"}, False), (False, 2000))   # answer too long
+        self.assertEqual(e._route_side(list(range(100)), 2000, {"cache_slot": "side"}, True), (True, 1024 - 8 - 100))   # a cap: cut to the room
+        self.assertEqual(e._route_side(list(range(1100)), 5, {"cache_slot": "side"}, True), (False, 5))          # prompt too long
+        self.assertEqual(e._route_side(list(range(100)), 50, {}, False), (False, 50))                           # not asked
+        self.assertEqual(e._route_side(list(range(100)), 50, {"cache_slot": "main"}, False), (False, 50))
+        e.side_slot = None
+        self.assertEqual(e._route_side(list(range(100)), 50, {"cache_slot": "side"}, False), (False, 50))
+
+
 class ParallelService(unittest.TestCase):
     """The real ProcessEngine and Service over HTTP, the fake engine behind them."""
 
     def start(self, slots, fit=None, slot_cache=False, fail=False, ready=None, multi=None, drafts=False, counts=False,
-              nopp=False, reuse=False, slot0_solo=False, solo_any=False, pms=False):
+              nopp=False, reuse=False, slot0_solo=False, solo_any=False, pms=False, side=None):
         self.tmp = tempfile.TemporaryDirectory()
         script = Path(self.tmp.name) / "fake_engine.py"
         script.write_text(FAKE_BATCH, encoding="utf-8")
@@ -235,6 +283,7 @@ class ParallelService(unittest.TestCase):
         extra += ["--slot0solo"] if slot0_solo else []
         extra += ["--soloany"] if solo_any else []
         extra += ["--pms"] if pms else []
+        extra += ["--side", str(side)] if side else []
         with mock.patch.object(subprocess, "Popen",
                                lambda cmd, **kw: real([sys.executable, str(script), *cmd[1:]], **kw)):
             self.engine = ProcessEngine("basalt", extra)
@@ -252,8 +301,8 @@ class ParallelService(unittest.TestCase):
         if getattr(self, "tmp", None):
             self.tmp.cleanup()
 
-    def chat(self, text, max_tokens=64):
-        body = {"model": "qwen3.8-flash-next", "messages": [{"role": "user", "content": text}], "max_tokens": max_tokens, "reasoning_effort": "none"}
+    def chat(self, text, max_tokens=64, **more):
+        body = {"model": "qwen3.8-flash-next", "messages": [{"role": "user", "content": text}], "max_tokens": max_tokens, "reasoning_effort": "none", **more}
         req = urllib.request.Request(self.base + "/v1/chat/completions", data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=60) as r:
@@ -782,6 +831,167 @@ class ParallelService(unittest.TestCase):
             self.chat("long " * 1100)
         self.assertEqual(cm.exception.code, 400)
         self.assertIn("(1024)", cm.exception.read().decode())
+
+    # ---- the technical session: the side slot -------------------------------------------------------------------
+
+    def requests(self):
+        return [x.split() for x in self.log.read_text().splitlines() if x.startswith(("GEN", "BGEN", "SGEN"))]
+
+    def test_the_engine_reports_the_side_slot_and_the_contexts(self):
+        self.start(3, ready=4096, side=1024)
+        self.assertEqual((self.engine.batch, self.engine.side_slot), (3, 2))
+        self.assertEqual(self.engine.slot_ctx, (4096, 4096, 1024))
+        rows = self.get("/slots")
+        self.assertEqual([x["n_ctx"] for x in rows], [4096, 4096, 1024])
+        self.assertEqual([x["side"] for x in rows], [False, False, True])
+        props = self.get("/props")
+        self.assertEqual(props["total_slots"], 2)                            # the conversations' slots
+        self.assertEqual(props["side_slot"], {"slot": 2, "context": 1024})
+        self.assertEqual(props["slot_contexts"], [4096, 4096, 1024])
+        self.assertEqual(props["default_generation_settings"]["n_ctx"], 4096)
+        model = self.get("/v1/models")["data"][0]
+        self.assertEqual((model["meta"]["n_ctx"], model["meta"]["side_n_ctx"]), (4096, 1024))
+        self.assertEqual(self.get("/v1/status")["concurrency"], {"serving": 2, "requested": 2,
+                                                                  "side_slot": {"slot": 2, "context": 1024}})
+        engine = self.get("/metrics")["engine"]
+        self.assertEqual((engine["side_slot"], engine["side_context"], engine["slot_contexts"]), (2, 1024, "4096,4096,1024"))
+        self.assertEqual(self.get("/metrics")["live"]["slots"]["conversations"], 2)
+
+    def test_a_side_request_goes_to_the_side_slot_as_a_batch_request(self):
+        self.start(3, ready=4096, side=1024)
+        side = self.chat("sort this request", cache_slot="side")
+        self.assertEqual(side["choices"][0]["message"]["content"], "ok, done.")
+        self.assertEqual(side["cache_slot"], "side")
+        self.assertEqual([r[:2] for r in self.requests()], [["BGEN", "2"]])
+        plain = self.chat("an ordinary one")
+        self.assertNotIn("cache_slot", plain)
+        self.assertNotEqual(self.requests()[1][1], "2")                       # whatever slot (or solo) it took, not the side's
+        main = self.chat("another one", cache_slot="main")
+        self.assertEqual(main["cache_slot"], "main")
+        self.assertNotIn(["BGEN", "2"], [r[:2] for r in self.requests()[1:]])
+
+    def test_ordinary_requests_never_take_the_side_slot(self):
+        self.start(3, ready=4096, side=1024)
+        texts = ["first question LONGREPLY", "second question, longer", "a third one waits for a conversation slot"]
+        out, errors = {}, []
+
+        def go(t):
+            try:
+                out[t] = self.chat(t)["choices"][0]["message"]["content"]
+            except Exception as e:   # noqa: BLE001 - reported below
+                errors.append(e)
+        threads = [threading.Thread(target=go, args=(t,)) for t in texts]
+        for th in threads:
+            th.start()
+            time.sleep(0.05)
+        for th in threads:
+            th.join(30)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(out), 3)
+        batch = [r for r in self.requests() if r[0] == "BGEN"]
+        self.assertTrue(batch)
+        self.assertNotIn("2", [r[1] for r in batch], self.requests())        # three requests, two slots: the third waited
+        self.assertFalse(any(self.engine.slot_busy))
+
+    def test_a_busy_side_slot_queues_side_calls_without_taking_a_conversation_slot(self):
+        self.start(3, ready=4096, side=1024)
+        out, errors = [], []
+
+        def go(i):
+            try:
+                out.append(self.chat(f"side call number {i} LONGREPLY", cache_slot="side")["cache_slot"])
+            except Exception as e:   # noqa: BLE001 - reported below
+                errors.append(e)
+        threads = [threading.Thread(target=go, args=(i,)) for i in range(3)]
+        seen = []
+        for th in threads:
+            th.start()
+            time.sleep(0.05)
+        deadline = time.time() + 30
+        while any(th.is_alive() for th in threads) and time.time() < deadline:
+            with self.engine.slot_cv:
+                seen.append((list(self.engine.slot_busy), self.engine.side_queued))
+            time.sleep(0.01)
+        for th in threads:
+            th.join(30)
+        self.assertEqual(errors, [])
+        self.assertEqual(out, ["side"] * 3)
+        self.assertEqual([r[:2] for r in self.requests()], [["BGEN", "2"]] * 3)
+        self.assertTrue(all(not busy[0] and not busy[1] for busy, _ in seen), "a side call held a conversation slot")
+        self.assertTrue(any(queued > 0 for _, queued in seen), "no side call was seen waiting")
+        active = [int(r[3]) for r in self.requests()]
+        self.assertEqual(active, [0, 0, 0], active)                          # one at a time in the side slot
+        self.assertEqual(self.engine.side_queued, 0)
+
+    def test_an_over_long_side_prompt_falls_back_to_the_ordinary_slots(self):
+        self.start(3, ready=4096, side=1024)
+        reply = self.chat("long " * 400, cache_slot="side")                  # about 2000 tokens: over the side slot's 1024
+        self.assertEqual(reply["choices"][0]["message"]["content"], "ok, done.")
+        self.assertEqual(reply["cache_slot"], "main")
+        self.assertNotIn("2", [r[1] for r in self.requests()])
+        # an answer that cannot fit is the same, and a request with room goes to the side slot afterwards
+        self.assertEqual(self.chat("short", max_tokens=2000, cache_slot="side")["cache_slot"], "main")
+        self.assertEqual(self.chat("short", max_tokens=64, cache_slot="side")["cache_slot"], "side")
+
+    def test_main_slots_keep_what_they_hold_while_side_calls_run(self):
+        self.start(3, ready=4096, side=1024, slot_cache=True, slot0_solo=True, solo_any=True)
+        self.chat("a conversation worth keeping")
+        kept = [list(h) for h in self.engine.slot_held[:2]]
+        self.assertTrue(any(kept), kept)
+        for i in range(3):
+            self.chat(f"side call {i}", cache_slot="side")
+        self.assertEqual([list(h) for h in self.engine.slot_held[:2]], kept)
+        self.assertTrue(self.engine.slot_held[2], "the side slot keeps its own last call")
+        self.assertEqual(self.engine.slot_busy, [False, False, False])
+
+    def test_a_side_call_beside_a_decoding_conversation_leaves_the_conversation_whole(self):
+        self.start(3, ready=4096, side=1024)
+        long_one = {}
+        th = threading.Thread(target=lambda: long_one.update(self.chat("blocker LONGREPLY", max_tokens=200)))
+        th.start()
+        time.sleep(0.1)
+        side = self.chat("quick triage", cache_slot="side")
+        th.join(30)
+        self.assertEqual(side["cache_slot"], "side")
+        self.assertEqual(long_one["choices"][0]["message"]["content"], "ok, " + "la " * 15 + "done.")
+        slots = [r[1] for r in self.requests() if r[0] == "BGEN"]
+        self.assertIn("2", slots)
+        self.assertIn(slots[0], ("0", "1"))
+
+    def test_without_a_side_slot_the_key_is_served_by_the_ordinary_ones(self):
+        self.start(2)
+        reply = self.chat("quick", cache_slot="side")
+        self.assertEqual(reply["cache_slot"], "main")
+        self.assertEqual(reply["choices"][0]["message"]["content"], "ok, done.")
+        self.assertIsNone(self.engine.side_slot)
+        self.assertEqual(self.get("/v1/status")["concurrency"]["side_slot"], None)
+        self.assertNotIn("side_slot", self.get("/props"))
+
+    def test_the_key_is_checked_and_the_other_dialects_answer_it_too(self):
+        self.start(3, ready=4096, side=1024)
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self.chat("hi", cache_slot="elsewhere")
+        self.assertEqual(cm.exception.code, 400)
+        self.assertIn("cache_slot", cm.exception.read().decode())
+
+        def post(path, body):
+            req = urllib.request.Request(self.base + path, data=json.dumps(body).encode(),
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return json.loads(r.read().decode())
+        msg = post("/v1/messages", {"model": "qwen3.8-flash-next", "max_tokens": 64, "cache_slot": "side",
+                                    "messages": [{"role": "user", "content": "quick"}]})
+        self.assertEqual(msg["cache_slot"], "side")
+        resp = post("/v1/responses", {"model": "qwen3.8-flash-next", "input": "quick", "max_output_tokens": 64,
+                                      "cache_slot": "side"})
+        self.assertEqual(resp["cache_slot"], "side")
+        self.assertEqual({tuple(r[:2]) for r in self.requests()}, {("BGEN", "2")})     # every run of both, in the side slot
+
+    def test_a_lone_side_call_runs_solo_in_the_side_slot_when_the_engine_can(self):
+        self.start(3, ready=4096, side=1024, slot0_solo=True, solo_any=True, slot_cache=True)
+        self.assertEqual(self.chat("quick triage", cache_slot="side")["cache_slot"], "side")
+        self.assertEqual([r[:2] for r in self.requests()], [["SGEN", "2"]])
+        self.assertNotIn(["GEN", "None"], [r[:2] for r in self.requests()])    # never the solo session of the conversations
 
 
 if __name__ == "__main__":

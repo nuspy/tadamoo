@@ -15,6 +15,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from harness import questions as qs
+from harness.side import side_extra
 
 log = logging.getLogger("harness.suggestions")
 
@@ -109,7 +110,8 @@ class Suggester:
         try:
             resp = self.client.chat_completion(
                 messages=[*messages, {"role": "user", "content": INSTRUCTION}], **({"tools": tools, "tool_choice": "none"} if tools else {}),
-                temperature=0.4, max_tokens=MAX_TOKENS, timeout=TIMEOUT_S, response_format=RESPONSE_FORMAT, extra={"reasoning_effort": "none"}, on_delta=on_delta)
+                temperature=0.4, max_tokens=MAX_TOKENS, timeout=TIMEOUT_S, response_format=RESPONSE_FORMAT,
+                extra={"reasoning_effort": "none", **side_extra(self.client)}, on_delta=on_delta)
             message = resp["choices"][0]["message"]
             items = parse(message.get("content") or "")
             usage = resp.get("usage") or {}
