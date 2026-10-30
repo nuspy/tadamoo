@@ -361,7 +361,7 @@ aspetta.
 - Nella Chat l'agente può leggere i piani e, **col tuo sì**, crearli e cambiarli. Il sì è o una citazione delle tue parole nel tuo
   ultimo messaggio, o una domanda fatta con la modifica vera (il titolo, i passi e il diff reali) a cui rispondi con un pulsante. Un
   piano va letto prima di essere cambiato, e un piano andato avanti nel frattempo viene rifiutato finché non lo si rilegge.
-- `ask_user` chiude un turno con una domanda e dei pulsanti; ciò che premi o scrivi è il tuo messaggio successivo.
+- `ask_user` chiude un turno con una scheda di domande (scelte, una riga tua, testo libero o sì/no, la risposta consigliata per prima); la tua risposta, o un salto, o una risposta nella chat, è il tuo messaggio successivo. Senza nessuno davanti sceglie le risposte consigliate e lo dice.
 - **Eventi dal mondo** si possono dare ai piani (`POST /api/plans/events`) o leggere da feed RSS, da una casella di posta (solo le
   intestazioni) o da un bot Telegram. La pompa degli eventi è **accesa**: parte con il server e dorme finché non arriva nulla (si spegne in *Impostazioni*). Il filtro nel cloud è **spento** finché non lo accendi;
   richiede il tuo consenso e una chiave, sostituisce i nomi e manda tutta la scheda del piano, salute e allergie dei

@@ -35,7 +35,9 @@ class Block {
   String mode = '';
   String kind = '';
   String question = '';
+  String intro = '';
   List<Map<String, dynamic>> options = [];
+  List<Map<String, dynamic>> questions = []; // a card of questions: single, multi, free and confirm
   Map<String, dynamic> facts = {};
   String? answered;
   String reason = '';
@@ -69,6 +71,7 @@ class ChatController extends ChangeNotifier {
   String sid = '';
   SessionInfo? info;
   final List<ChatItem> items = [];
+  List<Map<String, String>> suggestions = []; // the next-message chips under the last answer; a tap fills the message box
   String state = 'dormant';
   int _after = 0;
   Timer? _timer;
@@ -106,6 +109,7 @@ class ChatController extends ChangeNotifier {
         _fromHistory((h['messages'] as List?) ?? const []);
         final e = await api.get('/api/agent/sessions/$id/events', query: {'after': '0'});
         _after = (e['next'] as num?)?.toInt() ?? 0;
+        _showWaiting(info!.raw);
       }
     } on ApiError catch (e) {
       error = e.message;
@@ -171,6 +175,10 @@ class ChatController extends ChangeNotifier {
     _schedule();
   }
 
+  /// Applies events as the server sent them (for the tests, which have no server).
+  @visibleForTesting
+  void applyEvents(List<Map<String, dynamic>> events) => _applyAll({'events': events});
+
   void _applyAll(Map<String, dynamic> e) {
     for (final ev in (e['events'] as List? ?? const [])) {
       if (ev is Map) _apply(Map<String, dynamic>.from(ev));
@@ -230,6 +238,17 @@ class ChatController extends ChangeNotifier {
     }
   }
 
+  /// What waited for the person when the conversation was opened: a card of questions and the chips of the last answer.
+  void _showWaiting(Map<String, dynamic> raw) {
+    final q = raw['question'];
+    if (q is Map && q['kind'] == 'questions' && q['questions'] is List && (q['questions'] as List).isNotEmpty) {
+      _applyEvent({'event': 'ask', 'id': q['id'], 'mode': 'question', 'kind': 'questions', 'question': q['question'], 'intro': q['intro'], 'questions': q['questions']});
+      _current?.done = true;
+    }
+    final s = raw['suggestions'];
+    if (s is List) _applyEvent({'event': 'suggestions', 'items': s});
+  }
+
   void _closeQuestions() {
     for (final it in items) {
       for (final b in it.blocks) {
@@ -243,10 +262,12 @@ class ChatController extends ChangeNotifier {
     switch ('${e['event']}') {
       case 'user':
         _closeQuestions();
+        suggestions = [];
         items.add(ChatItem('user', text: '${e['text'] ?? ''}', ts: _now())..files = ((e['attachments'] as List?) ?? const []).map((x) => x is Map ? '${x['name']}' : '$x').toList());
         break;
       case 'accepted':
       case 'started':
+        if (e['event'] == 'accepted') suggestions = [];
         _assistant(turn);
         break;
       case 'woke':
@@ -292,9 +313,27 @@ class ChatController extends ChangeNotifier {
         b.question = '${e['question'] ?? ''}';
         b.facts = facts;
         b.options = ((e['options'] as List?) ?? const []).whereType<Map>().map((o) => Map<String, dynamic>.from(o)).toList();
+        b.intro = '${e['intro'] ?? ''}';
+        b.questions = ((e['questions'] as List?) ?? const []).whereType<Map>().map((o) => Map<String, dynamic>.from(o)).toList();
         b.name = '${e['tool'] ?? ''}';
         if (e['arguments'] is Map) b.args = Map<String, dynamic>.from(e['arguments'] as Map);
         _addBlock(b, turn);
+        break;
+      case 'intake': // what the harness assumed or left for the person before the agent began
+        final assumed = ((e['assumptions'] as List?) ?? const []).map((x) => '$x').toList();
+        final parked = ((e['parked'] as List?) ?? const []).map((x) => '$x').toList();
+        final lines = [
+          if (assumed.isNotEmpty) Texts.t('chat.intake.assumed', [assumed.join('; ')]),
+          if (parked.isNotEmpty) Texts.t('chat.intake.parked', [parked.join('; ')]),
+        ];
+        if (lines.isNotEmpty) _addBlock(Block('note', s: lines.join(' ')), turn);
+        break;
+      case 'suggestions':
+        suggestions = ((e['items'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((o) => {'label': '${o['label'] ?? ''}', 'prompt': '${o['prompt'] ?? ''}'})
+            .where((o) => o['prompt']!.isNotEmpty)
+            .toList();
         break;
       case 'answered':
         for (final it in items) {
@@ -368,18 +407,23 @@ class ChatController extends ChangeNotifier {
   Future<void> send(String text, {List<String> attachments = const [], Map<String, dynamic>? place}) async {
     if (sid.isEmpty || text.trim().isEmpty && attachments.isEmpty) return;
     await api.post('/api/agent/sessions/$sid/send', {'text': text, if (attachments.isNotEmpty) 'attachments': attachments, 'place': ?place});
+    suggestions = [];
     state = 'busy';
     notifyListeners();
     _schedule(true);
   }
 
+  /// The answer to a card of questions: ids and typed text, which the server checks and puts in words for the agent. `how` is
+  /// submitted, skipped or chat (the person writes the answer in the message box instead).
+  Future<void> answerCard(Block b, String value, String how) async {
+    await api.post('/api/agent/sessions/$sid/answer', {'ask': b.id, 'value': value});
+    b.answered = how;
+    if (how != 'chat') state = 'busy';
+    notifyListeners();
+    if (how != 'chat') _schedule(true);
+  }
+
   Future<void> answer(Block b, String value) async {
-    if (b.mode == 'question') {
-      b.answered = value;
-      notifyListeners();
-      await send(value);
-      return;
-    }
     await api.post('/api/agent/sessions/$sid/answer', {'ask': b.id, 'value': value});
     b.answered = b.kind == 'code' ? '-' : value;
     state = 'busy';

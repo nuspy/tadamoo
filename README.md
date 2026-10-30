@@ -101,6 +101,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   with your consent, names replaced) and re-planning by the local model, shown in a **Plans** view.
 - An **evaluation** (`python -m harness.eval`) that reports pass^k, cost and cache use, and the pages' shell: interface zoom
   for very wide screens, a command palette (Ctrl+K), Alt+number views and a settings index.
+- **Questions and suggestions**: the agent asks with a card (choices, a row of your own, a recommended option first), looks at each request before it works, and offers next-message chips that only fill the box; unattended runs never wait ([docs/intake.md](docs/intake.md)).
 - A **Target Loop** button in the Chat and the Agent tab: describe a target (long texts, numbered and bulleted lists in every prompt box), and the agent works through tasks, has the result judged against evidence, and goes on with what is not met until it is, it stalls, or you stop it ([docs/target-loop.md](docs/target-loop.md)).
 - In the Chat: **Shift+Tab** changes the mode, shown in a label by *New conversation*; a message that starts with `/` is a command
   (30 of them, skills included); the thinking level belongs to the conversation; and the **memory** now really keeps notes between

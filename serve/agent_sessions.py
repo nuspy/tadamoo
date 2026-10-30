@@ -33,6 +33,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 from datetime import datetime
 
 from harness import context_patterns as context_patterns_mod
+from harness import questions as qs
 from harness.personal_skills.store import PersonalSkills, SkillError
 from harness.personal_skills.values import resolve as resolve_values
 from harness.vault import valid_code
@@ -53,7 +54,7 @@ PLACE_KEEP_S = 86_400           # a position older than this is no longer handed
 OPTIONS = ("resume", "close")
 RESTART_WAITS = (0.0, 2.0, 5.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0)       # before each new start of a process that keeps dying; the last repeats
 RESTART_RESET_S = 600.0                                                     # restarts older than this no longer lengthen the wait
-ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free", "free_prefix", "explain")
+ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free", "free_prefix", "explain", "intro", "questions", "notes", "source")
 COMPARES_FILE = "compares.json"
 NODES_FILE = "nodes.jsonl"
 NODES_MIGRATED = "nodes.migrated"
@@ -112,7 +113,8 @@ class SessionManager:
                  plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: Optional[float] = None,
                  skills_dir: Optional[Path] = None, projects: Any = None, personal_dir: Optional[Path] = None, personal_keys: Optional[Path] = None,
                  learn: Optional[Callable[[Dict[str, Any]], Any]] = None, knowledge_flags: Optional[Callable[[], List[str]]] = None,
-                 rule_of_two: Optional[Callable[[], str]] = None, allow_rules: Any = None, rule_of_two_prefs: Any = None) -> None:
+                 rule_of_two: Optional[Callable[[], str]] = None, allow_rules: Any = None, rule_of_two_prefs: Any = None,
+                 intake_flags: Optional[Callable[[], List[str]]] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -129,6 +131,7 @@ class SessionManager:
         self.browser_profile = browser_profile                  # where the browser keeps its sign-ins when the person chose that
         self.browser_prefs = browser_prefs                      # whether the conversations have a browser, and whether it shows a window
         self.knowledge_flags = knowledge_flags                  # the options for the project notes, the wiki and the reference documents (Settings, Memories)
+        self.intake_flags = intake_flags                        # the options for the look at a request, the questions and the suggestions (Settings, General)
         self.allow_rules = allow_rules                          # the rules the person allowed for every conversation (serve/allow_rules.py)
         self.rule_of_two_prefs = rule_of_two_prefs              # where "always" is written when the person stops the Rule of Two's question for good
         self.rule_of_two = rule_of_two                          # how strict the Rule of Two is for a conversation that starts now (harness/rule_of_two.py)
@@ -972,6 +975,8 @@ class SessionManager:
             cmd += ["--browser-consent", str(prefs.get("consent", "follow")), "--browser-permissions", str(prefs.get("permissions", "follow"))]
         if self.knowledge_flags:
             cmd += self.knowledge_flags()
+        if self.intake_flags:
+            cmd += self.intake_flags()
         if rec.get("context_patterns"):
             cmd += ["--context-patterns", json.dumps(rec["context_patterns"])]
         if rec.get("context_threshold"):
@@ -1070,7 +1075,9 @@ class SessionManager:
                         self._write(sid, live, cmd)
             elif kind in ("accepted", "woke"):                        # a message of the person, or a note of the planner
                 self._unconfirmed.pop(sid, None)
-                self._set(rec, state="busy", blocked=None, ask=None, question=None)
+                self._set(rec, state="busy", blocked=None, ask=None, question=None, suggestions=None)
+            elif kind == "suggestions":
+                self._set(rec, suggestions=event.get("items") if isinstance(event.get("items"), list) else None)
             elif kind == "ask":
                 shown = {k: event.get(k) for k in ASK_FIELDS}
                 if event.get("mode") == "confirm":
@@ -1248,7 +1255,7 @@ class SessionManager:
             if not rec.get("title"):
                 rec["title"] = " ".join(text.split())[:TITLE_CHARS]
             keep = rec["state"] in ("busy", "asking") and live.ready.is_set()       # a task is under way: its state is not changed
-            self._set(rec, blocked=None, question=None, **({} if keep else {"state": "starting" if not live.ready.is_set() else "busy"}))
+            self._set(rec, blocked=None, question=None, suggestions=None, **({} if keep else {"state": "starting" if not live.ready.is_set() else "busy"}))
             if not live.ready.is_set():
                 live.after_ready.append(cmd)
             elif not self._write(sid, live, cmd):
@@ -1380,8 +1387,33 @@ class SessionManager:
         self._push(sid, {"event": "user", "turn": turn, "text": text})
         return {"turn": turn, "session": self.get(sid)}
 
+    def _answer_card(self, sid: str, rec: Dict[str, Any], card: Dict[str, Any], value: Any) -> Optional[str]:
+        """The answer to a card of questions (the lock is held), checked against the card this server stored, not against what the page says
+        it showed. Returns the message the model reads, or None when the person chose to answer in the chat."""
+        try:
+            checked = qs.check_answer(card, qs.parse_answer(value))
+        except qs.QuestionError as e:
+            raise RunError(str(e), "bad_answer") from None
+        if checked["status"] == "chat":
+            self._set(rec, question=None)
+            return None
+        return qs.format_answer(card, checked)
+
     def answer(self, sid: str, ask_id: Any, value: Any) -> Dict[str, Any]:
-        """The person's answer to a confirmation: it must be one of the buttons of the question that is waiting."""
+        """The person's answer to a confirmation: it must be one of the buttons of the question that is waiting. The answer to a card of
+        questions is put in words here and sent as the person's next message."""
+        text: Optional[str] = None
+        with self._lock:
+            rec = self._record(sid)
+            card = rec.get("question")
+            if isinstance(card, dict) and card.get("questions") and card.get("id") == ask_id and not rec.get("ask"):
+                text = self._answer_card(sid, rec, card, value)
+                if text is None:                                       # the person answers in the chat: their next message is the answer
+                    self._push(sid, {"event": "answered", "ask": ask_id, "value": "chat"})
+                    return self.get(sid)
+        if text is not None:
+            self._push(sid, {"event": "answered", "ask": ask_id, "value": "answered"})
+            return self.send(sid, text)["session"]
         with self._lock:
             rec = self._record(sid)
             ask = rec.get("ask")

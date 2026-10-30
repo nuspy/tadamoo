@@ -226,9 +226,12 @@ touches none (`plan:approve` with `safe_only`) and the rest stays a pending prop
 plan made at `auto` is created without its steps for other people, which wait as a proposal; the person's own quoted words
 still cover them. Below `auto` nothing changes: the whole change is asked.
 
-`ask_user` ends the turn when the person is there; in an unattended run it does not: the model is told nobody can answer and goes on with its own judgement. The buttons are the question's options (a label and the text sent when it is pressed, at most 300
-characters), the person can always write instead, and whatever they press or write is their next message. Permission
-questions (a risky shell command, a phone call) are put in the conversation the same way.
+`ask_user` puts a card of one to four questions (single choice, multiple choice, free text, yes/no) with a recommended option first. It ends the
+turn when the person is there; their answer is put in words by the server and is their next message, and they can always answer in the chat
+instead. In an unattended run it does not end the turn: each question is answered at once with what the model recommended and every such
+choice is reported as an assumption; what involves another person, a booking or a resource is parked. Permission questions (a risky shell
+command, a phone call) are put in the conversation the same way. Details, the look at each request before the model works, and the
+next-message chips: [intake.md](intake.md).
 
 The conversation is told about the plans in a short note placed *before* the person's message and only when the plans changed
 since the last note (the most recently touched plans first, at most 8), so the server's cache is not disturbed and a claim
@@ -1135,6 +1138,7 @@ wide, not for phones.
   and the copy of a git folder are the Chat's. The Chat tab lists only the conversations with no folder (the server's `chat-workspace`), the
   Agent tab only those of the folders. Each tab goes back to its own last conversation. A conversation sends each file edit to the Changes
   panel (`--report-changes`), which opens beside the conversation with the *Changes* button.
+- **Questions and suggestions**: `ask_user` v2 (a card with choices, a row of your own and a recommended option), a look at each request before the agent works (cleaning, a note of assumptions, at most one structured question card, large requests recorded as tasks) and next-message chips that only fill the box. Settings > General > Questions and suggestions. See [intake.md](intake.md).
 - **Target Loop**: a button next to Send in the Chat and in the Agent tab opens a dialog with a large text box (and list tools that every prompt box now has: numbered and bulleted lists, Enter for the next item, Tab to indent, Ctrl+Enter to send). The target is split into items to check and tasks, which are done one by one in the conversation and judged against the evidence until all are met, it stalls, or you stop it; achieved parts are struck through in red, with notes and the history of the session's targets. See [target-loop.md](target-loop.md).
 - **Plans**: the graph (drawn with status as icon and word as well as colour), an ordered list that works by keyboard,
   proposed changes shown on the graph before they are applied, approve and reject, tasks handed to you, a box to judge events.

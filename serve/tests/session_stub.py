@@ -111,6 +111,26 @@ for line in sys.stdin:
             busy["v"] = False
             emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "asked", "final": ""})
             continue
+        if text == "card":
+            emit({"event": "ask", "id": "k2", "mode": "question", "kind": "questions", "intro": "", "notes": [], "question": "Which database?", "options": [],
+                  "questions": [{"id": "q1", "text": "Which database?", "kind": "single", "required": True, "allow_other": True,
+                                 "options": [{"id": "o1", "label": "PostgreSQL", "recommended": True}, {"id": "o2", "label": "SQLite"}]}]})
+            busy["v"] = False
+            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "asked", "final": ""})
+            continue
+        if text == "assume":
+            emit({"event": "auto_answered", "id": "z1", "turn": cmd.get("id"), "kind": "question", "value": "o1", "answer": "PostgreSQL", "chosen": "recommended",
+                  "available": True, "source": {"kind": "question", "named": None, "needs_data": False}, "question": "Which database?"})
+            emit({"event": "auto_answered", "id": "z2", "turn": cmd.get("id"), "kind": "question", "value": "", "answer": "(no answer)", "chosen": "parked",
+                  "available": False, "source": {"kind": "question", "named": "people", "needs_data": False}, "question": "Call the vet?"})
+            busy["v"] = False
+            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "all done"})
+            continue
+        if text == "chips":
+            busy["v"] = False
+            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "an answer"})
+            emit({"event": "suggestions", "turn": cmd.get("id"), "items": [{"label": "More", "prompt": "Tell me more"}]})
+            continue
         if text == "more":
             busy["v"] = False
             emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "first part", "more": True})

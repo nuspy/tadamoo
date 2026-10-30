@@ -504,11 +504,13 @@ class SessionRoutineRunner:
                     return {"status": "failed", "summary": f"The skill could not start: {exc}", "session": sid, "seconds": round(time.monotonic() - started, 1)}
             else:
                 mgr.send(sid, routine["prompt"])
-            seen, cancelled_at = 0, None
+            seen, cancelled_at, assumed = 0, None, []
             while True:
                 data = mgr.events(sid, seen)
                 seen = data.get("next", seen)
                 for event in data["events"]:
+                    if event.get("event") == "auto_answered" and event.get("kind") == "question" and event.get("chosen") in ("recommended", "default", "none"):
+                        assumed.append(f"{str(event.get('question') or '')[:120]} -> {event.get('answer') or '(no answer)'}")      # decided by the harness, for the person to see
                     if event.get("event") == "done":
                         stop = event.get("stop_reason") or ""
                         status = "done" if stop == "final" else "parked" if stop == "asked" else "incomplete"
@@ -518,6 +520,8 @@ class SessionRoutineRunner:
                         if stop == "asked" and cancelled_at is None:
                             question = self._park(routine, sid, "question", "question", mgr.get(sid).get("question") or {}, "It needed an answer.")
                         summary = event.get("final") or question or event.get("error") or f"Stopped: {stop}"
+                        if assumed:
+                            summary += "\n\nAssumptions made (nobody was there to ask):\n" + "\n".join(f"- {a}" for a in assumed[:10])
                         return {"status": status, "summary": summary, "session": sid, "seconds": round(time.monotonic() - started, 1)}
                 state = data.get("state")
                 if state == "asking":                         # the run goes on; the request waits in the list for the person

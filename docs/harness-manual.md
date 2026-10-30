@@ -341,7 +341,7 @@ has *Waits for* boxes to set from the keyboard what it waits for.
 - In the Chat the agent can read plans and, **with your yes**, create and change them. The yes is either a quotation of your own words
   in your last message, or a question made from the real change (the real title, steps and diff) that you answer with a button. A plan
   must be read before it is changed, and a plan that moved on meanwhile is refused until it is read again.
-- `ask_user` ends a turn with a question and buttons; what you press or write is your next message.
+- `ask_user` ends a turn with a card of questions (choices, a row of your own, free text or yes/no, the recommended option first); your answer, or a skip, or an answer in the chat, is your next message. Unattended, it takes the recommended options and says so.
 - **Events from the world** can be fed to plans (`POST /api/plans/events`) or read from RSS feeds, a mailbox (headers only) or a Telegram
   bot. The event pump is **on**: it starts with the server and sleeps while nothing arrives (turn it off in *Settings*). The cloud filter is **off** until you turn it on; it needs your consent and
   a key and replaces names, and does not send health data unless you tick it.

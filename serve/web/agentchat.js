@@ -70,7 +70,7 @@
   const inContext = x => (inAgent() ? !isChatSession(x) : isChatSession(x));
   const curPath = () => (projects.some(x => sameDir(x.path, curProject)) ? curProject : "");
   let supported = null;                               // whether this server offers conversations
-  let sid = "", after = 0, state = "dormant", rec = null, timer = 0, items = [], current = null, busyNow = false;
+  let sid = "", after = 0, state = "dormant", rec = null, timer = 0, items = [], current = null, busyNow = false, replaying = false;
   const status = t => { $("#chat-status").textContent = t; };
   const scroller = () => (box.scrollHeight > box.clientHeight + 1 && getComputedStyle(box).overflowY !== "visible") ? box : document.scrollingElement;
   function scrollDown(force) { const s = scroller(); if (force || s.scrollHeight - s.scrollTop - s.clientHeight < 160) s.scrollTop = s.scrollHeight; }
@@ -268,7 +268,7 @@
     }, 600);
   });
 
-  function forget() { pick = null; learn = null; paintPick(); paintLearn(); pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked").forEach(e => e.remove()); empty.hidden = false; keep(lastKey(), ""); copyShown = false; }
+  function forget() { pick = null; learn = null; paintPick(); paintLearn(); pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked, .asuggest").forEach(e => e.remove()); chipsEl = null; chipTexts = []; empty.hidden = false; keep(lastKey(), ""); copyShown = false; }
   function newChat() {
     if (inAgent() && !curPath()) { addFolder(); return; }                      // a conversation in the Agent tab needs a folder to work in
     forget(); status(T("ch.new")); setControls(); paintList();
@@ -284,12 +284,13 @@
     if (state === "busy" || state === "starting" || state === "asking") {      // mid-turn: rebuild what is going on from its events
       forget(); sid = id;
       const e = await api("GET", `/${id}/events?after=0`);
-      if (e.ok) { e.json.events.forEach(apply); after = e.json.next; state = e.json.state; }
+      if (e.ok) { replaying = true; try { e.json.events.forEach(apply); } finally { replaying = false; } after = e.json.next; state = e.json.state; }
     } else {
       const e = await api("GET", `/${id}/events?after=0`);
       if (e.ok) after = e.json.next;
     }
-    showPending(); syncRecord(); render(); paintList(); poll(true);
+    showPending(); showQuestion(); if (rec && rec.suggestions && state === "idle") showChips(rec.suggestions);
+    syncRecord(); render(); paintList(); poll(true);
   }
 
   /* ---- the view model: the person's messages and, for each answer, blocks in the order things happened ---- */
@@ -322,8 +323,17 @@
   }
   function applyEvent(e) {
     switch (e.event) {
-      case "user": closeQuestions(); userItem(e.text, e.attachments); break;
-      case "accepted": assistant(e.turn); started(e.turn); break;
+      case "user": closeQuestions(); clearChips(); userItem(e.text, e.attachments); break;
+      case "accepted": clearChips(); assistant(e.turn); started(e.turn); break;
+      case "intake": {                                                         // what the harness assumed or split before the agent began (harness/intake.py)
+        const lines = [];
+        if ((e.assumptions || []).length) lines.push(T("ch.intake.assumed", e.assumptions.join("; ")));
+        if ((e.subtasks || []).length) lines.push(T("ch.intake.parts", e.subtasks.length, e.subtasks.join("; ")));
+        if ((e.parked || []).length) lines.push(T("ch.intake.parked", e.parked.join("; ")));
+        if (lines.length) addBlock({ t: "note", s: lines.join(" ") }, e.turn);
+        break;
+      }
+      case "suggestions": if (!replaying) showChips(e.items); break;
       case "started": assistant(e.turn); started(e.turn); break;
       case "woke": noteItem({ s: T("ch.woke", String(e.text || "").replace(/^\[planner\]\s*/, "").slice(0, 200)), route: e.turn }); assistant(e.turn); started(e.turn); break;
       case "delta": textBlock(e.kind === "reasoning" ? "reasoning" : "text", e.text || "", e.turn); break;
@@ -374,7 +384,8 @@
         }
         break;
       }
-      case "ask": addBlock({ t: "ask", id: e.id, mode: e.mode, kind: e.kind || (e.facts || {}).kind, question: e.question, options: e.options || [], facts: e.facts || {}, tool: e.tool, args: e.arguments, explain: explainOf(e.explain), answered: null }, e.turn); break;
+      case "ask": addBlock({ t: "ask", id: e.id, mode: e.mode, kind: e.kind || (e.facts || {}).kind, question: e.question, options: e.options || [], facts: e.facts || {}, tool: e.tool, args: e.arguments, explain: explainOf(e.explain),
+        intro: e.intro || "", questions: e.questions || [], fresh: !replaying, answered: null }, e.turn); break;
       case "answered": { for (const it of items) { const b = (it.blocks || []).find(x => x.t === "ask" && x.id === e.ask); if (b) { b.answered = e.value; b.dirty = true; } } break; }
       case "retrying": addBlock({ t: "note", s: T("ch.retrying", e.attempt, Math.round(e.wait_s)) }, e.turn); break;
       case "restarting": addBlock({ t: "note", s: T("ch.restarting", e.attempt, Math.round(e.wait_s || 0)) }); break;
@@ -403,6 +414,40 @@
     return b;
   }
   function showPending() { ((rec && rec.pending) || []).forEach(p => addPending({ ...p, arguments: p.arguments })); }
+  /* a card the agent put before the page was opened: still waiting for the person's answer */
+  function showQuestion() {
+    const q = rec && rec.question;
+    if (!q || q.kind !== "questions" || !(q.questions || []).length || items.some(it => (it.blocks || []).some(x => x.t === "ask" && x.id === q.id))) return;
+    addBlock({ t: "ask", id: q.id, mode: "question", kind: "questions", question: q.question, options: [], facts: {}, intro: q.intro || "", questions: q.questions, fresh: false, answered: null });
+    if (current) current.done = true;
+  }
+
+  /* ---- the next-message chips: they put a text in the message box and never send ---- */
+  let chipsEl = null, chipTexts = [];
+  function clearChips() { if (chipsEl) chipsEl.remove(); chipsEl = null; chipTexts = []; }
+  function showChips(list) {
+    clearChips();
+    const chips = (Array.isArray(list) ? list : []).filter(c => c && typeof c.prompt === "string" && c.prompt.trim()).slice(0, 4);
+    if (!chips.length) return;
+    chipsEl = mk("div", "asuggest");
+    chipsEl.setAttribute("role", "group"); chipsEl.setAttribute("aria-label", T("ch.suggest.label"));
+    chipTexts = chips.map(c => c.prompt);
+    chips.forEach(c => {
+      const b = btn(String(c.label || c.prompt).slice(0, 40), "ghost achip-s", () => { window.chatUi.setPrompt(c.prompt); });
+      b.title = T("ch.suggest.tip", c.prompt); b.setAttribute("aria-label", T("ch.suggest.use", c.prompt));
+      chipsEl.append(b);
+    });
+    const hide = btn("\u00d7", "ghost achip-x", clearChips);
+    hide.title = T("ch.suggest.dismiss"); hide.setAttribute("aria-label", T("ch.suggest.dismiss"));
+    chipsEl.append(hide);
+    box.append(chipsEl);
+    scrollDown();
+  }
+  document.addEventListener("input", ev => {                                       // typing something unrelated takes the chips away
+    if (!chipsEl || !ev.target || ev.target.id !== "prompt") return;
+    const t = ev.target.value.trim();
+    if (t && !chipTexts.some(c => c.startsWith(t) || t.startsWith(c.slice(0, 20)))) clearChips();
+  });
   function closeQuestions() { items.forEach(it => (it.blocks || []).forEach(b => { if (b.t === "ask" && b.mode === "question" && !b.answered) { b.answered = ""; b.dirty = true; } })); }
 
   function fromHistory(messages) {
@@ -472,7 +517,16 @@
     (f.notes || []).forEach(n => ul.append(mk("li", "aask-h", n)));
     return ul;
   }
-  const optLabel = (b, o) => (b.kind === "capability_choice" ? capLabel(o) : b.mode === "confirm" ? (o.value === "always" ? T("ch.always", o.rule || "") : o.value === "chat" ? T("ch.chat", o.rule || "") : T(o.value === "confirm" ? (b.kind === "permission" ? "ch.once" : "ch.yes") : "ch.no")) : o.label);
+  const optLabel = (b, o) => (b.kind === "capability_choice" ? capLabel(o) : b.kind === "parked_question" ? (o.label || String(o.value || "").replace(/^other:/, "")) : b.mode === "confirm" ? (o.value === "always" ? T("ch.always", o.rule || "") : o.value === "chat" ? T("ch.chat", o.rule || "") : T(o.value === "confirm" ? (b.kind === "permission" ? "ch.once" : "ch.yes") : "ch.no")) : o.label);
+
+  /* the sentence of their own for a question left for the person: sent after "other:" */
+  function parkedOther(b) {
+    const say = mk("div", "aask-b"), input = mk("input"), go = btn(T("ch.cap.send"), "primary", () => { if (input.value.trim()) answer(b, "other:" + input.value.trim().slice(0, 500)); });
+    input.type = "text"; input.maxLength = 500; input.placeholder = T("ch.ask.other.ph"); input.setAttribute("aria-label", T("ch.ask.other.ph"));
+    input.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); go.click(); } };
+    say.append(input, go);
+    return say;
+  }
 
   function makeBlock(b) {
     if (b.t === "reasoning") {
@@ -531,6 +585,12 @@
       let row = el.querySelector(".asrc");
       if (sources.length && !row) { row = mk("div", "asrc"); el.querySelector("summary").after(row); }
       if (row) row.replaceChildren(...sources.map(s => window.chatUi.sourceLink(s.url, s.host)));
+      return;
+    }
+    if (b.t === "ask" && b.kind === "questions") {                            // the card of questions: choices, a row of their own, free text, yes/no
+      const prompt = $("#prompt"), free = !prompt || !prompt.value.trim() || document.activeElement === prompt;
+      window.AskCard.draw(el, b, { T, answered: b.answered !== null, focusFirst: b.fresh && free && !document.hidden, send: (value, how) => answerCard(b, value, how) });
+      b.fresh = false;
       return;
     }
     if (b.t === "ask" && b.kind === "code") {                                  // a second-factor code: typed here, it goes to the tool and nowhere else
@@ -626,19 +686,19 @@
     }
     if (b.t === "ask") {
       el.dataset.mode = b.mode;
-      const q = mk("p", "aask-q", b.mode === "confirm" ? askQuestion(b) : b.question), row = mk("div", "aask-b");
+      const q = mk("p", "aask-q", askQuestion(b)), row = mk("div", "aask-b");
       row.setAttribute("role", "group"); row.setAttribute("aria-label", T("ch.answers"));
       const done = b.answered !== null;
       (b.options || []).forEach(o => {
-        const x = btn(optLabel(b, o), b.mode === "confirm" && o.value === "confirm" ? "primary" : "", () => answer(b, o.value));
-        x.disabled = done || (b.mode === "question" && busyNow); x.title = b.mode === "question" ? o.value : "";
+        const x = btn(optLabel(b, o), o.value === "confirm" ? "primary" : "", () => answer(b, o.value));
+        x.disabled = done;
         if (done && b.answered === o.value) x.classList.add("picked");
         row.append(x);
       });
       el.replaceChildren(q, ...(b.explain ? [mk("p", "aask-h", T("ch.explain.said", b.explain))] : []), row);
       if (b.pending && !done) el.append(mk("p", "aask-h", T("ch.pending.h", b.source && b.source.named ? T("ch.pending.src." + b.source.named) : "")));
-      if (b.mode === "question" && !done) el.append(mk("p", "aask-h", T("ch.write")));
-      if (done && b.mode === "confirm") el.append(mk("p", "aask-h", T("ch.answered", optLabel(b, (b.options || []).find(o => o.value === b.answered) || { label: b.answered, value: b.answered }))));
+      if (b.kind === "parked_question" && !done) el.append(parkedOther(b));
+      if (done) el.append(mk("p", "aask-h", T("ch.answered", optLabel(b, (b.options || []).find(o => o.value === b.answered) || { label: b.answered, value: b.answered }))));
       return;
     }
     if (b.t === "blocked") {
@@ -725,6 +785,7 @@
       it.metaEl.textContent = it.meta;
       paintStop(it);
     });
+    if (chipsEl) box.append(chipsEl);                                          // the chips stay below the last answer
     scrollDown();
     setControls();
   }
@@ -1080,11 +1141,19 @@
     const files = pend.filter(f => f.id);
     const r = await api("POST", `/${sid}/send`, { text, ...(files.length ? { attachments: files.map(f => f.id) } : {}) });
     if (!r.ok) { status(errText(r)); window.chatUi.setPrompt(text); return; }
+    clearChips();
     pend = []; drawPend();
     state = "busy"; busyNow = true; status(T("ch.working")); setControls(); poll(true);
   }
+  /* a card of questions: the answer goes to the server as ids and typed text; the server checks it and puts it in words for the agent */
+  async function answerCard(b, value, how) {
+    const r = await api("POST", `/${sid}/answer`, { ask: b.id, value });
+    if (!r.ok) { status(errText(r)); return; }
+    b.answered = how; b.status = how; b.dirty = true;
+    if (how === "chat") { const p = $("#prompt"); if (p) p.focus(); } else { state = "busy"; busyNow = true; }
+    render(); poll(true);
+  }
   async function answer(b, value) {
-    if (b.mode === "question") { b.answered = value; b.dirty = true; render(); send(value); return; }     // the button is the person's next message
     const r = await api("POST", `/${sid}/answer`, { ask: b.id, value });
     if (!r.ok) { status(errText(r)); return; }
     b.answered = b.kind === "code" ? "-" : value; b.dirty = true; if (!b.pending) state = "busy"; render(); poll(true);

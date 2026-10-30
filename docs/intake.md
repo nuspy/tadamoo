@@ -1,0 +1,112 @@
+# Intake, questions and suggestions
+
+What the harness does between the person's text and the model's first step, how the agent asks the person, and the chips offered after an
+answer. Code: `harness/intake.py`, `harness/questions.py`, `harness/suggestions.py`, the hooks in `harness/session.py`, `serve/intake_prefs.py`,
+`serve/web/askcard.js`, `serve/web/intake.js`, `mobile/lib/src/ask_card.dart`. The designs and their sources are in
+[harness-study/](harness-study/README.md); this page says what is built. Unattended runs (routines, the Target Loop in an unattended
+conversation) never wait for any of it.
+
+## Settings
+
+Settings > General > Questions and suggestions. Each control is explained on the page; the values are saved on this PC and a conversation
+started afterwards uses them (`--intake`, `--side-call-tokens`, `--suggestions` of `python -m harness session`).
+
+| Setting | Values | Default |
+|---|---|---|
+| Look at each request first | `off`, `rules`, `full` | `rules` |
+| Suggest what to write next | on, off | on |
+| Longest conversation for the extra model calls (tokens) | 500 to 200000 | 6000 |
+
+`rules` makes no model call. `full` adds one structured call, only when the gate says so. The suggestions never run in an unattended
+conversation, and the triage in one never asks.
+
+## The look at a request
+
+Only for a message the person wrote (not a planner note, a command, a Target Loop message or the answer to a card). In order:
+
+1. **Cleaning** (every mode but `off`). The model reads the message without control, zero-width and bidi characters, ANSI escapes, CRLF,
+   trailing spaces and runs of blank lines, in NFC. Fenced code is left as it is. Nothing is spelled, translated, summarised or reordered.
+   The person's own text stays as `raw` beside it and is what the page shows.
+2. **Signals and gate.** Words, listed items, an action verb (EN and IT), a word that points at nothing, a risk word (delete, send, pay,
+   book, call), attachments, relative dates. The gate says "triage" for 35+ words, two listed items, an action with a pointing word, a
+   risk word or an attachment with an action; in a conversation without tools the bar is 60 words or three items. It says "skip" for a
+   short chat, a continuation ("ok", "continua"), a command, an answer to a card, and a conversation longer than the size setting whose
+   cache is warm (an extra request could cost the next turn its cached start).
+3. **The triage call** (`full` only). One request, `response_format` json_schema `strict`, temperature 0, thinking off, no tools, about 600
+   tokens. Input: the message (3000 characters) and a facts block (attended or not, attachment names), never tool results or web text. The
+   system part is byte-identical each time. The form: evidence quotes first, intent, size, ambiguity, the missing facts (what, why, a
+   default, whether files, the web or memory could supply it, the cost of a wrong guess, whether it can be undone, who must decide),
+   risks, constraints in the person's words, and the parts of a large request.
+4. **Validation.** Every quotation must occur in the person's text (case and spacing aside); one that does not is dropped, and the whole
+   form is dropped when more than half do not. Caps: four missing facts, six parts, dependencies only on earlier parts. Invalid JSON or a
+   failed call is a skipped call: the request goes on as if there had been none.
+5. **Ask or act, decided in code.** A fact the files, web, memory or tools can supply is a line "find this first". The rest is scored:
+   chance of a wrong guess (none 0.05, minor 0.25, material 0.5) times cost (1, 4, 15), doubled when it cannot be undone or is not the
+   user's to decide. It is asked when the score is above 3 in a conversation without tools, 2 in the Agent before any tool was used, 6 after.
+   At most one question there (two if both are costly), three in the Agent, one card. At the Auto permission level only another person, a
+   booking or a resource is asked; unattended, those are parked and everything else is assumed.
+6. **The card.** The harness builds it from the form's own fields: the question, the default as the recommended option, a row for the person's
+   own answer. The turn ends there; the answer is the next message and skips the look.
+7. **The note.** A deterministic message after the person's, flagged `note` (it is not shown in the transcript and cannot stand for their
+   confirmation), headed "not the user's words": the assumptions, what to find first, the person's requirements quoted, dates from the
+   clock ("domani" = a weekday and a date), a reminder when the message lists three or more items, and the parts of a large request. The
+   page shows a one-line version.
+8. **Parts in the task registry.** A request the form calls large, with three or more grounded parts, is recorded in `/api/tasks` as
+   `req-<turn>` with children `req-<turn>.1`, ... (`metadata.kind` is `intake`; title, the person's words, a "done when" and the parts it
+   follows). They are closed when the request ends, never marked done on the model's word. The checklist is also in the note, so the model
+   works through it in the same conversation. Running the parts one by one with their own prompts, and re-planning, are not built (the
+   Target Loop does that for a described target).
+
+## ask_user
+
+One call, one to four questions; the rules the model reads (when to ask, one call, no "shall I continue", options that stand alone) are
+added to the system prompt with the tool (`PROMPT_RULES` in `harness/questions.py`).
+
+```
+ask_user {intro?, questions: [{text, kind: single|multi|free|confirm, options?: [{label, description?, recommended?}],
+          required?, placeholder?, default?, recommended? (confirm), involves?: ["people: ...", "booking: ...", "resource: ..."]}]}
+```
+
+- **Repairs, not errors.** A bare string is an option or a question; a missing kind follows the options; one option makes the question
+  free; duplicate labels, "Other" and "(Recommended)" suffixes are dealt with; more than five options keep the recommended; two
+  recommended on a single keep the first; options written as "A) ..." lines in the text are parsed; labels over 60 characters are cut.
+  No usable question at all gives one line with an example; after two such calls the words the model did write are shown as one plain
+  free question.
+- **Limits in the harness.** At most two calls for one request of the person (an answer to a card is not a new request), never the same
+  question twice; the model is told so in one line.
+- **The answer** travels as `ask:` + JSON of option ids and typed text (at most 500 characters each, 4000 in all). The server checks it
+  against the card it stored, not against what the page says it showed, and sends the person's next message in words: one line per
+  question with the labels (never ids), `Other: "..."` for typed text, "(your recommended option)" where it applies. Skip sends a fixed
+  sentence telling the model to decide and say what it assumed; "answer in the chat" sends nothing and closes the card.
+- **Unattended.** Nothing waits. Each question is answered at once from what the model proposed: the recommended option (single), the
+  recommended options (multi), the default text (free), the recommended side (confirm); a confirm without a recommended side and a
+  question with nothing proposed get "decide yourself, conservatively". A question whose `involves` names people, a booking or a resource
+  is parked in the visible pending list (answered later, even from the phone) and the model is told to go on. Every choice the harness
+  made is an `auto_answered` event with `chosen`, and a routine's result ends with "Assumptions made".
+- **Audit.** `question_shown`, `question_answered` (seconds and length, not the text), `question_auto` and `suggestions` records go to the
+  hash-chained ledger.
+
+## Next-message chips
+
+After an answer that ended normally, a separate structured call (the conversation as the model last saw it plus one trailing instruction that
+is never stored; `response_format` json_schema, thinking off, 160 tokens, 8 seconds) returns two to four messages in the person's voice.
+They appear under the answer as buttons; a click puts the text in the message box, focuses it and sends nothing. Skipped when: unattended;
+the answer is under about 30 tokens, cut, an error or a card; plan mode; a message is queued or a task runs; the conversation is longer than
+the size setting; the server held under half of the last request in its cache; or after three unused sets in a row (then every second
+turn). A message sent meanwhile cancels the call (the stream is closed). A suggestion is plain text of at most 240 characters. The set
+is kept for a reload and dropped at the next message.
+
+## Pages
+
+The card is `serve/web/askcard.js` (the Chat and the Agent tab share it): real radio buttons and checkboxes in `fieldset`s, rows of at
+least 40 px (44 px on touch screens), a "Recommended" tag in words and a star, a row of the person's own with a text box, a text area for
+free questions, Send (disabled until every required question is answered, with a live note naming the first missing), Skip and
+"Answer in the chat instead". One question of single or confirm kind is answered by one click, never by an arrow key. Digits 1 to 9
+choose an option, Ctrl+Enter sends. The card is at most 720 px wide and wraps at 1024 px. After the answer it is a read-only summary.
+The Android app draws the same card (`QuestionsCard`, rows of 48 dp) and the chips (`SuggestionChips`).
+
+## What is not measured
+
+All of it needs the real model and is queued in `tests/QUEUE_daytime.md`: whether triage pays for itself (success, over-ask rate, time),
+the cache effect of the triage and suggestion calls, whether the engine's grammar accepts the schemas and `strict: true` on the tool, whether
+a Qwen-class model asks at the right times, and whether the chips are sensible.
