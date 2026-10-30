@@ -1,0 +1,36 @@
+/* The Prompt analysis switch: three buttons in a row, a "?" that opens the explanation, and the explanation. The chosen state is told by a
+   tick and weight as well as by colour. */
+.ps { position: relative; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; max-width: 100%; }
+.ps[hidden] { display: none; }
+.ps .ps-label { font: 400 12.5px/1.2 var(--font-sans); color: var(--fg-2); }
+.ps-seg { display: inline-flex; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); overflow: hidden; }
+.ps .ps-opt { min-height: var(--btn-h); min-width: 3.5rem; padding: 4px 12px; border: 0; border-radius: 0; background: transparent; color: var(--fg); font: 500 var(--btn-fs)/1.2 var(--font-sans); cursor: pointer; }
+.ps .ps-opt + .ps-opt { border-left: 1px solid var(--line); }
+.ps .ps-opt:hover:not(:disabled) { background: var(--raised); }
+.ps .ps-opt[aria-checked="true"] { background: var(--accent); color: var(--basalt-950); font-weight: 650; }
+.ps .ps-opt[aria-checked="true"]::before { content: "\2713\00a0"; }
+.ps .ps-opt:focus-visible { outline: 2px solid var(--fg); outline-offset: -4px; }
+.ps .ps-opt:disabled { color: var(--fg-3); cursor: default; }
+.ps .ps-help { min-width: var(--btn-h); min-height: var(--btn-h); padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--raised); color: var(--fg); font: 600 13px/1 var(--font-sans); cursor: pointer; }
+.ps .ps-help[aria-expanded="true"] { border-color: var(--accent); }
+.ps .ps-help:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ps .ps-status { color: var(--fg-2); font: 400 13px/1.4 var(--font-sans); overflow-wrap: anywhere; }
+.ps .ps-status:empty { display: none; }
+.ps .ps-status[data-bad="1"] { color: var(--err); }
+.chathead .ps .ps-status:not([data-bad="1"]) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* the explanation takes a whole row of the toolbar, or sits under the switch in Settings */
+.ps-panel { flex: 1 0 100%; min-width: 0; margin: 4px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); font: 400 13.5px/1.5 var(--font-sans); overflow-wrap: anywhere; }
+.ps-panel[hidden] { display: none; }
+.ps-panel .ps-defs { margin: 0; display: grid; gap: 2px; }
+.ps-panel dt { margin-top: 8px; font-weight: 600; }
+.ps-panel dt:first-child { margin-top: 0; }
+.ps-panel dd { margin: 0; color: var(--fg-2); max-width: 60rem; }
+.ps-panel .ps-now { font-weight: 400; color: var(--fg-2); }
+.stpromptswitch .pad { display: grid; gap: 10px; padding: 14px 20px 18px; }
+.stpromptswitch .ps-panel { flex: none; max-width: 48rem; }
+.stpromptswitch .setnote { padding: 0; font-size: 14px; }
+@media (pointer: coarse) {
+  .ps .ps-opt { min-height: 44px; }
+  .ps .ps-help { min-width: 44px; min-height: 44px; }
+}

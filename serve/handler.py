@@ -1805,6 +1805,8 @@ def make_handler(svc: Service, remote: bool = False):
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
                 prefs.write(req)
+                if "intake" in req and _SESSIONS is not None:
+                    _SESSIONS.update_intake(prefs.read()["intake"])
                 return self._json(200, prefs.view())
             except IntakeError as e:
                 return self._json(400, {"error": {"type": "intake", "message": str(e), "field": e.field}})

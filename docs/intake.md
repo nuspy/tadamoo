@@ -2,20 +2,41 @@
 
 What the harness does between the person's text and the model's first step, how the agent asks the person, and the chips offered after an
 answer. Code: `harness/intake.py`, `harness/questions.py`, `harness/suggestions.py`, the hooks in `harness/session.py`, `serve/intake_prefs.py`,
-`serve/web/askcard.js`, `serve/web/intake.js`, `mobile/lib/src/ask_card.dart`. The designs and their sources are in
+`serve/web/askcard.js`, `serve/web/promptswitch.js`, `serve/web/intake.js`, `mobile/lib/src/ask_card.dart`. The designs and their sources are in
 [harness-study/](harness-study/README.md); this page says what is built. Unattended runs (routines, the Target Loop in an unattended
 conversation) never wait for any of it.
 
 ## Settings
 
-Settings > General > Questions and suggestions. Each control is explained on the page; the values are saved on this PC and a conversation
-started afterwards uses them (`--intake`, `--side-call-tokens`, `--suggestions` of `python -m harness session`).
+Settings > Inference holds them: the **Prompt analysis** switch first, then Questions and suggestions. Each control is explained on the page;
+the values are saved on this PC (`intake.json` in the data folder, read again after a restart of the server or the app, `/api/intake`) and a conversation started afterwards uses them (`--intake`, `--side-call-tokens`,
+`--suggestions` of `python -m harness session`).
 
 | Setting | Values | Default |
 |---|---|---|
-| Look at each request first | `off`, `rules`, `full` | `rules` |
+| Prompt analysis (the look at each request) | `off`, `rules`, `full` | `off` |
 | Suggest what to write next | on, off | on |
 | Longest conversation for the extra model calls (tokens) | 500 to 200000 | 6000 |
+
+### The Prompt analysis switch
+
+Three buttons in a row (`role="radiogroup"`, arrow keys, Home and End move and choose; 30 px high, visible focus, the chosen one has a tick
+as well as a colour). It is drawn in two places that always show the same value: Settings > Inference, and the Chat toolbar, which the
+Chat and the Agent tab share (hidden in the model-only chat, which has no look at a request). A change in one is shown in the other at
+once and saved after a short pause through `POST /api/intake` (so arrowing across the three saves where it stops); a refused save puts the
+old value back with the reason. Saving also tells the running conversations (`update_intake`, the process command `intake`), so the next
+message of an open conversation is looked at the new way.
+
+Each state has a `title` and the same text as an accessible description; a "?" button beside the switch opens a panel with the three texts,
+for touch screens, and Escape or a click elsewhere closes it:
+
+| State | Text |
+|---|---|
+| Off | Your message goes to the model exactly as you wrote it. Nothing is checked or changed. |
+| Rules | Quick checks, no extra model call. It removes invisible characters and extra blank lines, writes the real date next to words like 'tomorrow', and reminds the model when you listed several items. It costs nothing. |
+| Full | Everything in Rules, and the model also reads your request first to see whether something is missing or risky. It may ask you a short question before it starts. It adds a few seconds to each message. |
+
+The texts are in English and Italian (`ps.*` in `serve/web/i18n.js`).
 
 `rules` makes no model call. `full` adds one structured call, only when the gate says so. The suggestions never run in an unattended
 conversation, and the triage in one never asks.
