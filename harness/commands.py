@@ -107,28 +107,32 @@ def audit(session: Any, args: str) -> Dict[str, Any]:
 
 
 def context(session: Any, args: str) -> Dict[str, Any]:
-    return {**_context(session), **prefix_sections(session), "notices": list(getattr(session.built, "notices", []))}
+    comp = getattr(session.agent.context, "compaction", None)
+    return {**_context(session), **prefix_sections(session), "notices": list(getattr(session.built, "notices", [])),
+            "compaction": comp.status() if comp is not None else None}
 
 
 def compact(session: Any, args: str) -> Dict[str, Any]:
-    """The older half of the conversation becomes a summary (by the model, else a plain extract); only when nothing is under way."""
+    """The older part of the conversation becomes a summary (by the model, else a plain extract) with the newest steps kept as written; only
+    when nothing is under way. The report says what the server will read again."""
     agent = session.agent
     ctx = agent.context
-    if ctx is None or not hasattr(ctx, "_summarize"):
+    if ctx is None or not hasattr(ctx, "compact_now"):
         return {"done": False, "reason": "unsupported"}
     if not session.idle():
         return {"done": False, "reason": "busy"}
     before_messages = list(agent.messages)
     before = ctx.estimate_tokens(before_messages)
-    shortened = ctx._summarize(before_messages)                         # may take a model call: nothing is held while it runs
-    if len(shortened) >= len(before_messages):
+    shortened = ctx.compact_now(before_messages)                        # may take a model call: nothing is held while it runs
+    report = ctx.take_compaction()
+    if report is None or len(shortened) >= len(before_messages):
         return {"done": False, "reason": "short", "tokens": before}
     with session._lock:
         if not session.idle() or agent.messages != before_messages:
             return {"done": False, "reason": "moved"}
         agent.messages = shortened
         session._save()
-    return {"done": True, "before": before, "after": ctx.estimate_tokens(shortened)}
+    return {"done": True, "before": before, "after": ctx.estimate_tokens(shortened), "compaction": report}
 
 
 COMMANDS: Dict[str, Callable[[Any, str], Dict[str, Any]]] = {

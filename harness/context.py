@@ -17,7 +17,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from harness import untrusted
 
 PIN_ORDER = ("system_core", "discipline", "environment", "project_rules", "knowledge", "user_profile", "vault", "active_skills", "capabilities", "visuals", "files")
-INTERNAL_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw", "explain", "skipped", "private")
+INTERNAL_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw", "explain", "skipped", "private", "compaction")
 ERROR_LINE = re.compile(
     r"(error|exception|traceback|fatal|panic|failed|failure|assertion|segmentation fault|stack trace)"
     r"|^\s+at\s+\S+\(|^\s+File \".*\", line \d+|^E\s{2,}",

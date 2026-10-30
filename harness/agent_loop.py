@@ -697,6 +697,7 @@ class AgentLoop:
                 if self.context:
                     self._prepare_context()
                 done = self._complete()
+                self._note_usage(done)
             except StreamCancelled:                     # the person stopped the answer while it was being written
                 self.stop_reason = CANCELLED
                 break
@@ -1069,23 +1070,38 @@ class AgentLoop:
         return True
 
     def _prepare_context(self) -> None:
-        """Keeps the conversation inside its budget; the compaction hooks hear of it when the context is over its threshold and gets smaller."""
+        """Keeps the conversation inside its budget; the compaction hooks hear of it when the context is over its threshold and gets smaller.
+        A summary of the older steps (harness/compaction.py) is announced with its report: what was replaced and what the server will read again."""
         ctx = self.context
         due, before = False, 0
         if self.hooks is not None:
             try:
                 before = ctx.estimate_tokens(self.messages)
-                due = before > ctx.budget_tokens * ctx.mask_at
+                due = before > ctx.budget_tokens * ctx.mask_at or bool(getattr(ctx, "compaction_due", lambda m: False)(self.messages))
             except (AttributeError, TypeError):
                 due = False
         if due:
             self.hooks.trigger_event("pre_compact", {"tokens": before, "messages": len(self.messages)})
         self.messages = ctx.prepare(self.messages)
+        report = getattr(ctx, "take_compaction", lambda: None)()
+        if report:
+            report["prefix"]["tools_sha"] = hashlib.sha256(json.dumps(self.tools.schemas(), sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
+            self._emit({"type": "compaction", **report})
+            self._audit("compaction", {k: report[k] for k in ("n", "reason", "tokens_before", "tokens_after", "replaced", "summary_by")})
         if due:
             after = ctx.estimate_tokens(self.messages)
             if after < before:
                 self.hooks.trigger_event("post_compact", {"tokens_before": before, "tokens_after": after, "messages": len(self.messages),
-                                                          "actions": list(getattr(ctx, "last_actions", None) or [])})
+                                                          "actions": list(getattr(ctx, "last_actions", None) or []), **({"compaction": report} if report else {})})
+
+    def _note_usage(self, done: "_Completion") -> None:
+        """Tells the context what the server counted for the request just made; the first request after a compaction reports what it read from cache."""
+        note = getattr(self.context, "note_usage", None)
+        if note is None or not done.prompt_tokens:
+            return
+        seen = note(self.messages, done.prompt_tokens, done.cached_tokens)
+        if seen:
+            self._emit({"type": "compaction_cache", "n": seen["n"], **seen["observed"]})
 
     def _before_end(self, content: str) -> bool:
         """The answer is final unless the project's checks fail, the checklist has items open or a stop hook denies it: then a hidden message

@@ -245,12 +245,25 @@
     return box;
   };
   const pct = x => Math.round((x || 0) * 100);
+  /* the summaries of older steps: the setting, the latest one, what stayed as it was and what the server reads again */
+  const compaction = c => {
+    if (!c) return [];
+    if (!c.enabled && !c.count) return [T("sl.r.cx.off")];
+    const rows = [T("sl.r.cx.on", pct(c.threshold), c.count)], last = c.reports[c.reports.length - 1];
+    if (last) {
+      rows.push(T("sl.r.cx.last", last.tokens_before, last.tokens_after, last.replaced, T("sl.r.cx.by." + last.summary_by)),
+        T("sl.r.cx.prefix", last.prefix.stable_tokens, last.prefix.reread_tokens));
+      if (last.observed) rows.push(T("sl.r.cx.observed", last.observed.cached_tokens, last.observed.prompt_tokens));
+      if (last.audit.missing.length) rows.push(T("sl.r.cx.reread", last.audit.missing.join(", ")));
+    }
+    return rows;
+  };
   const SHOW = {
     status: d => list(T("sl.r.status"), [[T("sl.r.mode"), T("ag.mode." + d.mode)], ...(d.role && d.role !== "general" ? [[T("sl.r.role"), T("cd.role." + d.role)]] : []), [T("sl.r.effort"), d.effort ? effortName(d.effort) : effortName("")], [T("sl.r.turns"), d.turns],
       [T("sl.r.steps"), d.max_turns > 0 ? d.max_turns : T("sl.r.steps.none")], [T("sl.r.bias"), d.end_turn_bias || 0],
       [T("sl.r.context"), T("sl.r.ctx", d.tokens, d.window, pct(d.share))], [T("sl.r.messages"), d.messages], [T("sl.r.tools"), d.tools], [T("sl.r.memories"), d.memories],
       [T("sl.r.mcp"), d.mcp_servers], [T("sl.r.spent"), d.model_tokens]]),
-    context: d => list(T("sl.r.context"), [T("sl.r.ctx", d.tokens, d.window, pct(d.share)), [T("sl.r.messages"), d.messages], ...(d.summarised ? [T("sl.r.ctx.summary")] : [])]),
+    context: d => list(T("sl.r.context"), [T("sl.r.ctx", d.tokens, d.window, pct(d.share)), [T("sl.r.messages"), d.messages], ...(d.summarised ? [T("sl.r.ctx.summary")] : []), ...compaction(d.compaction)]),
     tools: d => list(T("sl.r.tools.title", d.tools.length), d.tools.map(t => t.name + " · " + t.effect + (t.role_allowed === false ? " · " + T("sl.r.tools.out", T("cd.role." + d.role)) : ""))),
     hooks: d => list(T("sl.r.hooks"), [d.sources.length ? T("sl.r.hooks.files", d.sources.join(", ")) : T("sl.r.hooks.none"), T("sl.r.hooks.counts", d.pre_tool, d.post_tool),
       ...Object.entries(d.events).map(([k, n]) => k + ": " + n), ...(d.errors.length ? [T("sl.r.hooks.errors", d.errors.join(" | "))] : [])]),

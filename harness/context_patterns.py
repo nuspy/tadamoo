@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from harness import untrusted
+from harness.compaction import Compaction
 from harness.context import ContextManager, TokenJuiceCompactor, get_eviction_candidates, html_to_markdown, trim_json
 
 ORDER = ("injection", "rewriting", "pruning", "summary", "branches", "versioning")
@@ -431,8 +432,9 @@ class PatternContext(ContextManager):
 
     def __init__(self, compactor: TokenJuiceCompactor, budget_tokens: int, patterns: Any = None,
                  summarize: Optional[Callable[[str, str], str]] = None, snapshots: Optional[Snapshots] = None,
-                 mask_at: float = 0.7, keep_recent: int = 3, chars_per_token: float = 3.5) -> None:
+                 mask_at: float = 0.7, keep_recent: int = 3, chars_per_token: float = 3.5, compaction: Optional[Compaction] = None) -> None:
         super().__init__(compactor, budget_tokens, mask_at=mask_at, keep_recent=keep_recent, chars_per_token=chars_per_token)
+        self.compaction = compaction                       # the summary of the older steps inside one long turn (harness/compaction.py)
         self.patterns = normalize_config(patterns)
         self.summarize = summarize                         # (instructions, text) -> summary, for the strategies that use the model
         self.snapshots = snapshots
@@ -464,9 +466,38 @@ class PatternContext(ContextManager):
                 out = super().prepare(out)                 # the noise is out; what is still too much is masked as usual
             if self.on("summary") and self.estimate_tokens(out) > self.budget_tokens * self.mask_at:
                 out = self._summarize(out)
+        out = self._compact(out)
         if self.snapshots is not None and self.on("versioning"):
             self.snapshots.record(out)
         return out
+
+    def compaction_due(self, messages: List[Dict[str, Any]]) -> bool:
+        return self.compaction is not None and self.compaction.due(self, messages)
+
+    def _compact(self, messages: List[Dict[str, Any]], reason: str = "threshold", force: bool = False) -> List[Dict[str, Any]]:
+        """The conversation with the older steps summarised when it is still near the window after masking (or when asked for)."""
+        comp = self.compaction
+        if comp is None or not (force or comp.due(self, messages)):
+            return messages
+        done = comp.apply(self, messages, reason)
+        if done is None:
+            return messages
+        self._hand_on(done.removed)
+        self.last_actions.append("compaction")
+        return done.messages
+
+    def compact_now(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """For the person's /compact: the same compaction, whatever the conversation's size or the setting; the report is in `compaction`."""
+        self.last_actions = []
+        return self._compact(messages, "manual", force=True)
+
+    def take_compaction(self) -> Optional[Dict[str, Any]]:
+        return self.compaction.take_report() if self.compaction is not None else None
+
+    def note_usage(self, messages: List[Dict[str, Any]], prompt_tokens: int, cached_tokens: int) -> Optional[Dict[str, Any]]:
+        """The server's count for a request: the compaction learns what a request holds besides the messages, and the report of a
+        compaction gets the cache the first request after it found."""
+        return self.compaction.note_usage(self, messages, prompt_tokens, cached_tokens) if self.compaction is not None else None
 
     def _hand_on(self, gone: List[Dict[str, Any]]) -> None:
         if self.on_removed and gone:
