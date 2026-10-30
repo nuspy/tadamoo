@@ -18,6 +18,7 @@ from harness.checkpoints import CheckpointManager
 from harness.client import BasaltClient
 from harness.context import ContextBuilder, ContextManager, TokenJuiceCompactor, available_budget
 from harness.context_patterns import PatternContext, Snapshots, normalize_config
+from harness.gate import DEFAULT_ROUNDS, MAX_ROUNDS, MODES as VERIFY_MODES, VerifyGate, clean_commands
 from harness.hooks import HookManager, load_hook_files
 from harness.knowledge import LocalKnowledge, cag_prefix, choose_strategy, register_local_search
 from harness.memory import MemoryStore, default_db_path, register_memory_tools
@@ -162,6 +163,17 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--max-tokens", type=int, default=None, help="most tokens one model reply may write; unset: the server's own limit")
     parser.add_argument("--instruction-blocks", action="store_true",
                         help="add short working rules to the system prompt: act on a request, vary a search that found nothing, check what can change, back a claim with evidence, never invent a result")
+    parser.add_argument("--verify-command", action="append", default=[], metavar="COMMAND",
+                        help="one of the project's own checks (tests, a linter); repeatable. With --verify-gate on, a turn that changed files runs them before it ends, "
+                             "and a failure goes back to the model. The exact command is approved by listing it here")
+    parser.add_argument("--verify-gate", choices=list(VERIFY_MODES), default="off",
+                        help="when the verify commands run before a turn ends: off (never), unattended (only in a conversation nobody watches), always")
+    parser.add_argument("--verify-rounds", type=int, default=DEFAULT_ROUNDS, help=f"most times a failed check sends the model back to fix it (1 to {MAX_ROUNDS})")
+    parser.add_argument("--no-budget-grace", action="store_true",
+                        help="a budget that runs out ends the answer at once, without the warning and the last report")
+    parser.add_argument("--error-classifier", action="store_true",
+                        help="PROPOSAL, off until the owner decides: a model error that cannot get better by waiting (a bad request, a refused key) ends the turn "
+                             "with the error instead of being retried without end")
     parser.add_argument("--attachments-dir", default="", help="where the conversation's attached files are kept (with --outputs-dir: the tools for them)")
     parser.add_argument("--outputs-dir", default="", help="where the files the agent makes for the person are kept")
     parser.add_argument("--hooks", default="", metavar="FILE", help="a hooks file (default: hooks.json in the user data folder)")
@@ -190,6 +202,8 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         memory_min_score=args.memory_min_score, memory_notes=args.memory_notes, memory_budget_tokens=args.memory_budget, phone_on_behalf_of=args.on_behalf_of,
         context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold,
         end_turn_bias=args.end_turn_bias, temperature=args.temperature, max_tokens=args.max_tokens, instruction_blocks=args.instruction_blocks,
+        verify_commands=args.verify_command, verify_gate=args.verify_gate, verify_rounds=args.verify_rounds, budget_grace=not args.no_budget_grace,
+        error_classifier=args.error_classifier,
         attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
@@ -268,6 +282,12 @@ class AgentConfig:
     temperature: Optional[float] = None  # sampling temperature of every model call; None: the model file's own sampling applies
     max_tokens: Optional[int] = None    # most tokens one reply may write; None: the server's own limit
     instruction_blocks: bool = False    # short working rules in the system prompt (harness/prompt_blocks.py)
+    verify_commands: List[str] = field(default_factory=list)   # the project's own checks, run before a turn ends after edits (harness/gate.py)
+    verify_gate: str = "off"            # when they run: off, unattended (only where nobody watches) or always
+    verify_rounds: int = DEFAULT_ROUNDS  # most times a failed check sends the model back to fix it
+    unattended: bool = False            # nobody is there to answer questions (the conversation's flag)
+    budget_grace: bool = True           # a budget that runs out warns first, then allows one last report with no tools
+    error_classifier: bool = False      # proposal, awaiting the owner: an unrecoverable model error ends the turn visibly (harness/error_classifier.py)
     snapshot_dir: Optional[str] = None  # where the context of each turn is kept when versioning is on
     council: bool = False               # offer ask_council when the person set a council up on the Providers page
     lsp: bool = False                   # offer diagnostics, go_to_definition and find_references when a language server is found on this PC
@@ -520,6 +540,8 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     secrets.on_unchecked = lambda names, tools: audit.record("agent", "secret_destination_unchecked", {"secrets": names, "network_tools": tools})
     if cfg.after_plan not in MODES_AFTER_PLAN:
         raise ValueError(f"after_plan must be one of {list(MODES_AFTER_PLAN)}")
+    if cfg.verify_gate not in VERIFY_MODES:
+        raise ValueError(f"verify_gate must be one of {list(VERIFY_MODES)}")
     plan_gate = PlanGate()
 
     def switch_mode(mode: str) -> None:
@@ -682,9 +704,14 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         registry.set_timeout(name, seconds)
     if cfg.instruction_blocks:
         builder.pin("discipline", instruction_blocks(registry.names()))
+    edits = lambda: len(sandbox.changes)                       # the file changes recorded so far: progress for the loop guard, and what the gate looks at
+    gate = VerifyGate(clean_commands(cfg.verify_commands), cfg.verify_gate, cfg.verify_rounds, edits=edits, unattended=cfg.unattended)
     agent = AgentLoop(
         client=client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key),
         tool_registry=registry,
+        gate=gate if gate.commands else None,
+        changes=edits,
+        budget_grace=cfg.budget_grace,
         max_turns=cfg.max_turns,
         system_prompt=builder.assemble_system_message(),
         permissions=permissions,

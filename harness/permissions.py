@@ -207,6 +207,11 @@ class PermissionManager:
             used.append(hit.pattern)
         return ", ".join(dict.fromkeys(used))
 
+    def approve(self, tool_name: str, arguments: Dict[str, Any]) -> None:
+        """The person has already approved this exact call (a command they listed in a setting): it is not asked about again. Deny rules and
+        plan mode still refuse it, and any other call is unaffected."""
+        self._remembered.add(fingerprint(tool_name, arguments))
+
     def _ask(self, tool_name: str, arguments: Dict[str, Any], key: Optional[str]) -> bool:
         if key is not None and key in self._remembered:
             return True

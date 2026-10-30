@@ -114,7 +114,8 @@ class SessionManager:
                  skills_dir: Optional[Path] = None, projects: Any = None, personal_dir: Optional[Path] = None, personal_keys: Optional[Path] = None,
                  learn: Optional[Callable[[Dict[str, Any]], Any]] = None, knowledge_flags: Optional[Callable[[], List[str]]] = None,
                  rule_of_two: Optional[Callable[[], str]] = None, allow_rules: Any = None, rule_of_two_prefs: Any = None,
-                 intake_flags: Optional[Callable[[], List[str]]] = None) -> None:
+                 intake_flags: Optional[Callable[[], List[str]]] = None,
+                 gate_flags: Optional[Callable[[], List[str]]] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -132,6 +133,7 @@ class SessionManager:
         self.browser_prefs = browser_prefs                      # whether the conversations have a browser, and whether it shows a window
         self.knowledge_flags = knowledge_flags                  # the options for the project notes, the wiki and the reference documents (Settings, Memories)
         self.intake_flags = intake_flags                        # the options for the look at a request, the questions and the suggestions (Settings, General)
+        self.gate_flags = gate_flags                            # the options for the verify gate, the budget's last report and the model-error proposal (Settings, Gate)
         self.allow_rules = allow_rules                          # the rules the person allowed for every conversation (serve/allow_rules.py)
         self.rule_of_two_prefs = rule_of_two_prefs              # where "always" is written when the person stops the Rule of Two's question for good
         self.rule_of_two = rule_of_two                          # how strict the Rule of Two is for a conversation that starts now (harness/rule_of_two.py)
@@ -977,6 +979,8 @@ class SessionManager:
             cmd += self.knowledge_flags()
         if self.intake_flags:
             cmd += self.intake_flags()
+        if self.gate_flags and not rec.get("ask_only"):
+            cmd += self.gate_flags()
         if rec.get("context_patterns"):
             cmd += ["--context-patterns", json.dumps(rec["context_patterns"])]
         if rec.get("context_threshold"):
