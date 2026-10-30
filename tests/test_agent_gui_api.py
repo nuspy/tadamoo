@@ -227,7 +227,7 @@ def test_the_approval_board_answers_once_and_keeps_requests_waiting():
 
 def test_going_back_from_the_page_restores_files_and_says_which_actions_stay_done(setup, ws):  # noqa: F811
     (ws / "a.txt").write_text("one\n", encoding="utf-8")
-    s = setup([tool_call("write_file", path="a.txt", content="two\n"),
+    s = setup([tool_call("write_file", path="a.txt", content="two\n", overwrite="true"),
                tool_call("shell_command", command=f'{PY} -c "print(1)"'), answer("Done.")])
     run_id = start(s["api"], ws, "change and run", mode="auto")[1]["run"]["id"]
     wait_for(lambda: finished(s["api"], run_id))

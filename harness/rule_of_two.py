@@ -26,7 +26,7 @@ MAX_LEARNED = 60
 MAX_SOURCES = 6
 
 # tools whose answer is text from the machine or from a process the agent started: it taints, and may hold keys
-CONTENT_TOOLS = frozenset(("read_file", "list_directory", "shell_command", "run_code", "repo_map"))
+CONTENT_TOOLS = frozenset(("read_file", "list_directory", "shell_command", "run_code", "repo_map", "search_code", "tree"))
 # tools whose answer is the person's own data
 PRIVATE_TOOLS = frozenset(("read_attachment", "search_attachment", "list_attachments", "transcribe_attachment", "recall_about_user", "request_payment"))
 

@@ -87,7 +87,7 @@ def test_an_edit_the_agent_made_can_be_undone_from_the_monitor(start_server, ws,
     original = "".join(f"row {i}\n" for i in range(1, 31))
     (ws / "data.txt").write_bytes(original.encode("utf-8"))
     rewritten = original.replace("row 2\n", "row two\n").replace("row 28\n", "row twenty-eight\n")
-    url = start_server([tool_call("write_file", path="data.txt", content=rewritten), answer("Edited.")])
+    url = start_server([tool_call("write_file", path="data.txt", content=rewritten, overwrite="true"), answer("Edited.")])
     run_headless(config(ws, tmp_path, url, report=True, permission_mode="auto"), "edit data.txt")
     (edit,) = changes.view()["edits"]
     assert edit["review"] == "pending" and edit["blocks"] == [False, False]

@@ -5,6 +5,8 @@ from typing import Any, Callable, Optional
 from harness.secrets_broker import SecretsBroker
 from .registry import ToolRegistry, ToolDefinition, EffectClass
 from .filesystem import WorkspaceSandbox
+from .search_code import register_search_code
+from .tree import register_tree
 from .shell import execute_shell_command
 from .search import browse_url, format_page, offer_search
 from harness.repomap import register_repo_map
@@ -34,14 +36,19 @@ def create_standard_tool_registry(
 
     registry.register(
         name="read_file",
-        description="Reads the content of a file within the workspace, whole or a range of lines. A long file is read in parts: "
-                    "the answer says which lines it holds, how many the file has and the offset to go on with.",
+        description="Reads a file in the workspace, whole or a range of lines. A long file is read in parts: the answer says which lines it holds, "
+                    "how many the file has and the offset to go on with. With anchor_line it returns the block (function, class, section) around "
+                    "that line instead, found by indentation. Line numbers are not part of the file: leave them out of any text you write back.",
         parameters={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Relative path to file"},
                 "offset": {"type": "integer", "description": "First line to read, counting from 1 (default 1)"},
                 "limit": {"type": "integer", "description": "How many lines to read (default: as many as one answer holds)"},
+                "numbered": {"type": "boolean", "description": "Put the line number before each line (default false)"},
+                "anchor_line": {"type": "integer", "description": "Return the block around this line instead of a range"},
+                "max_levels": {"type": "integer", "description": "With anchor_line: how many enclosing blocks to include (default 1)"},
+                "include_siblings": {"type": "boolean", "description": "With anchor_line: also the blocks next to the outermost one (default false)"},
             },
             "required": ["path"],
         },
@@ -51,12 +58,14 @@ def create_standard_tool_registry(
 
     registry.register(
         name="write_file",
-        description="Writes content to a file in the workspace. Records unified diff.",
+        description="Writes the whole content of a file in the workspace and records the diff. Give the complete text, not a summary of what stays. "
+                    "An existing file must have been read in full since it last changed, or send overwrite=true.",
         parameters={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Relative path to file"},
                 "content": {"type": "string", "description": "Full file content to write"},
+                "overwrite": {"type": "boolean", "description": "Replace an existing file you have not read in full, or with much less text (default false)"},
             },
             "required": ["path", "content"],
         },
@@ -66,15 +75,33 @@ def create_standard_tool_registry(
 
     registry.register(
         name="edit_file",
-        description="Replaces target string with replacement in a file. Records unified diff.",
+        description="Replaces text in a file and records the diff. Give target and replacement, or edits: a list of {target, replacement} applied "
+                    "in order, all or none. The target is copied from the file; if only its whitespace or quote marks differ and one place matches, "
+                    "it is still used. When it cannot be applied the answer shows the closest text with line numbers.",
         parameters={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Relative path to file"},
-                "target": {"type": "string", "description": "Exact text to replace"},
-                "replacement": {"type": "string", "description": "Replacement text"},
+                "target": {"type": "string", "description": "Text to replace, copied from the file"},
+                "replacement": {"type": "string", "description": "Replacement text (empty to delete the target)"},
+                "edits": {
+                    "type": "array",
+                    "description": "Several edits for this file instead of target and replacement; each is applied to the result of the one before",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "target": {"type": "string", "description": "Text to replace, copied from the file"},
+                            "replacement": {"type": "string", "description": "Replacement text"},
+                            "replace_all": {"type": "boolean", "description": "Replace every exact occurrence"},
+                            "expected_count": {"type": "integer", "description": "Replace every exact occurrence, which must be this many"},
+                        },
+                        "required": ["target", "replacement"],
+                    },
+                },
+                "replace_all": {"type": "boolean", "description": "Replace every exact occurrence of the target (default: it must appear once)"},
+                "expected_count": {"type": "integer", "description": "Replace every exact occurrence of the target, which must be this many"},
             },
-            "required": ["path", "target", "replacement"],
+            "required": ["path"],
         },
         effect=EffectClass.REVERSIBLE,
         handler=sandbox.edit_file,
@@ -127,6 +154,8 @@ def create_standard_tool_registry(
         outward=True,
     )
     offer_search(registry, secrets=secrets, hub=mcp_hub)     # search_web exists only when a backend does
+    register_search_code(registry, sandbox.resolve_safe, sandbox.root)
+    register_tree(registry, sandbox.resolve_safe, sandbox.root)
     register_repo_map(registry, sandbox.resolve_safe)
     register_repo_diagram(registry, sandbox.resolve_safe)
 
