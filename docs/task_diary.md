@@ -1,20 +1,12 @@
 # Diario dei task
 
-Ultimo aggiornamento: 31 ottobre 2026, mattina presto. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 31 ottobre 2026, mattina. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «In corso adesso» e da «Decisioni tue in attesa».
 
 ## In corso adesso
 
-- Test GPU della sessione tecnica, ultima parte (circa 8 minuti, un solo server): aspetto il messaggio «basalt via»
-  dell'altra sessione, che ora usa la GPU per il suo primo giro (circa 3,3 ore), poi un secondo giro di circa 5 ore.
-  Lo script è pronto (`C:\TEMP\side_smoke.py`, salta il server base perché già misurato). Mancano: velocità con la
-  sessione tecnica accesa, token uguali con chiamate laterali anche durante la scrittura, prompt troppo lungo che
-  ripiega sulle sessioni normali.
-
-- Aggiornamento 31 ottobre: nella finestra concessa dopo il primo giro dell'altra sessione, il server con sessione tecnica è
-  partito ma il commit libero è sceso per un momento sotto i 20 GB durante il caricamento. Il mio script ha rispettato la
-  regola e si è fermato prima delle misure; GPU restituita. Servono altri 8 minuti: aspetto un nuovo «basalt via». Da
-  decidere con l'altra sessione se la soglia dei 20 GB va controllata solo a caricamento finito.
+- Niente di aperto sulla GPU: i test della sessione tecnica sono finiti (risultati in «Fatti»). Resta da decidere se
+  accenderla di default e, se vuoi, provare l'identità vera dei token con lo strumento `greedy_identity`.
 
 ## In coda, senza GPU
 
@@ -54,6 +46,15 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina presto. Si aggiorna a ogni task n
 ## Fatti
 
 ### 31 ottobre
+- Prove GPU della sessione tecnica finite (dopo il riavvio del PC per una schermata blu dell'altra sessione, limite 600 W).
+  Il server parte in 56 s; VRAM 31,26 GB. Slot lato (30.000 token) accanto al principale (65.536): una richiesta «side» è
+  servita dallo slot lato, una conversazione principale non tocca la cache dell'altra (62 token riusati dopo una chiamata
+  laterale). Un prompt troppo lungo per la sessione tecnica ripiega sul principale, come previsto. Velocità con la sessione
+  accesa: primo token 0,04 s, scrittura da 125 a 185 token al secondo (mediana 170), cioè nessun rallentamento visibile
+  rispetto ai circa 141 della misura senza (le misure oscillano molto). Identità dei token: il test via API non la può
+  dimostrare, perché anche senza sessione tecnica la stessa richiesta ripetuta dà testi diversi già dopo 11 caratteri
+  (non è colpa della sessione tecnica). Per l'identità vera serve lo strumento `greedy_identity` del motore con la sessione
+  tecnica accesa, che non ho ancora provato.
 - Primo avvio reale della sessione tecnica (GPU, limite 600 W, `--kv int8`): il server parte in 68 s, lo stato mostra la
   sessione corta da 30.000 token accanto a quella principale da 65.536, una richiesta marcata «side» è servita da quella e
   il testo della conversazione principale è identico a quello senza sessione tecnica. VRAM dopo l'avvio: 31,4 GB contro
