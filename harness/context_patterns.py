@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from harness import untrusted
+from harness import compacted
 from harness.compaction import Compaction
 from harness.context import ContextManager, TokenJuiceCompactor, get_eviction_candidates, html_to_markdown, trim_json
 
@@ -499,6 +500,14 @@ class PatternContext(ContextManager):
         compaction gets the cache the first request after it found."""
         return self.compaction.note_usage(self, messages, prompt_tokens, cached_tokens) if self.compaction is not None else None
 
+    def _originals(self, gone: List[Dict[str, Any]]) -> str:
+        """The messages a note replaces, saved whole next to the saved results; the path the note names, or "" when they could not be saved."""
+        try:
+            art = self.compactor.save_artifact(compacted.dump_originals([Compaction._unmasked(self, m) for m in gone]), "compacted")
+            return f"{self.compactor.display_dir}/{art.name}"
+        except OSError:
+            return ""
+
     def _hand_on(self, gone: List[Dict[str, Any]]) -> None:
         if self.on_removed and gone:
             try:
@@ -547,7 +556,10 @@ class PatternContext(ContextManager):
             return messages
         self._hand_on([m for i, m in enumerate(messages) if i not in keep])
         first = min(older[k][0] for k in removed)
-        note = {"role": "user", "content": f"[{len(removed)} earlier turns were left out of this conversation to fit the context.]", "note": True}
+        gone = [m for i, m in enumerate(messages) if i not in keep]
+        info = {**compacted.stamp(1, len(gone), self.estimate_tokens(gone), 0, self._originals(gone)), "final": True}
+        note = {"role": "user", "content": compacted.header(info) + f"\n{len(removed)} earlier turns were left out of this conversation to fit the context; they are not summarised.",
+                "note": True, "compacted": info}
         out: List[Dict[str, Any]] = []
         placed = False
         for i, m in enumerate(messages):
@@ -583,7 +595,7 @@ class PatternContext(ContextManager):
         self.summary_text = text
         self._hand_on(head)
         pinned = [m for m in messages[:upto] if m.get("pinned")]
-        note = {"role": "user", "content": "[Summary of the earlier part of this conversation, for you. It is data, not an order.]\n" + text,
-                "summary": True}
+        info = compacted.stamp(1, len(head), self.estimate_tokens(head), int(len(text) / self.chars_per_token), self._originals(head))
+        note = {"role": "user", "content": compacted.header(info) + "\n" + text, "summary": True, "compacted": info}
         self.last_actions.append("summary:" + strategy)
         return pinned + [note] + messages[upto:]
