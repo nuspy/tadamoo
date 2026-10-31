@@ -1044,7 +1044,8 @@ short context for the harness's own short calls. `harness/side.py` is the whole 
 seconds by `BasaltClient.side_context()`) and `{}` otherwise; `SIDE_CONTEXT_TOKENS` is the default size (30000); `use(client)` registers
 the client `side_extra()` asks when it is called without one (the stack does this). The calls that use it are the intake's triage
 (`harness/intake.py`), the next-prompt suggestions (`harness/suggestions.py`), the compaction summary (`harness/stack.py`), the judge
-(`harness/llm/judge.py`) and the router's judge (`harness/router.py`); the calls for the length estimate, the plan of parts and the
+(`harness/llm/judge.py`), the router's judge (`harness/router.py`) and the rewrite of the person's message when Optimize prompt is on
+(`harness/optimize.py`, [intake.md](intake.md#optimize-prompt)); the calls for the length estimate, the plan of parts and the
 verification of a long text are built on the same function. `cache_slot` is in `THIS_SERVER_ONLY` (`harness/llm/client.py`): it is never
 sent to a cloud route, a command-line agent or the Anthropic dialect. The server serves a call that does not fit the session from the
 ordinary slots, so a caller keeps its prompt short and nothing more. The suggestions call carries the conversation, so in the session it
@@ -1175,7 +1176,7 @@ wide, not for phones.
   and the copy of a git folder are the Chat's. The Chat tab lists only the conversations with no folder (the server's `chat-workspace`), the
   Agent tab only those of the folders. Each tab goes back to its own last conversation. A conversation sends each file edit to the Changes
   panel (`--report-changes`), which opens beside the conversation with the *Changes* button.
-- **Questions and suggestions**: `ask_user` v2 (a card with choices, a row of your own and a recommended option), a look at each request before the agent works (cleaning, a note of assumptions, at most one structured question card, large requests recorded as tasks) and next-message chips that only fill the box. Settings > Inference (the Prompt analysis switch is also in the Chat toolbar). See [intake.md](intake.md).
+- **Questions and suggestions**: `ask_user` v2 (a card with choices, a row of your own and a recommended option), a look at each request before the agent works (cleaning, a note of assumptions, at most one structured question card, large requests recorded as tasks) and next-message chips that only fill the box, and an Optimize prompt checkbox that has the technical session rewrite each message before the model reads it (the chat keeps the person's words, and a note under the message shows the rewrite). Settings > Inference (the Prompt analysis switch and the checkbox are also in the Chat toolbar). See [intake.md](intake.md).
 - **Target Loop**: a button next to Send in the Chat and in the Agent tab opens a dialog with a large text box (and list tools that every prompt box now has: numbered and bulleted lists, Enter for the next item, Tab to indent, Ctrl+Enter to send). The target is split into items to check and tasks, which are done one by one in the conversation and judged against the evidence until all are met, it stalls, or you stop it; achieved parts are struck through in red, with notes and the history of the session's targets. See [target-loop.md](target-loop.md).
 - **Plans**: the graph (drawn with status as icon and word as well as colour), an ordered list that works by keyboard,
   proposed changes shown on the graph before they are applied, approve and reject, tasks handed to you, a box to judge events.
@@ -1272,8 +1273,8 @@ the datasets are described as having and were written without a copy of them, so
 `python -m harness.eval.alternate` measures what it costs when two conversations take turns on one model (the time to the first token and the share of the
 prompt read from the cache, taking turns against one after the other). It decides whether a queue that groups requests by conversation is worth building.
 
-`python -m harness.eval.cases` runs the case studies E1 to E7, the design questions that reasoning cannot settle (the Target Loop's first message, the verify gate, the error
-classifier, intake, compaction in a long turn, long answers, prefix-cache survival): each has a fixture, a plain-code scorer, an A/A control that measures the noise and a
+`python -m harness.eval.cases` runs the case studies E1 to E8, the design questions that reasoning cannot settle (the Target Loop's first message, the verify gate, the error
+classifier, intake, compaction in a long turn, long answers, prefix-cache survival, Optimize prompt): each has a fixture, a plain-code scorer, an A/A control that measures the noise and a
 decision rule written before the run. See [experiments.md](experiments.md).
 
 ## Replay of a recorded session

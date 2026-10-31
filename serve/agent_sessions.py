@@ -277,7 +277,7 @@ class SessionManager:
             return {"messages": [], "turns": 0, "session": dict(rec)}
         shown = []
         for m in self._transcript(sid, data):
-            shown.append({k: v for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts", "raw", "explain", "skipped")})
+            shown.append({k: v for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts", "raw", "opt", "explain", "skipped")})
         return {"messages": shown, "turns": data.get("turns", 0), "session": dict(rec)}
 
     def _read_history(self, sid: str) -> Optional[Dict[str, Any]]:
@@ -1256,7 +1256,7 @@ class SessionManager:
             self._place_sent[sid] = held["got"]
             return held
 
-    def send(self, sid: str, text: Any, attachments: Any = None, place: Any = None) -> Dict[str, Any]:
+    def send(self, sid: str, text: Any, attachments: Any = None, place: Any = None, optimize: Any = None) -> Dict[str, Any]:
         if not isinstance(text, str) or not text.strip():
             raise RunError("Write a message.", "text_missing")
         cards = self._check_attachments(sid, attachments)
@@ -1267,7 +1267,8 @@ class SessionManager:
             turn = secrets.token_hex(3)              # a message that comes while the agent works is looked at by the agent itself
             live = self._ensure(sid)
             held = self._place_for(sid, place)
-            cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {}), **({"place": held} if held else {})}
+            cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {}), **({"place": held} if held else {}),
+                   **({"optimize": False} if optimize is False else {})}      # "Send my original instead": this message is not rewritten
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
                 rec["title"] = " ".join(text.split())[:TITLE_CHARS]
@@ -1554,6 +1555,12 @@ class SessionManager:
         with self._lock:
             sids = [r["id"] for r in self.records if r["state"] != "closed"]
             return sum(1 for sid in sids if self._tell_if_running(sid, {"cmd": "intake", "mode": mode}))
+
+    def update_optimize(self, on: bool) -> int:
+        """Tells the running conversations whether Optimize prompt is on now; one started later takes it from the saved choice. Returns how many were told."""
+        with self._lock:
+            sids = [r["id"] for r in self.records if r["state"] != "closed"]
+            return sum(1 for sid in sids if self._tell_if_running(sid, {"cmd": "optimize", "on": bool(on)}))
 
     def set_effort(self, sid: str, level: Any) -> Dict[str, Any]:
         """How long the model thinks in this conversation, from its next model call on."""

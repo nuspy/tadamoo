@@ -34,3 +34,22 @@
   .ps .ps-opt { min-height: 44px; }
   .ps .ps-help { min-width: 44px; min-height: 44px; }
 }
+
+/* Optimize prompt: a checkbox beside the switch, with the reason it is unavailable written next to it */
+.po { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; max-width: 100%; }
+.po[hidden] { display: none; }
+.po .po-box { display: inline-flex; align-items: center; gap: 8px; min-height: var(--btn-h); padding: 0 6px; font: 500 var(--btn-fs)/1.2 var(--font-sans); color: var(--fg); cursor: pointer; }
+.po .po-in { flex: none; width: 18px; height: 18px; margin: 0; accent-color: var(--accent); cursor: inherit; }
+.po .po-in:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.po[data-off="1"] .po-box { color: var(--fg-2); cursor: default; }
+.po .po-why, .po .po-status { color: var(--fg-2); font: 400 12.5px/1.3 var(--font-sans); overflow-wrap: anywhere; min-width: 0; }
+.po .po-why:empty, .po .po-status:empty { display: none; }
+.po .po-status[data-bad="1"] { color: var(--err); }
+.chathead .po .po-status:not([data-bad="1"]) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.stpromptswitch .po-help { margin: 0; padding: 0 6px; max-width: 48rem; }
+.aopt .aopt-act { margin: 0 12px 8px; min-height: var(--btn-h); }
+@media (pointer: coarse) {
+  .po .po-box { min-height: 44px; }
+  .po .po-in { width: 22px; height: 22px; }
+  .aopt .aopt-act { min-height: 44px; }
+}

@@ -78,6 +78,8 @@ for line in sys.stdin:
         data["messages"].append({"role": "user", "content": text})
         save(data)
         emit({"event": "accepted", "turn": cmd.get("id")})
+        if "optimize" in cmd:                                               # "Send my original instead"
+            emit({"event": "optimize_prompt", "on": cmd["optimize"], "turn": cmd.get("id")})
         busy["v"] = True
         if text == "die" and starts <= args.die_times:
             os._exit(3)
@@ -184,6 +186,8 @@ for line in sys.stdin:
         emit({"event": "effort", "level": cmd.get("level")})
     elif name == "intake":
         emit({"event": "intake_mode", "mode": cmd.get("mode")})
+    elif name == "optimize":
+        emit({"event": "optimize_prompt", "on": cmd.get("on")})
     elif name == "settings":
         emit({"event": "settings", **{k: cmd[k] for k in ("max_turns", "end_turn_bias") if k in cmd}})
     elif name == "command":

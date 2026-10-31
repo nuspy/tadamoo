@@ -12,11 +12,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import intake as it
 from harness import target as tg
 from harness.eval import cases
-from harness.eval.cases import e1_target, e2_gate, e3_errors, e4_intake, e5_compaction, e6_longform, e7_cache
+from harness import optimize as opt
+from harness.eval.cases import e1_target, e2_gate, e3_errors, e4_intake, e5_compaction, e6_longform, e7_cache, e8_optimize
 from harness.eval.cases.agentrun import apply_solution, snapshot, wasted_turns, write_files
 from harness.eval.cases.core import (Arm, CaseTrial, Context, Experiment, Guard, Rule, arm_summary, by_arm, decide, render_report, results_json, rotate,
                                      run_experiment, with_control)
-from harness.eval.cases.fixtures import error_scenarios, gate_tasks, intake_prompts, longform_texts, long_turn_repo, shop_repo
+from harness.eval.cases.fixtures import error_scenarios, gate_tasks, intake_prompts, longform_texts, long_turn_repo, optimize_prompts, shop_repo
 from harness.eval.tasks import Task, make_workspace, run_checks
 from harness.stack import AgentConfig
 from serve import longform as lf
@@ -133,7 +134,7 @@ def test_the_summary_lists_tasks_that_pass_sometimes_as_divergent():
 
 
 def test_every_experiment_loads_with_its_baseline_control_rule_and_a_question():
-    assert set(cases.MODULES) == {"e1", "e2", "e3", "e4", "e5", "e6", "e7"}
+    assert set(cases.MODULES) == {"e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8"}
     for key in cases.MODULES:
         exp = cases.load(key)
         names = [a.name for a in exp.arms]
@@ -208,6 +209,30 @@ def test_e4_has_twenty_prompts_in_six_kinds_and_every_reference_passes():
     for r in rows:
         untouched, solved = good_and_bad(r["files"], r["checks"], r["solution"])
         assert untouched[1] and solved[1] == [], r["id"]
+
+
+def test_e8_has_twenty_requests_in_six_kinds_each_with_something_to_keep_and_every_reference_passes():
+    assert optimize_prompts.prompts() is e8_optimize.prompts() or optimize_prompts.prompts() == e8_optimize.prompts()
+    rows = e8_optimize.prompts()
+    assert len(rows) == 20 and len({r["id"] for r in rows}) == 20
+    assert {r["category"] for r in rows} == {"terse", "numbers", "quoted", "code", "paths", "italian"}
+    for r in rows:
+        assert len(r["text"].split()) >= opt.MIN_WORDS and opt.skip_reason(r["text"]) == "", r["id"]            # none is left alone by the guards
+        assert opt.protected(r["text"]), r["id"]                                                              # and each has something a rewrite must keep
+        untouched, solved = good_and_bad(r["files"], r["checks"], r["solution"])
+        assert untouched[1] and solved[1] == [], r["id"]
+    kinds = {k for r in rows for k, _ in opt.protected(r["text"])}
+    assert {"file", "number", "quote", "code", "path", "link"} <= kinds
+
+
+def test_e8_scores_the_task_and_what_the_model_read_against_what_the_person_wrote():
+    row = next(r for r in e8_optimize.prompts() if r["id"] == "num1")
+    kept = e8_optimize.score_row(row, "Create the file port.txt and write the number 8080 in it, nothing else.", "sent", "", [])
+    assert kept == {"success": 1.0, "protected_kept": 1.0, "good": 1.0, "optimized": 1.0, "rejected": 0.0, "lost": 0.0}
+    assert e8_optimize.score_row(row, row["text"], "rejected", "lost", [])["lost"] == 1.0 and e8_optimize.score_row(row, row["text"], "skipped", "failed", [])["optimized"] == 0.0
+    dropped = e8_optimize.score_row(row, "Create the file port.txt with the port number.", "sent", "", [])
+    assert dropped["protected_kept"] == 0.0 and dropped["good"] == 0.0 and dropped["success"] == 1.0
+    assert e8_optimize.score_row(row, row["text"], "skipped", "", ["port.txt is wrong"])["good"] == 0.0
 
 
 def test_e4_dates_are_the_days_the_fixed_clock_gives():
@@ -383,6 +408,8 @@ def test_e3_e4_e5_arms_are_the_flags_the_session_and_the_agent_take():
     fields = {f.name for f in dataclasses.fields(AgentConfig)}
     assert all(set(a.settings) <= fields for a in e5_compaction.ARMS)
     assert {a.name: a.settings["compaction"] for a in e5_compaction.ARMS} == {"A": False, "B": True, "A~aa": False}
+    assert {a.name: a.settings["optimize"] for a in e8_optimize.ARMS} == {"A": False, "B": True, "A~aa": False}
+    assert all(parse_args(a.flags.split()).optimize_prompt == ("on" if a.settings["optimize"] else "off") for a in e8_optimize.ARMS)
 
 
 def test_e7_shapes_are_all_known_and_each_cycle_has_text_of_its_own():

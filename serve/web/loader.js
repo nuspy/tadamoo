@@ -494,6 +494,7 @@
         if (["waiting", "stopping", "starting", "calibrating"].includes(st.phase)) { poll = setTimeout(tick, 600); return; }
         await refresh();
         showStatus();
+        document.dispatchEvent(new CustomEvent("basalt:loader"));          // a load ended: the technical session may have come or gone (optimize.js asks again)
       } catch (e) { poll = setTimeout(tick, 1500); }
     };
     showStatus();

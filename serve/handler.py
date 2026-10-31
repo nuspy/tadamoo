@@ -1809,9 +1809,13 @@ def make_handler(svc: Service, remote: bool = False):
                 req = json.loads(raw or b"{}")
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
+                if req.get("optimize_prompt") is True and svc.side_slot_info() is None:
+                    raise IntakeError("Optimize prompt needs the technical session: turn it on in Loader > Technical session, then load the model.", "optimize_prompt")
                 prefs.write(req)
                 if "intake" in req and _SESSIONS is not None:
                     _SESSIONS.update_intake(prefs.read()["intake"])
+                if "optimize_prompt" in req and _SESSIONS is not None:
+                    _SESSIONS.update_optimize(prefs.read()["optimize_prompt"])
                 return self._json(200, prefs.view())
             except IntakeError as e:
                 return self._json(400, {"error": {"type": "intake", "message": str(e), "field": e.field}})
@@ -2472,7 +2476,7 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) >= 3 and parts[2] == "targets":
                         return self._json(200, self._targets().post_route(parts[1], parts[3:], req))
                     if len(parts) == 3 and parts[2] == "send":
-                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place")))
+                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place"), req.get("optimize")))
                     if len(parts) == 3 and parts[2] in ("promote", "drop"):
                         return self._json(200, {"session": getattr(mgr, parts[2])(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "answer":

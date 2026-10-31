@@ -104,6 +104,7 @@
     $("#branches-open").hidden = !on;
     $("#pskills-open").hidden = !on;
     $("#ps-chat").hidden = !on;                                               // the model-only chat has no look at a request
+    $("#po-chat").hidden = !on;                                               // and no rewrite of it
     if (!on) $("#ps-chat-panel").hidden = true;
     $("#chatmode-label").hidden = inAgent();
     modeSel.title = T("ch.mode." + mode + ".d");                              // what the kind of conversation is, as a tooltip
@@ -311,6 +312,12 @@
     return current;
   }
   function noteItem(it) { items.push({ kind: "note", ts: stampOf(), ...it }); }
+  /* Optimize prompt (harness/optimize.py): under the person's message, what the model read in its place, or why the rewrite was not used */
+  const OPT_WHY = ["lost", "ratio", "answer", "leak", "cut", "empty"];
+  function optimizedNote(state, reason, detail, text, original, turn) {
+    if (state === "sent") addBlock({ t: "opt", text: String(text || ""), original: String(original || "") }, turn);
+    else if (state === "rejected") addBlock({ t: "note", s: T("ch.opt.rejected." + (OPT_WHY.includes(reason) ? reason : "empty"), String(detail || "")) }, turn);
+  }
   /* a reply the output limit cut is asked to go on (harness/agent_loop.py): its words join the text already shown, with no doubled space and
      none of the words the model wrote again. They are held back for a moment so the start can be compared with the end of the text. */
   function joinPending(a, force) {
@@ -344,6 +351,7 @@
         if (lines.length) addBlock({ t: "note", s: lines.join(" ") }, e.turn);
         break;
       }
+      case "optimized": optimizedNote(e.state, e.reason, e.detail, e.text, e.original, e.turn); break;
       case "suggestions": if (!replaying) showChips(e.items); break;
       case "started": assistant(e.turn); started(e.turn); break;
       case "woke": noteItem({ s: T("ch.woke", String(e.text || "").replace(/^\[planner\]\s*/, "").slice(0, 200)), route: e.turn }); assistant(e.turn); started(e.turn); break;
@@ -506,7 +514,10 @@
       stampAt = typeof m.ts === "number" ? m.ts : null;
       if (m.role === "user") {
         const text = typeof m.content === "string" ? m.content : "";
-        if (text.startsWith("[harness]")) { assistant(); addBlock({ t: "note", s: text.replace(/^\[harness\]\s*/, "") }); } else userItem(typeof m.raw === "string" ? m.raw : text, (m.attachments || []).map(n => ({ name: n })));
+        if (text.startsWith("[harness]")) { assistant(); addBlock({ t: "note", s: text.replace(/^\[harness\]\s*/, "") }); } else {
+          userItem(typeof m.raw === "string" ? m.raw : text, (m.attachments || []).map(n => ({ name: n })));
+          if (m.opt && typeof m.opt === "object") { assistant(); optimizedNote(m.opt.state, m.opt.reason, m.opt.detail, text, m.raw); }
+        }
       } else if (m.role === "assistant") {
         if (m.content) textBlock("text", m.content);
         (m.tool_calls || []).forEach(tc => {
@@ -594,6 +605,10 @@
       s.append(mk("span", "atool-d"), mk("span", "atool-n"), mk("span", "atool-s"));
       d.append(s, a, o); return d;
     }
+    if (b.t === "opt") {
+      const d = mk("details", "atool aopt"), sum = mk("summary"), body = mk("pre", "atool-o");
+      sum.append(mk("span", "atool-d")); d.append(sum, body); return d;
+    }
     if (b.t === "ask") return mk("div", "aask");
     if (b.t === "blocked") return mk("div", "ablocked");
     return mk("div", "anote");
@@ -615,6 +630,18 @@
     if (b.t === "reasoning") { window.chatUi.paintThink(el, { reasoning: b.s, text: b.over || item.done ? "x" : "" }, !(b.over || item.done)); el.hidden = !b.s; return; }
     if (b.t === "text") { window.chatUi.renderMarkdown(el, b.s); return; }
     if (b.t === "note") { el.textContent = b.s; return; }
+    if (b.t === "opt") {                                                        // what the model read instead of the person's message, closed until asked for
+      el.querySelector(".atool-d").textContent = T("ch.opt.title");
+      el.title = T("ch.opt.tip");
+      el.querySelector("pre").textContent = b.text;
+      let act = el.querySelector(".aopt-act");
+      if (!act && b.original) {
+        act = btn(T("ch.opt.original"), "ghost aopt-act", () => sendOriginal(b.original, act));
+        act.title = T("ch.opt.original.tip");
+        el.append(act);
+      }
+      return;
+    }
     if (b.t === "tool") {
       el.dataset.s = b.status;
       const said = explainOf(b.description), head = el.querySelector(".atool-d");
@@ -1213,6 +1240,16 @@
     document.dispatchEvent(new CustomEvent("basalt:sent", { detail: { text } }));
     clearChips();
     pend = []; drawPend();
+    state = "busy"; busyNow = true; status(T("ch.working")); setControls(); poll(true);
+  }
+  /* "Send my original instead": the person's own text goes as a new message that is not rewritten */
+  async function sendOriginal(text, button) {
+    if (!text || !sid || busyNow || state === "busy" || state === "asking") { status(T("ch.back.busy")); return; }
+    const r = await api("POST", `/${sid}/send`, { text, optimize: false });
+    if (!r.ok) { status(errText(r)); return; }
+    if (button) button.disabled = true;
+    document.dispatchEvent(new CustomEvent("basalt:sent", { detail: { text } }));
+    clearChips();
     state = "busy"; busyNow = true; status(T("ch.working")); setControls(); poll(true);
   }
   /* a card of questions: the answer goes to the server as ids and typed text; the server checks it and puts it in words for the agent */

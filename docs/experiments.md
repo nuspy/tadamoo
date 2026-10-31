@@ -279,9 +279,40 @@ nothing. **Run it once for each server setup that matters**: `--parallel 1`, `--
 `--server-setup` naming it in the report; the comparison decides whether a side call such as the compaction summary needs the engine's
 `scratch=1` proposal (`docs/compaction.md`).
 
+## E8. Optimize prompt: off or on
+
+**Question.** On short requests that carry something a rewrite must keep (names, numbers, quotations, code, paths, links), does rewriting the request in
+the technical session before the model reads it make the task end right more often, does it keep what the person wrote, and what does it cost in time?
+
+| Arm | Setting | Selected by |
+|---|---|---|
+| `A` | the model reads the message as written | `--optimize-prompt off` |
+| `B` | one short call in the technical session rewrites it first | `--optimize-prompt on` |
+| `A~aa` | `off` again | |
+
+The look at a request is off in every arm, so only the rewrite differs. `B` needs a server started with `--side-slot` (`--server-setup "side-slot=30000"`
+names it in the report); without one its trials are marked invalid, not failed.
+
+**Fixture** (`fixtures/optimize_prompts.py`): twenty requests of four words or more, each in a workspace of its own: five terse ones that name files,
+four with numbers that must not change, three with a quotation, two with code, three with paths or a link, three in Italian. Each has checks that
+decide the task; the reference solutions pass them and the untouched workspaces fail. What a rewrite must keep is read from the text by
+`harness.optimize.protected`, the same function the harness uses, so the fixture and the guard cannot disagree.
+
+**Scorer.** The checks decide `success`. `protected_kept` is 1 when the message the model read still holds every protected item of the request
+(`harness.optimize.lost` finds none), whatever the arm; `good` is `success` and `protected_kept`. `optimized` is a rewrite that was used, `rejected` one
+the harness threw away, `lost` one thrown away for losing content. `optimize_seconds` is the time of the call, `seconds` the whole trial. **Metrics**: good,
+success, protected_kept, optimized, rejected, lost, optimize_seconds, seconds, tokens (the helper call included), model calls. **k = 5**, 20 requests, 3 arms: 300 trials.
+
+**Rule.** `B` beats `off` when its `good` share is higher than the pooled off and A/A share by more than the gap and by 10 points, it never gives the
+model a message that lost protected content, and it does not take more than 50% more seconds.
+
+**Not covered.** The language of the rewrite is not checked (a rewrite into another language would pass if it kept the protected items); the requests are
+short file tasks, so the answer says little about long or vague requests; the rate of `rejected` shows how often the model cannot be trusted to keep
+content, which the rule does not weigh.
+
 ## Running order and cost
 
-These are guesses until the first run. E3 and E7 are short. E2 and E4 are many short trials (a few hours). E1 and E6 are slower (each E1 trial is
+These are guesses until the first run. E3 and E7 are short. E2, E4 and E8 are many short trials (a few hours; E8 adds one short call per trial). E1 and E6 are slower (each E1 trial is
 a whole Target Loop; each long E6 text takes several minutes), and E5 is the slowest (tens of minutes per trial). Start each with a pilot
 (`--k 2` and one task, `--only`) to see it run, then run it with the `k` in its section. A pilot is not a result: below `k = 5` pass^k and the A/A gap say little.
 
@@ -291,9 +322,9 @@ a whole Target Loop; each long E6 text takes several minutes), and E5 is the slo
 |---|---|
 | `harness/eval/cases/core.py` | arms, trials, the A/A control, the decision rule, the report |
 | `harness/eval/cases/agentrun.py` | a counting client, an in-process Target Loop conversation, the session helper, the transcript measures |
-| `harness/eval/cases/e1_target.py` ... `e7_cache.py` | one experiment each |
+| `harness/eval/cases/e1_target.py` ... `e8_optimize.py` | one experiment each |
 | `harness/eval/cases/scripted_server.py` | the scripted server of E3 |
-| `harness/eval/cases/fixtures/` | the task material: `shop_repo.py` (E1), `gate_tasks.py` (E2), `error_scenarios.py` (E3), `intake_prompts.py` (E4), `long_turn_repo.py` (E5), `longform_texts.py` (E6) |
+| `harness/eval/cases/fixtures/` | the task material: `shop_repo.py` (E1), `gate_tasks.py` (E2), `error_scenarios.py` (E3), `intake_prompts.py` (E4), `long_turn_repo.py` (E5), `longform_texts.py` (E6), `optimize_prompts.py` (E8) |
 | `harness/eval/cases/__main__.py` | the command line |
 | `tests/test_cases_core.py`, `tests/test_cases_runs.py` | the tests, CPU only |
 
@@ -302,5 +333,5 @@ a whole Target Loop; each long E6 text takes several minutes), and E5 is the slo
 The fixtures load and every reference solution passes its checks while the untouched material fails them; each scorer gives a known-good result
 and a known-bad one different scores; the decision rule picks a clear winner, refuses a difference the A/A gap could have made, and stops a winner
 that breaks a guard; every arm reaches the setting it names (the Target Loop option, the `AgentConfig` field, the session flag, the segment size);
-E1, E2, E4, E5, E6 and E7 run end to end against scripted models and a simulated prefix cache; E3 runs for real against the scripted server.
+E1, E2, E4, E5, E6, E7 and E8 run end to end against scripted models and a simulated prefix cache; E3 runs for real against the scripted server.
 Nothing here says how the real model behaves: that is what the queue rows are for.
