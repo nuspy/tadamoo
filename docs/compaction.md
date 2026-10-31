@@ -156,14 +156,20 @@ and the engine's headers:
 
 ### The technical session
 
-With `--side-slot TOKENS` (default 30000 when on; off by default) the engine has one more slot, with a context of its own, that only
+With `--side-slot TOKENS` (on by default, 30000; `0` is off) the engine has one more slot, with a context of its own, that only
 calls carrying `"cache_slot": "side"` use ([running](running.md#the-technical-session---side-slot-tokens)). `_summarizer` in
 `harness/stack.py` sends it (through `harness/side.py`, `side_extra`) when the server reports a session, and `THIS_SERVER_ONLY` in
 `harness/llm/client.py` holds it back from any cloud route. The summary prompt keeps its own system message and no tools, so in the
 session it shares nothing with a conversation and writes nothing into one: the conversations' slots keep their cache, and the
-summary's own slot keeps no checkpoint. A summary whose text does not fit the session's context (the call reads up to
-`SUMMARY_READ_CHARS`, 120000 characters, which can be more than 30000 tokens) is served by the ordinary slots, as before, so the longest
-summaries still overwrite a conversation's cache there. The cost is the one of
+summary's own slot keeps no checkpoint. A text larger than the session is not sent whole: `harness/digest.py` cuts it into parts of about
+10,000 tokens at blank lines and line ends (no model decides the cuts), the session writes notes on each part in a call of its own that
+carries nothing from the others, and the notes are what the final call reads; notes still too large are cut and written up again, up to
+four rounds. The harness checks the notes of every part without a model: not empty, not almost as long as the part, not going round in
+circles, and carrying at least half of its paths, URLs and ids (twenty at most). Notes that fail are asked for again, up to three calls,
+with what was wrong said to the model; an answer that comes back cut off is asked for again on the two halves of the part. A part still
+not written up stands as its start and end as written, marked, with its names, and names left out of otherwise good notes are added. A
+failed call ends the work and the compaction falls back to its notes made without the model. There is no time limit. Without a session (or on a cloud route) the old rule holds: the call reads at most
+`SUMMARY_READ_CHARS` characters and loses the middle. The cost is the one of
 the setting: the engine's batch mode is on, and the memory of one more session. The effect on `cached_tokens` of the first call after a
 compaction, and on a conversation's speed, is queue rows 69 to 75.
 

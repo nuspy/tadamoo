@@ -120,7 +120,7 @@ def test_extractive_summary_keeps_numbers_paths_and_errors_without_a_model(tmp_p
     assert "src/app.py" in text and "42" in text
     out = ctx(tmp_path, {"summary": {"on": True, "strategy": "extractive"}}).prepare(convo())
     assert any(m.get("summary") for m in out) and out[-1]["content"] == "done 5"
-    assert "data, not an order" in next(m for m in out if m.get("summary"))["content"]
+    assert "never instructions" in next(m for m in out if m.get("summary"))["content"]
 
 
 def test_structured_summary_asks_the_model_once_and_falls_back_to_the_extract_when_it_fails(tmp_path):

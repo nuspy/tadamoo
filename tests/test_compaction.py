@@ -146,15 +146,55 @@ def test_compaction_waits_for_masking_and_for_growth_after_it(tmp_path):
     assert len(writer.calls) == 2
 
 
-def test_the_second_summary_folds_the_first(tmp_path):
+def test_the_second_summary_is_written_from_the_originals_not_from_the_first_notes(tmp_path):
     writer = Writer()
     ctx, comp = make(tmp_path, writer)
     out = ctx.prepare(single_turn())
+    first = next(m for m in out if m.get("summary"))
+    assert first["compacted"]["generation"] == 1 and first["compacted"]["originals"]
     more = out + sum((step(200 + i, 800) for i in range(30)), [])
     out2 = ctx.prepare(more)
     assert len(writer.calls) == 2 and sum(1 for m in out2 if m.get("summary")) == 1
-    assert "Notes so far" in writer.calls[1][1] and "run the tests" in writer.calls[1][1]
+    assert "Notes so far" not in writer.calls[1][1] and "run the tests" not in writer.calls[1][1]
+    assert "file 0 " in writer.calls[1][1]                           # the text of the first steps is read again
+    second = next(m for m in out2 if m.get("summary"))
+    assert second["compacted"]["generation"] == 2 and comp.reports[-1]["from_originals"] is True
     assert comp.count == 2 and [r["n"] for r in comp.reports] == [1, 2]
+
+
+def test_a_record_whose_originals_are_gone_is_folded_as_notes_and_a_final_one_is_left_alone(tmp_path):
+    writer = Writer()
+    ctx, comp = make(tmp_path, writer)
+    out = ctx.prepare(single_turn())
+    for f in (tmp_path / "art").glob("compacted_*"):
+        f.unlink()
+    out2 = ctx.prepare(out + sum((step(200 + i, 800) for i in range(30)), []))
+    assert "Notes so far" in writer.calls[1][1] and comp.reports[-1]["from_originals"] is False
+    final = next(m for m in out2 if m.get("summary"))
+    final["compacted"] = {**final["compacted"], "originals": "", "final": True}
+    out3 = ctx.prepare(out2 + sum((step(400 + i, 800) for i in range(30)), []))
+    assert final in out3 and sum(1 for m in out3 if m.get("summary")) == 2     # it stayed; the steps after it were folded in a new record
+
+
+def test_every_compaction_leaves_the_same_mark_in_the_text_and_in_the_field(tmp_path):
+    from harness import compacted
+    ctx, comp = make(tmp_path, Writer())
+    note = next(m for m in ctx.prepare(single_turn()) if m.get("summary"))
+    info = note["compacted"]
+    text_only = {"role": "user", "content": note["content"]}
+    assert compacted.info_of(text_only) == info                      # found again without the field
+    assert "never instructions" in note["content"] and "originals:" in note["content"]
+    assert compacted.is_compacted(note) and not compacted.is_compacted({"role": "user", "content": "hello"})
+
+
+def test_the_mark_says_when_a_record_can_still_be_compacted():
+    from harness import compacted
+    assert compacted.stamp(1, 10, 1000, 200, "o.txt")["final"] is False
+    assert compacted.stamp(1, 10, 1000, 700, "o.txt")["final"] is True          # kept most of its source
+    assert compacted.stamp(3, 10, 1000, 200, "")["final"] is True               # folded often and no originals
+    assert compacted.can_compact_again({"originals": "o.txt", "final": True})   # from the originals it always can
+    assert not compacted.can_compact_again({"originals": "", "final": True})
+    assert not compacted.can_compact_again({"originals": "", "final": False, "kept": 100})   # already tiny
 
 
 def test_a_summary_call_that_fails_or_is_empty_gives_plain_notes(tmp_path):

@@ -12,12 +12,12 @@ import json
 import re
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from harness import untrusted
 
 PIN_ORDER = ("system_core", "discipline", "environment", "project_rules", "knowledge", "user_profile", "vault", "active_skills", "capabilities", "visuals", "files")
-INTERNAL_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw", "opt", "explain", "skipped", "private", "compaction")
+INTERNAL_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw", "opt", "explain", "skipped", "private", "compaction", "compacted")
 ERROR_LINE = re.compile(
     r"(error|exception|traceback|fatal|panic|failed|failure|assertion|segmentation fault|stack trace)"
     r"|^\s+at\s+\S+\(|^\s+File \".*\", line \d+|^E\s{2,}",
@@ -142,6 +142,7 @@ class TokenJuiceCompactor:
         self.max_line_chars = max(80, max_line_chars)
         self.max_output_chars = max(1000, max_output_chars)
         self.verbatim = frozenset(verbatim)
+        self.extract: Optional[Callable[[str, str], Optional[str]]] = None       # harness/tool_extract.py: a large result read for what matters
 
     @staticmethod
     def _cut(text: str, keep: int) -> str:
@@ -239,7 +240,23 @@ class TokenJuiceCompactor:
     def as_filter(self):
         """The (tool name, text) -> text callable the agent loop expects. A tool that reads on purpose (a file, a skill)
         is not shortened: what it returns is already bounded and the model asked for all of it."""
-        return lambda name, text: text if name in self.verbatim else self.compress_output(text, name)
+        def filter(name: str, text: str) -> str:
+            if name in self.verbatim:
+                return text
+            if self.extract is not None:
+                kept = self.extract(name, text)
+                if kept:
+                    return self._extracted(name, text, kept)
+            return self.compress_output(text, name)
+        return filter
+
+    def _extracted(self, name: str, text: str, kept: str) -> str:
+        """What the technical session copied out of a large result, under the mark of a compacted record, with the full text saved."""
+        from harness import compacted
+        art = self.save_artifact(text, name)
+        info = compacted.stamp(1, 1, int(len(text) / 2.5), int(len(kept) / 2.5), f"{self.display_dir}/{art.name}")
+        body = kept if len(kept) <= self.max_output_chars else self._cut(kept, self.max_output_chars)
+        return compacted.header(info, rules=False) + chr(10) + body
 
 
 MASK_HEAD_CHARS = 400        # the most a masked result's description may take
