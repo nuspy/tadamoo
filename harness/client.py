@@ -5,9 +5,11 @@ content, and server/telemetry metrics retrieval.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import re
+import socket
 import time
 import urllib.request
 import urllib.error
@@ -15,6 +17,38 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 THINK_REGEX = re.compile(r"<think>(.*?)</think>", re.DOTALL)
+CONNECT_S = 4.0                # a connection that has not gone through by now is dropped and tried again, not waited for until the system gives up
+CONNECT_TRIES = 4
+
+
+class _Connection(http.client.HTTPConnection):
+    """A connection that tries its connect a few times with a short wait each. Only the connect is repeated, never a request already sent."""
+
+    def connect(self) -> None:
+        last: Optional[OSError] = None
+        for _ in range(CONNECT_TRIES):
+            try:
+                wait = CONNECT_S if not self.timeout else min(CONNECT_S, float(self.timeout))
+                self.sock = socket.create_connection((self.host, self.port), wait, self.source_address)
+                self.sock.settimeout(self.timeout)
+                self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                return
+            except OSError as exc:
+                last = exc
+        raise last if last is not None else OSError("cannot connect")
+
+
+class _Handler(urllib.request.HTTPHandler):
+    def http_open(self, req: urllib.request.Request) -> Any:
+        return self.do_open(_Connection, req)
+
+
+_OPENER = urllib.request.build_opener(_Handler)
+
+
+def open_url(req: urllib.request.Request, timeout: float) -> Any:
+    """urlopen with a connect that is repeated when it does not go through quickly (a connection to this PC that the system lets hang for 21 seconds)."""
+    return _OPENER.open(req, timeout=timeout)
 
 
 class BasaltError(RuntimeError):
@@ -173,7 +207,7 @@ class BasaltClient:
     def _get(self, path: str, timeout: float) -> Dict[str, Any]:
         req = urllib.request.Request(f"{self.base_url}{path}", headers=self._headers(), method="GET")
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with open_url(req, timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             try:
@@ -223,7 +257,7 @@ class BasaltClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with open_url(req, timeout) as resp:
                 if on_delta is not None:
                     return _collect_stream(resp, on_delta)
                 return json.loads(resp.read().decode("utf-8"))
