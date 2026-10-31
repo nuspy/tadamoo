@@ -19,6 +19,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 THINK_REGEX = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 CONNECT_S = 4.0                # a connection that has not gone through by now is dropped and tried again, not waited for until the system gives up
 CONNECT_TRIES = 4
+RESET_TRIES = 3                # a request whose connection was closed under it before any answer came is sent again, up to this many times
 
 
 class _Connection(http.client.HTTPConnection):
@@ -256,16 +257,29 @@ class BasaltClient:
             headers=self._headers(),
             method="POST",
         )
-        try:
-            with open_url(req, timeout) as resp:
-                if on_delta is not None:
-                    return _collect_stream(resp, on_delta)
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
+        shown = [False]                              # a piece of text already handed on: the request is not made again after that
+        if on_delta is not None:
+            hand_on = on_delta
+
+            def on_delta(kind: str, text: str) -> None:        # noqa: F811
+                shown[0] = True
+                hand_on(kind, text)
+        for attempt in range(RESET_TRIES):
             try:
-                detail = json.loads(e.read().decode("utf-8")).get("error", {}).get("message", "")
-            except Exception:
-                detail = ""
-            raise BasaltError(e.code, detail or f"HTTP {e.code}") from None
-        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
-            raise BasaltError(0, f"cannot reach the Basalt server at {self.base_url}: {e}") from None
+                with open_url(req, timeout) as resp:
+                    if on_delta is not None:
+                        return _collect_stream(resp, on_delta)
+                    return json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                try:
+                    detail = json.loads(e.read().decode("utf-8")).get("error", {}).get("message", "")
+                except Exception:
+                    detail = ""
+                raise BasaltError(e.code, detail or f"HTTP {e.code}") from None
+            except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+                reset = isinstance(e, ConnectionError) or isinstance(getattr(e, "reason", None), ConnectionError)
+                if reset and not shown[0] and attempt + 1 < RESET_TRIES:     # the connection was closed under the request: nothing came back yet
+                    time.sleep(1.0 + attempt)
+                    continue
+                raise BasaltError(0, f"cannot reach the Basalt server at {self.base_url}: {e}") from None
+        raise BasaltError(0, f"cannot reach the Basalt server at {self.base_url}")
