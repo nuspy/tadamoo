@@ -1036,6 +1036,24 @@ the threshold says. A pattern the person chose in the settings is not overridden
 Not done: reloading a model with another profile when a function wants one (it needs the engine to be idle, which the server does not report yet),
 and the spending report per function.
 
+## The technical session
+
+When the server runs with `--side-slot` (see [running](running.md#the-technical-session---side-slot-tokens)) it keeps one slot with a
+short context for the harness's own short calls. `harness/side.py` is the whole of the harness side: `side_extra(client=None)` returns
+`{"cache_slot": "side"}` for a local server that reports a session (its `/v1/status` `concurrency.side_slot`, asked at most every 30
+seconds by `BasaltClient.side_context()`) and `{}` otherwise; `SIDE_CONTEXT_TOKENS` is the default size (30000); `use(client)` registers
+the client `side_extra()` asks when it is called without one (the stack does this). The calls that use it are the intake's triage
+(`harness/intake.py`), the next-prompt suggestions (`harness/suggestions.py`), the compaction summary (`harness/stack.py`), the judge
+(`harness/llm/judge.py`) and the router's judge (`harness/router.py`); the calls for the length estimate, the plan of parts and the
+verification of a long text are built on the same function. `cache_slot` is in `THIS_SERVER_ONLY` (`harness/llm/client.py`): it is never
+sent to a cloud route, a command-line agent or the Anthropic dialect. The server serves a call that does not fit the session from the
+ordinary slots, so a caller keeps its prompt short and nothing more. The suggestions call carries the conversation, so in the session it
+reads that conversation again each time instead of reusing the main slot's cache; a long conversation falls back to the ordinary slots.
+
+While the session is on the engine is in batch mode: `end_turn_bias`, `logit_bias` and relaxed drafting are unavailable and a request
+alone is no longer on the pure single-stream path. The Loader says so next to the setting, in English and Italian. It is off by default
+until the cost on a conversation's speed is measured (rows 82 to 87 of `tests/QUEUE_daytime.md`).
+
 ## A conversation's own copy of the folder
 
 Two conversations in one folder can step on each other's files, and an edit is otherwise applied as soon as it is made. In a folder under git

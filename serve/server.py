@@ -279,9 +279,20 @@ def main() -> int:
               f"context {engine.max_context} tokens{', images on' if vision else ''}"
               f"{', API key required' if svc.api_key else ''}", flush=True)
         if getattr(engine, "batch", 0):
-            print(f"[server] parallel: {engine.batch} requests at once, the rest wait in order; each slot holds "
-                  f"{engine.max_context} tokens" + (f" ({engine.batch} x {engine.max_context} of KV cache: "
+            side = getattr(engine, "side_slot", None)
+            main = engine.batch - (0 if side is None else 1)
+            print(f"[server] parallel: {main} requests at once, the rest wait in order; each slot holds "
+                  f"{engine.max_context} tokens" + (f" ({main} x {engine.max_context} of KV cache: "
                                                     "--slot-full-context)" if a.slot_full_context else ""), flush=True)
+            if side is not None:
+                print(f"[server] technical session: slot {side + 1} of {engine.side_context()} tokens for the short calls of "
+                      "the harness; end_turn_bias, logit_bias and relaxed drafting are off while it is on", flush=True)
+            elif getattr(a, "side_slot", 0):
+                print("[server] warning: the technical session was asked for but the engine runs without it "
+                      "(see the engine log: its slot did not fit)", flush=True)
+        if getattr(a, "side_clamp", None):
+            print(f"[server] warning: --parallel {a.side_clamp[0]} and the technical session need {a.side_clamp[0] + 1} slots, "
+                  f"the engine's most is 8: {a.side_clamp[1]} requests at once", flush=True)
 
     failed = threading.Event()                          # --listen-first: the model did not load
 

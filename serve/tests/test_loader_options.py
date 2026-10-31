@@ -13,6 +13,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from serve import config, hardware, loader, loader_api, profiles, settings, supervisor  # noqa: E402
+from serve.engine.flags import flag_value  # noqa: E402
 from serve.tests.test_loader import make_service  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -192,6 +193,56 @@ class PlanAccounting(unittest.TestCase):
     def test_parallel_slots_each_keep_their_pool(self):
         p = self.plan(**{"server.parallel": 2, "server.slot-full-context": True, "engine.kv-resident": 30000})
         self.assertEqual(item(p, "ram", "kv_host"), 2 * loader.ATTENTION_LAYERS * loader.KV_CELL_BYTES["int8"] * 65536)
+
+    def test_the_technical_session_costs_one_more_session_of_its_own_size(self):
+        off, on = self.plan(), self.plan(**{"server.side-slot": 30000})
+        self.assertEqual(on["side_context"], 30000)
+        self.assertEqual(off["side_context"], 0)
+        side_kv = loader.KV_TOKEN_BYTES["int8"] * 30000 + loader.SESSION_FIXED
+        self.assertEqual(item(on, "vram", "kv") - item(off, "vram", "kv"), side_kv)
+        self.assertEqual([n["code"] for n in on["notes"]], ["side"])
+        self.assertEqual(on["notes"][0], {"code": "side", "context": 30000, "kv": side_kv})
+        # it comes out of the expert cache, not on top of it (auto cache), and the checkpoints are the conversations' only
+        auto_off = self.plan(**{"engine.expert-cache": "auto"})
+        auto_on = self.plan(**{"engine.expert-cache": "auto", "server.side-slot": 30000})
+        self.assertLess(auto_on["vram"]["expert_slots"], auto_off["vram"]["expert_slots"])
+        self.assertEqual(item(on, "ram", "checkpoints"), item(off, "ram", "checkpoints"))
+        two = self.plan(**{"server.parallel": 2, "server.side-slot": 30000})
+        self.assertEqual(two["slot_context"], 32768)                              # the conversations' slots divide the context
+        self.assertEqual(item(two, "vram", "kv") - item(self.plan(**{"server.parallel": 2}), "vram", "kv"), side_kv)
+
+    def test_the_technical_session_is_never_larger_than_a_slot(self):
+        p = self.plan(**{"server.parallel": 4, "server.side-slot": 30000})           # slots of 16384
+        self.assertEqual(p["side_context"], 16384)
+        self.assertEqual(item(p, "vram", "kv") - item(self.plan(**{"server.parallel": 4}), "vram", "kv"),
+                         loader.KV_TOKEN_BYTES["int8"] * 16384 + loader.SESSION_FIXED)
+
+    def test_the_technical_session_adds_a_draft_cache_and_turns_relaxed_drafting_off(self):
+        spec = {"engine.spec": 7}
+        off, on = self.plan(**spec), self.plan(**spec, **{"server.side-slot": 30000})
+        cell = loader.KV_CELL_BYTES["int8"] + 128
+        self.assertEqual(item(on, "vram", "drafter") - item(off, "vram", "drafter"), cell * 30000)
+        rx = self.plan(**spec, **{"engine.relaxed-drafting": 0.3, "server.side-slot": 30000})["relaxed"]
+        self.assertEqual((rx["effective"], rx["why"]), (False, ["side"]))
+        self.assertTrue(self.plan(**spec, **{"engine.relaxed-drafting": 0.3})["relaxed"]["effective"])
+
+    def test_the_technical_session_is_saved_and_checked(self):
+        self.assertEqual(settings.check_value("server", "side-slot", 0), 0)
+        self.assertEqual(settings.check_value("server", "side-slot", "30000"), 30000)
+        self.assertEqual(settings.check_value("server", "side-slot", True), config.SIDE_SLOT_DEFAULT)
+        for bad in (100, -1, 2.5, "x"):
+            with self.assertRaises(ValueError, msg=bad):
+                settings.check_value("server", "side-slot", bad)
+        self.assertIn(("server", "side-slot"), settings.LOADER_FIELDS)               # persisted with the other Loader fields
+        self.assertEqual(loader.effective({})["server.side-slot"], 0)                 # off unless asked
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "basalt.json")
+            Path(path).write_text(json.dumps({"server": {"model": "m.basalt"}}), encoding="utf-8")
+            settings.save(path, {"server.side-slot": 30000}, settings.LOADER_FIELDS)
+            self.assertEqual(settings.values_of(settings.read_file(path), settings.LOADER_FIELDS)["server.side-slot"], 30000)
+            ap = config.build_parser()
+            a, _, file_words, _ = config.parse_settings(ap, ["--config", path])
+            self.assertEqual((a.side_slot, flag_value(file_words, "--side-context")), (30000, "30000"))
 
     def test_resident_budget_limits_the_ram_of_the_experts(self):
         full, capped = self.plan(), self.plan(**{"engine.resident-budget-gib": 10})
