@@ -215,7 +215,7 @@ class WiringTest(unittest.TestCase):
         self.assertIn('id="ps-section"', HTML[first - 80:first + 120])
         self.assertLess(HTML.index('id="ps-section"'), HTML.index('id="iq-section"'))
         self.assertRegex(HTML, r'<section class="sec stintake" data-sub="inference" id="iq-section"')
-        self.assertEqual(len(re.findall(r'data-sub="inference"', HTML)), 2)
+        self.assertEqual(len(re.findall(r'data-sub="inference"', HTML)), 3)
 
     def test_the_old_select_is_gone_and_the_settings_page_keeps_the_switch_in_step(self):
         self.assertNotIn("iq-mode", INTAKE)

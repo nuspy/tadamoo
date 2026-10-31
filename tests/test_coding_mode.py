@@ -478,7 +478,7 @@ def test_the_running_process_takes_a_role_and_new_checks_and_says_so(tmp_path, m
     ws = tmp_path / "ws"
     ws.mkdir()
     real = hs.build_agent
-    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=Scripted(): real(cfg, client=_c))
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=Scripted(): real(cfg, client=_c))
     feed, out = Feed(), io.StringIO()
     t = threading.Thread(target=lambda: hs.main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "t1", "--no-memory", "--no-checkpoints",
                                                  "--heartbeat", "0.05", "--role", "build", "--safe-command", "ruff check ."], stdin=feed, stdout=out), daemon=True)

@@ -16,12 +16,12 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from harness import questions as qs
+from harness import side_uses
 from harness.side import side_extra
 from serve import longform as lf
 
 log = logging.getLogger("harness.optimize")
 
-TIMEOUT_S = 8.0
 MIN_WORDS = 4
 MAX_INPUT_CHARS = 4000               # a longer message cannot come back within the output cap
 PREVIOUS_CHARS = 800
@@ -224,17 +224,17 @@ class Optimizer:
         stays = getattr(self.client, "stays_local", None)
         if callable(stays) and not stays():
             return "route"                                  # a route to another provider is not the technical session
-        return "" if side_extra(self.client) else "no_session"
+        return "" if side_extra(self.client, "optimize") else "no_session"
 
     def run(self, text: str, *, previous: str = "", origin: str = "user", attended: bool = True) -> Result:
         """The rewrite of `text`, or why there is none. Never raises."""
         why = self.ready(text, origin=origin, attended=attended)
         if why:
             return Result(reason=why)
-        extra = side_extra(self.client)
+        extra = side_extra(self.client, "optimize")
         t0 = time.monotonic()
         try:
-            resp = self.client.chat_completion(messages=prompt_for(text, previous), temperature=0.0, max_tokens=output_cap(text), timeout=TIMEOUT_S,
+            resp = self.client.chat_completion(messages=prompt_for(text, previous), temperature=0.0, max_tokens=output_cap(text), timeout=side_uses.param("optimize", "timeout_s"),
                                                extra={"reasoning_effort": "none", **extra})
             choice = resp["choices"][0]
             reply = choice["message"].get("content") or ""

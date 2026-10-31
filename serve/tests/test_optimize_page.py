@@ -18,6 +18,7 @@ CSS = (WEB / "promptswitch.css").read_text(encoding="utf-8")
 INTAKE = (WEB / "intake.js").read_text(encoding="utf-8")
 AGENTCHAT = (WEB / "agentchat.js").read_text(encoding="utf-8")
 LOADER = (WEB / "loader.js").read_text(encoding="utf-8")
+I18N = (WEB / "i18n.js").read_text(encoding="utf-8")
 
 TIP = ("Before your message reaches the model, a quick helper pass rewrites it as a clearer, more complete instruction. The chat still shows what you wrote. "
        "Needs the technical session.")
@@ -48,7 +49,10 @@ const handlers = {};
 global.window = global;
 global.LANG = "en";
 global.document = { hidden: false, createElement: t => new El(t), createTextNode: t => new Text(t),
-  querySelectorAll: sel => (sel === ".po[data-po]" ? hosts : []), addEventListener: (n, f) => { (handlers[n] = handlers[n] || []).push(f); } };
+  querySelectorAll: sel => (sel === ".po[data-po]" ? hosts : []), addEventListener: (n, f) => { (handlers[n] = handlers[n] || []).push(f); },
+  dispatchEvent: e => { global.dispatched.push(e.type); } };
+global.dispatched = [];
+global.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = (init || {}).detail; } };
 const emit = n => (handlers[n] || []).forEach(f => f({}));
 global.T = (k, ...a) => k + (a.length ? "(" + a.join("|") + ")" : "");
 global.authHeaders = () => ({ "X-Test": "1" });
@@ -208,7 +212,7 @@ class WiringTest(unittest.TestCase):
         self.assertIn('data-t="po.tip"', section)                                                        # the same words are on the page for touch screens
         self.assertLess(HTML.index("web/promptswitch.js"), HTML.index("web/optimize.js"))
         self.assertLess(HTML.index("web/optimize.js"), HTML.index("web/intake.js"))
-        self.assertEqual(len(re.findall(r'data-sub="inference"', HTML)), 2)
+        self.assertEqual(len(re.findall(r'data-sub="inference"', HTML)), 3)
 
     def test_the_model_only_chat_hides_it_and_the_pages_keep_it_in_step(self):
         self.assertIn('$("#po-chat").hidden = !on', AGENTCHAT)
@@ -219,6 +223,14 @@ class WiringTest(unittest.TestCase):
             self.assertIn(event, JS)
         self.assertIn('"v1/status"', JS)
         self.assertIn("side_slot", JS)
+
+    def test_the_settings_card_shows_the_session_read_only_and_follows_its_changes(self):
+        self.assertIn('new CustomEvent("basalt:side"', JS)                                               # the box says when the session came or went
+        self.assertIn('"basalt:side"', INTAKE)
+        self.assertIn("window.OptimizePrompt.sideTokens()", INTAKE)
+        self.assertIn("sideTokens: () => sideTokens", JS)
+        for key in ("iq.side.title", "iq.side.on", "iq.side.off"):
+            self.assertEqual(I18N.count(f'"{key}":'), 2, key)
 
     def test_it_is_keyboard_operable_with_visible_focus_and_30_px_controls_and_never_scrolls_sideways(self):
         self.assertIn('input.type = "checkbox"', JS)

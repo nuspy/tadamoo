@@ -5,6 +5,7 @@
   const box = $("#cs-bc");
   const on = $("#cs-bc-on");
   const port = $("#cs-bc-port");
+  const compress = $("#cs-bc-compress");
   const state = $("#cs-bc-state");
   let timer = 0;
 
@@ -29,7 +30,7 @@
   }
 
   function paint(v, keepForm) {
-    if (!keepForm) { on.checked = v.enabled; port.value = v.port; }
+    if (!keepForm) { on.checked = v.enabled; port.value = v.port; compress.checked = !!v.compress; }
     say(text(v), v.status === "error" || v.status === "not_installed" ? "error" : "");
   }
 
@@ -39,12 +40,13 @@
 
   async function save(extra) {
     try {
-      paint(await call({ enabled: on.checked, port: port.value, ...extra }));
+      paint(await call({ enabled: on.checked, port: port.value, compress: compress.checked, ...extra }));
       setTimeout(() => load(true), 1500);               // the process takes a moment to answer
     } catch (e) { say(T("bc.failed", e.message), "error"); }
   }
 
   on.addEventListener("change", () => save());
+  compress.addEventListener("change", () => save());
   $("#cs-bc-save").addEventListener("click", () => save());
   $("#cs-bc-restart").addEventListener("click", () => save({ restart: true }));
   $("#cs-open").addEventListener("click", () => {

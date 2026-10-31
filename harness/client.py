@@ -146,19 +146,28 @@ class BasaltClient:
         return self._get("/metrics", timeout)
 
     SIDE_ASK_S = 30.0          # how long the server's answer about its technical session is kept
+    SIDE_RETRY_S = 3.0         # how long "could not be asked" is kept: a connection that failed once is no proof the session is gone
 
     def side_context(self, timeout: float = 3.0) -> int:
         """The tokens the server's technical session holds, as /v1/status reports them; 0 when it has none or cannot
         be reached. Asked at most once per SIDE_ASK_S."""
         asked = self.__dict__.get("_side")
-        if asked is not None and time.monotonic() - asked[0] < self.SIDE_ASK_S:
+        if asked is not None and time.monotonic() - asked[0] < (self.SIDE_ASK_S if asked[2] else self.SIDE_RETRY_S):
             return asked[1]
+        answered = True
         try:
-            side = (self._get("/v1/status", timeout).get("concurrency") or {}).get("side_slot")
+            try:
+                status = self._get("/v1/status", timeout)
+            except BasaltError as first:
+                if first.status != 0:
+                    raise
+                time.sleep(0.5)                              # a connection that did not go through: once more before saying there is no session
+                status = self._get("/v1/status", timeout)
+            side = (status.get("concurrency") or {}).get("side_slot")
             tokens = int(side.get("context") or 0) if isinstance(side, dict) else 0
         except (BasaltError, TypeError, ValueError):
-            tokens = 0
-        self._side = (time.monotonic(), tokens)
+            tokens, answered = 0, False
+        self._side = (time.monotonic(), tokens, answered)
         return tokens
 
     def _get(self, path: str, timeout: float) -> Dict[str, Any]:

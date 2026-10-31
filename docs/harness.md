@@ -1048,12 +1048,53 @@ the client `side_extra()` asks when it is called without one (the stack does thi
 (`harness/optimize.py`, [intake.md](intake.md#optimize-prompt)); the calls for the length estimate, the plan of parts and the
 verification of a long text are built on the same function. `cache_slot` is in `THIS_SERVER_ONLY` (`harness/llm/client.py`): it is never
 sent to a cloud route, a command-line agent or the Anthropic dialect. The server serves a call that does not fit the session from the
-ordinary slots, so a caller keeps its prompt short and nothing more. The suggestions call carries the conversation, so in the session it
+ordinary slots, so a caller keeps its prompt short and nothing more. A summary of more than the session holds is made in parts
+(`harness/digest.py`, [compaction](compaction.md#the-technical-session)); `side_context(client)` is the size the harness plans by, 0 when
+the server has no session, and then no call carries `cache_slot`. The suggestions call carries the conversation, so in the session it
 reads that conversation again each time instead of reusing the main slot's cache; a long conversation falls back to the ordinary slots.
 
 While the session is on the engine is in batch mode: `end_turn_bias`, `logit_bias` and relaxed drafting are unavailable and a request
-alone is no longer on the pure single-stream path. The Loader says so next to the setting, in English and Italian. It is off by default
-until the cost on a conversation's speed is measured (rows 82 to 87 of `tests/QUEUE_daytime.md`).
+alone is no longer on the pure single-stream path. The Loader says so next to the setting, in English and Italian. It is on by default
+(owner's decision); the Loader turns it off with 0 and sets its size, and Settings > Inference shows the size read-only.
+
+### The uses of the session
+
+`harness/side_uses.py` lists every use, with its switch, its numbers and its prompt, in `side_uses.json` of the user data folder (read
+again when it changes, by every process). The uses: `triage` (the look at a request), `judge`, `router`, `optimize`, `suggestions`
+(the newest turns under a prompt of its own, no tools), `compaction` (the agent's summary, read in parts when larger than the session),
+`chat_summary`, `chat_abstract`, `longform`, `memory_extract` (learning the person's memories, which in the session need not wait for the
+card to be free), `memory_rank` (which of the notes the word match found really bear on a request), `progress` (a line on how far a task
+nobody watches has got), `planner` (comparison and re-planning), `tool_extract` (a large tool result read for the lines that matter,
+checked line by line against the result, the full text saved) and `inject_screen` (a second look at outside text for instructions to the
+assistant, a notice only). The last two change what the model reads, so they start off, like `memory_rank` and `progress` they are not made
+without the session.
+
+A call names its use: `side_extra(client, "judge")` is `{}` when the use is switched off (the call then runs in an ordinary slot, except
+the uses that need the session, which are not made), else `{"cache_slot": "side", "side_use": "judge"}`; the server counts the calls by
+that name (`/api/side-uses`: calls, those an ordinary slot served, those cut off, seconds). A call that must not take a conversation's slot
+sends `cache_slot: "side_only"` (`side_extra_for`, the digest's parts): the server refuses it with a 400 naming the technical session
+when it does not fit, and the digest halves the part. Every use sends its own system prompt written for its task, or none; never the
+conversation's. The prompts of `chat_summary` and `chat_abstract`, whose answer is free text, can be replaced in Settings; the others are
+read by their form and cannot. Numbers are checked against a range and fall back to their default when the file holds a bad one.
+
+Settings > Inference > Technical session > *Manage uses* lists them (`serve/web/sideuses.js`): the switch, the numbers, the prompt, the
+counters, *Restore this one* and *Restore all defaults*. With no session the dialog is shown greyed. A text read in parts is a *job*
+(`side_uses.job`): it writes a small file in `side_jobs/` while it runs, so the dialog lists it with its part number from any process,
+and *Stop* (`side_stop.json`) ends it at its next call; the summary of a stopped compaction is then made without the model.
+
+#### Where the quick jobs run
+
+The quick jobs have a function of their own, `technical` (Models > Providers, with consent like any function that sees personal data).
+Unassigned, they run on this PC: in the engine's technical session, and the conversation's own route (a cloud model, say) never
+carries them. The session's agent builds that client once (`client_for("technical", here)`, `BuiltAgent.technical`) and gives it to the
+look at a request, Optimize prompt, the suggestions, the progress line, the notes' choice and the two readers of tool results.
+
+Pointed at another provider (a small, cheap model on a cloud service, or a second small model loaded in LM Studio or vLLM) the jobs
+run there as ordinary calls: there is no slot to reserve on those servers, `cache_slot` is never sent to them, and the window the
+harness plans by is the one set for the provider, at most 30000 tokens. They run only while the master switch *Allow the quick jobs to
+run on a provider outside this PC* (`_external` in `side_uses.json`, off by default) is on, since each job is then a paid call and the
+text leaves this PC; Anthropic's dialect drops `response_format`, so the jobs that need a JSON form are better on an OpenAI-style route.
+The conversation's own function (`executor`, `chat`) is never affected by the switch.
 
 ## A conversation's own copy of the folder
 

@@ -11,6 +11,8 @@ import re
 import time
 from typing import Any, Callable, Dict, List, Optional
 
+from harness import side_uses
+from harness.side import side_extra_for
 from harness.personal_memory import LONG_SECTIONS, PersonalMemory, PersonalMemoryError, SHORT_SECTIONS, clean_text, stems
 
 MESSAGE_CHARS = 1500            # how much of one message the model reads: a pasted page is not the person's own words
@@ -158,16 +160,19 @@ class Extractor:
         if not (cfg["learn_long"] or cfg["learn_short"]):
             self.memory.queue_done(j["id"] for j in jobs)            # switched off since: what waited is dropped, not learned
             return True
-        if not self.free():
-            return False
         project = jobs[0].get("project", "")
         same = [j for j in jobs if j.get("project", "") == project]
         messages = [j["text"] for j in same if isinstance(j.get("text"), str)]
         searches = [q for j in same for q in (j.get("searches") or []) if isinstance(q, str)]
         shown = related(self.memory, messages, project)
+        prompt, answer = prompt_for(messages, searches, project, shown), int(side_uses.param("memory_extract", "max_tokens"))
+        client = self.client()
+        side = side_extra_for(client, "memory_extract", sum(len(str(m["content"])) for m in prompt), answer)
+        if not side and not self.free():                  # in the technical session it does not wait for the card to be free: it takes no conversation's slot
+            return False
         try:
-            reply = self.client().chat_completion(messages=prompt_for(messages, searches, project, shown), temperature=0.0, max_tokens=900,
-                                                  timeout=120.0, response_format={"type": "json_object"}, extra={"reasoning_effort": "none"})
+            reply = client.chat_completion(messages=prompt, temperature=0.0, max_tokens=answer, timeout=side_uses.param("memory_extract", "timeout_s"),
+                                           response_format={"type": "json_object"}, extra={"reasoning_effort": "none", **side})
             text = (reply["choices"][0]["message"].get("content") or "")
         except Exception as exc:                          # the model is busy, unloaded or gone: the messages wait for the next free moment
             self.error = f"{type(exc).__name__}: {exc}"[:200]

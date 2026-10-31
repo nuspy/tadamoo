@@ -83,20 +83,30 @@ def manager(fake_script):
 
 
 def test_the_setting_defaults_to_on_and_a_bad_value_is_refused():
-    assert bc.load() == {"enabled": True, "port": bc.DEFAULT_PORT}
-    assert bc.save({"enabled": False, "port": "20000"}) == {"enabled": False, "port": 20000}
-    assert bc.load() == {"enabled": False, "port": 20000}
+    assert bc.load() == {"enabled": True, "port": bc.DEFAULT_PORT, "compress": False}
+    assert bc.save({"enabled": False, "port": "20000"}) == {"enabled": False, "port": 20000, "compress": False}
+    assert bc.load() == {"enabled": False, "port": 20000, "compress": False}
     for bad in (80, 70000, "x", True, None):
         with pytest.raises(ValueError):
             bc.save({"port": bad})
     with pytest.raises(ValueError):
         bc.save({"enabled": "yes"})
+    with pytest.raises(ValueError):
+        bc.save({"compress": 1})
     assert bc.load()["port"] == 20000
+
+
+def test_the_proxy_only_keeps_things_aside_unless_the_model_may_fold_old_turns():
+    archive, folding = bc.proxy_config(False)["compress"], bc.proxy_config(True)["compress"]
+    assert archive["injectTool"] is False and archive["injectNudge"] is False
+    assert "injectTool" not in folding and "injectNudge" not in folding
+    assert archive["maxContextLimit"] == folding["maxContextLimit"] == "90%"
+    assert bc.save({"compress": True})["compress"] is True and bc.load()["compress"] is True
 
 
 def test_a_damaged_file_gives_the_defaults(data_folder):
     (data_folder / bc.FILE).write_text("{not json", encoding="utf-8")
-    assert bc.load() == {"enabled": True, "port": bc.DEFAULT_PORT}
+    assert bc.load() == {"enabled": True, "port": bc.DEFAULT_PORT, "compress": False}
 
 
 def test_without_the_add_on_the_status_says_so_and_nothing_is_routed(manager):

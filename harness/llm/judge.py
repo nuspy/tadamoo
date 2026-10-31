@@ -67,7 +67,7 @@ class Judge:
         system = f"{question[:QUESTION_CHARS]}\nAnswer with exactly one of these words and nothing else:\n{listing}"
         try:
             reply = client.chat_completion(messages=[{"role": "system", "content": system}, {"role": "user", "content": context[:4000]}],
-                                           temperature=0.0, max_tokens=8, timeout=timeout, extra={"reasoning_effort": "none", **side_extra(client)})
+                                           temperature=0.0, max_tokens=8, timeout=timeout, extra={"reasoning_effort": "none", **side_extra(client, "judge")})
             word = (reply["choices"][0]["message"].get("content") or "").strip().lower()
         except Exception:
             return None

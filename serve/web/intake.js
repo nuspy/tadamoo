@@ -43,7 +43,11 @@
     defaults.onclick = () => save({ intake: s.defaults.intake, suggestions: s.defaults.suggestions, optimize_prompt: s.defaults.optimize_prompt, side_call_tokens: s.defaults.side_call_tokens });
     const status = h("p", "setnote kn-status", note); status.setAttribute("role", "status"); status.hidden = !note; status.dataset.bad = noteBad ? "1" : "";
     const help = (id, text) => Object.assign(h("p", "setnote kn-help", text), { id });
+    const tokens = window.OptimizePrompt ? window.OptimizePrompt.sideTokens() : 0;
+    const sideNote = h("p", "setnote kn-help", tokens > 0 ? T("iq.side.on", tokens.toLocaleString(LANG)) : T("iq.side.off"));
+    sideNote.id = "iq-side"; sideNote.setAttribute("role", "status");
     root.replaceChildren(
+      h("fieldset", "csgroup", h("legend", "", T("iq.side.title")), sideNote),
       h("fieldset", "csgroup", h("legend", "", T("iq.sugg.title")),
         h("label", "kn-check", chips, h("span", "", T("iq.sugg.on"))), help("iq-chips-h", T("iq.sugg.help"))),
       h("fieldset", "csgroup", h("legend", "", T("iq.size.title")),
@@ -55,6 +59,7 @@
     const r = await call("GET", "api/intake");
     if (r.ok) { state = r.data; if (window.PromptSwitch) window.PromptSwitch.sync(state.intake); if (window.OptimizePrompt) window.OptimizePrompt.sync(state); draw(); } else root.replaceChildren(h("p", "setnote warnnote", why(r)));
   }
+  document.addEventListener("basalt:side", () => { if (state) draw(); });
   document.addEventListener("basalt:view", e => { if (e.detail === "settings") load(); });
   if (document.body.dataset.view === "settings") load();
 })();

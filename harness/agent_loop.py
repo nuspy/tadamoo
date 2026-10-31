@@ -278,6 +278,7 @@ class AgentLoop:
         self._loop_strikes = 0
         self.last_user_text = ""                      # the words of the person's latest message
         self.untrusted_since_user = False             # content from outside came in after that message
+        self.screen: Optional[Callable[[str, str], Optional[str]]] = None      # a second reader of untrusted text (harness/inject_screen.py): a notice or None
         self._end_turn = False
         self.length_stops = 0                         # replies the output limit ended, in the latest run
         self.cut = False                              # the answer delivered by the latest run was ended by the output limit
@@ -506,7 +507,8 @@ class AgentLoop:
         text = self._stringify(name, result.output)
         worked = result.decision == "executed" and not result.is_error
         if tool is not None and tool.untrusted and worked:
-            text = _fence_untrusted(name, text)
+            notice = self.screen(name, text) if self.screen else None
+            text = _fence_untrusted(name, text) + (chr(10) + notice if notice else "")
             self.untrusted_since_user = True
         if result.feedback:
             text += "\n[harness] " + result.feedback
@@ -815,7 +817,8 @@ class AgentLoop:
                 if seen_by_guard.stub:
                     text = seen_by_guard.stub
                 if tool is not None and tool.untrusted and result.decision == "executed" and not result.is_error:
-                    text = _fence_untrusted(call.name, text)
+                    notice = self.screen(call.name, text) if self.screen else None
+                    text = _fence_untrusted(call.name, text) + (chr(10) + notice if notice else "")
                     self.untrusted_since_user = True
                 if seen_by_guard.note:
                     text += "\n" + seen_by_guard.note
