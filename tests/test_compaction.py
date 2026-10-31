@@ -306,6 +306,14 @@ def test_the_warning_is_worded_in_italian_when_the_request_is_in_italian(tmp_pat
     assert "Not contained in the memory" not in note
 
 
+def test_the_warning_is_worded_in_italian_for_a_short_italian_request(tmp_path):
+    writer = Writer(text="Obiettivo: sistemare il parser\nOpen items: modificare src/ghost/mai_visto.py")
+    ctx, comp = make(tmp_path, writer)
+    msgs = single_turn(goal="Sistema il parser dei file di configurazione")
+    note = next(m for m in ctx.prepare(msgs) if m.get("summary"))["content"]
+    assert "Non contenuto nella memoria di questa sessione" in note
+
+
 # -- the prefix report ----------------------------------------------------------------------------------------------
 
 

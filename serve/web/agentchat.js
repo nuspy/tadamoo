@@ -492,7 +492,7 @@
     chipsEl.setAttribute("role", "group"); chipsEl.setAttribute("aria-label", T("ch.suggest.label"));
     chipTexts = chips.map(c => c.prompt);
     chips.forEach(c => {
-      const b = btn(String(c.label || c.prompt).slice(0, 40), "ghost achip-s", () => { window.chatUi.setPrompt(c.prompt); });
+      const b = btn(c.prompt, "ghost achip-s", () => { window.chatUi.setPrompt(c.prompt); });
       b.title = T("ch.suggest.tip", c.prompt); b.setAttribute("aria-label", T("ch.suggest.use", c.prompt));
       chipsEl.append(b);
     });

@@ -4,8 +4,8 @@ One cheap structured call after the answer is shown: the conversation as it stan
 a JSON schema, thinking off, a short timeout. It is skipped whenever it could cost more than it gives: a long conversation (an extra
 request over a long history may cost the next turn its cached prefix), a cold cache (the call would read the whole history itself), a
 person who is busy (a queued message, a running task), a tiny answer, a card or an error, plan mode, unattended runs. After three sets
-in a row that nobody used it runs every second turn. A suggestion is plain text of at most 240 characters; it is put in the box and never
-sent by itself, never given to a tool and never written to the history.
+in a row that nobody used it runs every second turn. A suggestion is a complete message of plain text, at most 480 characters and never
+cut mid-sentence; it is put in the box and never sent by itself, never given to a tool and never written to the history.
 """
 from __future__ import annotations
 
@@ -19,26 +19,37 @@ from harness.side import side_extra
 
 log = logging.getLogger("harness.suggestions")
 
-LABEL_CHARS, PROMPT_CHARS, MAX_ITEMS = 40, 240, 4
+PROMPT_CHARS, MAX_ITEMS = 480, 4          # the longest a chip may be; the instruction asks for about 300
 MIN_ANSWER_CHARS = 120                    # about 30 tokens: "Done." has nothing to follow up
-MAX_TOKENS = 160
-TIMEOUT_S = 8.0
+MAX_TOKENS = 480                          # three whole sentences with their reasons, in a language that takes many tokens per word
+TIMEOUT_S = 12.0
 UNUSED_BEFORE_BACKOFF = 3
 COLD_MIN_TOKENS = 2000                    # below this a cold cache costs nothing worth saving
 INSTRUCTION = (
-    "Write 3 messages the USER might send next, in the user's language, each in the user's voice (a request or a question, never a thanks "
-    "and never a question for the user). Make them different in kind: go deeper, apply it, check or compare. Use real names from the "
-    "answer. If nothing sensible follows, return an empty list. Output only JSON."
+    "Write 3 messages the USER might send next, in the language of the user's last message, each in the user's voice (a request or a "
+    "question, never a thanks and never a question for the user). Each must be complete and self-explanatory: one or two whole sentences "
+    "(about 120 to 300 characters) that the user could send as they are, without this conversation in front of them. Say what to do and on "
+    "what, with the real names from the answer (files, functions, numbers, terms), and add the reason or the detail that makes the request "
+    "precise. Never a vague line such as \"Explain more\" or \"Check it\", never an ellipsis, never cut off. Make them different in kind: "
+    "go deeper, apply it, check or compare. If nothing sensible follows, return an empty list. Output only JSON."
 )
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["suggestions"], "properties": {"suggestions": {
-    "type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["label", "prompt"],
-                               "properties": {"label": {"type": "string"}, "prompt": {"type": "string"}}}}}}
+    "type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["prompt"], "properties": {"prompt": {"type": "string"}}}}}}
 RESPONSE_FORMAT = {"type": "json_schema", "json_schema": {"name": "next_prompts", "strict": True, "schema": SCHEMA}}
+SENTENCE_END = ".!?"
+
+
+def whole(text: str, limit: int) -> str:
+    """`text` when it fits `limit`, else its longest run of whole sentences that fits; "" when not even the first sentence does."""
+    if len(text) <= limit:
+        return text
+    cut = max((i for i, ch in enumerate(text[:limit]) if ch in SENTENCE_END and (i + 1 == len(text) or text[i + 1] == " ")), default=-1)
+    return text[:cut + 1] if cut >= 0 else ""
 
 
 def parse(content: Any) -> List[Dict[str, str]]:
-    """The chips in a reply: label cut to 40 characters (made from the prompt when missing), prompt to 240, duplicates and near-duplicates
-    dropped, at most four. Anything that is not the expected JSON gives none."""
+    """The chips in a reply: the full text of each message, never cut in the middle (one over the limit keeps its whole sentences that fit,
+    or is dropped), duplicates and near-duplicates dropped, at most four. Anything that is not the expected JSON gives none."""
     try:
         data = json.loads(content) if isinstance(content, str) else content
         raw = data["suggestions"]
@@ -48,12 +59,12 @@ def parse(content: Any) -> List[Dict[str, str]]:
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
-        prompt = qs.clean(item.get("prompt"), PROMPT_CHARS)
+        prompt = whole(qs.clean(item.get("prompt"), 10 * PROMPT_CHARS), PROMPT_CHARS)
         key = qs._same(prompt)
         if len(prompt) < 3 or key in seen:
             continue
         seen.add(key)
-        out.append({"label": qs.clean(item.get("label"), LABEL_CHARS) or qs.clean(prompt, LABEL_CHARS), "prompt": prompt})
+        out.append({"prompt": prompt})
     return out[:MAX_ITEMS]
 
 

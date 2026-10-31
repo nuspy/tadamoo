@@ -138,8 +138,8 @@ void main() {
 
   testWidgets('a chip puts its text in the box and never sends', (tester) async {
     final picked = <String>[];
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: SuggestionChips(items: const [{'label': 'Deeper', 'prompt': 'Explain the validation step'}], onPick: picked.add))));
-    await tester.tap(find.text('Deeper'));
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: SuggestionChips(items: const [{'prompt': 'Explain the validation step'}], onPick: picked.add))));
+    await tester.tap(find.text('Explain the validation step'));
     expect(picked, ['Explain the validation step']);
   });
 

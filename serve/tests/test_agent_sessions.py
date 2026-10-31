@@ -332,7 +332,7 @@ def test_suggestions_are_kept_for_a_reload_and_dropped_at_the_next_message(make,
     sid = mgr.create(ws)["id"]
     mgr.send(sid, "chips")
     until(lambda: "suggestions" in kinds(mgr, sid))
-    assert mgr.get(sid)["suggestions"] == [{"label": "More", "prompt": "Tell me more"}]
+    assert mgr.get(sid)["suggestions"] == [{"prompt": "Tell me more"}]
     mgr.send(sid, "next")
     assert mgr.get(sid)["suggestions"] is None
 

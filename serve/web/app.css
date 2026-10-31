@@ -984,8 +984,10 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .aq-foot { align-items: center; }
 .aq-note { min-height: 1.4em; }
 .aq-sum { margin: 0; padding-left: 20px; overflow-wrap: anywhere; }
-.asuggest { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 12px; max-width: 900px; }
+.asuggest { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; margin: 6px 0 12px; max-width: 900px; }
 .asuggest .btn { min-height: var(--btn-h); max-width: 100%; text-align: left; overflow-wrap: anywhere; }
+.asuggest .achip-s { grid-column: 1; min-width: 0; padding: 8px 12px; white-space: normal; line-height: 1.45; }
+.asuggest .achip-x { grid-column: 2; grid-row: 1; }
 @media (pointer: coarse) { .aq-row, .aq-foot .btn, .asuggest .btn { min-height: 44px; } }
 .acap-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .acap { border-top: 1px solid var(--line-soft); padding-top: 8px; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 2px; }

@@ -1201,7 +1201,7 @@ class Session:
                 return False
             self._long_request = {**found, "text": text, "prior": self._long_prior(agent)}
             words = (found["words"] // 100) * 100 or found["words"]
-            strings = self.LONG_TEXT["it" if lf.detect_language(text) == "it" else "en"]
+            strings = self.LONG_TEXT["it" if lf.request_language(text) == "it" else "en"]
             point = "." if strings is self.LONG_TEXT["it"] else ","
             fill = {"words": f"{words:,}".replace(",", point), "tokens": f"{(found['tokens'] // 100) * 100 or found['tokens']:,}".replace(",", point), "parts": found["parts"]}
             payload = qs.normalise({"questions": [{"id": "long_parts", "text": strings["q"].format(**fill), "kind": "single", "allow_other": False,
