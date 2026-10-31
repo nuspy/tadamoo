@@ -1,9 +1,9 @@
 """E8: Optimize prompt, off or on.
 
-Question: on short requests that carry something a rewrite must keep (names, numbers, quotations, code, paths, links), does rewriting the request in
+Question: on requests, short, vague or long, that carry something a rewrite must keep (names, numbers, quotations, code, paths, links), does rewriting in
 the technical session before the model reads it make the task end right more often, does it keep what the person wrote, and what does it cost in time?
 
-Arms: A `--optimize-prompt off`, B `--optimize-prompt on` (docs/intake.md); `A~aa` is A again. Fixture: `fixtures/optimize_prompts.py`, twenty requests,
+Arms: A `--optimize-prompt off`, B `--optimize-prompt on` (docs/intake.md); `A~aa` is A again. Fixture: `fixtures/optimize_prompts.py`, twenty-nine requests (short, vague, long, mixed Italian and English),
 each in its own workspace, attended, with the look at a request off so only the rewrite differs. B needs a server started with `--side-slot`; without
 one its trials are invalid, not failures. The scorer is deterministic: the rows' own checks decide the task, and what the model was given is compared
 with what the person wrote by the same protected-content check the harness applies (`harness.optimize.lost`). No model judges anything.
@@ -119,4 +119,4 @@ def run_prompt(arm: Arm, row: Dict[str, Any], rep: int, ctx: Context) -> CaseTri
 def experiment() -> Experiment:
     return Experiment(
         id="e8", title="Optimize prompt: off or on", arms=ARMS, rule=RULE, columns=COLUMNS, tasks=prompts, run_trial=run_prompt, task_id=lambda r: r["id"], default_k=5,
-        question="Does rewriting a short request in the technical session before the model reads it make the task end right more often without losing what the person wrote, and at what cost in time?")
+        question="Does rewriting a request in the technical session before the model reads it make the task end right more often without losing what the person wrote, and at what cost in time?")

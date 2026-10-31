@@ -211,11 +211,17 @@ def test_e4_has_twenty_prompts_in_six_kinds_and_every_reference_passes():
         assert untouched[1] and solved[1] == [], r["id"]
 
 
-def test_e8_has_twenty_requests_in_six_kinds_each_with_something_to_keep_and_every_reference_passes():
+def test_e8_has_twenty_nine_requests_in_nine_kinds_each_with_something_to_keep_and_every_reference_passes():
     assert optimize_prompts.prompts() is e8_optimize.prompts() or optimize_prompts.prompts() == e8_optimize.prompts()
     rows = e8_optimize.prompts()
-    assert len(rows) == 20 and len({r["id"] for r in rows}) == 20
-    assert {r["category"] for r in rows} == {"terse", "numbers", "quoted", "code", "paths", "italian"}
+    assert len(rows) == 29 and len({r["id"] for r in rows}) == 29
+    assert {r["category"] for r in rows} == {"terse", "numbers", "quoted", "code", "paths", "italian", "vague", "long", "mixed"}
+    kinds_of = {c: [r for r in rows if r["category"] == c] for c in ("vague", "long", "mixed")}
+    assert [len(v) for v in kinds_of.values()] == [3, 4, 2]
+    assert all(len(r["text"].split()) <= 12 and "\n" not in r["text"] for r in kinds_of["vague"])              # one line
+    assert all(150 <= len(r["text"].split()) <= 400 and len(r["text"]) <= opt.MAX_INPUT_CHARS for r in kinds_of["long"])
+    assert sum(1 for r in kinds_of["long"] if "```" in r["text"]) >= 1 and sum(1 for r in kinds_of["long"] if "https://" in r["text"]) >= 3
+    assert any("1. " in r["text"] for r in kinds_of["long"]) and any(r["text"].startswith("Ciao") for r in kinds_of["long"])
     for r in rows:
         assert len(r["text"].split()) >= opt.MIN_WORDS and opt.skip_reason(r["text"]) == "", r["id"]            # none is left alone by the guards
         assert opt.protected(r["text"]), r["id"]                                                              # and each has something a rewrite must keep

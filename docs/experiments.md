@@ -281,7 +281,7 @@ nothing. **Run it once for each server setup that matters**: `--parallel 1`, `--
 
 ## E8. Optimize prompt: off or on
 
-**Question.** On short requests that carry something a rewrite must keep (names, numbers, quotations, code, paths, links), does rewriting the request in
+**Question.** On requests, short, vague or long, that carry something a rewrite must keep (names, numbers, quotations, code, paths, links), does rewriting the request in
 the technical session before the model reads it make the task end right more often, does it keep what the person wrote, and what does it cost in time?
 
 | Arm | Setting | Selected by |
@@ -293,21 +293,24 @@ the technical session before the model reads it make the task end right more oft
 The look at a request is off in every arm, so only the rewrite differs. `B` needs a server started with `--side-slot` (`--server-setup "side-slot=30000"`
 names it in the report); without one its trials are marked invalid, not failed.
 
-**Fixture** (`fixtures/optimize_prompts.py`): twenty requests of four words or more, each in a workspace of its own: five terse ones that name files,
-four with numbers that must not change, three with a quotation, two with code, three with paths or a link, three in Italian. Each has checks that
+**Fixture** (`fixtures/optimize_prompts.py`): twenty-nine requests of four words or more, each in a workspace of its own. Twenty are short: five terse ones that
+name files, four with numbers that must not change, three with a quotation, two with code, three with paths or a link, three in Italian. Three are vague one-liners
+(the substance is in a file of the workspace). Four are long, 150 to 400 words: a status file with a numbered list of sections, inline code and two links; an
+environment script given as a code block with ports and counts that must not change; a request in Italian with quotations, a date and an address; and a rambling
+email in English with one quotation to copy and a sum to make. Two mix Italian and English. Each has checks that
 decide the task; the reference solutions pass them and the untouched workspaces fail. What a rewrite must keep is read from the text by
 `harness.optimize.protected`, the same function the harness uses, so the fixture and the guard cannot disagree.
 
 **Scorer.** The checks decide `success`. `protected_kept` is 1 when the message the model read still holds every protected item of the request
 (`harness.optimize.lost` finds none), whatever the arm; `good` is `success` and `protected_kept`. `optimized` is a rewrite that was used, `rejected` one
 the harness threw away, `lost` one thrown away for losing content. `optimize_seconds` is the time of the call, `seconds` the whole trial. **Metrics**: good,
-success, protected_kept, optimized, rejected, lost, optimize_seconds, seconds, tokens (the helper call included), model calls. **k = 5**, 20 requests, 3 arms: 300 trials.
+success, protected_kept, optimized, rejected, lost, optimize_seconds, seconds, tokens (the helper call included), model calls. **k = 5**, 29 requests, 3 arms: 435 trials.
 
 **Rule.** `B` beats `off` when its `good` share is higher than the pooled off and A/A share by more than the gap and by 10 points, it never gives the
 model a message that lost protected content, and it does not take more than 50% more seconds.
 
 **Not covered.** The language of the rewrite is not checked (a rewrite into another language would pass if it kept the protected items); the requests are
-short file tasks, so the answer says little about long or vague requests; the rate of `rejected` shows how often the model cannot be trusted to keep
+file tasks, so the answer says little about open-ended work; the rate of `rejected` shows how often the model cannot be trusted to keep
 content, which the rule does not weigh.
 
 ## Running order and cost

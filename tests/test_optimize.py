@@ -40,6 +40,8 @@ class Model:
             is_short = messages[0]["content"] == opt.SYSTEM_PROMPT
             (self.short if is_short else self.main).append({"messages": copy.deepcopy(messages), "tools": tools, **kw})
             step = (self.rewrites if is_short else self.answers).pop(0)
+        if callable(step):
+            step = step()
         if isinstance(step, BaseException):
             raise step
         return step if isinstance(step, dict) else say(step)
@@ -158,6 +160,13 @@ def test_without_a_technical_session_or_with_the_option_off_or_on_another_route_
     assert opt.Optimizer(Model([BETTER]), True).run("ok").reason == "short"
 
 
+def test_ready_says_in_a_word_why_no_call_will_be_made():
+    assert opt.Optimizer(Model(), True).ready(ASK) == "" and opt.Optimizer(Model(), False).ready(ASK) == "off"
+    assert opt.Optimizer(Model(side=0), True).ready(ASK) == "no_session" and opt.Optimizer(Model(stays=False), True).ready(ASK) == "route"
+    assert opt.Optimizer(Model(), True).ready("ok") == "short" and opt.Optimizer(Model(), True).ready(ASK, attended=False) == "unattended"
+    assert opt.Optimizer(None, True).ready(ASK) == "off"
+
+
 def test_a_failed_slow_or_unchanged_call_sends_the_original_without_a_word():
     for step in (RuntimeError("down"), TimeoutError("slow"), {"nothing": 1}, say(None)):
         got = opt.Optimizer(Model([step]), True).run(ASK)
@@ -255,6 +264,42 @@ def test_a_later_turn_keeps_the_rewrite_byte_for_byte_and_makes_no_new_call_for_
     assert model.short[1]["messages"][1]["content"].startswith("<previous>\n" + ASK + "\n</previous>")      # the person's words, not the rewrite
 
 
+def test_the_page_is_told_the_prompt_is_being_rewritten_and_when_that_ends(tmp_path):
+    model = Model([BETTER], ["Done."])
+    session, ev, built = session_with(tmp_path, model)
+    session.send("m1", ASK)
+    ev.wait("done")
+    names = [e["event"] for e in ev.items]
+    assert names.index("optimizing") < names.index("optimized") < names.index("done") and ev.wait("optimizing")["turn"] == "m1"
+    failing = Model([RuntimeError("down")], ["Done."])
+    session2, ev2, built2 = session_with(tmp_path / "failing", failing)
+    session2.send("m1", ASK)
+    ev2.wait("done")
+    ended = ev2.wait("optimized")
+    assert (ended["state"], ended["reason"]) == ("skipped", "failed") and "text" not in ended          # the line on the page is closed even when nothing came of it
+    short = Model([BETTER], ["Done."])
+    session3, ev3, built3 = session_with(tmp_path / "short", short)
+    session3.send("m1", "ok")
+    ev3.wait("done")
+    assert not [e for e in ev3.items if e["event"] in ("optimizing", "optimized")]                      # nothing is shown for a message that is left alone
+
+
+def test_stop_during_the_rewrite_gives_it_up_sends_the_original_and_does_not_stop_the_task(tmp_path):
+    gate = threading.Event()
+    model = Model([lambda: (gate.wait(10), say(BETTER))[1]], ["Done."])
+    session, ev, built = session_with(tmp_path, model)
+    session.send("m1", ASK)
+    ev.wait("optimizing")
+    session.cancel()
+    try:
+        assert ev.wait("done")["final"] == "Done."
+        stopped = ev.wait("optimized")
+        assert (stopped["state"], stopped["reason"]) == ("skipped", "stopped")
+        assert users(model.main[0])[-1]["content"] == ASK and not any(m.get("opt") for m in built.agent.messages)
+    finally:
+        gate.set()
+
+
 def test_a_rejected_rewrite_sends_the_original_and_says_why(tmp_path):
     model = Model([BETTER.replace("data.csv", "the table")], ["Done."])
     session, ev, built = session_with(tmp_path, model)
@@ -272,7 +317,8 @@ def test_nothing_is_said_when_the_call_fails_and_the_original_goes(tmp_path):
     session, ev, built = session_with(tmp_path, model)
     session.send("m1", ASK)
     ev.wait("done")
-    assert [e for e in ev.items if e["event"] == "optimized"] == [] and users(model.main[0])[-1]["content"] == ASK
+    assert [e["state"] for e in ev.items if e["event"] == "optimized"] == ["skipped"]                  # it only closes the "rewriting" line; the page shows no note
+    assert users(model.main[0])[-1]["content"] == ASK
 
 
 @pytest.mark.parametrize("text", ["/status please show me", "Target Loop \u00b7 task 1 of 2: " + ASK, "ok", "fix it", qs.ANSWER_HEADER + "\n1. Which? -> build\n" + qs.GO_ON])
