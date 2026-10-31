@@ -1,6 +1,6 @@
-"""PROPOSAL, off unless the owner turns it on (`--error-classifier`): tell a model error that waiting can cure from one it cannot.
+"""Tell a model error that waiting can cure from one it cannot (on by default; `--no-error-classifier` turns it off).
 
-Today every failed model call is retried without end, whatever the error, with waits that grow: a server that is not up yet, a model
+Without it every failed model call is retried without end, whatever the error, with waits that grow: a server that is not up yet, a model
 that is still loading and a request the server will always refuse all look the same. This module sorts an error into one of three
 kinds from the HTTP status (0: the server could not be reached) and the words of the message:
 
@@ -8,8 +8,7 @@ kinds from the HTTP status (0: the server could not be reached) and the words of
 * `overflow`: the conversation is longer than the model's context. Asking again unchanged cannot work; the context has to shrink first.
 * `deterministic`: a malformed request, a refused key, a missing endpoint. The same request will get the same answer.
 
-With the setting on, the session ends a turn on a `deterministic` error and shows the error; `transient` and `overflow` are retried as before.
-Whether a turn may end on a model error at all is the owner's decision, against the rule that a turn is never left blocked by the model.
+With the setting on, the session ends a turn on a `deterministic` error and shows the error; `transient` and `overflow` are retried.
 """
 from __future__ import annotations
 
