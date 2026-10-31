@@ -14,10 +14,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import optimize as opt
 from harness import questions as qs
 from harness.eval import cases
-from harness.eval.cases import e1_target, e2_gate, e3_errors, e4_intake, e5_compaction, e6_longform, e7_cache, e8_optimize
+from harness.eval.cases import e1_target, e2_gate, e3_errors, e4_intake, e5_compaction, e6_longform, e7_cache, e8_optimize, e9_context
 from harness.eval.cases.agentrun import FIXED_NOW
 from harness.eval.cases.core import Context, decide, render_report, run_experiment
-from harness.eval.cases.fixtures import gate_tasks, long_turn_repo, shop_repo
+from harness.eval.cases.fixtures import context_probes, gate_tasks, long_turn_repo, shop_repo
 from test_cases_core import perfect
 from test_intake import form
 
@@ -388,6 +388,43 @@ def test_e5_a_run_that_stops_early_is_a_failed_trial_that_says_what_is_left():
     variant = {"id": "mini", "modules": 6, "seed": 3}
     trial = e5_compaction.run_long(e5_compaction.ARMS[1], variant, 1, Context(client=Fake(Steps(say("I looked at it and it seems fine."))), power_limit_w=400.0))
     assert not trial.success and any("misspelling" in n for n in trial.notes) and trial.metrics["rule_obeyed"] == 0.0
+
+
+# -- E9 ------------------------------------------------------------------------------------------------------------------
+
+def test_e9_the_probes_have_known_answers_and_the_arms_set_compaction_and_the_agent_has_no_tool_for_them(monkeypatch):
+    variant = {"id": "mini", "modules": 24, "seed": 3}
+    repo = long_turn_repo.build(24, 3)
+    probes = context_probes.build(repo, 24)
+    assert [p["kind"] for p in probes].count("name") == 3 and probes[-1]["expect"] == "frozen" and probes[-2]["expect"] == long_turn_repo.FINAL_LINE
+    assert context_probes.right({"kind": "number", "id": "x", "expect": "7"}, "It has 7.") and not context_probes.right({"kind": "number", "id": "x", "expect": "7"}, "It has 17 or 70")
+    assert context_probes.right({"kind": "text", "id": "rule-frozen", "expect": "frozen"}, "The Frozen folder")
+    files, order, answer = perfect(repo)
+    changed = [(p, files[p]) for p in sorted(files) if files[p] != repo.files.get(p)]
+    work = writes(repo.files, changed) + [say(answer)]
+    seen = []
+    real = e9_context.open_agent
+    monkeypatch.setattr(e9_context, "open_agent", lambda workspace, client, data, **kw: seen.append(kw) or real(workspace, client, data, **kw))
+    arms = {a.name: a for a in e9_context.ARMS}
+    knows = Fake(Steps(*copy.deepcopy(work), *[say("It is " + str(p["expect"])) for p in probes]))
+    forgot = Fake(Steps(*copy.deepcopy(work), *[say("I do not remember.")] * len(probes)))
+    good = e9_context.run_trial(arms["A"], variant, 1, Context(client=knows, power_limit_w=400.0, extra={"window": 400000}))
+    bad = e9_context.run_trial(arms["N"], variant, 1, Context(client=forgot, power_limit_w=400.0, extra={"window": 400000}))
+    assert seen[0]["compaction"] is True and seen[1]["compaction"] is False
+    assert good.success and good.metrics["recall"] == 1.0 and good.metrics["probes_right"] == len(probes)
+    assert bad.metrics["recall"] == 0.0 and any("probes answered wrong" in n for n in bad.notes)
+    assert all(not r.get("tools") for r in knows.requests[-len(probes):])                          # no tool is left to answer a probe with
+    assert good.metrics["reread_tokens"] == good.metrics["prompt_tokens"] - good.metrics["cached_tokens"]
+
+
+def test_e9_a_run_that_stops_early_asks_no_probe_and_the_experiment_is_registered():
+    variant = {"id": "mini", "modules": 24, "seed": 3}
+    trial = e9_context.run_trial(e9_context.ARMS[1], variant, 1, Context(client=Fake(Steps(say("It seems fine."))), power_limit_w=400.0))
+    assert trial.metrics["recall"] in (0.0, 1.0) and trial.metrics["probes_right"] <= 10
+    from harness.eval import cases
+    exp = cases.load("e9")
+    assert [a.name for a in exp.arms] == ["N", "A", "N~aa"] and exp.rule.baseline == "N" and exp.rule.challengers == ("A",)
+    assert e9_context.generation_of([{"role": "user", "content": "[Compacted record: generation 2; 3 messages, about 900 tokens, written here in about 90]"}, {"role": "user", "content": "x"}]) == 2
 
 
 # -- E6 ------------------------------------------------------------------------------------------------------------------

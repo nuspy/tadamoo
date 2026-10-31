@@ -313,6 +313,32 @@ model a message that lost protected content, and it does not take more than 50% 
 file tasks, so the answer says little about open-ended work; the rate of `rejected` shows how often the model cannot be trusted to keep
 content, which the rule does not weigh.
 
+## E9. Context layers: what the agent still knows after a fold
+
+**Question.** When a long agent conversation outgrows the context, what the agent can still answer about the folded part depends on who summarises. Basalt's compaction, written from
+the originals in the technical session ([context-layers](context-layers.md)), against masking alone. The design also compares the proxy folding old turns by itself, alone and stacked
+with Basalt's compaction; those arms need the proxy in the loop and are not built, so this case answers the first half.
+
+| Arm | Setting | Selected by |
+|---|---|---|
+| `N` | compaction off, masking only | `--no-compaction` |
+| `A` | compaction on, written from the originals | `--compaction-threshold 0.85` (the default) |
+| `N~aa` | `N` again | |
+
+**Fixture.** The long-turn repository of E5 (`fixtures/long_turn_repo.py`), run past the point where a compaction is due (a small window, as in E5), then ten probes put to the same conversation by
+the harness with the tools taken away (`fixtures/context_probes.py`): three ask the name of the first function of a module, three the value of its `LIMIT`, two how many functions it has, one the
+closing line of the final answer and one the folder that must stay as it is. The modules are taken from the first third of the job, which a fold takes first, and every answer is known from the
+generated files; each probe is checked by the text of the reply.
+
+**Scorer.** `success` is the task's checks. `recall` is the share of probes answered right. `reread_tokens` is what the server read again (prompt tokens less cached tokens), `compactions` and
+`generation` come from the compaction counter and the compacted records the conversation holds. **Metrics**: success, recall, reread_tokens, compactions, generation, tokens, tool calls, seconds. **k = 5**.
+
+**Rule.** `A` beats `N` when its `recall` is higher than the pooled `N` and `N~aa` rate by more than the gap and by 10 points, its `success` is not lower by more than the gap, and it takes no more than
+twice `N`'s seconds. Tokens read again are reported, not decided on.
+
+**Not built.** The proxy arms; probes about error text and decisions (they need a transcript to know the answer); the second part, the Chat's short record on scripted chats; the gain of a
+compaction made in parts.
+
 ## Running order and cost
 
 These are guesses until the first run. E3 and E7 are short. E2, E4 and E8 are many short trials (a few hours; E8 adds one short call per trial). E1 and E6 are slower (each E1 trial is
@@ -325,7 +351,7 @@ a whole Target Loop; each long E6 text takes several minutes), and E5 is the slo
 |---|---|
 | `harness/eval/cases/core.py` | arms, trials, the A/A control, the decision rule, the report |
 | `harness/eval/cases/agentrun.py` | a counting client, an in-process Target Loop conversation, the session helper, the transcript measures |
-| `harness/eval/cases/e1_target.py` ... `e8_optimize.py` | one experiment each |
+| `harness/eval/cases/e1_target.py` ... `e9_context.py` | one experiment each |
 | `harness/eval/cases/scripted_server.py` | the scripted server of E3 |
 | `harness/eval/cases/fixtures/` | the task material: `shop_repo.py` (E1), `gate_tasks.py` (E2), `error_scenarios.py` (E3), `intake_prompts.py` (E4), `long_turn_repo.py` (E5), `longform_texts.py` (E6), `optimize_prompts.py` (E8) |
 | `harness/eval/cases/__main__.py` | the command line |
