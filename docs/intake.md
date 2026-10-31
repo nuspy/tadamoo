@@ -85,13 +85,13 @@ A checkbox beside the Prompt analysis switch (Settings > Inference, and the Chat
 in `intake.json`, told to running conversations by the process command `optimize`, started with `--optimize-prompt on`). When it is on, the
 message the person sends is rewritten by one short call before the model reads it. It works with the analysis in any state, including Off.
 
-**Available only with the technical session.** The box is disabled, with the reason written beside it ("Needs the technical session") and a tooltip
+**Available only with the technical session.** Without one it cannot be switched on: the box is disabled, with the reason written beside it ("Needs the technical session") and a tooltip
 that says how to turn it on (Loader > Technical session, then load the model), whenever the server's `/v1/status` (`concurrency.side_slot`, the
 source `harness/side.py` reads) reports no session. The page asks when it opens, on every change of view and after a load in the Loader finishes
 (`basalt:loader`). The server refuses to save `true` without a session (a 400 with the reason); `false` is always saved. If the session goes while the
 box is ticked, the saved value stays, the box shows a dash and the reason "Saved as on, but not used", and the harness makes no call and rewrites
-nothing (it asks the client for `side_extra()` each time, and never uses a route that is not this server). Switching it off then is done with
-Default values. Tooltip: "Before your message reaches the model, a quick helper pass rewrites it as a clearer, more complete instruction. The chat
+nothing (it asks the client for `side_extra()` each time, and never uses a route that is not this server). The box stays clickable then, for one
+thing only: a click switches it off (it can never be switched on without the session). Tooltip: "Before your message reaches the model, a quick helper pass rewrites it as a clearer, more complete instruction. The chat
 still shows what you wrote. Needs the technical session."
 
 **The call** (`harness/optimize.py`, from `_intake_step` after the cleaning and the Long answer check, before the model's first step). One request on the
@@ -108,6 +108,10 @@ message that arrives while a task runs, and any failure or timeout of the call. 
 (`leak`) or begins like an answer ("Sure", "Ecco", "I'll ...", `answer`); its length is under half or over four times the message (`ratio`); it lost
 something the person wrote (`lost`, naming it): any code block or inline code, link, address, absolute or relative path, file name, mention, quoted
 string (any quotation marks) and number of the original must be in it, as the same text.
+
+**While it runs.** The page shows the line "Rewriting the prompt…" (`optimizing` event) from the moment the call starts until it ends, whatever the
+outcome (`optimized` event, also for a failure, where nothing else is shown). Stop gives the call up at once, says "Rewrite skipped: your original was
+sent." and the task goes on with the original; it is the Stop of the whole conversation otherwise (it still clears what waits in the queue).
 
 **What is shown and kept.** The bubble keeps the person's words (`raw`); the model receives the rewrite (`content`); `last_user_text` and the
 checks of the answer stay the person's words. Under the message, a closed block "Optimized prompt" holds the text the model got, with a button "Send
