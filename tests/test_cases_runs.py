@@ -396,7 +396,9 @@ def test_e9_the_probes_have_known_answers_and_the_arms_set_compaction_and_the_ag
     variant = {"id": "mini", "modules": 24, "seed": 3}
     repo = long_turn_repo.build(24, 3)
     probes = context_probes.build(repo, 24)
-    assert [p["kind"] for p in probes].count("name") == 3 and probes[-1]["expect"] == "frozen" and probes[-2]["expect"] == long_turn_repo.FINAL_LINE
+    assert [p["group"] for p in probes].count("incidental") == 6 or len(probes) >= 8
+    assert probes[-1]["expect"] == "frozen" and probes[-2]["expect"] == long_turn_repo.FINAL_LINE
+    assert context_probes.right({"kind": "yesno", "id": "t", "expect": "yes"}, "Yes, it did.") and not context_probes.right({"kind": "yesno", "id": "t", "expect": "no"}, "Yes")
     assert context_probes.right({"kind": "number", "id": "x", "expect": "7"}, "It has 7.") and not context_probes.right({"kind": "number", "id": "x", "expect": "7"}, "It has 17 or 70")
     assert context_probes.right({"kind": "text", "id": "rule-frozen", "expect": "frozen"}, "The Frozen folder")
     files, order, answer = perfect(repo)
@@ -406,13 +408,13 @@ def test_e9_the_probes_have_known_answers_and_the_arms_set_compaction_and_the_ag
     real = e9_context.open_agent
     monkeypatch.setattr(e9_context, "open_agent", lambda workspace, client, data, **kw: seen.append(kw) or real(workspace, client, data, **kw))
     arms = {a.name: a for a in e9_context.ARMS}
-    knows = Fake(Steps(*copy.deepcopy(work), *[say("It is " + str(p["expect"])) for p in probes]))
+    knows = Fake(Steps(*copy.deepcopy(work), *[say(("Yes. " if p["expect"] == "yes" else "No. " if p["expect"] == "no" else "It is ") + str(p["expect"])) for p in probes]))
     forgot = Fake(Steps(*copy.deepcopy(work), *[say("I do not remember.")] * len(probes)))
     good = e9_context.run_trial(arms["A"], variant, 1, Context(client=knows, power_limit_w=400.0, extra={"window": 400000}))
     bad = e9_context.run_trial(arms["N"], variant, 1, Context(client=forgot, power_limit_w=400.0, extra={"window": 400000}))
     assert seen[0]["compaction"] is True and seen[1]["compaction"] is False
-    assert good.success and good.metrics["recall"] == 1.0 and good.metrics["probes_right"] == len(probes)
-    assert bad.metrics["recall"] == 0.0 and any("probes answered wrong" in n for n in bad.notes)
+    assert good.success and good.metrics["recall"] == 1.0 and good.metrics["recall_task"] == 1.0 and good.metrics["probes_right"] == len(probes)
+    assert bad.metrics["recall"] == 0.0 and bad.metrics["recall_task"] == 0.0 and any("probes answered wrong" in n for n in bad.notes)
     assert all(not r.get("tools") for r in knows.requests[-len(probes):])                          # no tool is left to answer a probe with
     assert good.metrics["reread_tokens"] == good.metrics["prompt_tokens"] - good.metrics["cached_tokens"]
 

@@ -326,14 +326,14 @@ with Basalt's compaction; those arms need the proxy in the loop and are not buil
 | `N~aa` | `N` again | |
 
 **Fixture.** The long-turn repository of E5 (`fixtures/long_turn_repo.py`), run past the point where a compaction is due (a small window, as in E5), then ten probes put to the same conversation by
-the harness with the tools taken away (`fixtures/context_probes.py`): three ask the name of the first function of a module, three the value of its `LIMIT`, two how many functions it has, one the
-closing line of the final answer and one the folder that must stay as it is. The modules are taken from the first third of the job, which a fold takes first, and every answer is known from the
-generated files; each probe is checked by the text of the reply.
+the harness with the tools taken away (`fixtures/context_probes.py`), fourteen of them about the first modules of the job, which a fold takes first. Eight are what the job needed later (task): how
+many functions three modules have (the ledger lines), whether three modules had the misspelling, the closing line of the final answer, the folder that must stay as it is. Six are what no later step
+needed (incidental): the name of the first function of three modules and the value of `LIMIT` in three others. Every answer is known from the generated files; each probe is checked by the text of the reply.
 
 **Scorer.** `success` is the task's checks. `recall` is the share of probes answered right. `reread_tokens` is what the server read again (prompt tokens less cached tokens), `compactions` and
-`generation` come from the compaction counter and the compacted records the conversation holds. **Metrics**: success, recall, reread_tokens, compactions, generation, tokens, tool calls, seconds. **k = 5**.
+`generation` come from the compaction counter and the compacted records the conversation holds. **Metrics**: success, recall_task, recall_incidental, recall (all), reread_tokens, compactions, generation, tokens, tool calls, seconds. **k = 5**.
 
-**Rule.** `A` beats `N` when its `recall` is higher than the pooled `N` and `N~aa` rate by more than the gap and by 10 points, its `success` is not lower by more than the gap, and it takes no more than
+**Rule.** `A` beats `N` when its `recall_task` is higher than the pooled `N` and `N~aa` rate by more than the gap and by 10 points, its `success` is not lower by more than the gap, and it takes no more than
 twice `N`'s seconds. Tokens read again are reported, not decided on.
 
 **Not built.** The proxy arms; probes about error text and decisions (they need a transcript to know the answer); the second part, the Chat's short record on scripted chats; the gain of a
