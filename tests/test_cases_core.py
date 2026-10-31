@@ -408,7 +408,7 @@ def test_e2_arms_are_agent_config_fields():
 def test_e3_e4_e5_arms_are_the_flags_the_session_and_the_agent_take():
     from harness.session import parse_args
     assert {a.name: a.settings["classify_errors"] for a in e3_errors.ARMS} == {"A": False, "B": True, "A~aa": False}
-    assert parse_args(["--error-classifier"]).error_classifier is True
+    assert parse_args([]).no_error_classifier is False and parse_args(["--no-error-classifier"]).no_error_classifier is True
     assert {a.settings["intake"] for a in e4_intake.ARMS} == set(it.MODES)
     assert all(parse_args(["--intake", a.settings["intake"]]).intake == a.settings["intake"] for a in e4_intake.ARMS)
     fields = {f.name for f in dataclasses.fields(AgentConfig)}

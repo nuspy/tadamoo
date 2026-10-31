@@ -13,16 +13,16 @@ Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd
 Events: ready, accepted, queued, routed, started, suspended, resumed, agent (an assistant text or a tool start or end), delta
 (text as it is written), ask (a confirmation the task waits for, or a card of questions that ends the turn), intake (what the look at a request assumed
 or recorded), optimizing and optimized (the technical session's rewrite of the message is being made; then the rewrite, or why it was not used), suggestions (the next-message chips after an answer),
-retrying, model_error (only with the error-classifier proposal), done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, role, checks, effort, intake_mode, optimize_prompt, settings, command, skill, skill_say, heartbeat, error.
+retrying, model_error (only with the error classifier on), done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, role, checks, effort, intake_mode, optimize_prompt, settings, command, skill, skill_say, heartbeat, error.
 
 A message that comes while a task is under way is looked at before the task's next model call (harness/router.py): it goes into
 that task (steer), waits its turn (queue), or, when it cannot wait and has nothing to do with the task, the task is put aside where
 it stands, the urgent one is done, and the first goes on afterwards. When the model answers several requests at once, a request that
 would wait is done beside the task instead.
 
-A failed model call is retried here, with growing waits that never end by themselves, whatever the error (only with the proposal
-`--error-classifier`, awaiting the owner's decision, does an error that waiting cannot cure end the turn): the `retrying` event says
-what is waited for, and a server that is up with no model loaded is asked to load one (the Loader's refusal is in the event); nothing
+A failed model call is retried here, with growing waits that never end by themselves, unless the
+error classifier (on by default, `--no-error-classifier` turns it off) finds that waiting cannot cure it, and then the turn ends:
+the `retrying` event says what is waited for, and a server that is up with no model loaded is asked to load one (the Loader's refusal is in the event); nothing
 about the model ends the turn as `blocked`, and the person can always stop it. If the process dies while a tool that cannot be undone
 is running, the next start puts a note in the conversation that the call may already have run and must be checked before it is
 repeated; the work itself goes on.
@@ -247,10 +247,10 @@ class Session:
     def __init__(self, built: BuiltAgent, store: SessionStore, emit: Callable[[Dict[str, Any]], None], session_id: str = "",
                  waits: tuple = BACKOFF_S, sleep: Callable[[float], None] = time.sleep,
                  health: Optional[Callable[[], Dict[str, Any]]] = None, router: Optional[Router] = None, unattended: bool = False,
-                 classify_errors: bool = False) -> None:
+                 classify_errors: bool = True) -> None:
         self.built, self.store, self.emit = built, store, emit
         self.unattended = unattended                            # nobody is there to answer: a question never blocks (see the module's text)
-        self.classify_errors = classify_errors                  # proposal, off: a model error that waiting cannot cure ends the turn (harness/error_classifier.py)
+        self.classify_errors = classify_errors                  # a model error that waiting cannot cure ends the turn (harness/error_classifier.py)
         self._parked: Dict[str, Dict[str, Any]] = {}            # questions left for the person, by id
         self._granted: List[str] = []                           # permission questions the person approved after the call was refused
         self.agent = built.agent
