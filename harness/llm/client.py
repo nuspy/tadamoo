@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 import requests
 
 from harness.client import BasaltError, _collect_stream
+from harness import side_uses
 from harness.llm import functions
 from harness.llm.profile import RouteProfile, route_profile
 from harness.llm.store import Ledger, SecureRegistry, is_local
@@ -22,7 +23,7 @@ from harness.llmswitch.providers import TYPES
 
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 4096
-THIS_SERVER_ONLY = ("end_turn_bias", "repetition_penalty", "cache_slot")      # options only the loaded model's server understands (a sampling option, the slot a call runs in)
+THIS_SERVER_ONLY = ("end_turn_bias", "repetition_penalty", "cache_slot", "side_use")      # options only the loaded model's server understands (a sampling option, the slot a call runs in)
 
 
 class NotAllowed(BasaltError):
@@ -136,7 +137,14 @@ class RoutedClient:
         return self.local.metrics(*a, **k)
 
     def side_context(self) -> int:
-        """The tokens the loaded model's technical session holds (0: it has none)."""
+        """The tokens the technical session holds for this function: the loaded model's own session on this PC (0: it has none). On a route
+        to another provider there is no session: the function `technical` there gives the window the person set for it (at most 30000),
+        and only while the master switch for outside providers is on (harness/side_uses.py); any other function gets 0."""
+        if not self.stays_local():
+            if self.function != "technical" or not side_uses.external_on():
+                return 0
+            window = int(self.profile().context_window or 0) or side_uses.EXTERNAL_WINDOW
+            return min(window, side_uses.EXTERNAL_WINDOW)
         ask = getattr(self.local, "side_context", None)
         return int(ask()) if callable(ask) else 0
 

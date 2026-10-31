@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from harness import control_secret
 from harness import questions as qs
+from harness import side_uses
 from harness.side import side_extra
 
 log = logging.getLogger("harness.intake")
@@ -30,8 +31,6 @@ MODES = ("off", "rules", "full")
 DEFAULT_MODE = "off"
 DEFAULT_SIDE_CALL_TOKENS = 6000          # a conversation longer than this gets no extra model call while its cache is warm
 TRIAGE_INPUT_CHARS = 3000
-TRIAGE_TOKENS = 600
-TRIAGE_TIMEOUT_S = 30.0
 MAX_MISSING, MAX_SUBTASKS, MIN_SUBTASKS = 4, 6, 3
 EVIDENCE_CHARS, CONSTRAINT_CHARS, SPAN_CHARS, TITLE_CHARS, ACCEPT_CHARS = 160, 160, 200, 80, 120
 ASK_LIMIT = {"chat": 3.0, "agent": 2.0, "agent_started": 6.0}     # a question is asked when its risk is above the cost of asking
@@ -384,8 +383,8 @@ class Intake:
         try:
             resp = self.client.chat_completion(
                 messages=[{"role": "system", "content": TRIAGE_PROMPT}, {"role": "user", "content": f"FACTS\n{facts}\n\nMESSAGE\n{text[:TRIAGE_INPUT_CHARS]}"}],
-                temperature=0.0, max_tokens=TRIAGE_TOKENS, timeout=TRIAGE_TIMEOUT_S, response_format=RESPONSE_FORMAT,
-                extra={"reasoning_effort": "none", **side_extra(self.client)})
+                temperature=0.0, max_tokens=int(side_uses.param("triage", "max_tokens")), timeout=side_uses.param("triage", "timeout_s"), response_format=RESPONSE_FORMAT,
+                extra={"reasoning_effort": "none", **side_extra(self.client, "triage")})
             content = resp["choices"][0]["message"].get("content") or ""
             return validate(json.loads(content), text)
         except Exception as exc:                                  # any failure of an extra call is a skipped call, never an error for the person

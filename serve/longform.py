@@ -879,7 +879,7 @@ def _side() -> Dict[str, Any]:
         from harness.side import side_extra
     except ImportError:
         return {}
-    return dict(side_extra())
+    return dict(side_extra(use="longform"))
 
 
 # -- the run -----------------------------------------------------------------------------------------------------------

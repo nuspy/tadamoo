@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
+from harness import side_uses
 from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
@@ -499,6 +500,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/billion-context":
                 if self._authorized():
                     self._json(200, billion_context.get().view())
+            elif path == "/api/side-uses":
+                if self._authorized():
+                    self._json(200, self._side_uses_view())
             elif path == "/api/knowledge":
                 if self._authorized():
                     self._json(200, KnowledgePrefs(userdata.path("knowledge.json")).view())
@@ -696,6 +700,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/billion-context":
                 self._billion_context_post()
+            if path == "/api/side-uses":
+                self._side_uses_post()
+                return
                 return
             if path.startswith("/api/netwatch/"):
                 self._netwatch(path, True)
@@ -771,6 +778,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/chat/context":
                 self._chat_context()
+                return
+            if path == "/api/chat/abstract":
+                self._chat_abstract()
                 return
             if path == "/api/reqlog/clear":
                 self._reqlog_clear()
@@ -1445,6 +1455,26 @@ def make_handler(svc: Service, remote: bool = False):
             except (GpuBusy, EngineStarting, EngineDied, EngineStuck) as e:
                 self._json(503, {"error": {"type": "server_error", "message": str(e)}})
 
+        def _chat_abstract(self):
+            """POST /api/chat/abstract {"text": a reply}: the short record of that reply the model reads in its place (serve/chatctx.py)."""
+            try:
+                req = json.loads(self._body() or b"{}")
+                text = req.get("text") if isinstance(req, dict) else None
+                if not isinstance(text, str) or not text.strip():
+                    raise ValueError("text: the reply to abstract")
+                limit = chatctx._limit(svc)
+                if limit <= 0:
+                    raise ValueError("the model is not loaded yet: its context is unknown")
+                self._json(200, chatctx.abstract_reply(svc, text, limit, chatctx.Counter(svc, {})))
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except ValueError as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except ModelBusy as e:
+                self._json(409, {"error": {"type": "model_busy", "message": str(e)}})
+            except (GpuBusy, EngineStarting, EngineDied, EngineStuck) as e:
+                self._json(503, {"error": {"type": "server_error", "message": str(e)}})
+
         def _logs(self):
             """GET /api/logs?after=<id>&limit=<n>: the newest lines after that id, and the newest id."""
             query = parse_qs(urlsplit(self.path).query)
@@ -1681,6 +1711,56 @@ def make_handler(svc: Service, remote: bool = False):
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"message": str(e)}})
             self._json(404, {"error": {"message": "not found"}})
+
+        def _side_uses_view(self) -> dict:
+            """The technical session and every use of it: the switch, the numbers, the prompt, the work counted so far and the jobs running."""
+            info = svc.side_slot_info() if hasattr(svc, "side_slot_info") else None
+            stats = svc.side_stats_view() if hasattr(svc, "side_stats_view") else {}
+            uses = side_uses.view()
+            for row in uses:
+                row["stats"] = stats.get(row["id"]) or {"calls": 0, "main": 0, "cut": 0, "cancelled": 0, "seconds": 0.0}
+            route = self._technical_route()
+            outside = bool(route["provider"]) and side_uses.external_on() and route["ok"]
+            tokens = info["context"] if info else (side_uses.EXTERNAL_WINDOW if outside else 0)
+            return {"session": {"available": info is not None or outside, "tokens": tokens, "local": info is not None},
+                    "external": {"on": side_uses.external_on(), "window": side_uses.EXTERNAL_WINDOW}, "route": route,
+                    "uses": uses, "running": side_uses.running()}
+
+        def _technical_route(self) -> dict:
+            """Where the quick jobs run: this PC unless the person pointed the function `technical` at a provider, and the providers to choose from."""
+            try:
+                view = self._llm().overview()
+            except Exception:
+                return {"provider": "", "ok": True, "why": "", "consent": False, "needs_consent": False, "providers": []}
+            row = next((f for f in view["functions"] if f["id"] == "technical"), {})
+            providers = [{"id": p["id"], "name": p.get("name") or p.get("label") or p.get("type") or p["id"], "model": p.get("model") or "",
+                          "is_local": bool(p.get("is_local")), "this_server": bool(p.get("this_server"))}
+                         for p in view["providers"] if not p.get("agent_only") and not p.get("judge_only")]
+            return {"provider": row.get("provider") or "", "ok": bool(row.get("ok", True)), "why": row.get("why") or "", "consent": bool(row.get("consent")),
+                    "needs_consent": bool(row.get("needs_consent")), "providers": providers}
+
+        def _side_uses_post(self):
+            """Changing a use changes what the harness sends and where: only from the PC the server runs on."""
+            if not settings.is_loopback(self.client_address[0]) or self.remote_listener:
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "this setting can be changed only from the PC the server runs on"}})
+            try:
+                req = json.loads(self._body(1 << 16) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                if "external" in req:
+                    side_uses.set_external(req["external"])
+                elif req.get("stop") is True:
+                    side_uses.stop_all()
+                elif "reset" in req:
+                    side_uses.reset(None if req["reset"] == "all" else req["reset"])
+                else:
+                    side_uses.save(str(req.get("use") or ""), req.get("on"), req.get("params"), req.get("system"))
+                self._json(200, self._side_uses_view())
+            except BadBody as e:
+                self._json(e.status, {"error": {"message": str(e)}})
+            except (ValueError, TypeError) as e:
+                self._json(400, {"error": {"message": str(e)}})
 
         def _billion_context_post(self):
             """The Billion Context setting changes what a conversation sends to the model: only from the PC the server runs on."""

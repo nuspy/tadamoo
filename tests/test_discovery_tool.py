@@ -267,7 +267,7 @@ def run_process(tmp_path, monkeypatch, fake, answers, need="extract tables from 
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent
-    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=client: real_build(cfg, client=_c))
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=client: real_build(cfg, client=_c))
     feed, out = Feed(), io.StringIO()
     t = threading.Thread(target=lambda: hs.main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "p1", "--capabilities",
                                                  "--permission-mode", "auto", "--no-memory", "--no-checkpoints", "--no-planner", "--heartbeat", "0.05"],

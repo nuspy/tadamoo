@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -22,13 +23,15 @@ from harness.context_patterns import PatternContext, Snapshots, normalize_config
 from harness.gate import DEFAULT_ROUNDS, MAX_ROUNDS, MODES as VERIFY_MODES, VerifyGate, clean_commands
 from harness.hooks import HookManager, load_hook_files
 from harness.knowledge import LocalKnowledge, cag_prefix, choose_strategy, register_local_search
-from harness.memory import MemoryStore, default_db_path, register_memory_tools
+from harness.memory import MemoryStore, default_db_path, estimate_tokens, register_memory_tools
 from harness.permissions import PermissionLevel, PermissionManager
 from harness.plan_mode import MODES_AFTER_PLAN, PlanGate, register_plan_tool
 from harness.rule_of_two import LEVELS
 from harness.syntax_check import DEFAULT_GUARD as DEFAULT_EDIT_GUARD, GUARD_LEVELS as EDIT_GUARD_LEVELS
 from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
-from harness.side import side_extra, use as side_use
+from harness import digest
+from harness import inject_screen, memory_rank, side_uses, tool_extract
+from harness.side import side_context, side_extra, use as side_use
 from harness.prompt_blocks import instruction_blocks
 from harness.project_profile import clean_list
 from harness.roles import GENERAL as GENERAL_ROLE, ROLE_IDS, RolePolicy, valid as valid_role
@@ -58,8 +61,8 @@ PERMISSION_MODES = {
 FALLBACK_CONTEXT_TOKENS = 32768       # the window assumed when the server cannot say its own
 ANSWER_RESERVE_TOKENS = 8192          # room kept for the model's answer when the window comes from the server (a small window keeps a quarter)
 MIN_BUDGET_TOKENS = 1024              # the least the context manager is ever given
-COMPACTION_TOKENS = 1500              # the most a compaction summary may write
 SUMMARY_READ_CHARS = 120_000          # the most a summary call is sent
+CONNECT_TRIES = 3                    # calls of a summary part when the connection to the server fails
 SUMMARY_TIMEOUT_S = 240.0             # a summary call that takes longer is given up and the notes are made without the model
 
 
@@ -375,6 +378,7 @@ class BuiltAgent:
     memory_notes: int = DEFAULT_MEMORY_NOTES
     memory_budget_tokens: int = DEFAULT_MEMORY_BUDGET
     notices: List[str] = field(default_factory=list)                # facts about the prompt the person should see, e.g. a project file read in part
+    technical: Optional[Any] = None           # the client for the quick jobs of the technical session: the function "technical", this PC's model unless the person pointed it elsewhere
 
     def set_mode(self, mode: str) -> None:
         """Changes the permission mode of the running conversation. `present_plan` is always offered and does nothing outside plan mode."""
@@ -392,14 +396,29 @@ class BuiltAgent:
         """The commands that run without a question and the accepted checks of the verify gate, as the person has them now."""
         self.checks_switch(safe, checks)
 
+    def _notes(self, goal: str, limit: int) -> List[Dict[str, Any]]:
+        """The project notes for a request: the word match, or, with the technical session choosing, the notes it says bear on the request."""
+        notes = self.memory.relevant(goal, limit=limit, min_score=self.memory_min_score, budget_tokens=self.memory_budget_tokens)
+        if not side_uses.enabled("memory_rank"):
+            return notes
+        picked = memory_rank.pick(self.technical or self.agent.client, goal, self.memory.ranked(goal)[:int(side_uses.param("memory_rank", "candidates"))], limit)
+        if picked is None:
+            return notes
+        out, used = [], 0
+        for note in picked:
+            used += estimate_tokens(note["content"])
+            if used > self.memory_budget_tokens and out:
+                break
+            out.append(note)
+        return out
+
     def retrieved_message(self, goal: str, limit: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Project notes relevant to a goal, as an untrusted-data message for the tail of the conversation: only notes whose shared words
         weigh enough, as many as the settings allow."""
         injection = self.patterns.get("injection") or {}
         message = None
         if self.memory and injection.get("on", True) and injection.get("strategy", "tail") == "tail":     # else off, or the model asks for notes itself
-            notes = self.memory.relevant(goal, limit=self.memory_notes if limit is None else limit, min_score=self.memory_min_score,
-                                         budget_tokens=self.memory_budget_tokens)
+            notes = self._notes(goal, self.memory_notes if limit is None else limit)
             self.builder.set_memories([m["content"] for m in notes])
             message = self.builder.memory_message()
         about = self.personal.message(goal) if self.personal is not None else None
@@ -422,18 +441,43 @@ class BuiltAgent:
             self.mcp.close()
 
 
-def _summarizer(client: Optional[Any], max_tokens: int = 900):
-    """(instructions, text) -> summary, written by the model the compaction function is pointed at; None without a client. A text over the
-    limit loses its middle, so the start and the newest part are both read."""
+def _summarizer(client: Optional[Any]):
+    """(instructions, text) -> summary, written by the model the compaction function is pointed at; None without a client. A text larger
+    than the technical session is read in parts (harness/digest.py); without one, or on a cloud route, a text over the limit loses its
+    middle, so the start and the newest part are both read."""
     if client is None:
         return None
 
-    def summarize(instructions: str, text: str) -> str:
+    def read(instructions: str, text: str, strict: bool = False) -> str:
         if len(text) > SUMMARY_READ_CHARS:
             text = text[:SUMMARY_READ_CHARS // 4] + "\n[... left out ...]\n" + text[-(SUMMARY_READ_CHARS * 3 // 4):]
-        reply = client.chat_completion(messages=[{"role": "system", "content": instructions}, {"role": "user", "content": text}],
-                                       temperature=0.0, max_tokens=max_tokens, timeout=SUMMARY_TIMEOUT_S, extra={"reasoning_effort": "none", **side_extra(client)})
+        cap = digest.ANSWER_TOKENS if digest.is_part(instructions) else int(side_uses.param("compaction", "answer_tokens"))
+        for attempt in range(CONNECT_TRIES):
+            try:
+                reply = client.chat_completion(messages=[{"role": "system", "content": instructions}, {"role": "user", "content": text}],
+                                               temperature=0.0, max_tokens=cap, timeout=SUMMARY_TIMEOUT_S,
+                                               extra={"reasoning_effort": "none", **side_extra(client, "compaction", only=strict)})
+                break
+            except Exception as exc:
+                if strict and "technical session" in str(exc):          # refused as too large for the session: the digest halves the part
+                    raise digest.Truncated() from None
+                if getattr(exc, "status", None) == 0 and attempt + 1 < CONNECT_TRIES:     # a connection that did not go through: the work is not lost for that
+                    time.sleep(2.0)
+                    continue
+                raise
+        if strict and reply["choices"][0].get("finish_reason") == "length":          # cut off: the digest asks again with less
+            raise digest.Truncated()
         return (reply["choices"][0]["message"].get("content") or "").strip()
+
+    def summarize(instructions: str, text: str) -> str:
+        stays = getattr(client, "stays_local", None)
+        window = side_context(client, "compaction") if not callable(stays) or stays() else 0
+        answer = int(side_uses.param("compaction", "answer_tokens"))
+        if window and not digest.fits(text, window, answer):
+            with side_uses.job("compaction", "summary") as job:
+                return digest.digest(lambda i, t: read(i, t, True), instructions, text, window, answer,
+                                     int(side_uses.param("compaction", "chunk_tokens")), job)
+        return read(instructions, text)
     return summarize
 
 
@@ -538,7 +582,7 @@ def _capabilities_directory(cfg: "AgentConfig") -> Path:
         return Path.home() / ".basalt" / "capabilities"
 
 
-def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summarizer: Optional[Any] = None) -> BuiltAgent:
+def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summarizer: Optional[Any] = None, technical: Optional[Any] = None) -> BuiltAgent:
     if cfg.permission_mode not in PERMISSION_MODES:
         raise ValueError(f"permission mode must be one of {sorted(PERMISSION_MODES)}")
     workspace = Path(cfg.workspace).resolve()
@@ -623,7 +667,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     snapshots = Snapshots(Path(cfg.snapshot_dir) if cfg.snapshot_dir else data / "snapshots" / (cfg.run_id or "default")) if patterns["versioning"]["on"] else None
     context = PatternContext(compactor, budget_tokens=budget, patterns=patterns, snapshots=snapshots, mask_at=min(0.95, max(0.3, cfg.context_threshold)),
                              summarize=_summarizer(summarizer or client) if patterns["summary"]["on"] else None,
-                             compaction=Compaction(_summarizer(_compaction_client(summarizer, client), COMPACTION_TOKENS), cfg.compaction, cfg.compaction_threshold))
+                             compaction=Compaction(_summarizer(_compaction_client(summarizer, client)), cfg.compaction, cfg.compaction_threshold))
 
     def refresh_budget() -> None:
         """Asks the server again, so a model loaded or changed since the conversation began sets the budget; no answer leaves it as it is."""
@@ -794,6 +838,11 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         clock=local_now,
         max_tokens=cfg.max_tokens,
     )
+    quick = technical if technical is not None else client          # the quick jobs never take the conversation's own route
+    if quick is not None:                               # the technical session's two readers of tool results (both off until switched on)
+        compactor.extract = tool_extract.make_extractor(quick, lambda: agent.last_user_text)
+        agent.screen = inject_screen.make_screen(quick)
+
     def switch_checks(safe: List[str], checks: List[str]) -> None:
         permissions.safe_commands = clean_list(safe)
         agent.gate = make_gate(checks)
@@ -810,5 +859,5 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
 
     return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser,
                       plan_gate=plan_gate, mode_switch=switch_mode, role=role, checks_switch=switch_checks, personal=personal, take_place=take_place,
-                      mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {}, refresh_budget=refresh_budget,
+                      mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {}, refresh_budget=refresh_budget, technical=quick,
                       memory_min_score=cfg.memory_min_score, memory_notes=cfg.memory_notes, memory_budget_tokens=cfg.memory_budget_tokens, notices=notices)

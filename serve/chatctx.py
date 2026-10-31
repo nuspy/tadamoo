@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import threading
 
+from harness import compacted, digest, side_uses
 from serve.frontend import images_of, openai_to_messages
 from serve.service import CTX_SLACK
 
@@ -14,8 +15,7 @@ DEFAULT_RESERVE = 1024           # room kept for the answer when the request lea
 IMAGE_TOKENS = 1280              # an image's tokens before it is encoded: a conservative stand-in
 COMPACT_THRESHOLD = 0.8          # compact when the conversation passes this share of the context
 KEEP_TURNS = 2                   # the newest turns compaction keeps verbatim
-SUMMARY_MAX_TOKENS = 1536
-SUMMARY_PREFIX = "[Summary of the earlier conversation, compacted to save context]\n"
+RECORD = "the conversation record, which the person can open"      # where the exact text of a compacted stretch is kept
 SUMMARY_PROMPT = (
     "You compact the middle of a conversation so it can go on in less context. Write one summary that replaces "
     "the messages you are given.\n"
@@ -24,6 +24,7 @@ SUMMARY_PROMPT = (
     "- Keep open questions, unfinished tasks and promised follow-ups.\n"
     "- Copy code, commands, file paths, identifiers, URLs, numbers and error messages verbatim.\n"
     "- Drop greetings, repetition and abandoned attempts, unless an attempt explains a decision.\n"
+    "- Compress only what the next turn no longer needs; what it may still need stays as written.\n"
     "- Write in the conversation's own language, as short notes under these headings: Facts, Decisions, "
     "Open questions, Code and identifiers. Leave out a heading with nothing under it.\n"
     "- Do not answer the conversation, do not add anything that is not in it.")
@@ -90,24 +91,95 @@ def transcript(messages: list[dict]) -> str:
     return "\n\n".join(f"{names.get(_role(m), str(_role(m)).upper())}: {_text(m.get('content'))}" for m in messages)
 
 
+def _generate(svc, prompt: list[dict], room: int, limit: int, count, side: bool, strict: bool = False, use: str = "") -> str:
+    """One model call over `prompt`, in the technical session when `side`, else in an ordinary slot. With `strict`, an answer cut off
+    raises digest.Truncated."""
+    svc.load()
+    msgs, _, kw = openai_to_messages({"messages": prompt, "reasoning_effort": "none"})
+    ids, thinking, max_new = svc.prepare(msgs, None, kw, min(room, max(1, limit - count(prompt) - CTX_SLACK)))
+    sampling = {"temperature": 0.3, "top_p": 0.9, **({"cache_slot": "side_only" if strict else "side", "side_use": use} if side else {})}
+    parts = []
+    try:
+        for kind, x in svc.run(ids, thinking, None, max_new, sampling, threading.Event()):
+            if kind == "event" and x.kind == "content":
+                parts.append(x.text or "")
+            elif kind == "done" and strict and x.get("finish") == "length":
+                raise digest.Truncated()
+    except ValueError as exc:
+        if strict and "technical session" in str(exc):             # refused as too large for the session: the digest halves the part
+            raise digest.Truncated() from None
+        raise
+    return "".join(parts).strip()
+
+
 def summarize(svc, middle: list[dict], limit: int, count) -> tuple[str, int]:
-    """(summary, messages left out because even the transcript did not fit) from one model call."""
-    dropped, room = 0, min(SUMMARY_MAX_TOKENS, limit // 4)
+    """(summary, messages left out because even the transcript did not fit). With a technical session the text is written there, in parts
+    when it is larger than the session (harness/digest.py); else, or if that fails, in one call of an ordinary slot."""
+    info = svc.side_slot_info() if hasattr(svc, "side_slot_info") and side_uses.enabled("chat_summary") else None
+    prompt_text = side_uses.system("chat_summary", SUMMARY_PROMPT)
+    answer = int(side_uses.param("chat_summary", "answer_tokens"))
+    if info:
+        window, room = int(info["context"]), min(answer, int(info["context"]) // 4)
+
+        def write(instructions: str, text: str) -> str:
+            prompt = [{"role": "system", "content": instructions}, {"role": "user", "content": "The messages to compact:\n\n" + text}]
+            part = digest.is_part(instructions)                 # the notes of a part are shorter than the final summary
+            return _generate(svc, prompt, min(room, digest.ANSWER_TOKENS) if part else room, window, count, True, True, "chat_summary")
+        try:
+            with side_uses.job("chat_summary", "summary") as job:
+                text = digest.digest(write, prompt_text, transcript(middle), window, room, int(side_uses.param("chat_summary", "chunk_tokens")), job)
+            if text:
+                return text, 0
+        except digest.Stopped:
+            raise ValueError("The summary was stopped.") from None
+        except Exception:
+            pass                                        # the session could not do it: an ordinary slot tries
+    dropped, room = 0, min(answer, limit // 4)
     while True:
-        prompt = [{"role": "system", "content": SUMMARY_PROMPT},
+        prompt = [{"role": "system", "content": prompt_text},
                   {"role": "user", "content": "The messages to compact:\n\n" + transcript(middle[dropped:])}]
         n = count(prompt)
         if n + room + CTX_SLACK <= limit or dropped >= len(middle) - 1:
             break
         dropped += 1
-    svc.load()
-    msgs, _, kw = openai_to_messages({"messages": prompt, "reasoning_effort": "none"})
-    ids, thinking, max_new = svc.prepare(msgs, None, kw, min(room, max(1, limit - n - CTX_SLACK)))
-    parts = []
-    for kind, x in svc.run(ids, thinking, None, max_new, {"temperature": 0.3, "top_p": 0.9}, threading.Event()):
-        if kind == "event" and x.kind == "content":
-            parts.append(x.text or "")
-    return "".join(parts).strip(), dropped
+    return _generate(svc, prompt, room, limit, count, False), dropped
+
+
+ABSTRACT_PROMPT = (
+    "You write the memory of one of your own earlier replies, so the conversation can go on without the reply itself. Write a short abstract "
+    "in the reply's own language.\n"
+    "- Say what the reply answered, decided, produced or asked of the person. Name files, functions, figures, names and errors exactly.\n"
+    "- Leave out the explanations, the step-by-step instructions and the code: say what the code does and what it is called, not its lines.\n"
+    "- Keep every question the reply asked and every promise it made.\n"
+    "- Do not add anything that is not in the reply and do not answer it.")
+ABSTRACT_MAX_SHARE = 0.5          # an abstract longer than this share of its reply is not worth the change
+
+
+def abstract_reply(svc, text: str, limit: int, count) -> dict:
+    """The abstract of one reply written in the technical session (it needs one): {"text": the record to send in its place,
+    "mark": ...}, or {"text": ""} when the reply is short or the abstract would not be much shorter. Shown to the model in place of the
+    reply; the reply itself stays in the person's conversation."""
+    info = svc.side_slot_info() if hasattr(svc, "side_slot_info") and side_uses.enabled("chat_abstract") else None
+    if len(text) < side_uses.param("chat_abstract", "min_chars") or not info:          # without the technical session the call would take the conversation's own slot
+        return {"text": ""}
+    window = int(info["context"])
+    room = min(int(side_uses.param("chat_summary", "answer_tokens")), window // 4)
+    body = text if digest.fits(text, window, room) else text[:digest.part_chars(window, room)]        # a reply larger than the session: its start is abstracted
+    prompt = [{"role": "system", "content": side_uses.system("chat_abstract", ABSTRACT_PROMPT)}, {"role": "user", "content": "The reply:\n\n" + body}]
+    written = _generate(svc, prompt, room, window, count, True, False, "chat_abstract")
+    if not written or len(written) > ABSTRACT_MAX_SHARE * len(text):
+        return {"text": ""}
+    mark = compacted.stamp(1, 1, count([{"role": "user", "content": text}]), count([{"role": "user", "content": written}]), RECORD)
+    return {"text": compacted.header(mark, rules=False) + "\n" + written, "mark": mark}
+
+
+def originals_of(message: dict) -> list[dict]:
+    """The messages a compacted stretch stands for, when the page sent them along with it; else the message itself. Read again, a stretch is
+    summarised from its own text and not from the notes that replaced it."""
+    found = message.get("originals") if isinstance(message, dict) else None
+    if isinstance(found, list) and found and all(isinstance(o, dict) and o.get("role") in ("user", "assistant") for o in found):
+        return found
+    return [message]
 
 
 def _number(req, key, default, lo, hi, kind=float):
@@ -172,15 +244,20 @@ def fit(svc, req: dict) -> dict:
     if not middle:
         out["action"] = "over" if used > budget else "none"
         return out
+    source = [[o for o in originals_of(messages[i])] for i in middle]       # a stretch compacted before is read again from its own text
+    flat = [o for group in source for o in group]
     try:
-        text, left_out = summarize(svc, [messages[i] for i in middle], limit, count)
+        text, left_out = summarize(svc, flat, limit, count)
         if not text:
             raise ValueError("the model wrote an empty summary")
     except Exception as e:
         # the chat goes on: the oldest turns are dropped instead and the reason is reported
         out["notice"] = f"The summary could not be written ({e}); the oldest messages were left out instead."
         return rolling()
-    summary = {"role": "user", "content": SUMMARY_PREFIX + text}
+    covered = next((k for k in range(len(middle) + 1) if sum(len(g) for g in source[:k]) > left_out), len(middle))
+    info = compacted.stamp(compacted.next_generation([i for i in (compacted.info_of(messages[k]) for k in middle) if i]), len(flat),
+                           count(flat), count([{"role": "user", "content": text}]), RECORD)
+    summary = {"role": "user", "content": compacted.header(info) + "\n" + text}
     tail_idx = [i for t in tail for i in t]
     new = [messages[i] for i in head] + [summary] + [messages[i] for i in tail_idx]
     n = count(new)
@@ -188,6 +265,6 @@ def fit(svc, req: dict) -> dict:
         out["notice"] = "The summary did not make the conversation fit; the oldest messages were left out instead."
         return rolling()
     out.update(action="compacted", used=n, used_before=used,
-               keep=head + tail_idx, summary={"message": summary, "text": text, "replaces": middle,
-                                               "not_summarized": middle[:left_out]})
+               keep=head + tail_idx, summary={"message": summary, "text": text, "replaces": middle, "mark": info,
+                                               "not_summarized": middle[:covered]})
     return out

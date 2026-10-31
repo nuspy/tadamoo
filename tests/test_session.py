@@ -379,7 +379,7 @@ def test_the_process_speaks_lines_of_json_and_closes_on_command(tmp_path, monkey
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent
-    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=client: real_build(cfg, client=_c))
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=client: real_build(cfg, client=_c))
     feed, out = Feed(), io.StringIO()
     t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "p1",
                                               "--no-memory", "--no-checkpoints", "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)
@@ -413,7 +413,7 @@ def test_a_position_sent_with_a_message_brings_the_tool_for_that_turn(tmp_path, 
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent
-    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=client: real_build(cfg, client=_c))
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=client: real_build(cfg, client=_c))
     feed, out = Feed(), io.StringIO()
     t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "pl",
                                               "--no-memory", "--no-checkpoints", "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)
@@ -716,7 +716,7 @@ def test_refused_calls_are_counted_in_the_conversation_state_and_in_its_closing_
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent
-    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=client: real_build(cfg, client=_c))
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=client: real_build(cfg, client=_c))
     feed, out = Feed(), io.StringIO()
     t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "d1", "--deny", "shell_command:*",
                                               "--no-memory", "--no-checkpoints", "--no-planner", "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)

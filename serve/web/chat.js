@@ -307,8 +307,27 @@
   /* ---- sending ---- */
   // the conversation as API messages, with the system prompt first; `at[k]` is the conversation index of message k
   // (-1 for the system prompt). A compaction summary goes as the user message the server wrote for it.
-  function apiMessages() {
+  /* Old replies as a short record: the conversation keeps every reply, but from the turn after the newest few the model reads the abstract of
+     each long one (written in the technical session when the reply ends, with the same compaction mark as every other record). Chat only. */
+  const ABS_KEY = "basalt.abstract", ABS_MIN = 400, ABS_KEEP = 6;     // the server decides from 400 characters up (Settings > Technical session)
+  const absPrefs = () => {
+    try { const v = JSON.parse(localStorage.getItem(ABS_KEY) || "{}"); return { on: v.on !== false, keep: Math.max(1, Math.min(20, Math.round(Number(v.keep)) || ABS_KEEP)) }; } catch (e) { return { on: true, keep: ABS_KEEP }; }
+  };
+  const absSave = () => { try { localStorage.setItem(ABS_KEY, JSON.stringify({ on: $("#cs-abs-on").checked, keep: Number($("#cs-abs-keep").value) || ABS_KEEP })); } catch (e) { /* kept for this session */ } };
+  async function abstractLater(m) {
+    if (!absPrefs().on || m.role !== "assistant" || m.error || m.stopped || m.cut || m.long || (m.text || "").length < ABS_MIN || agent()) return;
+    const len = m.text.length;
+    try {
+      const r = await fetch("api/chat/abstract", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ text: m.text }) });
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j.text && (m.text || "").length === len) { m.abstract = j.text; m.abstractOf = len; save(); meter(); }
+    } catch (e) { /* the reply stays whole */ }
+  }
+  function apiMessages(full) {
     const out = [], at = [];
+    const usersAfter = [], prefs = absPrefs();
+    for (let k = messages.length - 1, u = 0; k >= 0; k--) { usersAfter[k] = u; if (messages[k].role === "user") u++; }
     const sys = chatSettings.system();
     if (sys) { out.push({ role: "system", content: sys }); at.push(-1); }
     messages.forEach((m, i) => {
@@ -317,11 +336,13 @@
         const imgs = (m.images || []).filter(i => i.url);
         out.push({ role: "user", content: imgs.length ? [{ type: "text", text: m.text }, ...imgs.map(i => ({ type: "image_url", image_url: { url: i.url } }))] : m.text });
       } else if (m.role === "summary") {
-        out.push({ role: "user", content: m.content || m.text || "" });
+        const o = full && m.originals ? m.originals.filter(x => x.text).map(x => ({ role: x.role === "user" ? "user" : "assistant", content: x.text })) : [];
+        out.push({ role: "user", content: m.content || m.text || "", ...(o.length ? { originals: o } : {}) });   // sent along only when the context is being fitted: a stretch is compacted again from its own text
       } else {
         if (m.error && !m.text) return;                 // a failed reply is not part of the conversation
         if (m.cut) return;                              // nor is one the model ended mid-word: it would teach the next ones to stop short
-        out.push({ role: "assistant", content: busy && busy.cont === m ? (m.text || "").slice(0, cutText.cutPoint(m.text || "")) : m.text || "" });   // a cut reply goes back up to its last whitespace
+        const aged = prefs.on && m.abstract && m.abstractOf === (m.text || "").length && usersAfter[i] >= prefs.keep;
+        out.push({ role: "assistant", content: aged ? m.abstract : busy && busy.cont === m ? (m.text || "").slice(0, cutText.cutPoint(m.text || "")) : m.text || "" });   // a cut reply goes back up to its last whitespace
       }
       at.push(i);
     });
@@ -340,8 +361,8 @@
     $("#ctx-bar").style.width = pctv.toFixed(1) + "%";
     box.dataset.level = pctv >= 90 ? "full" : pctv >= 70 ? "high" : "";
   }
-  async function context(policy, extra) {
-    const { out, at } = apiMessages();
+  async function context(policy, extra, full) {
+    const { out, at } = apiMessages(full);
     if (!out.length) return { out, at, r: null };
     const sampling = chatSettings.body();
     const body = { messages: out, policy, max_tokens: sampling.max_tokens || 0, threshold: chatSettings.threshold(), ...extra };
@@ -373,7 +394,7 @@
   async function fitContext(m) {
     const policy = chatSettings.policy();
     let res = null, why = "";
-    try { res = await context(policy); why = res.err || ""; } catch (e) { why = e.message; }
+    try { res = await context(policy, undefined, policy === "compact"); why = res.err || ""; } catch (e) { why = e.message; }
     if ((!res || !res.r) && policy === "compact") {          // the summary failed: drop the oldest messages instead
       try { const again = await context("rolling"); if (again.r) { res = again; m.notice = T("ctx.fallback", why); } } catch (e) { /* sent as it is below */ }
     }
@@ -398,7 +419,7 @@
     } else if (r.action === "compacted") {
       const idx = r.summary.replaces.map(k => res.at[k]).filter(i => i >= 0).sort((a, b) => a - b);
       const originals = idx.map(i => messages[i]).flatMap(x => x.role === "summary" ? (x.originals || [x]) : [x]);
-      const entry = { role: "summary", text: r.summary.text, content: r.summary.message.content, originals, time: Date.now() };
+      const entry = { role: "summary", text: r.summary.text, content: r.summary.message.content, mark: r.summary.mark, originals, time: Date.now() };
       for (let k = idx.length - 1; k >= 0; k--) messages.splice(idx[k], 1);
       messages.splice(idx[0], 0, entry);
     }
@@ -537,6 +558,7 @@
     save();
     scrollDown();
     meter();
+    abstractLater(m);
     // a reply the output limit cut goes on by itself, up to the setting; not a loop, not the answer cap, not a stop, and only while words keep coming
     if (lengthCut(m) && !m.capped && (head == null || fresh.trim()) && (m.chain || 0) < chatSettings.autoContinue()) send(m, true);
   }
@@ -549,6 +571,8 @@
     else if (ev.event === "segment_done") m.progress = T("la.p.done", ev.index, ev.of, ev.words);
     else if (ev.event === "done") { m.long = ev; m.progress = ""; }
   }
+  { const p = absPrefs(); $("#cs-abs-on").checked = p.on; $("#cs-abs-keep").value = p.keep;
+    for (const id of ["#cs-abs-on", "#cs-abs-keep"]) $(id).addEventListener("change", () => { absSave(); meter(); }); }
   $("#composer").onsubmit = e => { e.preventDefault(); send(); };
   $("#stop").onclick = () => { const a = agent(); if (a) a.stop(); else if (busy) busy.controller.abort(); };
   prompt.addEventListener("keydown", e => {

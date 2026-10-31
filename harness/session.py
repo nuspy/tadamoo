@@ -54,6 +54,8 @@ from harness import agent_loop as al
 from harness import error_classifier
 from harness import intake as it
 from harness import optimize as opt
+from harness import progress as prog
+from harness import side_uses
 from serve import longflow as lfw
 from serve import longform as lf
 from harness import questions as qs
@@ -186,6 +188,7 @@ class Task:
     state_running: bool = False                   # a model call or a tool is in progress
     intake: Optional[Dict[str, Any]] = None       # the facts of a request of the person that intake has not looked at yet
     registered: Optional[Tuple[str, List[str]]] = None   # the parent and the parts this request has in the task registry
+    progress: Optional[Any] = None                # harness/progress.py: the newest steps, for the line that says how far a task got
 
 
 class _Current:
@@ -386,8 +389,30 @@ class Session:
             if isinstance(shown.get(key), str) and len(shown[key]) > EVENT_CHARS:
                 shown[key] = shown[key][:EVENT_CHARS] + f"\n[... {len(event[key]) - EVENT_CHARS} more characters]"
         self.emit({"event": "agent", "turn": task.turn, "data": shown})
+        if kind == "tool_end" and (self.unattended or task.registered) and side_uses.enabled("progress"):
+            self._progress_line(task, event)
         if self.reporter is not None:
             self.reporter.on_event(event)
+
+    def _progress_line(self, task: Task, event: Dict[str, Any]) -> None:
+        """A task nobody watches: every few tool steps the technical session writes one line on how far it got, shown in the task list."""
+        if task.progress is None:
+            task.progress = prog.Progress()
+        task.progress.add(event)
+        if not task.progress.due() or getattr(task.progress, "busy", False):
+            return
+        task.progress.busy = True
+
+        def write() -> None:
+            try:
+                line = task.progress.line(self.built.technical or task.agent.client, task.agent.last_user_text)
+                if line:
+                    self.emit({"event": "progress", "turn": task.turn, "text": line})
+                    if task.registered is not None and self.task_sink is not None:
+                        self.task_sink.record(task.registered[0], "running", line)
+            finally:
+                task.progress.busy = False
+        threading.Thread(target=write, name="progress-line", daemon=True).start()
 
     # -- questions to the person -------------------------------------------------------------------------
 
@@ -1630,7 +1655,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     from harness.llm.judge import router_judge
     here = BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key)          # the model loaded in this Basalt
     try:
-        built = build_agent(cfg, client=client_for("executor", here), summarizer=client_for("compaction", here))
+        built = build_agent(cfg, client=client_for("executor", here), summarizer=client_for("compaction", here), technical=client_for("technical", here))
     except Exception as exc:
         emit({"event": "error", "code": "start", "message": f"{type(exc).__name__}: {exc}"})
         return 1
@@ -1652,10 +1677,10 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         session.attachment_store = AttachmentStore(Path(args.attachments_dir))
     session.endpoint, session.api_key = cfg.endpoint, cfg.api_key
     session.ask_only = args.ask_only
-    session.intake = it.Intake(args.intake, built.agent.client, args.side_call_tokens)
-    session.optimizer = opt.Optimizer(built.agent.client, args.optimize_prompt == "on" and not args.unattended)
+    session.intake = it.Intake(args.intake, built.technical, args.side_call_tokens)
+    session.optimizer = opt.Optimizer(built.technical, args.optimize_prompt == "on" and not args.unattended)
     session.task_sink = it.TaskSink(cfg.endpoint, cfg.api_key) if args.report_changes else None
-    session.suggester = sg.Suggester(built.agent.client, args.suggestions == "on" and not args.unattended, args.side_call_tokens)
+    session.suggester = sg.Suggester(built.technical, args.suggestions == "on" and not args.unattended, args.side_call_tokens)
     session.set_effort(args.effort)
     if built.agent.secrets is not None:
         built.agent.secrets.ask_code = session.ask_code

@@ -158,7 +158,7 @@ def test_the_process_takes_the_temperature_and_the_ceiling_while_it_lives(tmp_pa
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent
-    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=Scripted(): real_build(cfg, client=_c))
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=Scripted(): real_build(cfg, client=_c))
     feed, out = Feed(), io.StringIO()
     t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "t1", "--no-memory", "--no-checkpoints",
                                               "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)

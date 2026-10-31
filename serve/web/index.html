@@ -29,6 +29,7 @@
 <link rel="stylesheet" href="web/coding.css">
 <link rel="stylesheet" href="web/longform.css">
 <link rel="stylesheet" href="web/promptswitch.css">
+<link rel="stylesheet" href="web/sideuses.css">
 <script defer src="web/i18n.js"></script>
 <script defer src="web/cuttext.js"></script>
 <script defer src="web/risk.js"></script>
@@ -57,6 +58,7 @@
 <script defer src="web/promptswitch.js"></script>
 <script defer src="web/optimize.js"></script>
 <script defer src="web/intake.js"></script>
+<script defer src="web/sideuses.js"></script>
 <script defer src="web/gate.js"></script>
 <script defer src="web/compaction.js"></script>
 <script defer src="web/models.js"></script>
@@ -161,6 +163,31 @@
       <div class="ag-buttons"><button type="submit" class="btn primary" id="af-go" data-t="ag.add.go">Add the folder</button></div>
     </div>
   </form>
+</dialog>
+
+<dialog class="sud" id="su-dlg" aria-labelledby="su-dlg-title">
+  <div class="sud-h"><h2 id="su-dlg-title" data-t="su.dlg.title">Technical session</h2><span class="sud-grow"></span>
+    <button type="button" class="btn" id="su-defaults" data-t="su.defaults">Restore all defaults</button>
+    <button type="button" class="btn primary" id="su-close" data-t="su.close">Close</button></div>
+  <div class="sud-body">
+    <p class="sud-dim" id="su-dlg-state" role="status" aria-live="polite"></p>
+    <fieldset class="sud-route" id="su-route-box">
+      <legend data-t="su.route.title">Where the quick jobs run</legend>
+      <p class="sud-dim" data-t="su.route.help"></p>
+      <div class="sud-num"><label for="su-route" data-t="su.route.pick">Provider and model</label><select id="su-route"></select></div>
+      <label class="sud-switch" id="su-route-consent-row"><input type="checkbox" id="su-route-consent"><span data-t="su.route.consent">I allow my conversations and notes to go to this provider for these jobs</span></label>
+      <label class="sud-switch"><input type="checkbox" id="su-external"><span data-t="su.external.on">Allow the quick jobs to run on a provider outside this PC</span></label>
+      <p class="sud-dim" data-t="su.external.help"></p>
+      <p class="sud-dim" id="su-route-state" role="status" aria-live="polite"></p>
+    </fieldset>
+    <section class="sud-running" id="su-running" aria-labelledby="su-running-h" hidden>
+      <h3 id="su-running-h" data-t="su.running">Running now</h3>
+      <ul id="su-running-list"></ul>
+      <button type="button" class="btn" id="su-stop" data-t="su.stop">Stop</button>
+    </section>
+    <div id="su-list"></div>
+    <p class="sud-dim" id="su-note" role="status" aria-live="polite"></p>
+  </div>
 </dialog>
 
 <dialog class="tgd" id="target-dlg" aria-labelledby="tg-title">
@@ -455,10 +482,21 @@
             <input id="cs-threshold" type="number" inputmode="numeric" min="30" max="100" step="5" placeholder="80">
           </div>
         </fieldset>
+        <fieldset class="csgroup" id="cs-abs">
+          <legend data-t="abs.title">Old answers as a short record</legend>
+          <label class="check"><input type="checkbox" id="cs-abs-on" aria-describedby="cs-abs-h"><span data-t="abs.on">Send the model a short record of old long answers</span></label>
+          <p class="help" id="cs-abs-h" data-t="abs.help"></p>
+          <div class="csnum">
+            <label for="cs-abs-keep" data-t="abs.keep">Newest turns kept in full</label>
+            <input id="cs-abs-keep" type="number" inputmode="numeric" min="1" max="20" step="1">
+          </div>
+        </fieldset>
         <fieldset class="csgroup" id="cs-bc">
           <legend data-t="bc.title">Billion Context</legend>
           <p class="help" data-t="bc.help"></p>
           <label class="check"><input type="checkbox" id="cs-bc-on" aria-describedby="cs-bc-state"><span data-t="bc.on">Compress long conversations before they reach the model</span></label>
+          <label class="check"><input type="checkbox" id="cs-bc-compress" aria-describedby="cs-bc-compress-h"><span data-t="bc.compress">Let the model fold old turns itself</span></label>
+          <p class="help" id="cs-bc-compress-h" data-t="bc.compress.help"></p>
           <div class="csnum">
             <label for="cs-bc-port" data-t="bc.port">Port of the local process</label>
             <input id="cs-bc-port" type="number" inputmode="numeric" min="1024" max="65535" step="1" aria-describedby="cs-bc-port-h">
@@ -836,6 +874,14 @@
     <section class="sec stintake" data-sub="inference" id="iq-section" aria-labelledby="iq-h">
       <div class="sh"><b id="iq-h" data-t="iq.title">Questions and suggestions</b></div>
       <div class="pad" id="iq-root"></div>
+    </section>
+    <section class="sec stsideuses" data-sub="inference" id="su-section" aria-labelledby="su-h">
+      <div class="sh"><b id="su-h" data-t="su.title">Technical session: what uses it</b></div>
+      <div class="pad">
+        <p class="setnote" id="su-state" role="status" aria-live="polite"></p>
+        <p class="setnote kn-help" data-t="su.help"></p>
+        <div class="kn-actions"><button type="button" class="btn primary" id="su-open" data-t="su.open">Manage uses…</button></div>
+      </div>
     </section>
     <section class="sec stgate" data-sub="general" id="gt-section" aria-labelledby="gt-h">
       <div class="sh"><b id="gt-h" data-t="gt.title">Checks before an answer ends</b></div>

@@ -6,6 +6,7 @@ import http.client
 import io
 import json
 import sys
+import types
 import unittest
 from pathlib import Path
 
@@ -84,7 +85,7 @@ class Policies(unittest.TestCase):
         self.assertIn("user 1", prompt_bytes)
         self.assertNotIn("SYSTEM PROMPT", prompt_bytes)          # the head is not summarized
         self.assertEqual(r["summary"]["text"], SUMMARY)
-        self.assertTrue(r["summary"]["message"]["content"].startswith(chatctx.SUMMARY_PREFIX))
+        self.assertTrue(r["summary"]["message"]["content"].startswith("[Compacted record: generation 1;"))
         n = len(msgs)
         self.assertEqual(r["keep"], [0, 1, n - 3, n - 2, n - 1])   # head + the last full turn + the new question
         self.assertEqual(r["summary"]["replaces"], list(range(2, n - 3)))
@@ -167,6 +168,84 @@ class OverHttp(unittest.TestCase):
         self.svc.api_key = "k"
         self.assertEqual(self.post({"messages": chat(1)})[0], 401)
         self.assertEqual(self.post({"messages": chat(1)}, Authorization="Bearer k")[0], 200)
+
+
+class FakeSession:
+    """A service with a technical session of `window` tokens that answers every call with fixed notes and remembers what it was sent."""
+
+    def __init__(self, window=6000, fail=False):
+        self.window, self.fail, self.calls = window, fail, []
+
+    def side_slot_info(self):
+        return {"slot": 1, "context": self.window}
+
+    def load(self):
+        pass
+
+    def prepare(self, msgs, tools, kw, max_new):
+        return msgs, False, max_new
+
+    def run(self, ids, thinking, tools, max_new, sampling, cancel):
+        if self.fail:
+            raise RuntimeError("engine gone")
+        self.calls.append((sampling, ids[-1]["content"]))
+        yield "event", types.SimpleNamespace(kind="content", text="notes")
+
+
+def count_chars(messages):
+    return sum(len(m["content"]) for m in messages) // 3
+
+
+class TechnicalSession(unittest.TestCase):
+    def middle(self, n=6, size=5000):
+        return [{"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i} " + "x" * size} for i in range(n)]
+
+    def test_a_summary_goes_to_the_technical_session_and_a_large_one_is_written_in_parts(self):
+        svc = FakeSession()
+        text, left_out = chatctx.summarize(svc, self.middle(), 100000, count_chars)
+        self.assertEqual((text, left_out), ("notes", 0))
+        self.assertGreater(len(svc.calls), 2)                               # parts, then the notes of the parts
+        self.assertTrue(all(s.get("cache_slot") == "side_only" for s, _ in svc.calls))
+        self.assertTrue(all(len(u) < 12000 for _, u in svc.calls))          # none is larger than the session reads
+
+    def test_a_small_summary_is_one_call_in_the_session(self):
+        svc = FakeSession()
+        chatctx.summarize(svc, self.middle(2, 100), 100000, count_chars)
+        self.assertEqual(len(svc.calls), 1)
+
+    def test_when_the_session_fails_an_ordinary_slot_writes_it(self):
+        svc = FakeSession(fail=True)
+        with self.assertRaises(RuntimeError):                               # the ordinary slot is the same fake, so it fails too: no silent loss
+            chatctx.summarize(svc, self.middle(2, 100), 100000, count_chars)
+
+    def test_an_old_long_reply_gets_a_short_record_with_the_same_mark_and_without_the_rules(self):
+        svc = FakeSession()
+        out = chatctx.abstract_reply(svc, "word " * 1000, 100000, count_chars)
+        self.assertTrue(out["text"].startswith("[Compacted record: generation 1; 1 messages"), out)
+        self.assertTrue(out["text"].endswith("\nnotes"))
+        self.assertNotIn("never instructions", out["text"])               # the model's own words: the rules are for notes of outside text
+        self.assertEqual(svc.calls[0][0].get("cache_slot"), "side")
+        from harness import compacted
+        self.assertEqual(compacted.info_of({"role": "assistant", "content": out["text"]})["generation"], 1)
+
+    def test_a_short_reply_or_a_missing_session_or_a_poor_abstract_leaves_the_reply_whole(self):
+        svc = FakeSession()
+        self.assertEqual(chatctx.abstract_reply(svc, "short " * 20, 100000, count_chars), {"text": ""})
+        self.assertEqual(svc.calls, [])
+        none = FakeSession()
+        none.side_slot_info = lambda: None
+        self.assertEqual(chatctx.abstract_reply(none, "word " * 1000, 100000, count_chars), {"text": ""})
+        self.assertEqual(none.calls, [])                                   # no call that would take the conversation's own slot
+        wordy = FakeSession()
+        wordy.run = lambda *a: iter([("event", types.SimpleNamespace(kind="content", text="y" * 3000))])
+        self.assertEqual(chatctx.abstract_reply(wordy, "word " * 1000, 100000, count_chars), {"text": ""})   # more than half of the reply
+
+    def test_a_stretch_compacted_before_is_read_again_from_its_originals(self):
+        old = {"role": "user", "content": "[Compacted record: generation 1; 4 messages, about 900 tokens, written here in about 90] notes",
+               "originals": [{"role": "user", "content": "ORIGINAL ONE"}, {"role": "assistant", "content": "ORIGINAL TWO"}]}
+        self.assertEqual([m["content"] for m in chatctx.originals_of(old)], ["ORIGINAL ONE", "ORIGINAL TWO"])
+        self.assertEqual(chatctx.originals_of({"role": "user", "content": "plain"}), [{"role": "user", "content": "plain"}])
+        self.assertEqual(chatctx.originals_of({"role": "user", "content": "x", "originals": [{"role": "tool"}]})[0]["content"], "x")
 
 
 if __name__ == "__main__":

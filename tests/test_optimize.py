@@ -132,7 +132,7 @@ def test_the_call_is_one_short_request_on_the_technical_session():
     assert got.state == "sent" and got.text == BETTER
     (call,) = model.short
     assert call["tools"] is None and call["temperature"] == 0.0 and call["timeout"] == 8.0
-    assert call["extra"] == {"reasoning_effort": "none", "cache_slot": "side"}
+    assert call["extra"] == {"reasoning_effort": "none", "cache_slot": "side", "side_use": "optimize"}
     assert call["messages"][0] == {"role": "system", "content": opt.SYSTEM_PROMPT}
     body = call["messages"][1]["content"]
     assert body == "<previous>\nEarlier I asked for a CSV.\n</previous>\n<message>\n" + ASK + "\n</message>"

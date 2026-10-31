@@ -7,7 +7,7 @@ and it relays them back to this same server, compressing a long conversation on 
 missing, process dead, a refusal before the first byte) the request is answered directly instead: the proxy never
 blocks or fails a chat. Requests for cloud providers, with their keys, never pass through it.
 
-The setting is billion-context.json in the user data folder:  {"enabled": true, "port": 18788}
+The setting is billion-context.json in the user data folder:  {"enabled": true, "port": 18788, "compress": false}
 """
 from __future__ import annotations
 
@@ -37,6 +37,13 @@ STOP_WAIT_S = 4.0
 # Basalt's own compaction (Chat settings > When the context is full) acts at 80% of the context by default, so the proxy's
 # nudge to compress starts above that: it is the safety net for conversations that reach it, the agent's among them.
 CONFIG = {"compress": {"maxContextLimit": "90%", "emergencyThresholdPercent": "97%"}}
+# Without "compress" the proxy keeps only what does not rewrite the conversation (large outputs kept aside behind a pointer, the emergency
+# cut): the model is not given the tools that fold old turns, so the only summaries are the ones Basalt writes (harness/compacted.py).
+ARCHIVE_ONLY = {"injectTool": False, "injectNudge": False}
+
+
+def proxy_config(compress: bool) -> Dict[str, Any]:
+    return {"compress": {**CONFIG["compress"], **({} if compress else ARCHIVE_ONLY)}}
 CONTEXT_CHANGE = 0.1                             # a new model context this much different restarts the proxy when idle
 _lock = threading.Lock()
 
@@ -53,7 +60,7 @@ def state_dir() -> Path:
 
 def load() -> Dict[str, Any]:
     """The saved setting; a missing or damaged file gives the defaults (on, port 18788)."""
-    out = {"enabled": True, "port": DEFAULT_PORT}
+    out = {"enabled": True, "port": DEFAULT_PORT, "compress": False}
     try:
         data = json.loads(file_path().read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
@@ -61,6 +68,8 @@ def load() -> Dict[str, Any]:
     if isinstance(data, dict):
         if isinstance(data.get("enabled"), bool):
             out["enabled"] = data["enabled"]
+        if isinstance(data.get("compress"), bool):
+            out["compress"] = data["compress"]
         try:
             out["port"] = check_port(data.get("port", DEFAULT_PORT))
         except ValueError:
@@ -88,6 +97,10 @@ def save(values: Dict[str, Any]) -> Dict[str, Any]:
             if not isinstance(values["enabled"], bool):
                 raise ValueError("enabled is true or false")
             cur["enabled"] = values["enabled"]
+        if "compress" in values:
+            if not isinstance(values["compress"], bool):
+                raise ValueError("compress is true or false")
+            cur["compress"] = values["compress"]
         if "port" in values:
             cur["port"] = check_port(values["port"])
         p = file_path()
@@ -242,7 +255,7 @@ class Manager:
             (state_dir() / sub).mkdir(parents=True, exist_ok=True)
         self._started_ctx = max(0, int(self.context() or 0))
         try:
-            (state_dir() / CONFIG_NAME).write_text(json.dumps(CONFIG, indent=2), encoding="utf-8")
+            (state_dir() / CONFIG_NAME).write_text(json.dumps(proxy_config(load()["compress"]), indent=2), encoding="utf-8")
             self._log = open(state_dir() / "proxy.log", "ab")
             proc = self.launch(argv, self._env(port), self._log)
         except OSError as exc:
@@ -369,7 +382,7 @@ class Manager:
     def view(self, with_stats: bool = True) -> Dict[str, Any]:
         cfg = load()
         with self._cv:
-            out: Dict[str, Any] = {"enabled": cfg["enabled"], "port": cfg["port"], "status": self._status,
+            out: Dict[str, Any] = {"enabled": cfg["enabled"], "port": cfg["port"], "compress": cfg["compress"], "status": self._status,
                                    "detail": self._detail, "running": self._healthy, "restarts": self._restarts,
                                    "default_port": DEFAULT_PORT}
             port = self._port
@@ -428,9 +441,9 @@ def stop() -> None:
 def set_enabled_port(values: Dict[str, Any]) -> Dict[str, Any]:
     """POST /api/billion-context: save, then make the process match. `restart` true starts it again."""
     old = load()
-    save({k: values[k] for k in ("enabled", "port") if k in values})
+    save({k: values[k] for k in ("enabled", "port", "compress") if k in values})
     m = get()
-    if values.get("restart") is True or load()["port"] != old["port"]:
+    if values.get("restart") is True or load()["port"] != old["port"] or load()["compress"] != old["compress"]:
         m.restart()
     else:
         m.apply()

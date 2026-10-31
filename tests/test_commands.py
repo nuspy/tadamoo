@@ -110,7 +110,7 @@ def test_the_process_takes_a_mode_a_level_and_a_command_while_it_lives(tmp_path,
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent
-    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=Scripted(): real_build(cfg, client=_c))
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=Scripted(): real_build(cfg, client=_c))
     feed, out = Feed(), io.StringIO()
     t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "p1", "--no-memory", "--no-checkpoints",
                                               "--effort", "low", "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)
@@ -145,7 +145,7 @@ def test_the_process_takes_the_steps_and_the_end_of_turn_bias_while_it_lives(tmp
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent
-    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=Scripted(): real_build(cfg, client=_c))
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=Scripted(): real_build(cfg, client=_c))
     feed, out = Feed(), io.StringIO()
     t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "p2", "--no-memory", "--no-checkpoints",
                                               "--max-turns", "15", "--end-turn-bias", "-5", "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)

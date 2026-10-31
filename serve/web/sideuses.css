@@ -1,0 +1,39 @@
+/* Settings > Inference > Technical session, and the dialog that lists every use of it. */
+.sud { width: min(860px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--fg); overflow: hidden; }
+.sud[open] { display: flex; flex-direction: column; }
+.sud::backdrop { background: rgba(0, 0, 0, .65); }
+.sud :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sud-h { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 10px 16px; border-bottom: 1px solid var(--line-soft); flex: none; }
+.sud-h h2 { margin: 0; font: 600 16px/1.3 var(--font-sans); }
+.sud-grow { flex: 1; }
+.sud-body { padding: 12px 16px 16px; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.sud-dim { margin: 0; color: var(--dim); font: 400 14px/1.5 var(--font-sans); }
+.sud-route { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 0; }
+.sud-route legend { font: 600 14px/1.4 var(--font-sans); padding: 0 6px; }
+.sud-route select { width: 100%; min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+.sud-running { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.sud-running h3 { margin: 0; font: 600 14px/1.4 var(--font-sans); }
+.sud-running ul { margin: 0; padding-left: 18px; font: 400 14px/1.5 var(--font-sans); }
+.sud-use { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); min-width: 0; }
+.sud-use[data-off="1"] { opacity: .8; }
+.sud-use > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 8px 12px; cursor: pointer; min-height: 48px; list-style: none; }
+.sud-use > summary::-webkit-details-marker { display: none; }
+.sud-use > summary::before { content: "▸"; color: var(--dim); }
+.sud-use[open] > summary::before { content: "▾"; }
+.sud-name { font: 600 15px/1.4 var(--font-sans); flex: 1 1 14em; min-width: 0; overflow-wrap: anywhere; }
+.sud-tag { font: 500 12px/1.4 var(--font-sans); color: var(--dim); border: 1px solid var(--line); border-radius: 10px; padding: 1px 8px; }
+.sud-switch { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; min-width: 44px; font: 500 14px/1.4 var(--font-sans); }
+.sud-switch input { width: 22px; height: 22px; }
+.sud-more { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line-soft); }
+.sud-more p { margin: 0; font: 400 14px/1.5 var(--font-sans); overflow-wrap: anywhere; }
+.sud-nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.sud-num { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sud-num label { font: 500 14px/1.4 var(--font-sans); }
+.sud-num input { width: 100%; min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+.sud-num small { color: var(--dim); font: 400 13px/1.4 var(--font-sans); }
+.sud-prompt { width: 100%; min-height: 8em; max-height: 20em; resize: vertical; font: 400 14px/1.5 var(--font-mono, monospace); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+.sud-prompt[readonly] { opacity: .85; }
+.sud-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sud[data-off="1"] .sud-use { opacity: .55; }
+.sud[data-off="1"] .sud-use * { pointer-events: auto; }
+@media (max-width: 520px) { .sud-h { padding: 8px 12px; } .sud-body { padding: 10px 12px 14px; } }

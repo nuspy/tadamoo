@@ -7,6 +7,7 @@ import time
 import pytest
 
 from harness import agent_loop as al
+from harness import side_uses
 from harness import suggestions as sg
 from harness.session import Session, SessionStore
 from harness.stack import AgentConfig, build_agent
@@ -41,7 +42,7 @@ def test_the_instruction_asks_for_complete_self_explanatory_messages_in_the_user
     text = sg.INSTRUCTION
     for needle in ("language of the user's last message", "complete and self-explanatory", "as they are", "real names", "reason", "never cut off", "Output only JSON"):
         assert needle in text, needle
-    assert sg.PROMPT_CHARS >= 400 and sg.MAX_TOKENS >= 400 and sg.MAX_ITEMS == 4
+    assert sg.PROMPT_CHARS >= 400 and side_uses.param("suggestions", "max_tokens") >= 400 and sg.MAX_ITEMS == 4
     assert sg.SCHEMA["properties"]["suggestions"]["items"]["required"] == ["prompt"]
 
 
@@ -147,8 +148,8 @@ def test_chips_come_after_the_answer_and_the_instruction_never_enters_the_histor
     assert done["final"].startswith("The service")
     call = client.requests[1]
     assert call["messages"][-1] == {"role": "user", "content": sg.INSTRUCTION} and call["messages"][-2]["role"] == "assistant"
-    assert call["response_format"]["json_schema"]["strict"] is True and call["max_tokens"] == sg.MAX_TOKENS and call["extra"] == {"reasoning_effort": "none"}
-    assert call["tools"] and call["tool_choice"] == "none" and call["timeout"] == sg.TIMEOUT_S
+    assert call["response_format"]["json_schema"]["strict"] is True and call["max_tokens"] == side_uses.param("suggestions", "max_tokens") and call["extra"] == {"reasoning_effort": "none"}
+    assert call["tools"] and call["tool_choice"] == "none" and call["timeout"] == side_uses.param("suggestions", "timeout_s")
     assert all(sg.INSTRUCTION not in json.dumps(m) for m in built.agent.messages)                                   # never stored
     assert session.suggester.offered == ["Explain the validation step", "Apply it to my CSV"]
 

@@ -7,7 +7,7 @@
 (() => {
   const hosts = [];
   const RECHECK_MS = 1500;
-  let on = false, saved = false, loaded = false, saving = false, side = null, reachable = true, note = "", noteBad = false, checkedAt = 0;
+  let sideTokens = 0, on = false, saved = false, loaded = false, saving = false, side = null, reachable = true, note = "", noteBad = false, checkedAt = 0;
 
   const h = (tag, cls, ...kids) => {
     const e = document.createElement(tag);
@@ -82,7 +82,10 @@
     reachable = r.status !== 0;
     const slot = r.ok && r.data && r.data.concurrency ? r.data.concurrency.side_slot : null;
     side = !!(slot && Number(slot.context) > 0);
+    const was = sideTokens;
+    sideTokens = side ? Number(slot.context) : 0;
     paint();
+    if (sideTokens !== was) document.dispatchEvent(new CustomEvent("basalt:side", { detail: sideTokens }));
   }
   async function load() {
     const r = await call("GET", "api/intake");
@@ -98,7 +101,7 @@
   document.addEventListener("basalt:loader", () => refresh(true));      // the Loader finished a load: the technical session may have come or gone
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 
-  window.OptimizePrompt = { value: () => on, available: () => side === true, sync, refresh, choose };
+  window.OptimizePrompt = { value: () => on, available: () => side === true, sideTokens: () => sideTokens, sync, refresh, choose };
   paint();
   load();
 })();
