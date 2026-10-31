@@ -319,6 +319,36 @@ class SlotContext(unittest.TestCase):
                                       {"server": {"slot-full-context": True}}), 262144)
 
 
+class BatchNeedsInt8(unittest.TestCase):
+    """The engine's batch windows need resident INT8 K/V: the server adds --kv int8, and refuses another format."""
+
+    def kv(self, cli, cfg=None):
+        a, _, file_words, cli_words = parse(cli, cfg)
+        words = file_words + cli_words
+        return a, flag_value(words, "--kv"), words.count("--kv")
+
+    def test_parallel_and_the_side_slot_add_int8_when_no_format_is_given(self):
+        for cli in (["--parallel", "2"], ["--side-slot", "30000"], ["--parallel", "3", "--side-slot"]):
+            a, kv, n = self.kv(cli)
+            self.assertEqual((kv, n, a.kv_added), ("int8", 1, True))
+
+    def test_a_given_int8_is_kept_once_and_not_reported_as_added(self):
+        a, kv, n = self.kv(["--parallel", "2", "--kv", "int8"])
+        self.assertEqual((kv, n, a.kv_added), ("int8", 1, False))
+        a, kv, n = self.kv(["--side-slot", "30000"], {"engine": {"kv": "int8"}})
+        self.assertEqual((kv, n, a.kv_added), ("int8", 1, False))
+
+    def test_another_format_with_slots_is_refused_with_the_reason(self):
+        with self.assertRaisesRegex(ValueError, "need --kv int8, not --kv q4_0"):
+            parse(["--parallel", "2", "--kv", "q4_0"])
+        with self.assertRaisesRegex(ValueError, "need --kv int8, not --kv fp16"):
+            parse(["--side-slot", "30000"], {"engine": {"kv": "fp16"}})
+
+    def test_a_solo_server_gets_no_format_added(self):
+        a, kv, n = self.kv(["--max-context", "65536"])
+        self.assertEqual((kv, n, a.kv_added), (None, 0, False))
+
+
 class SideSlot(unittest.TestCase):
     """--side-slot: one more engine slot for the harness's short calls, with a context of its own."""
 

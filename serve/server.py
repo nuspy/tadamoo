@@ -290,6 +290,8 @@ def main() -> int:
             elif getattr(a, "side_slot", 0):
                 print("[server] warning: the technical session was asked for but the engine runs without it "
                       "(see the engine log: its slot did not fit)", flush=True)
+        if getattr(a, "kv_added", False):
+            print("[server] kv       int8 (the parallel slots need it)", flush=True)
         if getattr(a, "side_clamp", None):
             print(f"[server] warning: --parallel {a.side_clamp[0]} and the technical session need {a.side_clamp[0] + 1} slots, "
                   f"the engine's most is 8: {a.side_clamp[1]} requests at once", flush=True)

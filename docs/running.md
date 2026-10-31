@@ -75,7 +75,7 @@ holds 8 slots, so `--parallel 8` becomes 7 conversations and the session (the se
 
 What it costs. Memory: the KV cache and state of a session of TOKENS tokens, elastic like the other slots (it backs 4096 cells at
 start and grows with use), and the draft layer's K/V of that size; the Loader's memory plan counts both. The session keeps no
-conversation checkpoints and parks no conversation, so the RAM kept for them does not grow. What is given up: it turns the engine's
+conversation checkpoints and parks no conversation, so the RAM kept for them does not grow. The engine's batch windows need the K/V cache as resident INT8 without rotation: the server adds `--kv int8` by itself (and says so at start), and refuses `--parallel` or `--side-slot` together with another `--kv` format. What is given up: it turns the engine's
 batch mode on, even with `--parallel 1`, so `end_turn_bias`, `logit_bias` and relaxed drafting are unavailable while it is on, and a
 request alone no longer runs on the pure single-stream path. A call that arrives while a conversation decodes alone moves that
 conversation into the batch windows until the call ends. It is off until the cost on a conversation's speed has been measured (queue

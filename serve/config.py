@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 from serve import ROOT
-from serve.engine.flags import flag_index
+from serve.engine.flags import flag_index, flag_value
 from serve.engine.vision import VISION_MODES, VISION_USAGE, vision_mode
 from serve.util.console import tagged
 
@@ -172,6 +172,7 @@ def parse_settings(ap: argparse.ArgumentParser, cli: list[str]):
             setattr(a, act.dest, getattr(a_cli, act.dest))
     main, side = a.parallel or 1, a.side_slot or 0
     a.side_clamp = None
+    a.kv_added = False
     if main > 1 or side:
         for flag in ("--batch", "--slots"):
             if flag in file_words or flag in cli_words:
@@ -182,6 +183,12 @@ def parse_settings(ap: argparse.ArgumentParser, cli: list[str]):
             a.side_clamp = (main, PARALLEL_MAX - 1)
             main = a.parallel = PARALLEL_MAX - 1
         words = cli_words if a_cli.parallel or a_cli.side_slot else file_words
+        kv = next((flag_value(w, "--kv") for w in (cli_words, file_words) if flag_index(w, "--kv") is not None), None)
+        if kv is None:                                    # the batch windows need resident INT8 K/V (see the engine's verify)
+            words.extend(["--kv", "int8"])
+            a.kv_added = True
+        elif kv != "int8":
+            raise ValueError(f"parallel slots and the technical session need --kv int8, not --kv {kv}")
         words.extend(["--batch", str(main + (1 if side else 0))])
         if side:
             words.extend(["--side-context", str(side)])
