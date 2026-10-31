@@ -302,7 +302,7 @@ class SuggestionChips extends StatelessWidget {
               message: Texts.t('ask.suggest.tip', [c['prompt']]),
               child: ActionChip(
                 materialTapTargetSize: MaterialTapTargetSize.padded,
-                label: Text(c['label'] ?? c['prompt'] ?? '', overflow: TextOverflow.ellipsis),
+                label: Text(c['prompt'] ?? ''),
                 onPressed: () => onPick(c['prompt'] ?? ''),
               ),
             ),
