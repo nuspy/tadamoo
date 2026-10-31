@@ -40,6 +40,7 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina. Si aggiorna a ogni task nuovo ri
 
 ## In coda, serve la GPU (e l'OK dell'altra sessione, sempre)
 
+- Esperimento sul contesto (E9, da scrivere con regola di vittoria prima): riassunto nostro, riassunto del proxy (modello decide) e misto, su conversazioni lunghe di agente; misure: domande di richiamo dopo la compattazione, riuso della cache, token, tempo, riuscita del compito.
 - Le prove con il modello vero, righe 36-88 di `tests/QUEUE_daytime.md`.
 - Gli esperimenti E1, E2, E4, E5, E6, E7, E8 (`python -m harness.eval.cases list`). Solo E3 è già girato, con il motore
   finto.
@@ -116,6 +117,7 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina. Si aggiorna a ogni task nuovo ri
 
 ## Decisioni già prese
 
+- Contesto (31 ottobre): una sola nota di compattazione, generica, uguale per tutti i sistemi (non dice chi ha compattato: dice che c'è stata una compattazione, con limiti e controlli); tutti i sistemi possono ricompattare se serve e se è ancora possibile; si ricompatta dagli originali, non riassumendo un riassunto (una chiamata in più va bene); l'idea delle risposte astratte entra nella stessa pipeline e solo nel Chat.
 - Nessun push e nessun rilascio, nemmeno come bozza, finché non dici che abbiamo finito.
 - La GPU si usa solo dopo il via libera dell'altra sessione e le si scrive a fine uso. Con il commit libero sotto i 20 GB
   si ferma tutto.
