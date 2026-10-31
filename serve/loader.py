@@ -33,6 +33,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from serve.config import SIDE_SLOT_DEFAULT
+
 GiB, MiB = 1 << 30, 1 << 20
 FREE_SHARE = 0.15                       # the share of RAM and of the commit limit that stays free, until the user sets one
 FREE_SHARE_MIN, FREE_SHARE_MAX = 0.05, 0.5
@@ -70,7 +72,7 @@ MTP_EXPERT_BLOB = 1382400
 ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.prefill": None, "engine.spec": 0,
                    "engine.expert-cache": 0, "engine.resident-experts": False,
                    "engine.vram-reserve-mib": 700, "engine.ple-io": "direct", "engine.pool-workers": None,
-                   "server.parallel": 1, "server.slot-full-context": False, "server.side-slot": 0, "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep", "engine.relaxed-drafting": None,
+                   "server.parallel": 1, "server.slot-full-context": False, "server.side-slot": SIDE_SLOT_DEFAULT, "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep", "engine.relaxed-drafting": None,
                    "server.port": 7232,
                    "engine.kv-resident": 0, "engine.resident-budget-gib": None, "engine.mmap-experts": False,
                    "engine.adapt-swaps": 96, "engine.prefill-cpu-share": 0.6, "engine.vram-elastic": False,
@@ -88,7 +90,7 @@ ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.pref
 SAFE = {"engine.max-context": 262144, "engine.kv": "q4_0", "engine.prefill": "auto", "engine.spec": 7,
         "engine.expert-cache": "auto", "engine.resident-experts": True,
         "engine.vram-reserve-mib": 1536, "engine.ple-io": "direct", "engine.pool-workers": 15,
-        "server.parallel": 1, "server.slot-full-context": False, "server.vision": "dynamic"}
+        "server.parallel": 1, "server.slot-full-context": False, "server.side-slot": 0, "server.vision": "dynamic"}
 
 # seed speeds until this model is calibrated; SEED["note"] names their source
 SEED = {"source": "seed", "decode_spec0": 184.0, "decode_spec7": 320.0, "hit_rate": 0.984, "cache_share": 0.37,
@@ -406,6 +408,10 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     par = max(1, int(v["server.parallel"]))
     ctx = slot_context(v)
     kvf = v["engine.kv"] if v["engine.kv"] in KV_TOKEN_BYTES else "fp16"
+    kv_notes = []
+    if side_context(v) and kvf != "int8":             # the technical session and the parallel slots need resident INT8 K/V
+        kv_notes.append({"code": "side_kv", "kv": kvf})
+        kvf = "int8"
     spec = int(v["engine.spec"] or 0)
     mode = v["server.vision"]
     # ---- VRAM
@@ -434,6 +440,7 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     kv_host += pool_cell * side if side_streamed else 0
     if side:
         notes.append({"code": "side", "context": side, "kv": side_kv})
+    notes.extend(kv_notes)
     drafter = 0
     if facts.get("has_mtp") and spec >= 2:
         cell = KV_CELL_BYTES["int8" if kvf == "k8v4" else kvf] + 128
@@ -672,7 +679,7 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
     out = {"engine.max-context": CONTEXT_STEPS[-1], "engine.kv": "q4_0", "engine.prefill": "auto",
            "engine.spec": 7 if mtp else 0, "engine.expert-cache": "auto",
            "engine.resident-experts": True, "engine.vram-reserve-mib": reserve, "engine.ple-io": "direct",
-           "engine.pool-workers": workers, "server.parallel": 1, "server.slot-full-context": False,
+           "engine.pool-workers": workers, "server.parallel": 1, "server.slot-full-context": False, "server.side-slot": 0,
            "server.vision": vision}
     fitted = False
     for resident in (True, False):
@@ -737,6 +744,8 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
         "server.parallel": ("1: one request at a time gets the whole context and the full speed.",
                             "1: una richiesta alla volta ha tutto il contesto e tutta la velocità."),
         "server.slot-full-context": ("off: with one slot it changes nothing.", "spento: con un solo slot non cambia nulla."),
+        "server.side-slot": ("0: the safe values keep the technical session off; it needs the INT8 cache and a little more memory.",
+                             "0: i valori sicuri tengono spenta la sessione tecnica; richiede la cache INT8 e un po' più di memoria."),
         "server.vision": (("dynamic: images are read inside the engine, no VRAM kept for them." if vision == "dynamic"
                            else f"off: the engine does not read this file's vision projector "
                                 f"({picked['problem']['en']})." if picked and picked["problem"]

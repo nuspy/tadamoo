@@ -303,7 +303,7 @@ class ParallelOption(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "c.json"
-            p.write_text(json.dumps({"server": {"parallel": 3}}))
+            p.write_text(json.dumps({"server": {"parallel": 3, "side-slot": 0}}))
             a, _, file_engine, cli_engine = self.parse("--config", str(p))
             self.assertEqual((a.parallel, file_engine[:4], "--batch" in cli_engine), (3, ["--kv", "int8", "--batch", "3"], False))
             _, _, file_engine, cli_engine = self.parse("--config", str(p), "--parallel", "2")

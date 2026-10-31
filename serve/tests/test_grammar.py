@@ -264,7 +264,7 @@ class EngineStart(unittest.TestCase):
             eng = Path(d) / "eng"
             eng.write_bytes(flags)
             conf = Path(d) / "c.json"
-            conf.write_text(json.dumps({"server": {"model": "m.basalt", **server_block}}))
+            conf.write_text(json.dumps({"server": {"model": "m.basalt", "side-slot": 0, **server_block}}))
             argv = ["x", "--config", str(conf), "--engine-bin", str(eng), "--port", str(free_port()), *cli]
             tokdir = Path(d) / "tok"
             tokdir.mkdir()

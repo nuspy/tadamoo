@@ -21,7 +21,7 @@ GiB, MiB = 1 << 30, 1 << 20
 ROOMY = {"ram_total": 128 * GiB, "ram_available": 120 * GiB, "commit_limit": 144 * GiB, "commit_used": 10 * GiB,
          "vram_total": 32 * GiB, "vram_free": 31 * GiB}
 F = loader.DEMO_FACTS
-BASE = {"engine.max-context": 65536, "engine.kv": "int8", "engine.spec": 0, "engine.expert-cache": 2000,
+BASE = {"engine.max-context": 65536, "engine.kv": "int8", "engine.spec": 0, "engine.expert-cache": 2000, "server.side-slot": 0,
         "engine.resident-experts": True}
 NEW = {"engine.kv-resident": 40960, "engine.resident-budget-gib": 24.5, "engine.adapt-swaps": 0,
        "engine.prefill-cpu-share": 0.25, "engine.vram-elastic": True, "engine.release-vram-commit": True,
@@ -234,7 +234,7 @@ class PlanAccounting(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad):
                 settings.check_value("server", "side-slot", bad)
         self.assertIn(("server", "side-slot"), settings.LOADER_FIELDS)               # persisted with the other Loader fields
-        self.assertEqual(loader.effective({})["server.side-slot"], 0)                 # off unless asked
+        self.assertEqual(loader.effective({})["server.side-slot"], config.SIDE_SLOT_DEFAULT)      # on unless the Loader says 0
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "basalt.json")
             Path(path).write_text(json.dumps({"server": {"model": "m.basalt"}}), encoding="utf-8")
@@ -331,7 +331,7 @@ class SavedConfigurations(unittest.TestCase):
         self.assertEqual(profiles.get_load("Vecchia"), old)
         e = loader.effective(profiles.get_load("Vecchia"))
         self.assertEqual((e["engine.adapt-swaps"], e["server.grammar"], e["engine.prompt-cache"]), (96, True, 6))
-        self.assertEqual(profiles.listing()["load"][1]["summary"]["text"], "64K · int8 · no MTP")
+        self.assertEqual(profiles.listing()["load"][1]["summary"]["text"], "64K · int8 · no MTP · technical session 30000")
 
     def test_a_bad_or_contradictory_configuration_is_refused(self):
         for values in ({"engine.kv-resident": 5}, {"engine.rope-scaling": "ntk"}, {"engine.kv": "k8v4", "engine.kv-resident": 30000},
