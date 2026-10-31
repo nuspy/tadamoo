@@ -11,9 +11,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from harness import optimize as opt
 from harness import questions as qs
 from harness.eval import cases
-from harness.eval.cases import e1_target, e2_gate, e3_errors, e4_intake, e5_compaction, e6_longform, e7_cache
+from harness.eval.cases import e1_target, e2_gate, e3_errors, e4_intake, e5_compaction, e6_longform, e7_cache, e8_optimize
 from harness.eval.cases.agentrun import FIXED_NOW
 from harness.eval.cases.core import Context, decide, render_report, run_experiment
 from harness.eval.cases.fixtures import gate_tasks, long_turn_repo, shop_repo
@@ -286,6 +287,75 @@ def test_e4_score_row_marks_asking_when_not_needed_and_not_asking_when_needed():
     assert e4_intake.score_row(risky, True, ["x"])["good"] == 0.0 and e4_intake.score_row(risky, True, [])["good"] == 1.0
     dated = next(r for r in e4_intake.prompts() if r["id"] == "date1")
     assert e4_intake.score_row(dated, False, ["wrong date"])["date_ok"] == 0.0 and e4_intake.score_row(dated, False, [])["date_ok"] == 1.0
+
+
+# -- E8 ------------------------------------------------------------------------------------------------------------------
+
+class WithSession(Fake):
+    """A model that answers by a function of the request and reports a technical session (or none)."""
+
+    def __init__(self, fn, side=30000):
+        super().__init__(fn)
+        self.side = side
+
+    def side_context(self):
+        return self.side
+
+
+def optimize_model(rewrite):
+    """The helper pass answers `rewrite`; the conversation's model writes port.txt only when it was told to create the file, as the rewrite says."""
+    def fn(messages, tools, kw):
+        if messages[0]["content"] == opt.SYSTEM_PROMPT:
+            return say(rewrite)
+        if messages[-1]["role"] == "tool":
+            return say("Done.")
+        if "Create the file port.txt" in json.dumps(messages):
+            return tool("write_file", {"path": "port.txt", "content": "8080\n"})
+        return say("Ok, I have started.")
+    return fn
+
+
+def test_e8_the_on_arm_gives_the_model_the_rewrite_and_the_off_arm_does_not():
+    row = next(r for r in e8_optimize.prompts() if r["id"] == "num1")
+    arms = {a.name: a for a in e8_optimize.ARMS}
+    rewrite = "Create the file port.txt and write the number 8080 in it, with nothing else in the file."
+    off_client, on_client = WithSession(optimize_model(rewrite)), WithSession(optimize_model(rewrite))
+    off = e8_optimize.run_prompt(arms["A"], row, 1, Context(client=off_client, power_limit_w=400.0))
+    on = e8_optimize.run_prompt(arms["B"], row, 1, Context(client=on_client, power_limit_w=400.0))
+    assert not off.success and off.metrics["good"] == 0.0 and off.metrics["optimized"] == 0.0 and off.metrics["model_calls"] == 1
+    assert on.success and on.metrics["good"] == 1.0 and on.metrics["optimized"] == 1.0 and on.metrics["protected_kept"] == 1.0
+    assert on.metrics["model_calls"] == off.metrics["model_calls"] + 2, "the helper call and the write are counted"
+    assert "optimize_seconds" in on.metrics and off.metrics["optimize_seconds"] == 0.0
+    assert [r["extra"].get("cache_slot") for r in on_client.requests if r["messages"][0]["content"] == opt.SYSTEM_PROMPT] == ["side"]
+
+
+def test_e8_a_rewrite_that_drops_the_number_is_thrown_away_so_the_model_still_reads_what_the_person_wrote():
+    row = next(r for r in e8_optimize.prompts() if r["id"] == "num1")
+    arms = {a.name: a for a in e8_optimize.ARMS}
+    on = e8_optimize.run_prompt(arms["B"], row, 1, Context(client=WithSession(optimize_model("Create the file port.txt and write the port number in it.")), power_limit_w=400.0))
+    assert on.metrics["rejected"] == 1.0 and on.metrics["lost"] == 1.0 and on.metrics["optimized"] == 0.0 and on.metrics["protected_kept"] == 1.0
+    assert not on.success and any("number: 8080" in n for n in on.notes)
+
+
+def test_e8_without_a_technical_session_the_on_arm_is_invalid_not_a_failure():
+    row = next(r for r in e8_optimize.prompts() if r["id"] == "num1")
+    arms = {a.name: a for a in e8_optimize.ARMS}
+    on = e8_optimize.run_prompt(arms["B"], row, 1, Context(client=WithSession(optimize_model("x"), side=0), power_limit_w=400.0))
+    assert on.invalid and "technical session" in on.error
+    off = e8_optimize.run_prompt(arms["A"], row, 1, Context(client=WithSession(optimize_model("x"), side=0), power_limit_w=400.0))
+    assert not off.invalid
+
+
+def test_e8_runs_end_to_end_and_reports_the_rule():
+    rows = [r for r in e8_optimize.prompts() if r["id"] == "num1"]
+    exp = e8_optimize.experiment()
+    exp.tasks = lambda: rows
+    client = WithSession(optimize_model("Create the file port.txt and write the number 8080 in it, with nothing else in the file."))
+    ctx = Context(client=client, power_limit_w=400.0, plumbing=True)
+    done = run_experiment(exp, ctx, 2)
+    assert {t.arm for t in done} == {"A", "B", "A~aa"} and not any(t.invalid for t in done)
+    text = render_report(exp, ctx, done, 2)
+    assert "Optimize prompt" in text and "--optimize-prompt on" in text and "protected_kept" in text
 
 
 # -- E5 ------------------------------------------------------------------------------------------------------------------

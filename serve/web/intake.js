@@ -25,7 +25,7 @@
 
   async function save(values) {
     const r = await call("POST", "api/intake", values);
-    if (r.ok) { state = r.data; note = T("kn.saved"); noteBad = false; if (window.PromptSwitch) window.PromptSwitch.sync(state.intake); } else { note = why(r); noteBad = true; }
+    if (r.ok) { state = r.data; note = T("kn.saved"); noteBad = false; if (window.PromptSwitch) window.PromptSwitch.sync(state.intake); if (window.OptimizePrompt) window.OptimizePrompt.sync(state); } else { note = why(r); noteBad = true; }
     draw();
   }
 
@@ -40,7 +40,7 @@
     const saveBtn = h("button", "btn primary", T("kn.save")); saveBtn.type = "button"; saveBtn.onclick = () => save(values());
     const defaults = h("button", "btn ghost", T("iq.defaults")); defaults.type = "button";
     defaults.title = T("iq.defaults.tip");
-    defaults.onclick = () => save({ intake: s.defaults.intake, suggestions: s.defaults.suggestions, side_call_tokens: s.defaults.side_call_tokens });
+    defaults.onclick = () => save({ intake: s.defaults.intake, suggestions: s.defaults.suggestions, optimize_prompt: s.defaults.optimize_prompt, side_call_tokens: s.defaults.side_call_tokens });
     const status = h("p", "setnote kn-status", note); status.setAttribute("role", "status"); status.hidden = !note; status.dataset.bad = noteBad ? "1" : "";
     const help = (id, text) => Object.assign(h("p", "setnote kn-help", text), { id });
     root.replaceChildren(
@@ -53,7 +53,7 @@
 
   async function load() {
     const r = await call("GET", "api/intake");
-    if (r.ok) { state = r.data; if (window.PromptSwitch) window.PromptSwitch.sync(state.intake); draw(); } else root.replaceChildren(h("p", "setnote warnnote", why(r)));
+    if (r.ok) { state = r.data; if (window.PromptSwitch) window.PromptSwitch.sync(state.intake); if (window.OptimizePrompt) window.OptimizePrompt.sync(state); draw(); } else root.replaceChildren(h("p", "setnote warnnote", why(r)));
   }
   document.addEventListener("basalt:view", e => { if (e.detail === "settings") load(); });
   if (document.body.dataset.view === "settings") load();

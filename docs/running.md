@@ -59,7 +59,8 @@ the slots that did fit; if fewer than two fit, `--batch is off` and the server r
 
 `--side-slot TOKENS` (also `"side-slot"` in the config's `server` section, or the Loader's *Technical session* field; bare it is
 30000, `0` is off and the default) adds one slot to `--parallel`: a session of TOKENS tokens kept for the harness's short calls
-(the triage of a request, next-prompt suggestions, the summary of older steps, the judges and the router). A call that sends
+(the triage of a request, next-prompt suggestions, the summary of older steps, the judges and the router, and the rewrite of the person's message
+when Optimize prompt is on, which is available only while this session exists). A call that sends
 `"cache_slot": "side"` (chat completions, messages and responses alike) runs there, with a prompt of its own and no big instruction
 or tool prefix, so it neither waits behind a conversation's long answer nor overwrites a conversation's cache. The answer carries
 `"cache_slot"`: `"side"`, or `"main"` when the ordinary slots served it. A request is served by them, and not refused, when the server has

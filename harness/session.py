@@ -7,13 +7,13 @@ for the start, and saves the history after every model turn, so a process that d
 Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd": "cancel"}, {"cmd": "resume"}, {"cmd": "close"},
 {"cmd": "promote", "id"}, {"cmd": "drop", "id"}, {"cmd": "ping"}, {"cmd": "mode", "mode"} (the permission mode of the conversation),
 {"cmd": "role", "role"} (what the agent is for: harness/roles.py), {"cmd": "checks", "safe", "checks"} (the commands that run without a question and the accepted checks of the verify gate),
-{"cmd": "effort", "level"} (how long the model thinks), {"cmd": "intake", "mode"} (off, rules or full: how a request is looked at), {"cmd": "settings", "max_turns", "end_turn_bias", "temperature", "max_tokens"} (the steps one answer may take,
+{"cmd": "effort", "level"} (how long the model thinks), {"cmd": "intake", "mode"} (off, rules or full: how a request is looked at), {"cmd": "optimize", "on"} (whether a message is rewritten by the technical session first; a "send" may carry "optimize": false), {"cmd": "settings", "max_turns", "end_turn_bias", "temperature", "max_tokens"} (the steps one answer may take,
 -1 for no limit, the end-of-turn bias, the sampling temperature, null for the model file's own, and the most a reply may write, null for the server's own; any of them), {"cmd": "command", "id", "name", "args"} (a slash command: harness/commands.py),
 {"cmd": "skill", "id", "name", "display", "script", "values", "timeout", "cache_dir"} (runs a personal skill in the conversation).
 Events: ready, accepted, queued, routed, started, suspended, resumed, agent (an assistant text or a tool start or end), delta
 (text as it is written), ask (a confirmation the task waits for, or a card of questions that ends the turn), intake (what the look at a request assumed
-or recorded), suggestions (the next-message chips after an answer),
-retrying, model_error (only with the error-classifier proposal), done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, role, checks, effort, intake_mode, settings, command, skill, skill_say, heartbeat, error.
+or recorded), optimized (the technical session's rewrite of the message, or why it was not used), suggestions (the next-message chips after an answer),
+retrying, model_error (only with the error-classifier proposal), done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, role, checks, effort, intake_mode, optimize_prompt, settings, command, skill, skill_say, heartbeat, error.
 
 A message that comes while a task is under way is looked at before the task's next model call (harness/router.py): it goes into
 that task (steer), waits its turn (queue), or, when it cannot wait and has nothing to do with the task, the task is put aside where
@@ -53,6 +53,7 @@ from typing import Any, Callable, Dict, List, Optional, TextIO, Tuple
 from harness import agent_loop as al
 from harness import error_classifier
 from harness import intake as it
+from harness import optimize as opt
 from serve import longflow as lfw
 from serve import longform as lf
 from harness import questions as qs
@@ -284,6 +285,7 @@ class Session:
         self._summary = ""                                      # the plans summary the conversation last got
         self.attachment_store: Any = None                       # AttachmentStore of this conversation's files, when it has one
         self.intake: Optional[it.Intake] = None                 # what runs between the person's text and the model's first step (harness/intake.py)
+        self.optimizer: Optional[opt.Optimizer] = None          # the person's message rewritten by the technical session before the model reads it (harness/optimize.py)
         self.task_sink: Optional[it.TaskSink] = None            # the server's task registry, where a large request's parts are recorded
         self.suggester: Optional[sg.Suggester] = None           # the next-prompt chips (harness/suggestions.py)
         self.ask_only = False                                   # a conversation without tools
@@ -625,7 +627,7 @@ class Session:
 
     # -- commands --------------------------------------------------------------------------------------
 
-    def _begin_main(self, turn: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None) -> Task:
+    def _begin_main(self, turn: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None, optimize: bool = True) -> Task:
         """Starts a turn of the person's own conversation: what the agent should know first, then their message."""
         agent = self.agent
         agent.cancel.clear()
@@ -641,7 +643,7 @@ class Session:
             agent.taint("memories", private=bool(retrieved.get("private")))
             agent.append(retrieved)
         self._save()                                   # the message is kept before the model sees it
-        task = Task(turn, text, agent, intake={"origin": origin, "attachments": list(attachments or [])} if origin == "user" else None)
+        task = Task(turn, text, agent, intake={"origin": origin, "attachments": list(attachments or []), "optimize": optimize} if origin == "user" else None)
         self._adopt(task)
         self.tasks[turn] = task
         return task
@@ -661,7 +663,7 @@ class Session:
             self.busy = True
         threading.Thread(target=self._work, args=(task,), name=f"session-task-{task.turn}", daemon=True).start()
 
-    def send(self, turn_id: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None) -> bool:
+    def send(self, turn_id: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None, optimize: bool = True) -> bool:
         if origin == "user":
             self._suggest_cancel.set()                 # a suggestion call in flight stops: the person's message is next
             if self.suggester is not None:
@@ -675,7 +677,7 @@ class Session:
                 self._workers += 1
                 self.busy, self.turn_id = True, turn_id
         if busy:                                       # a task is under way: the message is looked at before its next model call
-            msg: Dict[str, Any] = {"turn": turn_id, "text": text, **({"attachments": attachments} if attachments else {})}
+            msg: Dict[str, Any] = {"turn": turn_id, "text": text, **({"attachments": attachments} if attachments else {}), **({} if optimize else {"optimize": False})}
             self.emit({"event": "queued", "turn": turn_id, "text": text})
             if self.parallel_slots() > self._workers:  # the model can take another request now: no need to wait for the task's safe point
                 threading.Thread(target=self._route_now, args=(msg,), name="session-route", daemon=True).start()
@@ -686,7 +688,7 @@ class Session:
                 self._interrupt_for_urgent()
             self._save()
             return True
-        task = self._begin_main(turn_id, text, origin, attachments)
+        task = self._begin_main(turn_id, text, origin, attachments, optimize)
         self.emit({"event": "accepted", "turn": turn_id} if origin == "user" else {"event": "woke", "turn": turn_id, "text": text[:300]})
         threading.Thread(target=self._work, args=(task,), name="session-task", daemon=True).start()
         return True
@@ -1074,6 +1076,8 @@ class Session:
             self._card_at = None
         if facts and self._long_step(task):
             return True
+        if facts:
+            self._optimize_step(task, facts)
         if self.intake is None or self.intake.mode == "off" or not facts or not agent.last_user_text.strip():
             return False
         try:
@@ -1106,6 +1110,40 @@ class Session:
         agent.stop_reason, agent.error = al.ASKED, ""
         self._save()
         return True
+
+    def _optimize_step(self, task: Task, facts: Dict[str, Any]) -> None:
+        """Optimize prompt (harness/optimize.py): the model reads the technical session's rewrite of the person's message in place of the
+        message; their own words stay beside it as `raw`, and `opt` says what happened so the page can show it again after a reload. What
+        confirmations quote and what the answer is checked against stay the person's words. Never raises."""
+        optimizer, agent = self.optimizer, task.agent
+        if optimizer is None or not optimizer.enabled or facts.get("optimize") is False or self.unattended:
+            return
+        try:
+            text = agent.last_user_text
+            at = next((i for i in range(len(agent.messages) - 1, -1, -1) if self._is_request(agent.messages[i], text)), None)
+            if at is None:
+                return
+            result = optimizer.run(text, previous=opt.previous_words(agent.messages, at), origin=str(facts.get("origin") or "user"), attended=not self.unattended)
+            if result.state == "skipped":
+                return
+            message = agent.messages[at]
+            if result.state == "sent":
+                message["content"] = message["content"].replace(text, result.text, 1)
+                message["raw"], message["opt"] = task.text, {"state": "sent"}
+            else:
+                message["opt"] = {"state": "rejected", "reason": result.reason, "detail": result.detail}
+            self._audit("prompt_optimized", {"state": result.state, "reason": result.reason, "ms": result.ms, "chars": [len(text), len(result.text)]})
+            self.emit({"event": "optimized", "turn": task.turn, "state": result.state, "reason": result.reason, "detail": result.detail,
+                       **({"text": result.text, "original": task.text} if result.state == "sent" else {})})
+            self._save()
+        except Exception as exc:
+            it.log.warning("optimize: failed: %s", type(exc).__name__)
+
+    @staticmethod
+    def _is_request(message: Dict[str, Any], text: str) -> bool:
+        content = message.get("content")
+        return (message.get("role") == "user" and not message.get("note") and isinstance(content, str) and text in content
+                and not content.startswith(("[harness]", "<untrusted_data")))
 
     LONG_TEXT = {
         "en": {"q": "This asks for about {words} words ({tokens} tokens), more than one reply writes well. Write it in {parts} parts?",
@@ -1457,7 +1495,7 @@ class Session:
         if side:
             return self._begin_side(msg["turn"], msg["text"], msg.get("attachments"))
         self.emit({"event": "accepted", "turn": msg["turn"]})
-        return self._begin_main(msg["turn"], msg["text"], "user", msg.get("attachments"))
+        return self._begin_main(msg["turn"], msg["text"], "user", msg.get("attachments"), msg.get("optimize") is not False)
 
     def _block(self, task: Optional[Task], reason: str, detail: str) -> None:
         """The task cannot go on and waiting will not change it: the person decides what happens next."""
@@ -1516,6 +1554,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--side-call-tokens", type=int, default=it.DEFAULT_SIDE_CALL_TOKENS, metavar="TOKENS",
                         help="the largest conversation in which the extra model calls (triage, suggestions) are made")
     parser.add_argument("--suggestions", choices=("on", "off"), default="off", help="offer next-prompt chips after an answer (an unattended run never does)")
+    parser.add_argument("--optimize-prompt", choices=("on", "off"), default="off",
+                        help="rewrite each message of the person in the technical session before the model reads it (needs --side-slot on the server)")
     parser.add_argument("--heartbeat", type=float, default=HEARTBEAT_S)
     parser.add_argument("--watch-plans", type=float, default=15.0, metavar="SECONDS", help="how often the plans are looked at in a quiet moment (0: never)")
     return parser.parse_args(args)
@@ -1589,6 +1629,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     session.endpoint, session.api_key = cfg.endpoint, cfg.api_key
     session.ask_only = args.ask_only
     session.intake = it.Intake(args.intake, built.agent.client, args.side_call_tokens)
+    session.optimizer = opt.Optimizer(built.agent.client, args.optimize_prompt == "on" and not args.unattended)
     session.task_sink = it.TaskSink(cfg.endpoint, cfg.api_key) if args.report_changes else None
     session.suggester = sg.Suggester(built.agent.client, args.suggestions == "on" and not args.unattended, args.side_call_tokens)
     session.set_effort(args.effort)
@@ -1643,7 +1684,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                 ids = [i for i in cmd.get("attachments", []) if isinstance(i, str)] if isinstance(cmd.get("attachments"), list) else []
                 if cmd.get("place") is not None and built.take_place:
                     built.take_place(cmd["place"])                  # before the message, so the tool is there from this turn on
-                session.send(str(cmd.get("id") or uuid.uuid4().hex[:8]), cmd["text"], attachments=ids or None)
+                session.send(str(cmd.get("id") or uuid.uuid4().hex[:8]), cmd["text"], attachments=ids or None, optimize=cmd.get("optimize") is not False)
             elif name == "answer":
                 session.answer(cmd.get("id"), cmd.get("value"))
             elif name == "promote":
@@ -1667,6 +1708,9 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
             elif name == "intake" and cmd.get("mode") in it.MODES and session.intake is not None:
                 session.intake.mode = cmd["mode"]
                 emit({"event": "intake_mode", "mode": cmd["mode"]})
+            elif name == "optimize" and isinstance(cmd.get("on"), bool) and session.optimizer is not None:
+                session.optimizer.enabled = cmd["on"] and not args.unattended
+                emit({"event": "optimize_prompt", "on": session.optimizer.enabled})
             elif name == "settings" and _valid_settings(cmd):
                 changed = {}
                 if "max_turns" in cmd:

@@ -347,6 +347,10 @@ def test_the_process_is_started_with_the_intake_and_suggestion_options(tmp_path)
     prefs.write({"intake": "full", "suggestions": False, "side_call_tokens": 3000})
     cmd = mgr._command("x", rec, tmp_path / "h")
     assert cmd[cmd.index("--intake") + 1] == "full" and cmd[cmd.index("--suggestions") + 1] == "off" and cmd[cmd.index("--side-call-tokens") + 1] == "3000"
+    assert cmd[cmd.index("--optimize-prompt") + 1] == "off"
+    prefs.write({"optimize_prompt": True})
+    cmd = mgr._command("x", rec, tmp_path / "h")
+    assert cmd[cmd.index("--optimize-prompt") + 1] == "on"
     mgr.shutdown()
 
 
@@ -1032,6 +1036,24 @@ def test_the_look_at_a_request_is_told_to_the_running_conversations_and_to_no_cl
     until(lambda: any(e["event"] == "intake_mode" and e["mode"] == "full" for e in mgr.events(live)["events"]))
     assert "intake_mode" not in kinds(mgr, idle)
     assert SessionManager(tmp_path / "j2", "http://127.0.0.1:1").update_intake("off") == 0
+
+
+def test_optimize_prompt_is_told_to_the_running_conversations_and_a_send_can_refuse_it_once(make, ws, tmp_path):
+    mgr = make()
+    live, idle = mgr.create(ws)["id"], mgr.create(ws)["id"]
+    mgr.send(live, "primo")
+    until(lambda: "done" in kinds(mgr, live))
+    assert mgr.update_optimize(True) == 1                                         # the one with a process; the other takes the saved choice when it starts
+    until(lambda: any(e["event"] == "optimize_prompt" and e["on"] is True for e in mgr.events(live)["events"]))
+    assert "optimize_prompt" not in kinds(mgr, idle)
+    assert SessionManager(tmp_path / "j2", "http://127.0.0.1:1").update_optimize(False) == 0
+    n = len(mgr.events(live)["events"])
+    mgr.send(live, "the text I typed", optimize=False)                            # "Send my original instead"
+    until(lambda: any(e["event"] == "optimize_prompt" and e.get("turn") for e in mgr.events(live, n)["events"]))
+    n = len(mgr.events(live)["events"])
+    mgr.send(live, "an ordinary one")
+    until(lambda: "done" in kinds(mgr, live, n))
+    assert not any(e.get("turn") for e in mgr.events(live, n)["events"] if e["event"] == "optimize_prompt")
 
 
 def test_the_thinking_level_is_kept_and_checked(make, ws):

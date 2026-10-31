@@ -1,8 +1,8 @@
 # Intake, questions and suggestions
 
-What the harness does between the person's text and the model's first step, how the agent asks the person, and the chips offered after an
-answer. Code: `harness/intake.py`, `harness/questions.py`, `harness/suggestions.py`, the hooks in `harness/session.py`, `serve/intake_prefs.py`,
-`serve/web/askcard.js`, `serve/web/promptswitch.js`, `serve/web/intake.js`, `mobile/lib/src/ask_card.dart`. The designs and their sources are in
+What the harness does between the person's text and the model's first step, how the agent asks the person, the chips offered after an
+answer, and the optional rewrite of each message. Code: `harness/intake.py`, `harness/optimize.py`, `harness/questions.py`, `harness/suggestions.py`, the hooks in `harness/session.py`, `serve/intake_prefs.py`,
+`serve/web/askcard.js`, `serve/web/promptswitch.js`, `serve/web/optimize.js`, `serve/web/intake.js`, `mobile/lib/src/ask_card.dart`. The designs and their sources are in
 [harness-study/](harness-study/README.md); this page says what is built. Unattended runs (routines, the Target Loop in an unattended
 conversation) never wait for any of it.
 
@@ -10,11 +10,12 @@ conversation) never wait for any of it.
 
 Settings > Inference holds them: the **Prompt analysis** switch first, then Questions and suggestions. Each control is explained on the page;
 the values are saved on this PC (`intake.json` in the data folder, read again after a restart of the server or the app, `/api/intake`) and a conversation started afterwards uses them (`--intake`, `--side-call-tokens`,
-`--suggestions` of `python -m harness session`).
+`--suggestions`, `--optimize-prompt` of `python -m harness session`).
 
 | Setting | Values | Default |
 |---|---|---|
 | Prompt analysis (the look at each request) | `off`, `rules`, `full` | `off` |
+| Optimize prompt (rewrite each message first) | on, off | off |
 | Suggest what to write next | on, off | on |
 | Longest conversation for the extra model calls (tokens) | 500 to 200000 | 6000 |
 
@@ -77,6 +78,45 @@ Only for a message the person wrote (not a planner note, a command, a Target Loo
    follows). They are closed when the request ends, never marked done on the model's word. The checklist is also in the note, so the model
    works through it in the same conversation. Running the parts one by one with their own prompts, and re-planning, are not built (the
    Target Loop does that for a described target).
+
+## Optimize prompt
+
+A checkbox beside the Prompt analysis switch (Settings > Inference, and the Chat and Agent toolbar, always the same value; saved as `optimize_prompt`
+in `intake.json`, told to running conversations by the process command `optimize`, started with `--optimize-prompt on`). When it is on, the
+message the person sends is rewritten by one short call before the model reads it. It works with the analysis in any state, including Off.
+
+**Available only with the technical session.** The box is disabled, with the reason written beside it ("Needs the technical session") and a tooltip
+that says how to turn it on (Loader > Technical session, then load the model), whenever the server's `/v1/status` (`concurrency.side_slot`, the
+source `harness/side.py` reads) reports no session. The page asks when it opens, on every change of view and after a load in the Loader finishes
+(`basalt:loader`). The server refuses to save `true` without a session (a 400 with the reason); `false` is always saved. If the session goes while the
+box is ticked, the saved value stays, the box shows a dash and the reason "Saved as on, but not used", and the harness makes no call and rewrites
+nothing (it asks the client for `side_extra()` each time, and never uses a route that is not this server). Switching it off then is done with
+Default values. Tooltip: "Before your message reaches the model, a quick helper pass rewrites it as a clearer, more complete instruction. The chat
+still shows what you wrote. Needs the technical session."
+
+**The call** (`harness/optimize.py`, from `_intake_step` after the cleaning and the Long answer check, before the model's first step). One request on the
+session through `side_extra()`: no tools, temperature 0, thinking off, 8 s, at most about 1.5 times the input in tokens (floor 128, ceiling 2000), a
+fixed system part (rewrite as a clear, complete, self-contained instruction in the person's language; keep every fact, name, number, path, link, code
+block, quotation and constraint; add no requirement; do not answer; output only the text). The user part holds the message and, for context only, the
+person's own words of their previous message (800 characters at most). Messages over 4000 characters are not rewritten.
+
+**Left alone** (the original goes, no note): a slash command, a note of the harness (`[harness]`, `[planner]`), a Target Loop message, the answer to a
+card, the Long answer control line, fewer than four words, an empty message (files only), a run nobody watches (routines, unattended conversations), a
+message that arrives while a task runs, and any failure or timeout of the call. A reply identical to the message is also left out.
+
+**Thrown away** (the original goes, with a one-line note saying why): the reply was cut by the output cap (`cut`); it repeats the instruction
+(`leak`) or begins like an answer ("Sure", "Ecco", "I'll ...", `answer`); its length is under half or over four times the message (`ratio`); it lost
+something the person wrote (`lost`, naming it): any code block or inline code, link, address, absolute or relative path, file name, mention, quoted
+string (any quotation marks) and number of the original must be in it, as the same text.
+
+**What is shown and kept.** The bubble keeps the person's words (`raw`); the model receives the rewrite (`content`); `last_user_text` and the
+checks of the answer stay the person's words. Under the message, a closed block "Optimized prompt" holds the text the model got, with a button "Send
+my original instead" that sends the person's text again as a new message that is not rewritten (`optimize: false` on the send). The history stores
+both (`raw`, and `opt`: `{state: sent}` or `{state: rejected, reason, detail}`, which never go to the server), so a reload shows the same note and a later
+turn sees the same bytes (the cached start does not change). The audit records `prompt_optimized` with the state, the time and the lengths, not the text.
+
+Cost: one extra call of a few seconds before each message, in the technical session (it does not touch a conversation's slot or cache). Whether it
+helps is the question of experiment E8 ([experiments.md](experiments.md)); nothing says so yet.
 
 ## ask_user
 
