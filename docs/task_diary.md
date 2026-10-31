@@ -10,7 +10,6 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina presto. Si aggiorna a ogni task n
   Lo script è pronto (`C:\TEMP\side_smoke.py`, salta il server base perché già misurato). Mancano: velocità con la
   sessione tecnica accesa, token uguali con chiamate laterali anche durante la scrittura, prompt troppo lungo che
   ripiega sulle sessioni normali.
-- Suite completa dell'ultima testa: da rifare dopo le ultime unioni.
 
 ## In coda, senza GPU
 
@@ -88,8 +87,8 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina presto. Si aggiorna a ogni task n
 
 ## Stato dei test (ultima misura)
 
-- `tests/`: 3059 test passati. `serve/tests`: 1692 passati e 5 che falliscono solo su questo PC (4 `RunningServer`,
-  1 `NoModel`).
+- `tests/`: 3115 test passati (31 ottobre, testa `bfe43299`). `serve/tests`: ultima misura 1695 passati e 5 che falliscono
+  solo su questo PC (4 `RunningServer`, 1 `NoModel`); dopo di allora ho corretto 3 test miei per la regola `--kv int8`.
 - Mai visti in un browser: interruttore, casella, schede di domande, finestra «Risposta lunga», selettore del ruolo.
 - Qualità con il modello vero: non misurata (stima, piani, correzioni, riscritture, suggerimenti).
 
