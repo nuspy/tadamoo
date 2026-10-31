@@ -1,5 +1,5 @@
-"""The error classifier is a proposal: off by default, so every model error is still retried; with it on, an error that waiting cannot cure
-ends the turn and says what it was."""
+"""The error classifier is on by default: an error that waiting cannot cure ends the turn and says what it was; with it off every model error
+is retried."""
 import pytest
 
 from harness import error_classifier as ec
@@ -20,33 +20,35 @@ def test_an_error_is_sorted_by_its_status_and_its_words(status, message, kind):
     assert ec.classify(status, message) == kind
 
 
-def test_the_proposal_is_off_unless_asked_for():
-    assert AgentConfig().error_classifier is False
-    assert agent_settings(parse_args([]))["error_classifier"] is False
-    assert agent_settings(parse_args(["--error-classifier"]))["error_classifier"] is True
+def test_the_classifier_is_on_unless_turned_off():
+    assert AgentConfig().error_classifier is True
+    assert agent_settings(parse_args([]))["error_classifier"] is True
+    assert agent_settings(parse_args(["--no-error-classifier"]))["error_classifier"] is False
+    with pytest.raises(SystemExit):
+        parse_args(["--error-classifier"])
 
 
-def test_with_it_off_a_refused_request_is_retried_as_it_always_was(tmp_path):
+def test_with_it_off_a_refused_request_is_retried(tmp_path):
     client = Scripted(BasaltError(400, "malformed request"), say("Ok now."))
-    session, ev, store, built = make(tmp_path, client)
+    session, ev, store, built = make(tmp_path, client, classify_errors=False)
     session.send("t1", "hello")
     ev.wait("done")
     assert [e["event"] for e in ev.items if e["event"] == "retrying"] == ["retrying"]
     assert ev.wait("done")["stop_reason"] == "final"
 
 
-def test_with_it_on_a_request_the_server_will_always_refuse_ends_the_turn_with_the_error(tmp_path):
+def test_by_default_a_request_the_server_will_always_refuse_ends_the_turn_with_the_error(tmp_path):
     client = Scripted(BasaltError(400, "malformed request: tools[0]"), say("never"))
-    session, ev, store, built = make(tmp_path, client, classify_errors=True)
+    session, ev, store, built = make(tmp_path, client)
     session.send("t1", "hello")
     done = ev.wait("done")
     assert done["stop_reason"] == "error" and "malformed request" in done["error"] and "retrying" not in ev.kinds()
     assert ev.wait("model_error")["retry"] is False and len(client.sent) == 1
 
 
-def test_with_it_on_a_busy_or_loading_server_is_still_waited_for(tmp_path):
+def test_by_default_a_busy_or_loading_server_is_still_waited_for(tmp_path):
     client = Scripted(BasaltError(503, "no model is loaded yet"), BasaltError(0, "cannot reach"), BasaltError(400, "the prompt is over the context"), say("Fine."))
-    session, ev, store, built = make(tmp_path, client, classify_errors=True)
+    session, ev, store, built = make(tmp_path, client)
     session.send("t1", "hello")
     done = ev.wait("done")
     assert done["stop_reason"] == "final" and ev.kinds().count("retrying") == 3

@@ -188,9 +188,9 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
                         help="a check the person accepted for this folder; with --verify-gate on it runs before a turn ends, like --verify-command")
     parser.add_argument("--no-budget-grace", action="store_true",
                         help="a budget that runs out ends the answer at once, without the warning and the last report")
-    parser.add_argument("--error-classifier", action="store_true",
-                        help="PROPOSAL, off until the owner decides: a model error that cannot get better by waiting (a bad request, a refused key) ends the turn "
-                             "with the error instead of being retried without end")
+    parser.add_argument("--no-error-classifier", action="store_true",
+                        help="retry every model error without end; by default an error that waiting cannot cure (a bad request, a refused key) ends the turn "
+                             "with the error")
     parser.add_argument("--attachments-dir", default="", help="where the conversation's attached files are kept (with --outputs-dir: the tools for them)")
     parser.add_argument("--outputs-dir", default="", help="where the files the agent makes for the person are kept")
     parser.add_argument("--hooks", default="", metavar="FILE", help="a hooks file (default: hooks.json in the user data folder)")
@@ -222,7 +222,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         end_turn_bias=args.end_turn_bias, temperature=args.temperature, max_tokens=args.max_tokens, instruction_blocks=args.instruction_blocks,
         role=args.role, safe_commands=args.safe_command, project_checks=args.project_check,
         verify_commands=args.verify_command, verify_gate=args.verify_gate, verify_rounds=args.verify_rounds, budget_grace=not args.no_budget_grace,
-        error_classifier=args.error_classifier,
+        error_classifier=not args.no_error_classifier,
         attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
@@ -311,7 +311,7 @@ class AgentConfig:
     verify_rounds: int = DEFAULT_ROUNDS  # most times a failed check sends the model back to fix it
     unattended: bool = False            # nobody is there to answer questions (the conversation's flag)
     budget_grace: bool = True           # a budget that runs out warns first, then allows one last report with no tools
-    error_classifier: bool = False      # proposal, awaiting the owner: an unrecoverable model error ends the turn visibly (harness/error_classifier.py)
+    error_classifier: bool = True       # a model error that waiting cannot cure ends the turn visibly (harness/error_classifier.py)
     snapshot_dir: Optional[str] = None  # where the context of each turn is kept when versioning is on
     council: bool = False               # offer ask_council when the person set a council up on the Providers page
     lsp: bool = False                   # offer diagnostics, go_to_definition and find_references when a language server is found on this PC

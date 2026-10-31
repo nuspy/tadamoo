@@ -63,7 +63,7 @@ the Chat can reach, the others can reach:
 | `--role ROLE`, `--safe-command CMD`, `--project-check CMD` | what the agent is for (build, plan, ask, debug, orchestrate, general), the exact commands that run without a question, and the folder's accepted checks for the verify gate (see [coding-mode.md](coding-mode.md)) |
 | `--no-compaction`, `--compaction-threshold SHARE` | off, or the share of the prompt budget (0.5 to 0.98, default 0.85) at which the older steps of a long turn are summarised (see [compaction.md](compaction.md)) |
 | `--no-budget-grace` | a budget that runs out ends the answer at once, without the warning and the last report |
-| `--error-classifier` | proposal awaiting the owner: a model error that waiting cannot cure ends the turn instead of being retried (see [harness-gates.md](harness-gates.md)) |
+| `--no-error-classifier` | retry every model error without end; by default a model error that waiting cannot cure ends the turn and shows the error (see [harness-gates.md](harness-gates.md)) |
 | `--unattended` | (conversations) nobody answers: a question is approved at once, or says the data is not available, or, if it is for another person, the user, a resource that is not the PC's own or a booking, is parked in the `pending` list while the model goes on |
 
 A headless run has nobody to type a second-factor code; a login that needs one fails there. Payments and plans go through the same question as

@@ -496,7 +496,7 @@ def test_the_command_line_lists_everything_and_needs_the_power_limit_for_a_run_w
     out = capsys.readouterr().out
     for key in cases.MODULES:
         assert out.count(f"\n{key}  ") + out.startswith(f"{key}  ") == 1
-    assert "[--verify-gate always" in out and "--error-classifier" in out and "--intake full" in out
+    assert "[--verify-gate always" in out and "--no-error-classifier" in out and "--intake full" in out
     with pytest.raises(SystemExit):
         main(["e2"])
     assert "--gpu-power-limit-w" in capsys.readouterr().err

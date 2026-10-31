@@ -118,16 +118,16 @@ having used it, never changes the cached start of the prompt (`tests/test_prefix
 event `todo` with the items. Before a turn ends with items open the model is reminded once (`todo_open`) to finish them or to update the
 list; the answer then stands. The list lives with the tool registry, not in the history, so it survives compaction of the messages.
 
-## The error classifier (proposal, off)
+## The error classifier (on by default)
 
-**Awaiting the owner's decision.** Today every failed model call is retried without end, with growing waits, whatever the error; a request
+Without it every failed model call is retried without end, with growing waits, whatever the error; a request
 the server will always refuse loops for ever. `harness/error_classifier.py` sorts an error by its HTTP status (0: unreachable) and message:
 
-- `transient`: unreachable, 408, 409, 425, 429, 5xx, or words like loading, no model, busy, try again. Waited for as now.
-- `overflow`: the conversation is longer than the context. Retried as now (compacting before the retry is for the Compaction track).
-- `deterministic`: 400, 401, 403, 404, 405, 410, 413, 415, 422 without those words. With `--error-classifier` (Settings: "Proposal: end the
+- `transient`: unreachable, 408, 409, 425, 429, 5xx, or words like loading, no model, busy, try again. Waited for and retried.
+- `overflow`: the conversation is longer than the context. Retried (compacting before the retry is for the Compaction track).
+- `deterministic`: 400, 401, 403, 404, 405, 410, 413, 415, 422 without those words. By default (Settings: "End the
   turn on an error that waiting cannot cure") the session emits `model_error` and ends the turn with stop reason `error` and the message
-  shown; without it nothing changes.
+  shown; with `--no-error-classifier` every error is retried.
 
 The trade-off: a visible end tells the person at once that a key is refused or a request is malformed; but it breaks the rule that a model
 error never leaves a turn blocked, and a misclassified transient error would end a turn that waiting would have saved.
