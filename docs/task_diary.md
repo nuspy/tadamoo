@@ -5,10 +5,11 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina presto. Si aggiorna a ogni task n
 
 ## In corso adesso
 
-- Test GPU della sessione tecnica (primo avvio reale, con e senza, per misurare il costo sulla velocità): lo script è pronto in
-  `C:\TEMP\claude\E--Projects-basalt526e1fa-56b6-4854-af76-3c412ae1a60c\scratchpad\side_smoke.py`. Il lancio è stato
-  bloccato dal sistema di autorizzazione: lo lancia il proprietario a mano. L'altra sessione ha dato il via libera e dopo
-  userà la GPU a lungo (circa 3 ore, poi stanotte circa 4,5 ore): niente GPU da basalt in quella finestra.
+- Test GPU della sessione tecnica, ultima parte (circa 8 minuti, un solo server): aspetto il messaggio «basalt via»
+  dell'altra sessione, che ora usa la GPU per il suo primo giro (circa 3,3 ore), poi un secondo giro di circa 5 ore.
+  Lo script è pronto (`C:\TEMP\side_smoke.py`, salta il server base perché già misurato). Mancano: velocità con la
+  sessione tecnica accesa, token uguali con chiamate laterali anche durante la scrittura, prompt troppo lungo che
+  ripiega sulle sessioni normali.
 - Suite completa dell'ultima testa: da rifare dopo le ultime unioni.
 
 ## In coda, senza GPU
@@ -49,6 +50,12 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina presto. Si aggiorna a ogni task n
 ## Fatti
 
 ### 31 ottobre
+- Primo avvio reale della sessione tecnica (GPU, limite 600 W, `--kv int8`): il server parte in 68 s, lo stato mostra la
+  sessione corta da 30.000 token accanto a quella principale da 65.536, una richiesta marcata «side» è servita da quella e
+  il testo della conversazione principale è identico a quello senza sessione tecnica. VRAM dopo l'avvio: 31,4 GB contro
+  30,9 GB senza (circa 0,5 GB in più). Velocità senza sessione tecnica: primo token 0,05 s, circa 141 token al secondo.
+- Scoperta: le sessioni parallele richiedono `--kv int8` (regola del motore che già c'era). Ora il server lo aggiunge da
+  solo e rifiuta con un messaggio chiaro un altro formato.
 - Classificatore degli errori acceso di default (si spegne con `--no-error-classifier` o dalle Impostazioni): un errore
   che non passa mai (chiave sbagliata, richiesta malformata) ferma il turno e lo mostra; gli errori temporanei si riprovano.
 - Prova GPU n. 2, motore vecchio contro nuovo con cache fissata: IDENTICO. Le mie modifiche al motore non cambiano i token.
