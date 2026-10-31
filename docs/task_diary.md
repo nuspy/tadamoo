@@ -11,6 +11,11 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina presto. Si aggiorna a ogni task n
   sessione tecnica accesa, token uguali con chiamate laterali anche durante la scrittura, prompt troppo lungo che
   ripiega sulle sessioni normali.
 
+- Aggiornamento 31 ottobre: nella finestra concessa dopo il primo giro dell'altra sessione, il server con sessione tecnica è
+  partito ma il commit libero è sceso per un momento sotto i 20 GB durante il caricamento. Il mio script ha rispettato la
+  regola e si è fermato prima delle misure; GPU restituita. Servono altri 8 minuti: aspetto un nuovo «basalt via». Da
+  decidere con l'altra sessione se la soglia dei 20 GB va controllata solo a caricamento finito.
+
 ## In coda, senza GPU
 
 - Unire le rifiniture della casella «Ottimizza il prompt» (commit `e6708707`): sempre spegnibile, riga «Sto riscrivendo il
