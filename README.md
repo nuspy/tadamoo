@@ -1052,6 +1052,13 @@ names the remedies: a smaller `--max-context`, no `--slot-full-context`, fewer `
 does not fit at all, the engine says which slot (`WARNING: --batch N: slot K's session does not fit`) and starts with
 the slots that did fit; if fewer than two fit, `--batch is off` and the server runs one request at a time.
 
+`--side-slot TOKENS` (also `"side-slot"` in the config's `server` section and the Loader's *Technical session* field; bare it is 30000,
+`0` is off and the default) adds one more slot to `--parallel`, with a context of its own, for the harness's short calls (triage,
+suggestions, summaries, judges): a request with `"cache_slot": "side"` runs there and neither waits behind a conversation nor overwrites
+its cache, and the answer says which kind of slot served it. It costs the KV cache and state of TOKENS tokens, and while it is on the
+engine runs in its batch mode, so `end_turn_bias`, `logit_bias` and relaxed drafting are unavailable. It is off until its effect on a
+conversation's speed has been measured. Details: [running](docs/running.md#the-technical-session---side-slot-tokens).
+
 - `server` holds the server's options (`python -m serve.server --help`), named as the flags without the dashes:
   strings or numbers, `true`/`false` for a switch (`lazy`, ...), a list for the repeatable ones
   (`script`). `model` and `tokenizer` paths are relative to the file.

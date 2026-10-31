@@ -23,6 +23,9 @@ from serve.config import (  # noqa: E402
     load_config_file,
     parallel_count,
     parse_settings,
+    SIDE_SLOT_DEFAULT,
+    SIDE_SLOT_MIN,
+    side_slot_tokens,
     sampling_defaults_from_config,
     sampling_line,
     server_options,
@@ -316,6 +319,84 @@ class SlotContext(unittest.TestCase):
                                       {"server": {"slot-full-context": True}}), 262144)
 
 
+class SideSlot(unittest.TestCase):
+    """--side-slot: one more engine slot for the harness's short calls, with a context of its own."""
+
+    def words(self, cli, cfg=None):
+        a, _, file_words, cli_words = parse(cli, cfg)
+        return a, file_words + cli_words
+
+    def test_it_adds_a_slot_and_a_context_to_the_engine(self):
+        a, words = self.words(["--parallel", "3", "--side-slot", "30000", "--max-context", "196608"])
+        self.assertEqual(flag_value(words, "--batch"), "4")
+        self.assertEqual(flag_value(words, "--side-context"), "30000")
+        self.assertEqual(flag_value(words, "--max-context"), "65536")           # the conversations' slots: max / 3
+        self.assertEqual(a.shared_context, 196608)
+
+    def test_one_conversation_and_the_side_slot_make_a_batch_of_two(self):
+        a, words = self.words(["--side-slot", "30000", "--max-context", "65536"])
+        self.assertEqual(flag_value(words, "--batch"), "2")
+        self.assertEqual(flag_value(words, "--side-context"), "30000")
+        self.assertEqual(flag_value(words, "--max-context"), "65536")           # nothing to divide
+        self.assertFalse(getattr(a, "shared_context", None))
+        a, words = self.words(["--parallel", "1", "--side-slot"], {"engine": {"max-context": 32768}})   # bare: the default size
+        self.assertEqual(flag_value(words, "--side-context"), str(SIDE_SLOT_DEFAULT))
+        self.assertEqual(flag_value(words, "--max-context"), "32768")
+
+    def test_without_it_nothing_changes(self):
+        _, words = self.words(["--parallel", "3", "--max-context", "196608"])
+        self.assertEqual(flag_value(words, "--batch"), "3")
+        self.assertNotIn("--side-context", words)
+        _, words = self.words(["--max-context", "65536"])
+        self.assertNotIn("--batch", words)
+        _, words = self.words(["--side-slot", "0", "--parallel", "2"])
+        self.assertEqual(flag_value(words, "--batch"), "2")
+        self.assertNotIn("--side-context", words)
+
+    def test_eight_conversations_and_the_side_slot_are_nine_slots_and_the_engine_has_eight(self):
+        a, words = self.words(["--parallel", "8", "--side-slot", "30000", "--max-context", "262144"])
+        self.assertEqual(flag_value(words, "--batch"), "8")                    # 7 conversations and the side slot
+        self.assertEqual(a.parallel, 7)
+        self.assertEqual(a.side_clamp, (8, 7))
+        self.assertEqual(flag_value(words, "--max-context"), str(262144 // 7))
+        a, words = self.words(["--parallel", "7", "--side-slot", "30000"])
+        self.assertEqual(flag_value(words, "--batch"), "8")
+        self.assertIsNone(a.side_clamp)
+
+    def test_an_explicit_engine_batch_or_side_context_is_a_conflict(self):
+        for flag, val in (("--batch", "3"), ("--slots", "3")):
+            with self.assertRaisesRegex(ValueError, f"parallel and engine {flag} both set"):
+                parse(["--side-slot", "30000", flag, val])
+            with self.assertRaisesRegex(ValueError, f"parallel and engine {flag} both set"):
+                parse(["--side-slot", "30000"], {"engine": {flag: 3}})
+        with self.assertRaisesRegex(ValueError, "side-slot and engine --side-context both set"):
+            parse(["--side-slot", "30000", "--side-context", "20000"])
+        with self.assertRaisesRegex(ValueError, "side-slot and engine --side-context both set"):
+            parse(["--side-slot", "30000"], {"engine": {"side-context": 20000}})
+
+    def test_the_config_file_takes_a_number_or_a_switch(self):
+        _, words = self.words([], {"server": {"side-slot": 20000, "parallel": 2}})
+        self.assertEqual(flag_value(words, "--side-context"), "20000")
+        self.assertEqual(flag_value(words, "--batch"), "3")
+        _, words = self.words([], {"server": {"side-slot": True}})
+        self.assertEqual(flag_value(words, "--side-context"), str(SIDE_SLOT_DEFAULT))
+        _, words = self.words([], {"server": {"side-slot": False, "parallel": 2}})
+        self.assertNotIn("--side-context", words)
+        # the command line wins over the file
+        _, words = self.words(["--side-slot", "0"], {"server": {"side-slot": 20000}})
+        self.assertNotIn("--side-context", words)
+
+    def test_the_size_is_checked(self):
+        self.assertEqual(side_slot_tokens("0"), 0)
+        self.assertEqual(side_slot_tokens("off"), 0)
+        self.assertEqual(side_slot_tokens(str(SIDE_SLOT_MIN)), SIDE_SLOT_MIN)
+        for bad in ("100", "x", "-5", "1.5"):
+            with self.subTest(value=bad), self.assertRaises(argparse.ArgumentTypeError):
+                side_slot_tokens(bad)
+        with self.assertRaises(SystemExit):
+            parse(["--side-slot", "100"])
+
+
 class EveryOption(unittest.TestCase):
     def sample(self, act):
         if act.nargs == 0:
@@ -326,6 +407,8 @@ class EveryOption(unittest.TestCase):
             return 7
         if act.type is vision_setting:                      # --vision: a GPU number is a valid sample
             return "1"
+        if act.type is side_slot_tokens:
+            return 30000
         if act.type is float:
             return 0.25
         if act.dest in SAMPLING_KEYS:                      # the model file's checks apply

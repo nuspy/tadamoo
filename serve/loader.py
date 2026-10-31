@@ -70,7 +70,7 @@ MTP_EXPERT_BLOB = 1382400
 ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.prefill": None, "engine.spec": 0,
                    "engine.expert-cache": 0, "engine.resident-experts": False,
                    "engine.vram-reserve-mib": 700, "engine.ple-io": "direct", "engine.pool-workers": None,
-                   "server.parallel": 1, "server.slot-full-context": False, "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep", "engine.relaxed-drafting": None,
+                   "server.parallel": 1, "server.slot-full-context": False, "server.side-slot": 0, "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep", "engine.relaxed-drafting": None,
                    "server.port": 7232,
                    "engine.kv-resident": 0, "engine.resident-budget-gib": None, "engine.mmap-experts": False,
                    "engine.adapt-swaps": 96, "engine.prefill-cpu-share": 0.6, "engine.vram-elastic": False,
@@ -302,6 +302,12 @@ def slot_context(v: dict) -> int:
     return max(256, ctx // par)
 
 
+def side_context(v: dict) -> int:
+    """The technical session's context: 0 when it is off, else what was asked, at most one conversation slot's."""
+    side = int(v.get("server.side-slot") or 0)
+    return min(side, slot_context(v)) if side > 0 else 0
+
+
 def prefill_chunk(v: dict, resident: bool | None = None) -> int:
     """The chunk the prompt is read in: auto has an 8192 ceiling, auto:N has N (reads are cut at 16384)."""
     p, ctx = v["engine.prefill"], slot_context(v)
@@ -420,10 +426,18 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     kv_host = par * pool_cell * ctx if streamed else 0
     if streamed:
         notes.append({"code": "kv_stream", "cells": vram_cells, "vram": kv, "host": kv_host})
+    # the technical session: one more session of its own, short context (the engine carves it like the others)
+    side = side_context(v)
+    side_streamed = streamed and side > vram_cells
+    side_kv = (KV_TOKEN_BYTES[kvf] * side - (pool_cell * (side - vram_cells) if side_streamed else 0) + SESSION_FIXED) if side else 0
+    kv += side_kv
+    kv_host += pool_cell * side if side_streamed else 0
+    if side:
+        notes.append({"code": "side", "context": side, "kv": side_kv})
     drafter = 0
     if facts.get("has_mtp") and spec >= 2:
         cell = KV_CELL_BYTES["int8" if kvf == "k8v4" else kvf] + 128
-        drafter = facts["mtp_bytes"] + par * cell * ctx + spec * facts.get("n_vocab", 0) * 4
+        drafter = facts["mtp_bytes"] + (par * ctx + side) * cell + spec * facts.get("n_vocab", 0) * 4
     projector = pick_projector(v["server.vision-projector"], facts)
     vision_vram = VISION_SIDECAR if str(mode).isdigit() else (ctx + 64) * 12 if mode == "dynamic" else 0
     buffers = VERIFY_WINDOWS + LATE_DEVICE
@@ -526,10 +540,10 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
             problems.append({"code": "vision", "it": projector["problem"]["it"], "en": projector["problem"]["en"]})
     rd = v["engine.relaxed-drafting"]
     p_relaxed = 0.5 if rd is True else float(rd or 0)
-    why_not = [] if not p_relaxed else [code for code, bad in (("spec", spec < 2), ("mtp", not facts.get("has_mtp")), ("parallel", par > 1)) if bad]
+    why_not = [] if not p_relaxed else [code for code, bad in (("spec", spec < 2), ("mtp", not facts.get("has_mtp")), ("parallel", par > 1), ("side", side > 0)) if bad]
     return {
         "relaxed": {"p": p_relaxed, "effective": not why_not, "why": why_not}, "notes": notes,
-        "values": v, "slot_context": ctx, "parallel": par,
+        "values": v, "slot_context": ctx, "parallel": par, "side_context": side,
         "vram": {"items": [_item("dense", dense), _item("drafter", drafter), _item("kv", kv),
                            _item("vision", vision_vram), _item("buffers", buffers),
                            _item("cuda", CUDA_CONTEXT, True), _item("experts", cache)],

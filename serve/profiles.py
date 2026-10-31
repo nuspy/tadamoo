@@ -203,6 +203,8 @@ def summary(values: dict, facts: dict, system: dict | None, holds: dict | None =
              f"spec {v['engine.spec']}" if int(v["engine.spec"] or 0) >= 2 else "no MTP"]
     if int(v["server.parallel"]) > 1:
         parts.append(f"{v['server.parallel']} slots")
+    if int(v["server.side-slot"] or 0) > 0:
+        parts.append(f"technical session {v['server.side-slot']}")
     out = {"text": " · ".join(parts), "port": values.get("server.port", DEFAULT_PORT)}
     if system:
         p = loader.plan(values, facts, system, holds, holds_vram)

@@ -70,6 +70,7 @@
 #include "basalt/core/native_dense.hpp"
 #include "basalt/program/logits_selection.hpp"
 #include "basalt/program/conv_cache.hpp"
+#include "basalt/program/slot_contexts.hpp"
 #include "basalt/program/ppl_gate.hpp"
 #include "basalt/program/probe_rates.hpp"
 #include "basalt/spec/draft_policy.hpp"
@@ -875,7 +876,8 @@ uint64_t serve_growth_bytes(const Options& o, const basalt::core::ModelGeometry&
     std::string error;
     if (o.prompt_cache > 0 && basalt::core::conversation_state_sizes(g, z, error)) {
         const uint64_t one = z.gdn + z.ple + (uint64_t) g.n_qsa_layers() * (z.tail + z.dead + z.block_pos);
-        bytes += (uint64_t) (o.prompt_cache + 1) * (uint64_t) std::max(o.batch, 1) * one;
+        bytes += (uint64_t) (o.prompt_cache + 1) *
+                 (uint64_t) std::max(basalt::program::slot_contexts::checkpoint_slots(o.batch, o.side_context), 1) * one;
         bytes += (uint64_t) o.conversation_cache_mib << 20;
     }
     if (!o.vision_mmproj.empty()) {
@@ -1257,6 +1259,7 @@ int main(int argc, char** argv) {
         else if (a == "--spec") { o.spec = std::atoi(next("--spec")); o.spec_given = true; }
         else if (a == "--batch") o.batch = std::atoi(next("--batch"));
         else if (a == "--slots") o.batch = std::atoi(next("--slots"));   // the same as --batch
+        else if (a == "--side-context") o.side_context = std::max<int64_t>(0, std::atoll(next("--side-context")));
         else if (a == "--spec-oracle") o.spec_oracle = next("--spec-oracle");
         else if (a == "--spec-corrupt") o.spec_corrupt = std::atoi(next("--spec-corrupt"));
         else if (a == "--mtp-window") o.mtp_window = std::atoll(next("--mtp-window"));
@@ -2881,6 +2884,10 @@ int main(int argc, char** argv) {
             o.batch = cap;
         }
     }
+    if (o.side_context > 0 && o.batch <= 0) {
+        basalt::log::warn("basalt generate", "--side-context is off: it needs --batch with 2 or more slots");
+        o.side_context = 0;
+    }
     if (o.batch > 0 && o.batch_groups > 1 && (stages.empty() || o.batch % o.batch_groups != 0)) {
         basalt::log::warn("basalt generate", "--batch-groups %d needs a layer split and to divide --batch %d; "
                              "one group", o.batch_groups, o.batch);
@@ -2888,8 +2895,9 @@ int main(int argc, char** argv) {
     }
     if (o.batch > 0) {
         bslot_ss.resize(1 + stages.size());
-        slot_cap.assign((size_t) o.batch, o.max_context);
+        slot_cap = basalt::program::slot_contexts::plan(o.batch, o.max_context, o.side_context);
         slot0_is_solo = stages.empty();   // one GPU: the solo session's state is slot 0's
+        const int asked = o.batch;   // the slots asked for, side slot included
         int fit = o.batch;   // the slots every stage could carve
         for (size_t k = 0; k < bslot_ss.size(); ++k) {
             const int dev = k == 0 ? 0 : stages[k - 1]->dev;
@@ -2938,7 +2946,16 @@ int main(int argc, char** argv) {
             slot_cap.clear();
             o.batch = 0;
             slot0_is_solo = false;
+            if (o.side_context > 0) {
+                basalt::log::warn("basalt generate", "--side-context is off with --batch");
+                o.side_context = 0;
+            }
         } else {
+            if (o.side_context > 0 && basalt::program::slot_contexts::side_after_fit(asked, fit, o.side_context) < 0) {
+                basalt::log::warn("basalt generate", "--side-context is off: the side slot did not fit (%d of %d slots)",
+                                  fit, asked);
+                o.side_context = 0;
+            }
             o.batch = fit;
             for (size_t k = 0; k < bslot_ss.size(); ++k)   // every slot session allocated, solo state included
                 for (int b = 0; b < o.batch; ++b)
@@ -2960,13 +2977,22 @@ int main(int argc, char** argv) {
                 kept += basalt::core::session_bytes(g, slot_cap[(size_t) b], K, 0, multi_gpu ? split_at[0] : -1);
             slot_kv_cuda0 = kept;
             const uint64_t per_slot = basalt::core::session_bytes(g, slot_cap[0], K, 0, multi_gpu ? split_at[0] : -1);
+            uint64_t all_slots = 0;
+            for (int b = 0; b < o.batch; ++b)
+                all_slots += basalt::core::session_bytes(g, slot_cap[(size_t) b], K, 0, multi_gpu ? split_at[0] : -1);
             basalt::log::info("basalt generate", "--batch %d: %.2f GiB of KV cache and state per slot (%lld tokens), "
                                  "%.2f GiB in all; the slots beyond the solo one take %.2f GiB of VRAM on CUDA0 that "
                                  "the expert cache would otherwise hold", o.batch, (double) per_slot / 1073741824.0,
-                         (long long) slot_cap[0], (double) (per_slot * (uint64_t) o.batch) / 1073741824.0,
+                         (long long) slot_cap[0], (double) all_slots / 1073741824.0,
                          (double) kept / 1073741824.0);
+            if (o.side_context > 0)
+                basalt::log::info("basalt generate", "--side-context: slot %d is the side slot, %lld tokens, no conversation "
+                                     "checkpoints", o.batch - 1, (long long) slot_cap[(size_t) o.batch - 1]);
         }
     }
+
+    // the side slot (--side-context): the last batch slot, when it was carved
+    const int side_slot = basalt::program::slot_contexts::side_index(o.batch, o.side_context);
 
     // the drafter's K/V is elastic like the sessions' (MtpDrafter::load keeps it whole with a K/V per batch slot)
     basalt::core::qsa_set_kv_elastic(kv_floor);
@@ -5683,6 +5709,9 @@ int main(int argc, char** argv) {
         std::vector<int32_t> live;
         std::vector<ImgKey> live_imgs, req_imgs;
         bool live_ok = false;
+        // the request in hand runs in the side slot: it takes no checkpoints and finds no parked conversation, and when
+        // it reads in the slot's own state (`side_own`) what the slot held before is dropped, not parked
+        bool side_req = false, side_own = false;
         std::vector<ConvCheckpoint> checks;
         uint64_t check_clock = 0;   // the checkpoints' LRU clock; creation and every use advance it
         // A turn-boundary checkpoint's GDN bytes reach the host after the first token (see the deferral class); this
@@ -5725,7 +5754,7 @@ int main(int argc, char** argv) {
         // addresses change: all parked images live in ordinary host vectors.
         auto park_current = [&](size_t held) -> bool {
             ckd_finish();
-            if (!conversations.enabled() || !live_ok || live.empty()) return true;
+            if (side_own || !conversations.enabled() || !live_ok || live.empty()) return true;
             // before make_room evicts oldest-first, the copies of this conversation a turn back go (they hold nothing
             // the outgoing chain does not, apart from the tail this conversation rewrote)
             if (const size_t dropped = conversations.drop_superseded(live, live_imgs, checks, cvec_cached))
@@ -5877,7 +5906,7 @@ int main(int argc, char** argv) {
         auto checkpoint_at = [&](int64_t L, std::vector<ConvCheckpoint>* parts = nullptr, bool defer = false) -> bool {
             ckpt_why.clear();
             ckd_finish();
-            if (o.prompt_cache <= 0 || L < 1) return true;
+            if (o.prompt_cache <= 0 || L < 1 || side_req) return true;
             for (ConvCheckpoint& c : checks)
                 if ((int64_t) c.ids.size() == L) { c.used = ++check_clock; return true; }
             ConvCheckpoint c;
@@ -5944,7 +5973,7 @@ int main(int argc, char** argv) {
             basalt::core::progress_at("reading the prompt (batched), done up to token", done);
             basalt::core::progress_beat();
             std::fflush(stdout);
-            if (o.prompt_cache_every > 0 && done >= pp_next_check) {
+            if (o.prompt_cache_every > 0 && !side_req && done >= pp_next_check) {
                 if (done == pp_part_ckpt && !multi_gpu) {
                     pp_next_check = done + o.prompt_cache_every;
                     return true;
@@ -5976,7 +6005,7 @@ int main(int argc, char** argv) {
                 basalt::prefill::Prefill& stage_sp = i == 0 ? sp : stages[i - 1]->sp;
                 basalt::core::SessionState& stage_ss = i == 0 ? ss : stages[i - 1]->ss;
                 stage_sp.on_stage_chunk = [&, i](int64_t done, std::string& e) -> bool {
-                    if (o.prompt_cache <= 0 || o.prompt_cache_every <= 0 || done < part_next[i]) return true;
+                    if (o.prompt_cache <= 0 || o.prompt_cache_every <= 0 || side_req || done < part_next[i]) return true;
                     part_next[i] = done + o.prompt_cache_every;
                     ConvCheckpoint part;   // this stage's state at `done` (its stream is synchronized)
                     part.ids.assign(cur.begin(), cur.begin() + done);
@@ -6733,6 +6762,20 @@ int main(int argc, char** argv) {
                         gpu_ids += (gpu_ids.empty() ? "" : ",") + std::string(bus);
                 }
             }
+            // the batch slots: their count, each one's context and the side slot with its own
+            std::string batch_info;
+            if (o.batch > 0) {
+                std::string caps;
+                for (int b = 0; b < o.batch; ++b) caps += (b > 0 ? "," : "") + std::to_string((long long) slot_cap[(size_t) b]);
+                batch_info = " batch_slots=" + std::to_string(o.batch) +
+                             " slot_cache=" + std::to_string(o.prompt_cache > 0 ? 1 : 0) +
+                             " slot0_solo=" + std::to_string(slot0_is_solo ? 1 : 0) +
+                             " solo_any_slot=" + std::to_string(slot0_is_solo ? 1 : 0) +
+                             " slot_contexts=" + caps;
+                if (side_slot >= 0)
+                    batch_info += " side_slot=" + std::to_string(side_slot) +
+                                  " side_context=" + std::to_string((long long) slot_cap[(size_t) side_slot]);
+            }
             std::printf("INFO logit_bias=%lld context=%lld kv=%s kv_resident=%lld expert_slots=%lld expert_cache_mib=%lld "
                         "expert_slots_primary=%lld expert_cache_primary_mib=%lld spec=%d "
                         "mtp_max=%d lookup=%d vram_free_mib=%lld cvec=%s arena_mib=%lld pool_workers=%d pcie_frac=%.2f "
@@ -6749,11 +6792,7 @@ int main(int argc, char** argv) {
                         pool.workers(), o.pcie_frac,
                         (long long) o.conversation_cache_mib, o.conversation_cache_slots,
                         (long long) o.conversation_cache_min_free_mib, (long long) o.tail_role_token, o.vram_elastic && xcache.segmented() ? 1 : 0,
-                        o.batch > 0 ? (" batch_slots=" + std::to_string(o.batch) +
-                                       " slot_cache=" + std::to_string(o.prompt_cache > 0 ? 1 : 0) +
-                                       " slot0_solo=" + std::to_string(slot0_is_solo ? 1 : 0) +
-                                       " solo_any_slot=" + std::to_string(slot0_is_solo ? 1 : 0)).c_str() : "",
-                        quant_label.c_str(), gpu_ids.c_str());
+                        batch_info.c_str(), quant_label.c_str(), gpu_ids.c_str());
         }
         if (text_tokenizer_note.empty()) std::printf("INFO text_prompt=1\n");
         // a request whose heartbeat (tokens, prompt chunks, verify windows) stops for this long is stuck on a flag nobody
@@ -6815,6 +6854,7 @@ int main(int argc, char** argv) {
         auto make_view = [&](basalt::core::SessionState& v, int b) {
             const basalt::core::SessionState& t = *bslot_ss[0][(size_t) b];
             v = ss;
+            v.max_cells = t.max_cells;   // the slot's own context, smaller than the solo session's for the side slot
             v.gdn_state = t.gdn_state;
             v.qsa_states = t.qsa_states;
             v.ple_hist = t.ple_hist;
@@ -7498,6 +7538,11 @@ int main(int argc, char** argv) {
         // the session a request just left behind (its prompt) -> slot b's sessions, on every stage
         auto copy_to_slot = [&](int b, const std::vector<int32_t>& ids, std::string& e) -> bool {
             const int64_t upto = (int64_t) ids.size();
+            if (!basalt::program::slot_contexts::copy_fits(upto, slot_cap[(size_t) b])) {
+                e = "batch admission: " + std::to_string((long long) upto) + " tokens do not fit slot " + std::to_string(b) +
+                    "'s context (" + std::to_string((long long) slot_cap[(size_t) b]) + ")";
+                return false;
+            }
             for (size_t k = 0; k < bslot_ss.size(); ++k) {
                 basalt::core::SessionState& from = k == 0 ? *rsp : stages[k - 1]->ss;
                 basalt::core::SessionState& to = *bslot_ss[k][(size_t) b];
@@ -7531,6 +7576,10 @@ int main(int argc, char** argv) {
         auto copy_from_slot = [&](int b, const ConvCheckpoint* at, std::string& e) -> bool {
             const int64_t upto = at != nullptr ? (int64_t) at->ids.size() : (int64_t) bs[(size_t) b].ids.size();
             if (at != nullptr && at->stage_parts.size() != stages.size()) { e = "a checkpoint without its stage parts"; return false; }
+            if (!basalt::program::slot_contexts::copy_fits(upto, std::min<int64_t>(slot_cap[(size_t) b], rsp->max_cells))) {
+                e = "batch slot restore: " + std::to_string((long long) upto) + " tokens do not fit the destination's context";
+                return false;
+            }
             for (size_t k = 0; k < bslot_ss.size(); ++k) {
                 basalt::core::SessionState& from = *bslot_ss[k][(size_t) b];
                 basalt::core::SessionState& to = k == 0 ? *rsp : stages[k - 1]->ss;
@@ -8445,23 +8494,26 @@ int main(int argc, char** argv) {
                 mrope_identity = !geni;
             }
             sp.embd_rows = geni ? row_ptr.data() : nullptr;
+            // the slot the request runs in (a BGEN's, or an SGEN's) and so the context it must fit; GEN: the solo session's
+            const int ctx_slot = admit_slot >= 0 ? admit_slot : solo_slot;
+            const int64_t req_ctx = ctx_slot >= 0 ? slot_cap[(size_t) ctx_slot] : o.max_context;
             if (from_text && req_clip && admit_slot < 0) {
-                const long long room = (long long) (o.max_context - 8 - n);
+                const long long room = (long long) (req_ctx - 8 - n);
                 if (room < 1) {
                     std::printf("ERR prompt (%lld tokens) leaves no room to answer in the context (%lld)\n", (long long) n,
-                                (long long) o.max_context);
+                                (long long) req_ctx);
                     std::fflush(stdout);
                     continue;
                 }
                 max_new = std::min(max_new, room);
             }
             {
-                const int64_t ctx = admit_slot >= 0 ? slot_cap[(size_t) admit_slot] : o.max_context;
+                const int64_t ctx = req_ctx;
                 const long long want = admit_slot >= 0 ? admit_max_new : (long long) max_new;   // a slot's request: its own max_new
                 if (n + want + 8 > ctx) {
-                    if (admit_slot >= 0)
+                    if (ctx_slot >= 0)
                         std::printf("ERR prompt (%lld tokens) + max_new (%lld) exceeds slot %d's context (%lld)\n", (long long) n,
-                                    want, admit_slot, (long long) ctx);
+                                    want, ctx_slot, (long long) ctx);
                     else
                         std::printf("ERR prompt (%lld tokens) + max_new (%lld) exceeds the context (%lld)\n", (long long) n,
                                     want, (long long) ctx);
@@ -8517,6 +8569,8 @@ int main(int argc, char** argv) {
             const int slot_b = solo_slot >= 0 ? solo_slot : admit_slot;
             const bool in_slot = slot0_is_solo && slot_b > 0;
             const bool solo_req = in_slot && solo_slot > 0;   // decoded here, solo-style, on the slot's own state
+            side_req = side_slot >= 0 && slot_b == side_slot;
+            side_own = side_req && in_slot;
             basalt::core::SessionState& rview = rviews[(size_t) std::max(slot_b, 0)];
             struct SoloBook {
                 std::vector<int32_t> live;
@@ -8616,7 +8670,7 @@ int main(int argc, char** argv) {
                     }
             const auto parked = conversations.best(ids32, req_imgs, want_cvec);
             std::optional<basalt::core::SavedConversation> incoming;
-            if (parked.tokens > std::max(resume, slot_tokens)) incoming.emplace(conversations.take(parked.index));
+            if (!side_req && parked.tokens > std::max(resume, slot_tokens)) incoming.emplace(conversations.take(parked.index));
             if (incoming) slot_source = -1;
             // Reject the entire image before parking/overwriting the outgoing
             // state. Invalid entries can safely fall back to its existing prefix.
@@ -9265,7 +9319,7 @@ int main(int argc, char** argv) {
                 // mid-prompt checkpoints at the positions one card takes them: the main card saves its state when it
                 // hands such a chunk on, each stage puts its layers' state in once it has read that chunk, the last one
                 // files it
-                const bool ck_on = o.prompt_cache > 0 && o.prompt_cache_every > 0;
+                const bool ck_on = o.prompt_cache > 0 && o.prompt_cache_every > 0 && !side_req;
                 int64_t ck_next = pp_next_check;
                 std::map<int64_t, ConvCheckpoint> ck_main;
                 sp.on_stage_chunk = [&](int64_t done, std::string& ce) -> bool {
@@ -9705,7 +9759,7 @@ int main(int argc, char** argv) {
             // chat renders the same history - but not always the same header or the thinking of this reply - so that
             // checkpoint is the one it reuses.
             int64_t turn_at = -1;
-            if (o.prompt_cache > 0 && o.turn_token >= 0)
+            if (o.prompt_cache > 0 && !side_req && o.turn_token >= 0)
                 for (int64_t i = n - 1; i > resume; --i)
                     if (ids[(size_t) i] == o.turn_token) { turn_at = i; break; }
             // (opt-in) a short turn of --tail-role-token's role right before the new assistant turn (the server's
@@ -9951,7 +10005,7 @@ int main(int argc, char** argv) {
                 }
                 const bool timed_round = !first_window;
                 const Clock::time_point round0 = Clock::now();
-                if (p + T > o.max_context) break;
+                if (p + T > req_ctx) break;
                 window[0] = x;
                 for (int i = 1; i < T; ++i) window[(size_t) i] = from_sfx ? sbuf[(size_t) i - 1] : drafts[(size_t) i - 1];
                 if (held.on)
@@ -9964,7 +10018,7 @@ int main(int argc, char** argv) {
                 // window then holds that draft and the ones the chain made after it
                 int TB = 0;
                 const bool try_pair = pair_req && pair_hint && !held.on && !first_window && !from_sfx && e0 == 0 &&
-                                      p + T + S_mtp + 64 < o.max_context;
+                                      p + T + S_mtp + 64 < req_ctx;
                 const std::function<int(int32_t*)> guess = [&](int32_t* wb) -> int {
                     n_chain = mtp.draft_more(n_chain, drafts.data(), dprob.data());   // made beside this window's stage 0
                     if (n_chain <= T || !basalt::core::draft_keep(dprob.data(), T - 1, kPairTheta)) return 0;

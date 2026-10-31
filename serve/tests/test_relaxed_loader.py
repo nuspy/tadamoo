@@ -76,6 +76,14 @@ class ThePageRule(unittest.TestCase):
         self.assertEqual(got["set"], {"mtp": True, "engine.spec": "7", "server.parallel": "1", "server.slot-full-context": False})
         self.assertEqual(got["before"], {"mtp": False, "engine.spec": "", "server.parallel": "3", "server.slot-full-context": True})
 
+    def test_switching_on_turns_the_technical_session_off_and_gives_it_back(self):
+        got = self.run_js('''const cur={mtp:true,"engine.spec":"7","server.parallel":"1","server.slot-full-context":false,"server.side-slot":"30000"};
+          const u=R.enter(cur);
+          console.log(JSON.stringify({u,l:R.leave({...cur,"server.side-slot":"0"},u),kept:R.leave({...cur,"server.side-slot":"20000"},u)}))''')
+        self.assertEqual(got["u"], {"before": {"server.side-slot": "30000"}, "set": {"server.side-slot": "0"}})
+        self.assertEqual(got["l"]["restore"], {"server.side-slot": "30000"})
+        self.assertEqual(got["kept"]["kept"], ["server.side-slot"])               # changed by hand since: left as it is
+
     def test_it_no_longer_touches_the_drafting_floor(self):
         got = self.run_js('''const cur={mtp:false,"engine.spec":"","server.parallel":"3","server.slot-full-context":true,"engine.spec-min-p":""};
           const u=R.enter(cur);
@@ -122,7 +130,8 @@ class ThePage(unittest.TestCase):
         i18n = (WEB / "i18n.js").read_text(encoding="utf-8")
         en, it = i18n.index("  en: {"), i18n.index("  it: {")
         keys = {k for k in re.findall(r'T\("(rx\.[a-z.-]+)"', js) if not k.endswith(".")} | {f"rx.why.{n}" for n in ("mtp", "engine.spec", "server.parallel", "server.slot-full-context")}
-        keys |= {"rx.no.spec", "rx.no.mtp", "rx.no.parallel", "f.engine.relaxed-drafting", "h.engine.relaxed-drafting"}
+        keys |= {"rx.no.spec", "rx.no.mtp", "rx.no.parallel", "rx.no.side", "rx.why.server.side-slot", "f.engine.relaxed-drafting", "h.engine.relaxed-drafting"}
+        keys |= {"f.server.side-slot", "h.server.side-slot", "side.on", "pn.side"}
         keys |= {f"o.engine.relaxed-drafting.{v}" for v in ("0.5", "0.3", "0.2")}
         self.assertGreater(len(keys), 15)
         for key in sorted(keys):
