@@ -5,6 +5,8 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina. Si aggiorna a ogni task nuovo ri
 
 ## In corso adesso
 
+- Analisi dei sistemi che accorciano il contesto (richiesta del 31 ottobre): compattazione al raggiungimento della soglia, funzioni Billion Context, sessione tecnica che riassume/ripulisce, e gli altri che trovo. Capire come interagiscono (A+B, A+C, B+C, tutti), che perdite stratificate causano, cosa succede se l'utente ne spegne uno a metà, come riconoscere nel contesto ciò che è già compattato. Poi ti spiego conflitti e soluzioni e ne discutiamo. Solo lettura, nessuna modifica.
+- Idea tua da valutare (31 ottobre): due livelli per ogni risposta del modello. Livello operativo: l'harness esegue quello che la risposta chiede. Livello di memoria: nel contesto resta solo un riassunto/astrazione di ciò che è stato fatto (senza spiegazioni, codice, istruzioni degli strumenti). Solo nel Chat, non nella scheda Agentic coding (lì serve il codice); disattivabile. Prima si risolve il punto sopra.
 - Sessione tecnica accesa di default (deciso da te il 31 ottobre): il codice è scritto ma NON ancora committato, perché i test
   vanno adattati al nuovo valore predefinito (lavoro rimandato, vedi «In coda»). Fatto: il server la accende da solo (30.000
   token) e la lascia spenta, dicendo il motivo, se `--parallel` è 8, se sono impostate le opzioni di batch del motore o se
@@ -29,6 +31,12 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina. Si aggiorna a ogni task nuovo ri
   in callAPIcall non sono ancora committate perché l'albero è condiviso con l'altra sessione.
 - Controllo a occhio nell'app vera a 1024, 1440 e 3600 px (riga 81 della coda): interruttore, casella, schede di domande,
   finestra «Risposta lunga», «Salva come file», ruolo Developer, controlli del progetto.
+
+## Dopo l'analisi del contesto (già annunciati da te, 31 ottobre)
+
+- Esaminare uno per uno dove e come si usa la sessione tecnica, trovare altri posti dove usarla, decidere cosa modificare, eliminare o aggiungere, e fare un dialogo per attivarle e disattivarle tenendo conto dei conflitti (accenderne una spegne o rende non attivabili altre).
+- Riesaminare le ispirazioni prese dagli altri strumenti (Hermes, OpenClaw, Harness² e altri): come funzionano, cosa manca a noi, errori fatti, buone pratiche, alternative; importarle una per una.
+- Memoria a breve e lungo termine dell'harness (comune a tutti i progetti: cosa è stato fatto, l'utente, i suoi gusti): confrontare Claude-Mem riadattato, il nostro sistema proprietario e Obsidian per efficienza e utilità; rileggere la documentazione della funzione.
 
 ## In coda, serve la GPU (e l'OK dell'altra sessione, sempre)
 
