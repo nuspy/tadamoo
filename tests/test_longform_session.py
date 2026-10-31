@@ -131,7 +131,7 @@ def test_where_the_person_is_a_card_offers_the_parts_and_the_answer_starts_the_h
     session, ev, built = session_with(tmp_path, model)
     session.send("m1", ASK)
     q = ev.wait("ask")["questions"][0]
-    assert q["kind"] == "single" and "10,000" in q["text"] and "5 parts" in q["text"] and "token" in q["text"] and q["options"][0]["recommended"] and not q["allow_other"]
+    assert q["kind"] == "single" and "10.000" in q["text"] and "5 parti" in q["text"] and "token" in q["text"] and q["options"][0]["recommended"] and not q["allow_other"]
     assert ev.wait("done")["stop_reason"] == al.ASKED and model.calls == []            # nothing was asked of the model yet
     n = len(ev.items)
     done = accept(session, ev, q, after=n)
@@ -143,6 +143,37 @@ def test_where_the_person_is_a_card_offers_the_parts_and_the_answer_starts_the_h
     asked = [c["kind"] for c in model.calls]
     assert asked[:2] == ["estimate", "plan"] and asked.count("part") == 5 and asked.count("review") >= 5
     assert model.agent_calls == [] and built.agent.turns[-1].assistant_content == text
+
+
+SHORT_ASKS = [
+    ("Scrivi un racconto di 8000 parole", "it"),
+    ("Scrivi 10000 parole sulla storia di Roma", "it"),
+    ("Scrivimi un libro di 20 pagine sul mare", "it"),
+    ("Scrivi un report di 10.000 parole sui fiumi d'Europa", "it"),
+    ("Write 8000 words on the history of Rome", "en"),
+    ("Write a story of 5000 words", "en"),
+]
+
+
+@pytest.mark.parametrize("text,lang", SHORT_ASKS)
+def test_the_card_of_a_short_request_is_in_the_language_of_the_request(tmp_path, text, lang):
+    assert len(text.split()) <= 10
+    session, ev, built = session_with(tmp_path, Model())
+    session.send("m1", text)
+    q = ev.wait("ask")["questions"][0]
+    if lang == "it":
+        assert "parole" in q["text"] and "La scrivo in" in q["text"] and q["options"][0]["label"].startswith("Sì, in") and q["options"][1]["label"] == "No, in un colpo solo"
+    else:
+        assert "words" in q["text"] and "Write it in" in q["text"] and q["options"][0]["label"].startswith("Yes, in") and q["options"][1]["label"] == "No, in one go"
+    ev.wait("done")
+
+
+def test_a_request_whose_language_cannot_be_told_gets_the_english_card(tmp_path):
+    session, ev, built = session_with(tmp_path, Model())
+    session.send("m1", "Write 8000 words")
+    q = ev.wait("ask")["questions"][0]
+    assert "Write it in" in q["text"]
+    ev.wait("done")
 
 
 def test_the_text_is_kept_in_the_history_for_what_comes_next(tmp_path):

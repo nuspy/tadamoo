@@ -16,14 +16,33 @@ def chips(*pairs):
     return json.dumps({"suggestions": [{"label": a, "prompt": b} for a, b in pairs]})
 
 
-def test_parse_repairs_labels_cuts_and_drops_duplicates():
-    out = sg.parse(chips(("", "Compare the two options in a table"), ("Same", "compare the two options in a table!"), ("Apply", "x" * 400),
+def test_parse_drops_duplicates_and_keeps_the_whole_message():
+    long_one = "Compare the validation step with the parsing step, because the three steps are independent and a table shows where they overlap. " * 3
+    out = sg.parse(chips(("", "Compare the two options in a table"), ("Same", "compare the two options in a table!"), ("Apply", long_one),
                          ("L" * 90, "Check the edge cases"), ("", "ok"), ("Fifth", "Another one here"), ("Sixth", "And one more here")))
-    assert [c["prompt"] for c in out][:2] == ["Compare the two options in a table", "x" * 239 + "…"]
-    assert out[0]["label"] == "Compare the two options in a table" and len(out[2]["label"]) == sg.LABEL_CHARS
+    assert [c["prompt"] for c in out][:2] == ["Compare the two options in a table", long_one.strip()]          # 380 characters, kept whole
+    assert all(set(c) == {"prompt"} for c in out)
     assert len(out) == sg.MAX_ITEMS and all(len(c["prompt"]) <= sg.PROMPT_CHARS for c in out)
     for bad in ("", "nope", "[]", json.dumps({"suggestions": "x"}), json.dumps({"other": []}), None, json.dumps({"suggestions": [5, None]})):
         assert sg.parse(bad) == []
+
+
+def test_a_message_over_the_limit_keeps_its_whole_sentences_and_is_never_cut_in_a_word():
+    first = "Explain how the validation step rejects a row, and which error it reports for each kind of fault."
+    second = "Then show the same check on a file with a thousand rows, to see whether the cost grows with the size."
+    text = first + " " + second + " " + "Finally, " + "and also " * 60
+    assert len(text) > sg.PROMPT_CHARS
+    out = sg.parse(chips(("", text)))
+    assert out == [{"prompt": first + " " + second}]
+    assert sg.parse(chips(("", "word " * 200))) == []                                      # no sentence end to cut at: dropped, not truncated
+
+
+def test_the_instruction_asks_for_complete_self_explanatory_messages_in_the_users_language():
+    text = sg.INSTRUCTION
+    for needle in ("language of the user's last message", "complete and self-explanatory", "as they are", "real names", "reason", "never cut off", "Output only JSON"):
+        assert needle in text, needle
+    assert sg.PROMPT_CHARS >= 400 and sg.MAX_TOKENS >= 400 and sg.MAX_ITEMS == 4
+    assert sg.SCHEMA["properties"]["suggestions"]["items"]["required"] == ["prompt"]
 
 
 def skip(s, **kw):
@@ -124,7 +143,7 @@ def test_chips_come_after_the_answer_and_the_instruction_never_enters_the_histor
     session.send("m1", "describe the service")
     done = ev.wait("done")
     got = ev.wait("suggestions")
-    assert got["turn"] == "m1" and got["items"][0] == {"label": "Deeper", "prompt": "Explain the validation step"} and got["tokens"] == 321
+    assert got["turn"] == "m1" and got["items"][0] == {"prompt": "Explain the validation step"} and got["tokens"] == 321
     assert done["final"].startswith("The service")
     call = client.requests[1]
     assert call["messages"][-1] == {"role": "user", "content": sg.INSTRUCTION} and call["messages"][-2]["role"] == "assistant"
