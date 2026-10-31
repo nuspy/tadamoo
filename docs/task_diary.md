@@ -5,11 +5,19 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina. Si aggiorna a ogni task nuovo ri
 
 ## In corso adesso
 
-- Niente di aperto sulla GPU: i test della sessione tecnica sono finiti (risultati in «Fatti»). Resta da decidere se
-  accenderla di default e, se vuoi, provare l'identità vera dei token con lo strumento `greedy_identity`.
+- Sessione tecnica accesa di default (deciso da te il 31 ottobre): il codice è scritto ma NON ancora committato, perché i test
+  vanno adattati al nuovo valore predefinito (lavoro rimandato, vedi «In coda»). Fatto: il server la accende da solo (30.000
+  token) e la lascia spenta, dicendo il motivo, se `--parallel` è 8, se sono impostate le opzioni di batch del motore o se
+  `--kv` da riga di comando non è int8; il `kv` del file passa a int8 con un avviso. Il Loader ha 30.000 come valore predefinito,
+  0 per escluderla, e nel piano conta la cache int8. Impostazioni > Inferenza mostra se è accesa e quanto è grande (solo
+  lettura); «Ottimizza il prompt» resta grigia senza sessione; l'harness non la usa se è spenta. Nuovo `harness/digest.py`:
+  un testo più grande della sessione si divide in pezzi (senza modello), ogni pezzo è riassunto dalla sessione tecnica e i
+  riassunti si uniscono; usato dal riassunto della compattazione. Documenti aggiornati.
+- Facoltativo: provare l'identità vera dei token con `greedy_identity` e la sessione tecnica accesa (5 minuti di GPU).
 
 ## In coda, senza GPU
 
+- Adattare i test al nuovo valore predefinito della sessione tecnica (rimandato su tua richiesta, da fare quando la GPU sarà libera, fra circa 5 ore): molti test di `serve/tests` leggono le opzioni del motore senza `--side-slot` e ora trovano `--kv int8 --batch 2 --side-context 30000`; poi committare il lavoro sulla sessione tecnica (codice, test, documenti). Aggiungere anche i test del Loader (nota «cache int8») e della scheda in Impostazioni.
 - Unire le rifiniture della casella «Ottimizza il prompt» (commit `e6708707`): sempre spegnibile, riga «Sto riscrivendo il
   prompt…», esperimento E8 esteso a richieste vaghe e lunghe.
 - Rifare la suite completa dopo le ultime unioni (ottimizzazione rifinita, scheda italiana, suggerimenti chiari) e committare.
