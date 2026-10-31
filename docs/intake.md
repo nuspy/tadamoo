@@ -149,12 +149,15 @@ ask_user {intro?, questions: [{text, kind: single|multi|free|confirm, options?: 
 
 ## Next-message chips
 
-After an answer that ended normally, a separate structured call (the conversation as the model last saw it plus one trailing instruction that
-is never stored; `response_format` json_schema, thinking off, 160 tokens, 8 seconds) returns two to four messages in the person's voice.
-They appear under the answer as buttons; a click puts the text in the message box, focuses it and sends nothing. Skipped when: unattended;
+After an answer that ended normally, a separate structured call (the conversation as the model last saw it plus one trailing instruction
+that is never stored; `response_format` json_schema, thinking off, 480 tokens, 12 seconds) returns up to four messages in the person's
+voice and language, each complete and self-explanatory: one or two whole sentences that say what to do and on what, with the reason or
+the detail. They appear under the answer as buttons that show the whole text wrapped over several lines (no ellipsis, no sideways scroll;
+the text is also the tooltip); a click puts the text in the message box, focuses it and sends nothing. Skipped when: unattended;
 the answer is under about 30 tokens, cut, an error or a card; plan mode; a message is queued or a task runs; the conversation is longer than
 the size setting; the server held under half of the last request in its cache; or after three unused sets in a row (then every second
-turn). A message sent meanwhile cancels the call (the stream is closed). A suggestion is plain text of at most 240 characters. The set
+turn). A message sent meanwhile cancels the call (the stream is closed). A suggestion is plain text of at most 480 characters (the
+instruction asks for about 300); a longer one keeps its whole sentences that fit, or is dropped, never cut mid-sentence. The set
 is kept for a reload and dropped at the next message.
 
 ## Pages

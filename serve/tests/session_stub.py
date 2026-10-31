@@ -131,7 +131,7 @@ for line in sys.stdin:
         if text == "chips":
             busy["v"] = False
             emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "an answer"})
-            emit({"event": "suggestions", "turn": cmd.get("id"), "items": [{"label": "More", "prompt": "Tell me more"}]})
+            emit({"event": "suggestions", "turn": cmd.get("id"), "items": [{"prompt": "Tell me more"}]})
             continue
         if text == "more":
             busy["v"] = False

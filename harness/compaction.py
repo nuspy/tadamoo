@@ -341,9 +341,9 @@ class Outcome:
 
 def _language(messages: List[Dict[str, Any]]) -> str:
     """The language of the notes the harness adds by itself: Italian when the person's latest request is, else English."""
-    from serve.longform import detect_language
+    from serve.longform import request_language
     request = next((str(m.get("content") or "") for m in reversed(messages) if real_user(m)), "")
-    return "it" if detect_language(request, min_words=4) == "it" else "en"
+    return "it" if request_language(request) == "it" else "en"
 
 
 # -- the compactor -----------------------------------------------------------------------------------------------

@@ -51,6 +51,17 @@ class WiringTest(unittest.TestCase):
         self.assertIn('setAttribute("role", "group")', chips)
         self.assertIn("aria-label", chips)
 
+    def test_a_chip_shows_the_whole_message_wrapped_and_the_whole_message_is_its_tooltip(self):
+        chips = CHAT[CHAT.index("function showChips"):CHAT.index("document.addEventListener(\"input\"")]
+        self.assertIn('btn(c.prompt, "ghost achip-s"', chips)                               # the text of the chip is the message, not a label
+        self.assertNotIn(".slice(", chips.replace(".slice(0, 4)", ""))
+        self.assertIn('T("ch.suggest.tip", c.prompt)', chips)
+        rule = CSS[CSS.index(".asuggest .achip-s"):].split("}")[0]
+        self.assertIn("white-space: normal", rule)
+        self.assertNotIn("nowrap", rule)
+        self.assertNotIn("text-overflow", CSS[CSS.index(".asuggest {"):CSS.index(".acap-list")])
+        self.assertIn("minmax(0, 1fr)", CSS[CSS.index(".asuggest {"):])                    # the column can shrink: no sideways scroll at 1024 px
+
     def test_the_card_is_keyboard_operable_and_names_what_is_missing(self):
         for needle in ('"radiogroup"', '"fieldset"', '"legend"', "ctrlKey", 'aria-live', "ev.detail > 0", "T(\"ch.ask.missing\""):
             self.assertIn(needle.strip('"') if needle.startswith('"') else needle, CARD)
