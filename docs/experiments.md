@@ -122,8 +122,8 @@ turns that never end into visible results without ending a turn that waiting wou
 
 | Arm | Setting | Selected by |
 |---|---|---|
-| `A` | every model error retried (today) | no flag |
-| `B` | classifier on | `--error-classifier` (`classify_errors=True` of the session) |
+| `A` | classifier off: every model error retried | `--no-error-classifier` (`classify_errors=False` of the session) |
+| `B` | classifier on (the default) | no flag |
 | `A~aa` | off again | |
 
 **Fixture** (`scripted_server.py`, `fixtures/error_scenarios.py`): a server on 127.0.0.1 that answers from a script. Eight scenarios: 429 then 500
@@ -138,7 +138,7 @@ the `retrying` events; `visible_s` is the time to the result; `real_wait_s` is w
 repeated) would have added for those retries. **k = 5**, 8 scenarios, 3 arms: 120 trials, a few minutes, no model and no GPU.
 
 **Rule.** `B` beats `A` when the share of turns that never end is lower than the pooled A and A/A share by more than the gap and by 10 points, and
-`wrong_end` is not above `A`'s. Whether to turn the classifier on stays the owner's decision; this says what it buys and what it risks.
+`wrong_end` is not above `A`'s. The classifier is on by default; this says what it buys and what it risks.
 
 **Plumbing numbers (not measurements of the model).** One run on the development machine, no GPU, k = 5, 120 trials, 0 invalid:
 

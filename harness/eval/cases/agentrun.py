@@ -204,7 +204,7 @@ class Events:
         return sum(1 for e in self.items if e.get("event") == kind)
 
 
-def open_session(workspace: Path, client: Any, data_dir: Path, *, waits: Tuple[float, ...] = (0.05,), classify_errors: bool = False,
+def open_session(workspace: Path, client: Any, data_dir: Path, *, waits: Tuple[float, ...] = (0.05,), classify_errors: bool = True,
                  unattended: bool = False, **overrides: Any) -> Tuple[Session, Events, BuiltAgent]:
     """A conversation process in this thread's process: an agent, its history folder and a session over them. The fixed clock is set."""
     settings: Dict[str, Any] = {"permission_mode": "auto", "max_turns": 12, "use_memory": False, "use_checkpoints": False, "budget_grace": False}

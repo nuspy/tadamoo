@@ -3,7 +3,7 @@
 Question: against a server that answers with transient errors, errors no waiting can cure, and context overflow, does the classifier turn the
 turns that never end into visible results without ending a turn that waiting would have saved?
 
-Arm A is the harness as it is (every model error is retried), arm B is `--error-classifier` (docs/harness-gates.md); `A~aa` is A again. The
+Arm A is the classifier off (`--no-error-classifier`: every model error is retried), arm B is the default, classifier on (docs/harness-gates.md); `A~aa` is A again. The
 server is scripted (`scripted_server.py`, scenarios in `fixtures/error_scenarios.py`), so the experiment needs no model and no GPU and its numbers
 are the same on any machine: they measure the harness's retry logic, with the waits shrunk to tens of milliseconds and a stall made short.
 `real_wait_s` is what the default waits (2, 5, 15, 30, 60, 120, 180, 300 s, the last repeated) would have added for the retries seen.
@@ -30,8 +30,8 @@ WAITS = (0.03, 0.06, 0.12, 0.2)
 CLIENT_TIMEOUT_S = 0.3
 
 ARMS = with_control([
-    Arm("A", "classifier off (today)", {"classify_errors": False}, "no flag"),
-    Arm("B", "classifier on", {"classify_errors": True}, "--error-classifier"),
+    Arm("A", "classifier off", {"classify_errors": False}, "--no-error-classifier"),
+    Arm("B", "classifier on (default)", {"classify_errors": True}, "no flag"),
 ], "A")
 
 RULE = Rule(
