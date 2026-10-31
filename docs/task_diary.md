@@ -7,15 +7,15 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina presto. Si aggiorna a ogni task n
 
 - Prova sulla GPU: i token del motore nuovo sono uguali a quelli del motore vecchio? Il controllo vecchio-contro-vecchio
   con la cache fissata è risultato IDENTICO. Manca l'esito di vecchio-contro-nuovo (lo lancia il proprietario a mano).
-- Un agente corregge la scheda delle risposte lunghe che appare in inglese per richieste italiane brevi, e rende i
-  suggerimenti per il messaggio successivo frasi complete e ben spiegate, senza tagli.
+- Le due correzioni (scheda italiana, suggerimenti chiari) sono pronte nel ramo `next/track-polish` (commit `88413db7`).
+  Da unire dopo la fine della suite completa.
 - La suite completa dei test sull'ultima testa del ramo `next/integration` sta ancora girando.
 
 ## In coda, senza GPU
 
 - Unire le rifiniture della casella «Ottimizza il prompt» (commit `e6708707`): sempre spegnibile, riga «Sto riscrivendo il
   prompt…», esperimento E8 esteso a richieste vaghe e lunghe.
-- Unire le due correzioni dell'agente (scheda italiana, suggerimenti chiari), poi rifare la suite completa e committare.
+- Unire `next/track-polish` e il commit `e6708707` dell'ottimizzazione, poi rifare la suite completa e committare.
 - Il percorso `long_answer` del Chat usa ancora il flusso vecchio delle risposte lunghe: portarlo al flusso nuovo.
 - L'app Android non ha l'interruttore «Analisi del prompt», la casella «Ottimizza il prompt» e il selettore del ruolo.
 - Ricostruire l'app e il programma di installazione (`compile_and_package.ps1`) e reinstallare: l'app in Program Files
