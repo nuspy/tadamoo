@@ -1,28 +1,34 @@
 # Diario dei task
 
-Ultimo aggiornamento: 31 ottobre 2026, mattina. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 31 ottobre 2026, sera. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «In corso adesso» e da «Decisioni tue in attesa».
 
 ## In corso adesso
 
-- Analisi dei sistemi che accorciano il contesto (richiesta del 31 ottobre): compattazione al raggiungimento della soglia, funzioni Billion Context, sessione tecnica che riassume/ripulisce, e gli altri che trovo. Capire come interagiscono (A+B, A+C, B+C, tutti), che perdite stratificate causano, cosa succede se l'utente ne spegne uno a metà, come riconoscere nel contesto ciò che è già compattato. Fatta la mappa e la prima analisi (31 ottobre); ora se ne discute con te prima di cambiare qualsiasi cosa. Solo lettura finora.
-- Idea tua da valutare (31 ottobre): due livelli per ogni risposta del modello. Livello operativo: l'harness esegue quello che la risposta chiede. Livello di memoria: nel contesto resta solo un riassunto/astrazione di ciò che è stato fatto (senza spiegazioni, codice, istruzioni degli strumenti). Solo nel Chat, non nella scheda Agentic coding (lì serve il codice); disattivabile. Prima si risolve il punto sopra.
-- Sessione tecnica accesa di default (deciso da te il 31 ottobre): il codice è scritto ma NON ancora committato, perché i test
-  vanno adattati al nuovo valore predefinito (lavoro rimandato, vedi «In coda»). Fatto: il server la accende da solo (30.000
-  token) e la lascia spenta, dicendo il motivo, se `--parallel` è 8, se sono impostate le opzioni di batch del motore o se
-  `--kv` da riga di comando non è int8; il `kv` del file passa a int8 con un avviso. Il Loader ha 30.000 come valore predefinito,
-  0 per escluderla, e nel piano conta la cache int8. Impostazioni > Inferenza mostra se è accesa e quanto è grande (solo
-  lettura); «Ottimizza il prompt» resta grigia senza sessione; l'harness non la usa se è spenta. Nuovo `harness/digest.py`:
-  un testo più grande della sessione si divide in pezzi (senza modello), ogni pezzo è riassunto dalla sessione tecnica e i
-  riassunti si uniscono; usato dal riassunto della compattazione. Documenti aggiornati.
-- Facoltativo: provare l'identità vera dei token con `greedy_identity` e la sessione tecnica accesa (5 minuti di GPU).
+- Esperimento E9 (cosa sa ancora l'agente dopo la compattazione, compattazione spenta contro accesa) in prova sul modello vero: k=2, un solo compito, server Basalt con sessione tecnica, 600 W. Codice e test committati (`f84dfba3`); la prova è un pilota, non un risultato.
+
+## Fatto il 31 ottobre sera (committato, non pubblicato)
+
+- Quattro commit su `next/integration`: `b413b544` contesto (nota unica di compattazione, ricompattazione dagli originali, lettura a pezzi controllata e rifatta se non è buona, nessun limite di tempo); `889a2508` server (sessione tecnica accesa di default, conteggio per uso, rifiuto se non entra, `--kv int8` con avviso, Loader a 30.000 e spenta nei valori sicuri, test adattati, golden rigenerato); `064f709d` registro dei 15 usi con dialogo, sei usi nuovi, funzione `technical` e interruttore generale per provider esterni; `f84dfba3` E9.
+- Prove sul modello vero degli usi (GPU libera, 600 W, IQ4_XS): rifiuto se non entra; lettura a pezzi di 213.000 caratteri in 240 s con avanzamento e tasto Ferma; estrazione dagli output 138 caratteri su 115.848 con l'errore giusto; controllo iniezioni 6 su 6; scelta note giusta; riga di avanzamento giusta; suggerimenti compatti; promemoria da 6.000 a 1.272 caratteri; riassunto del Chat da 60.655 a 3.709 token con 38 chiamate tutte nella sessione tecnica.
+- Test: `serve/tests` per file e ripetuti. Rispetto al punto di partenza (19 fallimenti su quattro file) il mio albero ne ha meno o pari, ma ogni giro fallisce test diversi per timeout HTTP verso 127.0.0.1 (una connessione ogni tanto non risponde per 21 s), anche sul punto di partenza e anche a macchina quasi ferma. I tre fallimenti veri trovati sono corretti.
+- Precisione del `kv int8`: tutte le righe di qualità in `docs/precision` sono già misurate con int8; la nota è scritta. Il confronto diretto fp16 contro int8 non si può fare qui: mancano il file base `.kld` di llama.cpp e wikitext.
+
+## Ancora aperto sul contesto e sulla sessione tecnica
+
+- Il riassunto a pezzi tiene 15 percorsi su 40: l'esperimento E9 e le soglie diranno se basta.
+- Piegare a piccoli blocchi solo il materiale già usato; un solo modulo di riassunto per Chat e agente; condizione del 50% della finestra per il promemoria.
+- Provider esterni: llama-server dal Loader, secondo modello piccolo in LM Studio o vLLM, involucro per llama.cpp con aggiornamento, prova di `id_slot` su `/v1/chat/completions`. Su Anthropic la risposta JSON si perde.
+- Dialogo esteso (15 usi, scelta del provider) non provato nel browser: Edge non rispondeva.
+- Memorie, planner e riga di avanzamento non provati sul modello vero dentro una sessione di agente.
+- Jev: la funzione `relevance` non è chiamata da nessun codice; nessuna prova dal vivo.
+- Compiti già annunciati: riesame delle ispirazioni da altri strumenti, confronto delle memorie (Claude-Mem, nostro sistema, Obsidian).
 
 ## In coda, senza GPU
 
-- Adattare i test al nuovo valore predefinito della sessione tecnica (rimandato su tua richiesta, da fare quando la GPU sarà libera, fra circa 5 ore): molti test di `serve/tests` leggono le opzioni del motore senza `--side-slot` e ora trovano `--kv int8 --batch 2 --side-context 30000`; poi committare il lavoro sulla sessione tecnica (codice, test, documenti). Aggiungere anche i test del Loader (nota «cache int8») e della scheda in Impostazioni.
 - Unire le rifiniture della casella «Ottimizza il prompt» (commit `e6708707`): sempre spegnibile, riga «Sto riscrivendo il
   prompt…», esperimento E8 esteso a richieste vaghe e lunghe.
-- Rifare la suite completa dopo le ultime unioni (ottimizzazione rifinita, scheda italiana, suggerimenti chiari) e committare.
+- Rifare la suite completa su una macchina ferma (oggi i timeout verso 127.0.0.1 fanno fallire test diversi a ogni giro).
 - Il percorso `long_answer` del Chat usa ancora il flusso vecchio delle risposte lunghe: portarlo al flusso nuovo.
 - L'app Android non ha l'interruttore «Analisi del prompt», la casella «Ottimizza il prompt» e il selettore del ruolo.
 - Ricostruire l'app e il programma di installazione (`compile_and_package.ps1`) e reinstallare: l'app in Program Files
@@ -44,8 +50,7 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina. Si aggiorna a ogni task nuovo ri
 - Le prove con il modello vero, righe 36-88 di `tests/QUEUE_daytime.md`.
 - Gli esperimenti E1, E2, E4, E5, E6, E7, E8 (`python -m harness.eval.cases list`). Solo E3 è già girato, con il motore
   finto.
-- Misura del costo della sessione tecnica sulla velocità della conversazione (riga 85).
-- Prova del motore con `--side-slot` acceso: sessione da 30.000 token accanto a quelle normali.
+- Misura fatta il 31 ottobre: sessione accesa, nessun rallentamento visibile (125-185 token al secondo); la misura accurata della coda (riga 85) resta.
 
 ## Decisioni tue in attesa
 
