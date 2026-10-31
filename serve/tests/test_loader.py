@@ -285,14 +285,14 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), CONFIG)
 
     def test_load_writes_the_file_and_reloads(self):
-        code, body = self.post("load", {"values": {"engine.kv": "q4_0", "engine.max-context": 65536,
+        code, body = self.post("load", {"values": {"engine.kv": "int8", "engine.max-context": 65536,
                                                    "server.parallel": 2, "server.slot-full-context": True}},
                                Origin=f"http://127.0.0.1:{self.port}")
         self.assertEqual(code, 202, body)
-        self.assertEqual(sorted(body["changed"]), ["engine.kv", "engine.max-context", "server.parallel",
+        self.assertEqual(sorted(body["changed"]), ["engine.max-context", "server.parallel",
                                                    "server.slot-full-context"])
         new = json.loads(Path(self.path).read_text(encoding="utf-8"))
-        self.assertEqual((new["engine"]["kv"], new["engine"]["max-context"]), ("q4_0", 65536))
+        self.assertEqual((new["engine"]["kv"], new["engine"]["max-context"]), ("int8", 65536))
         self.assertEqual(new["server"]["slot-full-context"], True)
         self.assertEqual(new["engine"]["resident-experts"], True)            # other keys kept
         self.assertEqual(json.loads(Path(self.path + ".bak").read_text(encoding="utf-8")), CONFIG)
@@ -300,7 +300,7 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(st["phase"], "ready", st)
         self.assertEqual(self.svc.engine.max_context, 65536)                # each slot holds the whole context
         self.assertEqual(self.svc.engine.batch, 2)
-        self.assertEqual(self.svc.settings_info["running"]["engine.kv"], "q4_0")
+        self.assertEqual(self.svc.settings_info["running"]["engine.kv"], "int8")
 
     def test_a_plan_that_does_not_fit_is_refused(self):
         with mock.patch.object(loader, "system_now", return_value=dict(TIGHT)):
