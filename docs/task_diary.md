@@ -5,17 +5,17 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina presto. Si aggiorna a ogni task n
 
 ## In corso adesso
 
-- Prova sulla GPU: i token del motore nuovo sono uguali a quelli del motore vecchio? Il controllo vecchio-contro-vecchio
-  con la cache fissata è risultato IDENTICO. Manca l'esito di vecchio-contro-nuovo (lo lancia il proprietario a mano).
-- Le due correzioni (scheda italiana, suggerimenti chiari) sono pronte nel ramo `next/track-polish` (commit `88413db7`).
-  Da unire dopo la fine della suite completa.
-- La suite completa dei test sull'ultima testa del ramo `next/integration` sta ancora girando.
+- Test GPU della sessione tecnica (primo avvio reale, con e senza, per misurare il costo sulla velocità): lo script è pronto in
+  `C:\TEMP\claude\E--Projects-basalt526e1fa-56b6-4854-af76-3c412ae1a60c\scratchpad\side_smoke.py`. Il lancio è stato
+  bloccato dal sistema di autorizzazione: lo lancia il proprietario a mano. L'altra sessione ha dato il via libera e dopo
+  userà la GPU a lungo (circa 3 ore, poi stanotte circa 4,5 ore): niente GPU da basalt in quella finestra.
+- Suite completa dell'ultima testa: da rifare dopo le ultime unioni.
 
 ## In coda, senza GPU
 
 - Unire le rifiniture della casella «Ottimizza il prompt» (commit `e6708707`): sempre spegnibile, riga «Sto riscrivendo il
   prompt…», esperimento E8 esteso a richieste vaghe e lunghe.
-- Unire `next/track-polish` e il commit `e6708707` dell'ottimizzazione, poi rifare la suite completa e committare.
+- Rifare la suite completa dopo le ultime unioni (ottimizzazione rifinita, scheda italiana, suggerimenti chiari) e committare.
 - Il percorso `long_answer` del Chat usa ancora il flusso vecchio delle risposte lunghe: portarlo al flusso nuovo.
 - L'app Android non ha l'interruttore «Analisi del prompt», la casella «Ottimizza il prompt» e il selettore del ruolo.
 - Ricostruire l'app e il programma di installazione (`compile_and_package.ps1`) e reinstallare: l'app in Program Files
@@ -39,7 +39,7 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina presto. Si aggiorna a ogni task n
   percentuale di velocità.
 - Formato del primo messaggio del Target Loop (unito o separato): si decide con l'esperimento E1.
 - Cancello di verifica acceso di default (con te presente / non presidiato): si decide con l'esperimento E2.
-- Classificatore degli errori: l'esperimento sul motore finto lo favorisce (successo dal 62% all'88%). Acceso?
+- (Deciso: classificatore degli errori acceso di default.)
 - Soglie per dichiarare un vincitore negli esperimenti (10, 15 o 20 punti) ed E5 con 3 ripetizioni: puoi cambiarle prima
   di qualsiasi prova.
 - Sei domande dell'agente delle risposte lunghe. Mie scelte predefinite: testo intero nella cronologia, scheda prima della
@@ -49,6 +49,12 @@ Ultimo aggiornamento: 31 ottobre 2026, mattina presto. Si aggiorna a ogni task n
 ## Fatti
 
 ### 31 ottobre
+- Classificatore degli errori acceso di default (si spegne con `--no-error-classifier` o dalle Impostazioni): un errore
+  che non passa mai (chiave sbagliata, richiesta malformata) ferma il turno e lo mostra; gli errori temporanei si riprovano.
+- Prova GPU n. 2, motore vecchio contro nuovo con cache fissata: IDENTICO. Le mie modifiche al motore non cambiano i token.
+- Unite le rifiniture dell'ottimizzazione (casella sempre spegnibile, riga «sto riscrivendo», E8 esteso), la scheda italiana
+  corretta e i suggerimenti del messaggio successivo come frasi complete.
+- Suite `tests/` completa sulla testa precedente: 3102 passati, nessun fallimento.
 - Casella «Ottimizza il prompt», solo con la sessione tecnica attiva (commit `45ececa0`), con esperimento E8.
 - Sessione tecnica corta da circa 30.000 token: opzione del motore `--side-context`, server `--side-slot`, campo di
   richiesta `cache_slot`, voce «Sessione tecnica» nel Loader (commit `933c4503`). Spenta di default. Il motore compila per
