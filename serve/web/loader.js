@@ -315,7 +315,7 @@
     // what the memory settings did to the figures: the KV split, the resident budget, the caches' formula
     const gb = n => gib(n || 0);
     const noteText = n => T("pn." + n.code, ...({
-      kv_stream: [nfmt(n.cells), gb(n.vram), gb(n.host)], kv_fits: [nfmt(n.cells)], kv_k8v4: [], mmap_wins: [], side: [nfmt(n.context), gb(n.kv)],
+      kv_stream: [nfmt(n.cells), gb(n.vram), gb(n.host)], kv_fits: [nfmt(n.cells)], kv_k8v4: [], mmap_wins: [], side: [nfmt(n.context), gb(n.kv)], side_kv: [n.kv],
       budget: [gb(n.bytes)], caches: [nfmt(n.checkpoints), nfmt(n.slots), gb(n.parked)],
     }[n.code] || []));
     const pnotes = (p.notes || []).map(noteText);

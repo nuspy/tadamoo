@@ -104,6 +104,7 @@ class Service:
         self.standby = False                             # --standby: no engine until the Loader's Load
         self.exit_request = threading.Event()            # --relaunch-on-model-change: end so the owner starts again
         self.status_lock = threading.Lock()
+        self.side_stats: dict[str, dict] = {}          # the technical session's work, by the use the harness named in the call
         self.live_lock = threading.Lock()               # one combined live line per LIVE_EVERY_S, whichever request is first
         self.live_at = 0.0
         # GPU sharing, all off by default: idle unload seconds, min free VRAM to load, a command run before loading
@@ -452,6 +453,23 @@ class Service:
             elif st.get("slot") == side:
                 st["slot"] = None
 
+    def _count_side(self, sampling: dict, done: dict, seconds: float) -> None:
+        """One call that asked for the technical session, counted under the use it named: whether the session served it or an ordinary
+        slot did, whether it ended cut off or was cancelled, and the time it took."""
+        if sampling.get("cache_slot") not in ("side", "side_only") or not isinstance(sampling.get("side_use"), str):
+            return
+        with self.status_lock:
+            row = self.side_stats.setdefault(sampling["side_use"], {"calls": 0, "main": 0, "cut": 0, "cancelled": 0, "seconds": 0.0})
+            row["calls"] += 1
+            row["main"] += done.get("cache_slot") != "side"
+            row["cut"] += done.get("finish") == "length"
+            row["cancelled"] += done.get("finish") == "cancel"
+            row["seconds"] = round(row["seconds"] + seconds, 3)
+
+    def side_stats_view(self) -> dict:
+        with self.status_lock:
+            return {k: dict(v) for k, v in self.side_stats.items()}
+
     def side_slot_info(self) -> dict | None:
         """The technical session as the status routes show it: {"slot": index, "context": tokens}, or None."""
         side = self._side_slot()
@@ -760,6 +778,12 @@ class Service:
     def run(self, ids, thinking, tools, max_new, sampling, cancel, force=None) -> Iterator[tuple[str, object]]:
         """Yield ("event", Event) as text arrives, ("ping", None) as heartbeat, then ("done", {...}).
         `force`: the opening of the call the reply must make (see prepare)."""
+        t_run = time.time()
+        if (sampling or {}).get("cache_slot") == "side_only":
+            side = self._side_slot()
+            if side is None or len(ids) + max_new + 16 > self._slot_context(side):
+                raise ValueError("this request does not fit the technical session (it has none, or the prompt and the answer are larger than its context)")
+            sampling = {**sampling, "cache_slot": "side"}          # from here it is an ordinary request for the session
         budget = self.reasoning_budget(sampling) if thinking else None   # opt-in
         if self.sampling_defaults:     # the request's own fields win
             req_values = {k: v for k, v in (sampling or {}).items() if v is not None}
@@ -1124,6 +1148,7 @@ class Service:
         if (sampling or {}).get("cache_slot") is not None:      # the request chose a slot: say which kind served it
             served = getattr(self.engine, "served_slot", None)
             done["cache_slot"] = (served() if callable(served) else None) or "main"
+            self._count_side(sampling, done, time.time() - t_run)
         if trace is not None:
             trace.run_done(done)
         yield "done", done

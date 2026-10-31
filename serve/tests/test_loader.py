@@ -35,15 +35,15 @@ CONFIG = {"server": {"port": 7232, "vision": "dynamic"},
 class Plan(unittest.TestCase):
     def test_kv_follows_the_engine_s_bytes_per_token(self):
         for kv, per in loader.KV_TOKEN_BYTES.items():
-            p = loader.plan({"engine.kv": kv, "engine.max-context": 100000}, F, ROOMY)
+            p = loader.plan({"engine.kv": kv, "engine.max-context": 100000, "server.side-slot": 0}, F, ROOMY)
             kv_item = next(i for i in p["vram"]["items"] if i["key"] == "kv")
             self.assertEqual(kv_item["bytes"], per * 100000 + loader.SESSION_FIXED, kv)
         self.assertLess(loader.KV_TOKEN_BYTES["q4_0"], loader.KV_TOKEN_BYTES["k8v4"] < loader.KV_TOKEN_BYTES["int8"]
                         and loader.KV_TOKEN_BYTES["int8"])
 
     def test_slots_share_the_context_unless_full(self):
-        shared = loader.plan({"engine.max-context": 65536, "server.parallel": 4}, F, ROOMY)
-        full = loader.plan({"engine.max-context": 65536, "server.parallel": 4, "server.slot-full-context": True},
+        shared = loader.plan({"engine.max-context": 65536, "server.parallel": 4, "server.side-slot": 0}, F, ROOMY)
+        full = loader.plan({"engine.max-context": 65536, "server.parallel": 4, "server.slot-full-context": True, "server.side-slot": 0},
                            F, ROOMY)
         self.assertEqual(shared["slot_context"], 16384)
         self.assertEqual(full["slot_context"], 65536)

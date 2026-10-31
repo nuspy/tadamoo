@@ -205,7 +205,7 @@ class Cli(Tmp):
     def test_vision_flags_reach_model_config(self):
         from serve import server
         path = self.build(vision=True)
-        base = ["--model", path, "--engine-bin", str(self.engine_bin), "--gpu", "0"]
+        base = ["--model", path, "--engine-bin", str(self.engine_bin), "--gpu", "0", "--side-slot", "0"]
         for flags, want in (([], False), (["--vision", "1"], "1"),
                             (["--vision", "dynamic"], "dynamic"), (["--vision", "cpu"], "cpu"), (["--vision", "off"], False)):
             with mock.patch.object(modelfile, "model_config", side_effect=ValueError("stop")) as mc, \
@@ -217,14 +217,14 @@ class Cli(Tmp):
         path = self.build(vision=True)
         err = io.StringIO()
         with mock.patch("sys.stderr", err):
-            e = self.run_main("--model", path, "--engine-bin", str(self.engine_bin), "--gpu", "0", "--vision", "1")
+            e = self.run_main("--model", path, "--engine-bin", str(self.engine_bin), "--gpu", "0", "--side-slot", "0", "--vision", "1")
         self.assertEqual(getattr(e, "code", None), 2)
         self.assertIn("basalt-vision", err.getvalue())
 
     def test_vision_numbered_card_is_checked_at_startup(self):
         path = self.build(vision=True)
         (self.engine_bin.parent / "basalt-vision").write_text("")
-        base = ["--model", path, "--engine-bin", str(self.engine_bin), "--gpu", "0"]
+        base = ["--model", path, "--engine-bin", str(self.engine_bin), "--gpu", "0", "--side-slot", "0"]
 
         def plan(engine_bin, value):                     # a fake --gpu-plan: card 0 Blackwell, card 9 refused
             if str(value) == "9":

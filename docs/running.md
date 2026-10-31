@@ -57,15 +57,15 @@ the slots that did fit; if fewer than two fit, `--batch is off` and the server r
 
 ## The technical session: `--side-slot TOKENS`
 
-`--side-slot TOKENS` (also `"side-slot"` in the config's `server` section, or the Loader's *Technical session* field; bare it is
-30000, `0` is off and the default) adds one slot to `--parallel`: a session of TOKENS tokens kept for the harness's short calls
+`--side-slot TOKENS` (also `"side-slot"` in the config's `server` section, or the Loader's *Technical session* field; the default and
+bare it are 30000, `0` is off) adds one slot to `--parallel`: a session of TOKENS tokens kept for the harness's short calls
 (the triage of a request, next-prompt suggestions, the summary of older steps, the judges and the router, and the rewrite of the person's message
 when Optimize prompt is on, which is available only while this session exists). A call that sends
 `"cache_slot": "side"` (chat completions, messages and responses alike) runs there, with a prompt of its own and no big instruction
 or tool prefix, so it neither waits behind a conversation's long answer nor overwrites a conversation's cache. The answer carries
 `"cache_slot"`: `"side"`, or `"main"` when the ordinary slots served it. A request is served by them, and not refused, when the server has
 no technical session or the prompt and answer do not fit its context; calls for the session wait for it in turn and never take a
-conversation's slot, and no ordinary request ever takes the session's.
+conversation's slot, and no ordinary request ever takes the session's. `"cache_slot": "side_only"` is the same request refused (400, "technical session") instead of served by an ordinary slot when it does not fit; `"side_use": "name"` names what the call is for, and `/api/side-uses` counts the session's calls by that name.
 
 The server turns `--parallel N --side-slot T` into the engine's `--batch N+1 --side-context T`: the conversations' slots keep
 `--max-context / N`, the side slot holds `min(T, that)` and is the last slot, so when memory is short it is the slot dropped first
@@ -78,8 +78,12 @@ start and grows with use), and the draft layer's K/V of that size; the Loader's 
 conversation checkpoints and parks no conversation, so the RAM kept for them does not grow. The engine's batch windows need the K/V cache as resident INT8 without rotation: the server adds `--kv int8` by itself (and says so at start), and refuses `--parallel` or `--side-slot` together with another `--kv` format. What is given up: it turns the engine's
 batch mode on, even with `--parallel 1`, so `end_turn_bias`, `logit_bias` and relaxed drafting are unavailable while it is on, and a
 request alone no longer runs on the pure single-stream path. A call that arrives while a conversation decodes alone moves that
-conversation into the batch windows until the call ends. It is off until the cost on a conversation's speed has been measured (queue
-row 85). On a layer split over several GPUs a call's prompt is read in the main session, as every batch request's is, so the
+conversation into the batch windows until the call ends. It is on unless the setup cannot hold it: the server leaves it off, and says why
+at start, when `--parallel` is 8, when the engine's own `--batch`, `--slots` or `--side-context` is set, or when `--kv` on the command
+line is not `int8`; a `kv` other than `int8` in the config file gives way to `int8` (the server says so; `--side-slot 0` keeps the file's).
+The Loader shows the same and counts the INT8 KV in its plan. The GUI and the harness ask `/v1/status` (`concurrency.side_slot`): with no
+session the quick jobs run in the ordinary slots, Optimize prompt is greyed out and the session's size is shown, not editable, outside
+the Loader. On a layer split over several GPUs a call's prompt is read in the main session, as every batch request's is, so the
 isolation holds on one GPU.
 
 - `server` holds the server's options (`python -m serve.server --help`), named as the flags without the dashes:

@@ -290,6 +290,10 @@ def main() -> int:
             elif getattr(a, "side_slot", 0):
                 print("[server] warning: the technical session was asked for but the engine runs without it "
                       "(see the engine log: its slot did not fit)", flush=True)
+        if getattr(a, "side_off_why", None):
+            print(f"[server] technical session off: {a.side_off_why}", flush=True)
+        if getattr(a, "kv_changed", None):
+            print(f"[server] kv       int8 instead of {a.kv_changed} (the technical session needs it; --side-slot 0 keeps {a.kv_changed})", flush=True)
         if getattr(a, "kv_added", False):
             print("[server] kv       int8 (the parallel slots need it)", flush=True)
         if getattr(a, "side_clamp", None):

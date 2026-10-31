@@ -170,7 +170,18 @@ def parse_settings(ap: argparse.ArgumentParser, cli: list[str]):
     for act in ap._actions:                                # a repeatable command-line option replaces the file's
         if isinstance(act, argparse._AppendAction) and getattr(a_cli, act.dest) != act.default:
             setattr(a, act.dest, getattr(a_cli, act.dest))
-    main, side = a.parallel or 1, a.side_slot or 0
+    main = a.parallel or 1
+    a.side_off_why = a.kv_changed = None
+    if a.side_slot is None:
+        a.side_slot = 0 if a.mock_engine else SIDE_SLOT_DEFAULT        # a mock engine has no session of its own unless the command line asks for one
+    if a.side_slot and a_cli.side_slot is None:       # on by default or from the file: a setup that cannot hold it leaves it off
+        fits, why = _side_fits(main, cli_words, file_words)
+        if not fits:
+            a.side_slot, a.side_off_why = 0, why
+        elif flag_value(file_words, "--kv") not in (None, "int8"):      # the file's KV format gives way: the session needs int8
+            a.kv_changed = flag_value(file_words, "--kv")
+            file_words[flag_index(file_words, "--kv") + 1] = "int8"
+    side = a.side_slot or 0
     a.side_clamp = None
     a.kv_added = False
     if main > 1 or side:
@@ -356,6 +367,19 @@ def parallel_count(text: str) -> int:
     return n
 
 
+def _side_fits(main: int, cli_words: list[str], file_words: list[str]) -> tuple[bool, str]:
+    """(True, "") when the technical session can sit beside `main` conversations here, else (False, why not)."""
+    if main + 1 > PARALLEL_MAX:
+        return False, f"--parallel {main} leaves no slot for it"
+    for flag in ("--batch", "--slots", "--side-context"):
+        if flag in cli_words or flag in file_words:
+            return False, f"engine {flag} is set"
+    kv = flag_value(cli_words, "--kv")
+    if kv not in (None, "int8"):
+        return False, f"it needs --kv int8, not --kv {kv}"
+    return True, ""
+
+
 def side_slot_tokens(text: str) -> int:
     """argparse type: the technical session's context in tokens, 0 (off) or SIDE_SLOT_MIN and up."""
     if str(text).strip().lower() in ("off", "no", "false"):
@@ -393,9 +417,8 @@ def build_parser() -> argparse.ArgumentParser:
                          "their turn. --max-context is shared: each slot holds that divided by N (so 4 slots of 262144 "
                          "need --max-context 1048576, or --slot-full-context). The slots' KV cache comes out of the "
                          "expert cache")
-    ap.add_argument("--side-slot", nargs="?", const=SIDE_SLOT_DEFAULT, default=0, type=side_slot_tokens, metavar="TOKENS",
-                    help=f"the technical session: one more slot of TOKENS (default {SIDE_SLOT_DEFAULT} when given bare; 0 = off, "
-                         "the default) kept for the short calls of the harness (triage, suggestions, summaries, judges), so they "
+    ap.add_argument("--side-slot", nargs="?", const=SIDE_SLOT_DEFAULT, default=None, type=side_slot_tokens, metavar="TOKENS",
+                    help=f"the technical session: one more slot of TOKENS (default {SIDE_SLOT_DEFAULT}; 0 = off) kept for the short calls of the harness (triage, suggestions, summaries, judges), so they "
                          "never wait behind or overwrite a conversation's cache. It adds one slot to --parallel (with 8, the "
                          "conversations get 7), costs the KV cache and state of TOKENS tokens, and turns the engine's batch on: "
                          "end_turn_bias, logit_bias and relaxed drafting are unavailable while it is on")

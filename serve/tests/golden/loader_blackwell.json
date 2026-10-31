@@ -32,7 +32,7 @@
   "server.parallel": 1,
   "server.port": 7232,
   "server.reasoning-budget-tokens": 0,
-  "server.side-slot": 0,
+  "server.side-slot": 30000,
   "server.slot-full-context": false,
   "server.vision": "off",
   "server.vision-hold": "keep",
@@ -313,10 +313,10 @@
     "keep": 23192823398,
     "keep_share": 0.15,
     "limit": 154618822656,
-    "need": 89286899200,
+    "need": 89288363776,
     "ram_part": 56736951296,
     "used": 10737418240,
-    "vram_part": 32549947904
+    "vram_part": 32551412480
    },
    "engine_holds": {
     "commit": 0,
@@ -325,7 +325,13 @@
    },
    "fits": true,
    "kv_bytes_per_token": 14480,
-   "notes": [],
+   "notes": [
+    {
+     "code": "side",
+     "context": 30000,
+     "kv": 566520576
+    }
+   ],
    "parallel": 1,
    "problems": [],
    "projector": {
@@ -384,7 +390,7 @@
     "p": 0.0,
     "why": []
    },
-   "side_context": 0,
+   "side_context": 30000,
    "slot_context": 65536,
    "unknown": [],
    "values": {
@@ -420,7 +426,7 @@
     "server.parallel": 1,
     "server.port": 7232,
     "server.reasoning-budget-tokens": 0,
-    "server.side-slot": 0,
+    "server.side-slot": 30000,
     "server.slot-full-context": false,
     "server.vision": "off",
     "server.vision-hold": "keep",
@@ -432,7 +438,7 @@
    },
    "vram": {
     "available": 33285996544,
-    "expert_slots": 12755,
+    "expert_slots": 12479,
     "expert_slots_total": 24576,
     "free_now": 33285996544,
     "items": [
@@ -442,12 +448,12 @@
       "key": "dense"
      },
      {
-      "bytes": 908435456,
+      "bytes": 943955456,
       "estimate": false,
       "key": "drafter"
      },
      {
-      "bytes": 1081081856,
+      "bytes": 1647602432,
       "estimate": false,
       "key": "kv"
      },
@@ -467,12 +473,12 @@
       "key": "cuda"
      },
      {
-      "bytes": 27754880000,
+      "bytes": 27154304000,
       "estimate": false,
       "key": "experts"
      }
     ],
-    "need": 32549947904,
+    "need": 32551412480,
     "reserve": 734003200,
     "total": 34359738368
    }
@@ -488,6 +494,7 @@
    "engine.spec": 7,
    "engine.vram-reserve-mib": 1536,
    "server.parallel": 1,
+   "server.side-slot": 0,
    "server.slot-full-context": false,
    "server.vision": "dynamic"
   }
@@ -500,10 +507,10 @@
    "keep": 23192823398,
    "keep_share": 0.15,
    "limit": 154618822656,
-   "need": 62842891264,
-   "ram_part": 30816707328,
+   "need": 63444931840,
+   "ram_part": 31417283328,
    "used": 10737418240,
-   "vram_part": 32026183936
+   "vram_part": 32027648512
   },
   "engine_holds": {
    "commit": 0,
@@ -551,7 +558,13 @@
    },
    "token_embd_bytes": 273152000
   },
-  "notes": [],
+  "notes": [
+   {
+    "code": "side",
+    "context": 30000,
+    "kv": 566520576
+   }
+  ],
   "parallel": 1,
   "problems": [],
   "projector": {
@@ -575,7 +588,7 @@
    "free_now": 128849018880,
    "items": [
     {
-     "bytes": 25942272000,
+     "bytes": 26542848000,
      "estimate": false,
      "key": "experts"
     },
@@ -612,7 +625,7 @@
    ],
    "keep": 20615843020,
    "keep_share": 0.15,
-   "need": 30816707328,
+   "need": 31417283328,
    "total": 137438953472
   },
   "relaxed": {
@@ -620,14 +633,14 @@
    "p": 0.0,
    "why": []
   },
-  "side_context": 0,
+  "side_context": 30000,
   "slot_context": 32768,
   "speed": {
    "accept": 0.566,
-   "decode": 359.4,
-   "decode_reasoning": 359.4,
+   "decode": 356.6,
+   "decode_reasoning": 356.6,
    "decode_reasoning_visible": null,
-   "hit_rate": 0.9894,
+   "hit_rate": 0.9891,
    "prefill": 1622.0,
    "prefill_chunk": 2048,
    "source": {
@@ -681,7 +694,7 @@
    "server.parallel": 1,
    "server.port": 7232,
    "server.reasoning-budget-tokens": 0,
-   "server.side-slot": 0,
+   "server.side-slot": 30000,
    "server.slot-full-context": false,
    "server.vision": "dynamic",
    "server.vision-hold": "keep",
@@ -694,7 +707,7 @@
   },
   "vram": {
    "available": 33285996544,
-   "expert_slots": 12750,
+   "expert_slots": 12474,
    "expert_slots_total": 24576,
    "free_now": 33285996544,
    "items": [
@@ -704,12 +717,12 @@
      "key": "dense"
     },
     {
-     "bytes": 869638144,
+     "bytes": 905158144,
      "estimate": false,
      "key": "drafter"
     },
     {
-     "bytes": 606601216,
+     "bytes": 1173121792,
      "estimate": false,
      "key": "kv"
     },
@@ -729,12 +742,12 @@
      "key": "cuda"
     },
     {
-     "bytes": 27744000000,
+     "bytes": 27143424000,
      "estimate": false,
      "key": "experts"
     }
    ],
-   "need": 32026183936,
+   "need": 32027648512,
    "reserve": 1258291200,
    "total": 34359738368
   },
@@ -757,6 +770,7 @@
   "engine.spec": 7,
   "engine.vram-reserve-mib": 1536,
   "server.parallel": 1,
+  "server.side-slot": 0,
   "server.slot-full-context": false,
   "server.vision": "dynamic"
  },
@@ -800,6 +814,10 @@
   "server.parallel": {
    "en": "1: one request at a time gets the whole context and the full speed.",
    "it": "1: una richiesta alla volta ha tutto il contesto e tutta la velocit\u00e0."
+  },
+  "server.side-slot": {
+   "en": "0: the safe values keep the technical session off; it needs the INT8 cache and a little more memory.",
+   "it": "0: i valori sicuri tengono spenta la sessione tecnica; richiede la cache INT8 e un po' pi\u00f9 di memoria."
   },
   "server.slot-full-context": {
    "en": "off: with one slot it changes nothing.",

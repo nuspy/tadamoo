@@ -51,7 +51,10 @@ def conf(obj) -> str:
     return write(json.dumps(obj))
 
 
-def parse(cli: list[str], cfg=None):
+def parse(cli: list[str], cfg=None, side=False):
+    """The settings of a command line; without `side` the technical session is switched off (`--side-slot 0`), so a test sees only the words it is about."""
+    if not side and "--side-slot" not in cli and "side-slot" not in ((cfg or {}).get("server") or {}):
+        cli = [*cli, "--side-slot", "0"]
     return parse_settings(build_parser(), (["--config", conf(cfg)] if cfg is not None else []) + cli)
 
 
