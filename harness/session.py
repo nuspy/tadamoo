@@ -12,7 +12,7 @@ Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd
 {"cmd": "skill", "id", "name", "display", "script", "values", "timeout", "cache_dir"} (runs a personal skill in the conversation).
 Events: ready, accepted, queued, routed, started, suspended, resumed, agent (an assistant text or a tool start or end), delta
 (text as it is written), ask (a confirmation the task waits for, or a card of questions that ends the turn), intake (what the look at a request assumed
-or recorded), optimized (the technical session's rewrite of the message, or why it was not used), suggestions (the next-message chips after an answer),
+or recorded), optimizing and optimized (the technical session's rewrite of the message is being made; then the rewrite, or why it was not used), suggestions (the next-message chips after an answer),
 retrying, model_error (only with the error-classifier proposal), done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, role, checks, effort, intake_mode, optimize_prompt, settings, command, skill, skill_say, heartbeat, error.
 
 A message that comes while a task is under way is looked at before the task's next model call (harness/router.py): it goes into
@@ -1123,7 +1123,10 @@ class Session:
             at = next((i for i in range(len(agent.messages) - 1, -1, -1) if self._is_request(agent.messages[i], text)), None)
             if at is None:
                 return
-            result = optimizer.run(text, previous=opt.previous_words(agent.messages, at), origin=str(facts.get("origin") or "user"), attended=not self.unattended)
+            origin = str(facts.get("origin") or "user")
+            if optimizer.ready(text, origin=origin, attended=not self.unattended):
+                return
+            result = self._optimize_call(task, optimizer, text, opt.previous_words(agent.messages, at), origin)
             if result.state == "skipped":
                 return
             message = agent.messages[at]
@@ -1138,6 +1141,27 @@ class Session:
             self._save()
         except Exception as exc:
             it.log.warning("optimize: failed: %s", type(exc).__name__)
+
+    def _optimize_call(self, task: Task, optimizer: opt.Optimizer, text: str, previous: str, origin: str) -> opt.Result:
+        """The call, while the page shows that the prompt is being rewritten. Stop gives it up at once: the original goes on, and the task itself is not stopped."""
+        self.emit({"event": "optimizing", "turn": task.turn})
+        box: Dict[str, opt.Result] = {}
+        finished = threading.Event()
+
+        def work() -> None:
+            box["result"] = optimizer.run(text, previous=previous, origin=origin, attended=not self.unattended)
+            finished.set()
+        threading.Thread(target=work, name="session-optimize", daemon=True).start()
+        while not finished.wait(0.1):
+            if task.agent.cancel.is_set():
+                task.agent.cancel.clear()
+                result = opt.Result(reason="stopped")
+                break
+        else:
+            result = box["result"]
+        if result.state == "skipped":
+            self.emit({"event": "optimized", "turn": task.turn, "state": "skipped", "reason": result.reason})
+        return result
 
     @staticmethod
     def _is_request(message: Dict[str, Any], text: str) -> bool:

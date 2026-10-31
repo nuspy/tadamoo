@@ -2,8 +2,8 @@
 /* The Optimize prompt option: before a message reaches the model, the technical session rewrites it as a clearer instruction (harness/optimize.py).
    There is one value; every place that hosts the box (the Chat toolbar, Settings > Inference) shows it, and it is saved through api/intake. The box
    can be ticked only while the server reports a technical session (v1/status, concurrency.side_slot): otherwise it is disabled, says why next to
-   it, and its tooltip says how to turn the session on. A value saved while the session was there is kept when it goes. A host is an element with
-   class "po" and the attribute data-po. */
+   it, and its tooltip says how to turn the session on. A value saved while the session was there is kept when it goes, and the box then stays
+   clickable for one thing only: switching it off. A host is an element with class "po" and the attribute data-po. */
 (() => {
   const hosts = [];
   const RECHECK_MS = 1500;
@@ -34,17 +34,17 @@
     const tip = h("span", "sr"); tip.id = key + "-tip";
     const status = h("span", "po-status"); status.setAttribute("role", "status");
     input.setAttribute("aria-describedby", tip.id + " " + reason.id);
-    input.addEventListener("change", () => choose(input.checked));
+    input.addEventListener("change", () => choose(side === true ? input.checked : false));      // without a session a click can only switch it off
     host.replaceChildren(box, reason, tip, status);
     host.dataset.built = String(n);
   }
   function paintOne(host) {
     if (host.dataset.built !== LANG) build(host, LANG);
     const input = host.querySelector(".po-in"), ok = side === true;
-    input.disabled = !loaded || !ok || saving;
+    input.disabled = !loaded || saving || (!ok && !on);                 // saved as on without a session: enabled, to switch it off
     input.checked = ok && on;
     input.indeterminate = loaded && !ok && on;                         // saved as on, but nothing is rewritten now
-    host.dataset.off = loaded && !ok ? "1" : "";
+    host.dataset.off = loaded && input.disabled && !saving ? "1" : "";
     const tip = T("po.tip") + (ok ? "" : " " + T("po.how"));
     host.querySelector(".po-box").title = tip;
     input.title = tip;
@@ -57,7 +57,7 @@
 
   /* ---- the value ---- */
   async function choose(want) {
-    if (!loaded || saving || side !== true || want === on) { paint(); return; }       // unavailable: the box is disabled and nothing is saved
+    if (!loaded || saving || want === on || (want && side !== true)) { paint(); return; }       // without a session it cannot be switched on
     on = want; note = ""; noteBad = false; saving = true;
     paint();
     const r = await call("POST", "api/intake", { optimize_prompt: want });

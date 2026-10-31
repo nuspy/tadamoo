@@ -214,19 +214,24 @@ class Optimizer:
     def __init__(self, client: Any = None, enabled: bool = False) -> None:
         self.client, self.enabled = client, enabled
 
-    def run(self, text: str, *, previous: str = "", origin: str = "user", attended: bool = True) -> Result:
-        """The rewrite of `text`, or why there is none. Never raises."""
+    def ready(self, text: str, *, origin: str = "user", attended: bool = True) -> str:
+        """Why no call will be made for `text`, in a word; empty when one will."""
         why = skip_reason(text, origin=origin, attended=attended)
         if why:
-            return Result(reason=why)
+            return why
         if not self.enabled or self.client is None:
-            return Result(reason="off")
+            return "off"
         stays = getattr(self.client, "stays_local", None)
         if callable(stays) and not stays():
-            return Result(reason="route")                   # a route to another provider is not the technical session
+            return "route"                                  # a route to another provider is not the technical session
+        return "" if side_extra(self.client) else "no_session"
+
+    def run(self, text: str, *, previous: str = "", origin: str = "user", attended: bool = True) -> Result:
+        """The rewrite of `text`, or why there is none. Never raises."""
+        why = self.ready(text, origin=origin, attended=attended)
+        if why:
+            return Result(reason=why)
         extra = side_extra(self.client)
-        if not extra:
-            return Result(reason="no_session")
         t0 = time.monotonic()
         try:
             resp = self.client.chat_completion(messages=prompt_for(text, previous), temperature=0.0, max_tokens=output_cap(text), timeout=TIMEOUT_S,
