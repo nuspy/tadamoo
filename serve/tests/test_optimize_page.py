@@ -103,10 +103,11 @@ const tick = (h, v) => { box(h).checked = v; box(h).fire("change", {}); };
   await wait(30);
   const before = posts().length;
   out.gone = [view(chat), view(set), window.OptimizePrompt.value(), window.OptimizePrompt.available()];
-  tick(chat, false);
+  tick(chat, true);                                              // a click cannot switch it on without a session: it can only switch it off
   await wait(30);
-  out.goneTick = posts().length - before;
-  side = { slot: 1, context: 30000 };                            // and comes back: the stored value is still there
+  out.goneOff = [posts().slice(before), view(chat), view(set), window.OptimizePrompt.value(), stored];
+  window.OptimizePrompt.sync({ optimize_prompt: true });        // saved as on again, then the session returns: the stored value is there
+  side = { slot: 1, context: 30000 };
   emit("basalt:loader");
   await wait(30);
   out.back = [view(chat).checked, view(chat).disabled, view(chat).mixed];
@@ -170,11 +171,14 @@ class ScriptTest(unittest.TestCase):
     def test_a_value_read_elsewhere_is_drawn_in_both(self):
         self.assertEqual(self.out["synced"], [True, True, True])
 
-    def test_when_the_session_goes_the_stored_value_stays_but_the_box_shows_as_unavailable_and_nothing_is_saved(self):
+    def test_when_the_session_goes_the_stored_value_stays_and_the_box_shows_a_dash_that_can_only_be_switched_off(self):
         for v in self.out["gone"][:2]:
-            self.assertEqual((v["disabled"], v["checked"], v["mixed"], v["why"]), (True, False, True, "po.why.kept"))
+            self.assertEqual((v["disabled"], v["checked"], v["mixed"], v["why"], v["off"]), (False, False, True, "po.why.kept", ""))     # clickable, to switch it off
         self.assertEqual(self.out["gone"][2:], [True, False])                                           # still on in the settings, not available
-        self.assertEqual(self.out["goneTick"], 0)
+        posts, chat, other, value, stored = self.out["goneOff"]
+        self.assertEqual(posts, [{"optimize_prompt": False}])                                           # the click switched it off, never on
+        self.assertEqual((value, stored, chat["checked"], chat["mixed"], chat["disabled"], other["checked"]), (False, False, False, False, True, False))
+        self.assertEqual(chat["why"], "po.why.off")
         self.assertEqual(self.out["back"], [True, False, False])                                        # back with the session, as it was
 
     def test_an_unreachable_server_is_said_in_words(self):
@@ -228,7 +232,7 @@ class WiringTest(unittest.TestCase):
         self.assertIn("--btn-h: 30px", (WEB / "app.css").read_text(encoding="utf-8"))
 
     def test_the_note_under_a_rewritten_message_is_collapsed_text_with_the_undo(self):
-        for needle in ('case "optimized"', 't: "opt"', 'mk("details", "atool aopt")', 'T("ch.opt.title")', 'T("ch.opt.original")', "optimize: false",
+        for needle in ('case "optimizing"', 'wait: true', 'role", "status"', 'case "optimized"', 't: "opt"', 'mk("details", "atool aopt")', 'T("ch.opt.title")', 'T("ch.opt.original")', "optimize: false",
                        'T("ch.opt.rejected."', "m.opt", "textContent = b.text"):
             self.assertIn(needle, AGENTCHAT)
         self.assertNotIn("innerHTML", AGENTCHAT[AGENTCHAT.index("function optimizedNote"):AGENTCHAT.index("function optimizedNote") + 600])
@@ -250,9 +254,14 @@ class TextsTest(unittest.TestCase):
         self.assertIn("Loader > Technical session", self.s["en"]["po.how"])
         self.assertIn("Loader > Sessione tecnica", self.s["it"]["po.how"])
 
+    def test_the_status_line_is_the_owners_wording(self):
+        self.assertEqual(self.s["en"]["ch.opt.working"], "Rewriting the prompt…")
+        self.assertEqual(self.s["it"]["ch.opt.working"], "Sto riscrivendo il prompt…")
+
     def test_every_text_exists_in_both_languages_translated_with_the_same_placeholders(self):
         keys = set(re.findall(r'data-t="(po\.[\w.]+)"', HTML)) | set(re.findall(r'\bT\(\s*"(po\.[\w.]+)"', JS)) | set(re.findall(r'\bT\(\s*"(ch\.opt\.[\w.]+)"', AGENTCHAT))
-        keys |= {"po.title", "po.tip", "po.why.off", "po.why.kept", "po.why.offline", "po.how", "po.refused", "ch.opt.title", "ch.opt.tip", "ch.opt.original", "ch.opt.original.tip"}
+        keys |= {"po.title", "po.tip", "po.why.off", "po.why.kept", "po.why.offline", "po.how", "po.refused", "ch.opt.title", "ch.opt.tip", "ch.opt.original", "ch.opt.original.tip",
+                 "ch.opt.working", "ch.opt.stopped"}
         keys |= {f"ch.opt.rejected.{r}" for r in ("lost", "ratio", "answer", "leak", "cut", "empty")}
         keys -= {"ch.opt.rejected."}
         for key in sorted(keys):

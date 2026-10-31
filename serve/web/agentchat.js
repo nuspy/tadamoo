@@ -315,6 +315,9 @@
   /* Optimize prompt (harness/optimize.py): under the person's message, what the model read in its place, or why the rewrite was not used */
   const OPT_WHY = ["lost", "ratio", "answer", "leak", "cut", "empty"];
   function optimizedNote(state, reason, detail, text, original, turn) {
+    const waiting = (byTurn[turn] ? byTurn[turn].blocks : []).find(b => b.wait && !b.gone);
+    if (waiting) { waiting.gone = true; waiting.dirty = true; }                  // the line "rewriting the prompt" ends with the call
+    if (state === "skipped" && reason === "stopped") addBlock({ t: "note", s: T("ch.opt.stopped") }, turn);
     if (state === "sent") addBlock({ t: "opt", text: String(text || ""), original: String(original || "") }, turn);
     else if (state === "rejected") addBlock({ t: "note", s: T("ch.opt.rejected." + (OPT_WHY.includes(reason) ? reason : "empty"), String(detail || "")) }, turn);
   }
@@ -351,6 +354,7 @@
         if (lines.length) addBlock({ t: "note", s: lines.join(" ") }, e.turn);
         break;
       }
+      case "optimizing": addBlock({ t: "note", s: T("ch.opt.working"), wait: true }, e.turn); break;
       case "optimized": optimizedNote(e.state, e.reason, e.detail, e.text, e.original, e.turn); break;
       case "suggestions": if (!replaying) showChips(e.items); break;
       case "started": assistant(e.turn); started(e.turn); break;
@@ -629,7 +633,7 @@
   function paintBlock(b, el, item) {
     if (b.t === "reasoning") { window.chatUi.paintThink(el, { reasoning: b.s, text: b.over || item.done ? "x" : "" }, !(b.over || item.done)); el.hidden = !b.s; return; }
     if (b.t === "text") { window.chatUi.renderMarkdown(el, b.s); return; }
-    if (b.t === "note") { el.textContent = b.s; return; }
+    if (b.t === "note") { el.textContent = b.s; el.hidden = !!b.gone; if (b.wait) el.setAttribute("role", "status"); return; }
     if (b.t === "opt") {                                                        // what the model read instead of the person's message, closed until asked for
       el.querySelector(".atool-d").textContent = T("ch.opt.title");
       el.title = T("ch.opt.tip");
