@@ -4,8 +4,9 @@ Question: after a compaction written from the originals (docs/context-layers.md)
 function, a value, a count, the standing rules), where masking alone does not, and what does it cost in tokens read again?
 
 Arm `N` is compaction off (masking only), arm `A` is compaction on (`--compaction-threshold 0.85`); `N~aa` is `N` again. The context window is small on purpose,
-as in E5, so the job outgrows it. The fixture is E5's generated repository (`fixtures/long_turn_repo.py`) plus ten probes (`fixtures/context_probes.py`) put to
-the same conversation after the job, with the tools taken away, about modules from the first third of the job. The proxy arms of the design (the proxy folding
+as in E5, so the job outgrows it. The fixture is E5's generated repository (`fixtures/long_turn_repo.py`) plus fourteen probes (`fixtures/context_probes.py`) put to
+the same conversation after the job, with the tools taken away, about the first modules of the job: eight the job needed later (a ledger count, whether a module had the
+misspelling, the standing rules) and six it did not (a name, a value). The rule decides on the first group. The proxy arms of the design (the proxy folding
 old turns itself, alone or stacked with Basalt's compaction) need the proxy in the loop and are not built here; the Chat's short record is not measured here either.
 """
 from __future__ import annotations
@@ -26,7 +27,7 @@ from .e5_compaction import WINDOW, notes_of, score
 from .fixtures import context_probes as cp
 from .fixtures import long_turn_repo as lt
 
-COLUMNS = ("success", "recall", "probes_right", "compactions", "generation", "reread_tokens", "prompt_tokens", "cached_tokens", "tool_calls", "seconds")
+COLUMNS = ("success", "recall_task", "recall_incidental", "recall", "probes_right", "compactions", "generation", "reread_tokens", "prompt_tokens", "cached_tokens", "tool_calls", "seconds")
 
 ARMS = with_control([
     Arm("N", "compaction off (masking only)", {"compaction": False}, "--no-compaction"),
@@ -34,9 +35,9 @@ ARMS = with_control([
 ], "N")
 
 RULE = Rule(
-    primary="recall", better="higher", min_effect=0.10, baseline="N", challengers=("A",),
+    primary="recall_task", better="higher", min_effect=0.10, baseline="N", challengers=("A",),
     guards=(Guard("success", "higher", 0.10), Guard("seconds", "lower", 1.0, relative=True)),
-    text="A beats N when the share of probes it answers right is higher than the pooled N and N/N rate by more than the N/N gap and by at least 10 points, its job "
+    text="A beats N when the share of task probes it answers right (counts it wrote, which modules had the misspelling, the standing rules) is higher than the pooled N and N/N rate by more than the N/N gap and by at least 10 points, its job "
          "succeeds no less often than N (within 10 points or the gap), and it takes no more than twice N's seconds. Tokens read again are reported and not decided on.")
 
 
@@ -58,7 +59,9 @@ def ask_probes(built: Any, probes: List[Dict[str, Any]]) -> Dict[str, Any]:
         turns = built.agent.run(p["question"])
         answers[p["id"]] = al.answer_text(turns)
     right = [p["id"] for p in probes if cp.right(p, answers.get(p["id"], ""))]
-    return {"right": len(right), "of": len(probes), "wrong": [p["id"] for p in probes if p["id"] not in right], "answers": answers}
+    share = lambda group: (sum(1 for p in probes if p["group"] == group and p["id"] in right) / max(1, sum(1 for p in probes if p["group"] == group)))   # noqa: E731
+    return {"right": len(right), "of": len(probes), "wrong": [p["id"] for p in probes if p["id"] not in right], "answers": answers,
+            "task": share("task"), "incidental": share("incidental")}
 
 
 def run_trial(arm: Arm, variant: Dict[str, Any], rep: int, ctx: Context) -> CaseTrial:
@@ -82,9 +85,9 @@ def run_trial(arm: Arm, variant: Dict[str, Any], rep: int, ctx: Context) -> Case
         trial.success, trial.notes = bool(scored["success"]), notes_of(scored)
         before = client.prompt_tokens - client.cached_tokens
         probes = cp.build(repo, variant["modules"])
-        asked = ask_probes(built, probes) if reason == al.FINAL else {"right": 0, "of": len(probes), "wrong": [p["id"] for p in probes], "answers": {}}
+        asked = ask_probes(built, probes) if reason == al.FINAL else {"right": 0, "of": len(probes), "wrong": [p["id"] for p in probes], "answers": {}, "task": 0.0, "incidental": 0.0}
         comp = getattr(getattr(built.agent.context, "compaction", None), "count", 0)
-        trial.metrics = {"recall": asked["right"] / max(1, asked["of"]), "probes_right": asked["right"], "compactions": comp,
+        trial.metrics = {"recall": asked["right"] / max(1, asked["of"]), "recall_task": asked["task"], "recall_incidental": asked["incidental"], "probes_right": asked["right"], "compactions": comp,
                          "generation": generation_of(getattr(built.agent, "messages", [])), "tool_calls": measures["tool_calls"],
                          "prompt_tokens": client.prompt_tokens, "cached_tokens": client.cached_tokens, "reread_tokens": client.prompt_tokens - client.cached_tokens,
                          "reread_tokens_in_probes": (client.prompt_tokens - client.cached_tokens) - before, "completion_tokens": client.completion_tokens}
