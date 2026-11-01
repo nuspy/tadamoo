@@ -1272,11 +1272,15 @@ class AgentLoop:
         return True
 
     def _work_line(self) -> str:
-        """One line about what this request's work did, for the reader that checks whether it is met."""
-        calls = [c for t in self.turns for c in t.tool_calls]
-        errors = sum(1 for c in calls if c.is_error)
-        changed = (self.changes() - self._edits_seen) if self.changes else 0
-        return f"{len(calls)} tool calls, {errors} failed, {max(changed, 0)} file changes recorded"
+        """One line about what this request's work did, from the calls themselves, for the reader that checks whether it is met."""
+        calls = [c for t in self.turns for c in t.tool_calls if c.decision == "executed"]
+        written = sum(1 for c in calls if c.tool_name in ("write_file", "edit_file", "write_output_file") and not c.is_error)
+        shells = [c for c in calls if c.tool_name in ("shell_command", "run_code")]
+        code = ""
+        if shells and isinstance(shells[-1].output, dict) and "exit_code" in shells[-1].output:
+            code = f"; the last one ended with exit code {shells[-1].output['exit_code']}"
+        failed = sum(1 for c in calls if c.is_error)
+        return f"{len(calls)} tool calls ({failed} failed), {written} file writes or edits, {len(shells)} commands run{code}. Files can also be changed by commands."
 
     def _run_gate(self) -> bool:
         """The verify gate (harness/gate.py): when files changed since it last looked, each listed command runs as a shell call of this
