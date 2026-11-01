@@ -242,6 +242,10 @@ class PermissionManager:
         if source not in self.instructions and len(self.instructions) < 6:
             self.instructions.append(source)
 
+    def ask_by_hook(self, tool_name: str, arguments: Dict[str, Any], reason: str) -> bool:
+        """A hook of the person's wants this call decided by them, at every level; without anyone to ask, it is refused."""
+        return bool(self.confirm_callback and self._ask(tool_name, {**arguments, "hook_asks": reason}, None))
+
     def _instructions_authorized(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
         """True when nothing is waiting for authorization, or the person gives it now (it covers every instruction found so far)."""
         if not self.instructions:

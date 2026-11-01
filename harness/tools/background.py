@@ -1,10 +1,11 @@
 """Commands that run on after the call that started them: `shell_command` with `background: true` returns a job at once, `job_status`,
 `job_log` and `job_kill` follow it, and the harness tells the model in the next tool result when a job ends.
 
-A job is one command run by the same shell tool in a thread of its own, so every check of that tool applies to it. Its output is
-whole once it ends (or is ended with `job_kill`)."""
+A job is one command run by the same shell tool in a thread of its own, so every check of that tool applies to it. The output is kept while it runs: `job_log` reads what is
+there, and `sink` (the conversation's chat) sees it as it is written."""
 from __future__ import annotations
 
+import codecs
 import itertools
 import threading
 import time
@@ -13,6 +14,8 @@ from typing import Any, Callable, Dict, List, Optional
 from harness.sandbox import cancel_scope
 
 TAIL_CHARS = 4000
+LIVE_CHARS = 200_000                    # the most of a job's output kept while it runs
+FLUSH_S = 0.25                          # output reaches the sink at most this often
 KEPT = 50                               # finished jobs remembered per conversation
 
 
@@ -24,6 +27,10 @@ class Job:
         self.cancel = threading.Event()
         self.result: Optional[Dict[str, Any]] = None
         self.told = False
+        self.live = ""                    # what the job has written so far, both streams, in the order it came
+        self._pending: List[Any] = []
+        self._flushed = 0.0
+        self._decoders: Dict[str, Any] = {}
 
     @property
     def state(self) -> str:
@@ -39,6 +46,7 @@ class Jobs:
     def __init__(self, run: Callable[[str, str], Dict[str, Any]]) -> None:
         """`run(command, shell)` runs a command to its end and returns the shell tool's result."""
         self._run = run
+        self.sink: Optional[Callable[[Dict[str, Any]], None]] = None      # sees {"job", "command", "state"} and {"job", "stream", "text"} as they happen
         self._jobs: Dict[str, Job] = {}
         self._ids = itertools.count(1)
         self._lock = threading.Lock()
@@ -51,15 +59,44 @@ class Jobs:
                 self._jobs.pop(old.id, None)
 
         def work() -> None:
+            self._say({"job": job.id, "command": command[:200], "state": "running"})
             try:
-                with cancel_scope(job.cancel):
+                with cancel_scope(job.cancel, tap=lambda stream, data: self._tap(job, stream, data)):
                     job.result = self._run(command, shell)
             except Exception as exc:  # a job that fails to run is a result, not an error for the loop
                 job.result = {"exit_code": -1, "stdout": "", "stderr": f"{type(exc).__name__}: {exc}", "success": False}
             job.ended = time.monotonic()
+            self._flush(job, force=True)
+            self._say({"job": job.id, "command": command[:200], "state": job.state, "exit_code": job.result.get("exit_code"), "seconds": job.seconds()})
 
         threading.Thread(target=work, name=f"basalt-{job.id}", daemon=True).start()
         return job
+
+    def _say(self, event: Dict[str, Any]) -> None:
+        if self.sink is not None:
+            try:
+                self.sink(event)
+            except Exception:  # a sink that fails must not stop the job
+                pass
+
+    def _tap(self, job: Job, stream: str, data: bytes) -> None:
+        decoder = job._decoders.setdefault(stream, codecs.getincrementaldecoder("utf-8")("replace"))
+        text = decoder.decode(data)
+        if not text:
+            return
+        job.live = (job.live + text)[-LIVE_CHARS:]
+        job._pending.append((stream, text))
+        self._flush(job)
+
+    def _flush(self, job: Job, force: bool = False) -> None:
+        now = time.monotonic()
+        if not job._pending or not (force or now - job._flushed >= FLUSH_S):
+            return
+        pending, job._pending, job._flushed = job._pending, [], now
+        for stream in ("out", "err"):
+            text = "".join(t for s, t in pending if s == stream)
+            if text:
+                self._say({"job": job.id, "stream": stream, "text": text})
 
     def get(self, job_id: str) -> Job:
         job = self._jobs.get(str(job_id))
@@ -98,7 +135,7 @@ def register_job_tools(registry: Any, jobs: Jobs) -> None:
     def job_log(job: str, tail: int = TAIL_CHARS) -> Any:
         found = jobs.get(job)
         if found.result is None:
-            return {**view(found), "note": "still running: its output is whole when it ends"}
+            return {**view(found), "note": "still running: this is the output so far", "output": found.live[-max(200, min(int(tail), 50_000)):]}
         text = (found.result.get("stdout") or "") + (("\n[stderr]\n" + found.result["stderr"]) if found.result.get("stderr") else "")
         tail = max(200, min(int(tail), 50_000))
         return {**view(found), "output": text[-tail:], "cut": len(text) > tail}

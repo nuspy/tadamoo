@@ -216,7 +216,9 @@ def question_source(payload: Dict[str, Any]) -> Dict[str, Any]:
     kind = str(payload.get("kind") or facts.get("kind") or "")
     involves = [str(x) for x in facts.get("involves") or []] if isinstance(facts.get("involves"), list) else []
     named = ""
-    if payload.get("instructions"):
+    if payload.get("hook"):
+        named = "hook"                                  # the person's own hook asked for their decision: it waits for them where nobody watches
+    elif payload.get("instructions"):
         named = "instructions"                          # orders found in outside text are the person's to authorize, also where nobody watches
     elif kind == "payment":
         named = "resource"
@@ -325,6 +327,7 @@ class Session:
         a.on_turn_end = lambda turn, t=task: self._on_turn_end(turn, t)
         a.on_delta = lambda k, x, t=task: self._on_delta(k, x, t)
         a.before_inference = lambda t=task: self._safe_point(t)
+        a.batch_interrupt = lambda t=task: self._batch_stop(t)
 
     # -- the history -----------------------------------------------------------------------------------
 
@@ -602,9 +605,15 @@ class Session:
         conversation, or every conversation from now on; the last two are an allow rule, which also answers the Rule of Two and a tool that asks every time."""
         from harness.permissions import suggest_rules
         two = arguments.get("rule_of_two")                            # set when the Rule of Two is what asks: the question says which facts made it ask
+        hooked = arguments.get("hook_asks")                           # set when a hook of the person's asks before the call
         heard = arguments.get("instructions_from")                    # set when text from outside gave orders to the AI: the person authorizes them or not
-        arguments = {k: v for k, v in arguments.items() if k not in ("rule_of_two", "instructions_from")}
+        arguments = {k: v for k, v in arguments.items() if k not in ("rule_of_two", "instructions_from", "hook_asks")}
         shown = json.dumps(arguments, ensure_ascii=False)[:300]
+        if hooked:
+            answer = self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments, "hook": hooked,
+                                "question": f"A hook of yours asks before this call ({hooked}). Allow {tool} {shown}?",
+                                "options": [{"label": "Allow this call", "value": "confirm"}, {"label": "Deny", "value": "cancel"}]})
+            return answer == "confirm"
         if heard:
             if self._call_key(tool, arguments) in self._granted:           # authorized after it was left pending
                 self._granted.remove(self._call_key(tool, arguments))
@@ -1014,6 +1023,19 @@ class Session:
             progress = (last_assistant.get("content") or "") or ", ".join(c["function"]["name"] for c in last_assistant.get("tool_calls", []))
         return {"task": task.text or task.agent.last_user_text, "progress": progress}
 
+    def _batch_stop(self, task: Task) -> str:
+        """Between two calls of one message: a reason to leave the rest of the batch unrun when the person has written something that changes
+        or cancels the work (it is read at the next safe point), else ''. A message that would wait or is a different request does not stop it."""
+        with self._lock:
+            msg = self.inbox[0] if self.inbox else None
+        if msg is None:
+            return ""
+        if "peek" not in msg:
+            msg["peek"], msg["peek_why"] = self.router.route(msg["text"], self._context_of(task))            # asked once; the same answer is used when the message is routed
+        if msg["peek"] != STEER:
+            return ""
+        return "Not run: the person wrote a message that changes or cancels this work, and it is read next. Do not repeat this call unless the new message asks for it."
+
     def _safe_point(self, task: Task) -> Optional[str]:
         """Between two model calls nothing is half done: the messages that came meanwhile are routed here, and the task is put
         aside if something urgent is waiting."""
@@ -1023,7 +1045,9 @@ class Session:
                 msg = self.inbox.pop(0) if self.inbox else None
             if msg is None:
                 break
-            how, why = self.router.route(msg["text"], self._context_of(task))
+            how, why = (msg["peek"], msg.get("peek_why", "judge")) if msg.get("peek") else self.router.route(msg["text"], self._context_of(task))
+            msg.pop("peek", None)
+            msg.pop("peek_why", None)
             self._route(task, msg, how, why)
         with self._lock:
             if self.urgent and not task.side:
@@ -1704,8 +1728,15 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         built.payment_confirm.notice = session.payment_notice
     if not args.ask_server:
         built.permissions.confirm_callback = session.permission_confirm      # the questions are put in the conversation
-        built.permissions.on_auto_approved = lambda tool, arguments: session.emit(
-            {"event": "auto_approved", "turn": session._cur_turn(), "tool": tool, "arguments": json.dumps(arguments, ensure_ascii=False, default=str)[:300]})
+
+        def auto_approved(tool: str, arguments: Dict[str, Any]) -> None:
+            shown = json.dumps(arguments, ensure_ascii=False, default=str)[:300]
+            session._audit("auto_approved", {"tool": tool, "arguments": shown})                  # the log keeps what the technical session let through
+            session.emit({"event": "auto_approved", "turn": session._cur_turn(), "tool": tool, "arguments": shown})
+        built.permissions.on_auto_approved = auto_approved
+        jobs = getattr(built.agent.tools, "jobs", None)
+        if jobs is not None:                                                                         # a background job's output reaches the chat as it is written
+            jobs.sink = lambda event: session.emit({**event, "event": "job_output" if "text" in event else "job", "turn": session._cur_turn()})
     if not args.ask_only and not args.no_planner:
         from harness.integrations.planner_client import PlannerClient
         session.enable_planner(PlannerClient(cfg.endpoint, cfg.api_key))

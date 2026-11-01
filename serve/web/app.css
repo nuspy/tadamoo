@@ -951,6 +951,18 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .atool[data-s="failed"] .atool-s { color: var(--bad, #FF8FA3); }
 .atool pre { margin: 0; padding: 8px 12px; font: 400 13.5px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; border-top: 1px solid var(--line-soft); color: var(--fg-2); }
 .atool .chip { margin: 0 12px 8px; min-height: var(--btn-h); }
+/* a background command: a colour of its own, on the left edge, the dot and the name, so its lines can be told from the others */
+.ajob { --jc: #4C9AFF; border-left: 4px solid var(--jc); }
+.ajob[data-c="1"] { --jc: #E8A23B; }
+.ajob[data-c="2"] { --jc: #4CC38A; }
+.ajob[data-c="3"] { --jc: #C77DFF; }
+.ajob[data-c="4"] { --jc: #FF7A90; }
+.ajob[data-c="5"] { --jc: #2EC4C4; }
+.ajob-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--jc); flex: none; }
+.ajob .atool-n { color: var(--jc); font-weight: 600; }
+.ajob .ajob-o { max-height: 320px; border-top-color: var(--jc); }
+.ajob-err { color: var(--bad, #FF8FA3); }
+
 .aask, .ablocked { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--surface); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
 .ablocked { border-left-color: var(--bad, #FF8FA3); }
 .aask-q, .ablocked p { margin: 0; overflow-wrap: anywhere; }
