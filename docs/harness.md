@@ -1233,6 +1233,8 @@ run with `python -m pytest serve/tests/test_web_static.py`.
 
 ## Personal skills
 
+The agent can write a skill itself with `create_skill(name, description, script, params)` (`harness/personal_skills/authoring.py`, offered when the conversation is given `--personal-skills-dir`). The tool answers every problem of the script at once, and counts the `ai()` calls left in it; its description tells the model to put everything that can be code in code. A skill made this way carries `source: {agent: true}`. **Make a script of a routine**: on the Cron Jobs page, "Make it a script" writes a skill from the routine's last good run (`POST /api/routines/<id>/improve`, nothing changes), and "Use this script" saves it and makes the routine run it (`improve_apply`).
+
 A personal skill is a folder in the user data folder, `personal-skills/<slug>/`, with `skill.json` (name, description, parameters, mode, the tools the
 script names, version, counts) and `skill.py`, plus `.versions/` (the last ten) and `.cache/` (the answers of `ai()`). `harness/personal_skills/`
 holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/pskills.js` the windows.

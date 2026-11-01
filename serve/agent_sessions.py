@@ -981,6 +981,8 @@ class SessionManager:
                 cmd += [f"--{flag}", rec[flag]]
         if self.past is not None:
             cmd += ["--past-index", str(self.past.path)]
+        if self.skills is not None:
+            cmd += ["--personal-skills-dir", str(self.skills.dir)]
         if self.exec_level_file:
             cmd += ["--exec-level-file", str(self.exec_level_file)]
         if self.personal_dir:
