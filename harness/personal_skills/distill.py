@@ -12,6 +12,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
+from harness.transcript import clip, marker
+
 from . import markers
 from .check import check
 from .values import NAME, TYPES, ITEM_TYPES, check_spec
@@ -171,7 +173,7 @@ JSON_SCHEMA = '''{"name": "a short name for the skill", "description": "one sent
 
 
 def _clip(text: str, n: int) -> str:
-    return text if len(text) <= n else text[:n] + f"... [{len(text) - n} more characters]"
+    return clip(text, n)[0]
 
 
 def _outline(steps: List[Dict[str, Any]], argument: int = 300, result: int = SHOW_RESULT) -> str:
@@ -183,7 +185,7 @@ def _outline(steps: List[Dict[str, Any]], argument: int = 300, result: int = SHO
             args = _clip(json.dumps(s["arguments"], ensure_ascii=False), argument)
             lines.append(f"{i}. [request {s['turn']}] tool {s['name']}({args}) -> {'ok' if s['ok'] else 'FAILED'}: {_clip(s['result'].strip(), result)}")
     if len(steps) > MAX_STEPS:
-        lines.append(f"... {len(steps) - MAX_STEPS} more steps")
+        lines.append(marker(len(steps) - MAX_STEPS, "steps"))
     return "\n".join(lines)
 
 

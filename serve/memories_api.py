@@ -22,7 +22,7 @@ class MemoriesApi:
         return {"settings": self.memory.settings(), "weights": list(WEIGHTS), "origins": list(ORIGINS),
                 "sections": {"long": list(LONG_SECTIONS), "short": list(SHORT_SECTIONS)}, "inferred": sorted(INFERRED_SECTIONS),
                 "counts": {"long": self.memory.count("long"), "short": self.memory.count("short")},
-                "items": rows[:SHOWN], "more": max(0, len(rows) - SHOWN), "log": self.memory.log()[:30],
+                "items": rows[:SHOWN], "more": max(0, len(rows) - SHOWN), "log": self.memory.log()[:30], "runs": self.memory.runs()[:20],
                 "worker": self.worker.status() if self.worker is not None else {"waiting": self.memory.queue_len(), "error": "", "last": None}}
 
     def post(self, action: str, req: Dict[str, Any]) -> Dict[str, Any]:

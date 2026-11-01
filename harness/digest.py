@@ -17,6 +17,7 @@ from collections import Counter
 from typing import Any, Callable, List, Tuple
 
 from harness import identifiers
+from harness.transcript import clip
 
 log = logging.getLogger("basalt.digest")
 
@@ -128,7 +129,7 @@ def judge(part: str, notes: str) -> Tuple[str, bool, List[str]]:
 
 def excerpt(part: str) -> str:
     """What stands for a part nobody could write up: its start and end as they are, and the names in it."""
-    body = part if len(part) <= EXCERPT_HEAD + EXCERPT_TAIL else part[:EXCERPT_HEAD] + "\n[...]\n" + part[-EXCERPT_TAIL:]
+    body = clip(part, EXCERPT_HEAD + EXCERPT_TAIL, EXCERPT_HEAD / (EXCERPT_HEAD + EXCERPT_TAIL))[0]
     names = _names(part)[:CARRY_MAX]
     return "[this part could not be written up; its start and end as written]\n" + body + ("\nNames in it: " + ", ".join(names) if names else "")
 
@@ -203,9 +204,9 @@ def digest(summarize: Callable[[str, str], str], instructions: str, text: str, w
         joined = "\n\n".join(notes)
         log.info("digest: round %d: %d parts, %d characters to %d", rounds + 1, len(parts), len(text), len(joined))
         if len(joined) >= len(text):                      # notes no shorter than the text: nothing more to gain
-            text = joined[:limit // 2] + "\n[... left out ...]\n" + joined[-(limit // 2):]
+            text = clip(joined, limit, 0.5)[0]
             break
         text = joined
     if len(text) > limit:                                   # rounds used up: the start and the newest part are what is read
-        text = text[:limit // 4] + "\n[... left out ...]\n" + text[-(limit * 3 // 4):]
+        text = clip(text, limit, 0.25)[0]
     return _final(summarize, instructions, text)
