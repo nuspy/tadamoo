@@ -93,6 +93,8 @@ def _rmtree(path: Path) -> None:
 
 def _clone_args(spec: BenchSpec, dest: Path) -> List[str]:
     args = ["git", "clone", "--depth", "1"]
+    if spec.sparse:
+        args += ["--filter=blob:none", "--sparse"]
     if spec.branch:
         args += ["--branch", spec.branch]
     return args + [spec.source, str(dest)]
@@ -112,6 +114,10 @@ def import_benchmark(spec: BenchSpec, base_dir: Path, runner: Runner = default_r
         got = runner(_clone_args(spec, clone), None, CLONE_TIMEOUT_S)
         if got.returncode != 0:
             raise BenchImportError(f"fetching {spec.source} failed: {_tail(got)}")
+        if spec.sparse:
+            picked = runner(["git", "sparse-checkout", "set", *spec.sparse], clone, CLONE_TIMEOUT_S)
+            if picked.returncode != 0:
+                raise BenchImportError(f"checking out {', '.join(spec.sparse)} failed: {_tail(picked)}")
         commit = runner(["git", "rev-parse", "HEAD"], clone, 60)
         if commit.returncode != 0 or not commit.stdout.strip():
             raise BenchImportError(f"the fetched copy has no readable commit: {_tail(commit)}")

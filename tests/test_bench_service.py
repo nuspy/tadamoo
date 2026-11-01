@@ -130,9 +130,13 @@ def test_a_benchmark_without_an_adapter_cannot_start(env):
     assert svc.list_benchmarks()[0]["adapter"]["available"] is False
 
 
-def test_the_real_registry_has_no_adapters_yet(tmp_path):
+def test_the_real_registry_lists_an_adapter_exactly_where_its_module_exists(tmp_path):
+    import importlib.util
+    from harness.bench import adapters
     svc = BenchService(tmp_path / "b", lambda: 400.0, lambda: dict(MODEL), probes=ready_probes())
-    assert all(not b["adapter"]["available"] for b in svc.list_benchmarks()) and len(svc.list_benchmarks()) == len(registry.SPECS)
+    listed = {b["id"]: b["adapter"]["available"] for b in svc.list_benchmarks()}
+    assert len(listed) == len(registry.SPECS)
+    assert listed == {i: importlib.util.find_spec(adapters.MODULES[i]) is not None for i in registry.IDS}
 
 
 def test_another_gpu_session_blocks_a_start(env):

@@ -48,7 +48,7 @@ class BenchService:
         return self.specs[spec_id]
 
     def _adapter(self, spec_id: str) -> Any:
-        return get_adapter(spec_id, ADAPTERS if self._adapters is None else self._adapters)
+        return get_adapter(spec_id, ADAPTERS if self._adapters is None else self._adapters, lazy=self._adapters is None)
 
     def _adapter_state(self, spec_id: str) -> Dict[str, Any]:
         try:
