@@ -13,6 +13,7 @@ from harness.client import BasaltClient
 
 from . import benchmarks
 from .report import generate_eval_report, k_warning, results_to_json
+from .resume import Journal, ResumeMismatch
 from .runner import EvalRunner, collect_environment
 from .serverlog import ServerTimings
 from .tasks import expand_strategies, load_task_set
@@ -52,6 +53,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--swebench-test-command", default="{python} -m pytest -q", help="the command that runs the instance's tests; the test ids are added at its end")
     p.add_argument("--limit", type=int, default=None, help="load at most this many tasks of a public benchmark")
     p.add_argument("--no-server-timings", action="store_true", help="do not read the server's request log for time to first token and cache use")
+    p.add_argument("--resume", default=None, metavar="DIR", help="the run's folder: every finished trial is written there as it ends, and a run started again with this folder "
+                   "reuses the valid ones if nothing it depends on changed (code, model file, settings, tasks, k); invalid trials are redone")
+    p.add_argument("--model-file", default=None, help="the model file the server loaded: its name and size are part of what --resume checks")
     args = p.parse_args(argv)
     if args.k < 1:
         p.error("--k must be at least 1")
@@ -90,6 +94,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     timings = None if args.no_server_timings else ServerTimings(args.endpoint, args.api_key)
     runner = EvalRunner(client=client, temperature=args.temperature, keep_workspaces=Path(args.keep_workspaces) if args.keep_workspaces else None, council=args.council,
                         timings=timings, instruction_blocks=args.instruction_blocks)
+    if args.resume:
+        try:
+            runner.journal = Journal(Path(args.resume), runner.fingerprint(tasks, args.k, env, args.model_file))
+        except ResumeMismatch as exc:
+            p.error(str(exc))
     config = {"k": args.k, "temperature": "the model file's own" if args.temperature is None else args.temperature,
               "instruction blocks": "on" if args.instruction_blocks else "off", "seeds": "1000 + repetition", "max turns": "per task", "council": "on" if args.council else "off",
               "server timings": "off" if timings is None else "from the request log"}
@@ -98,6 +107,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"{'PASS' if r.pass_pow_k else 'FAIL'}  {r.task_id:<34} {sum(t.passed for t in r.trials)}/{r.k_trials}", file=sys.stderr, flush=True)
 
     results = runner.run_set(tasks, args.k, on_result=show)
+    if runner.journal and runner.journal.reused:
+        print(f"{runner.journal.reused} finished trial(s) reused from {args.resume}", file=sys.stderr, flush=True)
     report = generate_eval_report(results, environment=env, task_set=meta, config=config)
     print(report)
     if args.out:

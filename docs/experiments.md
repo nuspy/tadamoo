@@ -348,6 +348,10 @@ These are guesses until the first run. E3 and E7 are short. E2, E4 and E8 are ma
 a whole Target Loop; each long E6 text takes several minutes), and E5 is the slowest (tens of minutes per trial). Start each with a pilot
 (`--k 2` and one task, `--only`) to see it run, then run it with the `k` in its section. A pilot is not a result: below `k = 5` pass^k and the A/A gap say little.
 
+An interrupted run continues with `--resume DIR` (also on `python -m harness.eval`): each finished trial is written to `DIR/trials.jsonl` as it ends, and a run started again
+with the same folder reuses the valid ones and redoes the invalid ones. It reuses them only if the fingerprint is identical (git commit and uncommitted changes in `harness/`, `serve/`,
+`src/`; the model file from `--model-file`; sampling and server settings; arms; tasks; `k`); otherwise it stops and names the parts that differ. Keep `DIR` outside those three folders.
+
 ## Files
 
 | Path | What |

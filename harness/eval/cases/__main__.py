@@ -11,7 +11,9 @@ from harness.eval.report import k_warning
 from harness.eval.runner import collect_environment
 
 from . import MODULES, load
-from .core import CONTROL_SUFFIX, Context, render_report, results_json, run_experiment
+from harness.eval.resume import Journal, ResumeMismatch
+
+from .core import CONTROL_SUFFIX, Context, render_report, results_json, run_experiment, run_fingerprint
 
 
 def _temperature(text: str) -> Optional[float]:
@@ -49,6 +51,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--window", type=int, default=None, help="E5: the context window the agent plans for, in tokens (default 16384)")
     p.add_argument("--server-setup", default="", help="E7, E8: how the server was started (for example 'parallel=1', or 'side-slot=30000' for E8); printed in the report")
     p.add_argument("--deadline-s", type=float, default=None, help="E3: seconds after which a turn counts as never ending (default 1.5)")
+    p.add_argument("--resume", default=None, metavar="DIR", help="the run's folder: every finished trial is written there as it ends, and a run started again with this folder "
+                   "reuses the valid ones if nothing it depends on changed (code, model file, settings, arms, k); invalid trials are redone")
+    p.add_argument("--model-file", default=None, help="the model file the server loaded: its name and size are part of what --resume checks")
     args = p.parse_args(argv)
     if args.experiment == "list":
         return show_list()
@@ -85,7 +90,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     def show(t) -> None:
         print(f"{'PASS' if t.success else 'FAIL' if not t.invalid else 'INVALID':<8} {t.arm:<8} {t.task:<28} #{t.rep}", file=sys.stderr, flush=True)
 
-    trials = run_experiment(exp, ctx, k, wanted, args.only, on_trial=show)
+    journal = None
+    if args.resume:
+        try:
+            journal = Journal(Path(args.resume), run_fingerprint(exp, ctx, k, wanted, args.only, environment, args.model_file))
+        except ResumeMismatch as exc:
+            p.error(str(exc))
+    trials = run_experiment(exp, ctx, k, wanted, args.only, on_trial=show, journal=journal)
+    if journal and journal.reused:
+        print(f"{journal.reused} finished trial(s) reused from {args.resume}", file=sys.stderr, flush=True)
     report = render_report(exp, ctx, trials, k, environment)
     print(report)
     if args.out:

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from harness.eval.report import MIN_K, k_warning, wilson
+from harness.eval.resume import Journal, make_fingerprint
 from harness.eval.traces import components_section, divergent_section, divergent_tasks
 
 STANDARD_COLUMNS = ("success", "passes", "wasted_turns", "prompt_tokens", "cached_tokens", "seconds")
@@ -232,19 +233,39 @@ def rotate(items: Sequence[Any], n: int) -> List[Any]:
     return list(items[n:]) + list(items[:n])
 
 
+def run_fingerprint(exp: Experiment, ctx: Context, k: int, arms: Optional[Sequence[str]] = None, only: Sequence[str] = (),
+                    environment: Optional[Mapping[str, Any]] = None, model_file: Optional[str] = None) -> Dict[str, Any]:
+    """What a resumed run must match (harness/eval/resume.py): the code, the model file, the settings the run records, the arms chosen, the tasks and k."""
+    sampling = {"temperature": ctx.temperature, "seed_base": ctx.seed_base, "power_limit_w": ctx.power_limit_w, "plumbing": ctx.plumbing, **{f"extra.{n}": v for n, v in ctx.extra.items()}}
+    env = {n: v for n, v in (environment or {}).items() if n not in ("Endpoint", "Harness")}           # the port changes between server starts; the code is in the git part
+    chosen = [a for a in exp.arms if not arms or a.name in arms]
+    tasks = [exp.task_id(t) for t in exp.tasks() if not only or exp.task_id(t) in only]
+    return make_fingerprint(experiment=exp.id, k=k, arms=[asdict(a) for a in chosen], tasks=tasks, sampling=sampling, environment=env, model_file=model_file)
+
+
 def run_experiment(exp: Experiment, ctx: Context, k: int, arms: Optional[Sequence[str]] = None, only: Sequence[str] = (),
-                   on_trial: Optional[Callable[[CaseTrial], None]] = None) -> List[CaseTrial]:
-    """Every task k times under every arm, arms alternating: for each repetition and task the arms run in a rotating order."""
+                   on_trial: Optional[Callable[[CaseTrial], None]] = None, journal: Optional[Journal] = None) -> List[CaseTrial]:
+    """Every task k times under every arm, arms alternating: for each repetition and task the arms run in a rotating order. With a journal, every
+    finished trial is written to it and a valid one it already holds is reused instead of run."""
     chosen = [a for a in exp.arms if not arms or a.name in arms]
     tasks = [t for t in exp.tasks() if not only or exp.task_id(t) in only]
     trials: List[CaseTrial] = []
     for rep in range(1, k + 1):
         for i, task in enumerate(tasks):
             for arm in rotate(chosen, rep + i):
+                key = (arm.name, exp.task_id(task), rep)
+                kept = journal.get(key) if journal else None
+                if kept is not None:
+                    trials.append(CaseTrial(**kept))
+                    if on_trial:
+                        on_trial(trials[-1])
+                    continue
                 try:
                     trial = exp.run_trial(arm, task, rep, ctx)
                 except Exception as exc:                  # a broken trial is an invalid trial, never the end of the run
                     trial = CaseTrial(arm.name, exp.task_id(task), rep, error=f"{type(exc).__name__}: {exc}", invalid=True)
+                if journal:
+                    journal.add(key, asdict(trial), not trial.invalid)
                 trials.append(trial)
                 if on_trial:
                     on_trial(trial)
