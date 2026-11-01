@@ -216,7 +216,9 @@ def question_source(payload: Dict[str, Any]) -> Dict[str, Any]:
     kind = str(payload.get("kind") or facts.get("kind") or "")
     involves = [str(x) for x in facts.get("involves") or []] if isinstance(facts.get("involves"), list) else []
     named = ""
-    if kind == "payment":
+    if payload.get("instructions"):
+        named = "instructions"                          # orders found in outside text are the person's to authorize, also where nobody watches
+    elif kind == "payment":
         named = "resource"
     elif kind == "permission" and str(payload.get("tool")) in EXCEPTION_TOOLS:
         named = EXCEPTION_TOOLS[str(payload.get("tool"))]
@@ -600,8 +602,17 @@ class Session:
         conversation, or every conversation from now on; the last two are an allow rule, which also answers the Rule of Two and a tool that asks every time."""
         from harness.permissions import suggest_rules
         two = arguments.get("rule_of_two")                            # set when the Rule of Two is what asks: the question says which facts made it ask
-        arguments = {k: v for k, v in arguments.items() if k != "rule_of_two"}
+        heard = arguments.get("instructions_from")                    # set when text from outside gave orders to the AI: the person authorizes them or not
+        arguments = {k: v for k, v in arguments.items() if k not in ("rule_of_two", "instructions_from")}
         shown = json.dumps(arguments, ensure_ascii=False)[:300]
+        if heard:
+            if self._call_key(tool, arguments) in self._granted:           # authorized after it was left pending
+                self._granted.remove(self._call_key(tool, arguments))
+                return True
+            answer = self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments, "instructions": heard,
+                                "question": f"Text read from {heard} gave instructions to the AI. Authorize acting on them? The call that asks: {tool} {shown}",
+                                "options": [{"label": "Authorize these instructions", "value": "confirm"}, {"label": "Deny", "value": "cancel"}]})
+            return answer == "confirm"
         rules = suggest_rules(tool, arguments)
         label = ", ".join(rules)
         options = [{"label": "Allow this call", "value": "confirm"}]

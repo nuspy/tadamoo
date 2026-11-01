@@ -102,9 +102,10 @@ def test_ordinary_programs_get_the_verb_rule_and_a_payment_or_a_phone_call_none(
 
 
 @pytest.mark.parametrize("tool", ["phone_call", "shell_command", "run_code", "browser_click", "write_file"])
-def test_at_the_auto_level_nothing_is_asked_not_even_after_outside_content_and_a_secret(tool):
-    pm = PermissionManager(level=PermissionLevel.AUTO, confirm_callback=lambda t, a: pytest.fail("asked"), sensitive_data=True)
+def test_at_the_auto_level_only_the_outward_call_after_outside_content_and_a_secret_is_asked(tool):
+    asked = []
+    pm = PermissionManager(level=PermissionLevel.AUTO, confirm_callback=lambda t, a: asked.append(t) or False, sensitive_data=True)
     pm.note_untrusted_input()
     pm.note_private_data()
-    assert pm.evaluate(tool, IRREVERSIBLE, {"command": "rm x", "code": "1"}, outward=True)[0]
-    assert pm.ask_leak(tool, {"a": 1}, {"a": 1}, "q")[0]
+    assert pm.evaluate(tool, IRREVERSIBLE, {"command": "rm x", "code": "1"})[0] and not asked           # not outward: nothing is asked
+    assert not pm.evaluate(tool, IRREVERSIBLE, {"command": "rm x", "code": "1"}, outward=True)[0] and asked

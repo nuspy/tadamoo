@@ -25,8 +25,8 @@ from harness.continuation import cut_point, join_continuation
 from harness.gate import VerifyGate, event_data, read_result
 from harness.loop_guard import OutcomeGuard, Verdict
 from harness.repeat_guard import RepeatGuard
-from harness.rule_of_two import leak_question
-from harness import outward_calls
+from harness.rule_of_two import CONTENT_TOOLS, leak_question
+from harness import inject_screen, outward_calls
 from harness.hooks import HookManager
 from harness.output_guard import RepetitionAbort, RepetitionWatch, raised_penalty, repetition_dominated
 from harness.permissions import PermissionManager
@@ -506,16 +506,29 @@ class AgentLoop:
         result = self._execute(call, checkpointed if checkpointed is not None else [False], loop_check=False)
         text = self._stringify(name, result.output)
         worked = result.decision == "executed" and not result.is_error
-        if tool is not None and tool.untrusted and worked:
-            notice = self.screen(name, text) if self.screen else None
-            text = _fence_untrusted(name, text) + (chr(10) + notice if notice else "")
-            self.untrusted_since_user = True
+        if worked:
+            text = self._screened(name, text, tool)
         if result.feedback:
             text += "\n[harness] " + result.feedback
         self._emit({"type": "tool_end", "call_id": call.call_id, "name": name, "status": "completed" if worked else "failed",
                     "decision": result.decision, "output": text})
         self.append({"role": "tool", "tool_call_id": call.call_id, "name": name, "content": text})
         return worked, text
+
+    def _screened(self, name: str, text: str, tool: Any) -> str:
+        """A tool's answer as the model gets it. Content from outside is fenced as data; the answer of a tool that reads files or runs code is
+        only looked at. Text that speaks to an AI is marked, and the permission manager asks the person before anything goes on that changes or sends."""
+        outside = tool is not None and tool.untrusted
+        if not outside and name not in CONTENT_TOOLS:
+            return text
+        if outside:
+            notice = self.screen(name, text) if self.screen else (inject_screen.NOTICE if inject_screen.detect(text) else None)
+            self.untrusted_since_user = True
+        else:
+            notice = inject_screen.NOTICE if inject_screen.detect(text, strict=True) else None
+        if notice and self.permissions:
+            self.permissions.note_instructions(name)
+        return (_fence_untrusted(name, text) if outside else text) + (chr(10) + notice if notice else "")
 
     def _execute(self, call: ParsedCall, checkpointed: List[Any], loop_check: bool = True) -> ToolExecutionResult:
         """One guarded call. The model's sentence for the person is taken off the arguments first: what is checked, counted, recorded
@@ -816,10 +829,8 @@ class AgentLoop:
                 seen_by_guard = self._observe(call, shown_args, result, tool, result_text)       # the result as it is, without the notes added to it
                 if seen_by_guard.stub:
                     text = seen_by_guard.stub
-                if tool is not None and tool.untrusted and result.decision == "executed" and not result.is_error:
-                    notice = self.screen(call.name, text) if self.screen else None
-                    text = _fence_untrusted(call.name, text) + (chr(10) + notice if notice else "")
-                    self.untrusted_since_user = True
+                if result.decision == "executed" and not result.is_error:
+                    text = self._screened(call.name, text, tool)
                 if seen_by_guard.note:
                     text += "\n" + seen_by_guard.note
                 if result.feedback:
