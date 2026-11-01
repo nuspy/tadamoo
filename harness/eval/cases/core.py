@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from harness.eval.report import MIN_K, k_warning, wilson
+from harness.eval.traces import components_section, divergent_section, divergent_tasks
 
 STANDARD_COLUMNS = ("success", "passes", "wasted_turns", "prompt_tokens", "cached_tokens", "seconds")
 CONTROL_SUFFIX = "~aa"
@@ -46,6 +47,8 @@ class CaseTrial:
     notes: List[str] = field(default_factory=list)       # what failed, in plain sentences
     error: str = ""
     invalid: bool = False                               # the server or the harness failed, not the thing under test: left out of the means
+    trace: List[Dict[str, str]] = field(default_factory=list)       # the agent's tool calls in order, where the experiment records them (harness/eval/traces.py)
+    components: Dict[str, int] = field(default_factory=dict)        # counts of the components the run used
 
     def value(self, name: str) -> Optional[float]:
         if name == "success":
@@ -137,6 +140,15 @@ def by_arm(trials: Sequence[CaseTrial]) -> Dict[str, List[CaseTrial]]:
     out: Dict[str, List[CaseTrial]] = {}
     for t in trials:
         out.setdefault(t.arm, []).append(t)
+    return out
+
+
+def task_trials(trials: Sequence[CaseTrial]) -> Dict[str, List[Tuple[int, bool, Sequence[Mapping[str, str]]]]]:
+    """The valid trials of one arm by task, as (repetition, success, trace)."""
+    out: Dict[str, List[Tuple[int, bool, Sequence[Mapping[str, str]]]]] = {}
+    for t in trials:
+        if not t.invalid:
+            out.setdefault(t.task, []).append((t.rep, t.success, t.trace))
     return out
 
 
@@ -280,7 +292,11 @@ def render_report(exp: Experiment, ctx: Context, trials: Sequence[CaseTrial], k:
         s = arm_summary(ts, cols)
         lines.append(f"| `{arm.name}` | {s['valid']} | " + " | ".join(_num(s["means"][c], c) for c in cols) +
                      f" | {s['success_ci95'][0] * 100:.0f}-{s['success_ci95'][1] * 100:.0f}% | {s['pass_pow_k']}/{s['tasks']} | {', '.join(s['divergent']) or '-'} |")
-    lines += ["", "## Decision", "", f"Rule, written before the run: {exp.rule.text}", ""]
+    lines += [""]
+    divergent = [{"arm": arm.name, **row} for arm in exp.arms for row in divergent_tasks(task_trials(grouped.get(arm.name, [])))]
+    lines += divergent_section(divergent)
+    lines += components_section([(arm.name, [t.components for t in grouped[arm.name] if not t.invalid]) for arm in exp.arms if arm.name in grouped])
+    lines += ["## Decision", "", f"Rule, written before the run: {exp.rule.text}", ""]
     for v in decide(grouped, exp.rule):
         lines.append(f"- **{v.challenger} against {exp.rule.baseline}** on `{v.primary}`: {v.outcome}.")
         if v.noise is not None:

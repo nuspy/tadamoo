@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Sequence
 from harness import agent_loop as al
 
 from .agentrun import CountingClient, close_quietly, open_agent, snapshot, transcript_measures, write_files
+from harness.eval.traces import observe
 from .core import Arm, CaseTrial, Context, Experiment, Guard, Rule, with_control
 from .fixtures import long_turn_repo as lt
 
@@ -102,6 +103,7 @@ def run_long(arm: Arm, variant: Dict[str, Any], rep: int, ctx: Context) -> CaseT
         order = sorted(repo.functions, key=lambda n: (workspace / "pkg" / f"{n}.py").stat().st_mtime_ns)
         scored = score(repo, snapshot(workspace), final, order)
         measures = transcript_measures(turns)
+        trial.trace, trial.components = observe(turns, built.agent, built.audit, client)
         trial.success, trial.notes = bool(scored["success"]), notes_of(scored)
         comp = getattr(getattr(built.agent.context, "compaction", None), "count", 0)
         trial.metrics = {**{k: v for k, v in scored.items() if k != "success"}, "compactions": comp, "tool_calls": measures["tool_calls"], "turns": measures["turns"],

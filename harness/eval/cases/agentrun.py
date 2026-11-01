@@ -26,6 +26,7 @@ class CountingClient:
     def __init__(self, inner: Any) -> None:
         self.inner = inner
         self.prompt_tokens = self.completion_tokens = self.cached_tokens = self.calls = 0
+        self.side_uses: Dict[str, int] = {}           # calls of the technical session by use (the `side_use` of the call's extra)
         self._lock = threading.Lock()
 
     def chat_completion(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
@@ -33,6 +34,9 @@ class CountingClient:
         usage = reply.get("usage") or {} if isinstance(reply, dict) else {}
         with self._lock:
             self.calls += 1
+            use = (kwargs.get("extra") or {}).get("side_use")
+            if use:
+                self.side_uses[use] = self.side_uses.get(use, 0) + 1
             self.prompt_tokens += int(usage.get("prompt_tokens") or 0)
             self.completion_tokens += int(usage.get("completion_tokens") or 0)
             self.cached_tokens += int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)

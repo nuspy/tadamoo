@@ -47,6 +47,9 @@ bigger `k` is the cure. One A/A gap is itself an estimate: it is small by luck s
 - **Per arm**: valid trials (a server or harness failure is *invalid* and left out of the means, listed at the end), the mean of every metric,
   the 95% interval of the success rate (Wilson), `pass^k` (tasks that succeeded in every repetition), and the **divergent tasks**: those that
   succeed sometimes and fail sometimes. A divergent task is where the arms' behaviour differs from run to run; read its kept workspaces first.
+- **Divergent tasks** (section): for each arm, the divergent tasks with the first tool call (0-based index) at which a passing and a failing trial
+  differ, from the traces of E1, E2, E5 and E9 (`harness/eval/traces.py`). **Components used**: per arm, counts of skills loaded, sub-agents,
+  memory recalls, hook blocks and feedback, stop-hook denials, compactions and technical-session calls by use. Both also close the `harness.eval` report.
 - **Decision**: the rule as written before the run, then one line per challenger with the A/A figures, the effect (better is positive), the
   threshold and each guard.
 - **Metrics common to the experiments**: `success`; `passes` (rounds of the thing under test: Target Loop passes, gate fix rounds);

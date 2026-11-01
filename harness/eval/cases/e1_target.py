@@ -19,6 +19,7 @@ from harness import target as tg
 from harness.eval.tasks import Task, make_workspace, run_checks
 
 from .agentrun import AgentConversation, CountingClient, clear_bytecode, open_agent, transcript_measures
+from harness.eval.traces import observe
 from .core import Arm, CaseTrial, Context, Experiment, Guard, Rule, with_control
 from .fixtures import shop_repo
 
@@ -90,6 +91,7 @@ def run_goal(arm: Arm, goal: Dict[str, Any], rep: int, ctx: Context) -> CaseTria
             timer.cancel()
         ok, fraction, failed = score(goal, workspace)
         measures = transcript_measures(conv.turns)
+        trial.trace, trial.components = observe(conv.turns, built.agent, built.audit, client)
         trial.success, trial.notes = ok, failed
         trial.metrics = {"criteria_met": fraction, "passes": len(target["iterations"]), "wasted_turns": measures["wasted_turns"], "turns": measures["turns"],
                          "prompt_tokens": client.prompt_tokens, "cached_tokens": client.cached_tokens, "completion_tokens": client.completion_tokens,
