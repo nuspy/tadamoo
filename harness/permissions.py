@@ -93,8 +93,32 @@ def _glob_escape(text: str) -> str:
     return re.sub(r"[*?\[]", lambda m: f"[{m.group(0)}]", text)
 
 
+# A rule `group:<name>` covers every tool of the group (names with a * are patterns).
+GROUPS: Dict[str, Tuple[str, ...]] = {
+    "read": ("read_file", "list_directory", "tree", "repo_map", "repo_diagram", "search_code", "find_references", "go_to_definition", "diagnostics",
+             "read_attachment", "search_attachment", "list_attachments", "transcribe_attachment", "search_past", "open_past", "recall", "recall_about_user"),
+    "write": ("write_file", "edit_file", "write_output_file", "publish_output_file", "remember", "forget"),
+    "shell": ("shell_command", "run_code"),
+    "web": ("browse_url", "search_web", "page_images", "show_image", "wiki_*"),
+    "browser": ("browser_*",),
+    "phone": ("phone_*",),
+    "plan": ("plan_*",),
+    "agents": ("spawn_subagent", "delegate_to_acp_agent", "ask_a2a_agent", "ask_council"),
+    "mcp": ("mcp_call", "mcp_read", "call_capability", "read_capability", "load_capability", "find_capability", "find_online_capability"),
+}
+
+
+def group_of(pattern: str) -> Optional[Tuple[str, ...]]:
+    """The tool names of a `group:<name>` rule, or None when the pattern is not a group."""
+    return GROUPS.get(pattern[len("group:"):].strip().lower()) if pattern.lower().startswith("group:") else None
+
+
 def _matches(rule: PermissionRule, targets: List[str], arguments: Dict[str, Any]) -> bool:
     pattern = rule.pattern.lower()
+    members = group_of(pattern)
+    if members is not None:
+        tools = {t.split(":", 1)[0].lower() for t in targets}
+        return any(fnmatch.fnmatchcase(t, m) for t in tools for m in members)
     if any(fnmatch.fnmatchcase(t.lower(), pattern) for t in targets):
         return True
     # "shell_command:reg *" must also catch "cmd /c reg add" and "echo x & reg add"
@@ -190,6 +214,12 @@ class PermissionManager:
             raise ValueError(f"Action must be 'allow' or 'deny', got '{action}'")
         self.rules.append(PermissionRule(pattern=pattern, action=action))
 
+    def rule_for(self, tool_name: str, arguments: Optional[Dict[str, Any]] = None) -> Optional[PermissionRule]:
+        """The first deny rule that refuses this call, or None: what `/permissions` says removed a tool."""
+        args = arguments or {}
+        targets, _ = _targets(tool_name, args)
+        return next((r for r in self.rules if r.action == "deny" and _matches(r, targets, args)), None)
+
     def remove_rule(self, pattern: str, action: str) -> None:
         self.rules = [r for r in self.rules if not (r.pattern == pattern and r.action == action)]
 
@@ -233,7 +263,7 @@ class PermissionManager:
         """The allow rules that cover this call, or ''. A rule that is the tool's name covers every call of it; a command is covered when each
         of its statements is covered by a rule, so `cd x && make` needs one for `cd` and one for `make`."""
         allows = [r for r in self.rules if r.action == "allow"]
-        if any(r.pattern.lower() == tool_name.lower() for r in allows):
+        if any(r.pattern.lower() == tool_name.lower() or (group_of(r.pattern) is not None and _matches(r, [tool_name], {})) for r in allows):
             return tool_name
         command = arguments.get("command")
         if tool_name != "shell_command" or not isinstance(command, str):

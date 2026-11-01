@@ -59,7 +59,10 @@ def test_the_thinking_level_reaches_the_model_calls_of_every_task(tmp_path):
 def test_the_lists_are_data_and_an_unknown_name_is_an_error(tmp_path):
     session, ev, built = make(tmp_path, Scripted(), mode="plan", memory=True)
     session.built.permissions.add_rule("shell_command:pytest *", "allow")
-    assert commands.run("permissions", "", session)["data"] == {"mode": "plan", "rules": [{"pattern": "shell_command:pytest *", "action": "allow"}], "denied": 0, "untrusted_input": False}
+    got = commands.run("permissions", "", session)["data"]
+    assert got["mode"] == "plan" and got["rules"] == [{"pattern": "shell_command:pytest *", "action": "allow"}] and got["denied"] == 0 and got["refused_by"] == {}
+    session.built.permissions.add_rule("group:write", "deny")
+    assert commands.run("permissions", "", session)["data"]["refused_by"]["write_file"] == "group:write"
     names = [t["name"] for t in commands.run("tools", "", session)["data"]["tools"]]
     assert "read_file" in names and names == sorted(names)
     assert commands.run("hooks", "", session)["data"]["pre_tool"] >= 1
