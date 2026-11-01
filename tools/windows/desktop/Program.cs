@@ -27,6 +27,7 @@ static class Program
             MessageBox.Show(opt.Error, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 2;
         }
+        if (!opt.TestMock && !opt.TestExit && AdminChoice.Relaunch(args)) return 0;
         using var mutex = new Mutex(true, opt.TestMock ? MutexName + ".test" : MutexName, out bool first);
         if (!first)
         {
@@ -243,5 +244,87 @@ static class Native
             }
         }
         return found;
+    }
+}
+
+/// <summary>The first window of a start: whether Basalt runs with administrator privileges. A yes starts it again through the Windows
+/// consent (UAC); a no goes on as it is. The answer is kept in admin-choice.json when the box is ticked, and then the question is not
+/// asked again. A start that is already elevated is not asked.</summary>
+static class AdminChoice
+{
+    const string File_ = "admin-choice.json";
+
+    static string DataDir()
+    {
+        string data = Environment.GetEnvironmentVariable("BASALT_DATA");
+        return string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello") : data;
+    }
+
+    public static bool IsElevated()
+    {
+        using var id = System.Security.Principal.WindowsIdentity.GetCurrent();
+        return new System.Security.Principal.WindowsPrincipal(id).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+    }
+
+    /// <summary>True when this process must end because the elevated one was started.</summary>
+    public static bool Relaunch(string[] args)
+    {
+        if (IsElevated()) return false;
+        string path = Path.Combine(DataDir(), File_);
+        bool? remembered = null;
+        try
+        {
+            if (File.Exists(path) && JsonDocument.Parse(File.ReadAllText(path)).RootElement.TryGetProperty("admin", out var a) &&
+                (a.ValueKind == JsonValueKind.True || a.ValueKind == JsonValueKind.False)) remembered = a.GetBoolean();
+        }
+        catch { }
+        bool admin;
+        if (remembered.HasValue) admin = remembered.Value;
+        else
+        {
+            ApplicationConfiguration.Initialize();
+            using var dialog = new AdminDialog();
+            admin = dialog.ShowDialog() == DialogResult.Yes;
+            if (dialog.Remember)
+                try { Directory.CreateDirectory(DataDir()); File.WriteAllText(path, "{\"admin\": " + (admin ? "true" : "false") + "}"); } catch { }
+        }
+        if (!admin) return false;
+        try
+        {
+            Process.Start(new ProcessStartInfo(Environment.ProcessPath, string.Join(" ", args.Select(Quote))) { UseShellExecute = true, Verb = "runas" });
+            return true;
+        }
+        catch (System.ComponentModel.Win32Exception) { return false; }       // the person said no at the Windows consent: it goes on without
+    }
+
+    static string Quote(string a) => a.Length > 0 && a.IndexOfAny(new[] { ' ', '"', '\t' }) < 0 ? a : "\"" + a.Replace("\"", "\\\"") + "\"";
+}
+
+sealed class AdminDialog : Form
+{
+    readonly CheckBox remember = new() { AutoSize = true };
+    public bool Remember => remember.Checked;
+
+    public AdminDialog()
+    {
+        Text = Program.AppName;
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        StartPosition = FormStartPosition.CenterScreen;
+        MaximizeBox = MinimizeBox = false;
+        ShowInTaskbar = true;
+        ClientSize = new System.Drawing.Size(460, 170);
+        remember.Text = Tr.T("Ricorda la scelta", "Remember my choice");
+        var label = new Label
+        {
+            Text = Tr.T("Basalt deve funzionare con i privilegi di amministratore?", "Should Basalt run with administrator privileges?") + "\r\n\r\n" +
+                   Tr.T("Con i privilegi, il codice che l'agente esegue può fare quello che fa un amministratore di questo PC. Windows ti chiederà il consenso.",
+                        "With them, the code the agent runs can do what an administrator of this PC can do. Windows will ask for your consent."),
+            Left = 16, Top = 14, Width = 428, Height = 90,
+        };
+        remember.Left = 16; remember.Top = 112;
+        var yes = new Button { Text = Tr.T("Sì", "Yes"), DialogResult = DialogResult.Yes, Left = 270, Top = 128, Width = 80, Height = 30 };
+        var no = new Button { Text = "No", DialogResult = DialogResult.No, Left = 360, Top = 128, Width = 80, Height = 30 };
+        Controls.AddRange(new Control[] { label, remember, yes, no });
+        AcceptButton = no; CancelButton = no;
     }
 }
