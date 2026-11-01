@@ -22,7 +22,7 @@ _EXIT = re.compile(r'^\{"exit_code":\s*(-?\d+)')
 _STDERR = re.compile(r'"stderr":\s*"((?:[^"\\]|\\.){0,120})')
 
 
-def _failure_of(event: Dict[str, Any]) -> Optional[str]:
+def failure_of(event: Dict[str, Any]) -> Optional[str]:
     """The kind of failure a finished tool call shows, or None when it worked: a failed call, or a command that ended with a code other than 0. Digits are
     folded so that the same failure with other numbers is the same failure."""
     out = str(event.get("output") or "").strip()
@@ -70,7 +70,7 @@ class Watcher:
     def observe(self, event: Dict[str, Any]) -> None:
         kind = event.get("type")
         if kind == "tool_end" and not event.get("gate"):
-            what = _failure_of(event)
+            what = failure_of(event)
             if what is not None:
                 self.errors[(str(event.get("name")), what)] += 1
                 self.streak += 1

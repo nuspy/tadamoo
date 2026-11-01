@@ -305,6 +305,7 @@ class AgentLoop:
         self._stop_denials = 0                        # times a stop hook sent the model back to work
         self._todo_nudged = False
         self._completion_rounds = 0
+        self._hinted: set = set()                 # failures a lesson was already shown for in this request
         if self.gate is not None:
             self.gate.restart()
 
@@ -357,6 +358,23 @@ class AgentLoop:
                 have = {(c.kind, str(c.value)) for c in self._card.constraints}
                 card.constraints = self._card.constraints + [c for c in card.constraints if (c.kind, str(c.value)) not in have]
             self._card, self._retried = card, False
+
+    def _lesson_for_failure(self, name: str, text: str, is_error: bool) -> str:
+        """When a call failed, the lessons of earlier work about the same failure, once per failure and request: they come with the result that needs them."""
+        if self.lessons_for is None or self.subagent or self.cancel.is_set():
+            return ""
+        from harness.course import failure_of
+        what = failure_of({"name": name, "status": "failed" if is_error else "completed", "output": text})
+        if what is None or (name, what) in self._hinted:
+            return ""
+        try:
+            block = self.lessons_for(f"{name} {what} {text[:160]}")
+        except Exception:
+            return ""
+        if block:
+            self._hinted.add((name, what))
+            return chr(10) + block
+        return ""
 
     def _course_step(self, step: int) -> bool:
         """Before a model call: what the watch of the course wants done. A note goes to the agent; a card goes to the person, and True comes back when the
@@ -908,6 +926,7 @@ class AgentLoop:
                 text = result_text = self._stringify(call.name, result.output)
                 if result.decision != "loop":
                     text += self._same_error_note(call.name, result, str(result.output))
+                    text += self._lesson_for_failure(call.name, text, result.is_error)
                 seen_by_guard = self._observe(call, shown_args, result, tool, result_text)       # the result as it is, without the notes added to it
                 if seen_by_guard.stub:
                     text = seen_by_guard.stub
