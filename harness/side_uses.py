@@ -69,6 +69,8 @@ USES: Tuple[Use, ...] = (
     Use("tool_extract", needs_session=True, default_on=False,
         params=(Param("min_output_chars", 20000, 4000, 400000), Param("answer_tokens", 1200, 200, 4000), Param("chunk_tokens", 8000, 2000, 24000)),
         prompt="harness.tool_extract:SYSTEM"),
+    Use("auto_approve", needs_session=True, default_on=False, params=(Param("max_chars", 3000, 500, 12000), Param("timeout_s", 8, 2, 60, False)),
+        prompt="harness.auto_approve:SYSTEM"),
     Use("inject_screen", needs_session=True, params=(Param("max_chars", 6000, 1000, 30000), Param("timeout_s", 8, 2, 60, False)),
         prompt="harness.inject_screen:SYSTEM"),
 )

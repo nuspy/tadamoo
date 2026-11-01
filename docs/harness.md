@@ -260,6 +260,7 @@ also inside a `.git` folder: no special question, they follow the rules of any w
 the config. Every question below `auto` offers three levels (this call, this conversation, for good); the last two add an allow rule made from the
 tool name (`write_file:.git/config`, `acp_permission:...`, `request_payment:<system>`, `phone_call`) or from the command, and an allow rule also
 covers the Rule of Two and a tool that asks every time.
+When the technical session's `auto_approve` use is on (off by default), it reads a call the person would be asked about at the read-only and default levels, with their request, and may approve it; it can only say yes, a doubt asks the person, and the Rule of Two, orders found in outside text and tools that always ask never go to it. An approval is reported as an `auto_approved` event.
 
 The Rule of Two is kept as three facts about the conversation (`harness/rule_of_two.py`). **Untrusted**: it read content from outside the
 person's control: a page, a search result, an MCP or A2A answer, a file, a command's output, an attachment, a recalled note, a note the

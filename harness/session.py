@@ -1704,6 +1704,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         built.payment_confirm.notice = session.payment_notice
     if not args.ask_server:
         built.permissions.confirm_callback = session.permission_confirm      # the questions are put in the conversation
+        built.permissions.on_auto_approved = lambda tool, arguments: session.emit(
+            {"event": "auto_approved", "turn": session._cur_turn(), "tool": tool, "arguments": json.dumps(arguments, ensure_ascii=False, default=str)[:300]})
     if not args.ask_only and not args.no_planner:
         from harness.integrations.planner_client import PlannerClient
         session.enable_planner(PlannerClient(cfg.endpoint, cfg.api_key))
