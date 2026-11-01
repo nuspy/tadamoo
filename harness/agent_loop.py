@@ -47,6 +47,7 @@ SUSPENDED = "suspended"   # put aside at a safe point for something more urgent;
 ASKED = "asked"       # the turn ended on a question for the person; their answer is the next message
 VERIFY_FAILED = "verify_failed"   # the project's checks still failed after the fixes allowed, or could not be run
 MAX_CALLS_PER_MESSAGE = 16     # tool calls run from one model message; the rest are answered "not run"
+MAX_COMPLETION_ROUNDS = 2      # times the completion check may send the model back to finish, per request
 MAX_STOP_DENIALS = 2           # times a stop hook may send the model back to work, per request
 BUDGET_WARN_AT = 0.9           # the share of a budget used at which the model is told it is nearly spent
 BUDGET_WARNING = ("[harness] The budget for this answer is nearly used up. Finish what matters most now, and let your last message say what "
@@ -254,6 +255,8 @@ class AgentLoop:
         self.on_event = on_event
         self.on_delta = on_delta                  # the model's text as it is written ("content" or "reasoning"), when set
         self.before_inference = before_inference  # looked at before every model call; it may add messages or ask to be put aside
+        self.completion: Optional[Callable[[str, str, str], str]] = None      # "work until done": the note that sends the model back to finish, or "" (harness/completion.py)
+        self.mission: Dict[str, Any] = {}         # the request in hand and what the harness knows of it, for self_status
         self.batch_interrupt = batch_interrupt    # looked at before each call of a message's batch: a reason to leave the rest of the batch unrun, or ""
         self.pipeline = pipeline                  # checks the final answer against the request's card (harness/pipeline.py)
         self.clock = clock                        # when set: each request is preceded by the local time, and each message carries its time (`ts`)
@@ -297,6 +300,7 @@ class AgentLoop:
         self._invalid_strike = False
         self._stop_denials = 0                        # times a stop hook sent the model back to work
         self._todo_nudged = False
+        self._completion_rounds = 0
         if self.gate is not None:
             self.gate.restart()
 
@@ -338,6 +342,8 @@ class AgentLoop:
         words = shown if shown is not None else text                     # `shown`: the person's own words, when `text` also holds their files
         self.append({"role": "user", "content": rewrite(text) if rewrite and not steer and shown is None else text})
         self.last_user_text, self.untrusted_since_user = words, False
+        if not steer:
+            self.mission = {"request": words[:300], "completion_rounds": 0}
         if self.pipeline:
             card = self.pipeline.card(words)
             if steer and self._card is not None:
@@ -1156,6 +1162,15 @@ class AgentLoop:
             self.append({"role": "user", "content": TODO_NOTE.format(items=todo.render(open_only=True)), "note": True})
             self._emit({"type": "todo_open", "count": len(todo.open_items())})
             return True
+        if self.completion is not None and self._completion_rounds < MAX_COMPLETION_ROUNDS:
+            note = self.completion(self.last_user_text, content, self._work_line())
+            if note:
+                self._completion_rounds += 1
+                self.mission["completion_rounds"] = self._completion_rounds
+                self.append({"role": "user", "content": note, "note": True})
+                self._emit({"type": "completion_check", "round": self._completion_rounds, "of": MAX_COMPLETION_ROUNDS, "note": note[:300]})
+                self._audit("completion_check", {"round": self._completion_rounds, "note": note[:300]})
+                return True
         if self.hooks is None:
             return False
         reason = self.hooks.trigger_stop({"final": content[:2000], "turns": len(self.turns), "stop_hook_active": self._stop_denials > 0})
@@ -1170,6 +1185,13 @@ class AgentLoop:
         self._emit({"type": "stop_denied", "final": False, "n": self._stop_denials, "reason": reason[:300]})
         self._audit("stop_denied", {"final": False, "denials": self._stop_denials})
         return True
+
+    def _work_line(self) -> str:
+        """One line about what this request's work did, for the reader that checks whether it is met."""
+        calls = [c for t in self.turns for c in t.tool_calls]
+        errors = sum(1 for c in calls if c.is_error)
+        changed = (self.changes() - self._edits_seen) if self.changes else 0
+        return f"{len(calls)} tool calls, {errors} failed, {max(changed, 0)} file changes recorded"
 
     def _run_gate(self) -> bool:
         """The verify gate (harness/gate.py): when files changed since it last looked, each listed command runs as a shell call of this

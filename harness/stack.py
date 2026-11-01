@@ -30,7 +30,7 @@ from harness.rule_of_two import LEVELS
 from harness.syntax_check import DEFAULT_GUARD as DEFAULT_EDIT_GUARD, GUARD_LEVELS as EDIT_GUARD_LEVELS
 from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
 from harness import digest
-from harness import auto_approve, awareness, inject_screen, memory_rank, side_uses, tool_extract
+from harness import auto_approve, awareness, completion, inject_screen, persistence, memory_rank, side_uses, tool_extract
 from harness.side import side_context, side_extra, use as side_use
 from harness.prompt_blocks import instruction_blocks
 from harness.project_profile import clean_list
@@ -208,6 +208,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--personal-memory-keys", default="", help="the folder of the device key that opens them (the vault's)")
     parser.add_argument("--exec-level-file", default="", help="the file that holds how freely the code the model writes runs (contained, free or admin; harness/exec_level.py); empty: contained")
     parser.add_argument("--personal-skills-dir", default="", help="the folder of the person's personal skills: the conversation can write one with create_skill")
+    parser.add_argument("--persistence-file", default="", help="where the person's choice for \"work until done\" is kept (harness/persistence.py)")
     parser.add_argument("--past-index", default="", help="the file that indexes the person's earlier conversations (harness/past.py): the conversation can search and reread them")
 
 
@@ -232,7 +233,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
-        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, past_index=args.past_index, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
+        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, past_index=args.past_index, persistence_file=args.persistence_file, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
     )
 
 
@@ -287,6 +288,7 @@ class AgentConfig:
     personal_memory_dir: str = ""       # the person's own memories (harness/personal_memory.py); empty: the conversation has none
     personal_memory_keys: str = ""      # where the device key that opens them is (default: the same folder)
     exec_level_file: str = ""           # where the person's choice of how freely code runs is kept (harness/exec_level.py); empty: contained
+    persistence_file: str = ""          # where the choice for "work until done" is kept; empty: it is off
     personal_skills_dir: str = ""       # the folder of the personal skills; empty: the conversation cannot write one
     past_index: str = ""                # the index of the earlier conversations (harness/past.py); empty: the conversation cannot search them
     reference_docs: Dict[str, str] = field(default_factory=dict)   # path -> text of reference documents
@@ -797,6 +799,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         register_personal_tools(registry, notes, local=stays)
     from harness import exec_level
     exec_level.configure(cfg.exec_level_file or None)
+    persistence.configure(cfg.persistence_file or None)
     if cfg.personal_skills_dir:
         from harness.personal_skills.authoring import register_authoring_tool
         from harness.personal_skills.store import PersonalSkills
@@ -862,6 +865,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         clock=local_now,
         max_tokens=cfg.max_tokens,
     )
+    agent.completion = completion.make_completion(persistence.enabled, technical if technical is not None else client)
     awareness.register_self_status(registry, lambda: awareness.status_of(agent, context.budget_tokens))
     quick = technical if technical is not None else client          # the quick jobs never take the conversation's own route
     if quick is not None:                               # the technical session's two readers of tool results (both off until switched on)

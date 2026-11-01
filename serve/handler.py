@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from harness import exec_level, side_uses
+from harness import exec_level, persistence, side_uses
 from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
@@ -486,6 +486,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/routines", "/api/routines/runs"):
                 if self._authorized():
                     self._routines_get(path)
+            elif path == "/api/persistence":
+                if self._authorized():
+                    self._json(200, {"on": persistence.Prefs(userdata.path(persistence.FILE)).read()})
             elif path == "/api/personal-skills" or path.startswith("/api/personal-skills/"):
                 if self._authorized():
                     self._pskills_get(path)
@@ -740,6 +743,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/memories/"):
                 self._memories_post(path)
+                return
+            if path == "/api/persistence":
+                self._persistence_post()
                 return
             if path == "/api/past/chat":
                 self._past_chat_post()
@@ -2070,6 +2076,21 @@ def make_handler(svc: Service, remote: bool = False):
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"type": "past", "message": str(e)}})
 
+        def _persistence_post(self):
+            """POST /api/persistence {"on": bool}: the "work until done" switch, one choice for every conversation."""
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the switch is changed only from the PC the server runs on"}})
+            try:
+                req = json.loads(self._body(1 << 12) or b"{}")
+                if not isinstance(req, dict) or not isinstance(req.get("on"), bool):
+                    raise ValueError("send {\"on\": true} or {\"on\": false}")
+                return self._json(200, {"on": persistence.Prefs(userdata.path(persistence.FILE)).write(req["on"])})
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"type": "persistence", "message": str(e)}})
+
         def _past_chat_post(self):
             """POST /api/past/chat: the model-only chat page, whose conversation lives in the browser, hands over its turns to be indexed."""
             if not settings.is_loopback(self.client_address[0]):
@@ -2477,7 +2498,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
                                            skills_dir=userdata.path("personal-skills"), projects=self._projects(),
                                            personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer, past=self._past(),
-                                           exec_level_file=userdata.path(exec_level.FILE), forgetter=self._forgetter())
+                                           exec_level_file=userdata.path(exec_level.FILE), persistence_file=userdata.path(persistence.FILE), forgetter=self._forgetter())
                 threading.Thread(target=_SESSIONS.index_all_past, name="past-backfill", daemon=True).start()      # the conversations saved before the index
                 self._routines()                          # the clock of the routines starts with the conversations
             return _SESSIONS

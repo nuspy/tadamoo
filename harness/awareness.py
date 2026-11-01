@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
 
+from harness import persistence
+
 # optional features and the plain reason each is missing, in the order they are listed to the model
 FEATURES = (
     ("browser", "no browser tools (the person has not enabled them)"),
@@ -66,6 +68,7 @@ def status_of(agent: Any, window: int, extra: Optional[Dict[str, Any]] = None) -
         "loop_strikes": getattr(agent, "_loop_strikes", 0), "gate_rounds": getattr(gate, "rounds", None) if gate is not None else None,
         "refused_calls": getattr(perms, "denied", 0) if perms is not None else 0,
         "instructions_waiting": list(getattr(perms, "instructions", [])) if perms is not None else [],
+        "mission": dict(getattr(agent, "mission", {}) or {}), "work_until_done": persistence.enabled(),
         "role": getattr(getattr(agent, "role", None), "id", "general"), "level": getattr(getattr(perms, "level", None), "value", ""),
     }
     out.update(extra or {})
