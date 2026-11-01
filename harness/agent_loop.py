@@ -850,6 +850,12 @@ class AgentLoop:
                 self._emit({"type": "calls_skipped", "repeated": repeated, "surplus": surplus})
                 self._audit("calls_skipped", {"repeated": repeated, "surplus": surplus, "ran": ran})
 
+            news = getattr(self.tools, "jobs", None) and self.tools.jobs.news()
+            if news:                                  # a background job ended: the model reads it with the results it is about to get
+                for m in reversed(self.messages):
+                    if m.get("role") == "tool":
+                        m["content"] += chr(10) + news
+                        break
             if self._invalid_strike:                  # a call that could not be read counts against the model only when none of the turn's calls could
                 self._invalid_strike = False
                 if all(r.decision == "invalid" for r in turn.tool_calls):
