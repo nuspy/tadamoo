@@ -2367,6 +2367,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.create(req))
                 if parts == ["cancel"]:
                     return self._json(200, api.cancel())
+                if parts == ["stop"]:
+                    return self._json(200, api.stop(req))
                 if len(parts) == 2:
                     return self._json(200, api.act(parts[0], parts[1], req))
             except RoutineError as e:

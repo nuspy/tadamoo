@@ -9,6 +9,9 @@ The scheduler is made when first needed and runs the routines through the server
   POST /api/routines/<id>/update | enable | disable | run | remove
   POST /api/routines/<pending id>/dismiss   removes a pending request from the list
   POST /api/routines/cancel           stops the routines that are running
+  POST /api/routines/stop             the kill switch ({"on": false} takes it off)
+  POST /api/routines/<id>/improve     the script that would do what the last good run did (nothing changes)
+  POST /api/routines/<id>/improve_apply   saves that script as a personal skill and makes the routine run it
 """
 from __future__ import annotations
 
@@ -77,6 +80,10 @@ class RoutinesApi:
         if action == "dismiss":
             s.dismiss(routine_id)
             return {"dismissed": routine_id}
+        if action == "improve":
+            return self.improve(routine_id)
+        if action == "improve_apply":
+            return self.improve_apply(routine_id, req)
         if action == "update":
             fields = {k: v for k, v in req.items() if k != "id"}
             current = s.get(routine_id)
@@ -85,6 +92,36 @@ class RoutinesApi:
                 self._skill_ok(slug, fields.get("values", current.get("values")))
             return {"routine": s.update(routine_id, **fields)}
         raise RoutineError("Unknown action.", "unknown")
+
+    def stop(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """The kill switch: nothing starts and what runs is stopped, until it is taken off (`{"on": false}`)."""
+        self.scheduler.emergency_stop(bool(req.get("on", True)))
+        return {"stopped": self.scheduler.stopped()}
+
+    def improve(self, routine_id: str) -> Dict[str, Any]:
+        """The script that would do what the routine's last good run did, for the person to read; nothing is changed."""
+        routine = self.scheduler.get(routine_id)
+        last = next((r for r in self.scheduler.runs(routine_id, 50) if r.get("status") == "done" and r.get("session")), None)
+        if last is None:
+            raise RoutineError("The routine has no finished run to learn from yet.", "no_run")
+        from serve.agent_runs import RunError
+        try:
+            return {"routine": routine_id, "from_run": last["id"], **self.sessions.routine_skill(last["session"], routine["name"])}
+        except RunError as exc:
+            raise RoutineError(str(exc), "improve") from None
+
+    def improve_apply(self, routine_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
+        """Saves the script as a personal skill and makes the routine run it, with each parameter's default as its value."""
+        skills = getattr(self.sessions, "skills", None)
+        if skills is None:
+            raise RoutineError("The personal skills are not available.", "bad_skill")
+        params = req.get("params") if isinstance(req.get("params"), list) else []
+        try:
+            skill = skills.save({"name": req.get("name"), "description": req.get("description"), "params": params, "source": {"routine": routine_id}}, str(req.get("script") or ""))
+        except SkillError as exc:
+            raise RoutineError(str(exc), "bad_skill") from None
+        values = {p["name"]: p["default"] for p in params if isinstance(p, dict) and p.get("name") and p.get("default") is not None}
+        return {"skill": skill["slug"], "routine": self.scheduler.update(routine_id, skill=skill["slug"], values=values)}
 
     def cancel(self) -> Dict[str, Any]:
         self.scheduler.cancel_running()

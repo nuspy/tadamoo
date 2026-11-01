@@ -250,3 +250,12 @@ def test_what_cannot_be_made_into_a_skill_is_said(manager, tmp_path, monkeypatch
     with pytest.raises(RunError) as err:
         manager.skill_script(sid, [1], "x", "", [{"name": "A B"}])
     assert err.value.code == "bad_params"
+
+
+def test_a_routine_run_becomes_a_script_that_counts_the_places_left_to_the_model(manager, tmp_path, monkeypatch):
+    sid = conversation_with_a_tool(manager, tmp_path)
+    proposal = json.dumps({"name": "Leggi", "description": "reads a file", "params": [{"name": "file", "type": "path", "value_seen": "notes.txt", "explanation": "which"}]})
+    script = "```python\nfrom basalt_skill import tool, ai\n\ndef main(params):\n    text = tool('read_file', path=params.file)\n    return ai('summarise', text)\n```"
+    monkeypatch.setattr(manager, "_skill_client", lambda: Model(proposal, script))
+    got = manager.routine_skill(sid, "Morning notes")
+    assert got["name"] == "Morning notes" and got["problems"] == [] and got["tool_steps"] == 1 and got["ai_calls"] == 1 and "params.file" in got["script"]

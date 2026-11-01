@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.scheduler import Scheduler, SessionRoutineRunner
+from harness.scheduler import RoutineError, Scheduler, SessionRoutineRunner
 from serve import handler
 from serve.agent_sessions import SessionManager
 from serve.approvals import ApprovalBoard
@@ -138,3 +138,39 @@ def test_a_skill_routine_with_a_wrong_value_or_a_missing_skill_is_refused_when_s
     code, res = api("POST", f"/api/routines/{made['id']}/update", {"values": {"day": "nonsense", "topic": "x"}})
     assert code == 400 and res["error"]["code"] == "bad_values"
     assert api("POST", f"/api/routines/{made['id']}/update", {"skill": "", "values": {}, "prompt": "plain task"})[1]["routine"]["skill"] == ""
+
+
+def test_a_routine_can_be_improved_into_a_skill_and_the_kill_switch_is_set(tmp_path):
+    from harness.personal_skills.store import PersonalSkills
+    from harness.scheduler import Scheduler
+    from serve.routines_api import RoutinesApi
+
+    class Sessions:
+        skills = PersonalSkills(tmp_path / "skills")
+
+        def routine_skill(self, sid, name):
+            return {"name": name, "description": "d", "params": [{"name": "file", "type": "text", "default": "a.txt", "label": "File"}],
+                    "script": "from basalt_skill import tool\n\ndef main(params):\n    return tool('read_file', path=params.file)\n", "problems": [], "tool_steps": 1, "ai_calls": 0}
+
+    class Runner:
+        def run(self, routine, cancel):
+            return {"status": "done", "summary": "ok", "session": "s1"}
+
+    folder = tmp_path / "w"
+    folder.mkdir()
+    sched = Scheduler(tmp_path / "data", Runner())
+    api = RoutinesApi(tmp_path / "data", Sessions(), scheduler=sched)
+    r = sched.add("morning", "read the notes", str(folder), "every 1d")
+    with pytest.raises(RoutineError, match="no finished run"):
+        api.improve(r["id"])
+    sched.start()
+    sched.run_now(r["id"])
+    end = time.monotonic() + 10
+    while not sched.results and time.monotonic() < end:
+        time.sleep(0.05)
+    got = api.improve(r["id"])
+    assert got["ai_calls"] == 0 and got["tool_steps"] == 1 and got["from_run"]
+    applied = api.improve_apply(r["id"], got)
+    assert applied["routine"]["skill"] == applied["skill"] and applied["routine"]["values"] == {"file": "a.txt"}
+    assert api.stop({"on": True})["stopped"] and not api.stop({"on": False})["stopped"]
+    sched.shutdown()

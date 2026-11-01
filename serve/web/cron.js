@@ -8,8 +8,8 @@
 
   const PRESETS = ["every 1h", "every 30m", "daily 08:30", "weekdays 08:30", "mon,wed,fri 18:15"];
   const POLL_MS = 5000;
-  const STATUSES = ["done", "parked", "failed", "cancelled", "timeout", "yielded"];
-  const S = { jobs: [], running: [], queued: [], pending: [], selected: "", runs: [], armed: "", chat: [], busy: false, ready: false, skills: [] };
+  const STATUSES = ["done", "parked", "failed", "cancelled", "timeout", "yielded", "skipped"];
+  const S = { jobs: [], running: [], queued: [], pending: [], selected: "", runs: [], armed: "", chat: [], busy: false, ready: false, skills: [], stopped: false, improve: null };
   let timer = 0, armTimer = 0, form = null, msgEl, statusEl;
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -83,9 +83,47 @@
     S.running = r.data.running || [];
     S.pending = r.data.pending || [];
     S.queued = r.data.queued || [];
+    S.stopped = !!r.data.stopped;
+    paintStop();
     paintList();
     if (S.selected && S.selected !== "new" && !job(S.selected)) { S.selected = ""; paintEditor(); }
     if (S.selected && S.selected !== "new") loadRuns();
+  }
+  async function setStop() {
+    const r = await api("POST", "api/routines/stop", { on: !S.stopped });
+    if (!r.ok) { say(errText(r), true); return; }
+    S.stopped = !!r.data.stopped;
+    paintStop();
+    say(T(S.stopped ? "cj.stop.on" : "cj.stop.off"));
+  }
+  function paintStop() {
+    const b = document.getElementById("cj-stop");
+    if (!b) return;
+    b.textContent = T(S.stopped ? "cj.stop.release" : "cj.stop.btn");
+    b.classList.toggle("primary", S.stopped);
+    b.setAttribute("aria-pressed", S.stopped ? "true" : "false");
+  }
+  async function improveJob(existing) {
+    form.msg.textContent = T("cj.improve.working"); form.msg.classList.remove("bad");
+    const r = await api("POST", `api/routines/${existing.id}/improve`, {});
+    if (!r.ok) { form.msg.textContent = errText(r); form.msg.classList.add("bad"); return; }
+    S.improve = r.data;
+    form.msg.textContent = "";
+    paintImprove(existing);
+  }
+  function paintImprove(existing) {
+    const box = document.getElementById("cj-improve");
+    if (!box) return;
+    const p = S.improve;
+    if (!p) { box.hidden = true; return; }
+    box.hidden = false;
+    const code = el("pre", "cj-code"); code.textContent = p.script;
+    box.replaceChildren(el("p", "help", T("cj.improve.result", p.tool_steps, p.ai_calls)), code,
+      btn(T("cj.improve.apply"), "primary", async () => {
+        const a = await api("POST", `api/routines/${existing.id}/improve_apply`, p);
+        if (!a.ok) { say(errText(a), true); return; }
+        S.improve = null; say(T("cj.improve.done", a.data.skill)); await load(); paintEditor();
+      }, T("cj.improve.tip")), btn(T("cj.improve.discard"), "ghost", () => { S.improve = null; paintImprove(existing); }));
   }
   async function loadRuns() {
     const r = await api("GET", `api/routines/runs?id=${encodeURIComponent(S.selected)}&limit=8`);
@@ -146,6 +184,7 @@
     const minutes = el("input"); minutes.id = "cj-minutes"; minutes.type = "number"; minutes.min = "1"; minutes.inputMode = "numeric"; minutes.placeholder = T("cj.limit.none"); minutes.value = Number.isInteger(v.max_minutes) ? String(v.max_minutes) : "";
     const yieldS = el("input"); yieldS.id = "cj-yield"; yieldS.type = "number"; yieldS.min = "0"; yieldS.max = "3600"; yieldS.inputMode = "numeric"; yieldS.placeholder = T("cj.yield.never");
     yieldS.value = Number.isInteger(v.yield_s) ? String(v.yield_s) : "";
+    const check = el("input"); check.id = "cj-check"; check.value = v.check || ""; check.maxLength = 1000; check.autocomplete = "off"; check.spellcheck = false;
     const indexPast = el("input"); indexPast.id = "cj-index"; indexPast.type = "checkbox"; indexPast.checked = v.index_past === true;
     // what it runs: a task written here, or one of the person's personal skills with its values
     const kinds = el("fieldset", "cj-modes"); kinds.append(el("legend", "", T("cj.kind")));
@@ -179,7 +218,7 @@
     const msg = el("p", "cj-msg"); msg.id = "cj-msg"; msg.setAttribute("role", "status");
     const promptWrap = field("cj-prompt", T("cj.prompt"), prompt, T("cj.prompt.help"));
     const valuesNow = () => { const out = {}; fields.forEach(f => { const x = f.get(); if (String(x).trim() !== "") out[f.spec.name] = x; }); return out; };
-    form = { name, prompt, folder, schedule, steps, minutes, yieldS, indexPast, msg, kindNow, skillSel, valuesNow };
+    form = { name, prompt, folder, schedule, steps, minutes, yieldS, check, indexPast, msg, kindNow, skillSel, valuesNow };
     host.replaceChildren(
       el("div", "sh", ""),
       (() => { const f = el("form", "pad cj-form"); f.noValidate = true; f.onsubmit = e => { e.preventDefault(); saveJob(existing); };
@@ -187,11 +226,15 @@
           field("cj-folder", T("cj.folder"), folder, T("cj.folder.help")),
           field("cj-schedule", T("cj.schedule"), schedule, T("cj.schedule.help")), presets, el("p", "help", T("cj.auto.help")),
           field("cj-steps", T("cj.steps"), steps, T("cj.steps.help")), field("cj-minutes", T("cj.minutes"), minutes, T("cj.minutes.help")), field("cj-yield", T("cj.yield"), yieldS, T("cj.yield.help")),
+          field("cj-check", T("cj.check"), check, T("cj.check.help")),
           field("cj-index", T("cj.index"), indexPast, T("cj.index.help")),
-          el("p", "help", T(existing ? (existing.enabled ? "cj.is.on" : "cj.is.off") : "cj.new.on")), msg, el("div", "cj-buttons", save)); return f; })());
+          el("p", "help", T(existing ? (existing.enabled ? "cj.is.on" : "cj.is.off") : "cj.new.on")), msg,
+          el("div", "cj-buttons", save, ...(existing ? [btn(T("cj.improve"), "ghost", () => improveJob(existing), T("cj.improve.help"))] : [])),
+          (() => { const d = el("div", "cj-improve"); d.id = "cj-improve"; d.hidden = true; return d; })()); return f; })());
     host.firstChild.append(el("b", "", existing ? T("cj.edit", existing.name) : T("cj.new")));
     paintKind();
     document.getElementById("cj-runs").hidden = !existing;
+    S.improve = null;
   }
   const defaultFolder = () => { const p = window.agentProjects && window.agentProjects.list()[0]; return p ? p.path : ""; };
   async function saveJob(existing) {
@@ -199,7 +242,7 @@
     const skill = f.kindNow() === "skill";
     const body = { name: f.name.value.trim(), prompt: skill ? "" : f.prompt.value.trim(), workspace: f.folder.value.trim(), schedule: f.schedule.value.trim(),
       max_turns: f.steps.value.trim() === "" ? null : Number(f.steps.value), max_minutes: f.minutes.value.trim() === "" ? null : Number(f.minutes.value),
-      yield_s: f.yieldS.value.trim() === "" ? null : Number(f.yieldS.value), index_past: f.indexPast.checked,
+      yield_s: f.yieldS.value.trim() === "" ? null : Number(f.yieldS.value), index_past: f.indexPast.checked, check: f.check.value.trim(),
       skill: skill ? f.skillSel.value : "", values: skill ? f.valuesNow() : {} };
     const r = existing ? await api("POST", `api/routines/${existing.id}/update`, body) : await api("POST", "api/routines", body);
     if (!r.ok) { f.msg.textContent = errText(r); f.msg.classList.add("bad"); return; }
@@ -292,6 +335,7 @@
     statusEl = document.getElementById("cj-status");
     msgEl = document.getElementById("cj-chat-msgs");
     document.getElementById("cj-new").onclick = () => select("new");
+    document.getElementById("cj-stop").onclick = setStop;
     const input = document.getElementById("cj-chat-input");
     document.getElementById("cj-chat-form").onsubmit = e => { e.preventDefault(); const t = input.value.trim(); input.value = ""; ask(t); };
     input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); document.getElementById("cj-chat-form").requestSubmit(); } });

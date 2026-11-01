@@ -1402,6 +1402,23 @@ class SessionManager:
         return {**proposal, "requests": [{"n": r["n"], "raw": r["raw"]} for r in chosen],
                 "steps": [{"kind": s["kind"], "turn": s["turn"], **({"name": s["name"], "ok": s["ok"]} if s["kind"] == "tool" else {})} for s in steps]}
 
+    def routine_skill(self, sid: str, name: str) -> Dict[str, Any]:
+        """A script that repeats what a routine's run did, written from its recorded steps with every value the model proposed kept as a
+        parameter. The person reads it before anything changes; `ai_calls` counts the places left to the language model."""
+        from harness.client import BasaltError
+        from harness.personal_skills import distill
+        chosen, steps = self._skill_source(sid, [1])
+        try:
+            proposal = distill.propose(self._skill_client(), chosen, steps)
+            description = str(proposal.get("description") or name)[:500]
+            params = proposal.get("params") or []
+            written = distill.write_script(self._skill_client(), name[:60], description, params, chosen, steps)
+        except BasaltError as exc:
+            raise RunError(f"The model could not be reached: {exc}", "model") from None
+        script = written.get("script") or ""
+        return {"name": name[:60], "description": description, "params": params, "script": script, "problems": written.get("problems") or [],
+                "tool_steps": sum(1 for st in steps if st["kind"] == "tool"), "ai_calls": len(re.findall(r"(?<![\w.])ai\(", script))}
+
     def skill_script(self, sid: str, turns: Any, name: Any, description: Any, params: Any) -> Dict[str, Any]:
         """The second step: the Python script, written from the requests, the recorded steps and the parameters the person kept."""
         from harness.client import BasaltError
