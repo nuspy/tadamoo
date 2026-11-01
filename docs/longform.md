@@ -42,8 +42,9 @@ Two ways to start it, both with the same engine:
 
 1. **By hand.** The **Long answer** button beside Send (Chat and Agent). A small dialog asks what to write (a new text from the message,
    a translation of it, a rewrite of it), the length, the language, a style, a glossary, and whether images, links, code, tables and
-   diagrams are kept as they are. It applies to the next message only. In the Chat the options go to the server as `long_answer`; in the
-   Agent the message ends with one line, `[long answer: mode=translate; language=Italian]`, which the harness reads and acts on at once:
+   diagrams are kept as they are. It applies to the next message only. In the Chat the options go to the server as `long_answer`, and a new
+   text then goes through the same flow as in the Agent (below; the page's length field is a declared length, so no estimate is asked, and
+   a plan given as `outline` is followed as it is); in the Agent the message ends with one line, `[long answer: mode=translate; language=Italian]`, which the harness reads and acts on at once:
    no card, and for a new text no length estimate (the person chose it).
 2. **By the harness.** A deterministic check of the person's request (`detect_long_request`): a length asked for above 3000 tokens (about
    2000 words; "10,000 words", "10.000 parole", "20 pages", "5k words") with a writing verb or a document kind, a chapter, a translation or
@@ -112,8 +113,10 @@ Without a plan (`long_answer` with only a task and a length) the model is asked 
 parts are used and the plan event says `fallback: true`.
 
 For a translation or rewrite the source blocks are the plan: a Markdown-aware splitter cuts the source at paragraph, list and heading
-boundaries into parts of about `segment_words`; a table is never cut, a heading stays with the text after it, and a part's expected length
-comes from its source (English to Italian about 1.15 times the words).
+boundaries into parts of about `segment_words`; a heading stays with the text after it, and a part's expected length comes from its source
+(English to Italian about 1.15 times the words). A table or a code block left in the source (`protect: false`) is one unit; one longer than
+1.4 parts is the only thing cut inside: at rows or lines, the table header repeated and the code block closed and reopened in each piece
+(`harness/markdown_chunks.py`).
 
 ### Content that must not change
 
@@ -127,7 +130,7 @@ Before any model call the source is scanned and these are replaced by markers `â
 | inline code | `IC` | whole |
 | citation keys `[S1, S2]`, footnote references `[^1]` | `CITE`, `FN` | whole |
 
-Tables are not masked (their cells are text) but never split, and their shape is checked. At the end every marker is replaced by its
+Tables are not masked (their cells are text) and not split unless one alone is longer than a part, and their shape is checked. At the end every marker is replaced by its
 original byte for byte; a marker the model made up is dropped; a marker used twice is kept once. Diagrams are carried through unchanged:
 translating the labels of a mermaid diagram is not done.
 
@@ -144,6 +147,13 @@ message (`retries`, 0 to 3); the failed text is never sent back. What remains af
 carries `warnings`, the final event lists them, a marker that was lost is put back at the end of its part (blocks and images) and
 named, and the answer's `finish_reason` is `length` when any part is still cut or the text stopped early. In a new text, two segments
 in a row under half of what was asked stop the run (`stopped: "short_segments"`). Segments are never rewritten as a whole document.
+
+### Pieces and seams
+
+The rules of a part end with "End the part after a whole paragraph, list item, table or code block, never inside one". A part reaches the
+reader in pieces of about 3000 characters (`delivery`), each ending between Markdown blocks, so a page that draws Markdown as it arrives never
+shows half a code block or table; a block longer than a piece is one piece. The parts are joined by a blank line, or by a line end where the
+second part goes on with the list or the table the first ends in (`join_parts`, `joiner`), and the pieces joined are the text of the answer.
 
 ### The request
 
@@ -176,6 +186,13 @@ with an empty delta and a `long_answer` event: `plan` (segments, words, `fallbac
 `stopped`, words, segments, warnings, seconds, usage with cached tokens). The last chunk carries `finish_reason`, `usage` and the same
 `long_answer` totals; without `stream` the response has them as `long_answer`. Closing the connection stops the call in flight; nothing
 is written after it. A model error is raised after the segments already delivered.
+
+A new text (`mode: write`) in the Chat has the events of the Agent as well (`estimate`, `review`, `fix`, `revised`, below), and its short
+calls (estimate, plan, check) are held to their form by the server's grammar and carry the technical session's fields. When the check
+puts a correction in, the `revised` event holds the whole corrected text: the page replaces what it showed with it, and a response without
+`stream` has it as the message content. An estimate under the threshold (a request that did not declare its length) still writes the text,
+in as few parts as it needs. The text is the answer of the turn and the page keeps it whole in the history. A translation or rewrite goes part
+by part from its source, with no plan call and no check.
 
 In the Agent tab the harness drives the same engine with the conversation's own client, so it works the same on the loaded model and on a
 cloud route. Its events arrive as `long_answer` agent events: `estimate` (words, `source` model, rule or asked, `long`), then those above,
@@ -211,6 +228,8 @@ Real-model checks of the parts are rows 57 to 62 of `tests/QUEUE_daytime.md`, th
 `tests/test_longform.py` (protection, splitting, checks, plan, chunking, the run with a scripted client), `tests/test_longform_flow.py` (the estimate, the plan, the
 parts with their own task, the check and the placing of its fixes, the side fields), `tests/test_longform_session.py` (the card, the
 unattended offer, the control line, the harness writing the text, the tool's removal), `serve/tests/test_longform_api.py` (the request field against the mock engine,
-`max_answer_tokens`, the passage guard), `serve/tests/test_longform_page.py` (the markup and strings), `serve/tests/test_chat_continue.py` (the
+`max_answer_tokens`, the passage guard), `serve/tests/test_longform_chat_flow.py` (the Chat's `long_answer` through the new flow, a scripted
+engine answering each kind of call), `tests/test_long_text_pieces.py` (the cuts and joins between Markdown blocks: digest, attachments, delivery),
+`serve/tests/test_longform_page.py` (the markup and strings), `serve/tests/test_chat_continue.py` (the
 Chat's own continuing, run in node against the page's script), `tests/test_continuation.py` (the join, in Python and in the page's script).
 Real-model checks of the continuing, the part size and Save as file are rows 66 to 68 of `tests/QUEUE_daytime.md`.

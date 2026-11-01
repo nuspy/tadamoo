@@ -56,6 +56,13 @@ class LongAnswerPage(unittest.TestCase):
     def test_a_long_answer_is_not_compressed_by_billion_context(self):
         self.assertIn('...(long ? {} : { "X-Basalt-Compress": "1" })', CHAT_JS)
 
+    def test_the_chat_follows_the_events_of_the_new_flow_and_takes_the_corrected_text(self):
+        for event in ("estimate", "review", "fix", "revised"):
+            self.assertIn(f'ev.event === "{event}"', CHAT_JS)
+        self.assertIn('else if (ev.event === "revised") m.text = ev.text;', CHAT_JS)
+        for key in ("la.p.estimate", "la.p.short", "la.p.review", "la.p.fix.ok", "la.p.fix.no", "la.fixes", "la.r.length", "la.r.rejected", "la.r.invalid"):
+            self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+
 
 class AutoContinueAndSavePage(unittest.TestCase):
     EXPORT_JS = (WEB / "export.js").read_text(encoding="utf-8")

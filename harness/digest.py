@@ -1,7 +1,7 @@
 """A text larger than the technical session, read in parts and kept as notes that fit it.
 
 The technical session holds a few tens of thousands of tokens. A summary of more than that is made in rounds: the text is cut into
-parts (at blank lines, then at line ends, never by a model), each part is written up by its own call to the session, and the notes of
+parts (between Markdown blocks, then at line ends, never by a model), each part is written up by its own call to the session, and the notes of
 the parts are joined. If the joined notes fit the session they are what the final call reads; if not, they are cut and written up again.
 
 Every call stands alone and can be made again, so each part is checked by the harness (not by a model) and, if its notes are not good,
@@ -17,6 +17,7 @@ from collections import Counter
 from typing import Any, Callable, List, Tuple
 
 from harness import identifiers
+from harness.markdown_chunks import split_markdown
 from harness.transcript import clip
 
 log = logging.getLogger("basalt.digest")
@@ -73,7 +74,16 @@ def part_chars(window_tokens: int, answer_tokens: int = ANSWER_TOKENS) -> int:
 
 
 def split(text: str, limit: int) -> List[str]:
-    """Parts of at most `limit` characters that put back together give `text`: cut after a blank line, else after a line end, else anywhere."""
+    """Parts of at most `limit` characters that put back together give `text`: cut between Markdown blocks so that no part ends inside a
+    code block, a table or a list item (harness/markdown_chunks.py; a code block or table longer than the limit is cut at lines, each part
+    closing and reopening the fence, or repeating the table header), else after a blank line, after a line end, anywhere."""
+    try:
+        return split_markdown(text, limit)
+    except ValueError:                                       # a limit too small to hold a fence's own lines
+        return _split_plain(text, limit)
+
+
+def _split_plain(text: str, limit: int) -> List[str]:
     parts: List[str] = []
     start = 0
     while len(text) - start > limit:

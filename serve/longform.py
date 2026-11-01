@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 from harness.continuation import cut_point, join_continuation
+from harness.markdown_chunks import joiner, split_markdown, whole_blocks
 
 MODES = ("write", "translate", "rewrite")
 SEGMENT_WORDS = 2000            # words one segment aims at
@@ -320,6 +321,16 @@ def split_units(text: str) -> List[str]:
     i = 0
     while i < len(lines):
         line = lines[i]
+        fence = FENCE_RE.match(line)
+        if fence:                          # a code block left in the text (protect off) is one unit, blank lines and all
+            close()
+            marker = fence.group(1)
+            j = i + 1
+            while j < len(lines) and not (len(lines[j].strip()) >= len(marker) and set(lines[j].strip()) == {marker[0]}):
+                j += 1
+            units.append(lines[i:j + 1])
+            i = j + 1
+            continue
         if not line.strip():
             nxt = next((x for x in lines[i + 1:] if x.strip()), "")
             if cur and LIST_RE.match(cur[0]) and nxt and (LIST_RE.match(nxt) or nxt[:1] in (" ", "\t")):
@@ -363,6 +374,15 @@ def _split_sentences(unit: str, limit: int) -> List[str]:
     return out
 
 
+def _split_block(unit: str, soft: int) -> List[str]:
+    """A table or code block of more than `soft` words as pieces of about `soft` words (harness/markdown_chunks.py)."""
+    limit = max(200, int(len(unit) * soft / max(1, count_words(unit))))
+    try:
+        return split_markdown(unit, limit)
+    except ValueError:
+        return [unit]
+
+
 def pack(units: List[str], soft: int) -> List[str]:
     """Segments of about `soft` words from whole units. A heading stays with the unit after it; a table stays whole."""
     hard = int(soft * 1.4)
@@ -374,7 +394,9 @@ def pack(units: List[str], soft: int) -> List[str]:
             glued.append(u)
     flat: List[str] = []
     for u in glued:
-        if count_words(u) > hard and not TABLE_RE.match(u) and not LIST_RE.match(u):
+        if count_words(u) > hard and (TABLE_RE.match(u) or FENCE_RE.match(u)):
+            flat.extend(_split_block(u, soft))                  # a table or code block over the limit: cut at rows or lines, header or fence repeated
+        elif count_words(u) > hard and not LIST_RE.match(u):
             flat.extend(_split_sentences(u, soft))
         elif count_words(u) > hard and LIST_RE.match(u):
             items = re.split(r"\n(?=\s*(?:[-*+]|\d+[.)])\s)", u)
@@ -582,6 +604,7 @@ class Spec:
     end_turn_bias: Optional[float] = None
     outline: List[Dict[str, Any]] = field(default_factory=list)     # sections the caller planned: heading, goal, target_words, key_points
     title: str = ""
+    declared: bool = False              # the request stated the length (or gave the plan), so nothing is asked of the model about it
 
     @staticmethod
     def from_request(raw: Any, task_text: str = "") -> "Spec":
@@ -649,7 +672,8 @@ class Spec:
                     protect=raw.get("protect", True), max_segments=number("max_segments", 1, 500, MAX_SEGMENTS),
                     max_seconds=number("max_seconds", 0, 86400 * 7, 0.0, whole=False), context_tokens=number("context_tokens", 0, 10 ** 8, 0),
                     end_turn_bias=float(bias) if bias is not None else None, outline=outline,
-                    title=" ".join(str(raw.get("title") or "").split())[:160])
+                    title=" ".join(str(raw.get("title") or "").split())[:160],
+                    declared=mode == "write" and (raw.get("target_words") is not None or bool(outline)))
 
 
 @dataclass
@@ -791,7 +815,7 @@ def brief(spec: Spec, plan: List[Segment], title: str = "") -> str:
         "Write only the part asked in the current message: no preface, no notes, no remarks about the task.",
         "Start exactly where the previous part ended. Never restate earlier parts. Never summarise or conclude unless this is the last part.",
         "Copy every marker of the form ⟦NAME12⟧ unchanged, once each, in the same place. Never translate, explain or change a marker.",
-        "Keep headings, lists, tables, numbering and Markdown structure.",
+        "Keep headings, lists, tables, numbering and Markdown structure. End the part after a whole paragraph, list item, table or code block, never inside one.",
         "Keep to the length asked for the part.",
     ]
     if spec.glossary:
@@ -871,6 +895,26 @@ CONTINUE_NOTE = "Continue exactly where you stopped. Do not repeat anything alre
 
 def estimate_tokens(messages: List[Dict[str, Any]]) -> int:
     return int(sum(len(str(m.get("content") or "")) for m in messages) / CHARS_PER_TOKEN) + 8 * len(messages)
+
+
+DELIVERY_CHARS = 3000                   # a part reaches the reader in pieces of about this many characters, each ending between Markdown blocks
+
+
+def delivery(seam: str, text: str) -> List[str]:
+    """A written part as the pieces it is delivered in, the seam to the part before it in front of the first: whole Markdown blocks, so a piece
+    never ends inside a code block, a table or a list item and a reader that draws Markdown as it arrives never sees one half drawn. The pieces
+    joined are `seam + text`."""
+    pieces = whole_blocks(text, DELIVERY_CHARS) or [""]
+    pieces[0] = seam + pieces[0]
+    return pieces
+
+
+def join_parts(parts: List[str]) -> str:
+    """The written parts as one text: a blank line between them, a line end where the second goes on with the list or the table the first ends in."""
+    out = ""
+    for i, part in enumerate(parts):
+        out += (joiner(parts[i - 1], part) if i else "") + part
+    return out
 
 
 def _side() -> Dict[str, Any]:
@@ -1128,10 +1172,11 @@ class LongAnswer:
             truncated = truncated or any(i.code in ("truncated", "cut_midword") for i in issues)
             self.warnings += warns
             history += [{"role": "user", "content": user}, {"role": "assistant", "content": raw}]
+            seam = joiner(self.parts[-1], text) if self.parts else ""
             self.parts.append(text)
             yield {"event": "segment_done", "index": seg.index + 1, "of": len(plan), "words": count_words(text), "target": seg.words,
                    "retries": tries, "warnings": warns}
-            for piece in ([text] if seg.index == 0 else ["\n\n" + text]):
+            for piece in delivery(seam, text):
                 yield {"event": "delta", "text": piece}
             short_run = short_run + 1 if spec.mode == "write" and produced < 0.5 * seg.words else 0
             if short_run >= STOP_SHORT_SEGMENTS and seg.index + 1 < len(plan):
@@ -1156,4 +1201,4 @@ class LongAnswer:
                          "cached_tokens": self.totals.cached_tokens, "calls": self.totals.calls}}
 
     def text(self) -> str:
-        return "\n\n".join(self.parts)
+        return join_parts(self.parts)

@@ -13,6 +13,7 @@ from serve.api.grammar import REQUEST_KEY as GRAMMAR_KEY
 from serve.api.logit_bias import REQUEST_KEY as BIAS_KEY, add_end_turn, checked as checked_bias
 from serve.api.openai import openai_chunks, openai_collect
 from serve.frontend import openai_to_messages
+from serve.longflow import LongFlow, NotLong
 from serve.longform import SAMPLING_FIELDS, LongAnswer, LongformError, Spec
 from serve.prompt import primed
 from serve.service import Service
@@ -31,11 +32,15 @@ class ServiceClient:
         sub = {**self.sampling, **(extra or {}), "messages": messages, "max_tokens": max_tokens}
         if temperature is not None:
             sub["temperature"] = temperature
+        if response_format is not None:                     # the short calls of the flow (estimate, plan, check) are held to their form
+            svc.require_grammar(response_format)
+            sub["response_format"] = response_format
+            sub["relaxed_drafting"] = False                 # JSON output is sampled exactly
         msgs, _tools, kw = openai_to_messages(sub)
         svc.load()
         add_end_turn(sub, svc.tok.encode(IM_END, parse_special=True))
         sub[BIAS_KEY] = checked_bias(sub, svc.engine)
-        sub[GRAMMAR_KEY] = svc.grammar_for(None, None, None, None)
+        sub[GRAMMAR_KEY] = svc.grammar_for(None, None, None, response_format)
         ids, thinking, max_new = svc.prepare(msgs, None, kw, int(max_tokens or 0))
         chunks = primed(openai_chunks(svc, sub, ids, thinking, None, max_new, self.cancel), ids)
         got = []
@@ -82,8 +87,10 @@ def long_request(req: dict):
 
 
 def long_answer_chunks(svc: Service, req: dict, spec: Spec, system: str, prior: list, cancel: threading.Event):
-    """OpenAI chunks for a long answer: content as segments pass their checks, progress events with an empty delta, a last chunk with
-    the finish reason, the usage and `long_answer` (the totals and the warnings)."""
+    """OpenAI chunks for a long answer: content as the pieces of the parts pass their checks, progress events with an empty delta, a last chunk
+    with the finish reason, the usage and `long_answer` (the totals and the warnings). A new text goes through the flow of serve/longflow.py (the
+    length estimated unless the request declared it, the text planned, written in parts and checked, a `revised` event with the whole text when
+    the check changed it); a translation or rewrite goes part by part from its source."""
     cid, created, model = "chatcmpl-" + uuid.uuid4().hex[:24], int(time.time()), svc.model
     svc.load()
     spec.context_tokens = spec.context_tokens or int(getattr(svc.engine, "max_context", 0) or 0)
@@ -92,11 +99,16 @@ def long_answer_chunks(svc: Service, req: dict, spec: Spec, system: str, prior: 
         return {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
                 "choices": [{"index": 0, "delta": delta, "finish_reason": finish}], **extra}
     sampling = {k: req[k] for k in SAMPLING_FIELDS if req.get(k) is not None}
-    run = LongAnswer(ServiceClient(svc, sampling, cancel), spec, prior=prior, system=system, cancel=cancel, sampling={})
+    client = ServiceClient(svc, sampling, cancel)
+    kw = dict(prior=prior, system=system, cancel=cancel, sampling={})
+    run = LongFlow(client, spec, stated=spec.declared, **kw) if spec.mode == "write" else LongAnswer(client, spec, **kw)
     yield chunk({"role": "assistant", "content": ""})
     events = run.run()
-    try:
-        for ev in events:
+
+    def convert(source):
+        nonlocal events
+        events = source
+        for ev in source:
             if ev is None:
                 yield None
             elif ev["event"] == "delta":
@@ -110,8 +122,32 @@ def long_answer_chunks(svc: Service, req: dict, spec: Spec, system: str, prior: 
                 yield last
             else:
                 yield chunk({}, None, long_answer=ev)
+    try:
+        try:
+            yield from convert(events)
+        except NotLong as short:                             # the estimate says one reply is enough: the text is still written, in as few parts as it needs
+            if not spec.declared:
+                spec.target_words = short.words
+            plain = LongAnswer(client, spec, **kw)
+            plain.totals = run.totals
+            yield from convert(plain.run())
     except GeneratorExit:
-        cancel.set()                         # a consumer that left stops the call in flight
+        cancel.set()                                         # a consumer that left stops the call in flight
         raise
     finally:
         events.close()
+
+
+def long_collect(chunks) -> dict:
+    """The chunks of a long answer as one chat completion. The content is the text the deltas gave, or the whole corrected text when the
+    check of the flow changed it (`revised`)."""
+    got, revised = [], None
+    for c in chunks:
+        got.append(c)
+        ev = (c or {}).get("long_answer")
+        if isinstance(ev, dict) and ev.get("event") == "revised":
+            revised = ev["text"]
+    body = openai_collect(got)
+    if revised is not None:
+        body["choices"][0]["message"]["content"] = revised
+    return body

@@ -42,7 +42,7 @@ def route(ids) -> int:
 
 
 def make_service(ctx: int = 65536) -> Service:
-    scripts = ["{}", *[part_body(k) for k in range(1, 4)]]
+    scripts = ['{"fixes": []}', *[part_body(k) for k in range(1, 4)]]       # the check of the flow finds nothing to fix
     return Service(MockEngine(TOKENS, scripts, max_context=ctx, route=route), TOKENS, ChatTemplate(ROOT / "serve/chat_template.jinja"))
 
 
@@ -84,7 +84,7 @@ class LongAnswerApi(unittest.TestCase):
         kinds = [e["event"] for e in events]
         self.assertEqual(kinds[0], "plan")
         self.assertEqual([e["index"] for e in events if e["event"] == "segment_start"], [1, 2, 3])
-        self.assertEqual(kinds[-2:], ["verify", "done"])
+        self.assertEqual(kinds[-3:], ["verify", "review", "done"])          # a new text is checked after its parts are written
         text = "".join(c["choices"][0]["delta"].get("content") or "" for c in chunks)
         for k in (1, 2, 3):
             self.assertEqual(text.count(f"Body of part {k}."), 1)
