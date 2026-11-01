@@ -61,7 +61,7 @@ class RoutinesApi:
             self._skill_ok(req.get("skill"), req.get("values"))
         return {"routine": self.scheduler.add(req.get("name"), req.get("prompt"), req.get("workspace"), req.get("schedule"),
                                               req.get("max_turns"), req.get("max_minutes"), req.get("skill") or "",
-                                              req.get("values"), req.get("yield_s"))}
+                                              req.get("values"), req.get("yield_s"), req.get("index_past", False))}
 
     def act(self, routine_id: str, action: str, req: Dict[str, Any]) -> Dict[str, Any]:
         s = self.scheduler

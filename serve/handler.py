@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import select
 import socket
@@ -85,6 +86,7 @@ _INSTALLER = Installer()                              # installs Tailscale when 
 _ROUTINES = None                                      # the agent's recurring routines, made with the conversations or on first use
 _PSKILLS = None                                       # the person's personal skills, made on first use
 _PERSONAL = None                                      # the person's own memories (long-term and short-term), made on first use
+_PAST = None                                          # the index of earlier conversations, made on first use
 _MEMORIES = None                                      # the Memories page's side of them
 _MEM_WORKER = None                                    # learns from what the person wrote when the GPU is free
 _EXPORT = export_api.ExportApi()                      # turns a conversation into a file; holds a PDF page for the desktop app's print
@@ -736,6 +738,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/memories/"):
                 self._memories_post(path)
+                return
+            if path == "/api/past/chat":
+                self._past_chat_post()
                 return
             if path == "/api/changes/review":
                 if not settings.is_loopback(self.client_address[0]):
@@ -2031,6 +2036,32 @@ def make_handler(svc: Service, remote: bool = False):
                 worker.start()
             return _MEM_WORKER
 
+        def _past(self):
+            global _PAST
+            if _PAST is None:
+                from harness.past import PastIndex
+                _PAST = PastIndex(userdata.path("memory") / "past.db")
+            return _PAST
+
+        def _past_chat_post(self):
+            """POST /api/past/chat: the model-only chat page, whose conversation lives in the browser, hands over its turns to be indexed."""
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the chat is indexed only from the PC the server runs on"}})
+            try:
+                raw = self._body(8 << 20)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            try:
+                req = json.loads(raw or b"{}")
+                chat_id = str(req.get("id") or "") if isinstance(req, dict) else ""
+                if not re.fullmatch(r"[A-Za-z0-9_\-]{6,64}", chat_id) or not isinstance(req.get("messages"), list):
+                    raise ValueError("send the chat's id and its messages")
+                kept = self._past().add_session("chat-" + chat_id, [m for m in req["messages"] if isinstance(m, dict)], title=str(req.get("title") or "")[:80], kind="chat")
+                return self._json(200, {"indexed": kept})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"type": "past", "message": str(e)}})
+
         def _memories(self) -> MemoriesApi:
             global _MEMORIES
             if _MEMORIES is None:
@@ -2414,7 +2445,8 @@ def make_handler(svc: Service, remote: bool = False):
                                            rule_of_two_prefs=RuleOfTwoPrefs(userdata.path("rule_of_two.json")),
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
                                            skills_dir=userdata.path("personal-skills"), projects=self._projects(),
-                                           personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer)
+                                           personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer, past=self._past())
+                threading.Thread(target=_SESSIONS.index_all_past, name="past-backfill", daemon=True).start()      # the conversations saved before the index
                 self._routines()                          # the clock of the routines starts with the conversations
             return _SESSIONS
 

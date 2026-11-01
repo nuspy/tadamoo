@@ -18,6 +18,7 @@
 .cj-field label { display: block; margin-top: 10px; color: var(--fg-2); font-size: 13px; }
 .cj-field input, .cj-field textarea { width: 100%; min-height: 40px; padding: 8px 10px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font-size: 15px; }
 .cj-field textarea { resize: vertical; }
+.cj-field input[type="checkbox"] { width: 22px; min-height: 22px; height: 22px; padding: 0; margin-top: 6px; }
 .cj-field .help, .cron .help { color: var(--fg-2); font-size: 13px; margin: 4px 0 0; }
 .cj-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .cj-presets .btn { min-height: 28px; padding: 2px 10px; font-family: var(--font-mono); }

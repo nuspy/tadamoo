@@ -206,6 +206,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--no-checkpoints", action="store_true")
     parser.add_argument("--personal-memory", default="", help="the folder of the person's own memories (long-term and short-term): what the person switched on is put in the answers where it matters")
     parser.add_argument("--personal-memory-keys", default="", help="the folder of the device key that opens them (the vault's)")
+    parser.add_argument("--past-index", default="", help="the file that indexes the person's earlier conversations (harness/past.py): the conversation can search and reread them")
 
 
 def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
@@ -229,7 +230,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
-        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys,
+        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, past_index=args.past_index,
     )
 
 
@@ -283,6 +284,7 @@ class AgentConfig:
     use_checkpoints: bool = True
     personal_memory_dir: str = ""       # the person's own memories (harness/personal_memory.py); empty: the conversation has none
     personal_memory_keys: str = ""      # where the device key that opens them is (default: the same folder)
+    past_index: str = ""                # the index of the earlier conversations (harness/past.py); empty: the conversation cannot search them
     reference_docs: Dict[str, str] = field(default_factory=dict)   # path -> text of reference documents
     reference_strategy: str = "auto"   # auto, cag (a fixed block at the start), rag (searched passages) or none
     wiki: bool = False                 # offer the wikibridge tools (the key from the environment)
@@ -786,6 +788,9 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         stays = lambda: getattr(client, "stays_local", lambda: True)()           # the notes leave this PC only when the person allowed it
         personal = Recall(notes, local=stays)
         register_personal_tools(registry, notes, local=stays)
+    if cfg.past_index:
+        from harness.past import PastIndex, register_past_tools
+        register_past_tools(registry, PastIndex(cfg.past_index), local=lambda: getattr(client, "stays_local", lambda: True)())
     cancel = threading.Event()
     from harness.tools.extra import register_extra_tools        # run_code, subagents and, when listed in the user data folder, ACP and A2A agents
     register_extra_tools(registry, cfg, workspace=workspace, sandbox=sandbox, client=client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key),

@@ -118,7 +118,7 @@ class SessionManager:
                  rule_of_two: Optional[Callable[[], str]] = None, allow_rules: Any = None, rule_of_two_prefs: Any = None,
                  intake_flags: Optional[Callable[[], List[str]]] = None,
                  gate_flags: Optional[Callable[[], List[str]]] = None, coding: Any = None,
-                 compaction_flags: Optional[Callable[[], List[str]]] = None) -> None:
+                 compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -130,6 +130,8 @@ class SessionManager:
         self.learn = learn                                      # told what the person wrote and what was searched for it, when a turn ends, to learn from
         self._said: Dict[str, Dict[str, Any]] = {}              # per conversation, until its turn ends: what the person wrote and what was searched
         self._no_learning: set = set()                          # conversations that are not the person's talking (a routine's)
+        self.past = past                                        # the index of earlier conversations (harness/past.py); each conversation is added to it when a turn ends
+        self._routine_runs: Dict[str, str] = {}                 # a routine's conversation -> the routine's name, when the person switched its indexing on
         self._place: Optional[Dict[str, Any]] = None            # where the person's phone last said they were: held in memory only
         self._place_sent: Dict[str, float] = {}                 # per conversation process: the receipt time of the position it was given
         self.browser_profile = browser_profile                  # where the browser keeps its sign-ins when the person chose that
@@ -972,6 +974,8 @@ class SessionManager:
         for flag in ("images", "charts"):
             if rec.get(flag):
                 cmd += [f"--{flag}", rec[flag]]
+        if self.past is not None:
+            cmd += ["--past-index", str(self.past.path)]
         if self.personal_dir:
             cmd += ["--personal-memory", str(self.personal_dir)] + (["--personal-memory-keys", str(self.personal_keys)] if self.personal_keys else [])
         if rec.get("ask_only"):
@@ -1129,6 +1133,7 @@ class SessionManager:
             elif kind == "done":
                 if not event.get("more"):
                     threading.Thread(target=self._flush_heard, args=(sid,), name="learn-flush", daemon=True).start()
+                    threading.Thread(target=self.index_past, args=(sid,), name="past-index", daemon=True).start()
                 asked = event.get("stop_reason") == "asked"
                 state = "busy" if event.get("more") else "idle"      # other requests are still waiting: the conversation is still at work
                 self._set(rec, state=state, blocked=None, ask=None, turns=rec.get("turns", 0) + 1, **({} if asked else {"question": None}),
@@ -1288,6 +1293,42 @@ class SessionManager:
         """A conversation that is not the person talking (a routine's): nothing in it is learned."""
         with self._lock:
             self._no_learning.add(sid)
+
+    # -- the index of earlier conversations ------------------------------------------------------------
+
+    def routine_run(self, sid: str, name: str, indexed: bool) -> None:
+        """A routine's conversation: it goes into the index of earlier conversations only when the person switched that on for the routine."""
+        with self._lock:
+            if indexed:
+                self._routine_runs[sid] = name
+
+    def index_past(self, sid: str) -> bool:
+        """Adds what was said in a conversation to the index of earlier conversations (replacing what the index had of it); false when it is left out or fails."""
+        if self.past is None:
+            return False
+        try:
+            with self._lock:
+                rec = dict(self._record(sid))
+                routine = self._routine_runs.get(sid, "")
+                if (sid in self._no_learning or rec.get("unattended")) and not routine:
+                    return False
+            workspace = str(rec.get("workspace") or "")
+            chat = not workspace or (self.default_workspace is not None and Path(workspace) == self.default_workspace)
+            messages = self.history(sid)["messages"]
+            self.past.add_session(sid, messages, title=rec.get("title") or "", project="" if chat else Path(workspace).name,
+                                  kind="routine" if routine else "chat" if chat else "agent", routine=routine, at=rec.get("updated") or time.time())
+            return True
+        except Exception:
+            return False                                        # the index never gets in the way of the conversation
+
+    def index_all_past(self) -> int:
+        """Adds the conversations saved before the index existed, or changed since, to the index; returns how many it indexed."""
+        if self.past is None:
+            return 0
+        kept = {s["session"]: s["at"] for s in self.past.sessions()}
+        with self._lock:
+            todo = [r["id"] for r in self.records if (r.get("updated") or 0) > kept.get(r["id"], -1) + 1e-6 and r["id"] not in self._no_learning and not r.get("unattended")]
+        return sum(1 for sid in todo if self.index_past(sid))
 
     def _hear(self, sid: str, rec: Dict[str, Any], text: str) -> None:
         if self.learn is None or sid in self._no_learning:
