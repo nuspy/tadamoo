@@ -88,7 +88,7 @@ class ModeLabelWiringTest(unittest.TestCase):
     slash = (WEB / "slash.js").read_text(encoding="utf-8")
 
     def test_the_label_sits_by_the_new_conversation_button_and_says_what_it_does(self):
-        self.assertRegex(self.html, r'id="new-chat"[^\n]*\n\s*<button[^>]*id="branches-open"[^\n]*\n\s*<button[^>]*id="export-open"[^\n]*\n\s*<button[^>]*id="pskills-open"[^\n]*\n\s*<button[^>]*id="chg-open"[^\n]*\n\s*<span[^>]*id="folder-chip"[^\n]*\n\s*<button[^>]*id="branch-chat"[^\n]*\n\s*<button[^>]*id="mode-chip"[^>]*aria-keyshortcuts="Shift\+Tab"')
+        self.assertRegex(re.sub(r'\n\s*<button[^>]*id="(?:wud-toggle|tech-toggle|priv-toggle|forget-open)"[^\n]*', '', self.html), r'id="new-chat"[^\n]*\n\s*<button[^>]*id="branches-open"[^\n]*\n\s*<button[^>]*id="export-open"[^\n]*\n\s*<button[^>]*id="pskills-open"[^\n]*\n\s*<button[^>]*id="chg-open"[^\n]*\n\s*<span[^>]*id="folder-chip"[^\n]*\n\s*<button[^>]*id="branch-chat"[^\n]*\n\s*<button[^>]*id="mode-chip"[^>]*aria-keyshortcuts="Shift\+Tab"')
         self.assertIn('"ch.chip"', (WEB / "i18n.js").read_text(encoding="utf-8"))
         i18n = (WEB / "i18n.js").read_text(encoding="utf-8")
         self.assertIn('"ch.chip": "Shift + TAB to change mode: {0}", "ch.chip.hint": "Shift + TAB to change mode:"', i18n)
