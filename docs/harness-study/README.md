@@ -10,6 +10,7 @@ until built and measured with `python -m harness.eval`, with every number labell
 - [harness2.md](harness2.md): Harness² from Google Research (Apache 2.0), a meta-harness that tunes the harness around an executor.
 - [intake.md](intake.md): what should run between the user's text and the first tool call (cleaning, triage, ask-or-act, decomposition, re-planning).
 - [clarification-survey.md](clarification-survey.md) and [ask-user-v2.md](ask-user-v2.md): how agents ask clarifying questions and suggest the next prompt, and the design of `ask_user` v2 with single, multiple and free answers.
+- [guidance-texts/](guidance-texts/): inventory of every text the harness writes to the model, evidence on how Qwen-class models read guidance, findings, ranked candidate rewrites and the experiments G1-G6 and M1 that would test them (the weight of the tool JSON is the main finding).
 - [awareness.md](awareness.md): the agent's knowledge of itself, its target and its limits, lessons kept in a file and reused, proactive course checks, option cards.
 - [vibe-coding.md](vibe-coding.md): a coding mode for the Agent tab, from Goose (Apache 2.0) and Roo Code (Apache 2.0).
 
