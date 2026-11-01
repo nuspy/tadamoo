@@ -30,8 +30,8 @@ from harness.rule_of_two import LEVELS
 from harness.syntax_check import DEFAULT_GUARD as DEFAULT_EDIT_GUARD, GUARD_LEVELS as EDIT_GUARD_LEVELS
 from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
 from harness import digest
-from harness import auto_approve, awareness, completion, inject_screen, persistence, memory_rank, side_uses, tool_extract
-from harness.side import side_context, side_extra, use as side_use
+from harness import auto_approve, awareness, completion, inject_screen, lessons, persistence, memory_rank, side_uses, tool_extract
+from harness.side import side_context, side_extra, side_extra_for, use as side_use
 from harness.prompt_blocks import instruction_blocks
 from harness.project_profile import clean_list
 from harness.roles import GENERAL as GENERAL_ROLE, ROLE_IDS, RolePolicy, valid as valid_role
@@ -209,6 +209,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--exec-level-file", default="", help="the file that holds how freely the code the model writes runs (contained, free or admin; harness/exec_level.py); empty: contained")
     parser.add_argument("--personal-skills-dir", default="", help="the folder of the person's personal skills: the conversation can write one with create_skill")
     parser.add_argument("--persistence-file", default="", help="where the person's choice for \"work until done\" is kept (harness/persistence.py)")
+    parser.add_argument("--lessons-dir", default=None, help="the folder of the global lessons; with it (or with \"\") the conversation keeps outcomes and lessons in the project's .basalt folder and reads them at the start of a task")
     parser.add_argument("--past-index", default="", help="the file that indexes the person's earlier conversations (harness/past.py): the conversation can search and reread them")
 
 
@@ -233,7 +234,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
-        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, past_index=args.past_index, persistence_file=args.persistence_file, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
+        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, past_index=args.past_index, persistence_file=args.persistence_file, lessons_dir=args.lessons_dir, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
     )
 
 
@@ -288,6 +289,7 @@ class AgentConfig:
     personal_memory_dir: str = ""       # the person's own memories (harness/personal_memory.py); empty: the conversation has none
     personal_memory_keys: str = ""      # where the device key that opens them is (default: the same folder)
     exec_level_file: str = ""           # where the person's choice of how freely code runs is kept (harness/exec_level.py); empty: contained
+    lessons_dir: Optional[str] = None   # the folder of the global lessons; None: the conversation keeps none, "": only the project's own
     persistence_file: str = ""          # where the choice for "work until done" is kept; empty: it is off
     personal_skills_dir: str = ""       # the folder of the personal skills; empty: the conversation cannot write one
     past_index: str = ""                # the index of the earlier conversations (harness/past.py); empty: the conversation cannot search them
@@ -865,6 +867,32 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         clock=local_now,
         max_tokens=cfg.max_tokens,
     )
+    if cfg.lessons_dir is not None:
+        lessons_store = lessons.LessonStore(workspace, cfg.lessons_dir or None)
+        outcomes = lessons.OutcomeLog(workspace)
+        lesson_client = technical if technical is not None else client
+
+        def keep_lessons(record: Dict[str, Any], candidates: List[Dict[str, Any]]) -> None:
+            outcomes.append(record)
+            if candidates:
+                threading.Thread(target=write_lessons, args=(record, candidates), name="lessons", daemon=True).start()
+
+        def write_lessons(record: Dict[str, Any], candidates: List[Dict[str, Any]]) -> None:
+            written = candidates
+            messages = lessons.polish_prompt(candidates, record)
+            extra = side_extra_for(lesson_client, "lessons", sum(len(m["content"]) for m in messages), 600) if lesson_client is not None and side_uses.enabled("lessons") else {}
+            if extra:
+                try:
+                    reply = lesson_client.chat_completion(messages=messages, temperature=0.0, max_tokens=600, timeout=side_uses.param("lessons", "timeout_s"),
+                                                          extra={"reasoning_effort": "none", **extra})
+                    written = lessons.polish_all(candidates, reply["choices"][0]["message"].get("content") or "")
+                except Exception:
+                    written = candidates                              # without the write-up the lessons keep the sentences the code made
+            for candidate in written:
+                lessons_store.add_candidate(candidate)
+
+        agent.lessons_for = lambda request: lessons.block_for(request, lessons_store)
+        agent.learn = keep_lessons
     agent.completion = completion.make_completion(persistence.enabled, technical if technical is not None else client)
     awareness.register_self_status(registry, lambda: awareness.status_of(agent, context.budget_tokens))
     quick = technical if technical is not None else client          # the quick jobs never take the conversation's own route

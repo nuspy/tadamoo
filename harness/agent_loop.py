@@ -256,6 +256,9 @@ class AgentLoop:
         self.on_delta = on_delta                  # the model's text as it is written ("content" or "reasoning"), when set
         self.before_inference = before_inference  # looked at before every model call; it may add messages or ask to be put aside
         self.completion: Optional[Callable[[str, str, str], str]] = None      # "work until done": the note that sends the model back to finish, or "" (harness/completion.py)
+        self.lessons_for: Optional[Callable[[str], str]] = None               # the lessons of earlier work that bear on a request, as a note, or "" (harness/lessons.py)
+        self.learn: Optional[Callable[[Dict[str, Any], List[Dict[str, Any]]], None]] = None   # told how a request went and what it taught, when its run ends
+        self._recorder: Any = None
         self.mission: Dict[str, Any] = {}         # the request in hand and what the harness knows of it, for self_status
         self.batch_interrupt = batch_interrupt    # looked at before each call of a message's batch: a reason to leave the rest of the batch unrun, or ""
         self.pipeline = pipeline                  # checks the final answer against the request's card (harness/pipeline.py)
@@ -344,12 +347,43 @@ class AgentLoop:
         self.last_user_text, self.untrusted_since_user = words, False
         if not steer:
             self.mission = {"request": words[:300], "completion_rounds": 0}
+            self._begin_learning(words)
         if self.pipeline:
             card = self.pipeline.card(words)
             if steer and self._card is not None:
                 have = {(c.kind, str(c.value)) for c in self._card.constraints}
                 card.constraints = self._card.constraints + [c for c in card.constraints if (c.kind, str(c.value)) not in have]
             self._card, self._retried = card, False
+
+    def _begin_learning(self, request: str) -> None:
+        """A request of the person starts: what earlier work taught about it is added after it, and what happens is recorded to teach the next one."""
+        if self.subagent:
+            return
+        if self.lessons_for is not None:
+            try:
+                block = self.lessons_for(request)
+            except Exception:
+                block = ""
+            if block:
+                self.append({"role": "user", "content": block, "note": True})
+                self.mission["lessons"] = block.count(chr(10))
+        if self.learn is not None:
+            from harness.lessons import Recorder
+            self._recorder = Recorder(mask=self.secrets.mask_secrets if self.secrets is not None else None)
+            self._learn_from = request
+            self._learn_started = time.monotonic()
+
+    def _end_learning(self) -> None:
+        recorder, self._recorder = self._recorder, None
+        if recorder is None or self.learn is None:
+            return
+        try:
+            from harness.lessons import result_for
+            record, candidates = recorder.finish(result_for(self.stop_reason, cancelled_by_person=self.cancel.is_set()), self._learn_from, steps=len(self.turns),
+                                                 tokens=self.total_tokens, seconds=round(time.monotonic() - self._learn_started, 1), loop_strikes=self._loop_strikes)
+            self.learn(record, candidates)
+        except Exception:
+            pass                                              # learning never gets in the way of the answer
 
     def taint(self, source: str, private: bool = False) -> None:
         """Content from outside the person's control came into the conversation (`private`: it is also the person's own data): the Rule of Two
@@ -366,6 +400,8 @@ class AgentLoop:
 
     def _emit(self, event: Dict[str, Any]) -> None:
         """Tells an observer what is happening (assistant text, tool start and end); it can never affect the run."""
+        if self._recorder is not None:
+            self._recorder.observe(event)
         if self.on_event:
             try:
                 self.on_event(event)
@@ -888,6 +924,7 @@ class AgentLoop:
             if self._loop_strikes > self.max_loop_strikes:
                 self.stop_reason = LOOP
                 break
+        self._end_learning()
         return run_turns
 
     @staticmethod

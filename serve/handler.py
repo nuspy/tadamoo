@@ -2498,7 +2498,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
                                            skills_dir=userdata.path("personal-skills"), projects=self._projects(),
                                            personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer, past=self._past(),
-                                           exec_level_file=userdata.path(exec_level.FILE), persistence_file=userdata.path(persistence.FILE), forgetter=self._forgetter())
+                                           exec_level_file=userdata.path(exec_level.FILE), persistence_file=userdata.path(persistence.FILE), lessons_dir=userdata.path("lessons"), forgetter=self._forgetter())
                 threading.Thread(target=_SESSIONS.index_all_past, name="past-backfill", daemon=True).start()      # the conversations saved before the index
                 self._routines()                          # the clock of the routines starts with the conversations
             return _SESSIONS
