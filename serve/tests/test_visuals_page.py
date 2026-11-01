@@ -51,7 +51,7 @@ class VisualsPageTest(base.PlansApiBase):
         for level in LEVELS:
             self.assertEqual(HTML.count(f'data-t="vis.level.{level}"'), 2, level)
             self.assertEqual(I18N.count(f'"vis.level.{level}":'), 2, level)
-        self.assertIn("worktree: copyMode(), ...visuals() });", AGENT)
+        self.assertIn("worktree: copyMode(), ...visuals(),", AGENT)
         self.assertIn('images: vis.imgOn.checked ? vis.imgLevel.value : ""', AGENT)
         for key in set(re.findall(r'data-t="(vis\.[a-z.]+)"', HTML)) | {"mmd.source", "mmd.error"}:
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
