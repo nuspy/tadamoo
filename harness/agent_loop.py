@@ -27,7 +27,7 @@ from harness.loop_guard import OutcomeGuard, Verdict
 from harness.repeat_guard import RepeatGuard
 from harness.rule_of_two import CONTENT_TOOLS, leak_question
 from harness import inject_screen, outward_calls
-from harness.hooks import HookManager
+from harness.hooks import AskPerson, HookManager
 from harness.output_guard import RepetitionAbort, RepetitionWatch, raised_penalty, repetition_dominated
 from harness.permissions import PermissionManager
 from harness.pipeline import Card, Pipeline, feedback
@@ -225,6 +225,7 @@ class AgentLoop:
         sampling: Optional[Dict[str, Any]] = None,
         on_delta: Optional[Callable[[str, str], None]] = None,
         before_inference: Optional[Callable[[], Optional[str]]] = None,
+        batch_interrupt: Optional[Callable[[], str]] = None,
         pipeline: Optional[Pipeline] = None,
         clock: Optional[Callable[[], datetime]] = None,
         max_tokens: Optional[int] = None,
@@ -253,6 +254,7 @@ class AgentLoop:
         self.on_event = on_event
         self.on_delta = on_delta                  # the model's text as it is written ("content" or "reasoning"), when set
         self.before_inference = before_inference  # looked at before every model call; it may add messages or ask to be put aside
+        self.batch_interrupt = batch_interrupt    # looked at before each call of a message's batch: a reason to leave the rest of the batch unrun, or ""
         self.pipeline = pipeline                  # checks the final answer against the request's card (harness/pipeline.py)
         self.clock = clock                        # when set: each request is preceded by the local time, and each message carries its time (`ts`)
         self._card: Optional[Card] = None
@@ -598,7 +600,10 @@ class AgentLoop:
                     return refused("denied", f"Permission denied: {reason}", "permission_denied")
         if self.hooks:
             blocked = self.hooks.trigger_pre_tool(name, args)
-            if blocked:
+            if isinstance(blocked, AskPerson):
+                if not (self.permissions and self.permissions.ask_by_hook(name, args, str(blocked))):
+                    return refused("blocked", f"Not run: a hook of the person's asks before this call and it was not allowed ({blocked})", "tool_blocked")
+            elif blocked:
                 return refused("blocked", blocked, "tool_blocked")
         if self.permissions:
             allowed, reason = self.permissions.evaluate(name, tool.effect, args, outward=tool.outward)
@@ -794,7 +799,8 @@ class AgentLoop:
             })
             checkpointed = [False]
             seen: Dict[str, str] = {}                 # the calls of this message already run: what they were, and their id
-            ran = repeated = surplus = 0
+            ran = repeated = surplus = interrupted_n = 0
+            interrupted = ""
             for call in calls:
                 if self.cancel.is_set():
                     self.append({"role": "tool", "tool_call_id": call.call_id, "name": call.name,
@@ -805,7 +811,12 @@ class AgentLoop:
                 shown_args, description = self.tools.split_description(call.name, call.arguments)
                 same = self._call_key(call, shown_args)
                 skip = ""
-                if same and same in seen:
+                if ran and not interrupted and self.batch_interrupt is not None:
+                    interrupted = self.batch_interrupt() or ""
+                if interrupted:
+                    skip = interrupted
+                    interrupted_n += 1
+                elif same and same in seen:
                     skip, repeated = f"Not run again: this repeats call {seen[same]} above (same tool, same arguments).", repeated + 1
                 elif ran >= MAX_CALLS_PER_MESSAGE:
                     skip, surplus = f"Not run: more than {MAX_CALLS_PER_MESSAGE} calls in one message.", surplus + 1
@@ -840,6 +851,9 @@ class AgentLoop:
                             "decision": result.decision, "output": text})
                 self.append({"role": "tool", "tool_call_id": call.call_id, "name": call.name, "content": text,
                              **({"explain": description} if description else {})})
+            if interrupted_n:                         # the person wrote something that changes or cancels the work: said once, the rest of the batch was not run
+                self._emit({"type": "batch_interrupted", "skipped": interrupted_n})
+                self._audit("batch_interrupted", {"skipped": interrupted_n, "ran": ran})
             if repeated or surplus:                   # one strike for the message, and the model is told once
                 self._loop_strikes += 1
                 note = self._skipped_note(repeated, surplus)

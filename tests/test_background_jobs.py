@@ -51,3 +51,18 @@ def test_an_unknown_job_is_an_error_that_names_the_known_ones(tmp_path):
         assert "job9" in str(exc)
     else:
         raise AssertionError("no error")
+
+
+def test_the_output_of_a_running_job_reaches_the_sink_and_job_log_as_it_is_written(tmp_path):
+    reg = make(tmp_path)
+    seen = []
+    reg.jobs.sink = seen.append
+    code = "import sys, time; print('first', flush=True); time.sleep(1.5); print('second', flush=True); sys.stderr.write('oops'); sys.stderr.flush()"
+    started = reg.get("shell_command").handler(py(code), background=True)
+    assert wait_until(lambda: "first" in reg.get("job_log").handler(started["job"]).get("output", ""))
+    assert reg.get("job_status").handler(started["job"])["state"] == "running"
+    assert wait_until(lambda: reg.get("job_status").handler(started["job"])["state"] == "finished")
+    text = {s: "".join(e["text"] for e in seen if e.get("stream") == s) for s in ("out", "err")}
+    assert "first" in text["out"] and "second" in text["out"] and "oops" in text["err"]
+    states = [e["state"] for e in seen if "state" in e]
+    assert states[0] == "running" and states[-1] == "finished"

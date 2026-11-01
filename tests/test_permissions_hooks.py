@@ -392,3 +392,37 @@ def test_the_rules_offered_by_an_always_answer_cover_each_statement_of_the_comma
     assert pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "pytest tests/a.py"})[0]
     assert not pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "pytest && curl x"})[0]
     assert not pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "del /s *"})[0]
+
+
+def test_an_ask_action_and_a_command_that_exits_with_3_ask_the_person_instead_of_refusing(tmp_path):
+    from harness.hooks import AskPerson
+    manager = _hooks(tmp_path, [{"event": "pre_tool", "tool": "shell_command", "match": {"command": "git push*"}, "action": "ask", "reason": "pushes go through me", "name": "pushes"}],
+                     safety_interceptor=False)
+    got = manager.trigger_pre_tool("shell_command", {"command": "git push origin x"})
+    assert isinstance(got, AskPerson) and "pushes go through me" in got
+    assert manager.trigger_pre_tool("shell_command", {"command": "git status"}) is None
+    gate = _script(tmp_path, "ask.py", "import sys\nsys.stderr.write('big file')\nsys.exit(3)\n")
+    manager = _hooks(tmp_path, [{"event": "pre_tool", "command": gate, "name": "size"}], safety_interceptor=False)
+    assert isinstance(manager.trigger_pre_tool("write_file", {"path": "a"}), AskPerson)
+
+
+def test_a_refusal_by_another_hook_wins_over_a_question(tmp_path):
+    manager = _hooks(tmp_path, [{"event": "pre_tool", "action": "ask", "reason": "check", "name": "q"},
+                                {"event": "pre_tool", "action": "block", "reason": "never", "name": "no"}], safety_interceptor=False)
+    from harness.hooks import AskPerson
+    got = manager.trigger_pre_tool("write_file", {"path": "a"})
+    assert got.startswith("Blocked by hook 'no'") and not isinstance(got, AskPerson)
+
+
+def test_the_loop_runs_a_call_a_hook_asks_about_only_when_the_person_allows_it(tmp_path):
+    from test_agent_loop import ScriptedClient, call, make, say
+    from harness.permissions import PermissionLevel, PermissionManager
+    for allow in (True, False):
+        ws = tmp_path / f"ws{allow}"
+        ws.mkdir()
+        asked = []
+        perms = PermissionManager(level=PermissionLevel.AUTO, confirm_callback=lambda t, a: asked.append(a) or allow)
+        manager = _hooks(tmp_path, [{"event": "pre_tool", "tool": "write_file", "action": "ask", "reason": "check", "name": "q"}], safety_interceptor=False)
+        agent, _ = make(ws, ScriptedClient(call("write_file", {"path": "a.txt", "content": "x"}), say("done")), permissions=perms, hooks=manager)
+        agent.run("write")
+        assert (ws / "a.txt").exists() is allow and asked[0]["hook_asks"].startswith("hook 'q'")

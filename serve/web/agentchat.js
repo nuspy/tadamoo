@@ -337,6 +337,12 @@
     a.blocks.push({ t: kind, s: text, dirty: true, ts: stampOf() });
   }
   function addBlock(b, turn) { const a = assistant(turn); const last = a.blocks[a.blocks.length - 1]; if (last && last.t === "reasoning") last.over = true; a.blocks.push({ ...b, dirty: true, ts: stampOf() }); return a.blocks[a.blocks.length - 1]; }
+  const JOB_COLOURS = 6;
+  function jobBlock(e) {
+    for (const it of items) { const found = (it.blocks || []).find(x => x.t === "job" && x.id === e.job); if (found) return found; }
+    const n = parseInt(String(e.job).replace(/\D+/g, ""), 10) || 0;
+    return addBlock({ t: "job", id: e.job, n, command: e.command || "", state: "running", segs: [] }, e.turn);
+  }
   const toolBlock = id => { for (const it of items) { const b = (it.blocks || []).find(x => x.t === "tool" && x.id === id); if (b) return b; } return null; };
 
   function apply(e) {
@@ -364,6 +370,9 @@
       case "queued": break;                                                    // the person's own bubble is already there
       case "routed": noteItem({ s: T("ch.routed." + e.how, e.position || 0), route: e.turn, how: e.how }); break;
       case "payment": addBlock({ t: "note", s: T("ch.payment." + (e.mode === "confirmed" ? "confirmed" : "waiver"), e.amount, e.recipient, e.site || "-", e.remaining || "-") }, e.turn); break;
+      case "job": { const b = jobBlock(e); b.state = e.state; if (e.exit_code !== undefined) b.code = e.exit_code; b.dirty = true; break; }               // a background command: its own block, in its own colour
+      case "job_output": { const b = jobBlock(e); b.segs.push({ err: e.stream === "err", text: String(e.text || "") }); if (b.segs.length > 400) b.segs.splice(0, b.segs.length - 400); b.dirty = true; break; }
+      case "auto_approved": addBlock({ t: "note", s: T("ch.autoapproved", e.tool, String(e.arguments || "").slice(0, 160)) }, e.turn); break;
       case "suspended": noteItem({ s: T("ch.suspended") }); break;
       case "resumed": noteItem({ s: T("ch.resumed") }); assistant(e.turn); break;
       case "cleared": noteItem({ s: T("ch.cleared", e.count) }); break;
@@ -406,6 +415,8 @@
         } else if (d.type === "tool_start") {
           if (d.name === "ask_user") break;                                    // its question is shown by the question itself
           addBlock({ t: "tool", id: d.call_id, name: d.name, args: d.arguments || {}, status: "running", output: "", description: explainOf(d.description) }, e.turn);
+        } else if (d.type === "batch_interrupted") {                               // the person wrote something that changes the work: the rest of the commands was not run
+          addBlock({ t: "note", s: T("ch.batch.interrupted", d.skipped || 0) }, e.turn);
         } else if (d.type === "calls_skipped") {                                 // repeats and calls over the limit are not run: said once, not once for each
           addBlock({ t: "note", s: T("ch.calls.skipped", (d.repeated || 0) + (d.surplus || 0)) }, e.turn);
         } else if (d.type === "verify") {                                        // the answer measured against what was asked
@@ -610,6 +621,11 @@
       s.append(mk("span", "atool-d"), mk("span", "atool-n"), mk("span", "atool-s"));
       d.append(s, a, o); return d;
     }
+    if (b.t === "job") {
+      const d = mk("details", "atool ajob"), s = mk("summary"), o = mk("pre", "atool-o ajob-o");
+      s.append(mk("span", "ajob-dot"), mk("span", "atool-n"), mk("span", "atool-d"), mk("span", "atool-s"));
+      d.append(s, o); d.open = true; return d;
+    }
     if (b.t === "opt") {
       const d = mk("details", "atool aopt"), sum = mk("summary"), body = mk("pre", "atool-o");
       sum.append(mk("span", "atool-d")); d.append(sum, body); return d;
@@ -645,6 +661,18 @@
         act.title = T("ch.opt.original.tip");
         el.append(act);
       }
+      return;
+    }
+    if (b.t === "job") {                                                          // the output of a background command as it is written; each command has a colour of its own
+      el.dataset.c = String(b.n % JOB_COLOURS);
+      el.dataset.s = b.state === "running" ? "running" : b.state === "finished" && !b.code ? "ok" : "failed";
+      el.querySelector(".atool-n").textContent = b.id;
+      el.querySelector(".atool-d").textContent = b.command;
+      el.querySelector(".atool-s").textContent = " · " + T("ch.job." + b.state) + (b.code !== undefined && b.state !== "running" ? ` (${b.code})` : "");
+      const out = el.querySelector(".ajob-o"), stick = out.scrollTop + out.clientHeight >= out.scrollHeight - 8;
+      out.replaceChildren(...b.segs.map(g => { const sp = mk("span", g.err ? "ajob-err" : ""); sp.textContent = g.text; return sp; }));
+      out.hidden = !b.segs.length;
+      if (stick) out.scrollTop = out.scrollHeight;
       return;
     }
     if (b.t === "tool") {

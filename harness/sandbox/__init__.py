@@ -17,7 +17,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 from harness import exec_level
 
@@ -41,16 +41,18 @@ _scope = threading.local()
 class CancelScope:
     """What a block of `cancel_scope` tells afterwards: whether a command in it was ended by the event."""
 
-    def __init__(self, event: Optional[threading.Event]) -> None:
+    def __init__(self, event: Optional[threading.Event], tap: Optional[Callable[[str, bytes], None]] = None) -> None:
         self.event = event
+        self.tap = tap
         self.cancelled = False
 
 
 @contextlib.contextmanager
-def cancel_scope(event: Optional[threading.Event]) -> Iterator[CancelScope]:
-    """Commands started by this thread inside the block end, with everything they started, soon after `event` is set."""
+def cancel_scope(event: Optional[threading.Event], tap: Optional[Callable[[str, bytes], None]] = None) -> Iterator[CancelScope]:
+    """Commands started by this thread inside the block end, with everything they started, soon after `event` is set. `tap(stream, bytes)`
+    sees the output ("out" or "err") as it is written."""
     before = getattr(_scope, "state", None)
-    state = _scope.state = CancelScope(event)
+    state = _scope.state = CancelScope(event, tap)
     try:
         yield state
     finally:
@@ -105,14 +107,16 @@ def kill_tree(proc: "subprocess.Popen[bytes]") -> None:
 class _Capped(threading.Thread):
     """Drains a pipe, keeping at most `limit` bytes so a noisy command cannot fill memory."""
 
-    def __init__(self, stream: Any, limit: int) -> None:
+    def __init__(self, stream: Any, limit: int, tap: Optional[Callable[[bytes], None]] = None) -> None:
         super().__init__(daemon=True)
-        self.stream, self.limit = stream, limit
+        self.stream, self.limit, self.tap = stream, limit, tap
         self.data = bytearray()
         self.truncated = False
 
     def run(self) -> None:
-        for chunk in iter(lambda: self.stream.read(8192), b""):
+        for chunk in iter(lambda: self.stream.read1(8192) if hasattr(self.stream, "read1") else self.stream.read(8192), b""):
+            if self.tap is not None:
+                self.tap(chunk)
             room = self.limit - len(self.data)
             if room > 0:
                 self.data += chunk[:room]
@@ -180,13 +184,14 @@ class ProcessSandbox:
             return {**result, "exit_code": -1, "stderr": str(exc), "success": False}
         if job.active:
             job.attach(proc)
-        out = _Capped(proc.stdout, self.max_output_bytes)
-        err = _Capped(proc.stderr, self.max_output_bytes)
+        scope = getattr(_scope, "state", None)
+        tap = getattr(scope, "tap", None)
+        out = _Capped(proc.stdout, self.max_output_bytes, (lambda data: tap("out", data)) if tap else None)
+        err = _Capped(proc.stderr, self.max_output_bytes, (lambda data: tap("err", data)) if tap else None)
         out.start()
         err.start()
         if stdin_text is not None:
             _feed(proc, stdin_text)
-        scope = getattr(_scope, "state", None)
         cancel = scope.event if scope is not None else None
         end = time.monotonic() + limit
         while True:
