@@ -5,7 +5,7 @@ Ultimo aggiornamento: 31 ottobre 2026, sera. Si aggiorna a ogni task nuovo ricev
 
 ## In corso adesso
 
-- Esperimento E9 (cosa sa ancora l'agente dopo la compattazione, compattazione spenta contro accesa) in prova sul modello vero: k=2, un solo compito, server Basalt con sessione tecnica, 600 W. Codice e test committati (`f84dfba3`); la prova è un pilota, non un risultato.
+- Esperimento E9 (cosa sa ancora l'agente dopo la compattazione, spenta contro accesa): primo giro k=5 su `long45` chiuso il 1 novembre, 600 W. Solo 7 prove su 15 valide: 8 sono cadute per «connessione chiusa» dalla macchina (nulla nel log del server). Dalle 7 valide: compattazione spenta 0,61 e 0,74 di domande giuste (controllo), accesa 0,28, con un rumore del controllo di 0,13: la compattazione accesa ricorda MENO. Le domande sbagliate dall'accesa sono quasi tutte nomi e valori che nessun passo dopo richiedeva (nome della prima funzione, `LIMIT`): un riassunto è fatto per scartarli. Per questo ho diviso le domande in due gruppi (cosa serviva dopo: conteggi del registro, se un modulo aveva l'errore, regole; cosa no) e la regola ora decide sul primo (`e8816449`). Il client ora riprova le connessioni chiuse (`784bd2fa`). Da rifare: E9 con k=5 sulle nuove domande, quando l'altra sessione scrive FINE (la sua riprova dei 3 casi è in corso).
 
 ## Fatto il 31 ottobre sera (committato, non pubblicato)
 
