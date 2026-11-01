@@ -38,7 +38,7 @@ def test_the_page_can_read_edit_confirm_and_delete(tmp_path):
     assert first["origin"] == "manual"
     api.memory.add("long", "character", "Seems patient", origin="inferred", confidence=0.4)
     view = api.overview()
-    assert view["counts"] == {"long": 2, "short": 0} and view["settings"]["use_long"] is False
+    assert view["counts"] == {"long": 2, "short": 0} and view["settings"]["use_long"] is True
     assert "character" in view["inferred"] and view["sections"]["short"] == ["facts", "searches", "topics", "projects"]
     guess = next(i for i in view["items"] if i["section"] == "character")
     assert api.post("confirm", {"id": guess["id"]})["item"]["origin"] == "confirmed"
@@ -174,6 +174,7 @@ def test_the_worker_keeps_a_message_only_when_a_memory_learns_and_learns_when_fr
             asked.append(messages)
             return {"choices": [{"message": {"content": replies[0]}}]}
 
+    notes.set_settings({"learn_long": False, "learn_short": False})                                        # the person switched learning off
     free = [False]
     worker = MemoryWorker(notes, lambda: Model(), lambda: free[0], poll_s=0.05, retry_s=0.05)
     assert worker.offer({"text": "I moved to Verona last week"}) is False and notes.queue_len() == 0      # nothing learns yet

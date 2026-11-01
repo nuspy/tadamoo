@@ -42,7 +42,7 @@ PER_SECTION = {"low": 1, "normal": 2, "high": 4, "highest": 8}
 CORE = {"high": 2, "highest": 6}                # items of a section put in at the start of a conversation even without a match
 
 DEFAULTS: Dict[str, Any] = {
-    "learn_long": False, "learn_short": False, "use_long": False, "use_short": False,
+    "learn_long": True, "learn_short": True, "use_long": True, "use_short": True,
     "short_days": 14, "long_days": 0,            # how far back the notes put in an answer go (0: no limit); older ones are found only when asked for
     "cloud_ok": False,                           # also put the notes in a request that goes to a provider other than this PC's own model
     "weights": {**{s: ("low" if s in INFERRED_SECTIONS else "normal") for s in LONG_SECTIONS}, **{s: "normal" for s in SHORT_SECTIONS}},

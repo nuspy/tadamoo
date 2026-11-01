@@ -92,12 +92,13 @@ def test_clear_takes_one_memory_or_all(tmp_path):
     assert memory.count() == 0 and memory.queue_len() == 0
 
 
-def test_everything_is_off_until_the_person_switches_it_on(tmp_path):
+def test_the_memories_are_on_and_the_cloud_is_off_until_the_person_says_otherwise(tmp_path):
     memory = make(tmp_path)
     s = memory.settings()
-    assert not any(s[k] for k in ("learn_long", "learn_short", "use_long", "use_short", "cloud_ok"))
+    assert all(s[k] for k in ("learn_long", "learn_short", "use_long", "use_short")) and not s["cloud_ok"]
     assert s["short_days"] == 14 and s["long_days"] == 0
     assert s["weights"]["emotions"] == "low" and s["weights"]["place"] == "normal"      # what is only guessed weighs little at first
+    memory.set_settings({"use_long": False, "use_short": False})
     memory.add("long", "place", "Lives in Rome")
     assert Recall(memory).message("where should I eat in Rome") is None
 
@@ -137,10 +138,17 @@ def test_the_long_memory_has_no_window_by_default(tmp_path):
 
 
 def test_a_memory_that_is_not_used_gives_nothing(tmp_path):
-    memory = make(tmp_path, use_long=True)
+    memory = make(tmp_path, use_long=True, use_short=False)
     memory.add("long", "place", "Lives in Torino")
     memory.add("short", "facts", "Torino has a fair this week")
     assert [i["kind"] for i in memory.eligible()] == ["long"]
+
+
+def test_a_switch_the_person_turned_off_stays_off_for_every_later_process(tmp_path):
+    make(tmp_path, learn_long=False, use_short=False)
+    later = make(tmp_path)                                             # a new conversation, or the server after a restart
+    s = later.settings()
+    assert not s["learn_long"] and not s["use_short"] and s["learn_short"] and s["use_long"]
 
 
 def test_the_request_decides_which_notes_come_in(tmp_path):
