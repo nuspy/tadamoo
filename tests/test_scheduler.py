@@ -538,3 +538,69 @@ def test_a_routine_is_not_indexed_for_later_search_unless_the_person_says_so(tmp
     with pytest.raises(RoutineError, match="on or off"):
         sched.update(first["id"], index_past="yes")
     assert add(sched, folder, name="other", index_past=True)["index_past"] is True
+
+
+# -- a check before the model, the outcome of each run, and the kill switch ----------------------------------------------------
+
+def _make_with_runner(tmp_path, seen):
+    class R:
+        def run(self, routine, cancel):
+            seen.append(routine)
+            return {"status": "done", "summary": "Looked at it.\nOUTCOME: progress"}
+    return Scheduler(tmp_path, R())
+
+
+def _wait_runs(sched, n):
+    end = time.monotonic() + 10
+    while len(sched.results) < n and time.monotonic() < end:
+        time.sleep(0.05)
+
+
+def test_a_check_that_finds_nothing_ends_the_run_without_waking_the_model(tmp_path):
+    seen = []
+    sched = _make_with_runner(tmp_path, seen)
+    folder = tmp_path / "w"
+    folder.mkdir()
+    r = sched.add("quiet", "do it", str(folder), "every 1d", check=f'"{sys.executable}" -c "import sys; print(\'no news\'); sys.exit(1)"')
+    sched.start()
+    sched.run_now(r["id"])
+    _wait_runs(sched, 1)
+    sched.shutdown()
+    assert not seen and sched.results[0]["status"] == "skipped" and sched.results[0]["outcome"] == "nothing_new"
+
+
+def test_a_check_that_passes_gives_its_words_to_the_model_and_the_outcome_is_kept_for_the_next_run(tmp_path):
+    seen = []
+    sched = _make_with_runner(tmp_path, seen)
+    folder = tmp_path / "w"
+    folder.mkdir()
+    r = sched.add("news", "do it", str(folder), "every 1d", check=f'"{sys.executable}" -c "print(\'3 new files\')"')
+    sched.start()
+    sched.run_now(r["id"])
+    _wait_runs(sched, 1)
+    sched.run_now(r["id"])
+    _wait_runs(sched, 2)
+    sched.shutdown()
+    assert seen[0]["check_output"] == "3 new files" and seen[0]["previous"] == []
+    assert sched.results[0]["outcome"] == "progress" and seen[1]["previous"][0]["outcome"] == "progress"
+    from harness.scheduler import with_history
+    text = with_history(seen[1])
+    assert "Earlier runs" in text and "progress" in text and "3 new files" in text and text.rstrip().endswith("blocked.")
+
+
+def test_the_kill_switch_stops_everything_until_it_is_taken_off(tmp_path):
+    seen = []
+    sched = _make_with_runner(tmp_path, seen)
+    folder = tmp_path / "w"
+    folder.mkdir()
+    r = sched.add("any", "do it", str(folder), "every 1d")
+    sched.emergency_stop(True)
+    assert sched.view()["stopped"] and (tmp_path / "routines.stop").exists()
+    sched.start()
+    sched.run_now(r["id"])
+    time.sleep(1.5)
+    assert not seen
+    sched.emergency_stop(False)
+    _wait_runs(sched, 1)
+    sched.shutdown()
+    assert len(seen) == 1 and not sched.view()["stopped"]

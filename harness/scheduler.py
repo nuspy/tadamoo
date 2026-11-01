@@ -26,6 +26,7 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import tempfile
 import threading
 import time
@@ -38,6 +39,11 @@ PENDING_FILE = "routine_pending.json"
 NO_STEP_LIMIT = -1                  # `max_turns` the conversation path reads as no limit
 KEEP_RUNS = 200
 NAME_MAX, PROMPT_MAX, SUMMARY_MAX = 80, 4000, 4000
+CHECK_MAX, CHECK_TIMEOUT_S, CHECK_OUTPUT_MAX = 1000, 300, 2000
+STOP_FILE = "routines.stop"         # while this file exists in the data folder no routine starts and the ones running are stopped
+OUTCOMES = ("nothing_new", "progress", "done", "blocked")
+_OUTCOME = re.compile(r"^\s*OUTCOME:\s*([a-z_]+)\s*$", re.I | re.M)
+PREVIOUS_RUNS = 3                   # earlier runs whose outcome a run is told about
 YIELD_MAX_S = 3600                  # the longest a routine may go on once a conversation of the person's is at work
 VALUES_MAX = 8000                                                     # what is kept of a skill's values: names and short values
 _SKILL = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
@@ -45,6 +51,17 @@ DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 _INTERVAL = re.compile(r"^every\s+(\d+)\s*([smhd])$")
 _FIXED = re.compile(r"^([a-z,\s]+?)\s+(\d{1,2}):(\d{2})$")
 _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+
+
+def outcome_of(outcome: Dict[str, Any]) -> str:
+    """The one word a run leaves for the next one: the `OUTCOME:` line the agent ended with, else what the status says."""
+    given = str(outcome.get("outcome") or "")
+    if given in OUTCOMES:
+        return given
+    found = _OUTCOME.findall(str(outcome.get("summary") or ""))
+    if found and found[-1].lower() in OUTCOMES:
+        return found[-1].lower()
+    return {"done": "done", "parked": "blocked"}.get(str(outcome.get("status")), "")
 
 
 class RoutineError(ValueError):
@@ -199,10 +216,15 @@ class Scheduler:
 
     # -- the list --------------------------------------------------------------------------------
 
+    def previous(self, routine_id: str) -> List[Dict[str, Any]]:
+        """The outcome and the first words of the last runs of a routine, oldest first: what the next run is told."""
+        done = [r for r in self.results if r.get("routine") == routine_id and r.get("status") not in ("skipped",)]
+        return [{"at": r.get("started"), "outcome": r.get("outcome") or "", "status": r.get("status"), "summary": str(r.get("summary") or "")[:300]} for r in done[-PREVIOUS_RUNS:]]
+
     def view(self) -> Dict[str, Any]:
         with self._lock:
             return {"routines": [{**r, "next_run": self._due.get(r["id"]) if r.get("enabled") else None} for r in self.routines],
-                    "running": list(self._active), "queued": list(self._queue), "pending": [dict(p) for p in self.pending_requests]}
+                    "running": list(self._active), "queued": list(self._queue), "pending": [dict(p) for p in self.pending_requests], "stopped": self.stopped()}
 
     def get(self, routine_id: str) -> Dict[str, Any]:
         with self._lock:
@@ -215,11 +237,12 @@ class Scheduler:
         return r
 
     def add(self, name: Any, prompt: Any, workspace: Any, schedule: Any, max_turns: Any = None, max_minutes: Any = None,
-            skill: Any = "", values: Any = None, yield_s: Any = None, index_past: Any = False) -> Dict[str, Any]:
+            skill: Any = "", values: Any = None, yield_s: Any = None, index_past: Any = False, check: Any = "") -> Dict[str, Any]:
         """A new routine, enabled. With a `skill` it runs that personal skill with `values` instead of a prompt.
         `max_turns` and `max_minutes` limit the steps and the time of a run, `yield_s` how long it may go on once a conversation
-        of the person's is at work; empty means no limit. `index_past` adds what the routine does to the index of earlier conversations (off unless the person asks)."""
-        routine = self._check(name, prompt, workspace, schedule, max_turns, max_minutes, skill, values, yield_s, index_past)
+        of the person's is at work; empty means no limit. `index_past` adds what the routine does to the index of earlier conversations (off unless the person asks).
+        `check` is a command run before the model is woken: exit code 0 goes on (what it prints is given to the model), 1 means nothing to do and the run ends there, anything else fails the run."""
+        routine = self._check(name, prompt, workspace, schedule, max_turns, max_minutes, skill, values, yield_s, index_past, check)
         now = self.clock()
         routine.update(id=secrets.token_hex(3), enabled=True, enabled_at=now, created=now, last_run=0, last_status="")
         with self._lock:
@@ -231,9 +254,9 @@ class Scheduler:
     def update(self, routine_id: str, **fields: Any) -> Dict[str, Any]:
         with self._lock:
             current = self._find(routine_id)
-            merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "max_turns", "max_minutes", "skill", "values", "yield_s", "index_past")}}
+            merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "max_turns", "max_minutes", "skill", "values", "yield_s", "index_past", "check")}}
             checked = self._check(merged["name"], merged["prompt"], merged["workspace"], merged["schedule"], merged.get("max_turns"),
-                                  merged.get("max_minutes"), merged.get("skill", ""), merged.get("values"), merged.get("yield_s"), merged.get("index_past", False))
+                                  merged.get("max_minutes"), merged.get("skill", ""), merged.get("values"), merged.get("yield_s"), merged.get("index_past", False), merged.get("check", ""))
             current.update(checked)
             self._due[routine_id] = self._advance(current, self.clock())
             self._save()
@@ -241,7 +264,7 @@ class Scheduler:
 
     @staticmethod
     def _check(name: Any, prompt: Any, workspace: Any, schedule: Any, max_turns: Any = None, max_minutes: Any = None,
-               skill: Any = "", values: Any = None, yield_s: Any = None, index_past: Any = False) -> Dict[str, Any]:
+               skill: Any = "", values: Any = None, yield_s: Any = None, index_past: Any = False, check: Any = "") -> Dict[str, Any]:
         if not isinstance(name, str) or not name.strip() or len(name) > NAME_MAX:
             raise RoutineError(f"Give the routine a name of at most {NAME_MAX} characters.", "bad_name")
         if skill:
@@ -268,7 +291,9 @@ class Scheduler:
             raise RoutineError(f"The time to go on once a conversation of yours is at work is from 0 to {YIELD_MAX_S} seconds, or empty for never.", "bad_yield")
         if not isinstance(index_past, bool):
             raise RoutineError("Indexing is on or off.", "bad_index")
-        return {"yield_s": yield_s, "index_past": index_past, "name": name.strip(), "prompt": prompt.strip(), "workspace": str(Path(workspace.strip()).resolve()),
+        if not isinstance(check, str) or len(check) > CHECK_MAX:
+            raise RoutineError(f"The check is a command of at most {CHECK_MAX} characters, or empty.", "bad_check")
+        return {"yield_s": yield_s, "index_past": index_past, "check": check.strip(), "name": name.strip(), "prompt": prompt.strip(), "workspace": str(Path(workspace.strip()).resolve()),
                 "schedule": " ".join(str(schedule).lower().split()), "max_turns": max_turns, "max_minutes": max_minutes,
                 **({"skill": skill, "values": dict(values or {})} if skill else {"skill": "", "values": {}})}
 
@@ -343,6 +368,19 @@ class Scheduler:
         self._wake.set()
         return dict(r)
 
+    def stopped(self) -> bool:
+        return (self.directory / STOP_FILE).exists()
+
+    def emergency_stop(self, on: bool) -> None:
+        """The kill switch: with it on, nothing starts and what runs is stopped; a file in the data folder, so a script can set it too."""
+        path = self.directory / STOP_FILE
+        if on:
+            path.write_text(str(self.clock()), encoding="utf-8")
+            self.cancel_running()
+        elif path.exists():
+            path.unlink()
+        self._wake.set()
+
     def cancel_running(self) -> None:
         with self._lock:
             for state in self._active.values():
@@ -351,6 +389,9 @@ class Scheduler:
     def check(self, now: Optional[float] = None) -> None:
         """One look at the clock (public so the tests can drive it): every enabled routine that is due goes in the queue once."""
         now = self.clock() if now is None else now
+        if self.stopped():
+            self.cancel_running()
+            return
         with self._lock:
             for r in self.routines:
                 rid = r["id"]
@@ -380,7 +421,7 @@ class Scheduler:
         """Starts every queued routine that is not already running; each run has its own thread."""
         with self._lock:
             for rid in list(self._queue):
-                if rid in self._active or self._stop.is_set():
+                if rid in self._active or self._stop.is_set() or self.stopped():
                     continue
                 self._queue.remove(rid)
                 routine = next((dict(r) for r in self.routines if r["id"] == rid), None)
@@ -401,7 +442,11 @@ class Scheduler:
         if routine.get("yield_s") is not None:
             threading.Thread(target=self._yield_watch, args=(float(routine["yield_s"]), state, finished), name="routine-yield", daemon=True).start()
         try:
-            outcome = self.runner.run(routine, state["cancel"])
+            woken, note, skipped = self._check_first(routine)
+            if skipped is not None:
+                outcome = skipped
+            else:
+                outcome = self.runner.run({**routine, "previous": self.previous(routine["id"]), "check_output": note}, state["cancel"])
         except Exception as exc:
             outcome = {"status": "failed", "summary": f"{type(exc).__name__}: {exc}"}
         finished.set()
@@ -411,6 +456,24 @@ class Scheduler:
         if energy:
             outcome = {**outcome, "energy": energy}
         self._finish(routine["id"], outcome, started, state["run"])
+
+    def _check_first(self, routine: Dict[str, Any]) -> "tuple[bool, str, Optional[Dict[str, Any]]]":
+        """Runs the routine's own check, which costs no model. (woken, what it printed, an outcome when the run ends here)."""
+        command = routine.get("check") or ""
+        if not command:
+            return True, "", None
+        try:
+            done = subprocess.run(command, shell=True, cwd=routine["workspace"], capture_output=True, text=True, errors="replace", timeout=CHECK_TIMEOUT_S, stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            return False, "", {"status": "failed", "summary": f"The check took more than {CHECK_TIMEOUT_S} seconds."}
+        except OSError as exc:
+            return False, "", {"status": "failed", "summary": f"The check could not run: {exc}"}
+        printed = (done.stdout or "").strip()[:CHECK_OUTPUT_MAX]
+        if done.returncode == 0:
+            return True, printed, None
+        if done.returncode == 1:
+            return False, printed, {"status": "skipped", "outcome": "nothing_new", "summary": printed or "The check found nothing to do."}
+        return False, "", {"status": "failed", "summary": f"The check ended with code {done.returncode}: {((done.stderr or printed) or '').strip()[:300]}"}
 
     def _yield_watch(self, grace_s: float, state: Dict[str, Any], finished: threading.Event) -> None:
         """While a routine runs: once a conversation of the person's has been at work for `grace_s` seconds, the routine is asked to stop."""
@@ -432,6 +495,7 @@ class Scheduler:
             record = {"id": run_id or secrets.token_hex(4), "routine": routine_id, "name": routine["name"] if routine else "",
                       "started": started, "ended": ended, "status": str(outcome.get("status") or "failed"),
                       "summary": str(outcome.get("summary") or "")[:SUMMARY_MAX], "session": str(outcome.get("session") or ""),
+                      "outcome": outcome_of(outcome),
                       **{k: outcome[k] for k in ("seconds", "energy") if k in outcome}}
             if record["status"] == "timeout":                 # a warning, not a failure: the routine is tried again at its next time
                 record["warning"] = "timed out"
@@ -470,6 +534,21 @@ def _pending_options(source: Dict[str, Any]) -> List[str]:
     return [str(o.get("label") or o.get("id") or "") if isinstance(o, dict) else str(o) for o in source.get("options") or []]
 
 
+def with_history(routine: Dict[str, Any]) -> str:
+    """The routine's task with what the earlier runs left (their outcome words and first lines), what its check printed, and how to end."""
+    nl = chr(10)
+    parts = [routine["prompt"]]
+    previous = [p for p in routine.get("previous") or [] if (p.get("outcome") or p.get("summary")) and p.get("at")]
+    if previous:
+        parts.append("Earlier runs of this routine, oldest first:" + nl + nl.join(
+            f"- {time.strftime('%Y-%m-%d %H:%M', time.localtime(float(p['at'])))} {p.get('outcome') or p.get('status')}: {str(p.get('summary') or '')[:200]}" for p in previous))
+    if routine.get("check_output"):
+        parts.append("What the routine's check found:" + nl + routine["check_output"])
+    if len(parts) > 1 or routine.get("history_on"):
+        parts.append("End your final answer with one line: OUTCOME: nothing_new, progress, done or blocked.")
+    return (nl + nl).join(parts)
+
+
 class SessionRoutineRunner:
     """Runs a routine as an Automatic conversation of the agent through the server's `SessionManager`, then closes it."""
 
@@ -506,7 +585,7 @@ class SessionRoutineRunner:
                 except Exception as exc:
                     return {"status": "failed", "summary": f"The skill could not start: {exc}", "session": sid, "seconds": round(time.monotonic() - started, 1)}
             else:
-                mgr.send(sid, routine["prompt"])
+                mgr.send(sid, with_history(routine))
             seen, cancelled_at, assumed = 0, None, []
             while True:
                 data = mgr.events(sid, seen)
