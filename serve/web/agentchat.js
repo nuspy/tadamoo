@@ -415,6 +415,8 @@
         } else if (d.type === "tool_start") {
           if (d.name === "ask_user") break;                                    // its question is shown by the question itself
           addBlock({ t: "tool", id: d.call_id, name: d.name, args: d.arguments || {}, status: "running", output: "", description: explainOf(d.description) }, e.turn);
+        } else if (d.type === "course_check") {                                   // the watch on the course: a note to the agent, or a card for the person
+          addBlock({ t: "note", s: T("ch.course." + (d.stage === "card" ? "card" : d.kind === "fold" ? "fold" : "note"), String(d.problem || "")) }, e.turn);
         } else if (d.type === "completion_check") {                                // the request did not look met: the agent was sent back to finish
           addBlock({ t: "note", s: T("ch.completion", d.round, d.of, String(d.note || "").replace(/^\[harness\]\s*/, "").slice(0, 200)) }, e.turn);
         } else if (d.type === "batch_interrupted") {                               // the person wrote something that changes the work: the rest of the commands was not run

@@ -30,7 +30,7 @@ from harness.rule_of_two import LEVELS
 from harness.syntax_check import DEFAULT_GUARD as DEFAULT_EDIT_GUARD, GUARD_LEVELS as EDIT_GUARD_LEVELS
 from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
 from harness import digest
-from harness import auto_approve, awareness, completion, inject_screen, lessons, persistence, memory_rank, side_uses, tool_extract
+from harness import auto_approve, awareness, completion, course, inject_screen, lessons, persistence, memory_rank, side_uses, tool_extract
 from harness.side import side_context, side_extra, side_extra_for, use as side_use
 from harness.prompt_blocks import instruction_blocks
 from harness.project_profile import clean_list
@@ -290,6 +290,7 @@ class AgentConfig:
     personal_memory_keys: str = ""      # where the device key that opens them is (default: the same folder)
     exec_level_file: str = ""           # where the person's choice of how freely code runs is kept (harness/exec_level.py); empty: contained
     lessons_dir: Optional[str] = None   # the folder of the global lessons; None: the conversation keeps none, "": only the project's own
+    course_watch: bool = True           # watch the course of a request: notes to the agent about repeated failures and a near fold, then a card to the person (harness/course.py)
     persistence_file: str = ""          # where the choice for "work until done" is kept; empty: it is off
     personal_skills_dir: str = ""       # the folder of the personal skills; empty: the conversation cannot write one
     past_index: str = ""                # the index of the earlier conversations (harness/past.py); empty: the conversation cannot search them
@@ -894,6 +895,8 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         agent.lessons_for = lambda request: lessons.block_for(request, lessons_store)
         agent.learn = keep_lessons
     agent.completion = completion.make_completion(persistence.enabled, technical if technical is not None else client)
+    if cfg.course_watch:
+        agent.course = course.Watcher(getattr(agent, "lessons_for", None))
     awareness.register_self_status(registry, lambda: awareness.status_of(agent, context.budget_tokens))
     quick = technical if technical is not None else client          # the quick jobs never take the conversation's own route
     if quick is not None:                               # the technical session's two readers of tool results (both off until switched on)

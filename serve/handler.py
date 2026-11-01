@@ -56,6 +56,7 @@ from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAcc
 from serve.personal_skills_api import PersonalSkillsApi
 from harness.forget import Forgetter
 from harness.personal_memory import PersonalMemory, PersonalMemoryError
+from serve.lessons_api import LessonsApi, LessonsError
 from serve.memories_api import MemoriesApi
 from serve import export_api, traces_api
 from serve.exportdoc import ExportError
@@ -90,6 +91,7 @@ _PERSONAL = None                                      # the person's own memorie
 MEMORY_EXPORT = "memory-export"                        # the folder of the exported memories, in the user data folder
 _PAST = None                                          # the index of earlier conversations, made on first use
 _MEMORIES = None                                      # the Memories page's side of them
+_LESSONS = None                                       # the Lessons page's side
 _MEM_WORKER = None                                    # learns from what the person wrote when the GPU is free
 _EXPORT = export_api.ExportApi()                      # turns a conversation into a file; holds a PDF page for the desktop app's print
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
@@ -531,6 +533,14 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(403, {"error": {"type": "forbidden", "message": "the memories are shown only on the PC the server runs on"}})
                     q = parse_qs(urlsplit(self.path).query)
                     self._json(200, self._memories().overview((q.get("q") or [""])[0][:200], (q.get("kind") or [""])[0], (q.get("section") or [""])[0]))
+            elif path == "/api/lessons":
+                if self._authorized():
+                    if not settings.is_loopback(self.client_address[0]):
+                        return self._json(403, {"error": {"type": "forbidden", "message": "the lessons are shown only on the PC the server runs on"}})
+                    try:
+                        self._json(200, self._lessons().overview((parse_qs(urlsplit(self.path).query).get("folder") or [""])[0][:1000]))
+                    except LessonsError as e:
+                        self._json(400, {"error": {"type": "lessons", "message": str(e)}})
             elif path == "/api/wallet":
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
@@ -743,6 +753,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/memories/"):
                 self._memories_post(path)
+                return
+            if path.startswith("/api/lessons/"):
+                self._lessons_post(path)
                 return
             if path == "/api/persistence":
                 self._persistence_post()
@@ -2115,6 +2128,29 @@ def make_handler(svc: Service, remote: bool = False):
             if _MEMORIES is None:
                 _MEMORIES = MemoriesApi(self._personal(), self._memory_worker(), userdata.path(MEMORY_EXPORT))
             return _MEMORIES
+
+        def _lessons(self) -> LessonsApi:
+            global _LESSONS
+            if _LESSONS is None:
+                _LESSONS = LessonsApi(lambda: [(p["name"], Path(p["path"])) for p in self._projects().list() if p.get("exists")]
+                                      + [("Chat", userdata.path("chat-workspace"))], userdata.path("lessons"))
+            return _LESSONS
+
+        def _lessons_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the lessons are changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 16)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                return self._json(200, self._lessons().post(path[len("/api/lessons/"):], req))
+            except (LessonsError, ValueError, TypeError) as e:
+                return self._json(400, {"error": {"type": "lessons", "message": str(e)}})
 
         def _memories_post(self, path):
             if not settings.is_loopback(self.client_address[0]):
