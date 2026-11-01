@@ -10,7 +10,8 @@ from typing import Dict
 
 from .core import Experiment
 
-MODULES: Dict[str, str] = {"e1": "e1_target", "e2": "e2_gate", "e3": "e3_errors", "e4": "e4_intake", "e5": "e5_compaction", "e6": "e6_longform", "e7": "e7_cache", "e8": "e8_optimize", "e9": "e9_context"}
+MODULES: Dict[str, str] = {"e1": "e1_target", "e2": "e2_gate", "e3": "e3_errors", "e4": "e4_intake", "e5": "e5_compaction", "e6": "e6_longform", "e7": "e7_cache", "e8": "e8_optimize", "e9": "e9_context",
+                       "e10": "e10_lessons", "e11": "e11_awareness", "e12": "e12_course"}
 
 
 def load(experiment_id: str) -> Experiment:

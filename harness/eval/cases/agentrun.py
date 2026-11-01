@@ -68,6 +68,14 @@ def wasted_turns(turns: Sequence[al.AgentTurn]) -> int:
     return wasted
 
 
+def failed_calls(turns: Sequence[al.AgentTurn]) -> int:
+    """Tool calls that went wrong: an error, a refusal, or a command that ended with a code other than 0."""
+    from harness.course import failure_of
+    return sum(1 for t in turns for c in t.tool_calls
+               if c.decision != "executed" or failure_of({"status": "failed" if c.is_error else "completed",
+                                                          "output": c.output if isinstance(c.output, str) else json.dumps(c.output, default=str)}) is not None)
+
+
 def transcript_measures(turns: Sequence[al.AgentTurn]) -> Dict[str, float]:
     return {"turns": len(turns), "tool_calls": sum(len(t.tool_calls) for t in turns), "wasted_turns": wasted_turns(turns),
             "prompt_tokens": sum(t.prompt_tokens for t in turns), "completion_tokens": sum(t.completion_tokens for t in turns),

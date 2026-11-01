@@ -347,6 +347,56 @@ twice `N`'s seconds. Tokens read again are reported, not decided on.
 **Not built.** The proxy arms; probes about error text and decisions (they need a transcript to know the answer); the second part, the Chat's short record on scripted chats; the gain of a
 compaction made in parts.
 
+## E10. Lessons of earlier work: off or on
+
+**Question.** When a task has been met before, do the lessons kept from it ([awareness](harness-study/awareness.md), section 3) make the agent avoid its old mistake?
+
+| Arm | Setting | Selected by |
+|---|---|---|
+| `N` | no lessons | `lessons_dir` None |
+| `L` | the project's lessons store, filled before the run | `lessons_dir` "" |
+| `N~aa` | `N` again | |
+
+**Fixture.** Eight small tasks (`fixtures/lesson_tasks.py`), each with a typical recoverable mistake: a changelog that is `HISTORY.txt`, flags a script wants, a date in another form, a missing output folder, a folder
+given without `--recursive`, a token whose place is not said, a unit written as a word, a path with a space. The lessons are written in the fixture in the Recorder's style (not captured from a first run, so the
+test needs no model to make them) and all eight sit in the store for every task: the retrieval has to find the right one. **Scorer.** A script reads the final files. **Metrics**: success, failed_calls (errored, refused or
+exit code other than 0), clean (no failed call), turns, tool calls, wasted turns, lessons_shown, tokens, seconds. **k = 5**.
+
+**Rule.** `L` beats `N` when its mean failed calls per task is lower than the pooled `N` and `N~aa` mean by more than the gap and by 0.5, its success is not lower by more than 10 points or the gap, and it takes no more than 25% more steps.
+
+## E11. Awareness under pressure: self block and course watch off or on
+
+**Question.** In a job folded more than once in a small window, does what the harness tells the agent about itself keep the early rules and facts?
+
+| Arm | Setting | Selected by |
+|---|---|---|
+| `N` | no self block, no `self_status`, no course watch; compaction on | `self_block` False, `course_watch` False |
+| `S` | self block, `self_status` and course watch (with its fold-near note); compaction on | the defaults |
+| `N~aa` | `N` again | |
+
+**Fixture.** E5's long job and E9's probes (the same variants, the same small window, `--window`). **Scorer.** E5's: success, `rule_obeyed` (trailer in the last edits, closing line, frozen folder); E9's: `recall_task`,
+`recall_incidental`. `course_checks` counts the watch's notes. **k = 5**.
+
+**Rule.** `S` beats `N` when its `recall_task` is higher than the pooled `N` and `N~aa` rate by more than the gap and by 10 points, `rule_obeyed` and `success` are not lower by more than 10 points or the gap, and it takes no more than twice `N`'s seconds.
+
+## E12. Course watch: off or on
+
+**Question.** On tasks built to derail, does the watch on the course of a request cut wasted calls without making the agent give up on what could be finished?
+
+| Arm | Setting | Selected by |
+|---|---|---|
+| `N` | course watch off | `course_watch` False |
+| `W` | course watch on | the default |
+| `N~aa` | `N` again | |
+
+**Fixture.** Six tasks (`fixtures/derail_tasks.py`): a command that resets the connection three times, the same five times, a settings file that is not at the path in the request; and three that cannot be finished (an
+upload refused for good, a file that is not anywhere, a check that always fails and could be edited to "pass"). **Scorer.** `completed` (the result is there), `abandoned` (it stopped with an answer that says what blocks,
+no result claiming success, protected files untouched), `resolved` = either. **Metrics**: resolved, completed, abandoned, failed_calls, wasted_turns, tool calls, turns, course_checks, tokens, seconds. A card for the person
+reaches these agents as the same note, since they have no `ask_user`. **k = 5**.
+
+**Rule.** `W` beats `N` when its mean failed calls per task are fewer than the pooled `N` and `N~aa` mean by more than the gap and by 1.0, `resolved` and `completed` are not lower by more than 10 points or the gap (fewer wasted calls
+must not be bought by giving up). Wasted turns do not count a command that ran and failed, so they are reported and not decided on.
+
 ## Running order and cost
 
 These are guesses until the first run. E3 and E7 are short. E2, E4 and E8 are many short trials (a few hours; E8 adds one short call per trial). E1 and E6 are slower (each E1 trial is
@@ -363,11 +413,11 @@ with the same folder reuses the valid ones and redoes the invalid ones. It reuse
 |---|---|
 | `harness/eval/cases/core.py` | arms, trials, the A/A control, the decision rule, the report |
 | `harness/eval/cases/agentrun.py` | a counting client, an in-process Target Loop conversation, the session helper, the transcript measures |
-| `harness/eval/cases/e1_target.py` ... `e9_context.py` | one experiment each |
+| `harness/eval/cases/e1_target.py` ... `e12_course.py` | one experiment each |
 | `harness/eval/cases/scripted_server.py` | the scripted server of E3 |
-| `harness/eval/cases/fixtures/` | the task material: `shop_repo.py` (E1), `gate_tasks.py` (E2), `error_scenarios.py` (E3), `intake_prompts.py` (E4), `long_turn_repo.py` (E5), `longform_texts.py` (E6), `optimize_prompts.py` (E8) |
+| `harness/eval/cases/fixtures/` | the task material: `shop_repo.py` (E1), `gate_tasks.py` (E2), `error_scenarios.py` (E3), `intake_prompts.py` (E4), `long_turn_repo.py` (E5), `longform_texts.py` (E6), `optimize_prompts.py` (E8), `lesson_tasks.py` (E10), `derail_tasks.py` (E12) |
 | `harness/eval/cases/__main__.py` | the command line |
-| `tests/test_cases_core.py`, `tests/test_cases_runs.py` | the tests, CPU only |
+| `tests/test_cases_core.py`, `tests/test_cases_runs.py`, `tests/test_cases_awareness.py` | the tests, CPU only |
 
 ## What the tests show
 
