@@ -229,7 +229,7 @@
           field("cj-check", T("cj.check"), check, T("cj.check.help")),
           field("cj-index", T("cj.index"), indexPast, T("cj.index.help")),
           el("p", "help", T(existing ? (existing.enabled ? "cj.is.on" : "cj.is.off") : "cj.new.on")), msg,
-          el("div", "cj-buttons", save, ...(existing ? [btn(T("cj.improve"), "ghost", () => improveJob(existing), T("cj.improve.help"))] : [])),
+          (() => { const row = el("div", "cj-buttons"); row.append(save, ...(existing ? [btn(T("cj.improve"), "ghost", () => improveJob(existing), T("cj.improve.help"))] : [])); return row; })(),
           (() => { const d = el("div", "cj-improve"); d.id = "cj-improve"; d.hidden = true; return d; })()); return f; })());
     host.firstChild.append(el("b", "", existing ? T("cj.edit", existing.name) : T("cj.new")));
     paintKind();

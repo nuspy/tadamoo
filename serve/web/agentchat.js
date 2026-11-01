@@ -441,7 +441,7 @@
         }
         break;
       }
-      case "ask": addBlock({ t: "ask", id: e.id, mode: e.mode, kind: e.kind || (e.facts || {}).kind, question: e.question, options: e.options || [], facts: e.facts || {}, tool: e.tool, args: e.arguments, explain: explainOf(e.explain),
+      case "ask": addBlock({ t: "ask", id: e.id, mode: e.mode, kind: e.kind || (e.facts || {}).kind, instructions: e.instructions, hook: e.hook, question: e.question, options: e.options || [], facts: e.facts || {}, tool: e.tool, args: e.arguments, explain: explainOf(e.explain),
         intro: e.intro || "", questions: e.questions || [], fresh: !replaying, answered: null }, e.turn); break;
       case "answered": { for (const it of items) { const b = (it.blocks || []).find(x => x.t === "ask" && x.id === e.ask); if (b) { b.answered = e.value; b.dirty = true; } } break; }
       case "retrying": addBlock({ t: "note", s: T("ch.retrying", e.attempt, Math.round(e.wait_s)) }, e.turn); break;
@@ -573,6 +573,7 @@
     if (b.kind === "plan_mark") return T(key, f.plan, f.step, f.to);
     if (b.kind === "plan_change") return T(key, f.plan, f.title);
     if (b.kind === "plan_archive") return T(key, f.plan);
+    if (b.kind === "permission" && (b.instructions || b.hook)) return b.question;                    // orders found in outside text, or a hook of the person's: the harness's own sentence
     if (b.kind === "permission") return T(key, b.tool, JSON.stringify(b.args || {}).slice(0, 200));
     if (b.kind === "code") return T(key, f.who);
     if (b.kind === "plan_approval") return T(key, f.mode, f.plan) + (f.outside_content ? "\n\n" + T("ch.q.plan_outside") : "");
@@ -599,7 +600,7 @@
     (f.notes || []).forEach(n => ul.append(mk("li", "aask-h", n)));
     return ul;
   }
-  const optLabel = (b, o) => (b.kind === "capability_choice" ? capLabel(o) : b.kind === "parked_question" ? (o.label || String(o.value || "").replace(/^other:/, "")) : b.mode === "confirm" ? (o.value === "always" ? T("ch.always", o.rule || "") : o.value === "chat" ? T("ch.chat", o.rule || "") : T(o.value === "confirm" ? (b.kind === "permission" ? "ch.once" : "ch.yes") : "ch.no")) : o.label);
+  const optLabel = (b, o) => (b.kind === "capability_choice" ? capLabel(o) : b.kind === "parked_question" ? (o.label || String(o.value || "").replace(/^other:/, "")) : b.mode === "confirm" && (b.instructions || b.hook) && o.label ? o.label : b.mode === "confirm" ? (o.value === "always" ? T("ch.always", o.rule || "") : o.value === "chat" ? T("ch.chat", o.rule || "") : T(o.value === "confirm" ? (b.kind === "permission" ? "ch.once" : "ch.yes") : "ch.no")) : o.label);
 
   /* the sentence of their own for a question left for the person: sent after "other:" */
   function parkedOther(b) {
