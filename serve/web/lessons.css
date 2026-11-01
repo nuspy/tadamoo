@@ -1,0 +1,26 @@
+/* Settings > Memories > Lessons */
+.ls-intro { max-width: 880px; color: var(--fg-2); margin: 0 0 16px; }
+.ls-block { margin: 0 0 18px; padding: 0 0 14px; border-bottom: 1px solid var(--line-soft); max-width: 880px; }
+.ls-block h3 { margin: 0 0 8px; font: 600 14px/1.3 var(--font-sans); color: var(--fg); }
+.ls-bar, .ls-bar2 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+.ls-bar2 { margin: 10px 0 0; }
+.ls-bar select { flex: 1 1 220px; min-width: 0; }
+.ls-bar .btn, .ls-bar2 .btn, .ls-add .btn { min-height: 44px; min-width: 44px; }
+.ls-block select, .ls-block textarea { min-height: 44px; padding: 8px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 15px/1.5 var(--font-sans); }
+.ls-sum { margin: 0; padding: 0 0 0 18px; display: grid; gap: 4px; color: var(--fg-2); }
+.ls-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.ls-card { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.ls-card.pinned { border-color: var(--accent); }
+.ls-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font: 12.5px/1.4 var(--font-mono); color: var(--fg-2); }
+.ls-tag { padding: 1px 8px; border-radius: 10px; border: 1px solid var(--accent); color: var(--fg); font-family: var(--font-sans); }
+.ls-situation { margin: 6px 0; font-weight: 600; overflow-wrap: anywhere; }
+.ls-line { margin: 4px 0; overflow-wrap: anywhere; }
+.ls-field, .ls-edit, .ls-add { display: grid; gap: 4px; margin: 0 0 8px; }
+.ls-field label { font-weight: 600; }
+.ls-field textarea, .ls-field select { width: 100%; resize: vertical; }
+.ls-promo { margin: 10px 0 0; padding: 10px; border: 1px dashed var(--line); border-radius: 8px; }
+.ls-promo-text { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.5 var(--font-mono); user-select: text; }
+.ls-warn { color: #FF8A8A; border-color: #FF8A8A; }
+.ls-bad { color: #FF8A8A; margin: 0 0 10px; overflow-wrap: anywhere; }
+.ls-ok { color: var(--fg); margin: 0 0 10px; overflow-wrap: anywhere; }
+@media (max-width: 520px) { .ls-bar .btn { flex: 1 1 100%; } }

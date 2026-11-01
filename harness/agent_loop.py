@@ -259,6 +259,7 @@ class AgentLoop:
         self.lessons_for: Optional[Callable[[str], str]] = None               # the lessons of earlier work that bear on a request, as a note, or "" (harness/lessons.py)
         self.learn: Optional[Callable[[Dict[str, Any], List[Dict[str, Any]]], None]] = None   # told how a request went and what it taught, when its run ends
         self._recorder: Any = None
+        self.course: Any = None                   # the watch on the course of a request (harness/course.py): notes to the agent, then a card to the person
         self.mission: Dict[str, Any] = {}         # the request in hand and what the harness knows of it, for self_status
         self.batch_interrupt = batch_interrupt    # looked at before each call of a message's batch: a reason to leave the rest of the batch unrun, or ""
         self.pipeline = pipeline                  # checks the final answer against the request's card (harness/pipeline.py)
@@ -348,12 +349,35 @@ class AgentLoop:
         if not steer:
             self.mission = {"request": words[:300], "completion_rounds": 0}
             self._begin_learning(words)
+            if self.course is not None:
+                self.course.restart()
         if self.pipeline:
             card = self.pipeline.card(words)
             if steer and self._card is not None:
                 have = {(c.kind, str(c.value)) for c in self._card.constraints}
                 card.constraints = self._card.constraints + [c for c in card.constraints if (c.kind, str(c.value)) not in have]
             self._card, self._retried = card, False
+
+    def _course_step(self, step: int) -> bool:
+        """Before a model call: what the watch of the course wants done. A note goes to the agent; a card goes to the person, and True comes back when the
+        turn must end there to wait for their answer."""
+        action = self.course.check(self, step)
+        if action is None:
+            return False
+        self._audit("course_check", {"kind": action.kind, "stage": action.stage, "problem": action.problem[:200]})
+        if action.stage == "card":
+            ask = self.tools.get("ask_user")
+            if ask is not None:
+                self._emit({"type": "course_check", "kind": action.kind, "stage": "card", "problem": action.problem[:200]})
+                said = ask.handler(**action.card())
+                if self._end_turn:
+                    self._end_turn, self.stop_reason = False, ASKED
+                    return True
+                self.append({"role": "user", "content": "[harness] Course check: " + str(said), "note": True})
+                return False
+        self._emit({"type": "course_check", "kind": action.kind, "stage": "note", "problem": action.problem[:200]})
+        self.append({"role": "user", "content": action.note, "note": True})
+        return False
 
     def _begin_learning(self, request: str) -> None:
         """A request of the person starts: what earlier work taught about it is added after it, and what happens is recorded to teach the next one."""
@@ -402,6 +426,8 @@ class AgentLoop:
         """Tells an observer what is happening (assistant text, tool start and end); it can never affect the run."""
         if self._recorder is not None:
             self._recorder.observe(event)
+        if self.course is not None:
+            self.course.observe(event)
         if self.on_event:
             try:
                 self.on_event(event)
@@ -756,6 +782,9 @@ class AgentLoop:
 
             if self.before_inference is not None and self.before_inference() == SUSPENDED:
                 self.stop_reason = SUSPENDED          # between model calls and tools: nothing is half done
+                break
+
+            if self.course is not None and not self.subagent and not grace and self._course_step(turn_idx):
                 break
 
             t0 = time.monotonic()
