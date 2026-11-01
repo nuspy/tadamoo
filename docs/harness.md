@@ -249,8 +249,8 @@ the arguments are checked against the tool's schema (the model gets a message sa
 that fails refuses too); the permission manager; a checkpoint of the files the call changes (one per turn, filled as calls come); the
 tool; secrets masked in the result; results of untrusted tools fenced as data; an audit record.
 
-Permissions: plan mode refuses anything that is not read-only; then **deny rules** (matched against every segment of a
-shell command and the words inside `cmd /c`, `powershell -c`); then, **at the `auto` level, everything passes and nothing is asked**: the
+Permissions: a rule can name a group of tools, `group:read`, `group:write`, `group:shell`, `group:web`, `group:browser`, `group:phone`, `group:plan`, `group:agents` or `group:mcp` (`GROUPS` in `harness/permissions.py`), and `/permissions` says which deny rule refuses which tool. Plan mode refuses anything that is not read-only; then **deny rules** (matched against every segment of a
+shell command and the words inside `cmd /c`, `powershell -c`); then, **at the `auto` level everything passes and nothing is asked, except the Rule of Two and orders found in outside text (below)**: the
 person chose that. Below it: tools that always ask (`phone_call`); **allow rules**, which cover a command of several statements when each
 statement is covered (`cd x && make` needs `cd *` and `make *`; a command built at run time with `$(...)`, a backtick or `%VAR%` is covered
 by none); then **safe verification** (a command the person listed or accepted for the folder, written exactly, passes; see [coding-mode.md](coding-mode.md)); then the level: read-only asks for anything, `default` allows reversible workspace edits and asks for irreversible actions.

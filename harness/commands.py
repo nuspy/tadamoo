@@ -7,7 +7,7 @@ import hashlib
 import json
 from typing import Any, Callable, Dict, List
 
-from harness.permissions import PermissionLevel
+from harness.permissions import GROUPS, PermissionLevel
 
 MEMORIES_SHOWN = 10
 
@@ -95,8 +95,9 @@ def memory(session: Any, args: str) -> Dict[str, Any]:
 
 def permissions(session: Any, args: str) -> Dict[str, Any]:
     p = session.built.permissions
+    removed = {name: rule.pattern for name in session.agent.tools.names() if (rule := p.rule_for(name)) is not None}
     return {"mode": _mode_of(p), "rules": [{"pattern": r.pattern, "action": r.action} for r in p.rules], "denied": p.denied,
-            "untrusted_input": bool(p.untrusted_input)}
+            "untrusted_input": bool(p.untrusted_input), "refused_by": removed, "groups": {g: list(m) for g, m in GROUPS.items()}}
 
 
 def audit(session: Any, args: str) -> Dict[str, Any]:
