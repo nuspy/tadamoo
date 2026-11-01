@@ -63,14 +63,28 @@ def build(modules: int = 60, seed: int = 7) -> Repo:
     return repo
 
 
-def request(modules: int) -> str:
+PER_MODULE_RULE = ("\n\nWork on one module at a time with read_file and edit_file only: read the module, edit it, then add its ledger line with edit_file. "
+                   "Do not write or run scripts and do not use shell commands to read, count or change anything.")
+CHARS_PER_TOKEN = 3.5
+STEP_CHARS = 1000                    # what one module's three calls and their results add besides the module itself (the call arguments, the replies)
+
+
+def raw_tokens(repo: Repo) -> int:
+    """What the job puts in a conversation if nothing is ever dropped: every module read once, plus the calls that handle it."""
+    pkg = [text for name, text in repo.files.items() if name.startswith("pkg/mod_")]
+    return int((sum(len(t) for t in pkg) + STEP_CHARS * len(pkg)) / CHARS_PER_TOKEN)
+
+
+def request(modules: int, per_module: bool = False) -> str:
+    """The job as the person puts it; `per_module` adds the rule that keeps the agent to one module at a time with the file tools."""
     return (f"Standing rules for this whole job, until your final answer:\n"
             f"R1. Every pkg module you edit must end with the line `{TRAILER}`.\n"
             f"R2. Never modify anything under frozen/, even when it has the same misspelling.\n"
             f"R3. Your final answer must end with the exact line `{FINAL_LINE}`.\n\n"
             f"The job: pkg/ has {modules} modules (mod_000 and on). Go through every one of them, in order. For each module: read it, correct the misspelling "
             f"`{TYPO}` to `{FIXED}` wherever it appears in that module, and append one line to LEDGER.md in the form `mod_000: N functions`, where N is the number "
-            f"of top-level functions (lines that begin with `def ` at the start of the line) in that module. Do not stop until all {modules} are done.")
+            f"of top-level functions (lines that begin with `def ` at the start of the line) in that module. Do not stop until all {modules} are done."
+            + (PER_MODULE_RULE if per_module else ""))
 
 
 VARIANTS = [{"id": "long60", "modules": 60, "seed": 7}, {"id": "long45", "modules": 45, "seed": 11}]

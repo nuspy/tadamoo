@@ -146,7 +146,7 @@ def test_compaction_waits_for_masking_and_for_growth_after_it(tmp_path):
     assert len(writer.calls) == 2
 
 
-def test_the_second_summary_is_written_from_the_originals_not_from_the_first_notes(tmp_path):
+def test_the_second_summary_is_written_from_the_originals_and_is_given_the_first_notes(tmp_path):
     writer = Writer()
     ctx, comp = make(tmp_path, writer)
     out = ctx.prepare(single_turn())
@@ -155,8 +155,9 @@ def test_the_second_summary_is_written_from_the_originals_not_from_the_first_not
     more = out + sum((step(200 + i, 800) for i in range(30)), [])
     out2 = ctx.prepare(more)
     assert len(writer.calls) == 2 and sum(1 for m in out2 if m.get("summary")) == 1
-    assert "Notes so far" not in writer.calls[1][1] and "run the tests" not in writer.calls[1][1]
-    assert "file 0 " in writer.calls[1][1]                           # the text of the first steps is read again
+    assert "Notes so far" in writer.calls[1][1] and "run the tests" in writer.calls[1][1]     # the first notes are read again, as notes
+    assert "src/f39.py" in writer.calls[1][1]                        # and the calls of the first steps, read from the originals, beside them
+    assert comp.reports[-1]["from_originals"] is True
     second = next(m for m in out2 if m.get("summary"))
     assert second["compacted"]["generation"] == 2 and comp.reports[-1]["from_originals"] is True
     assert comp.count == 2 and [r["n"] for r in comp.reports] == [1, 2]

@@ -429,6 +429,62 @@ def test_e9_a_run_that_stops_early_asks_no_probe_and_the_experiment_is_registere
     assert e9_context.generation_of([{"role": "user", "content": "[Compacted record: generation 2; 3 messages, about 900 tokens, written here in about 90]"}, {"role": "user", "content": "x"}]) == 2
 
 
+def test_e9_the_new_columns_are_measured_and_set_in_a_trial():
+    variant = {"id": "mini", "modules": 24, "seed": 3}
+    repo = long_turn_repo.build(24, 3)
+    files, order, answer = perfect(repo)
+    changed = [(p, files[p]) for p in sorted(files) if files[p] != repo.files.get(p)]
+    probes = context_probes.build(repo, 24)
+    ledger = [c for c in changed if c[0] == "LEDGER.md"]
+    trial = e9_context.run_trial(e9_context.ARMS[1], variant, 1, Context(client=Fake(Steps(*writes(repo.files, changed), say(answer), *[say("I do not remember.")] * len(probes))),
+                                                                         power_limit_w=400.0, extra={"window": 400000}))
+    assert {"summary_cut", "carry", "artifact_reads"} <= set(trial.metrics) and {"summary_cut", "carry", "artifact_reads"} <= set(e9_context.COLUMNS)
+    assert trial.metrics["summary_cut"] == 0 and trial.metrics["artifact_reads"] == 0
+    assert trial.metrics["carry"] == 1.0 and ledger                                  # the ledger lines it wrote are still in the conversation
+
+
+def test_e9_carry_counts_the_ledger_lines_that_can_still_be_read():
+    repo = long_turn_repo.build(24, 3)
+    names = [f"mod_{i:03d}" for i in range(12)]
+    lines = "\n".join(f"{n}: {repo.functions[n]} functions" for n in names[:6])
+    call = {"id": "c", "type": "function", "function": {"name": "edit_file", "arguments": json.dumps({"path": "LEDGER.md", "replacement": lines})}}
+    messages = [{"role": "system", "content": "mod_011: 1 functions"}, {"role": "assistant", "content": "", "tool_calls": [call]},
+                {"role": "tool", "tool_call_id": "c", "name": "edit_file", "content": f"{names[7]}: {repo.functions[names[7]] + 1} functions"}]
+    assert e9_context.carry_of(repo, messages) == 6 / 12                                # the system message and a wrong count do not count
+    assert e9_context.carry_of(repo, []) == 0.0
+
+
+def test_e9_artifact_reads_count_the_calls_that_go_to_the_saved_copies():
+    class Call:
+        def __init__(self, **arguments):
+            self.arguments = arguments
+
+    class Turn:
+        def __init__(self, *calls):
+            self.tool_calls = calls
+    back = chr(92)
+    turns = [Turn(Call(path=".basalt/artifacts/read_file_ab.txt"), Call(path="pkg/mod_001.py")),
+             Turn(Call(command="python -c open('.basalt" + back + "artifacts" + back + "x.txt')"), Call(pattern="x", path=".basalt/artifacts"))]
+    assert e9_context.artifact_reads(turns) == 3
+
+
+def test_e9_the_large_job_is_deterministic_forbids_scripts_and_is_sized_for_a_65536_window():
+    from harness.stack import ANSWER_RESERVE_TOKENS, context_budget
+    from harness.eval.cases.core import selected_tasks
+    big = e9_context.LARGE
+    a, b = long_turn_repo.build(big["modules"], big["seed"]), long_turn_repo.build(big["modules"], big["seed"])
+    assert a.files == b.files and len(a.functions) == 200
+    budget = context_budget(65536, max(4096, min(ANSWER_RESERVE_TOKENS, 65536 // 4)))
+    assert long_turn_repo.raw_tokens(a) >= 2.5 * budget
+    asked = long_turn_repo.request(big["modules"], big["per_module"])
+    assert "read_file and edit_file only" in asked and "Do not write or run scripts" in asked
+    assert long_turn_repo.request(45) == long_turn_repo.request(45, False) and "read_file" not in long_turn_repo.request(45)          # the existing job is as it was
+    exp = cases.load("e9")
+    assert [t["id"] for t in selected_tasks(exp)] == ["long60", "long45"]
+    assert [t["id"] for t in selected_tasks(exp, ["long200"])] == ["long200"]
+    assert [t["id"] for t in selected_tasks(exp, ["long45"])] == ["long45"]
+
+
 # -- E6 ------------------------------------------------------------------------------------------------------------------
 
 VOCAB = [f"{a}{b}" for a in "bcdfgklmnprstv" for b in ("a", "e", "i", "o", "u", "al", "or", "en", "is")] * 3

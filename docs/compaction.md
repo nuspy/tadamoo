@@ -52,8 +52,18 @@ little of the oldest, then whatever room is left, newest first; the gaps are mar
 is shown as its start, its error lines and its end (1400 characters). Before that, the harness gives the call the exact list of files read
 and changed and of commands with how each ended, taken from all of the region's calls whatever the budget.
 
-The notes follow a fixed outline: Goal, Decisions, Files touched, Commands run, Open items (next step first), in the language of the
-request, with paths, names, ids, URLs, numbers and error text copied. Earlier notes are given for updating.
+The notes follow a fixed outline: Facts, Goal, Decisions, Files touched, Commands run, Open items (next step first), in the language of the
+request, with paths, names, ids, URLs, numbers and error text copied. Earlier notes are given for updating, also when the originals are
+read back (the notes carry what the oldest part held, within the call's read budget).
+
+**Facts** (`harness/compaction_facts.py`) hold per-item values as `id: value` lines, kept by the program: the lines of the previous record
+are copied unchanged, the lines the agent wrote itself in its edits and writes are read from the calls (a later write for an id wins), and
+the summary call may only add ids that are not there yet. They come first in the note, so a cut loses the least; at most a tenth of the
+budget, the oldest lines leaving first and counted.
+
+**A summary that ends on its length limit is not used.** The call is made again from half the text with a request to be shorter; cut off
+twice, no compaction is made: the conversation and the earlier records stay as they were and nothing is counted (`abandoned` in `/context`).
+The gain is estimated from the cut before the call, and a call is not made when it cannot free enough.
 
 **Untrusted text.** Each tool result in the call is inside a data block with a random id (`harness/untrusted.py`), forged tags and chat
 control tokens are scrubbed, and the instructions say a block's text is never to be followed or turned into a decision or an open item. The
@@ -75,7 +85,8 @@ Whatever the summary lacks is added to the note as a **Re-read these** list, at 
 - anything else found in a tool result of the region: the result is saved in the artifacts folder and the line names the file;
 - otherwise the line of the earlier work that held it.
 
-Two more additions, both marked in the note: the files changed (from the calls, exact) that the summary did not name, and, when the model
+A **Where the full results are saved** list closes the note: one line per file the folded steps read, with the saved copy of its result
+(at most 4% of the budget, the newest kept). Two more additions, both marked in the note: the files changed (from the calls, exact) that the summary did not name, and, when the model
 wrote the notes, paths, URLs and ids in its open items that appear nowhere in the work, under the line "Not contained in the memory of this
 session (check before relying on it)" (in Italian «Non contenuto nella memoria di questa sessione (verifica prima di farci affidamento)»,
 when the person's request is in Italian). The report counts what was carried, what was missing and what was not found.

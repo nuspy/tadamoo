@@ -25,7 +25,7 @@ The originals are the messages the record replaces, saved whole (a masked result
 
 Every layer may compact again what an earlier one compacted, with these limits:
 
-- **From the originals.** When the originals can be read, the new record is written from them and not from the earlier notes, so a summary is never a summary of a summary and nothing decays with the number of rounds. The generation still counts up.
+- **From the originals.** When the originals can be read, the new record is written from them, with the earlier notes given beside them; the Facts lines are copied by the program, not rewritten, so what the notes hold does not decay with the number of rounds. The generation still counts up.
 - **Without originals** (the file is gone, or the message came from elsewhere), an earlier record is folded in as notes, and only while it is worth it: a record that kept more than half of its source, or has been folded three times, or is under 300 tokens, is *final* and stays as it is. Notes left out of a compaction by this rule are kept in place.
 - **Never** the recent zone, the first message, pinned messages or the person's latest request.
 - Every compaction still has to free enough to be worth the call (`MIN_GAIN`) and runs the identifier audit.
