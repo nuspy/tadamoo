@@ -59,3 +59,17 @@ def test_the_stack_attaches_the_learning_only_when_it_is_given_a_lessons_folder(
     off = build_agent(AgentConfig(**base), client=object()).agent
     on = build_agent(AgentConfig(lessons_dir=str(tmp_path / "g"), **base), client=object()).agent
     assert off.learn is None and off.lessons_for is None and on.learn is not None and on.lessons_for is not None
+
+
+def test_a_failure_brings_the_lesson_about_the_same_failure_with_its_result_once(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    store = lessons.LessonStore(ws)
+    store.add("read_file call failed: Tool execution error: FileNotFoundError: File not found: notes_2.txt", "read_file failed with a FileNotFoundError",
+              "The tool succeeded when the path was corrected to notes-2.txt.", signature="error_fix|read_file|filenotfound")
+    client = ScriptedClient(call("read_file", {"path": "notes_3.txt"}, "a"), call("read_file", {"path": "notes_4.txt"}, "b"), say("could not find them"))
+    agent = agent_for(ws, client)
+    agent.lessons_for = lambda text: lessons.block_for(text, store)
+    agent.run("open the files")
+    results = [m["content"] for m in client.sent[2] if m.get("role") == "tool"]
+    assert "corrected to notes-2.txt" in results[0] and "corrected to notes-2.txt" not in results[1]
