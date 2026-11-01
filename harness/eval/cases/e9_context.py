@@ -119,7 +119,8 @@ def run_trial(arm: Arm, variant: Dict[str, Any], rep: int, ctx: Context) -> Case
         probes = cp.build(repo, variant["modules"])
         asked = ask_probes(built, probes) if reason == al.FINAL else {"right": 0, "of": len(probes), "wrong": [p["id"] for p in probes], "answers": {}, "task": 0.0, "incidental": 0.0}
         comp = getattr(getattr(built.agent.context, "compaction", None), "count", 0)
-        trial.metrics = {"recall": asked["right"] / max(1, asked["of"]), "recall_task": asked["task"], "recall_incidental": asked["incidental"], "probes_right": asked["right"], "compactions": comp,
+        trial.metrics = {"rule_obeyed": scored["rule_obeyed"], "ledger_ok": scored["ledger_ok"], "course_checks": trial.components.get("course_checks", 0),
+                         "recall": asked["right"] / max(1, asked["of"]), "recall_task": asked["task"], "recall_incidental": asked["incidental"], "probes_right": asked["right"], "compactions": comp,
                          "generation": generation_of(getattr(built.agent, "messages", [])), "tool_calls": measures["tool_calls"],
                          "summary_cut": getattr(getattr(built.agent.context, "compaction", None), "cuts", 0), "carry": carried, "artifact_reads": artifact_reads(turns),
                          "prompt_tokens": client.prompt_tokens, "cached_tokens": client.cached_tokens, "reread_tokens": client.prompt_tokens - client.cached_tokens,

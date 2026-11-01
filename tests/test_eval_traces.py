@@ -80,11 +80,11 @@ def test_the_trace_is_the_calls_as_the_model_wrote_them():
 def test_components_are_counted_from_what_the_run_recorded():
     turns = [turn(run_call("load_skill"), run_call("spawn_subagent"), run_call("recall"), run_call("recall", decision="denied")),
              turn(run_call("search_past"), run_call("shell_command", decision="blocked"), run_call("read_file", feedback="lint: 2 errors"), run_call("ask_council"))]
-    audit = [{"action": "stop_denied"}, {"action": "compaction"}, {"action": "stop_denied"}]
+    audit = [{"action": "stop_denied"}, {"action": "compaction"}, {"action": "stop_denied"}, {"action": "course_check"}]
     used = component_usage(turns, audit, compactions=3, side_uses={"triage": 2, "compaction": 1})
-    assert used == {"skills": 1, "subagents": 2, "memory_recalls": 2, "hook_blocks": 1, "hook_feedback": 1, "stop_denials": 2, "compactions": 3,
+    assert used == {"skills": 1, "subagents": 2, "memory_recalls": 2, "hook_blocks": 1, "hook_feedback": 1, "stop_denials": 2, "course_checks": 1, "compactions": 3,
                     "side_uses": 3, "side:compaction": 1, "side:triage": 2}
-    assert component_usage([]) == {k: 0 for k in ("skills", "subagents", "memory_recalls", "hook_blocks", "hook_feedback", "stop_denials", "compactions", "side_uses")}
+    assert component_usage([]) == {k: 0 for k in ("skills", "subagents", "memory_recalls", "hook_blocks", "hook_feedback", "stop_denials", "course_checks", "compactions", "side_uses")}
 
 
 def test_observe_reads_the_counters_of_the_agent_the_ledger_and_the_client():

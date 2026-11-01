@@ -11,7 +11,7 @@ ARGS_CHARS = 100                 # the arguments in a trace line, cut
 SKILL_TOOLS = ("load_skill", "load_capability")
 SUBAGENT_TOOLS = ("spawn_subagent", "delegate_to_acp_agent", "ask_a2a_agent", "ask_council")
 MEMORY_TOOLS = ("recall", "recall_about_user", "search_past")
-COMPONENTS = ("skills", "subagents", "memory_recalls", "hook_blocks", "hook_feedback", "stop_denials", "compactions", "side_uses")
+COMPONENTS = ("skills", "subagents", "memory_recalls", "hook_blocks", "hook_feedback", "stop_denials", "course_checks", "compactions", "side_uses")
 
 
 def _args_text(arguments: Any) -> str:
@@ -33,7 +33,7 @@ def component_usage(turns: Sequence[Any], audit_records: Optional[Sequence[Mappi
                     side_uses: Optional[Mapping[str, int]] = None) -> Dict[str, int]:
     """Counts of the components a run used. Tool names and decisions come from the turns, stop-hook denials from the audit ledger, `compactions` from the
     context's own count and `side_uses` (technical-session calls by use) from the client that counted them. Skills, sub-agents and memory recalls are
-    calls that ran; hooks are counted where they acted (a call one blocked, feedback one gave, a stop one denied)."""
+    calls that ran; hooks are counted where they acted (a call one blocked, feedback one gave, a stop one denied); `course_checks` are the notes and cards of the course watch."""
     calls = [c for t in turns for c in t.tool_calls]
     ran = [c.tool_name for c in calls if c.decision == "executed"]
     used = {
@@ -43,6 +43,7 @@ def component_usage(turns: Sequence[Any], audit_records: Optional[Sequence[Mappi
         "hook_blocks": sum(c.decision == "blocked" for c in calls),
         "hook_feedback": sum(bool(c.feedback) for c in calls),
         "stop_denials": sum(1 for r in audit_records or () if r.get("action") == "stop_denied"),
+        "course_checks": sum(1 for r in audit_records or () if r.get("action") == "course_check"),
         "compactions": int(compactions),
         "side_uses": sum(int(v) for v in (side_uses or {}).values()),
     }

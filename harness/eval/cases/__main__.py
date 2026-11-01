@@ -1,4 +1,4 @@
-"""python -m harness.eval.cases <list | e1 ... e8> [options]: runs one case study and writes its report (docs/experiments.md)."""
+"""python -m harness.eval.cases <list | e1 ... e12> [options]: runs one case study and writes its report (docs/experiments.md)."""
 from __future__ import annotations
 
 import argparse
@@ -36,7 +36,7 @@ def show_list() -> int:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser(prog="python -m harness.eval.cases", description="Runs one case study of the harness (E1 to E8) and reports it with its A/A control and decision rule")
+    p = argparse.ArgumentParser(prog="python -m harness.eval.cases", description="Runs one case study of the harness (E1 to E12) and reports it with its A/A control and decision rule")
     p.add_argument("experiment", choices=["list", *MODULES], help="list shows every experiment, its arms and its rule")
     p.add_argument("--endpoint", default="http://127.0.0.1:7232")
     p.add_argument("--api-key", default=None)

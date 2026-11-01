@@ -19,7 +19,7 @@ from harness.eval.traces import components_section, divergent_section, divergent
 STANDARD_COLUMNS = ("success", "passes", "wasted_turns", "prompt_tokens", "cached_tokens", "seconds")
 CONTROL_SUFFIX = "~aa"
 RATE_NAMES = frozenset({"success", "good", "criteria_met", "finished_failing", "never_ends", "wrong_end", "ask_correct", "over_ask", "missed_ask", "date_ok",
-                        "rule_obeyed", "protected_intact", "survival"})
+                        "rule_obeyed", "protected_intact", "survival", "clean", "resolved", "completed", "abandoned"})
 
 
 @dataclass(frozen=True)
