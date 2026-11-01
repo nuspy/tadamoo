@@ -47,6 +47,8 @@ A vector index is a later step, once the cards have been measured; it needs an e
 - Only text the conversation already holds is indexed, with the redaction the session store already applies. Nothing goes to a route that is not this PC unless the person allows it, as for the personal memories.
 - Routine conversations are left out by default. A switch on each routine in the GUI turns its indexing on; its runs are then indexed, tagged with the routine's name, so the harness knows what it did (decided 1 November). The routine's own definition (name, schedule, what it is for) is not a conversation and is known either way.
 - The model-only chat stays and is indexed (decided 1 November): it posts each finished turn to the server, and the page stops saying that the conversation stays in the browser.
+- A conversation can be marked private (button in the chat header): it is left out of the index and nothing is learned from it. "Forget" removes what was already taken: its pieces in the index and the notes learned only from it (each note keeps the ids of the conversations it came from; a note another conversation also taught stays, without this one).
+- The personal memory can be exported to Markdown (Settings > Memories): one file per note with a small front matter, plus an index, in `memory-export` in the user data folder. It is a copy; the encrypted store stays the master and nothing is read back.
 
 ## Measure before building
 

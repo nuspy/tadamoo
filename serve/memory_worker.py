@@ -52,7 +52,7 @@ class MemoryWorker:
         text = str(job.get("text") or "").strip()
         if not (cfg["learn_long"] or cfg["learn_short"]) or len(text) < MIN_CHARS:
             return False
-        return self.memory.enqueue({"text": text[:3000], "project": str(job.get("project") or "")[:80],
+        return self.memory.enqueue({"text": text[:3000], "project": str(job.get("project") or "")[:80], "conversation": str(job.get("conversation") or "")[:80],
                                     "searches": [str(q)[:200] for q in (job.get("searches") or [])[:10]]})
 
     def start(self) -> None:

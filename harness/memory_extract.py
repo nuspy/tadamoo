@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from harness import side_uses
 from harness.side import side_extra_for
-from harness.personal_memory import LONG_SECTIONS, PersonalMemory, PersonalMemoryError, SHORT_SECTIONS, clean_text, stems
+from harness.personal_memory import LONG_SECTIONS, MAX_QUEUE, PersonalMemory, PersonalMemoryError, SHORT_SECTIONS, clean_text, stems
 
 MESSAGE_CHARS = 1500            # how much of one message the model reads: a pasted page is not the person's own words
 BATCH = 6                       # messages looked at in one call
@@ -89,8 +89,10 @@ def related(memory: PersonalMemory, messages: List[str], project: str) -> List[D
     return [i for _, i in scored[:SHOWN_NOTES]]
 
 
-def apply(memory: PersonalMemory, ops: List[Dict[str, Any]], learn_long: bool, learn_short: bool, source: str = "chat") -> List[Dict[str, Any]]:
-    """Stores the proposed notes that pass the checks; returns what was done, for the list of what was learned."""
+def apply(memory: PersonalMemory, ops: List[Dict[str, Any]], learn_long: bool, learn_short: bool, source: str = "chat",
+          conversation: str = "") -> List[Dict[str, Any]]:
+    """Stores the proposed notes that pass the checks, each tagged with the conversation it was learned from; returns what was done, for the
+    list of what was learned."""
     done: List[Dict[str, Any]] = []
     allowed = {"long": learn_long, "short": learn_short}
     for op in ops:
@@ -105,7 +107,7 @@ def apply(memory: PersonalMemory, ops: List[Dict[str, Any]], learn_long: bool, l
                 confidence = _confidence(op.get("confidence"), origin)
                 if looks_unsafe(text):
                     continue
-                item = memory.add(kind, section, text, origin=origin, confidence=confidence, source=source)
+                item = memory.add(kind, section, text, origin=origin, confidence=confidence, source=source, conversation=conversation)
                 memory.note("seen again" if item["mentions"] > 1 else "added", item)
                 done.append({"op": "add", "id": item["id"]})
             elif kind_of == "update":
@@ -116,7 +118,7 @@ def apply(memory: PersonalMemory, ops: List[Dict[str, Any]], learn_long: bool, l
                 origin = op.get("origin") if op.get("origin") in ("said", "inferred") else old["origin"]
                 if looks_unsafe(text):
                     continue
-                item = memory.update(old["id"], text=text, origin=origin, confidence=_confidence(op.get("confidence"), origin))
+                item = memory.update(old["id"], text=text, origin=origin, confidence=_confidence(op.get("confidence"), origin), conversation=conversation)
                 memory.note("changed", item)
                 done.append({"op": "update", "id": item["id"]})
             elif kind_of == "delete":
@@ -160,8 +162,8 @@ class Extractor:
         if not (cfg["learn_long"] or cfg["learn_short"]):
             self.memory.queue_done(j["id"] for j in jobs)            # switched off since: what waited is dropped, not learned
             return True
-        project = jobs[0].get("project", "")
-        same = [j for j in jobs if j.get("project", "") == project]
+        project, conversation = jobs[0].get("project", ""), jobs[0].get("conversation", "")
+        same = [j for j in jobs if j.get("project", "") == project and j.get("conversation", "") == conversation]
         messages = [j["text"] for j in same if isinstance(j.get("text"), str)]
         searches = [q for j in same for q in (j.get("searches") or []) if isinstance(q, str)]
         shown = related(self.memory, messages, project)
@@ -180,6 +182,8 @@ class Extractor:
             return False
         self.error = ""
         self.last = time.time()
-        apply(self.memory, parse(text), cfg["learn_long"], cfg["learn_short"], source=project or "chat")
+        waiting = {j["id"] for j in self.memory.queue(MAX_QUEUE)}
+        if all(j["id"] in waiting for j in same):             # a conversation forgotten or made private meanwhile leaves nothing behind
+            apply(self.memory, parse(text), cfg["learn_long"], cfg["learn_short"], source=project or "chat", conversation=conversation)
         self.memory.queue_done(j["id"] for j in same)
         return True
