@@ -254,7 +254,7 @@ shell command and the words inside `cmd /c`, `powershell -c`); then, **at the `a
 person chose that. Below it: tools that always ask (`phone_call`); **allow rules**, which cover a command of several statements when each
 statement is covered (`cd x && make` needs `cd *` and `make *`; a command built at run time with `$(...)`, a backtick or `%VAR%` is covered
 by none); then **safe verification** (a command the person listed or accepted for the folder, written exactly, passes; see [coding-mode.md](coding-mode.md)); then the level: read-only asks for anything, `default` allows reversible workspace edits and asks for irreversible actions.
-The Rule of Two asks only below `auto`, and only for an outward action. `request_payment` carries an allow rule because the payment broker
+The Rule of Two asks at every level, `auto` included, and only for an outward action. Text from outside that speaks to the AI (see `inject_screen` below) makes every call that changes or sends something ask, at every level and also where an allow rule covers it, until the person authorizes those instructions; in a run nobody watches the question is parked. `request_payment` carries an allow rule because the payment broker
 is its only gate (the person's limit, the waiver, and a question to the person above them). `write_file` and `edit_file` are reversible,
 also inside a `.git` folder: no special question, they follow the rules of any workspace write, and the checkpoint before it holds the hooks and
 the config. Every question below `auto` offers three levels (this call, this conversation, for good); the last two add an allow rule made from the
@@ -1068,7 +1068,7 @@ again when it changes, by every process). The uses: `triage` (the look at a requ
 card to be free), `memory_rank` (which of the notes the word match found really bear on a request), `progress` (a line on how far a task
 nobody watches has got), `planner` (comparison and re-planning), `tool_extract` (a large tool result read for the lines that matter,
 checked line by line against the result, the full text saved) and `inject_screen` (a second look at outside text for instructions to the
-assistant, a notice only). The last two change what the model reads, so they start off, like `memory_rank` and `progress` they are not made
+assistant; a list of phrases does the same without the session, also on files and command output, with only the strict phrases there). `tool_extract` changes what the model reads, so it starts off; like `memory_rank` and `progress` it is not made
 without the session.
 
 A call names its use: `side_extra(client, "judge")` is `{}` when the use is switched off (the call then runs in an ordinary slot, except

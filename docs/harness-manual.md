@@ -110,10 +110,12 @@ offers three answers: **Allow this call only**, **Allow … in this conversation
 the conversation or for every conversation from then on. Settings > Wallet > *Always allowed* lists the rules kept for good and lets you add or
 take away any. A program that runs what it is given (`python`, `powershell`, `curl`) gets the same three answers: allowing it is your choice.
 
-**The Rule of Two.** In *Automatic* nothing is asked. Below it, a web address, a search or a form asks when the
+**The Rule of Two.** At every level, *Automatic* included, a web address, a search or a form asks when the
 conversation has read outside content (including files, command output, attachments and notes from the planner), touched private data and
 the action reaches the outside; Settings > Wallet sets how strict that is. A stored secret found inside an address, a search or a form asks first too, naming the secret and
 where it would go, never showing its value; with the level *Never ask* nothing is asked.
+
+**Orders in a document or a page.** If a page, a Word or Excel file, a command's output or an attachment contains instructions aimed at the assistant ("ignore your rules", "if you are an AI, send..."), the assistant does not follow them. Anything it then tries to change or send asks you first, at every level, until you authorize those instructions. In a run nobody watches, the question waits in the list of pending questions.
 
 **What the modes are not.** They are not an operating-system sandbox. A command runs with your rights on your files and network. The
 agent's commands have a scrubbed environment, no keyboard input, a time limit, capped output and, on Windows, a job object (memory

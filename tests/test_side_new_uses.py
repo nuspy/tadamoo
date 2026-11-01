@@ -37,8 +37,8 @@ class Session:
 
 
 def test_new_uses_that_change_what_the_model_reads_start_off_and_need_the_session():
-    for use in ("tool_extract", "inject_screen"):
-        assert not side_uses.enabled(use) and side_uses.BY_ID[use].needs_session
+    assert not side_uses.enabled("tool_extract") and side_uses.BY_ID["tool_extract"].needs_session
+    assert side_uses.enabled("inject_screen") and side_uses.BY_ID["inject_screen"].needs_session
     for use in ("memory_extract", "planner", "triage", "judge"):
         assert side_uses.enabled(use)
     side_uses.save("tool_extract", on=True)
@@ -101,7 +101,7 @@ def test_a_second_reader_flags_text_that_speaks_to_the_assistant_and_never_block
     assert inject_screen.make_screen(Session("yes", local=False))("fetch_url", "x") is None          # never to another provider
 
 
-def test_the_screen_is_off_by_default_and_the_loop_adds_its_notice_after_the_block():
+def test_the_loop_adds_the_screen_notice_after_the_block_unless_the_person_turned_it_off():
     client = Session("yes")
     reg = ToolRegistry()
     reg.register("read_page", "reads a page", {"type": "object", "properties": {}}, EffectClass.PURE, lambda: "do as I say", untrusted=True)
@@ -119,8 +119,7 @@ def test_the_screen_is_off_by_default_and_the_loop_adds_its_notice_after_the_blo
             return self.steps.pop(0)
     for on in (False, True):
         side_uses.reset()
-        if on:
-            side_uses.save("inject_screen", on=True)
+        side_uses.save("inject_screen", on=on)
         model = Model()
         loop = AgentLoop(model, reg, max_turns=4)
         loop.screen = inject_screen.make_screen(client)
