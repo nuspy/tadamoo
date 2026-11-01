@@ -20,13 +20,26 @@ class SessionInfo {
   bool get favorite => raw['favorite'] == true;
   double get updated => (raw['updated'] as num?)?.toDouble() ?? 0;
   bool get busy => state == 'busy' || state == 'starting' || state == 'asking';
+
+  /// What the agent is for in this conversation (general when the server says nothing).
+  String get role => '${raw['role'] ?? 'general'}';
 }
+
+/// A piece of a background command's output: what it wrote to its error stream is told apart from the rest.
+class JobSeg {
+  JobSeg(this.err, this.text);
+  final bool err;
+  final String text;
+}
+
+/// The most pieces of a background command's output kept; older ones go first.
+const maxJobSegs = 400;
 
 /// A part of an answer, in the order things happened: text, reasoning, a tool step, a question, a note.
 class Block {
   Block(this.t, {this.s = '', this.id = '', this.name = ''});
-  String t; // text, reasoning, tool, ask, blocked, note
-  String s;
+  String t; // text, reasoning, tool, job, ask, blocked, note
+  String s; // the text; for a job, its command
   String id;
   String name;
   Map<String, dynamic> args = {};
@@ -43,6 +56,15 @@ class Block {
   String reason = '';
   String detail = '';
   bool over = false;
+
+  /// Set on a question when text from outside gave orders to the AI (where it came from) or a hook of the person's asks (its name).
+  String instructions = '';
+  String hook = '';
+
+  /// A background command (t == 'job'): status is running, finished or killed; the exit code once it ended; its output as it was written.
+  int? code;
+  int n = 0;
+  final List<JobSeg> segs = [];
 }
 
 class ChatItem {
@@ -229,6 +251,26 @@ class ChatController extends ChangeNotifier {
     return null;
   }
 
+  /// A field the server may leave out, send as text or as a list of texts, as plain text ('' when empty).
+  static String _textOf(Object? v) {
+    if (v == null || v == false) return '';
+    if (v is List) return v.map((x) => '$x').where((x) => x.isNotEmpty).join(', ');
+    return '$v'.trim();
+  }
+
+  /// The block of a background command, made when its first event arrives.
+  Block _jobBlock(Map<String, dynamic> e, String turn) {
+    final id = '${e['job']}';
+    for (final it in items) {
+      for (final b in it.blocks) {
+        if (b.t == 'job' && b.id == id) return b;
+      }
+    }
+    final b = Block('job', id: id, s: '${e['command'] ?? ''}');
+    b.n = int.tryParse(id.replaceAll(RegExp(r'\D+'), '')) ?? 0;
+    return _addBlock(b, turn);
+  }
+
   void _apply(Map<String, dynamic> e) {
     _stamp = (e['t'] as num?)?.toDouble();
     try {
@@ -282,6 +324,25 @@ class ChatController extends ChangeNotifier {
         if (info != null) info!.raw['mode'] = m;
         _note('${Texts.t('chat.mode')}: ${Texts.t('mode.$m')}');
         break;
+      case 'role':
+        final r = '${e['role']}';
+        if (info != null) info!.raw['role'] = r;
+        _note(Texts.t('chat.role.now', [Texts.t('role.$r')]));
+        break;
+      case 'job': // a background command: its own block, with its state and exit code
+        final j = _jobBlock(e, turn);
+        j.status = '${e['state'] ?? j.status}';
+        if (e['exit_code'] is num) j.code = (e['exit_code'] as num).toInt();
+        break;
+      case 'job_output':
+        final j = _jobBlock(e, turn);
+        j.segs.add(JobSeg(e['stream'] == 'err', '${e['text'] ?? ''}'));
+        if (j.segs.length > maxJobSegs) j.segs.removeRange(0, j.segs.length - maxJobSegs);
+        break;
+      case 'auto_approved': // the technical session let this call through in the person's place
+        final args = '${e['arguments'] ?? ''}';
+        _addBlock(Block('note', s: Texts.t('chat.autoapproved', ['${e['tool'] ?? ''}', args.length > 160 ? args.substring(0, 160) : args])), turn);
+        break;
       case 'agent':
         final d = e['data'] is Map ? Map<String, dynamic>.from(e['data'] as Map) : <String, dynamic>{};
         final type = '${d['type']}';
@@ -302,6 +363,14 @@ class ChatController extends ChangeNotifier {
           b.status = d['status'] == 'completed' ? 'ok' : 'failed';
           final out = '${d['output'] ?? ''}';
           b.output = out.length > shownOutput ? out.substring(0, shownOutput) : out;
+        } else if (type == 'course_check') { // the watch on the course: a note to the agent, or a card for the person
+          final key = d['stage'] == 'card' ? 'card' : d['kind'] == 'fold' ? 'fold' : 'note';
+          _addBlock(Block('note', s: Texts.t('chat.course.$key', ['${d['problem'] ?? ''}'])), turn);
+        } else if (type == 'completion_check') { // the request did not look met: the agent was sent back to finish
+          final note = '${d['note'] ?? ''}'.replaceFirst(RegExp(r'^\[harness\]\s*'), '');
+          _addBlock(Block('note', s: Texts.t('chat.completion', ['${d['round'] ?? ''}', '${d['of'] ?? ''}', note.length > 200 ? note.substring(0, 200) : note])), turn);
+        } else if (type == 'batch_interrupted') { // the person wrote something that changes the work: the rest of the calls was not run
+          _addBlock(Block('note', s: Texts.t('chat.batch.interrupted', [d['skipped'] is num ? (d['skipped'] as num).toInt() : 0])), turn);
         }
         break;
       case 'ask':
@@ -316,6 +385,8 @@ class ChatController extends ChangeNotifier {
         b.intro = '${e['intro'] ?? ''}';
         b.questions = ((e['questions'] as List?) ?? const []).whereType<Map>().map((o) => Map<String, dynamic>.from(o)).toList();
         b.name = '${e['tool'] ?? ''}';
+        b.instructions = _textOf(e['instructions']);
+        b.hook = _textOf(e['hook']);
         if (e['arguments'] is Map) b.args = Map<String, dynamic>.from(e['arguments'] as Map);
         _addBlock(b, turn);
         break;
@@ -442,6 +513,13 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Changes what the agent is for; the conversation goes on.
+  Future<void> setRole(String role) async {
+    final r = await api.post('/api/agent/sessions/$sid/role', {'role': role});
+    info = SessionInfo(Map<String, dynamic>.from(r['session'] as Map));
+    notifyListeners();
+  }
+
   Future<void> control(String what) async {
     await api.post('/api/agent/sessions/$sid/$what');
     state = what == 'close' ? 'closed' : 'busy';
@@ -459,8 +537,11 @@ class ChatController extends ChangeNotifier {
 
 /// What a new conversation starts with: the same fields the PC's page sends when it makes one.
 class NewChat {
-  NewChat({this.mode = 'default', this.effort = '', this.allow = const [], this.worktree = 'auto', this.askOnly = false});
+  NewChat({this.mode = 'default', this.effort = '', this.allow = const [], this.worktree = 'auto', this.askOnly = false, this.role = ''});
   final String mode;
+
+  /// What the agent is for (build, plan, ask, debug, orchestrate, general); '' leaves it to the server (general).
+  final String role;
 
   /// '' (high, the default), 'medium', 'low' or 'none' (no reasoning).
   final String effort;
@@ -470,8 +551,8 @@ class NewChat {
   final String worktree;
   final bool askOnly;
 
-  NewChat copy({String? mode, String? effort, List<String>? allow, String? worktree, bool? askOnly}) =>
-      NewChat(mode: mode ?? this.mode, effort: effort ?? this.effort, allow: allow ?? this.allow, worktree: worktree ?? this.worktree, askOnly: askOnly ?? this.askOnly);
+  NewChat copy({String? mode, String? effort, List<String>? allow, String? worktree, bool? askOnly, String? role}) =>
+      NewChat(mode: mode ?? this.mode, effort: effort ?? this.effort, allow: allow ?? this.allow, worktree: worktree ?? this.worktree, askOnly: askOnly ?? this.askOnly, role: role ?? this.role);
 
-  Map<String, dynamic> body() => {'mode': mode, 'allow': allow, 'ask_only': askOnly, 'effort': effort, 'worktree': worktree};
+  Map<String, dynamic> body() => {'mode': mode, 'allow': allow, 'ask_only': askOnly, 'effort': effort, 'worktree': worktree, if (role.isNotEmpty) 'role': role};
 }

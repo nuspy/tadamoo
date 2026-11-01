@@ -6,9 +6,11 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
 import 'capabilities_screen.dart';
+import 'chat_options.dart';
 import 'i18n.dart';
 import 'place.dart';
 import 'pskills_screen.dart';
+import 'server_prefs.dart';
 import 'settings.dart';
 import 'voice.dart';
 
@@ -30,9 +32,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool bad = false;
   bool testing = false;
   bool hideKey = true;
+  late final ServerPrefs prefs = ServerPrefs(Api(widget.settings));
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.settings.configured) prefs.load();
+  }
 
   @override
   void dispose() {
+    prefs.dispose();
     address.dispose();
     key.dispose();
     locale.dispose();
@@ -58,6 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final hello = await Api(widget.settings).hello();
       message = Texts.t('set.test.ok', ['${hello['device'] ?? ''}']);
       bad = false;
+      prefs.load();
     } on ApiError catch (e) {
       message = Texts.t('set.test.fail', [e.message]);
       bad = true;
@@ -172,6 +183,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CapabilitiesScreen(api: Api(widget.settings)))),
           ),
+          const Divider(height: 32),
+          Text(Texts.t('opts.title'), style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          ServerOptionsBody(prefs: prefs),
         ],
         const Divider(height: 32),
         Text(Texts.t('set.voice'), style: theme.textTheme.titleMedium),
