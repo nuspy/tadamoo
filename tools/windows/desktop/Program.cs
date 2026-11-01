@@ -27,6 +27,13 @@ static class Program
             MessageBox.Show(opt.Error, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 2;
         }
+        if (opt.TestAdmin)                                       // only the administrator choice: no server, no model; the window says whether this process is elevated
+        {
+            ApplicationConfiguration.Initialize();
+            if (AdminChoice.Relaunch(args)) return 0;
+            MessageBox.Show("Elevated: " + AdminChoice.IsElevated(), AppName);
+            return 0;
+        }
         if (!opt.TestMock && !opt.TestExit && AdminChoice.Relaunch(args)) return 0;
         using var mutex = new Mutex(true, opt.TestMock ? MutexName + ".test" : MutexName, out bool first);
         if (!first)
@@ -53,7 +60,7 @@ sealed class Options
     public string Profile, Repo, Error, Screenshot, Model, TestModelsDir, ConfigFile, Lang;
     public int Port;
     public double VramLibera = -1;
-    public bool TestMock, TestExit, TestFolderPrompt, TestNoWebView, TestNoWizard, TestFallback, TestWindow;
+    public bool TestAdmin, TestMock, TestExit, TestFolderPrompt, TestNoWebView, TestNoWizard, TestFallback, TestWindow;
 
     public static Options Parse(string[] args)
     {
@@ -88,6 +95,7 @@ sealed class Options
                 case "--test-no-wizard": o.TestNoWizard = true; break;
                 case "--test-fallback": o.TestFallback = o.TestMock = true; break;
                 case "--test-mock": o.TestMock = true; break;
+                case "--test-admin": o.TestAdmin = true; break;
                 case "--test-window": o.TestWindow = true; break;
                 case "--test-screenshot": o.Screenshot = Next(); break;
                 case "--test-exit": o.TestExit = true; break;

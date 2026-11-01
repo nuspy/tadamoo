@@ -16,7 +16,21 @@ GATE_RETRIES = 2
 FOLD_NEAR = 0.9                     # the share of the masking threshold at which the agent is told a fold is near
 HALF, THREE_QUARTERS = 0.5, 0.75    # the share of the steps used with the checklist not moving
 _DIGITS = re.compile(r"\d+")
-_FAILED = re.compile(r"^(?:error|tool execution error|permission denied|unknown tool|loop detected)", re.IGNORECASE)
+_EXIT = re.compile(r'^\{"exit_code":\s*(-?\d+)')
+_STDERR = re.compile(r'"stderr":\s*"((?:[^"\\]|\\.){0,120})')
+
+
+def _failure_of(event: Dict[str, Any]) -> Optional[str]:
+    """The kind of failure a finished tool call shows, or None when it worked: a failed call, or a command that ended with a code other than 0. Digits are
+    folded so that the same failure with other numbers is the same failure."""
+    out = str(event.get("output") or "").strip()
+    if event.get("status") == "failed":
+        return _DIGITS.sub("#", out.splitlines()[0][:80]) if out else ""
+    code = _EXIT.match(out)
+    if code and code.group(1) != "0":
+        err = _STDERR.search(out)
+        return _DIGITS.sub("#", (err.group(1) if err else "exit code")[:80])
+    return None
 
 
 class Action:
@@ -52,10 +66,10 @@ class Watcher:
 
     def observe(self, event: Dict[str, Any]) -> None:
         kind = event.get("type")
-        if kind == "tool_end" and not event.get("gate") and event.get("status") == "failed":
-            out = _DIGITS.sub("#", str(event.get("output") or "").strip().splitlines()[0][:80]) if str(event.get("output") or "").strip() else ""
-            if out or event.get("decision") in ("executed", "denied", "invalid"):
-                self.errors[(str(event.get("name")), out)] += 1
+        if kind == "tool_end" and not event.get("gate"):
+            what = _failure_of(event)
+            if what is not None:
+                self.errors[(str(event.get("name")), what)] += 1
         elif kind == "gate" and event.get("decision") == "retry":
             self.gate_retries += 1
 
