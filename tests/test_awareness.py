@@ -4,7 +4,7 @@ from harness.stack import AgentConfig, build_agent
 
 
 def test_the_block_says_the_limits_and_what_is_missing_and_never_changes_for_the_same_setup():
-    kw = dict(model="", window=24000, mask_at=0.7, compaction_at=0.85, compaction=True, max_turns=-1, max_tokens=None, max_seconds=None, role="build", level="default",
+    kw = dict(model="", window=24000, mask_at=0.7, compaction_at=0.85, compaction=True, max_turns=-1, max_tokens=None, max_seconds=None,
               absent=awareness.absent_features({"memory": True}), lessons="")
     text = awareness.self_model(**kw)
     assert "24000 tokens" in text and "70%" in text and "85%" in text and "read again" in text
@@ -13,8 +13,7 @@ def test_the_block_says_the_limits_and_what_is_missing_and_never_changes_for_the
 
 
 def test_a_conversation_without_folding_says_so():
-    text = awareness.self_model(model="", window=1000, mask_at=0.5, compaction_at=0.9, compaction=False, max_turns=8, max_tokens=5000, max_seconds=60, role="general",
-                                level="auto", absent=[], lessons="")
+    text = awareness.self_model(model="", window=1000, mask_at=0.5, compaction_at=0.9, compaction=False, max_turns=8, max_tokens=5000, max_seconds=60, absent=[], lessons="")
     assert "not folded" in text and "8 steps" in text and "5000 tokens" in text and "60 seconds" in text
 
 

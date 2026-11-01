@@ -27,7 +27,7 @@ COLUMNS = ("success", "finished_failing", "passes", "wasted_turns", "prompt_toke
 MAX_TURNS = 30
 
 ARMS = with_control([
-    Arm("A", "gate off (today's default)", {"verify_gate": "off"}, "--verify-gate off"),
+    Arm("A", "gate off (the default before it was set to on whenever checks are accepted)", {"verify_gate": "off"}, "--verify-gate off"),
     Arm("B", "gate on with the task's test command", {"verify_gate": "always", "use_task_command": True},
         '--verify-gate always --verify-command "python -m unittest discover -q"'),
 ], "A")

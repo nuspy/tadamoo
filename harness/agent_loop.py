@@ -54,6 +54,8 @@ MAX_STOP_DENIALS = 2           # times a stop hook may send the model back to wo
 BUDGET_WARN_AT = 0.9           # the share of a budget used at which the model is told it is nearly spent
 BUDGET_WARNING = ("[harness] The budget for this answer is nearly used up. Finish what matters most now, and let your last message say what "
                   "is done and what is not.")
+CODE_MASKED_NOTE = ("[harness] The code kept whole in this session passed its share of the room, so the oldest code results were replaced by a note with the "
+                    "path of the saved full text ({paths}). Read them again with read_file when you need their lines.")
 GRACE_NOTE = ("[harness] The budget for this answer is used up. Do not call any tool. Write your final report now: what is done, what is "
               "not done, and what the next step is.")
 TODO_NOTE = ("[harness] Your checklist still has unfinished items:\n{items}\nFinish them, or update the list with todo_write if they no longer "
@@ -1229,6 +1231,17 @@ class AgentLoop:
         self._audit("budget_warning", {"spent": spent, "turns": len(self.turns)})
         return True
 
+    def _note_released_code(self, released: List[Dict[str, Any]]) -> None:
+        """Code that no longer stays whole because it passed its share of the budget: an event and an audit record each time, the model told once."""
+        if not released:
+            return
+        paths = [r["path"] for r in released][:10]
+        self._emit({"type": "code_masked", "count": len(released), "tokens": sum(r["tokens"] for r in released), "items": released[:20]})
+        self._audit("code_masked", {"count": len(released), "tokens": sum(r["tokens"] for r in released), "paths": paths})
+        if not getattr(self, "_code_told", False):
+            self._code_told = True
+            self.append({"role": "user", "content": CODE_MASKED_NOTE.format(paths=", ".join(paths)), "note": True})
+
     def _prepare_context(self) -> None:
         """Keeps the conversation inside its budget; the compaction hooks hear of it when the context is over its threshold and gets smaller.
         A summary of the older steps (harness/compaction.py) is announced with its report: what was replaced and what the server will read again."""
@@ -1243,6 +1256,7 @@ class AgentLoop:
         if due:
             self.hooks.trigger_event("pre_compact", {"tokens": before, "messages": len(self.messages)})
         self.messages = ctx.prepare(self.messages)
+        self._note_released_code(getattr(ctx, "take_released", lambda: [])())
         report = getattr(ctx, "take_compaction", lambda: None)()
         if report and not self.subagent:
             self.append({"role": "user", "content": self._mission_note(), "note": True})

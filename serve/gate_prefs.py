@@ -33,7 +33,7 @@ class GatePrefs:
         data = self._stored()
         rounds = data.get("verify_rounds")
         return {"verify_commands": clean_commands(data.get("verify_commands")),
-                "verify_gate": data.get("verify_gate") if data.get("verify_gate") in MODES else "off",
+                "verify_gate": data.get("verify_gate") if data.get("verify_gate") in MODES else "always",
                 "verify_rounds": rounds if isinstance(rounds, int) and not isinstance(rounds, bool) and 1 <= rounds <= MAX_ROUNDS else DEFAULT_ROUNDS,
                 "budget_grace": data.get("budget_grace") is not False,
                 "error_classifier": data.get("error_classifier") is not False}
@@ -75,7 +75,7 @@ class GatePrefs:
     def view(self) -> Dict[str, Any]:
         """The values and the facts the page shows beside them."""
         return {**self.read(), "modes": list(MODES), "limits": {"verify_rounds": [1, MAX_ROUNDS], "commands": MAX_COMMANDS, "command_chars": COMMAND_CHARS},
-                "defaults": {"verify_gate": "off", "verify_rounds": DEFAULT_ROUNDS, "budget_grace": True, "error_classifier": True}}
+                "defaults": {"verify_gate": "always", "verify_rounds": DEFAULT_ROUNDS, "budget_grace": True, "error_classifier": True}}
 
     def flags(self) -> List[str]:
         """The options a conversation's process is started with."""

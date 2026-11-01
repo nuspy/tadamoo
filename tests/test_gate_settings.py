@@ -21,7 +21,7 @@ from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)
 def test_the_defaults_are_the_gate_off_the_classifier_on_and_a_bad_value_is_refused_whole(tmp_path):
     prefs = GatePrefs(tmp_path / "g.json")
     first = prefs.read()
-    assert first == {"verify_commands": [], "verify_gate": "off", "verify_rounds": 3, "budget_grace": True, "error_classifier": True}
+    assert first == {"verify_commands": [], "verify_gate": "always", "verify_rounds": 3, "budget_grace": True, "error_classifier": True}
     saved = prefs.write({"verify_commands": "python -m pytest -x -q\n\nruff check .\n", "verify_gate": "unattended", "verify_rounds": 2, "budget_grace": False,
                          "error_classifier": False})
     assert saved["verify_commands"] == ["python -m pytest -x -q", "ruff check ."] and saved["verify_gate"] == "unattended" and saved["verify_rounds"] == 2
@@ -43,7 +43,7 @@ def test_the_process_of_a_conversation_is_started_with_the_settings_and_they_rea
     manager = SessionManager(tmp_path / "j", "http://127.0.0.1:1", gate_flags=prefs.flags, command=None)
     rec = {"mode": "default", "workspace": str(tmp_path)}
     plain = manager._command("s1", rec, tmp_path / "h")
-    assert plain[plain.index("--verify-gate") + 1] == "off" and "--verify-command" not in plain and "--no-budget-grace" not in plain and "--no-error-classifier" not in plain
+    assert plain[plain.index("--verify-gate") + 1] == "always" and "--verify-command" not in plain and "--no-budget-grace" not in plain and "--no-error-classifier" not in plain
     prefs.write({"verify_commands": ["pytest -q", "ruff check ."], "verify_gate": "always", "verify_rounds": 2, "budget_grace": False, "error_classifier": False})
     flags = prefs.flags()
     command = manager._command("s1", rec, tmp_path / "h")
@@ -91,7 +91,7 @@ def api(tmp_path, monkeypatch, start_server):  # noqa: F811
 
 def test_the_settings_page_reads_and_saves_through_the_api(api):
     code, view = api("GET", "/api/gate")
-    assert code == 200 and view["verify_gate"] == "off" and view["modes"] == ["off", "unattended", "always"] and view["limits"]["verify_rounds"] == [1, 3]
+    assert code == 200 and view["verify_gate"] == "always" and view["modes"] == ["off", "unattended", "always"] and view["limits"]["verify_rounds"] == [1, 3]
     assert view["defaults"]["budget_grace"] is True and view["defaults"]["error_classifier"] is True
     code, view = api("POST", "/api/gate", {"verify_commands": ["pytest -q"], "verify_gate": "always"})
     assert code == 200 and view["verify_commands"] == ["pytest -q"] and view["verify_gate"] == "always"

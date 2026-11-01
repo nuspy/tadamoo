@@ -61,8 +61,12 @@ USES: Tuple[Use, ...] = (
     Use("chat_summary", params=(Param("answer_tokens", 1536, 200, 6000), Param("chunk_tokens", 10000, 2000, 24000)),
         prompt="serve.chatctx:SUMMARY_PROMPT", editable=True),
     Use("chat_abstract", needs_session=True, params=(Param("min_chars", 4000, 400, 60000),), prompt="serve.chatctx:ABSTRACT_PROMPT", editable=True),
+    Use("code_abstract", needs_session=True, params=(Param("min_lines", 6, 2, 200),), prompt="serve.chatcode:CODE_ABSTRACT_PROMPT", editable=True),
     Use("longform"),
     Use("memory_extract", params=(Param("max_tokens", 900, 200, 4000), Param("timeout_s", 120, 10, 600, False)), prompt="harness.memory_extract:SYSTEM"),
+    Use("conversation_card", needs_session=True,
+        params=(Param("max_tokens", 600, 200, 2000), Param("timeout_s", 60, 10, 600, False), Param("idle_s", 300, 30, 7200), Param("gap_s", 20, 5, 600)),
+        prompt="harness.cards:SYSTEM"),
     Use("memory_rank", needs_session=True, params=(Param("candidates", 12, 4, 40), Param("timeout_s", 8, 2, 60, False)), prompt="harness.memory_rank:SYSTEM"),
     Use("progress", needs_session=True, params=(Param("every_steps", 8, 2, 60), Param("timeout_s", 10, 2, 60, False)), prompt="harness.progress:SYSTEM"),
     Use("planner", params=(Param("timeout_s", 120, 10, 600, False),)),
@@ -128,6 +132,20 @@ def set_external(on: bool) -> None:
     _write(values)
 
 
+def session_on() -> bool:
+    """The person's master switch for the whole technical session (the chat's own switch): on unless they turned it off. Every use is off while it is."""
+    entry = _read().get("_session")
+    return not (isinstance(entry, dict) and entry.get("on") is False)
+
+
+def set_session(on: bool) -> None:
+    if not isinstance(on, bool):
+        raise ValueError("session: true or false")
+    values = dict(_read())
+    values["_session"] = {"on": on}
+    _write(values)
+
+
 def _entry(use: str) -> Dict[str, Any]:
     entry = _read().get(use)
     return entry if isinstance(entry, dict) else {}
@@ -137,6 +155,8 @@ def enabled(use: str) -> bool:
     """Whether `use` is made in the technical session (and, for the uses that need it, made at all)."""
     if use not in BY_ID:
         return True
+    if not session_on():
+        return False
     on = _entry(use).get("on")
     return BY_ID[use].default_on if on is None else on is True
 
@@ -230,7 +250,7 @@ def reset(use: Optional[str] = None) -> None:
     """Back to the defaults: one use, or all of them."""
     if use is not None and use not in BY_ID:
         raise ValueError(f"unknown use: {use}")
-    values = {k: v for k, v in _read().items() if k == "_external"} if use is None else {k: v for k, v in _read().items() if k != use}
+    values = {k: v for k, v in _read().items() if k in ("_external", "_session")} if use is None else {k: v for k, v in _read().items() if k != use}
     _write(values)
 
 

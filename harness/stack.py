@@ -18,7 +18,7 @@ from harness.audit import AuditLedger
 from harness.checkpoints import CheckpointManager
 from harness.client import BasaltClient
 from harness.compaction import DEFAULT_THRESHOLD as DEFAULT_COMPACTION_THRESHOLD, MAX_THRESHOLD as MAX_COMPACTION_THRESHOLD, MIN_THRESHOLD as MIN_COMPACTION_THRESHOLD, Compaction, SummaryCut
-from harness.context import ContextBuilder, ContextManager, TokenJuiceCompactor, available_budget
+from harness.context import FILE_TOOLS, ContextBuilder, ContextManager, TokenJuiceCompactor, available_budget
 from harness.context_patterns import PatternContext, Snapshots, normalize_config
 from harness.gate import DEFAULT_ROUNDS, MAX_ROUNDS, MODES as VERIFY_MODES, VerifyGate, clean_commands
 from harness.hooks import HookManager, load_hook_files
@@ -30,7 +30,7 @@ from harness.rule_of_two import LEVELS
 from harness.syntax_check import DEFAULT_GUARD as DEFAULT_EDIT_GUARD, GUARD_LEVELS as EDIT_GUARD_LEVELS
 from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
 from harness import digest
-from harness import auto_approve, awareness, completion, course, inject_screen, lessons, persistence, memory_rank, side_uses, tool_extract
+from harness import auto_approve, awareness, completion, course, inject_screen, lessons, nextsteps, persistence, memory_rank, repeats, side_uses, tool_extract
 from harness.side import side_context, side_extra, side_extra_for, use as side_use
 from harness.prompt_blocks import instruction_blocks
 from harness.project_profile import clean_list
@@ -132,6 +132,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--payments-dir", default="", help="the person's payment systems and limits: the agent may ask to pay and the broker decides")
     parser.add_argument("--browser", action="store_true", help="offer the browser tools: Edge or Chrome on this PC, for forms, purchases and bookings")
     parser.add_argument("--browser-headless", action="store_true", help="the browser has no window")
+    parser.add_argument("--browser-cdp-url", default="", help="drive a browser that is already running, at this http address of its debugging port (http://127.0.0.1:9222); none is started or closed")
     parser.add_argument("--browser-private", action="store_true", help="the browser may open pages on this PC and its network")
     parser.add_argument("--browser-profile", default="", help="a profile folder that keeps the browser's sign-ins between conversations")
     parser.add_argument("--browser-consent", default="follow", choices=["follow", "necessary", "accept", "reject", "off"],
@@ -180,7 +181,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--verify-command", action="append", default=[], metavar="COMMAND",
                         help="one of the project's own checks (tests, a linter); repeatable. With --verify-gate on, a turn that changed files runs them before it ends, "
                              "and a failure goes back to the model. The exact command is approved by listing it here")
-    parser.add_argument("--verify-gate", choices=list(VERIFY_MODES), default="off",
+    parser.add_argument("--verify-gate", choices=list(VERIFY_MODES), default="always",
                         help="when the verify commands run before a turn ends: off (never), unattended (only in a conversation nobody watches), always")
     parser.add_argument("--verify-rounds", type=int, default=DEFAULT_ROUNDS, help=f"most times a failed check sends the model back to fix it (1 to {MAX_ROUNDS})")
     parser.add_argument("--role", choices=list(ROLE_IDS), default=GENERAL_ROLE,
@@ -209,6 +210,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--exec-level-file", default="", help="the file that holds how freely the code the model writes runs (contained, free or admin; harness/exec_level.py); empty: contained")
     parser.add_argument("--personal-skills-dir", default="", help="the folder of the person's personal skills: the conversation can write one with create_skill")
     parser.add_argument("--persistence-file", default="", help="where the person's choice for \"work until done\" is kept (harness/persistence.py)")
+    parser.add_argument("--next-steps-file", default="", help="where the person's choice for the card of next steps after a task is kept (harness/nextsteps.py)")
     parser.add_argument("--lessons-dir", default=None, help="the folder of the global lessons; with it (or with \"\") the conversation keeps outcomes and lessons in the project's .basalt folder and reads them at the start of a task")
     parser.add_argument("--past-index", default="", help="the file that indexes the person's earlier conversations (harness/past.py): the conversation can search and reread them")
 
@@ -220,7 +222,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
     return dict(
         workspace=args.workspace, endpoint=args.endpoint, api_key=args.api_key, max_turns=args.max_turns, permission_mode=args.permission_mode,
         allow=args.allow, deny=args.deny, secret_names=secret_names, secret_hosts=secret_hosts, skill_paths=args.skills,
-        payments_dir=args.payments_dir, browser=args.browser, browser_headless=args.browser_headless, browser_private=args.browser_private,
+        payments_dir=args.payments_dir, browser=args.browser, browser_headless=args.browser_headless, browser_cdp_url=args.browser_cdp_url, browser_private=args.browser_private,
         browser_profile=args.browser_profile, browser_consent=args.browser_consent, browser_permissions=args.browser_permissions, vault_dir=args.vault_dir, rule_of_two=args.rule_of_two, edit_guard=args.edit_guard, capabilities=args.capabilities, lsp=args.lsp, council=args.council,
         wiki=args.wiki, wiki_url=args.wiki_url, wiki_project=args.wiki_project, phone=args.phone,
         reference_docs=read_reference(args.reference), reference_strategy=args.reference_strategy,
@@ -234,7 +236,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
-        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, past_index=args.past_index, persistence_file=args.persistence_file, lessons_dir=args.lessons_dir, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
+        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, past_index=args.past_index, persistence_file=args.persistence_file, next_steps_file=args.next_steps_file, lessons_dir=args.lessons_dir, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
     )
 
 
@@ -273,6 +275,7 @@ class AgentConfig:
     ask_code: Optional[Callable[[str], str]] = None   # how to ask the person for a second-factor code
     browser: bool = False               # offer the browser tools (Edge or Chrome on this PC): forms, purchases, bookings
     browser_headless: bool = False      # without a window
+    browser_cdp_url: str = ""           # a browser already running, driven at this http address of its debugging port (none is started or closed)
     rule_of_two: str = "ask"            # off, ask or strict: when an outward action asks (harness/rule_of_two.py)
     edit_guard: str = DEFAULT_EDIT_GUARD   # off, warn or block: an edit or write that leaves a file unparsable (harness/syntax_check.py)
     browser_private: bool = False       # may open pages on this PC or its network (off: only sites on the internet)
@@ -293,6 +296,7 @@ class AgentConfig:
     self_block: bool = True             # the fixed block "what you are" in the prompt and the self_status tool (harness/awareness.py)
     course_watch: bool = True           # watch the course of a request: notes to the agent about repeated failures and a near fold, then a card to the person (harness/course.py)
     persistence_file: str = ""          # where the choice for "work until done" is kept; empty: it is off
+    next_steps_file: str = ""           # where the choice for the card of next steps is kept; empty: it is off
     personal_skills_dir: str = ""       # the folder of the personal skills; empty: the conversation cannot write one
     past_index: str = ""                # the index of the earlier conversations (harness/past.py); empty: the conversation cannot search them
     reference_docs: Dict[str, str] = field(default_factory=dict)   # path -> text of reference documents
@@ -314,6 +318,7 @@ class AgentConfig:
     context_threshold: float = 0.7      # the share of the context window at which pruning or a summary starts
     compaction: bool = True             # summarise the older steps when the context is still near the window (harness/compaction.py)
     compaction_threshold: float = DEFAULT_COMPACTION_THRESHOLD   # the share of the prompt budget at which that starts
+    keep_code: bool = True               # in a session with file or shell tools, code is never masked or summarised (harness/context.py)
     end_turn_bias: float = 0.0          # 0 or less: how much less ready the model is to end its turn (0 is off)
     temperature: Optional[float] = None  # sampling temperature of every model call; None: the model file's own sampling applies
     max_tokens: Optional[int] = None    # most tokens one reply may write; None: the server's own limit
@@ -322,7 +327,7 @@ class AgentConfig:
     safe_commands: List[str] = field(default_factory=list)     # commands that run without a question, written exactly (PermissionManager.safe_verification)
     project_checks: List[str] = field(default_factory=list)    # checks the person accepted for this folder; the verify gate runs them like verify_commands
     verify_commands: List[str] = field(default_factory=list)   # the project's own checks, run before a turn ends after edits (harness/gate.py)
-    verify_gate: str = "off"            # when they run: off, unattended (only where nobody watches) or always
+    verify_gate: str = "always"           # when they run: off, unattended (only where nobody watches) or always
     verify_rounds: int = DEFAULT_ROUNDS  # most times a failed check sends the model back to fix it
     unattended: bool = False            # nobody is there to answer questions (the conversation's flag)
     budget_grace: bool = True           # a budget that runs out warns first, then allows one last report with no tools
@@ -683,6 +688,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     context = PatternContext(compactor, budget_tokens=budget, patterns=patterns, snapshots=snapshots, mask_at=min(0.95, max(0.3, cfg.context_threshold)),
                              summarize=_summarizer(summarizer or client) if patterns["summary"]["on"] else None,
                              compaction=Compaction(_summarizer(_compaction_client(summarizer, client), reject_cut=True), cfg.compaction, cfg.compaction_threshold))
+    context.keep_code = cfg.keep_code and bool(FILE_TOOLS & set(registry.names()))      # an agent session (file or shell tools): code stays whole
 
     def refresh_budget() -> None:
         """Asks the server again, so a model loaded or changed since the conversation began sets the budget; no answer leaves it as it is."""
@@ -764,7 +770,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     browser = None
     if cfg.browser:
         from harness.browser import find_browser, register_browser_tools
-        if find_browser():
+        if cfg.browser_cdp_url or find_browser():
             shots = None
             if cfg.attachments_dir and cfg.outputs_dir and cfg.run_id:
                 from harness.attachments import OutputStore
@@ -778,7 +784,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
                                              permissions=cfg.browser_permissions, confirm=lambda tool, args: bool(permissions.confirm_callback and permissions.confirm_callback(tool, args)),
                                              audit=lambda kind, details: audit.record("browser", kind, details), screenshots=shots,
                                              auto=lambda: permissions.level == PermissionLevel.AUTO,
-                                             rules=lambda: [r.pattern for r in permissions.rules if r.action == "allow"])
+                                             rules=lambda: [r.pattern for r in permissions.rules if r.action == "allow"], cdp_url=cfg.browser_cdp_url)
     if cfg.council:
         from harness.council import offer_council
         from harness.llm import client_for as routed_for, registry as llm_registry
@@ -807,6 +813,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     from harness import exec_level
     exec_level.configure(cfg.exec_level_file or None)
     persistence.configure(cfg.persistence_file or None)
+    nextsteps.configure(cfg.next_steps_file or None)
     if cfg.personal_skills_dir:
         from harness.personal_skills.authoring import register_authoring_tool
         from harness.personal_skills.store import PersonalSkills
@@ -848,7 +855,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     if cfg.self_block:
         builder.pin("self", awareness.self_model(
             model="", window=context.budget_tokens, mask_at=context.mask_at, compaction_at=cfg.compaction_threshold, compaction=cfg.compaction, max_turns=cfg.max_turns,
-            max_tokens=cfg.max_total_tokens, max_seconds=cfg.max_seconds, role=cfg.role, level=level.value, absent=awareness.absent_features(present),
+            max_tokens=cfg.max_total_tokens, max_seconds=cfg.max_seconds, absent=awareness.absent_features(present),
             lessons=""))
     agent = AgentLoop(
         client=client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key),
@@ -880,6 +887,9 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
 
         def keep_lessons(record: Dict[str, Any], candidates: List[Dict[str, Any]]) -> None:
             outcomes.append(record)
+            hint = repeats.hint_after(outcomes, record)
+            if hint:
+                agent._emit({"type": "script_hint", **hint})               # the same long work again and again: the page offers to make a skill of it
             if candidates:
                 threading.Thread(target=write_lessons, args=(record, candidates), name="lessons", daemon=True).start()
 

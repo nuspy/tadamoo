@@ -18,7 +18,7 @@ class MemoriesPageTest(unittest.TestCase):
         self.assertIn('settingsAt("me-h", "memories")', (WEB / "shell.js").read_text(encoding="utf-8"))
 
     def test_it_uses_the_memories_routes_only(self):
-        for route in ("api/memories?", "api/memories/settings", "api/memories/item", "api/memories/confirm", "api/memories/delete", "api/memories/clear", "api/memories/export"):
+        for route in ("api/memories?", "api/memories/settings", "api/memories/item", "api/memories/confirm", "api/memories/delete", "api/memories/clear", "api/memories/export", "api/memories/cards"):
             self.assertIn(route, JS)
 
     def test_each_memory_has_a_switch_to_learn_and_one_to_use_and_each_section_a_weight(self):
@@ -50,6 +50,7 @@ class MemoriesPageTest(unittest.TestCase):
             keys.add(f"me.w.{level}")
         for what in ("added", "seen_again", "changed", "removed"):
             keys.add(f"me.log.{what}")
+        keys |= {"me.cards.title", "me.cards.help", "me.cards.progress", "me.cards.bycode", "me.cards.on", "me.cards.done", "me.cards.off", "me.cards.stop", "me.cards.start"}
         for origin in ("said", "manual", "confirmed", "inferred"):
             keys.add(f"me.origin.{origin}")
         self.assertGreater(len(keys), 100)

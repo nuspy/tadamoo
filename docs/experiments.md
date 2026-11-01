@@ -397,6 +397,26 @@ reaches these agents as the same note, since they have no `ask_user`. **k = 5**.
 **Rule.** `W` beats `N` when its mean failed calls per task are fewer than the pooled `N` and `N~aa` mean by more than the gap and by 1.0, `resolved` and `completed` are not lower by more than 10 points or the gap (fewer wasted calls
 must not be bought by giving up). Wasted turns do not count a command that ran and failed, so they are reported and not decided on.
 
+## E13. Old chats: finding a conversation by other words, with cards or without
+
+**Question.** When a person asks for an old conversation in words it does not contain (an abbreviation, the other language, a paraphrase), do the conversation cards put the right one among the first hits of `search_past`?
+
+| Arm | Setting | Selected by |
+|---|---|---|
+| `N` | no cards: the text only | the use `conversation_card` off and the back-fill stopped |
+| `C` | the cards a good technical session writes (fixture, written by hand) | the use on (the default) |
+| `F` | the cards made by code from the text (no session) | no technical session |
+| `N~aa` | `N` again | |
+
+**Fixture.** Twelve past conversations on different subjects, in English and Italian (`fixtures/old_chats.py`), and sixteen questions: four with an abbreviation (EU, RGPD, IRPEF, RTX), six in the other language, six paraphrased.
+**Scorer.** A script puts the conversations in a fresh index, asks one question through the `search_past` tool and reads the conversation of each hit in order: `hit3` (the right one is among the first three), `hit1`,
+`rank`, `nothing` (no hit at all). No model is used, so a run is deterministic (k only repeats it). **k = 5**.
+
+**Rule, written before the run.** `C` or `F` beats `N` when its hit@3 is higher than the pooled `N` and `N~aa` rate by more than the gap and by 25 points, and its hit@1 is not lower by more than 10 points or the gap.
+hit@1, the mean rank and the share of questions that return nothing are reported and not decided on. What the first scripted pass shows (the plumbing, not a measurement of the model): the text alone finds 2 of 16, the
+fixture cards 16 of 16, the cards made by code 2 of 16, because code cannot translate or expand an abbreviation; so the cards are worth writing only by the session, and the experiment to run next on a real model is whether
+the session writes cards as good as the fixture's (the card text of a few real conversations, read by the person).
+
 ## Running order and cost
 
 These are guesses until the first run. E3 and E7 are short. E2, E4 and E8 are many short trials (a few hours; E8 adds one short call per trial). E1 and E6 are slower (each E1 trial is
@@ -413,9 +433,9 @@ with the same folder reuses the valid ones and redoes the invalid ones. It reuse
 |---|---|
 | `harness/eval/cases/core.py` | arms, trials, the A/A control, the decision rule, the report |
 | `harness/eval/cases/agentrun.py` | a counting client, an in-process Target Loop conversation, the session helper, the transcript measures |
-| `harness/eval/cases/e1_target.py` ... `e12_course.py` | one experiment each |
+| `harness/eval/cases/e1_target.py` ... `e13_old_chats.py` | one experiment each |
 | `harness/eval/cases/scripted_server.py` | the scripted server of E3 |
-| `harness/eval/cases/fixtures/` | the task material: `shop_repo.py` (E1), `gate_tasks.py` (E2), `error_scenarios.py` (E3), `intake_prompts.py` (E4), `long_turn_repo.py` (E5), `longform_texts.py` (E6), `optimize_prompts.py` (E8), `lesson_tasks.py` (E10), `derail_tasks.py` (E12) |
+| `harness/eval/cases/fixtures/` | the task material: `shop_repo.py` (E1), `gate_tasks.py` (E2), `error_scenarios.py` (E3), `intake_prompts.py` (E4), `long_turn_repo.py` (E5), `longform_texts.py` (E6), `optimize_prompts.py` (E8), `lesson_tasks.py` (E10), `derail_tasks.py` (E12), `old_chats.py` (E13) |
 | `harness/eval/cases/__main__.py` | the command line |
 | `tests/test_cases_core.py`, `tests/test_cases_runs.py`, `tests/test_cases_awareness.py` | the tests, CPU only |
 

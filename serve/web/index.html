@@ -47,6 +47,7 @@
 <script defer src="web/agentchat.js"></script>
 <script defer src="web/privacy.js"></script>
 <script defer src="web/persistence.js"></script>
+<script defer src="web/technical.js"></script>
 <script defer src="web/target.js"></script>
 <script defer src="web/coding.js"></script>
 <script defer src="web/longform.js"></script>
@@ -72,6 +73,7 @@
 <script defer src="web/charts.js"></script>
 <script defer src="web/converter.js"></script>
 <script defer src="web/providers.js"></script>
+<script defer src="web/llamacpp.js"></script>
 <script defer src="web/engines.js"></script>
 <script defer src="web/wizard.js"></script>
 <script defer src="web/reqlog.js"></script>
@@ -185,6 +187,16 @@
       <label class="sud-switch"><input type="checkbox" id="su-external"><span data-t="su.external.on">Allow the quick jobs to run on a provider outside this PC</span></label>
       <p class="sud-dim" data-t="su.external.help"></p>
       <p class="sud-dim" id="su-route-state" role="status" aria-live="polite"></p>
+      <details class="sud-setup" id="su-setup">
+        <summary data-t="su.setup.title">Use a second small model on this PC</summary>
+        <p class="sud-dim" data-t="su.setup.help"></p>
+        <div class="sud-num"><label for="su-setup-type" data-t="su.setup.type">Server</label>
+          <select id="su-setup-type"><option value="llamacpp">llama-server (llama.cpp)</option><option value="lmstudio">LM Studio</option><option value="vllm">vLLM</option></select></div>
+        <div class="sud-num"><label for="su-setup-model" data-t="su.setup.model">Model name</label><input id="su-setup-model" type="text" autocomplete="off" spellcheck="false"></div>
+        <div class="sud-num"><label for="su-setup-url" data-t="su.setup.url">Address (empty: the server's usual one)</label><input id="su-setup-url" type="text" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:8080/v1"></div>
+        <div class="sud-num"><label for="su-setup-window" data-t="su.setup.window">Context of the model, in tokens (at most 30000)</label><input id="su-setup-window" type="number" inputmode="numeric" min="1024" max="30000" placeholder="8192"></div>
+        <div class="sud-actions"><button type="button" class="btn primary" id="su-setup-go" data-t="su.setup.go">Use this model for the quick jobs</button></div>
+      </details>
     </fieldset>
     <section class="sud-running" id="su-running" aria-labelledby="su-running-h" hidden>
       <h3 id="su-running-h" data-t="su.running">Running now</h3>
@@ -349,6 +361,7 @@
         <button type="button" class="btn" id="new-chat" data-t="ch.newbtn">New conversation</button>
         <button type="button" class="btn" id="branches-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="branches" data-t="br.open" hidden>Branches</button>
         <button type="button" class="btn" id="export-open" aria-haspopup="dialog" data-t="exp.btn" data-t-title="exp.btn.title">Export</button>
+        <button type="button" class="btn" id="tech-toggle" aria-pressed="true">Technical session: on</button>
         <button type="button" class="btn" id="wud-toggle" aria-pressed="true">Work until done: on</button>
         <button type="button" class="btn" id="priv-toggle" aria-pressed="false">Private</button>
         <button type="button" class="btn" id="forget-open">Forget</button>
@@ -499,6 +512,11 @@
             <label for="cs-abs-keep" data-t="abs.keep">Newest turns kept in full</label>
             <input id="cs-abs-keep" type="number" inputmode="numeric" min="1" max="20" step="1">
           </div>
+          <div class="csnum">
+            <label for="cs-code-keep" data-t="abs.codekeep">Newest messages whose code is sent in full</label>
+            <input id="cs-code-keep" type="number" inputmode="numeric" min="3" max="5" step="1" aria-describedby="cs-code-h">
+          </div>
+          <p class="help" id="cs-code-h" data-t="abs.codehelp"></p>
         </fieldset>
         <fieldset class="csgroup" id="cs-bc">
           <legend data-t="bc.title">Billion Context</legend>
@@ -789,9 +807,11 @@
       <button type="button" class="btn subtab" role="tab" id="sub-providers" aria-selected="false" aria-controls="ld-providers" data-t="pv.sub.providers">Providers</button>
       <button type="button" class="btn subtab" role="tab" id="sub-qwen" aria-selected="true" aria-controls="ld-qwen" data-t="pv.sub.qwen">Qwen Loader</button>
       <button type="button" class="btn subtab" role="tab" id="sub-converter" aria-selected="false" aria-controls="ld-converter" data-t="pv.sub.converter">Model converter</button>
+      <button type="button" class="btn subtab" role="tab" id="sub-llamacpp" aria-selected="false" aria-controls="ld-llamacpp" data-t="pv.sub.llamacpp">llama.cpp</button>
     </div>
     <div class="pv" id="ld-providers" role="tabpanel" aria-labelledby="sub-providers" hidden></div>
     <div id="ld-converter" role="tabpanel" aria-labelledby="sub-converter" hidden></div>
+    <div class="eng-panel" id="ld-llamacpp" role="tabpanel" aria-labelledby="sub-llamacpp" hidden></div>
     <div id="ld-qwen" role="tabpanel" aria-labelledby="sub-qwen">
     <p class="sec setnote warnnote ldgpu" id="ld-gpu" role="alert" hidden></p>
     <p class="sec setnote ldstandby" id="ld-standby" data-t="ld.standby" role="status" hidden></p>

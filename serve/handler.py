@@ -18,8 +18,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from harness import exec_level, persistence, side_uses
-from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
+from harness import exec_level, nextsteps, persistence, side_uses
+from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
 from serve.engine.vision import VISION_MODES
@@ -28,7 +28,7 @@ from serve.engine.errors import EngineDied, EngineStarting, EngineStuck, GpuBusy
 from serve.api.grammar import REQUEST_KEY as GRAMMAR_KEY
 from serve.api.logit_bias import REQUEST_KEY as BIAS_KEY, add_end_turn, checked as checked_bias
 from serve.frontend import anthropic_to_messages, forced_call, openai_to_messages
-from serve.api.longform import long_answer_chunks, long_request
+from serve.api.longform import long_answer_chunks, long_collect, long_request
 from serve.api.openai import (openai_chunks, openai_collect, retry_messages, structured_retries,
                               structured_retry_chunks)
 from serve.api.responses import ResponsesError
@@ -97,6 +97,7 @@ _BENCHMARKS = None                                    # the Benchmarks tab's sid
 GPU_BUSY_UTIL_PCT = 40                                # a GPU this busy while the server is idle belongs to another program
 BENCH_GET = ("/api/bench", "/api/bench/preflight", "/api/bench/run", "/api/bench/report", "/api/bench/ranking")
 _MEM_WORKER = None                                    # learns from what the person wrote when the GPU is free
+_CARDS = None                                         # writes the card of each conversation when it has been quiet, and of the old ones when nothing else works
 _EXPORT = export_api.ExportApi()                      # turns a conversation into a file; holds a PDF page for the desktop app's print
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
 _LLM = None                                           # the Providers page's side of llmswitch, made on first use
@@ -133,6 +134,8 @@ def stop_sessions() -> None:
         _ROUTINES.shutdown()
     if _MEM_WORKER is not None:
         _MEM_WORKER.stop()
+    if _CARDS is not None:
+        _CARDS.stop()
     if _PLANS is not None:
         _PLANS.close()
     if _SESSIONS is not None:
@@ -492,9 +495,15 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/routines", "/api/routines/runs"):
                 if self._authorized():
                     self._routines_get(path)
+            elif path == "/api/technical-session":
+                if self._authorized():
+                    self._json(200, {"on": side_uses.session_on()})
             elif path == "/api/persistence":
                 if self._authorized():
                     self._json(200, {"on": persistence.Prefs(userdata.path(persistence.FILE)).read()})
+            elif path == "/api/next-steps":
+                if self._authorized():
+                    self._json(200, {"on": nextsteps.Prefs(userdata.path(nextsteps.FILE)).read()})
             elif path == "/api/personal-skills" or path.startswith("/api/personal-skills/"):
                 if self._authorized():
                     self._pskills_get(path)
@@ -507,6 +516,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/rea":
                 if self._authorized():
                     self._rea(path, False)
+            elif path == "/api/llamacpp":
+                if self._authorized():
+                    self._llamacpp(path, False)
             elif path == "/api/canary" or path.startswith("/api/canary/"):
                 if self._authorized():
                     self._canary(path, None)
@@ -734,6 +746,9 @@ def make_handler(svc: Service, remote: bool = False):
             if path.startswith("/api/rea/"):
                 self._rea(path, True)
                 return
+            if path.startswith("/api/llamacpp/"):
+                self._llamacpp(path, True)
+                return
             if path.startswith("/api/canary/"):
                 self._canary(path, True)
                 return
@@ -763,6 +778,12 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/lessons/"):
                 self._lessons_post(path)
+                return
+            if path == "/api/next-steps":
+                self._persistence_post(nextsteps.FILE, "next-steps")
+                return
+            if path == "/api/technical-session":
+                self._technical_session_post()
                 return
             if path == "/api/persistence":
                 self._persistence_post()
@@ -817,6 +838,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/chat/abstract":
                 self._chat_abstract()
+                return
+            if path == "/api/chat/code-abstract":
+                self._chat_code_abstract()
                 return
             if path == "/api/reqlog/clear":
                 self._reqlog_clear()
@@ -1514,6 +1538,24 @@ def make_handler(svc: Service, remote: bool = False):
             except (GpuBusy, EngineStarting, EngineDied, EngineStuck) as e:
                 self._json(503, {"error": {"type": "server_error", "message": str(e)}})
 
+        def _chat_code_abstract(self):
+            """POST /api/chat/code-abstract {"text": a message}: the message with each block of code replaced by a description, for the model only (serve/chatcode.py)."""
+            from serve import chatcode
+            try:
+                req = json.loads(self._body() or b"{}")
+                text = req.get("text") if isinstance(req, dict) else None
+                if not isinstance(text, str) or not text.strip():
+                    raise ValueError("text: the message with code")
+                self._json(200, chatcode.abstract_message(svc, text, chatctx._limit(svc), chatctx.Counter(svc, {})))
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except ValueError as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except ModelBusy as e:
+                self._json(409, {"error": {"type": "model_busy", "message": str(e)}})
+            except (GpuBusy, EngineStarting, EngineDied, EngineStuck) as e:
+                self._json(503, {"error": {"type": "server_error", "message": str(e)}})
+
         def _logs(self):
             """GET /api/logs?after=<id>&limit=<n>: the newest lines after that id, and the newest id."""
             query = parse_qs(urlsplit(self.path).query)
@@ -1759,10 +1801,13 @@ def make_handler(svc: Service, remote: bool = False):
             for row in uses:
                 row["stats"] = stats.get(row["id"]) or {"calls": 0, "main": 0, "cut": 0, "cancelled": 0, "seconds": 0.0}
             route = self._technical_route()
-            outside = bool(route["provider"]) and side_uses.external_on() and route["ok"]
-            tokens = info["context"] if info else (side_uses.EXTERNAL_WINDOW if outside else 0)
-            return {"session": {"available": info is not None or outside, "tokens": tokens, "local": info is not None},
-                    "external": {"on": side_uses.external_on(), "window": side_uses.EXTERNAL_WINDOW}, "route": route,
+            chosen = next((p for p in route["providers"] if p["id"] == route["provider"]), None)
+            here = bool(chosen and chosen["runs_here"] and not chosen["this_server"])          # a second small model on this PC: nothing leaves it, so no master switch
+            outside = bool(route["provider"]) and route["ok"] and (side_uses.external_on() or here)
+            window = min(int((chosen or {}).get("context_window") or 0) or side_uses.EXTERNAL_WINDOW, side_uses.EXTERNAL_WINDOW)
+            tokens = info["context"] if info else (window if outside else 0)
+            return {"session": {"available": info is not None or outside, "tokens": tokens, "local": info is not None, "on_pc": here and info is None},
+                    "external": {"on": side_uses.external_on(), "window": side_uses.EXTERNAL_WINDOW}, "route": route, "master": side_uses.session_on(),
                     "uses": uses, "running": side_uses.running()}
 
         def _technical_route(self) -> dict:
@@ -1773,7 +1818,8 @@ def make_handler(svc: Service, remote: bool = False):
                 return {"provider": "", "ok": True, "why": "", "consent": False, "needs_consent": False, "providers": []}
             row = next((f for f in view["functions"] if f["id"] == "technical"), {})
             providers = [{"id": p["id"], "name": p.get("name") or p.get("label") or p.get("type") or p["id"], "model": p.get("model") or "",
-                          "is_local": bool(p.get("is_local")), "this_server": bool(p.get("this_server"))}
+                          "is_local": bool(p.get("is_local")), "this_server": bool(p.get("this_server")), "runs_here": bool(p.get("runs_here")),
+                          "type": p.get("type") or "", "context_window": int(p.get("context_window") or 0)}
                          for p in view["providers"] if not p.get("agent_only") and not p.get("judge_only")]
             return {"provider": row.get("provider") or "", "ok": bool(row.get("ok", True)), "why": row.get("why") or "", "consent": bool(row.get("consent")),
                     "needs_consent": bool(row.get("needs_consent")), "providers": providers}
@@ -1865,6 +1911,28 @@ def make_handler(svc: Service, remote: bool = False):
                 code, obj = 400, {"error": {"message": str(e)}}
             self._json(code, obj)
 
+        def _llamacpp(self, path, post):
+            """llama-server in the Loader: it starts a program and downloads files after a confirmation, so only the PC the server runs on may use it."""
+            if not settings.is_loopback(self.client_address[0]) or self.remote_listener:
+                if post:
+                    self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "llama-server is managed only on the PC the server runs on"}})
+            try:
+                if post:
+                    try:
+                        raw = self._body(1 << 16)
+                    except BadBody as e:
+                        return self._json(e.status, {"error": {"message": str(e)}})
+                    req = json.loads(raw or b"{}")
+                    if not isinstance(req, dict):
+                        raise ValueError("send a JSON object")
+                    code, obj = llamacpp_api.route_post(path, req)
+                else:
+                    code, obj = llamacpp_api.route_get(path)
+            except (ValueError, TypeError) as e:
+                code, obj = 400, {"error": {"message": str(e)}}
+            self._json(code, obj)
+
         def _canary(self, path, post):
             """The exfiltration test: it starts a process and writes a config, so it is shown and changed only on the PC the server runs on."""
             if not settings.is_loopback(self.client_address[0]):
@@ -1895,7 +1963,7 @@ def make_handler(svc: Service, remote: bool = False):
             """The settings of the project notes, the wiki and the reference documents: only from this PC and the page itself."""
             if not settings.is_loopback(self.client_address[0]):
                 self._discard_body()
-                return self._json(403, {"error": {"type": "forbidden", "message": "these settings can be changed only from the PC the server runs on"}})
+                return self._json(403, {"error": {"type": "forbidden", "message": "these settings can be changed only from this PC or a paired device"}})
             try:
                 raw = self._body(1 << 14)
             except BadBody as e:
@@ -1916,7 +1984,7 @@ def make_handler(svc: Service, remote: bool = False):
 
         def _intake_post(self):
             """The settings of the look at a request, the questions and the suggestions: only from this PC and the page itself."""
-            if not settings.is_loopback(self.client_address[0]):
+            if not self._local_or_device():
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "these settings can be changed only from the PC the server runs on"}})
             try:
@@ -2078,6 +2146,18 @@ def make_handler(svc: Service, remote: bool = False):
                 _PAST = PastIndex(userdata.path("memory") / "past.db")
             return _PAST
 
+        def _card_worker(self):
+            global _CARDS
+            if _CARDS is None:
+                from harness.client import BasaltClient
+                from serve.card_worker import BACKFILL_QUIET_S, CardWorker
+                endpoint = f"http://127.0.0.1:{self.server.server_address[1]}"
+                worker = CardWorker(self._past(), lambda: BasaltClient(base_url=endpoint, api_key=svc.api_key or None),
+                                    lambda: gpu_free(svc, quiet_s=BACKFILL_QUIET_S, mine=worker.last))
+                _CARDS = worker
+                worker.start()
+            return _CARDS
+
         def _forgetter(self) -> Forgetter:
             return Forgetter(self._past(), self._personal(), userdata.path(MEMORY_EXPORT))
 
@@ -2099,20 +2179,37 @@ def make_handler(svc: Service, remote: bool = False):
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"type": "past", "message": str(e)}})
 
-        def _persistence_post(self):
-            """POST /api/persistence {"on": bool}: the "work until done" switch, one choice for every conversation."""
+        def _technical_session_post(self):
+            """POST /api/technical-session {"on": bool}: the switch of the whole technical session, shown in the chat header."""
             if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the switch is changed only from this PC or a paired device"}})
+            try:
+                req = json.loads(self._body(1 << 12) or b"{}")
+                if not isinstance(req, dict) or not isinstance(req.get("on"), bool):
+                    raise ValueError("send {\"on\": true} or {\"on\": false}")
+                side_uses.set_session(req["on"])
+                return self._json(200, {"on": side_uses.session_on()})
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"type": "technical_session", "message": str(e)}})
+
+        def _persistence_post(self, file=persistence.FILE, kind="persistence"):
+            """POST /api/persistence {"on": bool}: the "work until done" switch, one choice for every conversation. /api/next-steps is the same
+            for the card of next steps after a task."""
+            if not self._local_or_device():
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "the switch is changed only from the PC the server runs on"}})
             try:
                 req = json.loads(self._body(1 << 12) or b"{}")
                 if not isinstance(req, dict) or not isinstance(req.get("on"), bool):
                     raise ValueError("send {\"on\": true} or {\"on\": false}")
-                return self._json(200, {"on": persistence.Prefs(userdata.path(persistence.FILE)).write(req["on"])})
+                return self._json(200, {"on": persistence.Prefs(userdata.path(file)).write(req["on"])})
             except BadBody as e:
                 return self._json(e.status, {"error": {"message": str(e)}})
             except (ValueError, TypeError) as e:
-                return self._json(400, {"error": {"type": "persistence", "message": str(e)}})
+                return self._json(400, {"error": {"type": kind, "message": str(e)}})
 
         def _past_chat_post(self):
             """POST /api/past/chat: the model-only chat page, whose conversation lives in the browser, hands over its turns to be indexed."""
@@ -2129,6 +2226,8 @@ def make_handler(svc: Service, remote: bool = False):
                 if not re.fullmatch(r"[A-Za-z0-9_\-]{6,64}", chat_id) or not isinstance(req.get("messages"), list):
                     raise ValueError("send the chat's id and its messages")
                 kept = self._past().add_session("chat-" + chat_id, [m for m in req["messages"] if isinstance(m, dict)], title=str(req.get("title") or "")[:80], kind="chat")
+                if kept:
+                    self._card_worker().touch("chat-" + chat_id)
                 return self._json(200, {"indexed": kept})
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"type": "past", "message": str(e)}})
@@ -2136,7 +2235,7 @@ def make_handler(svc: Service, remote: bool = False):
         def _memories(self) -> MemoriesApi:
             global _MEMORIES
             if _MEMORIES is None:
-                _MEMORIES = MemoriesApi(self._personal(), self._memory_worker(), userdata.path(MEMORY_EXPORT))
+                _MEMORIES = MemoriesApi(self._personal(), self._memory_worker(), userdata.path(MEMORY_EXPORT), self._card_worker())
             return _MEMORIES
 
         def _lessons(self) -> LessonsApi:
@@ -2385,6 +2484,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.remove_provider(parts[1]))
                 if len(parts) == 3 and parts[0] == "providers" and parts[2] == "test":
                     return self._json(200, api.test(parts[1]))
+                if parts == ["technical"]:
+                    return self._json(200, api.setup_technical(req))
                 if parts == ["assign"]:
                     return self._json(200, api.assign(req.get("function"), req.get("provider")))
                 if parts == ["consent"]:
@@ -2604,7 +2705,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
                                            skills_dir=userdata.path("personal-skills"), projects=self._projects(),
                                            personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer, past=self._past(),
-                                           exec_level_file=userdata.path(exec_level.FILE), persistence_file=userdata.path(persistence.FILE), lessons_dir=userdata.path("lessons"), forgetter=self._forgetter())
+                                           exec_level_file=userdata.path(exec_level.FILE), persistence_file=userdata.path(persistence.FILE), next_steps_file=userdata.path(nextsteps.FILE), lessons_dir=userdata.path("lessons"), forgetter=self._forgetter(), cards=self._card_worker())
                 threading.Thread(target=_SESSIONS.index_all_past, name="past-backfill", daemon=True).start()      # the conversations saved before the index
                 self._routines()                          # the clock of the routines starts with the conversations
             return _SESSIONS
@@ -3013,7 +3114,7 @@ def make_handler(svc: Service, remote: bool = False):
             self._watch_client(cancel)
             chunks = long_answer_chunks(svc, req, spec, system, prior, cancel)
             if not req.get("stream"):
-                return self._json(200, openai_collect(chunks))
+                return self._json(200, long_collect(chunks))
             self._send_chunks(chunks, cancel)
 
         def _send_chunks(self, chunks, cancel):
