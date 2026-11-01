@@ -207,6 +207,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--personal-memory", default="", help="the folder of the person's own memories (long-term and short-term): what the person switched on is put in the answers where it matters")
     parser.add_argument("--personal-memory-keys", default="", help="the folder of the device key that opens them (the vault's)")
     parser.add_argument("--exec-level-file", default="", help="the file that holds how freely the code the model writes runs (contained, free or admin; harness/exec_level.py); empty: contained")
+    parser.add_argument("--personal-skills-dir", default="", help="the folder of the person's personal skills: the conversation can write one with create_skill")
     parser.add_argument("--past-index", default="", help="the file that indexes the person's earlier conversations (harness/past.py): the conversation can search and reread them")
 
 
@@ -231,7 +232,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
-        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, past_index=args.past_index, exec_level_file=args.exec_level_file,
+        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, past_index=args.past_index, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
     )
 
 
@@ -286,6 +287,7 @@ class AgentConfig:
     personal_memory_dir: str = ""       # the person's own memories (harness/personal_memory.py); empty: the conversation has none
     personal_memory_keys: str = ""      # where the device key that opens them is (default: the same folder)
     exec_level_file: str = ""           # where the person's choice of how freely code runs is kept (harness/exec_level.py); empty: contained
+    personal_skills_dir: str = ""       # the folder of the personal skills; empty: the conversation cannot write one
     past_index: str = ""                # the index of the earlier conversations (harness/past.py); empty: the conversation cannot search them
     reference_docs: Dict[str, str] = field(default_factory=dict)   # path -> text of reference documents
     reference_strategy: str = "auto"   # auto, cag (a fixed block at the start), rag (searched passages) or none
@@ -795,6 +797,10 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         register_personal_tools(registry, notes, local=stays)
     from harness import exec_level
     exec_level.configure(cfg.exec_level_file or None)
+    if cfg.personal_skills_dir:
+        from harness.personal_skills.authoring import register_authoring_tool
+        from harness.personal_skills.store import PersonalSkills
+        register_authoring_tool(registry, PersonalSkills(cfg.personal_skills_dir))
     if cfg.past_index:
         from harness.past import PastIndex, register_past_tools
         register_past_tools(registry, PastIndex(cfg.past_index), local=lambda: getattr(client, "stays_local", lambda: True)())
