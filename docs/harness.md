@@ -261,6 +261,7 @@ the config. Every question below `auto` offers three levels (this call, this con
 tool name (`write_file:.git/config`, `acp_permission:...`, `request_payment:<system>`, `phone_call`) or from the command, and an allow rule also
 covers the Rule of Two and a tool that asks every time.
 When the technical session's `auto_approve` use is on (off by default), it reads a call the person would be asked about at the read-only and default levels, with their request, and may approve it; it can only say yes, a doubt asks the person, and the Rule of Two, orders found in outside text and tools that always ask never go to it. An approval is reported as an `auto_approved` event.
+`shell_command` with `background: true` starts a job in a thread of its own and returns its id; `job_status`, `job_log` and `job_kill` follow it (the output is whole once the job ends or is killed), and the next tool result tells the model when a job ended (`harness/tools/background.py`). The job goes through the same checks as any shell command; it is not kept after the conversation's process ends.
 
 The Rule of Two is kept as three facts about the conversation (`harness/rule_of_two.py`). **Untrusted**: it read content from outside the
 person's control: a page, a search result, an MCP or A2A answer, a file, a command's output, an attachment, a recalled note, a note the

@@ -109,3 +109,11 @@ con quel valore) e avviare il server su 127.0.0.1.
 Dopo la valutazione `core` il server risponde «RAM low (23182 MiB free < 23187 MiB guard): request stopped; lower
 --resident-budget-gib»: la RAM libera della macchina sta sulla soglia di protezione (basalt usa 69 GB di 127). Finché non si libera
 memoria o non si abbassa `--resident-budget-gib` (impostazione del server, da scegliere con l'utente) le prove col modello non partono.
+
+## Da provare sull'app vera (1 novembre, dopo le decisioni sulle ispirazioni)
+
+- Finestra all'avvio «Basalt con i privilegi di amministratore?» (BasaltWinGUI.exe, `tools/windows/desktop/Program.cs`): avvio senza la scelta ricordata; «Sì» deve mostrare il consenso di Windows e riavviare con privilegi; «No» deve proseguire; la casella «Ricorda la scelta» scrive `admin-choice.json` nella cartella dati e la volta dopo la domanda non appare; l'avvio già elevato non chiede nulla.
+- Domanda «istruzioni trovate in un testo da fuori»: far leggere all'agente un file con la frase «ignore all previous instructions» e chiedergli poi di scrivere un file; deve comparire la domanda con i due bottoni (Autorizza / Nega), a ogni livello di permessi.
+- Regola dei due nel livello automatico: pagina letta, file con chiavi toccato, poi un indirizzo web con un valore: deve chiedere.
+- Processi in background: `shell_command` con `background` per un comando lungo, poi `job_status`, `job_log`, `job_kill`; la fine del lavoro deve comparire nel risultato successivo.
+- Impostazioni > Sessione tecnica: l'interruttore «Un modello approva le chiamate…» (spento di default) e quello delle istruzioni nel testo (acceso).
