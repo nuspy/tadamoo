@@ -22,6 +22,7 @@ from harness import compacted
 from harness.tools.registry import ToolRegistry
 
 from .agentrun import CountingClient, close_quietly, open_agent, snapshot, transcript_measures, write_files
+from harness.eval.traces import observe
 from .core import Arm, CaseTrial, Context, Experiment, Guard, Rule, with_control
 from .e5_compaction import WINDOW, notes_of, score
 from .fixtures import context_probes as cp
@@ -82,6 +83,7 @@ def run_trial(arm: Arm, variant: Dict[str, Any], rep: int, ctx: Context) -> Case
         order = sorted(repo.functions, key=lambda n: (workspace / "pkg" / f"{n}.py").stat().st_mtime_ns)
         scored = score(repo, snapshot(workspace), final, order)
         measures = transcript_measures(turns)
+        trial.trace, trial.components = observe(turns, built.agent, built.audit, client)
         trial.success, trial.notes = bool(scored["success"]), notes_of(scored)
         before = client.prompt_tokens - client.cached_tokens
         probes = cp.build(repo, variant["modules"])

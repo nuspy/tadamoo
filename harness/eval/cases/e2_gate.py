@@ -19,6 +19,7 @@ from harness import agent_loop as al
 from harness.eval.tasks import Task, make_workspace, run_checks
 
 from .agentrun import CountingClient, clear_bytecode, open_agent, transcript_measures
+from harness.eval.traces import observe
 from .core import Arm, CaseTrial, Context, Experiment, Guard, Rule, with_control
 from .fixtures import gate_tasks
 
@@ -68,6 +69,7 @@ def run_one(arm: Arm, raw: Dict[str, Any], rep: int, ctx: Context) -> CaseTrial:
         clear_bytecode(workspace)
         failures = run_checks(task, workspace, al.answer_text(turns), [])
         measures = transcript_measures(turns)
+        trial.trace, trial.components = observe(turns, built.agent, built.audit, client)
         finished = reason == al.FINAL
         trial.success, trial.notes = not failures, failures
         trial.metrics = {"finished_failing": 1.0 if finished and failures else 0.0, "passes": sum(1 for e in gate_events if e.get("decision") == "retry"),

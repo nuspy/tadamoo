@@ -25,6 +25,7 @@ from harness.tools.registry import EffectClass, ToolRegistry
 
 from .serverlog import ServerTimings, summarize_requests
 from .tasks import Task, load_task_set, make_workspace, run_checks
+from .traces import observe
 
 ClientFactory = Callable[[Task, int], Any]
 
@@ -52,6 +53,8 @@ class Trial:
     server_prefill_s: Optional[float] = None    # their median prefill time
     server_prompt_tokens: int = 0
     server_cached_tokens: int = 0
+    trace: List[Dict[str, str]] = field(default_factory=list)      # the tool calls in order (harness/eval/traces.py)
+    components: Dict[str, int] = field(default_factory=dict)       # counts of the components the run used
 
 
 @dataclass
@@ -154,6 +157,7 @@ class EvalRunner:
             trial.denied_calls = sum(1 for t in turns for c in t.tool_calls if c.decision in ("denied", "blocked"))
             trial.repaired_calls = sum(1 for t in turns for c in t.tool_calls if c.repaired)
             trial.length_stops = agent.length_stops
+            trial.trace, trial.components = observe(turns, agent, getattr(agent, "audit", None), client)
             trial.prompt_tokens = sum(t.prompt_tokens for t in turns)
             trial.completion_tokens = sum(t.completion_tokens for t in turns)
             trial.cached_tokens = sum(t.cached_tokens for t in turns)

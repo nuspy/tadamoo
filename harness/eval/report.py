@@ -8,6 +8,7 @@ from dataclasses import asdict
 from typing import Any, Dict, List, Optional
 
 from .runner import EvalResult
+from .traces import components_section, divergent_section, divergent_tasks
 
 
 def wilson(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -194,7 +195,10 @@ def generate_eval_report(
             f"{sum(t.turns for t in r.trials) / n:.1f} | {sum(t.tool_calls for t in r.trials)} ({sum(t.invalid_calls for t in r.trials)}) | "
             f"{prompt // n} | {_pct(sum(t.cached_tokens for t in r.trials) / prompt) if prompt else 'n/a'} | "
             f"{f'{statistics.median(firsts):.2f}' if firsts else 'n/a'} | {sum(t.seconds for t in r.trials) / n:.1f} | {first[:90].replace('|', '/')} |")
-    lines += ["", "Read the transcripts of failed trials before trusting a low score: a task that fails every time is usually a broken task, not a weak model.", ""]
+    lines.append("")
+    lines += divergent_section(divergent_tasks({r.task_id: [(t.repetition, t.passed, t.trace) for t in r.trials] for r in results}))
+    lines += components_section([("all trials", [t.components for r in results for t in r.trials])])
+    lines += ["Read the transcripts of failed trials before trusting a low score: a task that fails every time is usually a broken task, not a weak model.", ""]
     return "\n".join(lines)
 
 
