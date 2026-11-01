@@ -8,6 +8,7 @@ from .filesystem import WorkspaceSandbox
 from .search_code import register_search_code
 from .tree import register_tree
 from .shell import execute_shell_command
+from .background import Jobs, register_job_tools
 from .search import browse_url, format_page, offer_search
 from harness.repomap import register_repo_map
 from harness.repodiagram import register_repo_diagram
@@ -30,9 +31,18 @@ def create_standard_tool_registry(
             return permissions.evaluate(f"{tool}:{arguments['path']}", EffectClass.REVERSIBLE, arguments)
         sandbox.confirm_git_write = confirm_git_write
 
-    def run_shell(command: str, timeout: Optional[float] = None, shell: str = "cmd"):
+    def run_to_the_end(command: str, shell: str, timeout: Optional[float] = None):
         with sandbox.watching():                       # a command that edits files is reviewed like the file tools
             return execute_shell_command(command, cwd=sandbox.root, timeout=timeout, secrets=secrets, shell=shell)
+
+    jobs = Jobs(lambda command, shell: run_to_the_end(command, shell))
+    registry.jobs = jobs
+
+    def run_shell(command: str, timeout: Optional[float] = None, shell: str = "cmd", background: bool = False):
+        if background:
+            job = jobs.start(command, shell)
+            return {"job": job.id, "state": job.state, "note": "started; job_status, job_log and job_kill follow it, and you are told when it ends"}
+        return run_to_the_end(command, shell, timeout)
 
     registry.register(
         name="read_file",
@@ -127,6 +137,8 @@ def create_standard_tool_registry(
             "properties": {
                 "command": {"type": "string", "description": "Shell command to run; it may have several lines"},
                 "timeout": {"type": "number", "description": "Timeout in seconds, greater than 0; when it is left out the command runs until it ends (30 seconds, at most 600, when the person keeps commands contained)"},
+                "background": {"type": "boolean", "default": False,
+                               "description": "Start it as a background job and return at once (a server, a long build or test run); follow it with job_status, job_log and job_kill"},
                 "shell": {"type": "string", "enum": ["cmd", "powershell"], "default": "cmd",
                           "description": "\"cmd\" is the default shell: cmd.exe on Windows, sh elsewhere. \"powershell\" runs the command in PowerShell "
                                          "(Windows only; pwsh when installed, else powershell.exe)."},
@@ -136,6 +148,7 @@ def create_standard_tool_registry(
         effect=EffectClass.IRREVERSIBLE,
         handler=run_shell,
     )
+    register_job_tools(registry, jobs)
 
     def read_page(url: str):
         return format_page(browse_url(url, allow_private=allow_private_pages))

@@ -98,7 +98,7 @@ GROUPS: Dict[str, Tuple[str, ...]] = {
     "read": ("read_file", "list_directory", "tree", "repo_map", "repo_diagram", "search_code", "find_references", "go_to_definition", "diagnostics",
              "read_attachment", "search_attachment", "list_attachments", "transcribe_attachment", "search_past", "open_past", "recall", "recall_about_user"),
     "write": ("write_file", "edit_file", "write_output_file", "publish_output_file", "remember", "forget"),
-    "shell": ("shell_command", "run_code"),
+    "shell": ("shell_command", "run_code", "job_*"),
     "web": ("browse_url", "search_web", "page_images", "show_image", "wiki_*"),
     "browser": ("browser_*",),
     "phone": ("phone_*",),
