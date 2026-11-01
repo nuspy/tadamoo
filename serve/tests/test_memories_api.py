@@ -223,7 +223,7 @@ def test_a_turn_that_ends_hands_over_what_the_person_wrote(tmp_path):
         sid = s.mgr.create(str(tmp_path / "proj"), title="")["id"]
         s.mgr.send(sid, "primo messaggio")
         s.until(lambda: s.jobs)
-        assert s.jobs == [{"text": "primo messaggio", "project": "proj", "searches": []}]               # a folder's name is the project
+        assert s.jobs == [{"text": "primo messaggio", "project": "proj", "conversation": sid, "searches": []}]      # a folder's name is the project
         chat = s.mgr.create(None, title="")["id"]
         s.mgr.send(chat, "just a chat message")
         s.until(lambda: len(s.jobs) == 2)

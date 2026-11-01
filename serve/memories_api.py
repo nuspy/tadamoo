@@ -4,16 +4,18 @@ Only the server's own page reaches it (a phone's list of routes does not include
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, Optional
 
+from harness.memory_export import export_markdown
 from harness.personal_memory import INFERRED_SECTIONS, LONG_SECTIONS, ORIGINS, SHORT_SECTIONS, WEIGHTS, PersonalMemory, PersonalMemoryError
 
 SHOWN = 500                     # notes one answer lists; the page narrows them with a section or a search
 
 
 class MemoriesApi:
-    def __init__(self, memory: PersonalMemory, worker: Any = None) -> None:
-        self.memory, self.worker = memory, worker
+    def __init__(self, memory: PersonalMemory, worker: Any = None, export_dir: Optional[str | Path] = None) -> None:
+        self.memory, self.worker, self.export_dir = memory, worker, Path(export_dir) if export_dir else None
 
     def overview(self, query: str = "", kind: str = "", section: str = "") -> Dict[str, Any]:
         rows = self.memory.items(kind or None, section or None, query)
@@ -44,4 +46,11 @@ class MemoriesApi:
             if req.get("confirm") is not True:
                 raise PersonalMemoryError("deleting every note needs the confirmation")
             return {"deleted": self.memory.clear(kind)}
+        if action == "export":
+            if self.export_dir is None:
+                raise PersonalMemoryError("there is no folder to export the notes to")
+            try:
+                return export_markdown(self.memory, self.export_dir)
+            except OSError as e:
+                raise PersonalMemoryError(f"the notes could not be written to {self.export_dir}: {e.strerror or e}") from None
         raise PersonalMemoryError("unknown action")

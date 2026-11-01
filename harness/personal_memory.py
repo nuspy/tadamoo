@@ -37,6 +37,7 @@ SETTINGS_FILE = "memory-settings.json"
 STORE_FILE = "memories.bin"
 MAX_LOG = 100
 MAX_QUEUE = 200
+MAX_CONVERSATIONS = 20                          # conversations one note remembers it came from
 MESSAGE_CHARS = 1800                            # most text one answer's notes may take
 PER_SECTION = {"low": 1, "normal": 2, "high": 4, "highest": 8}
 CORE = {"high": 2, "highest": 6}                # items of a section put in at the start of a conversation even without a match
@@ -226,8 +227,18 @@ class PersonalMemory:
         if section not in SECTIONS[kind]:
             raise PersonalMemoryError(f"the sections of the {kind}-term memory are: {', '.join(SECTIONS[kind])}")
 
-    def add(self, kind: str, section: str, text: Any, origin: str = "manual", confidence: float = 1.0, source: str = "") -> Dict[str, Any]:
-        """A new note; one that says the same as a note already in the section only counts as seen again (and a better origin is kept)."""
+    @staticmethod
+    def _from(item: Dict[str, Any], conversation: str) -> List[str]:
+        """The conversations a note came from, with `conversation` added; notes made before this was kept have none."""
+        known = [c for c in item.get("conversations") or [] if isinstance(c, str)]
+        if conversation and conversation not in known:
+            known = (known + [conversation])[-MAX_CONVERSATIONS:]
+        return known
+
+    def add(self, kind: str, section: str, text: Any, origin: str = "manual", confidence: float = 1.0, source: str = "",
+            conversation: str = "") -> Dict[str, Any]:
+        """A new note; one that says the same as a note already in the section only counts as seen again (and a better origin is kept).
+        `conversation` is the id of the conversation the note was learned from, so that it can be forgotten with it."""
         self._check(kind, section)
         value = clean_text(text)
         if origin not in ORIGINS:
@@ -241,6 +252,8 @@ class PersonalMemory:
             if same is not None:
                 item = dict(same)
                 item.update(seen=now, mentions=item.get("mentions", 1) + 1)
+                if item.get("conversations"):             # a note of unknown origin or written by the person is not made deletable by a mention
+                    item["conversations"] = self._from(item, conversation)
                 if RANK[origin] > RANK[item["origin"]]:
                     item.update(origin=origin, confidence=max(item["confidence"], confidence))
                 items[item["id"]] = item
@@ -251,7 +264,8 @@ class PersonalMemory:
                 for old in [i for i in items.values() if i["kind"] == kind and i["section"] == "card"]:
                     del items[old["id"]]
             item = {"id": f"pm_{uuid.uuid4().hex[:12]}", "kind": kind, "section": section, "text": value, "origin": origin,
-                    "confidence": confidence, "created": now, "updated": now, "seen": now, "mentions": 1, "source": str(source)[:60]}
+                    "confidence": confidence, "created": now, "updated": now, "seen": now, "mentions": 1, "source": str(source)[:60],
+                    "conversations": self._from({}, conversation)}
             items[item["id"]] = item
             data["items"] = items
             self._write(data)
@@ -271,7 +285,7 @@ class PersonalMemory:
         return None
 
     def update(self, item_id: str, text: Any = None, section: Optional[str] = None, origin: Optional[str] = None,
-               confidence: Optional[float] = None) -> Dict[str, Any]:
+               confidence: Optional[float] = None, conversation: str = "") -> Dict[str, Any]:
         with self._lock:
             data = dict(self._read())
             items = dict(data["items"])
@@ -289,6 +303,8 @@ class PersonalMemory:
                 item["origin"] = origin
             if confidence is not None:
                 item["confidence"] = max(0.0, min(1.0, float(confidence)))
+            if conversation:
+                item["conversations"] = self._from(item, conversation)
             item["updated"] = self.clock()
             items[item_id] = item
             data["items"] = items
@@ -307,6 +323,44 @@ class PersonalMemory:
             data["items"] = {k: v for k, v in data["items"].items() if k != item_id}
             self._write(data)
             return True
+
+    def forget_conversation(self, conversation: str) -> Dict[str, Any]:
+        """Everything that was learned from one conversation: the messages still waiting to be learned from, and the notes that came only
+        from it (with their lines in the list of what was learned). A note that another conversation also taught stays, without this one.
+        Returns the counts and the ids of the notes deleted."""
+        conv = str(conversation or "")
+        if not conv:
+            return {"queued": 0, "notes": 0, "kept": 0, "ids": []}
+        with self._lock:
+            data = dict(self._read())
+            queue = [j for j in data["queue"] if j.get("conversation") != conv]
+            items, gone, kept = {}, [], 0
+            for key, item in data["items"].items():
+                mine = [c for c in item.get("conversations") or [] if isinstance(c, str)]
+                if conv not in mine:
+                    items[key] = item
+                elif len(mine) == 1:
+                    gone.append(key)
+                else:
+                    items[key] = {**item, "conversations": [c for c in mine if c != conv]}
+                    kept += 1
+            queued = len(data["queue"]) - len(queue)
+            if queued or gone or kept:
+                data["queue"], data["items"] = queue, items
+                data["log"] = [line for line in data["log"] if line.get("id") not in set(gone)]
+                self._write(data)
+            return {"queued": queued, "notes": len(gone), "kept": kept, "ids": gone}
+
+    def drop_queued(self, conversation: str) -> int:
+        """The messages of one conversation that still wait to be learned from are dropped."""
+        with self._lock:
+            data = dict(self._read())
+            queue = [j for j in data["queue"] if j.get("conversation") != conversation]
+            gone = len(data["queue"]) - len(queue)
+            if gone:
+                data["queue"] = queue
+                self._write(data)
+            return gone
 
     def clear(self, kind: Optional[str] = None) -> int:
         with self._lock:

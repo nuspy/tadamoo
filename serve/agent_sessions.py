@@ -118,7 +118,8 @@ class SessionManager:
                  rule_of_two: Optional[Callable[[], str]] = None, allow_rules: Any = None, rule_of_two_prefs: Any = None,
                  intake_flags: Optional[Callable[[], List[str]]] = None,
                  gate_flags: Optional[Callable[[], List[str]]] = None, coding: Any = None,
-                 compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None, exec_level_file: Optional[Path] = None) -> None:
+                 compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None, exec_level_file: Optional[Path] = None,
+                 forgetter: Any = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -132,6 +133,7 @@ class SessionManager:
         self._no_learning: set = set()                          # conversations that are not the person's talking (a routine's)
         self.exec_level_file = exec_level_file                  # how freely the code the model writes runs: one file, read again by each conversation when it changes
         self.past = past                                        # the index of earlier conversations (harness/past.py); each conversation is added to it when a turn ends
+        self.forgetter = forgetter                              # takes a conversation back out of the index and the memories (harness/forget.py)
         self._routine_runs: Dict[str, str] = {}                 # a routine's conversation -> the routine's name, when the person switched its indexing on
         self._place: Optional[Dict[str, Any]] = None            # where the person's phone last said they were: held in memory only
         self._place_sent: Dict[str, float] = {}                 # per conversation process: the receipt time of the position it was given
@@ -889,7 +891,7 @@ class SessionManager:
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
                max_turns: Any = UNLIMITED_STEPS, context_patterns: Any = None,
                context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
-               images: Any = "", charts: Any = "", unattended: bool = False, role: Any = GENERAL_ROLE) -> Dict[str, Any]:
+               images: Any = "", charts: Any = "", unattended: bool = False, role: Any = GENERAL_ROLE, private: bool = False) -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         if (workspace is None or workspace == "") and self.default_workspace is not None:
             self.default_workspace.mkdir(parents=True, exist_ok=True)
@@ -929,6 +931,8 @@ class SessionManager:
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         if copy:
             rec["worktree"], rec["workdir"] = copy, copy["workdir"]
+        if private is True:
+            rec["private"] = True                                  # left out of the index of earlier conversations and of what is learned about the person
         with self._lock:
             self.records.append(rec)
             self._events[sid], self._seq[sid] = collections.deque(maxlen=EVENTS_KEPT), 0
@@ -1315,11 +1319,17 @@ class SessionManager:
                 routine = self._routine_runs.get(sid, "")
                 if (sid in self._no_learning or rec.get("unattended")) and not routine:
                     return False
+                if rec.get("private"):
+                    return False
             workspace = str(rec.get("workspace") or "")
             chat = not workspace or (self.default_workspace is not None and Path(workspace) == self.default_workspace)
             messages = self.history(sid)["messages"]
             self.past.add_session(sid, messages, title=rec.get("title") or "", project="" if chat else Path(workspace).name,
                                   kind="routine" if routine else "chat" if chat else "agent", routine=routine, at=rec.get("updated") or time.time())
+            with self._lock:
+                if self._record(sid).get("private"):          # marked private while it was being indexed
+                    self.past.drop(sid)
+                    return False
             return True
         except Exception:
             return False                                        # the index never gets in the way of the conversation
@@ -1330,11 +1340,11 @@ class SessionManager:
             return 0
         kept = {s["session"]: s["at"] for s in self.past.sessions()}
         with self._lock:
-            todo = [r["id"] for r in self.records if (r.get("updated") or 0) > kept.get(r["id"], -1) + 1e-6 and r["id"] not in self._no_learning and not r.get("unattended")]
+            todo = [r["id"] for r in self.records if (r.get("updated") or 0) > kept.get(r["id"], -1) + 1e-6 and r["id"] not in self._no_learning and not r.get("unattended") and not r.get("private")]
         return sum(1 for sid in todo if self.index_past(sid))
 
     def _hear(self, sid: str, rec: Dict[str, Any], text: str) -> None:
-        if self.learn is None or sid in self._no_learning:
+        if self.learn is None or sid in self._no_learning or rec.get("private"):
             return
         workspace = str(rec.get("workspace") or "")
         project = "" if not workspace or (self.default_workspace and Path(workspace) == self.default_workspace) else Path(workspace).name
@@ -1352,7 +1362,7 @@ class SessionManager:
         for n, text in enumerate(heard["texts"]):
             last = n == len(heard["texts"]) - 1
             try:
-                self.learn({"text": text, "project": heard["project"], "searches": heard["searches"] if last else []})
+                self.learn({"text": text, "project": heard["project"], "conversation": sid, "searches": heard["searches"] if last else []})
             except Exception:
                 pass                                          # learning never gets in the way of the conversation
 
@@ -1658,6 +1668,39 @@ class SessionManager:
             rec["favorite"] = value
             self._save()
         return self.get(sid)
+
+    def set_private(self, sid: str, value: Any) -> Dict[str, Any]:
+        """Marks a conversation as private (or not): it is then left out of the index of earlier conversations and nothing is learned from it for
+        the person's memories. Turning it on also takes it out of the index and drops what waited to be learned; notes already made stay until it is forgotten."""
+        if not isinstance(value, bool):
+            raise RunError("Say whether it is private: true or false.", "bad_private")
+        with self._lock:
+            rec = self._record(sid)
+            rec["private"] = value
+            self._save()
+            if value:
+                self._said.pop(sid, None)
+        if value:
+            try:
+                if self.forgetter is not None:
+                    self.forgetter.keep_out(sid)
+                elif self.past is not None:
+                    self.past.drop(sid)
+            except Exception:
+                pass                                          # the mark holds either way: nothing new is taken
+        else:
+            threading.Thread(target=self.index_past, args=(sid,), name="past-index", daemon=True).start()
+        return self.get(sid)
+
+    def forget(self, sid: str) -> Dict[str, Any]:
+        """Removes everything taken from a conversation: its pieces in the index of earlier conversations and the memories learned from it. The
+        conversation itself stays; what is said in it later is taken again unless it is marked private."""
+        with self._lock:
+            self._record(sid)
+            self._said.pop(sid, None)
+        if self.forgetter is None:
+            raise RunError("The memories are not available here.", "no_memory")
+        return {"forgotten": self.forgetter.forget(sid)}
 
     def delete(self, sid: str) -> Dict[str, Any]:
         """Takes a conversation away for good: its process, its saved messages, the files attached to it and made in it, and its own copy

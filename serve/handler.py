@@ -54,6 +54,7 @@ from serve.files_api import FilesApi, FilesError
 from serve.projects import ProjectStore
 from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAccess, tailscale_peers, tailscale_status, tailscale_up
 from serve.personal_skills_api import PersonalSkillsApi
+from harness.forget import Forgetter
 from harness.personal_memory import PersonalMemory, PersonalMemoryError
 from serve.memories_api import MemoriesApi
 from serve import export_api, traces_api
@@ -86,6 +87,7 @@ _INSTALLER = Installer()                              # installs Tailscale when 
 _ROUTINES = None                                      # the agent's recurring routines, made with the conversations or on first use
 _PSKILLS = None                                       # the person's personal skills, made on first use
 _PERSONAL = None                                      # the person's own memories (long-term and short-term), made on first use
+MEMORY_EXPORT = "memory-export"                        # the folder of the exported memories, in the user data folder
 _PAST = None                                          # the index of earlier conversations, made on first use
 _MEMORIES = None                                      # the Memories page's side of them
 _MEM_WORKER = None                                    # learns from what the person wrote when the GPU is free
@@ -741,6 +743,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/past/chat":
                 self._past_chat_post()
+                return
+            if path == "/api/past/forget":
+                self._past_forget_post()
                 return
             if path == "/api/changes/review":
                 if not settings.is_loopback(self.client_address[0]):
@@ -2044,6 +2049,27 @@ def make_handler(svc: Service, remote: bool = False):
                 _PAST = PastIndex(userdata.path("memory") / "past.db")
             return _PAST
 
+        def _forgetter(self) -> Forgetter:
+            return Forgetter(self._past(), self._personal(), userdata.path(MEMORY_EXPORT))
+
+        def _past_forget_post(self):
+            """POST /api/past/forget: the model-only chat page asks for everything taken from its conversation to be forgotten."""
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "conversations are forgotten only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 12)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            try:
+                req = json.loads(raw or b"{}")
+                chat_id = str(req.get("id") or "") if isinstance(req, dict) else ""
+                if not re.fullmatch(r"[A-Za-z0-9_\-]{6,64}", chat_id):
+                    raise ValueError("send the chat's id")
+                return self._json(200, {"forgotten": self._forgetter().forget("chat-" + chat_id)})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"type": "past", "message": str(e)}})
+
         def _past_chat_post(self):
             """POST /api/past/chat: the model-only chat page, whose conversation lives in the browser, hands over its turns to be indexed."""
             if not settings.is_loopback(self.client_address[0]):
@@ -2066,7 +2092,7 @@ def make_handler(svc: Service, remote: bool = False):
         def _memories(self) -> MemoriesApi:
             global _MEMORIES
             if _MEMORIES is None:
-                _MEMORIES = MemoriesApi(self._personal(), self._memory_worker())
+                _MEMORIES = MemoriesApi(self._personal(), self._memory_worker(), userdata.path(MEMORY_EXPORT))
             return _MEMORIES
 
         def _memories_post(self, path):
@@ -2449,7 +2475,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
                                            skills_dir=userdata.path("personal-skills"), projects=self._projects(),
                                            personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer, past=self._past(),
-                                           exec_level_file=userdata.path(exec_level.FILE))
+                                           exec_level_file=userdata.path(exec_level.FILE), forgetter=self._forgetter())
                 threading.Thread(target=_SESSIONS.index_all_past, name="past-backfill", daemon=True).start()      # the conversations saved before the index
                 self._routines()                          # the clock of the routines starts with the conversations
             return _SESSIONS
@@ -2574,7 +2600,7 @@ def make_handler(svc: Service, remote: bool = False):
                                                                       req.get("context_threshold", 0.8), req.get("end_turn_bias"),
                                                                       req.get("worktree", "auto"), req.get("effort", ""),
                                                                       req.get("images", ""), req.get("charts", ""),
-                                                                      req.get("unattended") is True, req.get("role", "general"))})
+                                                                      req.get("unattended") is True, req.get("role", "general"), req.get("private") is True)})
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
                         return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
@@ -2619,6 +2645,12 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, mgr.run_skill(parts[1], req.get("slug"), req.get("values")))
                     if len(parts) == 3 and parts[2] == "favorite":
                         return self._json(200, {"session": mgr.favorite(parts[1], req.get("favorite"))})
+                    if len(parts) == 3 and parts[2] == "private":
+                        return self._json(200, {"session": mgr.set_private(parts[1], req.get("private"))})
+                    if len(parts) == 3 and parts[2] == "forget":
+                        if not settings.is_loopback(self.client_address[0]):
+                            return self._json(403, {"error": {"type": "forbidden", "message": "conversations are forgotten only from the PC the server runs on"}})
+                        return self._json(200, mgr.forget(parts[1]))
                     if len(parts) == 3 and parts[2] == "delete":
                         return self._json(200, mgr.delete(parts[1]))
                     if len(parts) == 3 and parts[2] == "command":

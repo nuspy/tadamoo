@@ -123,6 +123,7 @@
     paintFolder();
     paintChip();
     paintLive();
+    document.dispatchEvent(new Event("basalt:chat-state"));                    // the privacy buttons follow the open conversation
     if (window.codingUi) window.codingUi.refresh();
     const on = active();
     if (!on) return;
@@ -1228,7 +1229,7 @@
   async function ensure() {
     if (sid) return true;
     if (inAgent() && !curPath() && !(await addFolder())) { status(T("ag.noproject")); return false; }
-    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals() });
+    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals(), ...(window.privacy && window.privacy.pending() ? { private: true } : {}) });
     if (!r.ok) { status(errText(r)); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0;
     await refreshList();

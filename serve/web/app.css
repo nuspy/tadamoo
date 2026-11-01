@@ -1158,6 +1158,7 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .askill-box { flex: none; width: 18px; height: 18px; margin: 6px 4px 0 0; accent-color: var(--accent); }
 .pskill-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 20px; border-top: 1px solid var(--line-soft); background: var(--surface); font: 400 13px/1.4 var(--font-sans); color: var(--fg-2); }
 .pskill-bar span { flex: 1 1 24ch; min-width: 0; overflow-wrap: anywhere; }
+#priv-toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .learnbadge { align-self: center; padding: 1px 8px; border-radius: 10px; border: 1px solid #FF8A8A; color: #FF8A8A; font: 600 11.5px/1.5 var(--font-sans); white-space: nowrap; }
 dialog.psk { width: min(640px, 94vw); max-height: 90vh; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--fg); }
 dialog.psk.wide { width: min(860px, 96vw); }

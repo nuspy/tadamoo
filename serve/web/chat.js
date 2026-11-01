@@ -269,9 +269,12 @@
   const ID_KEY = "basalt.chat.id";
   const chatId = () => { let v = load(ID_KEY, ""); if (!/^[A-Za-z0-9_-]{6,64}$/.test(v || "")) { v = Date.now().toString(36) + Math.random().toString(36).slice(2, 10); keep(ID_KEY, v); } return v; };
   const wordsOf = c => typeof c === "string" ? c : Array.isArray(c) ? c.filter(p => p && p.type === "text").map(p => p.text).join("\n") : "";
+  const PRIV_KEY = "basalt.chat.private";
+  const isPrivate = () => load(PRIV_KEY, "0") === "1";                              // a private conversation is never sent to the index
   let indexTimer = null;
   function indexSoon() {
     clearTimeout(indexTimer);
+    if (isPrivate()) return;
     indexTimer = setTimeout(() => {
       if (busy) return indexSoon();
       const turns = messages.filter(m => m && (m.role === "user" || m.role === "assistant")).map(m => ({ role: m.role, content: wordsOf(m.content) })).filter(m => m.content);
@@ -603,7 +606,7 @@
     const a = agent();
     if (a) { a.newChat(); prompt.focus(); return; }
     if (busy) busy.controller.abort();
-    clearTimeout(indexTimer); keep(ID_KEY, ""); messages = []; save(); render(); status(T("ch.new")); prompt.focus(); meter();
+    clearTimeout(indexTimer); keep(ID_KEY, ""); keep(PRIV_KEY, "0"); messages = []; save(); render(); status(T("ch.new")); prompt.focus(); meter();
   };
 
   /* ---- images (only when the server reads them) ---- */
@@ -735,6 +738,18 @@
     renderMarkdown: (el, text) => { el.innerHTML = markdown(text || ""); loadPictures(el); drawDiagrams(el); },
     snapshot, diagram: code => drawn.get(code) || "",
     sessionId: () => "",
+    privacy: {
+      get: isPrivate,
+      set: on => { keep(PRIV_KEY, on ? "1" : "0"); if (on) clearTimeout(indexTimer); else indexSoon(); },
+      forget: async () => {                                                        // everything the server took from this conversation
+        clearTimeout(indexTimer);
+        try {
+          const r = await fetch("/api/past/forget", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ id: chatId() }) });
+          const j = await r.json().catch(() => ({}));
+          return { ok: r.ok, json: j };
+        } catch (e) { return { ok: false, json: {} }; }
+      },
+    },
     watchThink, paintThink, scrollDown, autosize, stamp, sourceLink,
     setPrompt: t => { prompt.value = t; autosize(); prompt.focus(); },
   };
