@@ -47,6 +47,8 @@ SUSPENDED = "suspended"   # put aside at a safe point for something more urgent;
 ASKED = "asked"       # the turn ended on a question for the person; their answer is the next message
 VERIFY_FAILED = "verify_failed"   # the project's checks still failed after the fixes allowed, or could not be run
 MAX_CALLS_PER_MESSAGE = 16     # tool calls run from one model message; the rest are answered "not run"
+# the first words of a message that tells the agent its last answer was wrong (Italian and English)
+CORRECTION = re.compile(r"^\W*(no\b|non è (?:così|quello|giusto|corretto)|non \w+ (?:quello|giusto)|sbagliat|errat|hai sbagliato|non funziona|that'?s (?:not|wrong)|wrong\b|incorrect|not what i)", re.IGNORECASE)
 MAX_COMPLETION_ROUNDS = 2      # times the completion check may send the model back to finish, per request
 MAX_STOP_DENIALS = 2           # times a stop hook may send the model back to work, per request
 BUDGET_WARN_AT = 0.9           # the share of a budget used at which the model is told it is nearly spent
@@ -259,6 +261,7 @@ class AgentLoop:
         self.lessons_for: Optional[Callable[[str], str]] = None               # the lessons of earlier work that bear on a request, as a note, or "" (harness/lessons.py)
         self.learn: Optional[Callable[[Dict[str, Any], List[Dict[str, Any]]], None]] = None   # told how a request went and what it taught, when its run ends
         self._recorder: Any = None
+        self._answered = False                    # the last run ended on an answer: a message that follows may correct it
         self.course: Any = None                   # the watch on the course of a request (harness/course.py): notes to the agent, then a card to the person
         self.mission: Dict[str, Any] = {}         # the request in hand and what the harness knows of it, for self_status
         self.batch_interrupt = batch_interrupt    # looked at before each call of a message's batch: a reason to leave the rest of the batch unrun, or ""
@@ -346,6 +349,8 @@ class AgentLoop:
         rewrite = getattr(self.context, "rewrite", None)
         words = shown if shown is not None else text                     # `shown`: the person's own words, when `text` also holds their files
         self.append({"role": "user", "content": rewrite(text) if rewrite and not steer and shown is None else text})
+        if not steer and self.learn is not None and self._answered and self.last_user_text and CORRECTION.search(words[:140]):
+            self._note_correction(words)
         self.last_user_text, self.untrusted_since_user = words, False
         if not steer:
             self.mission = {"request": words[:300], "completion_rounds": 0}
@@ -396,6 +401,31 @@ class AgentLoop:
         self._emit({"type": "course_check", "kind": action.kind, "stage": "note", "problem": action.problem[:200]})
         self.append({"role": "user", "content": action.note, "note": True})
         return False
+
+    def _note_correction(self, words: str) -> None:
+        """The person's message tells the last answer was wrong: that is kept as an outcome of its own, with their words (masked) for the lessons view."""
+        mask = self.secrets.mask_secrets if self.secrets is not None else (lambda t: t)
+        try:
+            self.learn({"result": "corrected", "corrected_by_person": True, "request": mask(self.last_user_text)[:200], "correction": mask(words)[:200], "steps": 0}, [])
+        except Exception:
+            pass
+
+    def _mission_note(self) -> str:
+        """What must survive a fold, written by code: the request, the checklist items still open, the files written or edited so far."""
+        todo = getattr(self.tools, "todo", None)
+        open_items = todo.render(open_only=True) if todo is not None and todo.open_items() else ""
+        paths: List[str] = []
+        for t in self.turns:
+            for c in t.tool_calls:
+                path = (c.arguments or {}).get("path") if isinstance(c.arguments, dict) else None
+                if c.tool_name in ("write_file", "edit_file", "write_output_file") and not c.is_error and isinstance(path, str) and path not in paths:
+                    paths.append(path)
+        lines = ["[harness] Mission card, kept across folds. Request: " + (self.mission.get("request") or self.last_user_text)[:300]]
+        if open_items:
+            lines.append("Open items:" + chr(10) + open_items)
+        if paths:
+            lines.append("Files written or edited so far: " + ", ".join(paths[-12:]))
+        return chr(10).join(lines)
 
     def _begin_learning(self, request: str) -> None:
         """A request of the person starts: what earlier work taught about it is added after it, and what happens is recorded to teach the next one."""
@@ -972,6 +1002,7 @@ class AgentLoop:
             if self._loop_strikes > self.max_loop_strikes:
                 self.stop_reason = LOOP
                 break
+        self._answered = self.stop_reason == FINAL
         self._end_learning()
         return run_turns
 
@@ -1213,6 +1244,8 @@ class AgentLoop:
             self.hooks.trigger_event("pre_compact", {"tokens": before, "messages": len(self.messages)})
         self.messages = ctx.prepare(self.messages)
         report = getattr(ctx, "take_compaction", lambda: None)()
+        if report and not self.subagent:
+            self.append({"role": "user", "content": self._mission_note(), "note": True})
         if report:
             report["prefix"]["tools_sha"] = hashlib.sha256(json.dumps(self.tools.schemas(), sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
             self._emit({"type": "compaction", **report})
