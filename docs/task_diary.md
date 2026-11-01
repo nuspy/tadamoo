@@ -3,6 +3,14 @@
 Ultimo aggiornamento: 1 novembre 2026, mattina. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «In corso adesso» e da «Decisioni tue in attesa».
 
+## Decisioni tue su E9 e sulla compattazione (1 novembre, sera)
+
+- Le sessioni tecniche sono usa e getta (una o due chiamate): non compattano mai; se si riempiono, si apre una sessione nuova e si ripete la domanda. La compattazione riguarda solo le sessioni normali, chat e agente di codice.
+- La compattazione non deve toccare il codice inviato o esaminato: il codice passato al modello resta intero. Da chiarire con te il confine (vedi la domanda aperta).
+- Per le sessioni normali resta la compattazione già stabilita: la storia più vecchia di tre prompt viene compattata.
+- I prompt troppo lunghi (libri, testi lunghissimi) si dividono in pezzi; anche le risposte si dividono in pezzi quando la sessione tecnica dice che saranno lunghe.
+- Passi su E9, tutti e tre: leggere le trascrizioni, rifare con finestra da 65.536, cambiare soglia o prompt (con la GPU, dopo l'OK dell'altra sessione).
+
 ## Decisioni del 1 novembre mattina (dalla tua lista delle ispirazioni) e stato
 
 - Fatto e committato: la regola dei due vale anche nel livello automatico (`2f4fd9e1`); istruzioni dirette all'IA trovate in pagine, file, allegati e output di comandi: l'agente non le segue e ogni azione che cambia o invia qualcosa chiede a te, a ogni livello, finché le autorizzi (in un'esecuzione non presidiata la domanda resta in attesa); lo schermo «istruzioni nel testo» è acceso di default e ha anche un elenco di frasi senza modello. Altri agenti raggiungibili solo dentro la tua rete privata (`7d1921cf`). Restano le protezioni contro le cancellazioni pesanti (hook) e la protezione dei file segreti di Basalt negli strumenti di lettura; gli script possono contenere i valori segreti (già fatto col livello libero).
