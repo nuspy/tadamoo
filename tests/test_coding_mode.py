@@ -381,7 +381,7 @@ def project(tmp_path):
 def test_nothing_is_accepted_until_the_person_says_so_and_a_project_file_cannot_say_it(project):
     folder, prefs = project
     view = prefs.view(folder)
-    assert [c["state"] for c in view["checks"]] == ["none", "none"] and prefs.effective(folder) == {"safe": [], "checks": []} and prefs.flags(folder) == []
+    assert [c["state"] for c in view["checks"]] == ["none", "none"] and prefs.effective(folder) == {"safe": [], "checks": []} and prefs.flags(folder) == ["--offer-checks"]
     put(folder, ".basalt/project.json", json.dumps({"accepted": [{"command": "npm test", "digest": "x"}], "own": ["rm -rf /"]}))
     put(folder, "coding.json", json.dumps({"projects": {}}))
     assert prefs.effective(folder) == {"safe": [], "checks": []}                                  # the file in the project is not read
@@ -549,7 +549,7 @@ def test_the_route_lists_the_roles_shows_a_folder_and_saves_only_what_the_folder
     put(folder, "package.json", json.dumps({"scripts": {"test": "jest"}}))
     q = urllib.parse.quote(str(folder))
     code, view = api("GET", "/api/coding?workspace=" + q)
-    assert code == 200 and view["checks"][0]["command"] == "npm test" and view["checks"][0]["state"] == "none" and view["verify_gate"] == "off" and view["empty"] is False
+    assert code == 200 and view["checks"][0]["command"] == "npm test" and view["checks"][0]["state"] == "none" and view["verify_gate"] == "always" and view["empty"] is False
     code, saved = api("POST", "/api/coding", {"workspace": str(folder), "accepted": [{"command": "npm test", "gate": True}], "own": "ruff check ."})
     assert code == 200 and saved["checks"][0]["state"] == "accepted" and saved["own"] == ["ruff check ."] and saved["told"] == 0
     assert api("GET", "/api/coding?workspace=" + q)[1]["checks"][0]["state"] == "accepted"

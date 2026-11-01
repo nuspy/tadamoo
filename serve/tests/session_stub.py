@@ -120,6 +120,14 @@ for line in sys.stdin:
             busy["v"] = False
             emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "asked", "final": ""})
             continue
+        if text == "offer":
+            busy["v"] = False
+            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "worked"})
+            emit({"event": "ask", "id": "k3", "mode": "question", "kind": "questions", "source": "next_steps", "intro": "", "notes": [], "question": "Run these checks before finishing?",
+                  "options": [], "offer": {"question": "checks", "commands": {"o1": "python -m pytest -x -q", "o2": "python -m ruff check ."}},
+                  "questions": [{"id": "checks", "text": "Run these checks before finishing?", "kind": "multi", "required": False, "allow_other": False,
+                                 "options": [{"id": "o1", "label": "python -m pytest -x -q"}, {"id": "o2", "label": "python -m ruff check ."}]}]})
+            continue
         if text == "assume":
             emit({"event": "auto_answered", "id": "z1", "turn": cmd.get("id"), "kind": "question", "value": "o1", "answer": "PostgreSQL", "chosen": "recommended",
                   "available": True, "source": {"kind": "question", "named": None, "needs_data": False}, "question": "Which database?"})

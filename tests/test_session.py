@@ -102,10 +102,10 @@ def test_the_history_survives_the_process_and_the_prefix_does_not_change(tmp_pat
     client2 = Scripted(say("Tre."))
     session2, ev2, store2, built2 = make(tmp_path, client2)
     assert session2.restore() == 2
-    assert built2.agent.messages[:3] == saved[:3]                      # the same system prompt and the same first turn
+    assert [{k: v for k, v in m.items() if k != "code"} for m in built2.agent.messages[:3]] == [{k: v for k, v in m.items() if k != "code"} for m in saved[:3]]      # the same system prompt and the same first turn (the code mark is bookkeeping, made again on demand)
     session2.send("m2", "secondo")
     ev2.wait("done")
-    assert client2.sent[0][:3] == [{k: v for k, v in m.items() if k not in ("pinned", "pin_category")} for m in saved[:3]]
+    assert client2.sent[0][:3] == [{k: v for k, v in m.items() if k not in ("pinned", "pin_category", "code")} for m in saved[:3]]
 
 
 class Streamer:

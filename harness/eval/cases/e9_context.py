@@ -37,8 +37,8 @@ from .fixtures import long_turn_repo as lt
 COLUMNS = ("success", "recall_task", "recall_incidental", "recall", "probes_right", "compactions", "generation", "summary_cut", "carry", "artifact_reads", "reread_tokens", "prompt_tokens", "cached_tokens", "tool_calls", "seconds")
 
 ARMS = with_control([
-    Arm("N", "compaction off (masking only)", {"compaction": False}, "--no-compaction"),
-    Arm("A", "compaction on, written from the originals", {"compaction": True, "compaction_threshold": 0.85}, "--compaction-threshold 0.85 (the default)"),
+    Arm("N", "compaction off (masking only)", {"compaction": False, "keep_code": False}, "--no-compaction"),
+    Arm("A", "compaction on, written from the originals", {"compaction": True, "compaction_threshold": 0.85, "keep_code": False}, "--compaction-threshold 0.85 (the default)"),
 ], "N")
 
 RULE = Rule(

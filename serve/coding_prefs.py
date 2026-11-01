@@ -41,7 +41,7 @@ class CodingPrefs:
         mine = (self._stored().get("projects") or {}).get(project_key(folder))
         mine = mine if isinstance(mine, dict) else {}
         accepted = [a for a in mine.get("accepted") or [] if isinstance(a, dict) and isinstance(a.get("command"), str) and isinstance(a.get("digest"), str)]
-        return {"accepted": accepted, "own": clean_list(mine.get("own"))}
+        return {"accepted": accepted, "own": clean_list(mine.get("own")), "offered": mine.get("offered") is True, "declined": mine.get("declined") is True}
 
     def _write(self, folder: Any, mine: Dict[str, Any]) -> None:
         data = self._stored()
@@ -95,6 +95,33 @@ class CodingPrefs:
         self._write(folder, mine)
         return self.view(folder)
 
+    def offer_pending(self, folder: Any) -> bool:
+        """Whether the card that offers this folder's detected checks has still to be shown: once per folder, and never where the person has already
+        accepted or typed checks or said no."""
+        mine = self._project(folder)
+        if mine["offered"] or mine["declined"] or mine["accepted"] or mine["own"] or is_empty(folder):
+            return False
+        return any(c.command for c in detect(folder))
+
+    def mark_offered(self, folder: Any) -> None:
+        """The card was shown: it is not shown again for this folder, whatever the person does with it."""
+        mine = self._project(folder)
+        if not mine["offered"]:
+            mine["offered"] = True
+            self._write(folder, mine)
+
+    def settle_offer(self, folder: Any, commands: Any) -> Dict[str, Any]:
+        """The answer to the card: the commands ticked are accepted to run before an answer ends (only commands the folder detects now count); none
+        ticked is a no, remembered for the folder."""
+        mine = self._project(folder)
+        shown = {c.command: c for c in detect(folder) if c.command}
+        chosen = [shown[c] for c in (commands if isinstance(commands, list) else []) if isinstance(c, str) and c in shown]
+        held = {a["command"] for a in mine["accepted"]}
+        mine["accepted"] += [{"command": c.command, "kind": c.kind, "digest": c.digest, "gate": True} for c in chosen if c.command not in held]
+        mine["offered"], mine["declined"] = True, not chosen and not mine["accepted"]
+        self._write(folder, mine)
+        return self.view(folder)
+
     def effective(self, folder: Any) -> Dict[str, List[str]]:
         """What a conversation in this folder uses now: the exact commands that run without a question, and the accepted checks the verify gate runs."""
         mine = self._project(folder)
@@ -106,7 +133,7 @@ class CodingPrefs:
     def flags(self, folder: Any) -> List[str]:
         """The options a conversation's process is started with."""
         got = self.effective(folder)
-        out: List[str] = []
+        out: List[str] = ["--offer-checks"] if self.offer_pending(folder) else []
         for command in got["safe"]:
             out += ["--safe-command", command]
         for command in got["checks"]:

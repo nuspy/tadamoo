@@ -134,7 +134,7 @@ def test_the_summary_lists_tasks_that_pass_sometimes_as_divergent():
 
 
 def test_every_experiment_loads_with_its_baseline_control_rule_and_a_question():
-    assert set(cases.MODULES) == {"e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8", "e9", "e10", "e11", "e12"}
+    assert set(cases.MODULES) == {"e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8", "e9", "e10", "e11", "e12", "e13"}
     for key in cases.MODULES:
         exp = cases.load(key)
         names = [a.name for a in exp.arms]

@@ -235,7 +235,8 @@
     const limit = !streaming && lengthCut(m);
     goon.hidden = !limit;
     if (!streaming && (m.cut || m.repeated || limit || m.long)) {
-      const why = m.long ? T("la.summary", m.long.words, m.long.target_words, m.long.segments, m.long.of) : m.repeated ? T("chat.repeated") : limit ? T("chat.length") : T("chat.cut");
+      const why = m.long ? T("la.summary", m.long.words, m.long.target_words, m.long.segments, m.long.of)
+        + (m.long.applied || (m.long.unapplied || []).length ? " " + T("la.fixes", m.long.applied || 0, (m.long.unapplied || []).length) : "") : m.repeated ? T("chat.repeated") : limit ? T("chat.length") : T("chat.cut");
       el.querySelector(".meta-t").textContent = `${m.meta ? m.meta + " · " : ""}${why}`;
     }
     retry.textContent = T("chat.retry");
@@ -332,9 +333,30 @@
      each long one (written in the technical session when the reply ends, with the same compaction mark as every other record). Chat only. */
   const ABS_KEY = "basalt.abstract", ABS_MIN = 400, ABS_KEEP = 6;     // the server decides from 400 characters up (Settings > Technical session)
   const absPrefs = () => {
-    try { const v = JSON.parse(localStorage.getItem(ABS_KEY) || "{}"); return { on: v.on !== false, keep: Math.max(1, Math.min(20, Math.round(Number(v.keep)) || ABS_KEEP)) }; } catch (e) { return { on: true, keep: ABS_KEEP }; }
+    try { const v = JSON.parse(localStorage.getItem(ABS_KEY) || "{}"); return { on: v.on !== false, keep: Math.max(1, Math.min(20, Math.round(Number(v.keep)) || ABS_KEEP)), codeKeep: Math.max(3, Math.min(5, Math.round(Number(v.codeKeep)) || CODE_KEEP)) }; } catch (e) { return { on: true, keep: ABS_KEEP, codeKeep: CODE_KEEP }; }
   };
-  const absSave = () => { try { localStorage.setItem(ABS_KEY, JSON.stringify({ on: $("#cs-abs-on").checked, keep: Number($("#cs-abs-keep").value) || ABS_KEEP })); } catch (e) { /* kept for this session */ } };
+  const absSave = () => { try { localStorage.setItem(ABS_KEY, JSON.stringify({ on: $("#cs-abs-on").checked, keep: Number($("#cs-abs-keep").value) || ABS_KEEP, codeKeep: Number($("#cs-code-keep").value) || CODE_KEEP })); } catch (e) { /* kept for this session */ } };
+  /* Old code as a description, for the model only: from the Nth message back, a message that holds code is sent with each block replaced by a short plain
+     description and the name of the file where the server saved the original (the technical session writes it, a fixed outline when it cannot). The message on
+     screen and in the saved copy is not touched. Chat only; the Agent keeps its code whole. */
+  const CODE_KEEP = 4;
+  const codeLike = t => /```/.test(t) || (t.split("\n").length >= 6 && (t.match(/^\s*(def |class |import |from \S+ import |function[ (]|const |let |var |#include|public |private |return\b)|;\s*$|^\s*[{}]\s*$/gm) || []).length >= 0.4 * t.split("\n").length);
+  async function codeAbstracts() {
+    if (agent()) return;
+    const keep = absPrefs().codeKeep;
+    for (let i = 0; i < messages.length - keep; i++) {
+      const m = messages[i], len = (m.text || "").length;
+      if ((m.role !== "user" && m.role !== "assistant") || m.error || !len || m.codeOf === len || m.codeNone === len || !codeLike(m.text)) continue;
+      try {
+        const r = await fetch("api/chat/code-abstract", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ text: m.text }) });
+        if (!r.ok) continue;
+        const j = await r.json();
+        if ((m.text || "").length !== len) continue;
+        if (j.text) { m.codeAbstract = j.text; m.codeOf = len; } else m.codeNone = len;
+        save();
+      } catch (e) { /* the message goes whole */ }
+    }
+  }
   async function abstractLater(m) {
     if (!absPrefs().on || m.role !== "assistant" || m.error || m.stopped || m.cut || m.long || (m.text || "").length < ABS_MIN || agent()) return;
     const len = m.text.length;
@@ -348,6 +370,7 @@
   function apiMessages(full) {
     const out = [], at = [];
     const usersAfter = [], prefs = absPrefs();
+    const codeSaid = (m, i, text) => !agent() && m.codeAbstract && m.codeOf === (m.text || "").length && messages.length - 1 - i >= prefs.codeKeep ? m.codeAbstract : text;      // old code as its description
     for (let k = messages.length - 1, u = 0; k >= 0; k--) { usersAfter[k] = u; if (messages[k].role === "user") u++; }
     const sys = chatSettings.system();
     if (sys) { out.push({ role: "system", content: sys }); at.push(-1); }
@@ -355,7 +378,7 @@
       if (busy && busy.msg === m) return;
       if (m.role === "user") {
         const imgs = (m.images || []).filter(i => i.url);
-        out.push({ role: "user", content: imgs.length ? [{ type: "text", text: m.text }, ...imgs.map(i => ({ type: "image_url", image_url: { url: i.url } }))] : m.text });
+        out.push({ role: "user", content: imgs.length ? [{ type: "text", text: codeSaid(m, i, m.text) }, ...imgs.map(i => ({ type: "image_url", image_url: { url: i.url } }))] : codeSaid(m, i, m.text) });
       } else if (m.role === "summary") {
         const o = full && m.originals ? m.originals.filter(x => x.text).map(x => ({ role: x.role === "user" ? "user" : "assistant", content: x.text })) : [];
         out.push({ role: "user", content: m.content || m.text || "", ...(o.length ? { originals: o } : {}) });   // sent along only when the context is being fitted: a stretch is compacted again from its own text
@@ -363,7 +386,7 @@
         if (m.error && !m.text) return;                 // a failed reply is not part of the conversation
         if (m.cut) return;                              // nor is one the model ended mid-word: it would teach the next ones to stop short
         const aged = prefs.on && m.abstract && m.abstractOf === (m.text || "").length && usersAfter[i] >= prefs.keep;
-        out.push({ role: "assistant", content: aged ? m.abstract : busy && busy.cont === m ? (m.text || "").slice(0, cutText.cutPoint(m.text || "")) : m.text || "" });   // a cut reply goes back up to its last whitespace
+        out.push({ role: "assistant", content: aged ? m.abstract : busy && busy.cont === m ? (m.text || "").slice(0, cutText.cutPoint(m.text || "")) : codeSaid(m, i, m.text || "") });   // a cut reply goes back up to its last whitespace
       }
       at.push(i);
     });
@@ -493,6 +516,7 @@
     let first = null, thinkStart = null, usage = null, frame = 0;
     const draw = () => { frame = 0; paint(el, m, true); scrollDown(); };
     if (!cont && chatSettings.policy() === "compact") status(T("ctx.compacting"));
+    if (!cont) await codeAbstracts();                                  // old code goes to the model as its description
     const fits = cont ? true : await fitContext(m);
     if (!cont && busy && busy.msg === m) { render(); el = busy.el = msgs.lastElementChild; paint(el, m, true); }
     if (!fits || controller.signal.aborted) {
@@ -590,10 +614,18 @@
     else if (ev.event === "segment_start") m.progress = T("la.p.part", ev.index, ev.of);
     else if (ev.event === "segment_progress") m.progress = T("la.p.words", ev.index, ev.words);
     else if (ev.event === "segment_done") m.progress = T("la.p.done", ev.index, ev.of, ev.words);
+    else if (ev.event === "estimate") m.progress = T(ev.long ? "la.p.estimate" : "la.p.short", ev.words);
+    else if (ev.event === "review") m.progress = T("la.p.review", ev.round, ev.of);
+    else if (ev.event === "fix") {
+      const r = ev.reason, known = ["not_found", "ambiguous", "too_short", "spans_blocks", "protected", "heading", "table", "limit"];
+      const why = T(known.includes(r) ? "la.r." + r : r === "rejected_length" ? "la.r.length" : String(r).startsWith("rejected") ? "la.r.rejected" : "la.r.invalid");
+      m.progress = ev.status === "applied" ? T("la.p.fix.ok", ev.n, ev.of, ev.chunk) : T("la.p.fix.no", ev.n, ev.of, ev.chunk, why);
+    }
+    else if (ev.event === "revised") m.text = ev.text;      // the check corrected the text: the corrected whole replaces what was shown while the parts were written
     else if (ev.event === "done") { m.long = ev; m.progress = ""; }
   }
-  { const p = absPrefs(); $("#cs-abs-on").checked = p.on; $("#cs-abs-keep").value = p.keep;
-    for (const id of ["#cs-abs-on", "#cs-abs-keep"]) $(id).addEventListener("change", () => { absSave(); meter(); }); }
+  { const p = absPrefs(); $("#cs-abs-on").checked = p.on; $("#cs-abs-keep").value = p.keep; $("#cs-code-keep").value = p.codeKeep;
+    for (const id of ["#cs-abs-on", "#cs-abs-keep", "#cs-code-keep"]) $(id).addEventListener("change", () => { absSave(); meter(); }); }
   $("#composer").onsubmit = e => { e.preventDefault(); send(); };
   $("#stop").onclick = () => { const a = agent(); if (a) a.stop(); else if (busy) busy.controller.abort(); };
   prompt.addEventListener("keydown", e => {

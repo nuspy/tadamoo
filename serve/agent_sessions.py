@@ -56,7 +56,7 @@ PLACE_KEEP_S = 86_400           # a position older than this is no longer handed
 OPTIONS = ("resume", "close")
 RESTART_WAITS = (0.0, 2.0, 5.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0)       # before each new start of a process that keeps dying; the last repeats
 RESTART_RESET_S = 600.0                                                     # restarts older than this no longer lengthen the wait
-ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free", "free_prefix", "explain", "intro", "questions", "notes", "source")
+ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free", "free_prefix", "explain", "intro", "questions", "notes", "source", "offer")
 COMPARES_FILE = "compares.json"
 NODES_FILE = "nodes.jsonl"
 NODES_MIGRATED = "nodes.migrated"
@@ -118,8 +118,8 @@ class SessionManager:
                  rule_of_two: Optional[Callable[[], str]] = None, allow_rules: Any = None, rule_of_two_prefs: Any = None,
                  intake_flags: Optional[Callable[[], List[str]]] = None,
                  gate_flags: Optional[Callable[[], List[str]]] = None, coding: Any = None,
-                 compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None, exec_level_file: Optional[Path] = None, persistence_file: Optional[Path] = None, lessons_dir: Optional[Path] = None,
-                 forgetter: Any = None) -> None:
+                 compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None, exec_level_file: Optional[Path] = None, persistence_file: Optional[Path] = None, lessons_dir: Optional[Path] = None, next_steps_file: Optional[Path] = None,
+                 forgetter: Any = None, cards: Any = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -131,10 +131,12 @@ class SessionManager:
         self.learn = learn                                      # told what the person wrote and what was searched for it, when a turn ends, to learn from
         self._said: Dict[str, Dict[str, Any]] = {}              # per conversation, until its turn ends: what the person wrote and what was searched
         self._no_learning: set = set()                          # conversations that are not the person's talking (a routine's)
+        self.next_steps_file = next_steps_file                  # the choice for the card of next steps after a task: one file, read again by each conversation
         self.lessons_dir = lessons_dir                          # the global lessons: one folder; the project's own are in its .basalt folder
         self.persistence_file = persistence_file                # the choice for "work until done": one file, read again by each conversation when it changes
         self.exec_level_file = exec_level_file                  # how freely the code the model writes runs: one file, read again by each conversation when it changes
         self.past = past                                        # the index of earlier conversations (harness/past.py); each conversation is added to it when a turn ends
+        self.cards = cards                                      # told when a conversation's turn ended, to write its card once it is quiet (serve/card_worker.py)
         self.forgetter = forgetter                              # takes a conversation back out of the index and the memories (harness/forget.py)
         self._routine_runs: Dict[str, str] = {}                 # a routine's conversation -> the routine's name, when the person switched its indexing on
         self._place: Optional[Dict[str, Any]] = None            # where the person's phone last said they were: held in memory only
@@ -991,6 +993,8 @@ class SessionManager:
             cmd += ["--persistence-file", str(self.persistence_file)]
         if self.lessons_dir:
             cmd += ["--lessons-dir", str(self.lessons_dir)]
+        if self.next_steps_file:
+            cmd += ["--next-steps-file", str(self.next_steps_file)]
         if self.personal_dir:
             cmd += ["--personal-memory", str(self.personal_dir)] + (["--personal-memory-keys", str(self.personal_keys)] if self.personal_keys else [])
         if rec.get("ask_only"):
@@ -1120,6 +1124,8 @@ class SessionManager:
                     self._set(rec, state="asking", ask=shown)
                 else:
                     self._set(rec, question=shown)
+                    if shown.get("offer") and self.coding is not None:
+                        self.coding.mark_offered(rec["workspace"])              # the card that offers the folder's own checks is shown once
             elif kind == "pending":                                   # a question for the person that does not stop the process
                 shown = {k: event.get(k) for k in ASK_FIELDS if k != "mode"}
                 self._set(rec, pending=[i for i in rec.get("pending", []) if i.get("id") != shown["id"]] + [{**shown, "source": event.get("source"), "turn": event.get("turn"), "at": event.get("t") or time.time()}])
@@ -1148,7 +1154,7 @@ class SessionManager:
             elif kind == "done":
                 if not event.get("more"):
                     threading.Thread(target=self._flush_heard, args=(sid,), name="learn-flush", daemon=True).start()
-                    threading.Thread(target=self.index_past, args=(sid,), name="past-index", daemon=True).start()
+                    threading.Thread(target=self._index_and_card, args=(sid,), name="past-index", daemon=True).start()
                 asked = event.get("stop_reason") == "asked"
                 state = "busy" if event.get("more") else "idle"      # other requests are still waiting: the conversation is still at work
                 self._set(rec, state=state, blocked=None, ask=None, turns=rec.get("turns", 0) + 1, **({} if asked else {"question": None}),
@@ -1342,6 +1348,13 @@ class SessionManager:
         except Exception:
             return False                                        # the index never gets in the way of the conversation
 
+    def _index_and_card(self, sid: str) -> None:
+        if self.index_past(sid) and self.cards is not None:
+            try:
+                self.cards.touch(sid)
+            except Exception:
+                pass                                          # the card is never the conversation's concern
+
     def index_all_past(self) -> int:
         """Adds the conversations saved before the index existed, or changed since, to the index; returns how many it indexed."""
         if self.past is None:
@@ -1494,6 +1507,10 @@ class SessionManager:
         if checked["status"] == "chat":
             self._set(rec, question=None)
             return None
+        offer = card.get("offer")
+        if checked["status"] == "submitted" and isinstance(offer, dict) and self.coding is not None:      # the checks the person ticked are accepted for this folder
+            picked = (checked["answers"].get(offer.get("question")) or {}).get("picked") or []
+            self.coding.settle_offer(rec["workspace"], [cmd for oid, cmd in (offer.get("commands") or {}).items() if oid in picked])
         return qs.format_answer(card, checked)
 
     def answer(self, sid: str, ask_id: Any, value: Any) -> Dict[str, Any]:
@@ -1508,7 +1525,10 @@ class SessionManager:
                 if text is None:                                       # the person answers in the chat: their next message is the answer
                     self._push(sid, {"event": "answered", "ask": ask_id, "value": "chat"})
                     return self.get(sid)
+                offered, workspace = isinstance(card.get("offer"), dict), rec["workspace"]
         if text is not None:
+            if offered:
+                self.update_checks(workspace)                          # what the person accepted reaches the conversations of this folder now
             self._push(sid, {"event": "answered", "ask": ask_id, "value": "answered"})
             return self.send(sid, text)["session"]
         with self._lock:

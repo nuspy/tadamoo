@@ -41,7 +41,7 @@ the Chat can reach, the others can reach:
 | `--secret-env NAME[=host,host]` | lets the agent write `{{secret:NAME}}`; with hosts, the value can only be sent to them |
 | `--rule-of-two {off,ask,strict}` | when an action that reaches the outside asks (default `ask`; see the Rule of Two below) |
 | `--vault-dir`, `--payments-dir` | the Wallet's vault and payment systems (`{{vault:ENTRY.FIELD}}`, `request_payment`) |
-| `--browser`, `--browser-headless`, `--browser-private`, `--browser-profile DIR` | the browser tools and how they run |
+| `--browser`, `--browser-headless`, `--browser-private`, `--browser-profile DIR`, `--browser-cdp-url URL` | the browser tools and how they run; with a URL the tools drive a browser that is already running (its debugging port) and never start or close one |
 | `--browser-consent {follow,necessary,accept,reject,off}`, `--browser-permissions {follow,ask,grant,grant-safe,deny}` | what the browser does about cookie banners and permission requests; `follow` (default) is accept / grant at the Auto level and necessary / ask otherwise |
 | `--capabilities` | `find_capability`, `load_capability`, `read_capability`, `call_capability`, `analyze_image`: the skills, plugins and MCP servers found on this PC |
 | `--lsp` | `diagnostics`, `go_to_definition`, `find_references` when a language server is found |
@@ -263,6 +263,10 @@ covers the Rule of Two and a tool that asks every time.
 When the technical session's `auto_approve` use is on (off by default), it reads a call the person would be asked about at the read-only and default levels, with their request, and may approve it; it can only say yes, a doubt asks the person, and the Rule of Two, orders found in outside text and tools that always ask never go to it. An approval is reported as an `auto_approved` event.
 **Work until done** (`harness/persistence.py`, `harness/completion.py`): one switch for every conversation, in the chat header of the Chat and the Agent, on by default and kept in `work-until-done.json` in the user data folder (`GET`/`POST /api/persistence`, this PC only; off where nothing configures it, as in a library call). While it is on, when the agent gives a final answer the harness checks that the request is met: an answer that admits it did not finish, or a `no: ...` from the technical session's `completion_check` use, sends the agent back with a precise note, at most twice per request (`completion_check` event; the limits, the stall guards and the person's stop stay in force). **Outcomes and lessons** (`harness/lessons.py`): every request of the person is recorded by code (`Recorder`) and ends as one line in `<project>/.basalt/outcomes.jsonl` plus, when something was learned (an error that a later call fixed, a gate failure that was cleared, a loop that ended, a refusal that was worked around, a budget that ran out, a re-read after a fold), lessons in `<project>/.basalt/lessons.md` and the global `lessons.md` in the user data folder; the technical session's `lessons` use writes their sentences, and without it the code's drafts stay. The lessons that match a new request are added after it as a note of advice. Entries that read like orders or hold a secret are refused, and the files are plain Markdown the person can edit.
 **Course watch** (`harness/course.py`): before each model call of a request, deterministic signals are looked at: the same tool failing the same way, the project's checks failing again, the loop guards striking, a checklist that does not move while half the steps are used, a context close to the masking threshold. The first time a signal appears the agent gets a note with the facts and the matching lessons (`course_check` event); if it comes back after the note, the same card as `ask_user` is put to the person with three options, the first recommended, and the turn ends to wait for the answer (where nobody watches, the recommended option answers). **Lessons view**: Settings > Memories lists the project's and the global lessons with a summary of recent outcomes, and edits, pins, deletes or promotes them to `AGENTS.md` after a preview and a confirmation (`serve/lessons_api.py`, `GET /api/lessons`, `POST /api/lessons/<action>`, this PC only).
+**Card after a task** (`harness/nextsteps.py`, `Session._next_steps`): after a final answer, where the person is (never in an unattended run, never for a side task, a skill, a plan, or the answer to a card), the harness builds one `ask_user` card by code from the facts of the work: checks that failed (the gate gave up), items still open on the checklist, files changed with no check set up, and the matching lesson's fix in the description. It appears only after a task of at least 6 steps or with an open item, once per task. The first fitting option is recommended; "Nothing more" and a typed answer are always there, and "Nothing more" is answered by the harness with no model call. The switch is `next-steps.json` in the user data folder (`GET`/`POST /api/next-steps`, this PC only; on by default, off where nothing configures it), shown in Settings > Memories > Lessons.
+**The folder's own checks, offered once** (`serve/coding_prefs.py`, same card): the first time a conversation in a folder has changed files, and only if the folder still has no accepted or typed checks and was never asked, the card asks "Run these checks before finishing?" with the checks detected from the project files (`harness/project_profile.py`: pyproject/pytest.ini/setup.cfg/tox.ini, package.json scripts, Makefile, Cargo.toml, go.mod, CMake) as a multiple choice (a yes or no for a single one). The server marks the folder as offered when the card is shown, saves the ticked commands as accepted checks (they become safe commands and, with the check gate on, run before an answer ends) and tells the running conversations; ticking nothing is a remembered no. Nothing runs without the person's tick. With the gate off the card says so.
+**Shell failures as lessons** (`harness/shell_lessons.py`): a shell or code call that failed and a later call of the same intent that worked count as an `error_fix` only after a real change in between: another program, other flags or arguments, or a file edit. A plain red test run, a failed look around (grep with no match, ls of a missing folder, git status) and the same command run again unchanged are never lessons, unless the command could not run at all (not found, a module missing).
+**Work that repeats** (`harness/repeats.py`): a request signature is its meaningful words, first ten, sorted. When the project's `outcomes.jsonl` holds the same signature at least 3 times, each finished in at least 8 steps, the conversation tells the page once (`script_hint` event, marked in `.basalt/repeats.json`): a note in the chat with the "Make a skill" button, which opens the existing request picker on the request just done, and a line in the Lessons view. Nothing is made without the person.
 The agent is told about itself by code (`harness/awareness.py`): a fixed block "About yourself" in the system prompt (room for the conversation, when old results are masked and the conversation folded and that the originals are on disk, the limits, what is not available here), and the `self_status` tool, which reads the live numbers (context filled and the next thresholds, steps and tokens used and left, folds so far, loop strikes, gate rounds, refused calls, instructions waiting for authorization). Study and plan: [harness-study/awareness.md](harness-study/awareness.md).
 `shell_command` with `background: true` starts a job in a thread of its own and returns its id; `job_status`, `job_log` and `job_kill` follow it (the output is whole once the job ends or is killed), and the next tool result tells the model when a job ended (`harness/tools/background.py`). While a job runs its output is kept and `job_log` reads what is there; the chat shows each job as a block of its own with a colour of its own, filled as the output is written (the `job` and `job_output` events). When the person writes a message that changes or cancels the work while a message's batch of calls is running, the calls not yet made are recorded as "Not run" and the message is read next (`batch_interrupt`, the `batch_interrupted` event); a message that would wait or is a different request does not stop it. The job goes through the same checks as any shell command; it is not kept after the conversation's process ends.
 
@@ -554,6 +558,11 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   system block is byte-stable so the engine's prefix checkpoint is reused; retrieved memories go after the goal as untrusted data.
 - When masking is not enough, the older steps of a long turn become a structured summary and the newest stay as written, with an
   identifier audit and a report of what the server reads again; Settings > General > Long work: [compaction.md](compaction.md).
+- **Code is never masked or summarised in a session with file or shell tools** (the Agent): code the person sent, code the model wrote, source it
+  read or searched, and shell output that is source stay whole, up to 60% of the prompt budget; past that the oldest code results are masked
+  again with a note, an event `code_masked` and an audit record, and the model is told once. In the Chat (no such tools) code in a message
+  older than 4 messages (3 to 5) reaches the model as a plain description with the original saved in a file; see
+  [context-layers.md](context-layers.md#code).
 - `repo_map` lists the source files of a folder with the classes, functions and methods in each (Python through `ast`; JavaScript,
   TypeScript, C, C++, CUDA, Go, Rust and Java through cautious line patterns, so a miss is a missing line, never an invented one), the
   most relevant files first: changed lately (modified time), used by other files (how many mention the names they define), or named
@@ -1060,6 +1069,15 @@ ordinary slots, so a caller keeps its prompt short and nothing more. A summary o
 the server has no session, and then no call carries `cache_slot`. The suggestions call carries the conversation, so in the session it
 reads that conversation again each time instead of reusing the main slot's cache; a long conversation falls back to the ordinary slots.
 
+**A long text is cut between Markdown blocks** (`harness/markdown_chunks.py`). A piece never ends inside a fenced code block, a table or a
+list item while a boundary outside them exists. `split_markdown` (pieces within a limit; a code block or table longer than a piece is cut at
+lines, each piece closing and reopening the fence or repeating the table header) is what `digest.split` uses, so the parts of a compaction
+summary, of the Chat's summary and of a large tool result are cut so. `whole_blocks` (pieces that joined give the text back exactly, a block
+longer than the limit alone in its piece) cuts the start of a big attachment shown in the message (`compose_message`), and `safe_line_end`
+ends a `read_attachment` window between blocks (the "continue from line N" it names is then the start of a block; a read with an `end` the
+model asked for is not moved, and a text with no block boundary in the window is cut at a line as before). The long-answer flow uses the same
+rules on the way out: [longform.md](longform.md#pieces-and-seams).
+
 While the session is on the engine is in batch mode: `end_turn_bias`, `logit_bias` and relaxed drafting are unavailable and a request
 alone is no longer on the pure single-stream path. The Loader says so next to the setting, in English and Italian. It is on by default
 (owner's decision); the Loader turns it off with 0 and sets its size, and Settings > Inference shows the size read-only.
@@ -1069,7 +1087,7 @@ alone is no longer on the pure single-stream path. The Loader says so next to th
 `harness/side_uses.py` lists every use, with its switch, its numbers and its prompt, in `side_uses.json` of the user data folder (read
 again when it changes, by every process). The uses: `triage` (the look at a request), `judge`, `router`, `optimize`, `suggestions`
 (the newest turns under a prompt of its own, no tools), `compaction` (the agent's summary, read in parts when larger than the session),
-`chat_summary`, `chat_abstract`, `longform`, `memory_extract` (learning the person's memories, which in the session need not wait for the
+`chat_summary`, `chat_abstract`, `code_abstract` (a plain description of old code in a Chat message, the original saved), `longform`, `memory_extract` (learning the person's memories, which in the session need not wait for the
 card to be free), `memory_rank` (which of the notes the word match found really bear on a request), `progress` (a line on how far a task
 nobody watches has got), `planner` (comparison and re-planning), `tool_extract` (a large tool result read for the lines that matter,
 checked line by line against the result, the full text saved) and `inject_screen` (a second look at outside text for instructions to the
@@ -1081,7 +1099,7 @@ the uses that need the session, which are not made), else `{"cache_slot": "side"
 that name (`/api/side-uses`: calls, those an ordinary slot served, those cut off, seconds). A call that must not take a conversation's slot
 sends `cache_slot: "side_only"` (`side_extra_for`, the digest's parts): the server refuses it with a 400 naming the technical session
 when it does not fit, and the digest halves the part. Every use sends its own system prompt written for its task, or none; never the
-conversation's. The prompts of `chat_summary` and `chat_abstract`, whose answer is free text, can be replaced in Settings; the others are
+conversation's. The prompts of `chat_summary`, `chat_abstract` and `code_abstract`, whose answer is free text, can be replaced in Settings; the others are
 read by their form and cannot. Numbers are checked against a range and fall back to their default when the file holds a bad one.
 
 Settings > Inference > Technical session > *Manage uses* lists them (`serve/web/sideuses.js`): the switch, the numbers, the prompt, the
@@ -1098,9 +1116,15 @@ look at a request, Optimize prompt, the suggestions, the progress line, the note
 
 Pointed at another provider (a small, cheap model on a cloud service, or a second small model loaded in LM Studio or vLLM) the jobs
 run there as ordinary calls: there is no slot to reserve on those servers, `cache_slot` is never sent to them, and the window the
-harness plans by is the one set for the provider, at most 30000 tokens. They run only while the master switch *Allow the quick jobs to
-run on a provider outside this PC* (`_external` in `side_uses.json`, off by default) is on, since each job is then a paid call and the
-text leaves this PC; Anthropic's dialect drops `response_format`, so the jobs that need a JSON form are better on an OpenAI-style route.
+harness plans by is the one set for the provider, at most 30000 tokens. A provider outside this PC runs them only while the master switch
+*Allow the quick jobs to run on a provider outside this PC* (`_external` in `side_uses.json`, off by default) is on, since each job is then
+a paid call and the text leaves this PC. A second small model on this PC's own address (llama-server, LM Studio or vLLM on 127.0.0.1) needs
+neither the switch nor the consent: nothing leaves the PC (`RoutedClient.stays_on_pc`). It is chosen in one step in the dialog (*Use a
+second small model on this PC*, `POST /api/llm/technical`): the provider `technical-<kind>` is made or updated and the function `technical`
+assigned to it, all in the providers' registry, so it survives a restart; the window is the one stated (default 8192, at most 30000), and a
+llama-server started from Models > llama.cpp supplies its address, model and window (`docs/llamacpp.md`). A JSON form (`response_format`)
+sent to an Anthropic-dialect provider goes as `output_config.format` (a schema) or as an instruction (a bare JSON object), and the JSON is
+taken out of any prose or fence around it.
 The conversation's own function (`executor`, `chat`) is never affected by the switch.
 
 ## A conversation's own copy of the folder

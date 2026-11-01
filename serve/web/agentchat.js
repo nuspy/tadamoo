@@ -417,6 +417,8 @@
           addBlock({ t: "tool", id: d.call_id, name: d.name, args: d.arguments || {}, status: "running", output: "", description: explainOf(d.description) }, e.turn);
         } else if (d.type === "course_check") {                                   // the watch on the course: a note to the agent, or a card for the person
           addBlock({ t: "note", s: T("ch.course." + (d.stage === "card" ? "card" : d.kind === "fold" ? "fold" : "note"), String(d.problem || "")) }, e.turn);
+        } else if (d.type === "script_hint") {                                      // the same long work again and again: a skill could do it
+          noteItem({ build: () => scriptHint(d) });
         } else if (d.type === "completion_check") {                                // the request did not look met: the agent was sent back to finish
           addBlock({ t: "note", s: T("ch.completion", d.round, d.of, String(d.note || "").replace(/^\[harness\]\s*/, "").slice(0, 200)) }, e.turn);
         } else if (d.type === "batch_interrupted") {                               // the person wrote something that changes the work: the rest of the commands was not run
@@ -996,6 +998,14 @@
     pick = null; paintPick();
     window.pskills.make(sid, turns);
   };
+  function scriptHint(d) {                                                       // a note with the button that opens "Make a skill" on the request just done
+    const span = mk("span", "", T("ch.hint.script", d.count, d.steps_avg));
+    const b = btn(T("psk.make.btn"), "ghost askill", () => startPick(requestsOf().length));
+    b.title = T("psk.make.btn.title");
+    const wrap = mk("span");
+    wrap.append(span, " ", b);
+    return wrap;
+  }
   function skillButton(it) {
     const b = btn(T("psk.make.btn"), "ghost aback askill", () => startPick(requestsOf().indexOf(it) + 1));
     b.title = T("psk.make.btn.title");

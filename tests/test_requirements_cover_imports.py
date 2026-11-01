@@ -16,6 +16,10 @@ OPTIONAL = {
     "fitz": "PyMuPDF, the other PDF reader",
     "tomllib": "standard library from Python 3.11; the TOML syntax check is skipped when neither it nor tomli is there",
     "tomli": "the TOML parser for Python before 3.11, used only by the syntax check",
+    "pyarrow": "a benchmark dataset in parquet is read with it when it is installed; otherwise uv runs it for the read",
+    "harbor": "imported only inside the Terminal-Bench process, which runs in the environment Harbor installs for itself",
+    "bfcl_eval": "imported only inside the BFCL process, which runs in the environment of the imported benchmark",
+    "tau2": "imported only inside the tau2-bench process, which runs in the environment of the imported benchmark",
 }
 # modules of this repository that the code reaches through sys.path (tools/ is added at run time)
 # (the personal skills' runtime folder holds basalt_skill, which a skill's script imports from the process that runs it)

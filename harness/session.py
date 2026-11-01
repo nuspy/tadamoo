@@ -53,6 +53,7 @@ from typing import Any, Callable, Dict, List, Optional, TextIO, Tuple
 from harness import agent_loop as al
 from harness import error_classifier
 from harness import intake as it
+from harness import nextsteps as ns
 from harness import optimize as opt
 from harness import progress as prog
 from harness import side_uses
@@ -189,6 +190,7 @@ class Task:
     intake: Optional[Dict[str, Any]] = None       # the facts of a request of the person that intake has not looked at yet
     registered: Optional[Tuple[str, List[str]]] = None   # the parent and the parts this request has in the task registry
     progress: Optional[Any] = None                # harness/progress.py: the newest steps, for the line that says how far a task got
+    since: int = 0                                # how many turns the agent had when this request began
 
 
 class _Current:
@@ -299,6 +301,9 @@ class Session:
         self._suggest_cancel = threading.Event()                # set when the person sends something: a suggestion call in flight stops
         self._card_at: Optional[float] = None                   # when the card now on the screen was shown
         self._long_asked: Optional[List[str]] = None            # the labels that refuse the parts, while the card that offered them is open
+        self._steps_meta: Optional[Dict[str, Any]] = None       # how to read the answer to the card of next steps, while it is open (harness/nextsteps.py)
+        self.workspace = ""                                     # the folder this conversation works in
+        self.checks_offer = False                               # the project's own checks are still to be offered once
         self._long_request: Optional[Dict[str, Any]] = None     # the request that needs a long text: its words, its text and the conversation before it
         self.endpoint, self.api_key = "", None
         self._window: Optional[Tuple[int, float]] = None
@@ -688,7 +693,8 @@ class Session:
             agent.taint("memories", private=bool(retrieved.get("private")))
             agent.append(retrieved)
         self._save()                                   # the message is kept before the model sees it
-        task = Task(turn, text, agent, intake={"origin": origin, "attachments": list(attachments or []), "optimize": optimize} if origin == "user" else None)
+        task = Task(turn, text, agent, intake={"origin": origin, "attachments": list(attachments or []), "optimize": optimize} if origin == "user" else None,
+                    since=len(agent.turns))
         self._adopt(task)
         self.tasks[turn] = task
         return task
@@ -1134,6 +1140,8 @@ class Session:
         if agent.last_user_text.startswith(qs.ANSWER_HEADER) and self._card_at is not None:
             self._audit("question_answered", {"seconds": round(time.time() - self._card_at, 1), "chars": len(agent.last_user_text)})
             self._card_at = None
+        if facts and self._steps_closed(task):
+            return True
         if facts and self._long_step(task):
             return True
         if facts:
@@ -1414,6 +1422,51 @@ class Session:
         for tid in ids:
             self.task_sink.record(tid, "closed", "")
 
+    # -- the card after a task: next steps, and the project's own checks offered once ---------------------------
+
+    def _next_steps(self, task: Task) -> bool:
+        """After a final answer, where the person is: a card built by code from the facts of the work (harness/nextsteps.py). True when it was
+        shown, and then the chips are not. Never raises."""
+        agent = task.agent
+        try:
+            if (self.unattended or self.ask_only or task.side or task.skill is not None or getattr(agent, "subagent", False) or agent.cut or agent.error
+                    or agent.stop_reason not in (al.FINAL, al.VERIFY_FAILED) or agent.last_user_text.startswith(qs.ANSWER_HEADER)
+                    or getattr(self.built.permissions, "plan_mode", False)):
+                return False
+            checks = []
+            if self.checks_offer and ns.written_paths(agent.turns[task.since:]):
+                from harness import project_profile
+                checks = project_profile.detect(self.workspace)
+            facts = ns.facts_from(agent, task.since, checks, getattr(agent, "lessons_for", None))
+            payload = ns.build(facts, lf.request_language(agent.last_user_text) or "en", show_next=ns.enabled())
+            if payload is None:
+                return False
+            meta = payload.pop("_meta")
+            if self._question(payload) is not None:
+                return False
+            self.checks_offer = self.checks_offer and "offer" not in payload              # offered once; the server remembers it for the next conversations
+            self._steps_meta = meta
+            self._audit("question_shown", {"source": "next_steps", "questions": [{"id": q["id"], "kind": q["kind"], "options": len(q["options"])} for q in payload["questions"]]})
+            return True
+        except Exception as exc:
+            it.log.warning("next steps: failed: %s", type(exc).__name__)
+            return False
+
+    def _steps_closed(self, task: Task) -> bool:
+        """The answer to the card of next steps, when it asks for nothing to be done: the turn ends here with a word of thanks and no model call."""
+        meta, self._steps_meta = self._steps_meta, None
+        if meta is None:
+            return False
+        agent = task.agent
+        closing = ns.settle(meta, agent.last_user_text)
+        if closing is None:
+            return False
+        agent.append({"role": "assistant", "content": closing})
+        agent.turns.append(al.AgentTurn(len(agent.turns) + 1, task.text, "", closing))
+        agent.stop_reason, agent.error = al.FINAL, ""
+        self._save()
+        return True
+
     # -- suggestions: the chips after an answer --------------------------------------------------------------
 
     def _maybe_suggest(self, task: Task) -> None:
@@ -1524,7 +1577,7 @@ class Session:
                            "denied": self.permission_denials["total"]})
                 self.tasks.pop(task.turn, None)
                 self._close_registry(task)
-                if not self._more() and not agent.cancel.is_set():
+                if not self._more() and not agent.cancel.is_set() and not self._next_steps(task):
                     self._maybe_suggest(task)
                 task = self._next_after(task)
         except BaseException as exc:                       # the process stays up: the task ends with an error
@@ -1638,6 +1691,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--side-call-tokens", type=int, default=it.DEFAULT_SIDE_CALL_TOKENS, metavar="TOKENS",
                         help="the largest conversation in which the extra model calls (triage, suggestions) are made")
     parser.add_argument("--suggestions", choices=("on", "off"), default="off", help="offer next-prompt chips after an answer (an unattended run never does)")
+    parser.add_argument("--offer-checks", action="store_true", help="after the first work that changes files, offer the checks this folder seems to have, once (an unattended run never does)")
     parser.add_argument("--optimize-prompt", choices=("on", "off"), default="off",
                         help="rewrite each message of the person in the technical session before the model reads it (needs --side-slot on the server)")
     parser.add_argument("--heartbeat", type=float, default=HEARTBEAT_S)
@@ -1712,6 +1766,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         session.attachment_store = AttachmentStore(Path(args.attachments_dir))
     session.endpoint, session.api_key = cfg.endpoint, cfg.api_key
     session.ask_only = args.ask_only
+    session.workspace, session.checks_offer = cfg.workspace, args.offer_checks and not args.ask_only and not args.unattended
     session.intake = it.Intake(args.intake, built.technical, args.side_call_tokens)
     session.optimizer = opt.Optimizer(built.technical, args.optimize_prompt == "on" and not args.unattended)
     session.task_sink = it.TaskSink(cfg.endpoint, cfg.api_key) if args.report_changes else None

@@ -91,6 +91,13 @@ def _edges(texts: List[str], budget: int, joiner: int, head_share: float, unit: 
     while first < len(texts) and used + len(texts[first]) + joiner <= room * EDGE_SHARE:
         used += len(texts[first]) + joiner
         first += 1
+    head = texts[:first]
+    if not head and len(texts) > 1:                             # the first item alone is longer than its share: its start and end
+        shorter, omitted = clip(texts[0], max(1, int(room * EDGE_SHARE) - joiner), head_share)
+        head, first = [shorter], 1
+        used += len(shorter) + joiner
+        cut.clipped += 1 if omitted else 0
+        cut.chars_omitted += omitted
     last, tail = len(texts), []
     while last > first and used + len(texts[last - 1]) + joiner <= room:
         last -= 1
@@ -104,7 +111,7 @@ def _edges(texts: List[str], budget: int, joiner: int, head_share: float, unit: 
         cut.chars_omitted += omitted
     gone = last - first
     cut.items_omitted += gone
-    return texts[:first] + ([marker(gone, unit)] if gone else []) + tail[::-1]
+    return head + ([marker(gone, unit)] if gone else []) + tail[::-1]
 
 
 def _words(content: Any) -> str:

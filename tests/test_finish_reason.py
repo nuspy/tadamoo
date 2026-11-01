@@ -316,7 +316,7 @@ def test_the_client_leaves_temperature_and_max_tokens_out_of_the_request_unless_
         seen.append(json.loads(req.data.decode("utf-8")))
         return Resp()
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_open)
+    monkeypatch.setattr("harness.client.open_url", lambda req, timeout=0: fake_open(req, timeout))
     client = BasaltClient("http://x")
     client.chat_completion([{"role": "user", "content": "hi"}])
     client.chat_completion([{"role": "user", "content": "hi"}], temperature=0.0, max_tokens=5)
