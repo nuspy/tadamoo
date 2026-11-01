@@ -10,6 +10,7 @@ Ultimo aggiornamento: 1 novembre 2026, mattina. Si aggiorna a ogni task nuovo ri
 - Per le sessioni normali resta la compattazione già stabilita: la storia più vecchia di tre prompt viene compattata.
 - I prompt troppo lunghi (libri, testi lunghissimi) si dividono in pezzi; anche le risposte si dividono in pezzi quando la sessione tecnica dice che saranno lunghe.
 - Passi su E9, tutti e tre: leggere le trascrizioni, rifare con finestra da 65.536, cambiare soglia o prompt (con la GPU, dopo l'OK dell'altra sessione).
+- Esito della lettura delle trascrizioni di E9 (`C:\TEMP\e9_analysis.md`): la perdita cresce con il numero di compattazioni (fino a 7 va bene, a 13 e 25 si perdono i conteggi dei primi moduli); il riassunto legge solo il 4-15% della storia ripiegata, 38 riassunti su 52 sono stati tagliati dal limite e accettati lo stesso, la finestra da 16.384 è stretta (la testa ne occupa il 39%). La prova con finestra 65.536 e il lavoro attuale non proverebbe nulla (non compatterebbe): serve un lavoro grande almeno 2,5 volte il budget. In corso, senza GPU: rifiuto dei riassunti tagliati, righe «fatti» portate avanti dal codice, note precedenti restituite al riassunto, lavoro grande per E9, nuove colonne. Poi la prova sulla GPU con la regola di vittoria scritta prima (k=8, bracci N, A0, A1, N~aa).
 
 ## Decisioni del 1 novembre mattina (dalla tua lista delle ispirazioni) e stato
 
