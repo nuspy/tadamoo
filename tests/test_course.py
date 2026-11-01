@@ -104,3 +104,18 @@ def test_a_command_that_ends_with_a_code_other_than_zero_is_a_failure_and_a_clea
     for _ in range(3):
         ok.observe({"type": "tool_end", "name": "shell_command", "status": "completed", "decision": "executed", "output": '{"exit_code": 0, "stdout": "fine"}'})
     assert ok.check(Fake(), 1) is None
+
+
+def test_failures_in_a_row_with_different_messages_are_a_signal_until_something_is_written():
+    watcher = course.Watcher()
+    for text in ("python: can't open file x", "python3: command not found", "'py' is not recognized"):
+        watcher.observe({"type": "tool_end", "name": "shell_command", "status": "completed", "decision": "executed",
+                         "output": '{"exit_code": 1, "stdout": "", "stderr": "' + text + '"}'})
+    got = watcher.check(Fake(), 1)
+    assert got.kind == "streak" and "3 calls in a row failed" in got.note
+    fixed = course.Watcher()
+    for _ in range(2):
+        fixed.observe(failed("shell_command", "Error: a"))
+    fixed.observe({"type": "tool_end", "name": "edit_file", "status": "completed", "decision": "executed", "output": "ok"})
+    fixed.observe(failed("shell_command", "Error: b"))
+    assert fixed.streak == 1
