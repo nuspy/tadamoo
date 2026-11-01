@@ -1517,7 +1517,7 @@ cancel or after the wait). The agents are listed in `a2a_agents.json` (`{"agents
 notifications, files and the extended card are not done. It was written from the specification at a2a-protocol.org (version
 1.0.0) and tested against a local fake, never against a real agent; the exact error bodies are read leniently. **Basalt does not
 serve an Agent Card or receive A2A tasks**: a card must list an endpoint that accepts tasks, and receiving a task means running
-the agent for a remote caller, which needs a decision about who may call it. Both tools are irreversible and untrusted.
+the agent for a remote caller, which needs a decision about who may call it. Both tools are irreversible and untrusted. An A2A agent is reached only when its address, and every address its name resolves to, is in the person's own network (`harness/netscope.py`: this PC, 10/8, 172.16/12, 192.168/16, link-local, the shared 100.64/10 space of private overlays); an ACP agent is a local program over stdio. Any listener that takes instructions from agents has to call `netscope.require_private` first.
 
 ## Energy of a task
 
