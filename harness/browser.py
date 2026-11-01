@@ -452,6 +452,18 @@ def open_signin_window(profile_dir: str | Path, url: str, executable: str = "") 
     threading.Thread(target=lambda: (proc.wait(), lock.release()), daemon=True, name="signin-window").start()
 
 
+def external_endpoint(url: str) -> Tuple[str, int]:
+    """(host, port) of a browser that is already running and offers the DevTools protocol over http (`http://host:9222`)."""
+    p = urlparse(url if "//" in url else "//" + url)
+    if p.scheme not in ("", "http", "https") or not p.hostname:
+        raise BrowserError(f"{url!r} is not the http address of a browser's debugging port (for example http://127.0.0.1:9222)")
+    try:
+        port = p.port or (443 if p.scheme == "https" else 9222)
+    except ValueError:
+        raise BrowserError(f"{url!r} has no valid port") from None
+    return p.hostname, port
+
+
 def forget_signins(profile_dir: str | Path) -> None:
     """Throws the kept profile away: every sign-in in it is gone."""
     lock = ProfileLock(profile_dir)
@@ -471,11 +483,14 @@ class Browser:
                  mask: Optional[Callable[[str], str]] = None, persistent: bool = False, consent: str = bc.DEFAULT_CONSENT,
                  permissions: str = bc.DEFAULT_PERMISSIONS, confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None,
                  audit: Optional[Callable[[str, Dict[str, Any]], None]] = None, auto: Optional[Callable[[], bool]] = None,
-                 rules: Optional[Callable[[], List[str]]] = None) -> None:
+                 rules: Optional[Callable[[], List[str]]] = None, cdp_url: str = "") -> None:
+        self.cdp_url = (cdp_url or "").strip()                         # a browser somebody else started: this one drives it and never starts or ends it
+        self.cdp_host, self.port = ("127.0.0.1", 0) if not self.cdp_url else external_endpoint(self.cdp_url)
+        persistent = persistent and not self.cdp_url
         self.persistent = bool(persistent and profile_dir)             # the profile is kept, and its sign-ins with it
-        self.profile_dir = Path(profile_dir) if profile_dir else Path(tempfile.mkdtemp(prefix="basalt-browser-"))
+        self.profile_dir = Path(profile_dir) if profile_dir and not self.cdp_url else Path(tempfile.mkdtemp(prefix="basalt-browser-"))
         self.keep_profile = self.persistent
-        self.headless, self.executable, self.allow_private = headless, executable, allow_private
+        self.headless, self.executable, self.allow_private = headless, executable, allow_private or bool(self.cdp_url)
         self.mask = mask or (lambda t: t)
         self.proc: Optional[subprocess.Popen] = None
         self.job: Any = None
@@ -506,6 +521,9 @@ class Browser:
 
     def start(self) -> None:
         if self.pages:
+            return
+        if self.cdp_url:
+            self._start_external()
             return
         exe = find_browser(self.executable)
         if not exe:
@@ -552,6 +570,25 @@ class Browser:
             pass
         self._apply_permissions()
 
+    def _start_external(self) -> None:
+        """Drives the first page of a browser that is already running. Its requests are not held back here (the browser's owner sets its network
+        scope, and a second request interceptor would compete with the owner's), and it is left running when this ends."""
+        target = None
+        for _ in range(120):
+            try:
+                pages = self._targets()
+                if pages:
+                    target = pages[0]
+                    break
+            except Exception:
+                pass
+            time.sleep(0.25)
+        if target is None:
+            raise BrowserError(f"no browser page answered at {self.cdp_url}")
+        self.seen = {target["id"]}
+        self._attach(target)
+        self._apply_permissions()
+
     def launch_args(self, exe: str, port: int) -> List[str]:
         """The browser's command line. No flag that answers a prompt for the person (camera, microphone, location, screen) is ever among them."""
         args = [exe, f"--remote-debugging-port={port}", f"--user-data-dir={self.profile_dir}", "--no-first-run", "--no-default-browser-check",
@@ -565,9 +602,9 @@ class Browser:
         """The browser's own protocol connection (not a page's), for the calls that are about the whole browser."""
         if self._control_cdp is None and self.pages:
             try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json/version", timeout=2) as r:
+                with urllib.request.urlopen(f"http://{self.cdp_host}:{self.port}/json/version", timeout=2) as r:
                     path = urlparse(json.loads(r.read())["webSocketDebuggerUrl"]).path
-                self._control_cdp = Cdp(WebSocket("127.0.0.1", self.port, path))
+                self._control_cdp = Cdp(WebSocket(self.cdp_host, self.port, path))
             except Exception:
                 self._control_cdp = None
         return self._control_cdp
@@ -682,12 +719,12 @@ class Browser:
                 pass
 
     def _targets(self) -> List[Dict[str, Any]]:
-        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json/list", timeout=2) as r:
+        with urllib.request.urlopen(f"http://{self.cdp_host}:{self.port}/json/list", timeout=2) as r:
             return [t for t in json.loads(r.read()) if t.get("type") == "page" and str(t.get("url", "")).startswith(("http://", "https://", "about:blank"))]   # not the browser's own dialogs
 
     def _attach(self, target: Dict[str, Any]) -> None:
         """Speaks to a page: its own protocol connection, with the frames of other sites it holds followed as sessions."""
-        cdp = Cdp(WebSocket("127.0.0.1", self.port, urlparse(target["webSocketDebuggerUrl"]).path), target["id"])
+        cdp = Cdp(WebSocket(self.cdp_host, self.port, urlparse(target["webSocketDebuggerUrl"]).path), target["id"])
         cdp.dialog_decider, cdp.download_decider = self._dialog_ok, self._download_ok
         if not self.allow_private:
             cdp.request_guard = self._request_ok                        # every request, of the page and of its frames, is looked at before it goes out
@@ -744,7 +781,8 @@ class Browser:
         try:
             if self.pages:
                 try:
-                    self.pages[0].call("Browser.close", timeout=3)
+                    if not self.cdp_url:                              # a browser somebody else started stays
+                        self.pages[0].call("Browser.close", timeout=3)
                 except Exception:
                     pass
                 for p in self.pages:
@@ -1168,13 +1206,13 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
                            permissions: str = bc.DEFAULT_PERMISSIONS, confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None,
                            audit: Optional[Callable[[str, Dict[str, Any]], None]] = None,
                            screenshots: Optional[Callable[[bytes, str], Dict[str, Any]]] = None, auto: Optional[Callable[[], bool]] = None,
-                           rules: Optional[Callable[[], List[str]]] = None) -> Browser:
+                           rules: Optional[Callable[[], List[str]]] = None, cdp_url: str = "") -> Browser:
     """Adds the browser tools. The browser starts at the first use and is closed with the conversation. With `screenshots` (it keeps a picture as a file of the
     conversation and returns its card) the model can take a picture of the page: on its own, or after an action that changes the page."""
     from harness.tools.registry import EffectClass
 
     mask = secrets.mask_secrets if secrets is not None else (lambda t: t)
-    b = browser or Browser(profile_dir, headless, executable, allow_private, mask, persistent, consent, permissions, confirm, audit, auto, rules)
+    b = browser or Browser(profile_dir, headless, executable, allow_private, mask, persistent, consent, permissions, confirm, audit, auto, rules, cdp_url)
     b.mask = mask
 
     def shown(page: Dict[str, Any], **view: Any) -> str:

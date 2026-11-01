@@ -96,3 +96,11 @@ def test_a_folder_inside_the_repository_is_refused(remote):
     with pytest.raises(BenchImportError):
         importer.remove(spec, inside)
     assert not inside.exists()
+
+
+def test_a_benchmark_that_is_one_folder_of_a_large_repository_is_fetched_sparse():
+    from harness.bench import importer, registry
+    spec = registry.SPECS["bfcl-v4"]
+    args = importer._clone_args(spec, Path("dest"))
+    assert "--sparse" in args and "--filter=blob:none" in args and spec.sparse == ("berkeley-function-call-leaderboard",)
+    assert "--sparse" not in importer._clone_args(registry.SPECS["clawbench"], Path("dest"))

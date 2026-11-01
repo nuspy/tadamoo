@@ -80,11 +80,19 @@ class Adapter(Protocol):
 
 # -- adapters -----------------------------------------------------------------------------------------------------------
 
-ADAPTERS: Dict[str, Callable[[], Adapter]] = {}          # benchmark id -> factory; the real ones are added as they are written
+ADAPTERS: Dict[str, Callable[[], Adapter]] = {}          # benchmark id -> factory; an entry here wins over the module of the same benchmark
 
 
-def get_adapter(spec_id: str, adapters: Optional[Mapping[str, Callable[[], Adapter]]] = None) -> Adapter:
+def get_adapter(spec_id: str, adapters: Optional[Mapping[str, Callable[[], Adapter]]] = None, *, lazy: bool = False) -> Adapter:
+    """The adapter of a benchmark from `adapters` (default ADAPTERS). With `lazy`, a benchmark not in the table is looked for in the adapter modules
+    (harness/bench/adapters), imported only now."""
     table = ADAPTERS if adapters is None else adapters
+    if spec_id not in table and lazy:
+        from . import adapters as modules
+        try:
+            return modules.load(spec_id)()
+        except modules.AdapterModuleMissing:
+            pass
     if spec_id not in table:
         raise AdapterNotWritten(f"The adapter for {spec_id} is not written yet")
     return table[spec_id]()

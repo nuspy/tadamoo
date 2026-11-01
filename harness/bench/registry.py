@@ -44,6 +44,7 @@ class BenchSpec:
     tools: Tuple[str, ...] = ()                 # programs the benchmark's own install needs on the PATH
     python_min: Tuple[int, ...] = ()
     disk_gb: float = 5.0                        # free space the preflight asks for
+    sparse: Tuple[str, ...] = ()                # folders of the repository to check out when the benchmark is one folder of a large one
     download_size: str = "to confirm on import"
     notes: str = ""
     to_confirm: Tuple[str, ...] = field(default_factory=tuple)
@@ -79,7 +80,10 @@ SPECS: Dict[str, BenchSpec] = {s.id: s for s in (
     BenchSpec(
         id="swe-bench-verified", title="SWE-bench Verified (subset)", source_kind=HF_DATASET, source="https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified",
         branch="", licence="MIT", needs=Needs(docker=True, wsl2=True, internet=True),
-        subsets=(Subset("smoke", "One instance"), Subset("sample50", "A fixed sample of 50 instances"), Subset("full", "All 500 instances")),
+        subsets=(Subset("smoke", "Two instances, our harness"), Subset("dev", "20 instances, our harness"), Subset("random100", "100 instances chosen with a fixed seed, our harness"),
+                 Subset("full", "All 500 instances, our harness"), Subset("smoke-baseline", "Two instances, bash-only baseline agent"),
+                 Subset("dev-baseline", "20 instances, bash-only baseline agent"), Subset("random100-baseline", "100 instances chosen with a fixed seed, bash-only baseline agent"),
+                 Subset("full-baseline", "All 500 instances, bash-only baseline agent")),
         scoring="verifier", primary_metric="resolution_rate", leaderboard="none",
         leaderboard_target="", tools=("uv",), disk_gb=120.0, download_size="the dataset is small; the Docker images of the instances are large (about 100 GB for all)",
         notes="Scored by running the instance's tests in its Docker image. Hosted boards take self-reported results; no route is written here. " + LOCAL_ONLY,
@@ -87,7 +91,8 @@ SPECS: Dict[str, BenchSpec] = {s.id: s for s in (
     BenchSpec(
         id="clawbench", title="ClawBench", source_kind=GIT, source="https://github.com/TIGER-AI-Lab/ClawBench", branch="", licence="Apache-2.0",
         needs=Needs(docker=True, wsl2=True, internet=True),
-        subsets=(Subset("lite", "The 20-task Lite set"), Subset("v1", "Suite V1"), Subset("v2", "Suite V2")),
+        subsets=(Subset("smoke", "Two Lite cases with the do-nothing and random-click baselines (proves the pipeline)"), Subset("lite", "The 20-task Lite set"),
+                 Subset("v1", "Suite V1"), Subset("v2", "Suite V2")),
         scoring="verifier+judge", primary_metric="reward_rate", official_cloud_judge=True,
         leaderboard="csv_pr", leaderboard_target="The ClawBench results file, as a pull request to its repository",
         tools=("uv",), python_min=(3, 11), disk_gb=15.0, download_size="to confirm on import (Docker images and the task set)",
@@ -97,13 +102,14 @@ SPECS: Dict[str, BenchSpec] = {s.id: s for s in (
     BenchSpec(
         id="bfcl-v4", title="BFCL v4 (function calling)", source_kind=GIT, source="https://github.com/ShishirPatil/gorilla", branch="", licence="Apache-2.0",
         needs=Needs(internet=True), subsets=(Subset("smoke", "A few cases per category"), Subset("simple", "Simple and parallel calls"), Subset("full", "Every category")),
-        scoring="verifier", primary_metric="accuracy", leaderboard="none", leaderboard_target="", tools=("uv",), python_min=(3, 10), disk_gb=3.0,
-        download_size="to confirm on import (the repository holds more than BFCL)",
+        scoring="verifier", primary_metric="accuracy", leaderboard="none", leaderboard_target="", tools=("uv",), python_min=(3, 10), disk_gb=10.0, sparse=("berkeley-function-call-leaderboard",),
+        download_size="about 20 MB (only the BFCL folder of the repository is checked out); its own install then pulls several GB of packages",
         notes="Cheap and local: it checks tool-call formats and the chat template, so it tests the model more than the harness. " + LOCAL_ONLY,
         to_confirm=("folder of the BFCL v4 data inside the repository", "board submission rules")),
     BenchSpec(
         id="tau3-bench", title="tau3-bench", source_kind=GIT, source="https://github.com/sierra-research/tau2-bench", branch="", licence="MIT",
-        needs=Needs(internet=True), subsets=(Subset("airline", "Airline"), Subset("retail", "Retail"), Subset("telecom", "Telecom"), Subset("banking", "Banking")),
+        needs=Needs(internet=True), subsets=(Subset("smoke", "Two airline tasks"), Subset("airline", "Airline"), Subset("retail", "Retail"), Subset("telecom", "Telecom"),
+                                             Subset("banking", "Banking")),
         scoring="verifier", primary_metric="pass_hat_k", official_cloud_judge=True, leaderboard="none", leaderboard_target="",
         tools=("uv",), python_min=(3, 11), disk_gb=3.0, download_size="to confirm on import",
         notes="Multi-turn dialogs with policy rules, scored pass^k. The official user simulator is an API model. " + LOCAL_JUDGE,

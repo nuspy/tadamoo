@@ -11,7 +11,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from harness import agent_loop as al
 from harness.plan_mode import gate_from_confirm
@@ -110,7 +110,7 @@ def config_from_args(args: argparse.Namespace) -> AgentConfig:
     )
 
 
-def run_headless(cfg: AgentConfig, prompt: str, client: Any = None) -> Dict[str, Any]:
+def run_headless(cfg: AgentConfig, prompt: str, client: Any = None, on_event: Optional[Callable[[Dict[str, Any]], None]] = None) -> Dict[str, Any]:
     built = build_agent(cfg, client=client)
     try:
         if cfg.confirm is not None:                       # a payment and a plan are put to the person the way any risky action is
@@ -122,7 +122,8 @@ def run_headless(cfg: AgentConfig, prompt: str, client: Any = None) -> Dict[str,
             from harness.reporting import PanelReporter
             built.reporter = PanelReporter(cfg.endpoint, cfg.api_key, built.sandbox, prompt, session=cfg.run_id or None)
             built.reporter.start()
-        built.agent.on_event = _on_event(cfg, built.reporter)
+        shown = _on_event(cfg, built.reporter)
+        built.agent.on_event = shown if on_event is None else (lambda event: (shown(event), on_event(event)))     # `on_event` also sees every event (a benchmark's trajectory)
         try:
             turns = built.agent.run(prompt, retrieved=built.retrieved_message(prompt))
         except BaseException as exc:
