@@ -73,3 +73,28 @@ def test_a_failure_brings_the_lesson_about_the_same_failure_with_its_result_once
     agent.run("open the files")
     results = [m["content"] for m in client.sent[2] if m.get("role") == "tool"]
     assert "corrected to notes-2.txt" in results[0] and "corrected to notes-2.txt" not in results[1]
+
+
+def test_a_message_that_says_the_last_answer_was_wrong_is_kept_as_a_correction_with_the_words_masked(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    client = ScriptedClient(say("The answer is 4."), say("Sorry, 5."), say("Fine."))
+    agent = agent_for(ws, client)
+    got = []
+    agent.learn = lambda record, candidates: got.append(record)
+    agent.run("what is 2+2?")
+    agent.run("No, that is wrong, try again")
+    agent.run("thanks, now something else")
+    corrections = [r for r in got if r.get("result") == "corrected"]
+    assert len(corrections) == 1 and corrections[0]["corrected_by_person"] and corrections[0]["request"].startswith("what is 2+2")
+    assert corrections[0]["correction"].startswith("No, that is wrong")
+
+
+def test_after_a_fold_the_agent_gets_a_mission_card_with_the_request_the_open_items_and_the_files(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    client = ScriptedClient(call("write_file", {"path": "a.txt", "content": "x"}, "w"), say("done"))
+    agent = agent_for(ws, client)
+    agent.run("write a.txt")
+    note = agent._mission_note()
+    assert "Mission card" in note and "write a.txt" in note and "a.txt" in note.split("Files written or edited so far:")[1]
