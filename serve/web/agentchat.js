@@ -415,6 +415,8 @@
         } else if (d.type === "tool_start") {
           if (d.name === "ask_user") break;                                    // its question is shown by the question itself
           addBlock({ t: "tool", id: d.call_id, name: d.name, args: d.arguments || {}, status: "running", output: "", description: explainOf(d.description) }, e.turn);
+        } else if (d.type === "completion_check") {                                // the request did not look met: the agent was sent back to finish
+          addBlock({ t: "note", s: T("ch.completion", d.round, d.of, String(d.note || "").replace(/^\[harness\]\s*/, "").slice(0, 200)) }, e.turn);
         } else if (d.type === "batch_interrupted") {                               // the person wrote something that changes the work: the rest of the commands was not run
           addBlock({ t: "note", s: T("ch.batch.interrupted", d.skipped || 0) }, e.turn);
         } else if (d.type === "calls_skipped") {                                 // repeats and calls over the limit are not run: said once, not once for each
@@ -700,7 +702,8 @@
     }
     if (b.t === "ask" && b.kind === "questions") {                            // the card of questions: choices, a row of their own, free text, yes/no
       const prompt = $("#prompt"), free = !prompt || !prompt.value.trim() || document.activeElement === prompt;
-      window.AskCard.draw(el, b, { T, answered: b.answered !== null, focusFirst: b.fresh && free && !document.hidden, send: (value, how) => answerCard(b, value, how) });
+      window.AskCard.draw(el, b, { T, answered: b.answered !== null, focusFirst: b.fresh && free && !document.hidden, send: (value, how) => answerCard(b, value, how),
+        chat: quoted => { if (prompt && !prompt.value.trim()) window.chatUi.setPrompt(quoted); else if (prompt) prompt.focus(); } });
       b.fresh = false;
       return;
     }
@@ -1290,7 +1293,7 @@
     const r = await api("POST", `/${sid}/answer`, { ask: b.id, value });
     if (!r.ok) { status(errText(r)); return; }
     b.answered = how; b.status = how; b.dirty = true;
-    if (how === "chat") { const p = $("#prompt"); if (p) p.focus(); } else { state = "busy"; busyNow = true; }
+    state = "busy"; busyNow = true;
     render(); poll(true);
   }
   async function answer(b, value) {
