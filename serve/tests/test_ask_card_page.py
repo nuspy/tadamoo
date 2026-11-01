@@ -26,7 +26,17 @@ class CardLogicTest(unittest.TestCase):
         out = subprocess.run([NODE, str(HERE / "askcard_check.js")], capture_output=True, text=True, timeout=60)
         self.assertEqual(out.returncode, 0, out.stderr)
         results = json.loads(out.stdout)
-        self.assertGreaterEqual(len(results), 8)
+        self.assertGreaterEqual(len(results), 12)
+        self.assertEqual([f"{r['name']}: {r['error']}" for r in results if not r["ok"]], [])
+
+
+@unittest.skipUnless(NODE, "node is needed to run the card on the stand-in DOM")
+class CardKeyboardTest(unittest.TestCase):
+    def test_the_card_works_with_the_keys_on_a_stand_in_dom(self):
+        out = subprocess.run([NODE, str(HERE / "askcard_dom_check.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        results = json.loads(out.stdout)
+        self.assertGreaterEqual(len(results), 10)
         self.assertEqual([f"{r['name']}: {r['error']}" for r in results if not r["ok"]], [])
 
 
@@ -66,6 +76,30 @@ class WiringTest(unittest.TestCase):
         for needle in ('"radiogroup"', '"fieldset"', '"legend"', "ctrlKey", 'aria-live', "ev.detail > 0", "T(\"ch.ask.missing\""):
             self.assertIn(needle.strip('"') if needle.startswith('"') else needle, CARD)
         self.assertIn("ch.ask.recommended", CARD)                                           # the recommended tag is words, not colour only
+
+    def test_several_questions_are_tabs_with_roles_and_arrow_keys(self):
+        for needle in ('"tablist"', '"tab"', '"tabpanel"', "aria-selected", "aria-controls", "aria-labelledby", "keyAction(", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"):
+            self.assertIn(needle, CARD)
+        self.assertIn("e.preventDefault()", CARD)                                           # the radios do not move by themselves: up and down only move, Enter picks
+        card_css = CSS[CSS.index("/* the card of questions"):CSS.index(".acap-list")]
+        tab_rule = card_css[card_css.index(".aq-tab {"):].split("}")[0]
+        self.assertIn("min-height: 44px", tab_rule)
+        self.assertIn('.aq-tab[aria-selected="true"]', card_css)                           # the selected tab is shown by a border and weight, not colour alone
+        self.assertIn(".aq-tab:focus-visible", card_css)
+        self.assertIn("flex-wrap: wrap", card_css[card_css.index(".aq-tabs {"):].split("}")[0])     # many tabs wrap instead of scrolling sideways
+        self.assertIn(".aq-foot .btn { min-height: 44px; }", card_css)
+
+    def test_keep_chatting_sets_the_card_aside_and_quotes_it_instead_of_answering(self):
+        chat_button = CARD[CARD.index("chat.onclick"):].split("\n")[0]
+        self.assertIn("b.dismissed = true", chat_button)
+        self.assertIn("ctx.chat(quote(card))", chat_button)
+        self.assertNotIn("submit(", chat_button)                                            # nothing is sent to the server
+        self.assertIn("ch.ask.reopen", CARD)
+        self.assertIn("chat: quoted =>", CHAT)
+        self.assertIn("window.chatUi.setPrompt(quoted)", CHAT)
+        self.assertIn("prompt.focus()", CHAT[CHAT.index("chat: quoted =>"):][:200])        # a message already typed is kept and gets the focus
+        strs = strings()
+        self.assertEqual(strs["en"]["ch.ask.chat"], "Keep chatting about this")
 
     def test_the_buttons_are_big_enough_and_nothing_scrolls_sideways(self):
         for rule in (".aq-row", ".aq-other-text", ".asuggest .btn", ".aq-card"):

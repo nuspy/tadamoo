@@ -73,7 +73,44 @@
   /* a card with one question of single or confirm kind is answered by one click */
   const fast = card => (card.questions || []).length === 1 && ["single", "confirm"].includes(card.questions[0].kind);
 
-  const api = { initial, setPick, setOther, setText, missing, encode, lines, fast, PREFIX, MAX_TEXT };
+  /* the quoted topic of the card, put at the start of the chat message when the person sets the card aside to talk it over */
+  function quote(card) {
+    const qs = (card.questions || []).map(q => String(q.text || "").replace(/\s+/g, " ").trim()).filter(Boolean);
+    if (!qs.length) return "";
+    const shown = qs.slice(0, 4).map(t => "> " + (t.length > 200 ? t.slice(0, 199) + "…" : t));
+    if (qs.length > shown.length) shown.push("> …");
+    return shown.join("\n") + "\n\n";
+  }
+  const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+  /* What a key does inside the card. e: {key, ctrl, alt, meta, shift}. c: {where: "tab" | "option" | "text" | "area", index (the question),
+     total, stop (the focused answer), stops (how many answers can take the focus), fast, multi, other (the focused row is the one of their own)}.
+     Returns null (the browser keeps the key) or an action: send; question (go to question `to`, `focus` puts the focus on its first answer);
+     stop (focus answer `to`); pick (choose or toggle the focused answer; `advance` moves on to the next question, `submit` sends at once);
+     stay (the key is taken and does nothing). Left and right move between questions, up and down between answers, Enter picks. */
+  function keyAction(e, c) {
+    if (e.key === "Enter" && e.ctrl) return { do: "send" };
+    if (e.alt || e.meta || e.ctrl) return null;
+    const k = e.key, last = c.total - 1, many = c.total > 1;
+    if (!c.where || c.where === "area") return null;
+    if (c.where === "tab") {
+      if (k === "ArrowLeft") return { do: "question", to: clamp(c.index - 1, 0, last) };
+      if (k === "ArrowRight") return { do: "question", to: clamp(c.index + 1, 0, last) };
+      if (k === "Home") return { do: "question", to: 0 };
+      if (k === "End") return { do: "question", to: last };
+      if (k === "ArrowDown") return { do: "question", to: c.index, focus: true };
+      return null;
+    }
+    if (k === "ArrowUp" || k === "ArrowDown") return { do: "stop", to: clamp(c.stop + (k === "ArrowDown" ? 1 : -1), 0, Math.max(0, c.stops - 1)) };
+    if (c.where === "text") return k === "Enter" && !e.shift && many && c.index < last ? { do: "question", to: c.index + 1, focus: true } : null;
+    if (k === "ArrowLeft" || k === "ArrowRight") {
+      if (!many) return { do: "stay" };
+      return { do: "question", to: clamp(c.index + (k === "ArrowRight" ? 1 : -1), 0, last), focus: true };
+    }
+    if (k === "Enter" && !e.shift) return { do: "pick", submit: !!c.fast && !c.other, advance: many && !c.multi && !c.other && c.index < last };
+    return null;
+  }
+
+  const api = { initial, setPick, setOther, setText, missing, encode, lines, fast, quote, keyAction, PREFIX, MAX_TEXT };
   if (typeof module !== "undefined" && module.exports) { module.exports = api; return; }
 
   /* ---- the page part ---- */
@@ -81,27 +118,67 @@
   let seq = 0;
 
   /* Draws the card of block `b` (b.questions, b.intro; b.sel and b.status are kept on it) into `el`.
-     ctx: T (translate), send(value) (posts the answer), answered (the card is closed), focusFirst (take the focus now). */
+     ctx: T (translate), send(value) (posts the answer), answered (the card is closed), focusFirst (take the focus now),
+     chat(quote) (puts the quoted topic in the message box and takes the focus there). */
   function draw(el, b, ctx) {
-    const T = ctx.T, card = { questions: b.questions || [] };
+    const card = { questions: b.questions || [] };
     b.sel = b.sel || initial(card);
     const done = ctx.answered;
     if (el.dataset.built && !done) return;                // the person is choosing: the card is not drawn again
     el.dataset.built = done ? "" : "1";
-    const sel = b.sel, id = `aq${++seq}`, note = mk("p", "aask-h aq-note"), form = mk("div", "aq-form");
-    note.setAttribute("role", "status"); note.setAttribute("aria-live", "polite");
     el.dataset.mode = "question"; el.classList.add("aq-card");
-    if (done) { el.replaceChildren(...doneView(b, card, sel, T)); return; }
+    if (done) { el.onkeydown = null; el.replaceChildren(...doneView(b, card, b.sel, ctx.T)); return; }
+    const show = () => (b.dismissed ? aside(el, b, ctx, show) : build(el, b, card, ctx, show));
+    show();
+  }
+
+  /* the card set aside while the person talks it over in the chat; it opens again from here */
+  function aside(el, b, ctx, show) {
+    const T = ctx.T, note = mk("p", "aask-h", T("ch.ask.aside")), re = mk("button", "btn", T("ch.ask.reopen")), row = mk("div", "aask-b");
+    note.setAttribute("role", "status");
+    re.type = "button"; re.title = T("ch.ask.reopen.tip");
+    re.onclick = () => {
+      b.dismissed = false; show();
+      const first = el.querySelector(".aq-tab[aria-selected=true], .aq-panel:not([hidden]) input, .aq-panel:not([hidden]) textarea");
+      if (first) first.focus();
+    };
+    row.append(re);
+    el.onkeydown = null;
+    el.replaceChildren(note, row);
+  }
+
+  /* the answers of a panel that can take the focus, in the order of the page */
+  const stopsOf = panel => [...panel.querySelectorAll(".aq-row input, .aq-other-text:not([hidden]), .aq-free")];
+
+  function build(el, b, card, ctx, show) {
+    const T = ctx.T, sel = b.sel, id = `aq${++seq}`, note = mk("p", "aask-h aq-note"), form = mk("div", "aq-form");
+    note.setAttribute("role", "status"); note.setAttribute("aria-live", "polite");
     if (b.intro) form.append(mk("p", "aask-q", b.intro));
     const total = card.questions.length, go = mk("button", "btn primary", T("ch.ask.send")), skip = mk("button", "btn", T("ch.ask.skip")), chat = mk("button", "btn ghost", T("ch.ask.chat"));
     [go, skip, chat].forEach(x => { x.type = "button"; });
     go.title = T("ch.ask.send.tip"); skip.title = T("ch.ask.skip.tip"); chat.title = T("ch.ask.chat.tip");
+    const tabs = [], panels = [], tablist = mk("div", "aq-tabs");
+    let active = clamp(b.tab || 0, 0, Math.max(0, total - 1));
+    if (total > 1) { tablist.setAttribute("role", "tablist"); tablist.setAttribute("aria-label", T("ch.ask.tabs")); form.append(tablist); }
+    /* shows question i; `focus` puts the focus on its tab or on its first answer */
+    const select = (i, focus) => {
+      active = clamp(i, 0, total - 1); b.tab = active;
+      panels.forEach((p, k) => { p.hidden = k !== active; });
+      tabs.forEach((t, k) => { t.setAttribute("aria-selected", String(k === active)); t.tabIndex = k === active ? 0 : -1; });
+      if (focus === "tab" && tabs[active]) tabs[active].focus();
+      if (focus === "stop") { const st = stopsOf(panels[active]); const on = st.find(x => x.checked) || st[0]; if (on) on.focus(); }
+    };
     const refresh = () => {
       const m = missing(card, sel);
       go.disabled = m !== null;
       const q = card.questions.find(x => x.id === m);
       note.textContent = q ? T("ch.ask.missing", q.text) : "";
       form.querySelectorAll(".aq-other-text").forEach(t => { t.hidden = !sel[t.dataset.q].other; });
+      tabs.forEach((t, k) => {
+        const qq = card.questions[k], ok = answered(qq, sel[qq.id]);
+        t.querySelector(".aq-tm").hidden = !ok;
+        t.querySelector(".sr").textContent = ok ? ", " + T("ch.ask.tab.done") : "";
+      });
     };
     const submit = status => {
       if (status === "submitted" && missing(card, sel) !== null) return;
@@ -109,8 +186,20 @@
       ctx.send(encode(card, sel, status), status);
     };
     card.questions.forEach((q, qi) => {
-      const fs = mk("fieldset", "aq"), lg = mk("legend", "aq-lg"), s = sel[q.id], name = `${id}-${q.id}`;
+      const panel = mk("div", "aq-panel"), fs = mk("fieldset", "aq"), lg = mk("legend", "aq-lg"), s = sel[q.id], name = `${id}-${q.id}`;
       lg.id = `${name}-l`;
+      panel.id = `${name}-p`; panel.hidden = qi !== active; panels.push(panel);
+      if (total > 1) {
+        const tab = mk("button", "aq-tab"), sr = mk("span", "sr"), mark = mk("span", "aq-tm", "✓");
+        tab.type = "button"; tab.id = `${name}-t`; tab.title = q.text;
+        tab.setAttribute("role", "tab"); tab.setAttribute("aria-controls", panel.id); tab.setAttribute("aria-selected", String(qi === active)); tab.tabIndex = qi === active ? 0 : -1;
+        mark.setAttribute("aria-hidden", "true");
+        tab.append(mk("span", "aq-tn", String(qi + 1)), mk("span", "aq-tt", q.text), mark, sr);
+        tab.onclick = () => select(qi);
+        tabs.push(tab); tablist.append(tab);
+        panel.setAttribute("role", "tabpanel"); panel.setAttribute("aria-labelledby", tab.id);
+      }
+      panel.append(fs); form.append(panel);
       if (total > 1) lg.append(mk("span", "aq-n", T("ch.ask.n_of_m", qi + 1, total)), " ");
       lg.append(mk("span", "aq-t", q.text));
       if (q.required === false) lg.append(" ", mk("span", "aq-opt-tag", T("ch.ask.optional")));
@@ -121,7 +210,6 @@
         ta.oninput = () => { setText(card, sel, q.id, ta.value); refresh(); };
         ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && total === 1 && missing(card, sel) === null) { e.preventDefault(); submit("submitted"); } };
         fs.append(ta);
-        form.append(fs);
         return;
       }
       const group = mk("div", "aq-opts"), multi = q.kind === "multi";
@@ -144,7 +232,7 @@
         group.append(row(o.id, label, q.kind === "confirm" ? "" : o.description, rec, s.picked.includes(o.id), on => setPick(card, sel, q.id, o.id, on)).lab);
       });
       if (q.allow_other !== false && q.kind !== "confirm") {
-        const r = row("__other", T("ch.ask.other"), "", false, s.other, on => { setOther(card, sel, q.id, on); if (on) text.focus(); });
+        const r = row("__other", T("ch.ask.other"), "", false, s.other, on => { setOther(card, sel, q.id, on); if (on) { text.hidden = false; text.focus(); } });
         const text = mk("input", "aq-other-text"); text.type = "text"; text.maxLength = MAX_TEXT; text.value = s.text; text.dataset.q = q.id; text.hidden = !s.other;
         text.placeholder = T("ch.ask.other.ph"); text.setAttribute("aria-label", T("ch.ask.other.ph"));
         text.oninput = () => { setText(card, sel, q.id, text.value); r.inp.checked = sel[q.id].other; refresh(); };
@@ -152,25 +240,40 @@
         group.append(r.lab, text);
       }
       fs.append(group);
-      form.append(fs);
     });
-    const foot = mk("div", "aask-b aq-foot");
+    const foot = mk("div", "aask-b aq-foot"), keys = mk("p", "aask-h aq-keys", T(total > 1 ? "ch.ask.keys" : "ch.ask.keys1"));
     foot.setAttribute("role", "group"); foot.setAttribute("aria-label", T("ch.answers"));
-    go.onclick = () => submit("submitted"); skip.onclick = () => submit("skipped"); chat.onclick = () => submit("chat");
+    go.onclick = () => submit("submitted"); skip.onclick = () => submit("skipped");
+    chat.onclick = () => { b.dismissed = true; show(); if (ctx.chat) ctx.chat(quote(card)); };
     foot.append(go, skip, chat);
     el.onkeydown = e => {
-      if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); submit("submitted"); return; }
       const t = e.target;
-      if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey && t && !(t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && t.type === "text"))) {
-        const set = t.closest && t.closest("fieldset.aq");
+      if (!t || !t.closest) return;
+      const tab = t.closest(".aq-tab"), panel = t.closest(".aq-panel");
+      const where = tab ? "tab" : t.tagName === "TEXTAREA" ? "area" : t.classList.contains("aq-other-text") ? "text" : t.matches(".aq-row input") ? "option" : "";
+      if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey && where !== "area" && where !== "text" && !(t.tagName === "INPUT" && t.type === "text")) {
+        const set = panel || panels[active];
         const target = set && set.querySelectorAll(".aq-row input")[Number(e.key) - 1];
         if (target) { e.preventDefault(); target.click(); target.focus(); }
+        return;
+      }
+      const index = tab ? tabs.indexOf(tab) : Math.max(0, panels.indexOf(panel)), stops = panel ? stopsOf(panel) : [], q = card.questions[index] || {};
+      const act = keyAction({ key: e.key, ctrl: e.ctrlKey, alt: e.altKey, meta: e.metaKey, shift: e.shiftKey },
+        { where, index, total, stop: stops.indexOf(t), stops: stops.length, fast: fast(card), multi: q.kind === "multi", other: t.value === "__other" });
+      if (!act) return;
+      e.preventDefault();
+      if (act.do === "send") submit("submitted");
+      else if (act.do === "question") select(act.to, act.focus ? "stop" : "tab");
+      else if (act.do === "stop") { if (stops[act.to]) stops[act.to].focus(); }
+      else if (act.do === "pick") {
+        t.click();                                          // a script click never counts as the one-click answer; the card sends it below
+        if (act.submit) submit("submitted"); else if (act.advance) select(index + 1, "stop");
       }
     };
-    el.replaceChildren(form, note, foot);
+    el.replaceChildren(form, note, keys, foot);
     refresh();
     if (ctx.focusFirst) {
-      const first = el.querySelector("input, textarea");
+      const first = stopsOf(panels[active] || el)[0];
       if (first) first.focus({ preventScroll: true });
     }
   }
