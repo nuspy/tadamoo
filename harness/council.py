@@ -18,6 +18,7 @@ import re
 from typing import Any, Callable, Dict, List, Optional
 
 from harness.client import BasaltError
+from harness.transcript import clip, fit
 
 MEMBERS = ("council_1", "council_2", "council_3")
 CHAIR = "council_chair"
@@ -25,7 +26,8 @@ QUESTION_MAX = 2000
 CONTEXT_MAX = 6000
 ANSWER_MAX = 400                    # tokens one adviser may write
 MODERATOR_MAX = 500                 # tokens the moderator may write
-DEBATE_MAX = 9000                   # characters of the debate an adviser reads (the latest are kept)
+DEBATE_MAX = 9000                   # characters of the debate an adviser reads (the first and the latest speeches are kept)
+SAID_MAX = 2000                     # characters of one speech that are read
 SHOWN_MAX = 600
 ROUNDS_MAX = 6
 NAME_MAX = 40
@@ -148,13 +150,13 @@ class Council:
 
     @staticmethod
     def _heard(transcript: List[Dict[str, Any]]) -> str:
-        out = "\n".join(f'<said round="{t["round"]}" by="{t["role"]}">\n{_defang(t["text"])}\n</said>' for t in transcript if t.get("text"))
-        return out if len(out) <= DEBATE_MAX else out[-DEBATE_MAX:]
+        said = [f'<said round="{t["round"]}" by="{t["role"]}">\n{_defang(clip(t["text"], SAID_MAX)[0])}\n</said>' for t in transcript if t.get("text")]
+        return "\n".join(fit(said, budget=DEBATE_MAX)[0])
 
     def convene(self, question: str, context: str = "") -> Dict[str, Any]:
         """{"transcript": [{"round", "member", "role", "text"|"error"}], "rounds", "stopped": "consensus"|"round_cap"|"too_few"|"moderator_failed",
         "consensus": bool, "verdict": str, "calls": int}. The moderator's summary of each round is in the transcript as member "council_chair"."""
-        question, context = question.strip()[:QUESTION_MAX], (context or "").strip()[:CONTEXT_MAX]
+        question, context = clip(question.strip(), QUESTION_MAX)[0], clip((context or "").strip(), CONTEXT_MAX)[0]
         body = f"<question>\n{question}\n</question>" + (f"\n<context>\n{context}\n</context>" if context else "")
         roles, moderator, cap = self.settings["roles"], self.settings["moderator"], self.settings["rounds"]
         transcript: List[Dict[str, Any]] = []
@@ -204,7 +206,7 @@ def render(result: Dict[str, Any]) -> str:
         lines += ["Moderator's last summary:", result["verdict"], ""]
     for t in result["transcript"]:
         if t["member"] != CHAIR:
-            said = t["text"][:SHOWN_MAX] + (" [...]" if len(t["text"]) > SHOWN_MAX else "") if t.get("text") else f"[no answer: {t.get('error')}]"
+            said = clip(t["text"], SHOWN_MAX)[0] if t.get("text") else f"[no answer: {t.get('error')}]"
             lines.append(f"round {t['round']} {t['role']} ({t['member']}): {said}")
     return "\n".join(lines)
 

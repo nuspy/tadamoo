@@ -10,11 +10,13 @@ import threading
 import time
 from typing import Any, Callable, Dict, Optional
 
+from harness import transcript
 from harness.memory_extract import Extractor
 from harness.personal_memory import PersonalMemory
 
 QUIET_S = 4.0                   # no request for this long: the GPU is free
 BUSY_UTIL = 50                  # a card this busy (percent) is doing something else
+QUEUED_CHARS = 3000             # most of one message that is kept to be learned from
 MIN_CHARS = 10                  # "ok" and "yes" tell nothing
 POLL_S = 3.0
 RETRY_S = 30.0                  # after a failed call
@@ -52,7 +54,8 @@ class MemoryWorker:
         text = str(job.get("text") or "").strip()
         if not (cfg["learn_long"] or cfg["learn_short"]) or len(text) < MIN_CHARS:
             return False
-        return self.memory.enqueue({"text": text[:3000], "project": str(job.get("project") or "")[:80], "conversation": str(job.get("conversation") or "")[:80],
+        text, omitted = transcript.clip(text, QUEUED_CHARS)
+        return self.memory.enqueue({"text": text, "omitted": omitted, "project": str(job.get("project") or "")[:80], "conversation": str(job.get("conversation") or "")[:80],
                                     "searches": [str(q)[:200] for q in (job.get("searches") or [])[:10]]})
 
     def start(self) -> None:
@@ -76,4 +79,5 @@ class MemoryWorker:
             self._stop.wait(self.retry_s if self.extractor.error else self.poll_s)
 
     def status(self) -> Dict[str, Any]:
-        return {"waiting": self.memory.queue_len(), "error": self.extractor.error, "last": self.extractor.last or None}
+        return {"waiting": self.memory.queue_len(), "error": self.extractor.error, "last": self.extractor.last or None,
+                "last_run": self.extractor.last_run}

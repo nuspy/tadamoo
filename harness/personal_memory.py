@@ -37,6 +37,7 @@ SETTINGS_FILE = "memory-settings.json"
 STORE_FILE = "memories.bin"
 MAX_LOG = 100
 MAX_QUEUE = 200
+MAX_RUNS = 40                                   # readings of the person's messages kept, newest last
 MAX_CONVERSATIONS = 20                          # conversations one note remembers it came from
 MESSAGE_CHARS = 1800                            # most text one answer's notes may take
 PER_SECTION = {"low": 1, "normal": 2, "high": 4, "highest": 8}
@@ -114,7 +115,7 @@ class PersonalMemory:
             try:
                 st = self.path.stat()
             except FileNotFoundError:
-                self._cache, self._stamp = {"items": {}, "log": [], "queue": []}, None
+                self._cache, self._stamp = {"items": {}, "log": [], "queue": [], "runs": []}, None
                 return self._cache
             stamp = (st.st_mtime_ns, st.st_size)
             if self._cache is not None and stamp == self._stamp:
@@ -132,6 +133,7 @@ class PersonalMemory:
             data.setdefault("items", {})
             data.setdefault("log", [])
             data.setdefault("queue", [])
+            data.setdefault("runs", [])
             self._cache, self._stamp = data, stamp
             return data
 
@@ -345,8 +347,9 @@ class PersonalMemory:
                     items[key] = {**item, "conversations": [c for c in mine if c != conv]}
                     kept += 1
             queued = len(data["queue"]) - len(queue)
-            if queued or gone or kept:
-                data["queue"], data["items"] = queue, items
+            runs = [r for r in data.get("runs") or [] if r.get("conversation") != conv]
+            if queued or gone or kept or len(runs) != len(data.get("runs") or []):
+                data["queue"], data["items"], data["runs"] = queue, items, runs
                 data["log"] = [line for line in data["log"] if line.get("id") not in set(gone)]
                 self._write(data)
             return {"queued": queued, "notes": len(gone), "kept": kept, "ids": gone}
@@ -369,7 +372,7 @@ class PersonalMemory:
             gone = len(data["items"]) - len(keep)
             data["items"] = keep
             if not kind:
-                data["log"], data["queue"] = [], []
+                data["log"], data["queue"], data["runs"] = [], [], []
             self._write(data)
             return gone
 
@@ -381,6 +384,16 @@ class PersonalMemory:
             data = dict(self._read())
             data["log"] = (list(data["log"]) + [{"at": self.clock(), "what": what, "kind": item["kind"], "section": item["section"], "text": item["text"], "id": item["id"]}])[-MAX_LOG:]
             self._write(data)
+
+    def record_run(self, run: Dict[str, Any]) -> None:
+        """What one reading of the person's messages saw (counts, never their words) and came to; the last `MAX_RUNS` are kept."""
+        with self._lock:
+            data = dict(self._read())
+            data["runs"] = (list(data.get("runs") or []) + [run])[-MAX_RUNS:]
+            self._write(data)
+
+    def runs(self) -> List[Dict[str, Any]]:
+        return list(reversed(self._read().get("runs") or []))
 
     def log(self) -> List[Dict[str, Any]]:
         return list(reversed(self._read()["log"]))
