@@ -11,6 +11,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
+from harness import repeats
 from harness.lessons import Lesson, LessonStore, OutcomeLog, RESULTS, screen_reason, write_atomic
 
 RECENT_OUTCOMES = 50              # the outcomes the summary counts
@@ -71,13 +72,14 @@ class LessonsApi:
         known = [{"name": n, "path": str(p), "exists": Path(p).is_dir()} for n, p in self.folders()]
         if not folder and known:
             folder = known[0]["path"]
-        out: Dict[str, Any] = {"folders": known, "folder": "", "project": [], "global": [], "outcomes": summarize([]), "agents": False}
+        out: Dict[str, Any] = {"folders": known, "folder": "", "project": [], "global": [], "outcomes": summarize([]), "agents": False, "repeats": []}
         if not known:
             return out
         path = self._folder(folder)
         store = LessonStore(path, self.global_dir)
-        out.update({"folder": str(path), "project": [view(l) for l in store.list("project")], "global": [view(l) for l in store.list("global")],
-                    "outcomes": summarize(OutcomeLog(path).read(RECENT_OUTCOMES)), "agents": (path / AGENTS_FILE).is_file()})
+        every = OutcomeLog(path).read()
+        out.update({"repeats": repeats.groups(every)[:5], "folder": str(path), "project": [view(l) for l in store.list("project")], "global": [view(l) for l in store.list("global")],
+                    "outcomes": summarize(every[-RECENT_OUTCOMES:]), "agents": (path / AGENTS_FILE).is_file()})
         return out
 
     def post(self, action: str, req: Dict[str, Any]) -> Dict[str, Any]:
