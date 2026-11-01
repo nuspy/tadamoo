@@ -194,6 +194,8 @@ class PermissionManager:
         self.always_ask = frozenset(always_ask)
         self._sensitive = sensitive_data           # the session can reach secrets or private data; a function is asked each time
         self.two = RuleOfTwo()                     # the three facts of the Rule of Two for this conversation (harness/rule_of_two.py)
+        self.approver: Optional[Callable[[str, Dict[str, Any]], bool]] = None    # a model that may approve a call before the person is asked (harness/auto_approve.py)
+        self.on_auto_approved: Optional[Callable[[str, Dict[str, Any]], None]] = None
         self.instructions: List[str] = []          # tools whose answers carried instructions for the AI that the person has not authorized
         self._remembered: Set[str] = set()
         self.safe_commands: List[str] = []         # the exact commands the person listed or accepted for this folder: they run without a question
@@ -309,6 +311,14 @@ class PermissionManager:
         plan mode still refuse it, and any other call is unaffected."""
         self._remembered.add(fingerprint(tool_name, arguments))
 
+    def _model_approves(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
+        """The technical session says yes to a call the person would be asked about; it is reported, and the person is not asked."""
+        if self.approver is None or self.confirm_callback is None or not self.approver(tool_name, arguments):
+            return False
+        if self.on_auto_approved is not None:
+            self.on_auto_approved(tool_name, arguments)
+        return True
+
     def _ask(self, tool_name: str, arguments: Dict[str, Any], key: Optional[str]) -> bool:
         if key is not None and key in self._remembered:
             return True
@@ -399,14 +409,14 @@ class PermissionManager:
 
         key = fingerprint(tool_name, arguments)
         if self.level == PermissionLevel.READ_ONLY:
-            if self._ask(tool_name, arguments, key):
+            if self._model_approves(tool_name, arguments) or self._ask(tool_name, arguments, key):
                 return True, "User confirmed execution"
             return False, self._refusal(f"Execution of {tool_name} rejected: read-only level requires confirmation")
 
         if self.level == PermissionLevel.DEFAULT:
             if effect == EffectClass.REVERSIBLE:
                 return True, "Reversible workspace modification permitted"
-            if self._ask(tool_name, arguments, key):
+            if self._model_approves(tool_name, arguments) or self._ask(tool_name, arguments, key):
                 return True, "User confirmed irreversible execution"
             return False, self._refusal(f"Irreversible tool {tool_name} needs confirmation")
 
