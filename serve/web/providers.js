@@ -41,13 +41,17 @@
 
   /* ---- the two sub-tabs ---- */
   function sub(which) {
-    const prov = which === "providers", cv = which === "converter";
-    panel.hidden = !prov; qwen.hidden = prov || cv;
+    const prov = which === "providers", cv = which === "converter", lc = which === "llamacpp";
+    panel.hidden = !prov; qwen.hidden = prov || cv || lc;
     if (conv) conv.hidden = !cv;
+    const lcPanel = document.getElementById("ld-llamacpp");
+    if (lcPanel) lcPanel.hidden = !lc;
     document.getElementById("sub-providers").setAttribute("aria-selected", String(prov));
-    document.getElementById("sub-qwen").setAttribute("aria-selected", String(!prov && !cv));
+    document.getElementById("sub-qwen").setAttribute("aria-selected", String(!prov && !cv && !lc));
     const tab = document.getElementById("sub-converter");
     if (tab) tab.setAttribute("aria-selected", String(cv));
+    const lcTab = document.getElementById("sub-llamacpp");
+    if (lcTab) lcTab.setAttribute("aria-selected", String(lc));
     keep(SUB_KEY, which);
     if (prov) refresh();
     document.dispatchEvent(new CustomEvent("basalt:models-sub", { detail: which }));
@@ -56,6 +60,8 @@
   document.getElementById("sub-qwen").onclick = () => sub("qwen");
   const convTab = document.getElementById("sub-converter");
   if (convTab) convTab.onclick = () => sub("converter");
+  const lcTabBtn = document.getElementById("sub-llamacpp");
+  if (lcTabBtn) lcTabBtn.onclick = () => sub("llamacpp");
 
   /* ---- reading ---- */
   async function refresh() {
@@ -238,6 +244,6 @@
   document.addEventListener("basalt:view", e => { if (e.detail === "loader" && !panel.hidden) refresh(); });
   applyT(view.querySelector(".subtabs"));
   const saved = load(SUB_KEY, "qwen");
-  sub(["providers", "converter"].includes(saved) ? saved : "qwen");
+  sub(["providers", "converter", "llamacpp"].includes(saved) ? saved : "qwen");
   if (saved.startsWith("engine:")) keep(SUB_KEY, saved);                       // engines.js restores its own tab
 })();

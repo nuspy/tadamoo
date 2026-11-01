@@ -10,12 +10,15 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from harness import council
+from harness import council, side_uses
 from harness.llm import functions
-from harness.llm.store import Ledger, SecureRegistry, is_local
+from harness.llm.store import Ledger, SecureRegistry, is_local, runs_here
 from harness.llmswitch import reasoning
 from harness.llmswitch.providers import TYPES
 
+TECHNICAL_KINDS = ("lmstudio", "vllm", "llamacpp")          # the servers a second small model for the technical session can come from
+TECHNICAL_ID, TECHNICAL_NAME = "technical-%s", "Technical session: %s"
+TECHNICAL_WINDOW = 8192                                    # the context assumed for such a model until the person states it
 SHOWN_TYPES = ("basalt", "lmstudio", "vllm", "llamacpp", "openai", "claude", "gemini", "openai_compat", "zai_coding", "zai", "deepseek",
                "kimi", "qwen", "nebius", "nvidia", "grok", "bonsai", "jev", "claude_cli", "codex_cli")
 
@@ -40,7 +43,7 @@ class LlmApi:
         return {**public, "daily_token_cap": cap, "profile": prov.get("profile") or "",
                 "context_window": int(prov.get("context_window") or 0), "max_output": int(prov.get("max_output") or 0),
                 "this_server": bool(TYPES.get(prov.get("type") or "", {}).get("this_server")), "used_today": self.ledger.used(prov["id"]),
-                "is_local": is_local(prov, self.registry.local_hosts),
+                "is_local": is_local(prov, self.registry.local_hosts), "runs_here": runs_here(prov, self.registry.local_hosts),
                 "agent_only": TYPES.get(prov.get("type") or "", {}).get("api") == "cli",
                 "judge_only": TYPES.get(prov.get("type") or "", {}).get("api") == "judge"}
 
@@ -163,6 +166,38 @@ class LlmApi:
             raise LlmError("That provider is not there any more.", "gone")
         self.registry.remove(pid)
         return {"removed": pid}
+
+    def setup_technical(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """Point the technical session at a second small model served by LM Studio, vLLM or llama-server, in one step: the provider is made (or
+        updated, it keeps its id) and the function `technical` is assigned to it. All of it is kept in the registry, so it survives a restart.
+        On this PC nothing leaves it, so no consent is asked; an address outside this PC needs the person's yes and the master switch as any
+        provider does. `type` is one of TECHNICAL_KINDS; a llama-server started from the Loader supplies the address, the model and the window."""
+        kind = body.get("type")
+        if kind not in TECHNICAL_KINDS:
+            raise LlmError("Choose LM Studio, vLLM or llama-server.", "bad_type")
+        base_url, model = str(body.get("base_url") or "").strip(), str(body.get("model") or "").strip()
+        window = self._tokens(body.get("context_window"), "context_window")
+        if kind == "llamacpp" and not (base_url and model):
+            from serve import llamacpp
+            running = llamacpp.get().status()
+            if running["state"] in ("ready", "starting"):
+                base_url, model = base_url or running["base_url"], model or running["model_name"]
+                window = window or int(running.get("context_per_slot") or 0)
+        if not model:
+            raise LlmError("Name the model that should do the quick jobs.", "bad_model")
+        window = min(window or TECHNICAL_WINDOW, side_uses.EXTERNAL_WINDOW)
+        pid = TECHNICAL_ID % kind
+        existing = self.registry._find(self.registry.load(), pid)
+        try:
+            if existing is None:
+                self.registry.add({"id": pid, "type": kind, "name": TECHNICAL_NAME % TYPES[kind]["label"], "base_url": base_url, "model": model})
+            else:
+                self.registry.update(pid, {"base_url": base_url, "model": model})
+            self.registry.set_limits(pid, window, int((existing or {}).get("max_output") or 0))
+            self.registry.assign_checked("technical", pid)
+        except ValueError as exc:
+            raise LlmError(str(exc), "not_allowed") from None
+        return {**self.overview(), "provider": self._public(pid)}
 
     def assign(self, function: Any, provider: Any) -> Dict[str, Any]:
         if function not in functions.FUNCTIONS:

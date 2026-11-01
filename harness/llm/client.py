@@ -9,6 +9,7 @@ do not allow. Errors are the same `BasaltError`s the loop already knows how to r
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Callable, Dict, List, Optional
 
 import requests
@@ -17,7 +18,7 @@ from harness.client import BasaltError, _collect_stream
 from harness import side_uses
 from harness.llm import functions
 from harness.llm.profile import RouteProfile, route_profile
-from harness.llm.store import Ledger, SecureRegistry, is_local
+from harness.llm.store import Ledger, SecureRegistry, is_local, runs_here
 from harness.llmswitch import reasoning
 from harness.llmswitch.providers import TYPES
 
@@ -117,6 +118,72 @@ def from_anthropic(data: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+# -- Anthropic: a JSON answer ------------------------------------------------------------------------------------
+
+JSON_DIRECTIVE = "Answer with one JSON value only: no text before or after it and no code fence."
+
+
+def json_format(response_format: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """{"schema": dict or None} for an OpenAI-style `response_format` that asks for JSON, else None."""
+    if not isinstance(response_format, dict) or response_format.get("type") not in ("json_schema", "json_object"):
+        return None
+    schema = (response_format.get("json_schema") or {}).get("schema") if response_format["type"] == "json_schema" else None
+    return {"schema": schema if isinstance(schema, dict) else None}
+
+
+def with_json_directive(body: Dict[str, Any]) -> Dict[str, Any]:
+    """The request with the one-line instruction to answer in JSON added to its system text."""
+    system = body.get("system")
+    if isinstance(system, list):
+        system = [*system, {"type": "text", "text": JSON_DIRECTIVE}]
+    else:
+        system = (system + "\n\n" if system else "") + JSON_DIRECTIVE
+    return {**body, "system": system}
+
+
+def with_json_format(body: Dict[str, Any], asked: Dict[str, Any]) -> Dict[str, Any]:
+    """The request asking for JSON in Anthropic's words: a schema goes in `output_config.format`, and a bare JSON object (which has no
+    form there) becomes the instruction."""
+    out = dict(body)
+    if asked["schema"] is not None:
+        config = dict(out.get("output_config") or {})
+        config["format"] = {"type": "json_schema", "schema": asked["schema"]}
+        out["output_config"] = config
+        return out
+    return with_json_directive(out)
+
+
+def json_in(text: str) -> Optional[str]:
+    """The JSON value inside `text` (the whole of it, a fenced block, or the first object or array in the prose) as compact text, else None."""
+    decoder = json.JSONDecoder()
+    text = text.strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.S | re.I)
+    for candidate in ([text] if not fence else [text, fence.group(1).strip()]):
+        try:
+            json.loads(candidate)
+            return candidate
+        except ValueError:
+            pass
+    for at in (m.start() for m in re.finditer(r"[\[{]", text)):
+        try:
+            value, end = decoder.raw_decode(text, at)
+        except ValueError:
+            continue
+        if isinstance(value, (dict, list)):
+            return text[at:end]
+    return None
+
+
+def keep_the_json(result: Dict[str, Any]) -> None:
+    """Make the answer of a call that asked for JSON the JSON alone: prose around it or a fence is taken off. Left as it is when none is found."""
+    message = result["choices"][0]["message"]
+    content = message.get("content")
+    if isinstance(content, str):
+        found = json_in(content)
+        if found is not None:
+            message["content"] = found
+
+
 class RoutedClient:
     def __init__(self, function: str, registry: SecureRegistry, local: Any, ledger: Optional[Ledger] = None,
                  level: str = reasoning.INHERIT, session: Optional[requests.Session] = None, loader: Any = None) -> None:
@@ -141,7 +208,7 @@ class RoutedClient:
         to another provider there is no session: the function `technical` there gives the window the person set for it (at most 30000),
         and only while the master switch for outside providers is on (harness/side_uses.py); any other function gets 0."""
         if not self.stays_local():
-            if self.function != "technical" or not side_uses.external_on():
+            if self.function != "technical" or not (side_uses.external_on() or self.stays_on_pc()):
                 return 0
             window = int(self.profile().context_window or 0) or side_uses.EXTERNAL_WINDOW
             return min(window, side_uses.EXTERNAL_WINDOW)
@@ -158,6 +225,12 @@ class RoutedClient:
         pid = pid or (data.get("assignments") or {}).get(self.function) or ""
         prov = self.registry._find(data, pid) if pid else None
         return route_profile(prov, TYPES.get((prov or {}).get("type") or "", {}))
+
+    def stays_on_pc(self) -> bool:
+        """Whether every route this function may take runs on this PC: the loaded model, or a provider on this PC's own address. What is
+        sent to such a route does not leave the PC, so the master switch for outside providers does not apply to it."""
+        data = self.registry.load()
+        return all(not pid or runs_here(self.registry._find(data, pid), self.registry.local_hosts) for pid in self.registry.fallback_chain(self.function))
 
     def stays_local(self) -> bool:
         """Whether every route this function may take is the model loaded in this Basalt (nothing goes to another provider)."""
@@ -229,7 +302,7 @@ class RoutedClient:
         headers = dict(self.registry.headers_for(self.function))
         profile = route_profile(prov, spec)
         if api == "anthropic":
-            return self._anthropic(prov, base, key, model, messages, tools, temperature, max_tokens, timeout, on_delta, profile)
+            return self._anthropic(prov, base, key, model, messages, tools, temperature, max_tokens, timeout, on_delta, profile, response_format)
         body: Dict[str, Any] = {"model": model, "messages": messages}
         if temperature is not None:
             body["temperature"] = temperature
@@ -261,7 +334,7 @@ class RoutedClient:
         return result
 
     def _anthropic(self, prov, base, key, model, messages, tools, temperature, max_tokens, timeout, on_delta,
-                   profile: Optional[RouteProfile] = None) -> Dict[str, Any]:
+                   profile: Optional[RouteProfile] = None, response_format: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         profile = profile or RouteProfile()
         body = to_anthropic(messages, tools, cache=profile.cache_control)
         wanted = max_tokens or min(DEFAULT_MAX_TOKENS, profile.max_output or DEFAULT_MAX_TOKENS)
@@ -274,17 +347,28 @@ class RoutedClient:
         if shaped.get("max_tokens"):
             body["max_tokens"] = min(shaped["max_tokens"], profile.max_output) if profile.max_output else shaped["max_tokens"]
         headers = {"x-api-key": key, "anthropic-version": ANTHROPIC_VERSION, "Content-Type": "application/json"}
-        try:
-            resp = self.http.post(base.rstrip("/") + "/messages", data=json.dumps(body), headers=headers, timeout=timeout)
-        except requests.RequestException as exc:
-            raise BasaltError(0, f"cannot reach {prov.get('name') or prov.get('id')}: {exc}") from None
+        asked = json_format(response_format) if not tools else None          # a JSON form and tools do not go together on this route
+        if asked is not None:
+            body = with_json_format(body, asked)
+        resp = self._post_messages(prov, base, body, headers, timeout)
+        if resp.status_code == 400 and asked is not None and "output_config" in body:
+            body.pop("output_config")                                       # a provider that does not know the form: the directive and the extraction carry it
+            resp = self._post_messages(prov, base, with_json_directive(body), headers, timeout)
         if resp.status_code >= 400:
             raise _http_error(prov, resp)
         result = from_anthropic(resp.json())
+        if asked is not None:
+            keep_the_json(result)
         if on_delta is not None and result["choices"][0]["message"].get("content"):
             on_delta("content", result["choices"][0]["message"]["content"])          # whole, not in pieces: this route does not stream
         self.ledger.record(prov["id"], int(result["usage"]["total_tokens"]))
         return result
+
+    def _post_messages(self, prov, base, body, headers, timeout) -> "requests.Response":
+        try:
+            return self.http.post(base.rstrip("/") + "/messages", data=json.dumps(body), headers=headers, timeout=timeout)
+        except requests.RequestException as exc:
+            raise BasaltError(0, f"cannot reach {prov.get('name') or prov.get('id')}: {exc}") from None
 
     def _cli(self, prov: Dict[str, Any], messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """A command-line agent writes text only: no tools, nothing streams."""
