@@ -11,10 +11,12 @@ from collections import Counter
 from typing import Any, Callable, Dict, List, Optional
 
 COOLDOWN_STEPS = 2                  # steps between two actions of the watcher
+STREAK = 3                         # failed calls in a row, with no file written or edited between, whatever they were: a note; this many again: a card
 REPEAT_ERRORS = 2                   # the same failure this many times: a note; this many again after it: a card
 GATE_RETRIES = 2
 FOLD_NEAR = 0.9                     # the share of the masking threshold at which the agent is told a fold is near
 HALF, THREE_QUARTERS = 0.5, 0.75    # the share of the steps used with the checklist not moving
+WRITES = frozenset(("write_file", "edit_file", "write_output_file"))     # a successful one of these is progress: it ends a run of failures
 _DIGITS = re.compile(r"\d+")
 _EXIT = re.compile(r'^\{"exit_code":\s*(-?\d+)')
 _STDERR = re.compile(r'"stderr":\s*"((?:[^"\\]|\\.){0,120})')
@@ -59,6 +61,7 @@ class Watcher:
         """A request of the person starts the watch again."""
         self.errors: Counter = Counter()
         self.gate_retries = 0
+        self.streak = 0
         self.noted: Dict[str, int] = {}                 # signal -> its count when the agent was last told
         self.carded: set = set()
         self.fold_told = False
@@ -70,6 +73,9 @@ class Watcher:
             what = _failure_of(event)
             if what is not None:
                 self.errors[(str(event.get("name")), what)] += 1
+                self.streak += 1
+            elif event.get("name") in WRITES and event.get("status") == "completed":
+                self.streak = 0
         elif kind == "gate" and event.get("decision") == "retry":
             self.gate_retries += 1
 
@@ -102,6 +108,9 @@ class Watcher:
             if stage:
                 problem = f"{tool} failed {count} times the same way ({what or 'no message'})"
                 return self._action("repeat_error", stage, problem, f"{tool} {what}")
+        stage = "" if any(k.startswith("error:") for k in self.noted) else self._stage("streak", self.streak, STREAK, STREAK)       # the same failure was already told
+        if stage:
+            return self._action("streak", stage, f"{self.streak} calls in a row failed and nothing was written or fixed in between", "repeated failures")
         stage = self._stage("gate", self.gate_retries, GATE_RETRIES, 1)
         if stage:
             return self._action("gate", stage, f"the project's checks failed {self.gate_retries} times", "checks failed")
