@@ -23,6 +23,7 @@ from harness.prompt_blocks import instruction_blocks
 from harness.stack import AgentConfig, build_agent
 from harness.tools.registry import EffectClass, ToolRegistry
 
+from .resume import Journal, make_fingerprint
 from .serverlog import ServerTimings, summarize_requests
 from .tasks import Task, load_task_set, make_workspace, run_checks
 from .traces import observe
@@ -71,6 +72,11 @@ class EvalResult:
         return self.trials
 
 
+def trial_is_valid(trial: Trial) -> bool:
+    """False for a trial the server or the harness broke (an error stop, a crash before any turn): a resumed run does it again."""
+    return not (trial.stop_reason == "error" or (trial.error and not trial.turns))
+
+
 def dummy_registry(task: Task) -> ToolRegistry:
     registry = ToolRegistry()
     for spec in task.tools:
@@ -92,6 +98,7 @@ class EvalRunner:
         council: bool = False,
         timings: Optional[ServerTimings] = None,
         instruction_blocks: bool = False,
+        journal: Optional[Journal] = None,
     ) -> None:
         self.client = client
         self.client_factory = client_factory
@@ -103,6 +110,7 @@ class EvalRunner:
         self.council = council
         self.timings = timings                      # reads the server's own figures for each trial's requests
         self.instruction_blocks = instruction_blocks    # the working rules of harness/prompt_blocks.py in the system prompt
+        self.journal = journal                          # finished trials are written to it, and valid ones it holds are reused (harness/eval/resume.py)
 
     def load_task_set(self, path: str | Path) -> List[Task]:
         return load_task_set(path)[1]
@@ -190,6 +198,23 @@ class EvalRunner:
             shutil.rmtree(data, ignore_errors=True)
         return trial
 
+    def fingerprint(self, tasks: List[Task], k: int, environment: Optional[Dict[str, Any]] = None, model_file: Optional[str] = None) -> Dict[str, Any]:
+        """What a resumed run must match: the code, the model file, the settings of this runner, the tasks and k."""
+        env = {n: environment.get(n) for n in ("model", "gpus", "gpu_power_limit_w")} if environment else {}
+        sampling = {"temperature": self.temperature, "seed_base": self.seed_base, "max_total_tokens": self.max_total_tokens, "max_seconds": self.max_seconds,
+                    "council": self.council, "instruction_blocks": self.instruction_blocks}
+        return make_fingerprint(experiment="eval", k=k, arms=[], tasks=[t.id for t in tasks], sampling=sampling, environment=env, model_file=model_file)
+
+    def journaled_trial(self, task: Task, rep: int) -> Trial:
+        key = (task.id, rep)
+        kept = self.journal.get(key) if self.journal else None
+        if kept is not None:
+            return Trial(**kept)
+        trial = self.run_trial(task, rep)
+        if self.journal:
+            self.journal.add(key, asdict(trial), trial_is_valid(trial))
+        return trial
+
     def evaluate_task(self, task: Task | Dict[str, Any], k: int = 5, mock_output_fn: Optional[Callable[..., Any]] = None) -> EvalResult:
         if isinstance(task, dict):                         # a plain dict is accepted too
             from .tasks import _validate
@@ -208,7 +233,7 @@ class EvalRunner:
                                 max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds, council=self.council,
                                 instruction_blocks=self.instruction_blocks)
             return runner.evaluate_task(task, k)
-        trials = [self.run_trial(task, i + 1) for i in range(k)]
+        trials = [self.journaled_trial(task, i + 1) for i in range(k)]
         passed = sum(t.passed for t in trials)
         return EvalResult(task.id, task.category, k, 1.0 if passed else 0.0, passed == k, trials)
 
