@@ -265,6 +265,15 @@ class Vault:
             raise VaultError(f"'{entry_id}' has no field '{field}'")
         return entry["fields"][field]
 
+    def environment(self) -> Dict[str, str]:
+        """Every stored value as an environment variable, BASALT_VAULT_<ENTRY>_<FIELD>, for code the person let run free on this PC."""
+        out: Dict[str, str] = {}
+        for entry_id, entry in self._read().items():
+            for field, value in entry["fields"].items():
+                if isinstance(value, str) and value:
+                    out["BASALT_VAULT_" + re.sub(r"[^A-Z0-9]+", "_", f"{entry_id}_{field}".upper()).strip("_")] = value
+        return out
+
     def login_facts(self) -> List[Dict[str, Any]]:
         """What an import needs to tell what is already here: each entry's name, its first site, and for a login its user and password."""
         return [{"id": i, "host": (e["hosts"][0] if e["hosts"] else ""), "username": e["fields"].get("username") if e["kind"] == "login" else None,

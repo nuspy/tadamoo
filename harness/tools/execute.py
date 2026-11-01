@@ -12,6 +12,7 @@ belongs to it.
 """
 from __future__ import annotations
 
+import math
 import os
 import secrets
 import shutil
@@ -22,6 +23,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from harness import exec_level
 from harness.sandbox import DEFAULT_MAX_PROCESSES, MAX_TIMEOUT, _Capped, guard, kill_tree, safe_environment
 from harness.sandbox.jobs import CREATE_SUSPENDED, CommandJob
 from harness.tools.registry import EffectClass
@@ -87,7 +89,7 @@ def _files_left(workdir: Path, script: Path) -> List[Dict[str, Any]]:
     return sorted(out, key=lambda f: f["path"])[:MAX_LISTED_FILES]
 
 
-def run_code(language: str, code: str, workspace: str | Path, runtimes: Dict[str, Dict[str, str]], timeout: float = 30.0,
+def run_code(language: str, code: str, workspace: str | Path, runtimes: Dict[str, Dict[str, str]], timeout: Optional[float] = None,
              max_output_bytes: int = DEFAULT_MAX_OUTPUT, max_memory_bytes: Optional[int] = DEFAULT_MAX_MEMORY,
              max_processes: Optional[int] = DEFAULT_MAX_PROCESSES, cancel: Optional[threading.Event] = None,
              broker: Any = None) -> Dict[str, Any]:
@@ -101,11 +103,12 @@ def run_code(language: str, code: str, workspace: str | Path, runtimes: Dict[str
     if len(code) > CODE_MAX_CHARS:
         return {**result, "stderr": f"The code is too long ({len(code)} characters; at most {CODE_MAX_CHARS}). Put it in a file instead."}
 
-    hit = broker.protected_hit(code) if broker is not None else ""
+    free = not exec_level.contained()
+    hit = broker.protected_hit(code) if broker is not None and not free else ""
     if hit:
         return {**result, "blocked": True, "stderr": f"The code cannot name '{hit}': the vault, the payment files, the browser's sign-ins, "
                                                       "the control token and the phone keys are the person's, and they are read in the Wallet."}
-    places = broker.places() if broker is not None else []
+    places = broker.places() if broker is not None and not free else []
     workspace = Path(workspace).resolve()
     base = workspace / RUN_DIR
     base.mkdir(parents=True, exist_ok=True)
@@ -115,16 +118,21 @@ def run_code(language: str, code: str, workspace: str | Path, runtimes: Dict[str
     script.write_text(code, encoding="utf-8", newline="\n")
     result["folder"] = (RUN_DIR / workdir.name).as_posix()
 
-    limit = min(max(float(timeout), 1.0), MAX_TIMEOUT)
+    if timeout is None and not free:
+        timeout = 30.0
+    limit = math.inf if timeout is None else max(float(timeout), 1.0) if free else min(max(float(timeout), 1.0), MAX_TIMEOUT)
     popen_args: Dict[str, Any] = {}
-    job = CommandJob(max_memory_bytes, max_processes)
+    job = CommandJob(None, None) if free else CommandJob(max_memory_bytes, max_processes)
     if os.name == "nt":
         popen_args["creationflags"] = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
                                        | (CREATE_SUSPENDED if job.active else 0))
     else:
         popen_args["start_new_session"] = True
-    env = safe_environment({"PYTHONUTF8": "1", "PYTHONDONTWRITEBYTECODE": "1", "BASALT_WORKSPACE": str(workspace),
-                            **guard.environment(places, os.environ.get("PYTHONPATH", ""))})
+    own = {"PYTHONUTF8": "1", "PYTHONDONTWRITEBYTECODE": "1", "BASALT_WORKSPACE": str(workspace)}
+    if free:                                          # the person's own environment, and the values of their vault ready in it
+        env = {**os.environ, **(broker.environment() if broker is not None else {}), **own}
+    else:
+        env = safe_environment({**own, **guard.environment(places, os.environ.get("PYTHONPATH", ""))})
     started = time.monotonic()
     try:
         proc = subprocess.Popen(build_command(runtime, script, workdir, workspace, places), cwd=str(workdir), env=env, stdin=subprocess.DEVNULL,
@@ -181,7 +189,7 @@ def register_run_code(registry: Any, workspace: str | Path, sandbox: Any = None,
     runtimes = find_runtimes(python)
     languages = sorted(runtimes)
 
-    def handler(language: str, code: str, timeout: float = 30.0) -> Dict[str, Any]:
+    def handler(language: str, code: str, timeout: Optional[float] = None) -> Dict[str, Any]:
         def go() -> Dict[str, Any]:
             return run_code(language, code, workspace, runtimes, timeout=timeout, cancel=cancel, broker=broker)
         if sandbox is None:
@@ -202,7 +210,7 @@ def register_run_code(registry: Any, workspace: str | Path, sandbox: Any = None,
             "properties": {
                 "language": {"type": "string", "enum": languages, "description": "Language of the snippet"},
                 "code": {"type": "string", "description": "The code to run"},
-                "timeout": {"type": "number", "description": "Timeout in seconds (default 30)", "default": 30.0},
+                "timeout": {"type": "number", "description": "Timeout in seconds; when it is left out the code runs until it ends (30 seconds when the person keeps code contained)"},
             },
             "required": ["language", "code"],
         },

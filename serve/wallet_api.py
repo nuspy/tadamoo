@@ -35,9 +35,10 @@ class WalletError(ValueError):
 
 class WalletApi:
     def __init__(self, vault: Callable[[], Vault], payments: Callable[[], PaymentsBroker], browser: BrowserPrefs, profile: Any = None,
-                 rule_of_two: Optional[RuleOfTwoPrefs] = None, allow_rules: Any = None) -> None:
+                 rule_of_two: Optional[RuleOfTwoPrefs] = None, allow_rules: Any = None, exec_prefs: Any = None) -> None:
         self._vault, self._payments, self._browser, self._profile = vault, payments, browser, profile
         self._allow = allow_rules                       # the rules allowed for every conversation (serve/allow_rules.py)
+        self._exec = exec_prefs                         # how freely the code the model writes runs (harness/exec_level.py)
         self._two = rule_of_two                         # how strict the Rule of Two is for the conversations started from now on
 
     # -- what the page shows ---------------------------------------------------------------------
@@ -48,6 +49,8 @@ class WalletApi:
                                "problems": [], "browser": {"found": bool(find_browser()), **self._browser.read()}}
         if self._two is not None:
             out["rule_of_two"] = {"level": self._two.read(), "levels": list(RULE_OF_TWO_LEVELS)}
+        if self._exec is not None:
+            out["exec_level"] = self._exec_view()
         if self._allow is not None:
             out["allow_rules"] = self._allow.read()
         try:
@@ -73,6 +76,20 @@ class WalletApi:
                 raise WalletError(f"{key} is one of: {', '.join(allowed)}")
         return {"browser": {"found": bool(find_browser()), **self._browser.write(req["enabled"], req["headless"], req.get("private", False), req.get("persistent", False),
                                                                                  req.get("consent"), req.get("permissions"))}}
+
+    def _exec_view(self) -> Dict[str, Any]:
+        from harness import exec_level
+        return {"level": self._exec.read(), "levels": list(exec_level.LEVELS), "elevated": exec_level.is_elevated()}
+
+    def set_exec_level(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """How freely the code the model writes runs, in every conversation: a running one reads the choice again at its next command."""
+        from harness import exec_level
+        if self._exec is None:
+            raise WalletError("the code setting is not available here")
+        if req.get("level") not in exec_level.LEVELS:
+            raise WalletError(f"level is one of: {', '.join(exec_level.LEVELS)}")
+        self._exec.write(req["level"])
+        return {"exec_level": self._exec_view()}
 
     def set_rule_of_two(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """How strict the Rule of Two is in the conversations the person starts from now on."""

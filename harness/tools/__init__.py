@@ -30,7 +30,7 @@ def create_standard_tool_registry(
             return permissions.evaluate(f"{tool}:{arguments['path']}", EffectClass.REVERSIBLE, arguments)
         sandbox.confirm_git_write = confirm_git_write
 
-    def run_shell(command: str, timeout: float = 30.0, shell: str = "cmd"):
+    def run_shell(command: str, timeout: Optional[float] = None, shell: str = "cmd"):
         with sandbox.watching():                       # a command that edits files is reviewed like the file tools
             return execute_shell_command(command, cwd=sandbox.root, timeout=timeout, secrets=secrets, shell=shell)
 
@@ -126,7 +126,7 @@ def create_standard_tool_registry(
             "type": "object",
             "properties": {
                 "command": {"type": "string", "description": "Shell command to run; it may have several lines"},
-                "timeout": {"type": "number", "description": "Timeout in seconds, greater than 0 (at most 600)", "default": 30.0},
+                "timeout": {"type": "number", "description": "Timeout in seconds, greater than 0; when it is left out the command runs until it ends (30 seconds, at most 600, when the person keeps commands contained)"},
                 "shell": {"type": "string", "enum": ["cmd", "powershell"], "default": "cmd",
                           "description": "\"cmd\" is the default shell: cmd.exe on Windows, sh elsewhere. \"powershell\" runs the command in PowerShell "
                                          "(Windows only; pwsh when installed, else powershell.exe)."},

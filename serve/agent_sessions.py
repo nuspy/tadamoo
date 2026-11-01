@@ -118,7 +118,7 @@ class SessionManager:
                  rule_of_two: Optional[Callable[[], str]] = None, allow_rules: Any = None, rule_of_two_prefs: Any = None,
                  intake_flags: Optional[Callable[[], List[str]]] = None,
                  gate_flags: Optional[Callable[[], List[str]]] = None, coding: Any = None,
-                 compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None) -> None:
+                 compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None, exec_level_file: Optional[Path] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -130,6 +130,7 @@ class SessionManager:
         self.learn = learn                                      # told what the person wrote and what was searched for it, when a turn ends, to learn from
         self._said: Dict[str, Dict[str, Any]] = {}              # per conversation, until its turn ends: what the person wrote and what was searched
         self._no_learning: set = set()                          # conversations that are not the person's talking (a routine's)
+        self.exec_level_file = exec_level_file                  # how freely the code the model writes runs: one file, read again by each conversation when it changes
         self.past = past                                        # the index of earlier conversations (harness/past.py); each conversation is added to it when a turn ends
         self._routine_runs: Dict[str, str] = {}                 # a routine's conversation -> the routine's name, when the person switched its indexing on
         self._place: Optional[Dict[str, Any]] = None            # where the person's phone last said they were: held in memory only
@@ -976,6 +977,8 @@ class SessionManager:
                 cmd += [f"--{flag}", rec[flag]]
         if self.past is not None:
             cmd += ["--past-index", str(self.past.path)]
+        if self.exec_level_file:
+            cmd += ["--exec-level-file", str(self.exec_level_file)]
         if self.personal_dir:
             cmd += ["--personal-memory", str(self.personal_dir)] + (["--personal-memory-keys", str(self.personal_keys)] if self.personal_keys else [])
         if rec.get("ask_only"):

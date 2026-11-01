@@ -75,7 +75,7 @@ def test_escaped_quotes_inside_the_code_are_unescaped():
 
 # -- the timeout ----------------------------------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), -1, 0, "10", None, True, [5]])
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), -1, 0, "10", True, [5]])
 def test_a_timeout_that_is_not_a_finite_positive_number_is_refused_with_a_clear_error(tmp_path, bad):
     marker = tmp_path / "ran.txt"
     res = execute_shell_command(f"echo x> {marker.name}", tmp_path, timeout=bad)
