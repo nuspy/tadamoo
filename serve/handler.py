@@ -57,6 +57,7 @@ from serve.personal_skills_api import PersonalSkillsApi
 from harness.forget import Forgetter
 from harness.personal_memory import PersonalMemory, PersonalMemoryError
 from serve.lessons_api import LessonsApi, LessonsError
+from serve.bench_api import ACTIONS as BENCH_ACTIONS, BenchApi, BenchApiError
 from serve.memories_api import MemoriesApi
 from serve import export_api, traces_api
 from serve.exportdoc import ExportError
@@ -92,6 +93,9 @@ MEMORY_EXPORT = "memory-export"                        # the folder of the expor
 _PAST = None                                          # the index of earlier conversations, made on first use
 _MEMORIES = None                                      # the Memories page's side of them
 _LESSONS = None                                       # the Lessons page's side
+_BENCHMARKS = None                                    # the Benchmarks tab's side, made on first use
+GPU_BUSY_UTIL_PCT = 40                                # a GPU this busy while the server is idle belongs to another program
+BENCH_GET = ("/api/bench", "/api/bench/preflight", "/api/bench/run", "/api/bench/report", "/api/bench/ranking")
 _MEM_WORKER = None                                    # learns from what the person wrote when the GPU is free
 _EXPORT = export_api.ExportApi()                      # turns a conversation into a file; holds a PDF page for the desktop app's print
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
@@ -533,6 +537,9 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(403, {"error": {"type": "forbidden", "message": "the memories are shown only on the PC the server runs on"}})
                     q = parse_qs(urlsplit(self.path).query)
                     self._json(200, self._memories().overview((q.get("q") or [""])[0][:200], (q.get("kind") or [""])[0], (q.get("section") or [""])[0]))
+            elif path in BENCH_GET:
+                if self._authorized():
+                    self._benchmarks_get(path)
             elif path == "/api/lessons":
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
@@ -845,6 +852,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/models/"):
                 self._models_post(path[len("/api/models/"):])
+                return
+            if path.startswith("/api/bench/") and path[len("/api/bench/"):] in BENCH_ACTIONS:
+                self._benchmarks_post(path[len("/api/bench/"):])
                 return
             if path.startswith("/api/bench/"):
                 self._bench_post(path[len("/api/bench/"):])
@@ -2135,6 +2145,66 @@ def make_handler(svc: Service, remote: bool = False):
                 _LESSONS = LessonsApi(lambda: [(p["name"], Path(p["path"])) for p in self._projects().list() if p.get("exists")]
                                       + [("Chat", userdata.path("chat-workspace"))], userdata.path("lessons"))
             return _LESSONS
+
+        def _served_model_info(self):
+            """The model this server has loaded, as a benchmark run records it; None when none is loaded."""
+            if not svc.loaded():
+                return None
+            path = getattr(svc.engine, "model_path", "") or ""
+            return {"name": svc.model, "file": path, "quantisation": models._quant(Path(path).name) or "" if path else "",
+                    "endpoint": f"http://127.0.0.1:{self.server.server_address[1]}"}
+
+        def _gpu_busy_reason(self) -> str:
+            """Why the GPU should not be given to a benchmark now ("" when it is free): a conversation, a job of the server, an agent, or another process."""
+            if svc.loading:
+                return "the model is loading"
+            slots = svc.slot_stats()
+            if slots["active"] or slots["queue_depth"]:
+                return "the server is answering a conversation"
+            if models.JOBS.running() or benchrun.JOBS.running():
+                return "a conversion or a model test is running"
+            if _RUNNER is not None and _RUNNER.view().get("active"):
+                return "an agent run is working"
+            try:
+                util = ((svc.telemetry.snapshot().get("now") or {}).get("gpus") or [{}])[0].get("util")
+            except Exception:  # noqa: BLE001 - no telemetry: nothing to add
+                util = None
+            if isinstance(util, (int, float)) and util >= GPU_BUSY_UTIL_PCT:
+                return f"another program is using the GPU ({int(util)}% busy)"
+            return ""
+
+        def _benchmarks(self) -> BenchApi:
+            global _BENCHMARKS
+            if _BENCHMARKS is None:
+                _BENCHMARKS = BenchApi(userdata.path("benchmarks"), benchrun.power_limit_w, self._served_model_info, self._gpu_busy_reason, userdata.path("lessons"))
+            return _BENCHMARKS
+
+        def _benchmarks_get(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                return self._json(403, {"error": {"type": "forbidden", "message": "the benchmarks are shown only on the PC the server runs on"}})
+            query = {k: v[0][:200] for k, v in parse_qs(urlsplit(self.path).query).items() if v}
+            try:
+                return self._json(200, self._benchmarks().get(path[len("/api/bench"):].lstrip("/") or "overview", query))
+            except BenchApiError as e:
+                return self._json(e.status, {"error": {"type": e.kind, "message": str(e)}})
+
+        def _benchmarks_post(self, what):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the benchmarks are changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 21)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                return self._json(200, self._benchmarks().post(what, req))
+            except BenchApiError as e:
+                return self._json(e.status, {"error": {"type": e.kind, "message": str(e)}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"type": "bench", "message": str(e)}})
 
         def _lessons_post(self, path):
             if not settings.is_loopback(self.client_address[0]):
