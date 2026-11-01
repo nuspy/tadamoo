@@ -117,3 +117,9 @@ memoria o non si abbassa `--resident-budget-gib` (impostazione del server, da sc
 - Regola dei due nel livello automatico: pagina letta, file con chiavi toccato, poi un indirizzo web con un valore: deve chiedere.
 - Processi in background: `shell_command` con `background` per un comando lungo, poi `job_status`, `job_log`, `job_kill`; la fine del lavoro deve comparire nel risultato successivo.
 - Impostazioni > Sessione tecnica: l'interruttore «Un modello approva le chiamate…» (spento di default) e quello delle istruzioni nel testo (acceso).
+
+## Dopo le funzioni di consapevolezza (1 novembre sera)
+
+- App vera (BasaltWinGUI.exe, WebView2), cose che il browser non prova: la finestra dell'amministratore e il consenso di Windows; il bottone «Lavora fino in fondo» nell'intestazione; le schede con le frecce con tastiera vera; la vista Lezioni; i blocchi a colori dei processi in background. Il resto è stato provato in Chrome sul server vero con modello scriptato (rapporto in `C:\TEMP\gui_review\`).
+- Con il modello vero (serve la GPU e l'OK dell'altra sessione): un compito che sbaglia e poi corregge deve produrre una lezione nel file; lo stesso compito rifatto deve mostrare le lezioni all'inizio; «lavora fino in fondo» su un compito che il modello dà per finito a metà; la nota di rotta dopo due errori uguali; la sessione tecnica che scrive le frasi delle lezioni (uso `lessons`) e il controllo `completion_check`.
+- Esperimenti E10 (lezioni), E11 (consapevolezza sotto pressione), E12 (osservatore di rotta): scrivere prima la regola di vittoria, poi k>=5 con il limite di potenza dichiarato.
