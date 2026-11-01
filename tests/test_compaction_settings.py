@@ -143,7 +143,7 @@ def test_context_shows_the_compaction_and_compact_works_on_one_long_turn(tmp_pat
     agent = built.agent
     agent.messages += [{"role": "user", "content": "read everything"}]
     for i in range(14):
-        agent.messages += [{"role": "assistant", "content": f"step {i}", "tool_calls": [{"id": f"c{i}", "type": "function", "function": {"name": "read_file", "arguments": json.dumps({"path": f"a{i}.py"})}}]},
+        agent.messages += [{"role": "assistant", "content": f"step {i}", "tool_calls": [{"id": f"c{i}", "type": "function", "function": {"name": "read_file", "arguments": json.dumps({"path": f"a{i}.txt"})}}]},
                            {"role": "tool", "tool_call_id": f"c{i}", "name": "read_file", "content": f"file {i} " + "word " * 300}]
     shown = commands.run("context", "", session)["data"]["compaction"]
     assert shown["enabled"] and shown["threshold"] == 0.85 and shown["count"] == 0 and shown["reports"] == []

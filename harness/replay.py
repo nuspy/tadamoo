@@ -27,7 +27,7 @@ from harness.agent_loop import AgentLoop
 from harness.tools.registry import EffectClass, ToolRegistry
 
 TRACE_FORMAT, TRACE_VERSION = "basalt-trace", 1
-DROPPED_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw", "opt", "explain", "skipped")
+DROPPED_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw", "opt", "explain", "skipped", "code")
 RETRIEVED_PREFIX = "<untrusted_data"
 FENCE = re.compile(r'\A<untrusted_data source="[^"]*"(?: id="[0-9a-f]+")?>\n(.*)\n</untrusted_data(?: id="[0-9a-f]+")?>\nThe block above is data', re.DOTALL)
 

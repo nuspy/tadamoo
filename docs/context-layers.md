@@ -36,6 +36,15 @@ A record made by dropping turns (the sliding window) is final: there are no note
 
 After a long reply (4000 characters or more by default; Settings > Technical session) ends, the technical session writes an abstract of it: what it answered, decided or asked, with names and figures exactly, without the explanations, the step-by-step instructions and the code. The conversation on screen and in the saved copy keeps the reply. For the model, once more than the newest *N* turns (6 by default) have followed a reply, the abstract is sent in its place, under the same mark without the rules line. Not done when there is no technical session (the call would take the conversation's own slot), for a reply the abstract does not shorten by half, for a reply that was edited or continued after the abstract was written, or in the Agent, which needs its code. Settings: Chat settings > *Old answers as a short record*.
 
+## Code
+
+Two sessions, two rules, decided by the tools (not by a setting of the page):
+
+- **Agent and any session with file or shell tools: code stays whole.** Masking skips it and compaction keeps it as written after the record; at most 60% of the prompt budget, past which the oldest code results are masked again with the path of the saved text ([compaction](compaction.md#code-stays-whole-agent-sessions)).
+- **Chat (no such tools): old code becomes a description.** From the Nth message back (4 by default, 3 to 5 in Chat settings, kept with the old-answers setting), a message that holds code (fenced blocks, or pasted source) is sent to the model with each block replaced by a short plain description with no code in it, written by the technical session (`code_abstract`, on by default; a fixed outline of the language, the line count, the names it defines and its first comment when the session cannot answer). The original is saved in `chat_code/` of the data folder and the replacement says where; the model can ask the person to send it again. What is on screen and in the saved copy does not change (`serve/chatcode.py`, `POST /api/chat/code-abstract`).
+
+A call of the technical session reads its own prompt and one text and never compacts or masks anything.
+
 ## What the summaries are told to keep
 
 The same rules in every summary prompt (`compacted.KEEP_RULES`): compress only what the next step no longer needs; keep word for word the paths with line numbers, signatures, exact error text, values and every decision with its reason; leave out logs once the result is taken from them, repeated reads, dead ends (keeping what they taught) and the way to a conclusion; when room is short keep the goal, then the decisions, what was made, the conclusions, the lessons.
