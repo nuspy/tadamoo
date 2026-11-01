@@ -31,11 +31,30 @@ together. What is never replaced:
 - the person's first message, when it is at most 6000 characters (it is the stable head, see the cache report);
 - the person's latest request, whatever its size, and the two requests before it when each is at most 2000 characters; they are repeated
   as written after the note, so the order is: system, first request, note, latest requests, newest steps;
-- the newest steps, as written (after masking: a result masked earlier stays masked).
+- the newest steps, as written (after masking: a result masked earlier stays masked);
+- code, in a session with file or shell tools (below): it stays after the note, as written.
 
 Everything between is the region the note replaces. A note from an earlier compaction (or from the turn-based summary) in the region is
 folded into the new one, so there is always one. What leaves the model's view is handed to the conversation's record
 (`archive.jsonl`) like any other pruning.
+
+## Code stays whole (agent sessions)
+
+A session with a file or shell tool (`read_file`, `write_file`, `edit_file`, `shell_command`: the Agent tab and any headless run) never masks or
+summarises code (`harness/codeblocks.py`, `AgentConfig.keep_code`, on by default). A message is marked `code` once, from the message and the call
+it answers: a fenced block or pasted source in the person's message, a fenced block in the model's reply, a write or edit call to a source file (by
+extension, or text that reads as source), a `read_file` result of a source file, `search_code`, `find_references` and `go_to_definition` hits in
+source files, and shell output that reads as source. A call and its results stay together: a code result keeps the call that asked for it, a call
+that wrote code keeps its results. Masking skips these; the compaction takes them out of the region and puts them back, as written, after the
+note (order: system, first request, note, code, latest requests, newest steps). The note ends with a line naming the files whose code stays, and
+the summary call is told the code stays and never reads it (a fenced block in the person's latest request is shown to it as a mark). The
+turn-based summary and the dropping of old turns of the context patterns keep it too.
+
+**Safety valve.** Code kept whole may take 60% of the prompt budget (`CODE_SHARE`). Past it, the oldest code results are masked as usual, with
+the note that names the saved full text, until the code is back under the share; when results are not enough, the oldest code of the person and the
+model loses its protection and may be summarised. Each time, the loop sends a `code_masked` event (count, tokens, which files and how) and writes a
+`code_masked` audit record, and tells the model once, in a `[harness]` note, to read the files again with `read_file` when it needs them. Small
+windows feel it first: the code and the head (system prompt and tools) share what is left.
 
 ## The summary call
 
@@ -187,5 +206,6 @@ compaction, and on a conversation's speed, is queue rows 69 to 75.
 ## Tests
 
 `tests/test_compaction.py` (cuts, the work, untrusted text, the audit, the report, the whole loop with a scripted model),
+`tests/test_compaction_facts.py` (cut-off summaries, facts, pointers), `tests/test_code_kept.py` (code kept whole: the detector, masking, compaction, the valve),
 `tests/test_compaction_settings.py` (the settings and that they survive a restart of the manager, the flags, the summary client and that no cloud
 route is used unless the function is pointed at it, `/context`, `/compact`). Real-model checks are rows 63 to 65 and 69 of `tests/QUEUE_daytime.md`.

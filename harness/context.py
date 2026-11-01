@@ -14,10 +14,10 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
-from harness import untrusted
+from harness import codeblocks, untrusted
 
 PIN_ORDER = ("system_core", "self", "discipline", "environment", "project_rules", "knowledge", "user_profile", "vault", "active_skills", "capabilities", "visuals", "files")
-INTERNAL_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw", "opt", "explain", "skipped", "private", "compaction", "compacted")
+INTERNAL_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw", "opt", "explain", "skipped", "private", "compaction", "compacted", "code")
 ERROR_LINE = re.compile(
     r"(error|exception|traceback|fatal|panic|failed|failure|assertion|segmentation fault|stack trace)"
     r"|^\s+at\s+\S+\(|^\s+File \".*\", line \d+|^E\s{2,}",
@@ -28,6 +28,8 @@ MAX_LINE_CHARS = 2000        # a longer line (minified code, a one-line dump) is
 MAX_OUTPUT_CHARS = 40_000    # what one tool result may take of the context
 # tools whose result is what the model asked to read: they bound it themselves (ranges, limits), so it is passed on whole
 VERBATIM_TOOLS = ("read_file", "read_attachment", "load_skill", "load_capability")
+CODE_SHARE = 0.6             # most of the prompt budget the code kept whole may take; past it the oldest code results are masked
+FILE_TOOLS = frozenset(("read_file", "write_file", "edit_file", "shell_command"))        # a session with one of them is an agent session
 
 
 def available_budget(window: int, buffer_fraction: float, max_output: int) -> int:
@@ -43,6 +45,26 @@ def wire_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def get_eviction_candidates(messages: List[Dict[str, Any]]) -> List[int]:
     """Indexes of messages that may be dropped or masked: never a pinned one."""
     return [i for i, m in enumerate(messages) if not m.get("pinned", False)]
+
+
+def code_indices(messages: List[Dict[str, Any]]) -> List[int]:
+    """Indexes of the messages kept whole as code: those marked `code`, with the call that asked for a code result and every result of a call
+    that wrote code, so that a call and its results stay together."""
+    keep: List[int] = []
+    i, n = 0, len(messages)
+    while i < n:
+        if messages[i].get("role") == "assistant" and messages[i].get("tool_calls"):
+            j = i + 1
+            while j < n and messages[j].get("role") == "tool":
+                j += 1
+            if any(messages[k].get("code") for k in range(i, j)):
+                keep.extend(range(i, j))
+            i = j
+        else:
+            if messages[i].get("code"):
+                keep.append(i)
+            i += 1
+    return keep
 
 
 class _TextExtractor(HTMLParser):
@@ -330,12 +352,16 @@ class ContextManager:
         mask_at: float = 0.7,
         keep_recent: int = 3,
         chars_per_token: float = 3.5,
+        keep_code: bool = False,
     ) -> None:
         self.compactor = compactor
         self.budget_tokens = budget_tokens
         self.mask_at = mask_at
         self.keep_recent = keep_recent
         self.chars_per_token = chars_per_token
+        self.keep_code = keep_code                          # an agent session: code is kept whole (see `protect`)
+        self.code_share = CODE_SHARE
+        self.released: List[Dict[str, Any]] = []            # code that fell back to masking or lost its protection, until the loop takes it
 
     def estimate_tokens(self, messages: Iterable[Dict[str, Any]]) -> int:
         chars = sum(len(str(m.get("content") or "")) + len(json.dumps(m.get("tool_calls") or "")) for m in messages)
@@ -354,11 +380,59 @@ class ContextManager:
         note += "\n" + MASK_SAVED_NOTE
         return {**msg, "content": note, "masked": True}
 
+    def mark_code(self, messages: List[Dict[str, Any]]) -> None:
+        """Marks each message once as code or not (`code`), from the message and the call it answers; a masked or pinned one is not code."""
+        calls: Optional[Dict[Any, Dict[str, Any]]] = None
+        for m in messages:
+            if "code" in m:
+                continue
+            if m.get("pinned") or m.get("masked"):
+                m["code"] = False
+                continue
+            if calls is None:
+                calls = {c.get("id"): c for x in messages for c in x.get("tool_calls") or []}
+            m["code"] = codeblocks.is_code_message(m, calls)
+
+    def protect(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """In an agent session, code stays whole: masking and compaction skip the messages marked `code`. When the code alone passes
+        `code_share` of the budget, the oldest code results are masked (a note with the path of the saved text), and when results are not
+        enough the oldest code of the person and the model loses its protection; what happened is left in `released`."""
+        if not self.keep_code:
+            return messages
+        self.mark_code(messages)
+        limit = int(self.code_share * self.budget_tokens)
+
+        def held(msgs: List[Dict[str, Any]]) -> int:
+            return self.estimate_tokens([msgs[i] for i in code_indices(msgs)])
+        if held(messages) <= limit:
+            return messages
+        out = list(messages)
+        calls = _arguments_by_call(messages)
+        for results in (True, False):
+            for i, m in enumerate(out):
+                if held(out) <= limit:
+                    return out
+                if not m.get("code") or (m.get("role") == "tool") != results:
+                    continue
+                args = calls.get(m.get("tool_call_id"))
+                if results:
+                    out[i] = {**self._mask(m, args), "code": False}
+                else:
+                    m["code"] = False
+                self.released.append({"path": codeblocks.path_of(args if isinstance(args, dict) else {}) or str(m.get("name") or m.get("role")),
+                                      "role": m.get("role"), "how": "masked" if results else "unprotected", "tokens": self.estimate_tokens([m])})
+        return out
+
+    def take_released(self) -> List[Dict[str, Any]]:
+        done, self.released = self.released, []
+        return done
+
     def prepare(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        messages = self.protect(messages)
         if self.estimate_tokens(messages) <= self.budget_tokens * self.mask_at:
             return messages
         candidates = [i for i in get_eviction_candidates(messages)
-                      if messages[i].get("role") == "tool" and not messages[i].get("masked")]
+                      if messages[i].get("role") == "tool" and not messages[i].get("masked") and not messages[i].get("code")]
         recent = set(candidates[-self.keep_recent:]) if self.keep_recent else set()
         calls = _arguments_by_call(messages)
         out = list(messages)
