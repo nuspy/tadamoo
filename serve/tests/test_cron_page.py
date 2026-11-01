@@ -66,6 +66,12 @@ class CronPageTest(unittest.TestCase):
         for key in ("cj.kind", "cj.kind.task", "cj.kind.skill", "cj.skill", "cj.skillrow", "cj.values.none"):
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
 
+    def test_the_buttons_of_the_editor_are_put_in_their_row_as_nodes_and_not_passed_as_text(self):
+        self.assertNotRegex(JS, r'el\("div", "cj-buttons", save')                          # el()'s third argument is text: a button there shows as [object HTMLButtonElement]
+        self.assertIn('row.append(save', JS)
+        self.assertIn("api/routines/stop", JS)
+        self.assertIn("api/routines/${existing.id}/improve", JS)
+
 
 if __name__ == "__main__":
     unittest.main()
