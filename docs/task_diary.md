@@ -1,7 +1,14 @@
 # Diario dei task
 
-Ultimo aggiornamento: 31 ottobre 2026, sera. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 1 novembre 2026, mattina. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «In corso adesso» e da «Decisioni tue in attesa».
+
+## Decisioni del 1 novembre mattina (dalla tua lista delle ispirazioni) e stato
+
+- Fatto e committato: la regola dei due vale anche nel livello automatico (`2f4fd9e1`); istruzioni dirette all'IA trovate in pagine, file, allegati e output di comandi: l'agente non le segue e ogni azione che cambia o invia qualcosa chiede a te, a ogni livello, finché le autorizzi (in un'esecuzione non presidiata la domanda resta in attesa); lo schermo «istruzioni nel testo» è acceso di default e ha anche un elenco di frasi senza modello. Altri agenti raggiungibili solo dentro la tua rete privata (`7d1921cf`). Restano le protezioni contro le cancellazioni pesanti (hook) e la protezione dei file segreti di Basalt negli strumenti di lettura; gli script possono contenere i valori segreti (già fatto col livello libero).
+- Finestra all'avvio «Basalt con i privilegi di amministratore? sì/no»: se sì, richiesta UAC e riavvio con privilegi; la risposta si ricorda. Da costruire.
+- Accettati da costruire: 1 processi in background, 2 scansione di iniezione nei file di istruzioni, 3 routine più utili da sole (con esito breve, script che decide se svegliare il modello, arresto d'emergenza), 4 chat private e «dimentica questa conversazione», 6 prontezza e controllo delle skill, 8 gruppi di permessi, 16 rapporto dei compiti divergenti, 17 telemetria d'uso, 20 ciclo «migliora questa routine» (priorità: trasformare comportamento generativo in codice deterministico), 22 esportazione Markdown della memoria, 23 skill scritte dall'agente (con script deterministici, il meno possibile IA generativa), 25 approvazione automatica affidata alla sessione tecnica.
+- Da spiegarti e decidere: 5 (compattazione nel turno), 7 (sterzare a metà batch), 9 (hook che chiedono o riscrivono), 11 (modifiche multiple: già c'è), 13 (avviso su AGENTS.md), 14, 15, 19, 21. Non voluti: 10, 12, 18. Code Mode: più avanti (c'è nella roadmap). Dopo: studio approfondito sui testi di guida.
 
 ## In corso adesso
 
