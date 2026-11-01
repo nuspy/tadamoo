@@ -1,7 +1,7 @@
 """The "work until done" switch and the check of whether a request is met when the agent says it is done."""
 import json
 
-from test_agent_loop import ScriptedClient, make, say
+from test_agent_loop import ScriptedClient, call, make, say
 
 from harness import completion, persistence, side_uses
 from harness.permissions import PermissionLevel, PermissionManager
@@ -76,3 +76,13 @@ def test_with_the_switch_off_the_first_answer_stands(tmp_path):
     agent.completion = completion.make_completion(lambda: False)
     agent.run("do the thing")
     assert len(client.steps) == 1
+
+
+def test_the_line_about_the_work_counts_the_calls_and_the_last_command_and_does_not_claim_changes_it_cannot_see(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    client = ScriptedClient(call("write_file", {"path": "a.txt", "content": "x"}, "w"), call("shell_command", {"command": "python -c \"print(1)\""}, "s"), say("done"))
+    agent, _ = make(ws, client, permissions=PermissionManager(level=PermissionLevel.AUTO))
+    agent.run("write and run")
+    line = agent._work_line()
+    assert "2 tool calls (0 failed)" in line and "1 file writes or edits" in line and "1 commands run; the last one ended with exit code 0" in line
