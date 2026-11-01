@@ -9,6 +9,7 @@ decision to run a command belongs to the permission layer in front of it.
 from __future__ import annotations
 
 import contextlib
+import math
 import os
 import re
 import signal
@@ -17,6 +18,8 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
+
+from harness import exec_level
 
 from .jobs import CREATE_SUSPENDED, CommandJob
 
@@ -129,7 +132,7 @@ def _feed(proc: "subprocess.Popen[bytes]", text: str) -> None:
 
 
 class ProcessSandbox:
-    def __init__(self, workspace_root: str | Path, timeout: float = 30.0, max_output_bytes: int = 50_000,
+    def __init__(self, workspace_root: str | Path, timeout: Optional[float] = 30.0, max_output_bytes: int = 50_000,
                  max_memory_bytes: Optional[int] = DEFAULT_MAX_MEMORY, max_processes: Optional[int] = DEFAULT_MAX_PROCESSES) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.timeout = timeout
@@ -150,13 +153,17 @@ class ProcessSandbox:
                                   "timed_out": False, "truncated": False}
         if not command.strip():
             return result
-        reason = blocked_reason(command)
+        free = not exec_level.contained()
+        reason = None if free else blocked_reason(command)
         if reason:
             return {**result, "exit_code": -1, "stderr": reason, "success": False, "blocked": True}
 
-        limit = min(max(float(timeout if timeout is not None else self.timeout), 1.0), MAX_TIMEOUT)
+        wanted = timeout if timeout is not None else self.timeout
+        if wanted is None and not free:
+            wanted = 30.0
+        limit = math.inf if free and wanted is None else min(max(float(wanted), 1.0), MAX_TIMEOUT) if not free else max(float(wanted), 1.0)
         popen_args: Dict[str, Any] = {}
-        job = CommandJob(self.max_memory_bytes, self.max_processes)
+        job = CommandJob(None, None) if free else CommandJob(self.max_memory_bytes, self.max_processes)
         if os.name == "nt":
             popen_args["creationflags"] = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
                                            | (CREATE_SUSPENDED if job.active else 0))
@@ -164,7 +171,7 @@ class ProcessSandbox:
             popen_args["start_new_session"] = True
         try:
             proc = subprocess.Popen(
-                argv if argv is not None else command, shell=argv is None, cwd=str(self.workspace_root), env=safe_environment(extra_env),
+                argv if argv is not None else command, shell=argv is None, cwd=str(self.workspace_root), env=({**os.environ, **(extra_env or {})} if free else safe_environment(extra_env)),
                 stdin=subprocess.DEVNULL if stdin_text is None else subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, **popen_args,
             )

@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from harness import side_uses
+from harness import exec_level, side_uses
 from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
@@ -2015,7 +2015,8 @@ def make_handler(svc: Service, remote: bool = False):
             global _WALLET
             if _WALLET is None:
                 _WALLET = WalletApi(lambda: Vault(userdata.path("vault")), lambda: PaymentsBroker(userdata.path("payments"), app_root=Path(__file__).resolve().parents[1], network_time=sntp_offset), BrowserPrefs(userdata.path("browser.json")), userdata.path("browser-profile"),
-                                     RuleOfTwoPrefs(userdata.path("rule_of_two.json")), AllowRules(userdata.path("allow_rules.json")))
+                                     RuleOfTwoPrefs(userdata.path("rule_of_two.json")), AllowRules(userdata.path("allow_rules.json")),
+                                     exec_level.Prefs(userdata.path(exec_level.FILE)))
             return _WALLET
 
         def _personal(self) -> PersonalMemory:
@@ -2166,6 +2167,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.set_browser(req))
                 if action == "rule-of-two":
                     return self._json(200, api.set_rule_of_two(req))
+                if action == "exec-level":
+                    return self._json(200, api.set_exec_level(req))
                 if action == "allow-rules":
                     return self._json(200, api.set_allow_rules(req))
                 if action == "browser/signin":
@@ -2445,7 +2448,8 @@ def make_handler(svc: Service, remote: bool = False):
                                            rule_of_two_prefs=RuleOfTwoPrefs(userdata.path("rule_of_two.json")),
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
                                            skills_dir=userdata.path("personal-skills"), projects=self._projects(),
-                                           personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer, past=self._past())
+                                           personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer, past=self._past(),
+                                           exec_level_file=userdata.path(exec_level.FILE))
                 threading.Thread(target=_SESSIONS.index_all_past, name="past-backfill", daemon=True).start()      # the conversations saved before the index
                 self._routines()                          # the clock of the routines starts with the conversations
             return _SESSIONS

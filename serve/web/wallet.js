@@ -372,6 +372,26 @@
       h("p", "help", T("wl.two.next"))));
   }
 
+  /* ---- how freely the code the model writes runs ---- */
+  function execSection() {
+    const cur = data.exec_level;
+    if (!cur) return null;
+    const order = ["contained", "free", "admin"];
+    const s = select(order.map(v => [v, T("wl.ex." + v)]), cur.level, false);
+    s.id = "wl-exec";
+    s.onchange = async () => {
+      const wider = order.indexOf(s.value) > order.indexOf(cur.level);
+      if (wider && !(await riskConfirm([T("wl.ex.risk." + s.value)]))) { s.value = cur.level; return; }
+      const r = await call("POST", "api/wallet/exec-level", { level: s.value });
+      if (r.ok) { data.exec_level = r.data.exec_level; say(T("wl.saved")); draw(); } else { say(why(r), true); s.value = cur.level; }
+    };
+    const l = h("label", "", T("wl.ex.label")); l.htmlFor = "wl-exec";
+    return h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.ex"))), h("div", "wl-body", h("p", "help", T("wl.ex.help")),
+      h("div", "wl-pick", l, s, h("p", "help", T("wl.ex." + cur.level + ".help"))), ...(cur.level !== "contained" ? [riskLabel(T("wl.ex.risk." + cur.level))] : []),
+      ...(cur.level === "admin" ? [h("p", cur.elevated ? "help" : "wl-note", T(cur.elevated ? "wl.ex.elevated" : "wl.ex.notelevated"))] : []),
+      h("p", "help", T("wl.ex.next"))));
+  }
+
   /* ---- what is allowed for every conversation ---- */
   function allowSection() {
     const rules = data.allow_rules;
@@ -525,7 +545,7 @@
     const n = h("p", "wl-note", note); n.hidden = !note; n.dataset.bad = noteBad ? "1" : "";
     const problems = (data.problems || []).map(p => h("p", "wl-note", p));
     problems.forEach(p => { p.dataset.bad = "1"; });
-    root.replaceChildren(...[banner(), h("div", "wl-top", h("p", "wl-lead", T("wl.lead")), n, ...problems), vaultSection(), paySection(), browserSection(), twoSection(), allowSection(), histSection()].filter(Boolean));
+    root.replaceChildren(...[banner(), h("div", "wl-top", h("p", "wl-lead", T("wl.lead")), n, ...problems), vaultSection(), paySection(), browserSection(), twoSection(), execSection(), allowSection(), histSection()].filter(Boolean));
   }
   const inField = () => { const a = document.activeElement; return !!a && root.contains(a) && a.matches("input, select, textarea"); };
   /* quiet: a periodic or view refresh. It redraws only when the data changed, and never while a field of the page has the focus (the next one does),

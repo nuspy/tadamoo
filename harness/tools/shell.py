@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from harness import environment
+from harness import environment, exec_level
 from harness.sandbox import MAX_TIMEOUT, ProcessSandbox, command_words, guard
 from harness.secret_scan import PROGRAM_THAT_USES_THE_NETWORK, scripts_run, uses_network
 from harness.secrets_broker import NETWORK_TOOLS, SecretsBroker, command_hosts, url_hosts
@@ -38,11 +38,13 @@ def _refused(text: str, blocked: bool = False) -> Dict[str, Any]:
 
 
 def check_timeout(timeout: Any) -> Tuple[Optional[float], str]:
-    """(seconds, note) for a valid timeout, capped at the maximum; (None, error text) for one that is not a finite number above zero."""
+    """(seconds, note) for a valid timeout, capped at the maximum when the code is contained; (None, error text) for one that is not a finite number above zero."""
+    if timeout is None:
+        return (None, "") if not exec_level.contained() else (30.0, "")
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
         return None, (f"The timeout must be a finite number of seconds greater than 0 (at most {MAX_TIMEOUT:g}); got {timeout!r}. "
                       "The command was not run.")
-    if timeout > MAX_TIMEOUT:
+    if timeout > MAX_TIMEOUT and exec_level.contained():
         return MAX_TIMEOUT, f"the timeout was lowered to the maximum, {MAX_TIMEOUT:g} seconds"
     return float(timeout), ""
 
@@ -131,7 +133,7 @@ def _folder_hint(cwd: Path) -> str:
 def execute_shell_command(
     command: str,
     cwd: str | Path,
-    timeout: float = 30.0,
+    timeout: Optional[float] = None,
     max_output_bytes: int = 50_000,
     secrets: Optional[SecretsBroker] = None,
     shell: str = "cmd",
@@ -139,14 +141,15 @@ def execute_shell_command(
     """Runs `command` in `cwd`. {{secret:NAME}} placeholders are filled in only here, at the boundary,
     and the secret values are masked again in everything returned to the model."""
     seconds, note = check_timeout(timeout)
-    if seconds is None:
+    if seconds is None and timeout is not None:
         return _refused(note)
     if shell not in SHELLS:
         return _refused(f"The shell must be one of {', '.join(SHELLS)}; got {shell!r}. The command was not run.")
     if shell == "powershell" and not environment.is_windows():
         return _refused("Only the default shell (sh) exists on this system; \"powershell\" is available on Windows. The command was not run.")
     sandbox = ProcessSandbox(cwd, timeout=seconds, max_output_bytes=max_output_bytes)
-    hit = secrets.protected_hit(command) if secrets else ""
+    free = not exec_level.contained()
+    hit = secrets.protected_hit(command) if secrets and not free else ""
     if hit:
         return _refused(f"A command cannot name '{hit}': the vault, the payment files and the browser's sign-ins are the person's, and they are read in the Wallet.", True)
     if secrets and secrets.has_references(command):
@@ -172,7 +175,9 @@ def execute_shell_command(
 
     argv: Optional[List[str]] = None
     as_script = ""
-    extra_env: Optional[Dict[str, str]] = guard.environment(secrets.places(), os.environ.get("PYTHONPATH", "")) if secrets else {}
+    extra_env: Optional[Dict[str, str]] = ({} if free else guard.environment(secrets.places(), os.environ.get("PYTHONPATH", ""))) if secrets else {}
+    if free and secrets:
+        extra_env = secrets.environment()
     try:
         if environment.is_windows():
             extra_env = {**extra_env, "PYTHONIOENCODING": "utf-8"}

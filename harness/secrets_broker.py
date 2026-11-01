@@ -154,6 +154,13 @@ class SecretsBroker:
         if folder:
             self._in_folders.append((_real(folder), patterns))
 
+    def environment(self) -> Dict[str, str]:
+        """The values this broker holds, and the vault's, as environment variables for code the person let run free on this PC."""
+        env = {"BASALT_SECRET_" + re.sub(r"[^A-Z0-9]+", "_", k.upper()).strip("_"): v for k, v in self._secrets.items() if v}
+        if self.vault is not None:
+            env.update(self.vault.environment())
+        return env
+
     def places(self) -> List[str]:
         """The real paths of everything protected, files of the protected folders included."""
         out = [str(p) for p in self._places]
