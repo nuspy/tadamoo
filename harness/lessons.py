@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from harness import inject_screen
+from harness import inject_screen, shell_lessons
 from harness.memory import MemoryStore, PREFIX_FROM, _PART, _fold, _specific, estimate_tokens, query_terms
 
 PROJECT_FOLDER = ".basalt"
@@ -507,6 +507,23 @@ class _Call:
     decision: str
     output: str
     path: str = ""
+    command: str = ""               # a shell call's command line (a code call: its language), masked
+    code: Optional[int] = None      # a shell or code call's exit code
+    fail_text: str = ""             # the start of what such a call printed, masked, for telling a command that could not run from one that failed
+
+
+def _exit_of(body: str) -> Tuple[Optional[int], str]:
+    """(exit code, what it printed) of a shell or code call's result text, which is the JSON of its result when it is whole."""
+    try:
+        data = json.loads(body)
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        code = data.get("exit_code")
+        printed = str(data.get("stderr") or "").strip() or str(data.get("stdout") or "")
+        return (code if isinstance(code, int) and not isinstance(code, bool) else None), printed
+    found = re.match(r'\{"exit_code":\s*(-?\d+)', body)
+    return (int(found.group(1)) if found else None), body
 
 
 def _error_class(text: str) -> str:
@@ -574,6 +591,10 @@ class Recorder:
                      json.dumps(arguments, sort_keys=True, default=str), self._args(arguments), str(start.get("effect") or ""),
                      str(event.get("status") or ""), str(event.get("decision") or ""), self._text(body, OUT_CHARS),
                      one_line(arguments.get("path", ""), 200) if isinstance(arguments.get("path"), str) else "")
+        if call.name in shell_lessons.SHELL_TOOLS:
+            call.command = self._text(arguments.get("command") or f"{arguments.get('language') or 'code'} <code>", 300)
+            call.code, printed = _exit_of(body)
+            call.fail_text = self._text(printed, 600)
         self.calls.append(call)
         if call.decision == "loop":
             self._strikes.append((call.index, "identical"))
@@ -628,7 +649,7 @@ class Recorder:
         record = self.outcome(result, request, steps=steps, tokens=tokens, seconds=seconds, loop_strikes=loop_strikes, corrected_by_person=corrected_by_person)
         record_steps = record["steps"]
         found = [*self._reads_after_fold(), *self._budget_ran_out(result, record_steps), *self._gates_cleared(), *self._loops_ended(),
-                 *self._refusals_avoided(), *self._error_fixes()]
+                 *self._refusals_avoided(), *self._error_fixes(), *self._shell_fixes()]
         unique: Dict[str, Dict[str, Any]] = {}
         for c in found:
             unique.setdefault(c["signature"], {**c, "outcome": self.id})
@@ -658,6 +679,20 @@ class Recorder:
                     "error_fix", _sig("error_fix", c.name, _error_class(bad.output)), f"{c.name} call failed: {one_line(bad.output, 70)}",
                     f"{c.name}({bad.args}) failed with: {bad.output}", f"The same tool worked with {c.args}{tries}.",
                     {"tools": [c.name], "failed_args": bad.args, "error": bad.output, "fixed_args": c.args, "failed_tries": len(failed)}, [bad.call_id, c.call_id]))
+        return out
+
+    def _shell_fixes(self) -> List[Dict[str, Any]]:
+        """A command that failed and a later one of the same intent that worked after a real change (harness/shell_lessons.py)."""
+        out = []
+        for hit in shell_lessons.find_fixes(self.calls):
+            bad, good, change = hit["failed"], hit["fixed"], "; ".join(hit["changes"])
+            programs = list(dict.fromkeys(p for p in (hit["failed_parts"].program, hit["fixed_parts"].program) if p))
+            error = one_line(bad.fail_text[-140:], 140)
+            out.append(self._candidate(
+                "error_fix", _sig("error_fix", hit["failed_parts"].family, _error_class(error)), f"{hit['failed_parts'].program or 'command'} failed: {one_line(error, 70)}",
+                f"`{one_line(bad.command, 90)}` failed (exit code {bad.code}): {error}", f"`{one_line(good.command, 90)}` worked: {change}.",
+                {"tools": programs, "failed": bad.command, "exit_code": bad.code, "error": error, "worked": good.command, "changes": hit["changes"]},
+                [bad.call_id, good.call_id]))
         return out
 
     def _gates_cleared(self) -> List[Dict[str, Any]]:

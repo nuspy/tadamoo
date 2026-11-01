@@ -52,6 +52,18 @@ class LessonsPageTest(unittest.TestCase):
         self.assertIn("overflow-wrap: anywhere", CSS)
         self.assertNotRegex(CSS, r"(?<![-\w])width:\s*\d{3,}px")                                 # no fixed width that could scroll sideways
 
+    def test_the_view_holds_the_switch_of_the_next_steps_card_and_the_repeated_work(self):
+        self.assertIn('"api/next-steps"', JS)
+        self.assertIn("{ on }", JS)
+        self.assertIn("S.repeats", JS)
+        self.assertIn("ls-check", CSS)
+
+    def test_the_chat_offers_to_make_a_skill_when_the_same_work_comes_back(self):
+        chat = (WEB / "agentchat.js").read_text(encoding="utf-8")
+        self.assertIn('d.type === "script_hint"', chat)
+        self.assertIn("startPick(requestsOf().length)", chat)                          # the button opens the existing "Make a skill" box on the request just done
+        self.assertEqual(I18N.count('"ch.hint.script":'), 2)
+
     def test_the_texts_exist_in_both_languages(self):
         keys = {k for k in re.findall(r'T\(\s*"(ls\.[a-z.0-9_]+)"', JS) if not k.endswith(".")} | set(re.findall(r'data-t="(ls\.[a-z.]+)"', HTML)) | {"pal.set.lessons"}
         keys |= {f"ls.result.{r}" for r in ("done", "stalled", "abandoned", "stopped", "failed")}

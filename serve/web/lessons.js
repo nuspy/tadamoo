@@ -8,7 +8,7 @@
 
   const ARM_MS = 4000;
   const RESULTS = ["done", "stalled", "abandoned", "stopped", "failed"];
-  let S = null, folder = "", note = "", info = "", editing = "", armed = "", promo = null, armTimer = 0;
+  let S = null, folder = "", note = "", info = "", editing = "", armed = "", promo = null, armTimer = 0, stepsOn = true;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; return b; };
   const errText = r => (r.data && r.data.error && r.data.error.message) || `HTTP ${r.status}`;
@@ -25,6 +25,14 @@
     const r = await api("GET", "api/lessons?" + new URLSearchParams(folder ? { folder } : {}));
     if (!r.ok) { note = errText(r); paint(); return; }
     S = r.data; folder = S.folder;
+    const n = await api("GET", "api/next-steps");
+    if (n.ok) stepsOn = !!n.data.on;
+    paint();
+  }
+  async function setSteps(on) {
+    const r = await api("POST", "api/next-steps", { on });
+    note = r.ok ? "" : errText(r);
+    if (r.ok) stepsOn = !!r.data.on;
     paint();
   }
   async function act(action, body) {
@@ -59,6 +67,25 @@
     if (o.corrected) lines.push(T("ls.out.corrected", o.corrected));
     const list = el("ul", "ls-sum");
     lines.forEach(l => list.append(el("li", "", l)));
+    box.append(list);
+    return box;
+  }
+
+  /* ---- the card after a task, and the work that repeats ---- */
+  function stepsSwitch() {
+    const box = el("div", "ls-block"), row = el("label", "ls-check"), cb = el("input");
+    cb.type = "checkbox"; cb.checked = stepsOn; cb.onchange = () => setSteps(cb.checked);
+    const text = el("span", "");
+    text.append(el("b", "", T("ls.steps.title")), el("span", "help", T("ls.steps.help")));
+    row.append(cb, text);
+    box.append(row);
+    return box;
+  }
+  function repeatsBlock() {
+    if (!S.repeats.length) return null;
+    const box = el("div", "ls-block"), list = el("ul", "ls-sum");
+    box.append(el("h3", "", T("ls.repeat.title")), el("p", "help", T("ls.repeat.help")));
+    S.repeats.forEach(g => list.append(el("li", "", T("ls.repeat.line", g.request, g.count, g.steps_avg))));
     box.append(list);
     return box;
   }
@@ -169,9 +196,9 @@
 
   function paint() {
     if (!S) { host.replaceChildren(el("p", "dim", note || T("ls.loading"))); return; }
-    const focus = document.activeElement && document.activeElement.id;
+    const focus = document.activeElement && document.activeElement.id, repeated = repeatsBlock();
     host.replaceChildren(el("p", "ls-intro", T("ls.intro")), ...(note ? [el("p", "ls-bad", note)] : []), ...(info ? [el("p", "ls-ok", info)] : []),
-      folderBar(), summary(), group(T("ls.project.title", S.project.length), S.project, "ls.empty"), group(T("ls.global.title", S.global.length), S.global, "ls.empty.global"), addForm());
+      stepsSwitch(), folderBar(), summary(), ...(repeated ? [repeated] : []), group(T("ls.project.title", S.project.length), S.project, "ls.empty"), group(T("ls.global.title", S.global.length), S.global, "ls.empty.global"), addForm());
     const again = focus && document.getElementById(focus);
     if (again && again !== document.activeElement) again.focus();
   }

@@ -24,3 +24,6 @@
 .ls-bad { color: #FF8A8A; margin: 0 0 10px; overflow-wrap: anywhere; }
 .ls-ok { color: var(--fg); margin: 0 0 10px; overflow-wrap: anywhere; }
 @media (max-width: 520px) { .ls-bar .btn { flex: 1 1 100%; } }
+.ls-check { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 6px 0; cursor: pointer; }
+.ls-check input { width: 22px; height: 22px; margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+.ls-check > span { display: grid; gap: 2px; }
