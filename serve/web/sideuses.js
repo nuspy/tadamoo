@@ -35,7 +35,13 @@
     consent.checked = route.consent;
     document.getElementById("su-route-consent-row").hidden = !route.provider || !route.needs_consent;
     document.getElementById("su-external").checked = state.external.on;
-    document.getElementById("su-route-state").textContent = route.provider ? (route.ok ? T("su.route.ok") : T("su.route.not_ok", route.why)) : T("su.route.here");
+    document.getElementById("su-route-state").textContent = route.provider ? (route.ok ? T(state.session.on_pc ? "su.route.on_pc" : "su.route.ok") : T("su.route.not_ok", route.why)) : T("su.route.here");
+    const chosen = route.providers.find(p => p.id === route.provider);
+    if (chosen && chosen.id.startsWith("technical-")) {                         // the form shows what was chosen through it
+      document.getElementById("su-setup-type").value = chosen.type;
+      document.getElementById("su-setup-model").value = chosen.model;
+      document.getElementById("su-setup-window").value = chosen.context_window || "";
+    }
   }
 
   async function call(payload) {
@@ -56,8 +62,9 @@
     if (!state) return;
     const on = state.uses.filter(u => u.on).length, text = state.session.available
       ? T("su.state.on", num(state.session.tokens), on, state.uses.length) : T("su.state.off");
-    document.getElementById("su-state").textContent = text;
-    document.getElementById("su-dlg-state").textContent = text;
+    const shown = state.master === false ? T("su.state.master_off") : text;           // the chat's own switch is off: every use is off, whatever is set below
+    document.getElementById("su-state").textContent = shown;
+    document.getElementById("su-dlg-state").textContent = shown;
     dlg.dataset.off = state.session.available ? "" : "1";
     paintRoute();
   }
@@ -155,6 +162,14 @@
     try { await llm("api/llm/consent", { function: "technical", allowed: e.target.checked }); state = await call(); say(T("su.saved")); draw(); } catch (err) { say(err.message, true); }
   });
   document.getElementById("su-external").addEventListener("change", e => post({ external: e.target.checked }, true));
+  document.getElementById("su-setup-go").addEventListener("click", async () => {
+    const win = document.getElementById("su-setup-window").value.trim(), url = document.getElementById("su-setup-url").value.trim();
+    try {
+      await llm("api/llm/technical", { type: document.getElementById("su-setup-type").value, model: document.getElementById("su-setup-model").value.trim(),
+        ...(url ? { base_url: url } : {}), ...(win ? { context_window: Number(win) } : {}) });
+      state = await call(); say(T("su.setup.done")); draw();
+    } catch (err) { say(err.message, true); }
+  });
   dlg.addEventListener("close", () => { clearInterval(timer); load(); });
   document.getElementById("su-defaults").addEventListener("click", () => post({ reset: "all" }, true));
   document.getElementById("su-stop").addEventListener("click", async () => {

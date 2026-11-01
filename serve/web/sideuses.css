@@ -11,6 +11,10 @@
 .sud-route { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 0; }
 .sud-route legend { font: 600 14px/1.4 var(--font-sans); padding: 0 6px; }
 .sud-route select { width: 100%; min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+.sud-setup { border-top: 1px solid var(--line-soft); padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.sud-setup > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font: 500 14px/1.4 var(--font-sans); }
+.sud-setup[open] > summary { margin-bottom: 4px; }
+.sud-setup select { width: 100%; min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
 .sud-running { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .sud-running h3 { margin: 0; font: 600 14px/1.4 var(--font-sans); }
 .sud-running ul { margin: 0; padding-left: 18px; font: 400 14px/1.5 var(--font-sans); }

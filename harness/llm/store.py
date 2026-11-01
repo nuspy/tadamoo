@@ -62,6 +62,20 @@ def is_local(prov: Optional[Dict[str, Any]], local_hosts: tuple = LOOPBACK) -> b
     return host in local_hosts
 
 
+def runs_here(prov: Optional[Dict[str, Any]], local_hosts: tuple = LOOPBACK) -> bool:
+    """Whether the provider is this server or a program on this PC's own address (a second small model in LM Studio, vLLM or llama-server):
+    stricter than `is_local`, which takes every local kind of provider at its word whatever address it was given."""
+    if not prov:
+        return True
+    spec = TYPES.get(prov.get("type") or "", {})
+    if spec.get("this_server"):
+        return True
+    if spec.get("api") == "cli":
+        return False
+    host = urlparse((prov.get("base_url") or spec.get("base_url") or "")).hostname or ""
+    return host in local_hosts if host else bool(spec.get("local"))
+
+
 class SecureRegistry(Registry):
     """llmswitch's registry with the keys moved to a credential store, and the extra data Basalt keeps next to it."""
 

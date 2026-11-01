@@ -53,8 +53,8 @@ def side_extra_for(client: Any, use: str, chars: int, answer_tokens: int) -> Dic
     """`side_extra(client, use)` only when a text of `chars` characters and an answer of `answer_tokens` fit the session; else {}. For a
     call that must not fall back to an ordinary slot by itself (the server would serve one that does not fit from a conversation's slot)."""
     from harness import digest
-    stays = getattr(client, "stays_local", None)
-    if callable(stays) and not stays() and not side_uses.external_on():       # a text goes to another provider only when the person allowed it
+    stays, on_pc = getattr(client, "stays_local", None), getattr(client, "stays_on_pc", None)
+    if callable(stays) and not stays() and not side_uses.external_on() and not (callable(on_pc) and on_pc()):       # a text goes to another provider only when the person allowed it, or it stays on this PC
         return {}
     window = side_context(client, use)
     if window <= 0 or chars > digest.part_chars(window, answer_tokens):
