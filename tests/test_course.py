@@ -91,3 +91,16 @@ def test_the_loop_tells_the_agent_and_then_asks_the_person_and_ends_the_turn_the
     assert kinds[0] == ("repeat_error", "note") and kinds[-1] == ("repeat_error", "card")
     assert agent.stop_reason == "asked" and asked and asked[0][1].startswith("I keep running into the same problem")
     assert any("Course check" in str(m.get("content")) for m in agent.messages if m.get("role") == "user")
+
+
+def test_a_command_that_ends_with_a_code_other_than_zero_is_a_failure_and_a_clean_one_is_not():
+    bad = '{"exit_code": 2, "stdout": "", "stderr": "python: can\'t open file \'C:\\\\x\\\\missing_script.py\': [Errno 2] No such file", "success": false}'
+    watcher = course.Watcher()
+    for _ in range(2):
+        watcher.observe({"type": "tool_end", "name": "shell_command", "status": "completed", "decision": "executed", "output": bad})
+    note = watcher.check(Fake(), 1)
+    assert note.kind == "repeat_error" and "shell_command failed 2 times" in note.note
+    ok = course.Watcher()
+    for _ in range(3):
+        ok.observe({"type": "tool_end", "name": "shell_command", "status": "completed", "decision": "executed", "output": '{"exit_code": 0, "stdout": "fine"}'})
+    assert ok.check(Fake(), 1) is None
