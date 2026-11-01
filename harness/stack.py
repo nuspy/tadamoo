@@ -718,6 +718,9 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         if catalog.skills:
             builder.set_skills_catalog(catalog.format_catalog_prompt())
             register_skill_tool(registry, catalog)
+    for label, text in [(guide_file.name if guide_file else "", guidelines), *((f"skill {k}", v.content) for k, v in catalog.skills.items())]:
+        if label and inject_screen.detect(text, strict=True):
+            permissions.note_instructions(label)            # an instruction file that speaks like an attack: the person authorizes it before anything changes or is sent
 
     if cfg.phone:
         from harness.integrations.call_api_client import CallAPICallClient

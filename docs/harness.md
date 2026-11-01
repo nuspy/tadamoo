@@ -597,7 +597,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   after the provider, e.g. `tavily`, with the key in its `value` field). The provider's server is started when the first search is
   made. The Exa endpoint is reached with the key in an `x-api-key` header, which has not been tried against the live service.
 - Skills (`SKILL.md`) are listed in a stable catalog and loaded on request; there is no approval step: a skill on the PC is
-  usable unless you turn it off, and an edit never withdraws anything.
+  usable unless you turn it off, and an edit never withdraws anything. A header `requires: git, node` and `env: NAME` makes the catalog say "not ready: missing ..." while the program or the variable is absent. `check_skill_text` gives every problem of a skill a model wrote at once (a name, a description of 60 characters at most, the sections "When to use" and "Steps"). An instruction file or a skill with a phrase that can only be an order to a model ("ignore all previous instructions") makes the conversation ask before anything changes or is sent, until the person authorizes it.
 - Reference documents are offered as a fixed block after the project rules (**cag**: the prefix is reused every turn, but a
   change re-reads everything and the block crowds the context) or searched (**rag**: small context, passages arrive fenced as
   untrusted data). `auto` picks by size; the threshold is a starting point. `python -m harness.eval --set knowledge` asks the

@@ -5,8 +5,10 @@ A skill in the search paths is the person's own: the model may load any of them.
 from __future__ import annotations
 
 import hashlib
+import os
+import shutil
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -22,6 +24,41 @@ class SkillMeta:
     path: Path
     content: str
     sha256: str = ""
+    requires: List[str] = field(default_factory=list)     # programs the skill runs, from the `requires:` header
+    env: List[str] = field(default_factory=list)          # environment variables it reads, from the `env:` header
+
+    def missing(self) -> List[str]:
+        """What the skill needs that this PC does not have: programs not on the path and variables not set."""
+        return [*(b for b in self.requires if not shutil.which(b)), *(f"${v}" for v in self.env if not os.environ.get(v))]
+
+
+def _names(value: str) -> List[str]:
+    return [x.strip() for x in re.split(r"[,\s]+", value or "") if x.strip()]
+
+
+def _not_ready(skill: SkillMeta) -> str:
+    missing = skill.missing()
+    return f" [not ready: missing {', '.join(missing)}]" if missing else ""
+
+
+SKILL_DESCRIPTION_MAX = 60
+SKILL_SECTIONS = ("when to use", "steps")
+
+
+def check_skill_text(text: str) -> List[str]:
+    """Everything wrong with the text of a skill a model wrote, all at once: name, short description, the fixed sections."""
+    meta, body = parse_frontmatter(text)
+    problems = []
+    if not meta.get("name"):
+        problems.append("the header needs a name")
+    description = meta.get("description", "")
+    if not description:
+        problems.append("the header needs a description")
+    elif len(description) > SKILL_DESCRIPTION_MAX:
+        problems.append(f"the description is {len(description)} characters; the most is {SKILL_DESCRIPTION_MAX}")
+    headings = {m.group(1).strip().lower() for m in re.finditer(r"^#+\s*(.+)$", body, re.M)}
+    problems += [f"the section '{s}' is missing" for s in SKILL_SECTIONS if s not in headings]
+    return problems
 
 
 def parse_frontmatter(text: str) -> Tuple[Dict[str, str], str]:
@@ -75,19 +112,21 @@ class SkillCatalog:
                     path=skill_file,
                     content=body.strip(),
                     sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                    requires=_names(meta.get("requires", "")),
+                    env=_names(meta.get("env", "")),
                 )
         return self.skills
 
     def format_catalog_prompt(self) -> str:
         """Name and one line per skill, sorted so the prompt prefix never changes order."""
-        return "\n".join(f"- **{self.skills[n].name}**: {self.skills[n].description}" for n in sorted(self.skills))
+        return "\n".join(f"- **{self.skills[n].name}**: {self.skills[n].description}{_not_ready(self.skills[n])}" for n in sorted(self.skills))
 
     def body(self, name: str) -> str:
         """The full instructions of a skill."""
         skill = self.skills.get(name)
         if skill is None:
             raise KeyError(f"Unknown skill '{name}'. Available: {', '.join(sorted(self.skills)) or 'none'}")
-        return skill.content
+        return skill.content if not skill.missing() else f"[this skill is not ready here: missing {', '.join(skill.missing())}]" + chr(10) + skill.content
 
 
 def register_skill_tool(registry: Any, catalog: SkillCatalog) -> None:
