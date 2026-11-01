@@ -64,7 +64,7 @@ class _ConversationsPaneState extends State<ConversationsPane> {
   }
 
   Future<void> _open({SessionInfo? session, String workspace = '', NewChat? options}) async {
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => ChatScreen(api: widget.api, settings: widget.settings, voice: widget.voice, sessionId: session?.id, workspace: workspace, options: options)));
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => ChatScreen(api: widget.api, settings: widget.settings, voice: widget.voice, sessionId: session?.id, workspace: workspace, options: options, agent: widget.agent)));
     _load();
   }
 

@@ -18,6 +18,9 @@ class AppSettings extends ChangeNotifier {
   String get language => _prefs.getString('language') ?? '';
   String get mode => _prefs.getString('mode') ?? 'default';
 
+  /// The role the person last chose for conversations in a folder ('' until they choose one).
+  String get agentRole => _prefs.getString('agentRole') ?? '';
+
   bool get configured => address.trim().isNotEmpty && key.trim().isNotEmpty;
 
   /// The server's base address with a scheme; null when none was written.
@@ -54,6 +57,11 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> setLanguage(String value) async {
     await _prefs.setString('language', value);
+    notifyListeners();
+  }
+
+  Future<void> setAgentRole(String value) async {
+    await _prefs.setString('agentRole', value);
     notifyListeners();
   }
 

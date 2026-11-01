@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'chat_model.dart';
+import 'chat_options.dart';
 import 'i18n.dart';
+import 'server_prefs.dart';
 import 'settings.dart';
 
 /// The fields the PC's page asks for when it makes a conversation: how much it may do alone, how hard it thinks, the rules that let
@@ -27,6 +29,7 @@ class _NewChatFormState extends State<_NewChatForm> {
   late String mode = widget.settings.mode;
   String effort = '';
   String worktree = 'auto';
+  late String role = widget.settings.agentRole.isEmpty ? defaultAgentRole : widget.settings.agentRole;
   final rules = TextEditingController();
 
   @override
@@ -71,6 +74,8 @@ class _NewChatFormState extends State<_NewChatForm> {
         ),
         if (widget.folder) ...[
           const SizedBox(height: 14),
+          RolePicker(role: role, onChanged: (v) => setState(() => role = v)),
+          const SizedBox(height: 14),
           DropdownButtonFormField<String>(
             initialValue: worktree,
             isExpanded: true,
@@ -86,7 +91,10 @@ class _NewChatFormState extends State<_NewChatForm> {
           width: double.infinity,
           child: FilledButton.icon(
             style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-            onPressed: () => Navigator.pop(context, NewChat(mode: mode, effort: effort, allow: allow, worktree: widget.folder ? worktree : 'auto')),
+            onPressed: () {
+              if (widget.folder) widget.settings.setAgentRole(role);
+              Navigator.pop(context, NewChat(mode: mode, effort: effort, allow: allow, worktree: widget.folder ? worktree : 'auto', role: widget.folder ? role : ''));
+            },
             icon: const Icon(Icons.play_arrow),
             label: Text(Texts.t('new.start')),
           ),

@@ -7,22 +7,28 @@ import 'answer_view.dart';
 import 'api.dart';
 import 'ask_card.dart';
 import 'chat_model.dart';
+import 'chat_options.dart';
+import 'event_blocks.dart';
 import 'files.dart';
 import 'i18n.dart';
 import 'network_screen.dart';
 import 'place.dart';
+import 'server_prefs.dart';
 import 'settings.dart';
 import 'voice.dart';
 
 /// One conversation: the messages, what the agent is doing, its questions with their buttons, and the box to write in.
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.api, required this.settings, required this.voice, this.sessionId, this.workspace = '', this.options});
+  const ChatScreen({super.key, required this.api, required this.settings, required this.voice, this.sessionId, this.workspace = '', this.options, this.agent = false});
   final Api api;
   final AppSettings settings;
   final Voice voice;
   final String? sessionId;
   final String workspace;
   final NewChat? options;
+
+  /// Opened from the Agent tab (a folder), where the role of the agent can be chosen.
+  final bool agent;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -36,6 +42,8 @@ class _Attached {
 
 class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   late final ChatController ctl;
+  late final ServerPrefs prefs = ServerPrefs(widget.api);
+  late NewChat? pending = widget.options;
   final input = TextEditingController();
   final inputFocus = FocusNode();
   final scroll = ScrollController();
@@ -90,6 +98,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ctl.removeListener(_changed);
     widget.voice.removeListener(_changed);
     ctl.dispose();
+    prefs.dispose();
     input.dispose();
     inputFocus.dispose();
     scroll.dispose();
@@ -104,7 +113,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<bool> _ensure() async {
     if (ctl.ready) return true;
     try {
-      await ctl.create(workspace: widget.workspace, options: widget.options ?? NewChat(mode: widget.settings.mode));
+      await ctl.create(workspace: widget.workspace, options: pending ?? NewChat(mode: widget.settings.mode));
       return true;
     } on ApiError catch (e) {
       _say(e.message);
@@ -230,7 +239,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final id = await ctl.branchFrom(a);
       if (!mounted) return;
       _say(Texts.t('chat.branched'));
-      await Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => ChatScreen(api: widget.api, settings: widget.settings, voice: widget.voice, sessionId: id)));
+      await Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => ChatScreen(api: widget.api, settings: widget.settings, voice: widget.voice, sessionId: id, agent: widget.agent)));
     } on ApiError catch (e) {
       _say(e.message);
     }
@@ -262,6 +271,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  // ---- the options ----
+  String get _role => ctl.ready ? (ctl.info?.role ?? defaultAgentRole) : (pending?.role.isNotEmpty == true ? pending!.role : (widget.settings.agentRole.isEmpty ? defaultAgentRole : widget.settings.agentRole));
+
+  /// Changes the role: at once in a conversation that exists, else it goes with the request that creates it. Returns the complaint, if any.
+  Future<String?> _setRole(String role) async {
+    if (!ctl.ready) {
+      pending = (pending ?? NewChat(mode: widget.settings.mode)).copy(role: role);
+      return null;
+    }
+    try {
+      await ctl.setRole(role);
+      return null;
+    } on ApiError catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<void> _options() => showChatOptions(context, prefs: prefs, role: widget.agent ? _role : null, onRole: widget.agent ? _setRole : null);
+
   // ---- drawing ----
   @override
   Widget build(BuildContext context) {
@@ -270,7 +298,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         title: Text(ctl.info == null || ctl.info!.title.isEmpty ? Texts.t('conv.untitled') : ctl.info!.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
-          if (widget.voice.speaking) IconButton(icon: const Icon(Icons.volume_off), onPressed: widget.voice.stopSpeaking),
+          if (widget.voice.speaking) IconButton(tooltip: Texts.t('chat.silence'), icon: const Icon(Icons.volume_off), onPressed: widget.voice.stopSpeaking),
+          IconButton(tooltip: Texts.t('opts.title'), icon: const Icon(Icons.tune), onPressed: _options),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: ActionChip(label: Text(Texts.t('mode.$mode')), onPressed: _modeSheet),
@@ -369,6 +398,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         );
       case 'tool':
         return _tool(b);
+      case 'job':
+        return JobBlock(block: b);
       case 'ask':
         return _ask(b);
       case 'blocked':
@@ -410,6 +441,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Widget _ask(Block b) {
     final theme = Theme.of(context);
     final done = b.answered != null;
+    if (b.mode == 'confirm' && (b.instructions.isNotEmpty || b.hook.isNotEmpty)) {
+      return OutsideAskCard(key: ValueKey('outside-${b.id}'), block: b, onAnswer: (value) async {
+        try {
+          await ctl.answer(b, value);
+        } on ApiError catch (e) {
+          _say(e.message);
+        }
+      });
+    }
     if (b.kind == 'code') return _CodeCard(key: ValueKey('code-${b.id}'), question: b.question, done: done, onSend: (code) => ctl.answer(b, code));
     if (b.kind == 'questions') {
       return QuestionsCard(
