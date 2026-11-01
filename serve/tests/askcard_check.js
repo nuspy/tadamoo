@@ -85,5 +85,57 @@ t("the read-only lines name the labels, not the ids", () => {
   eq(l[2].answer, "");
 });
 
+t("the topic is quoted one line per question, cut at four and at 200 characters", () => {
+  eq(AC.quote({ questions: [{ text: "Which\n database?" }, { text: "Which sections?" }] }), "> Which database?\n> Which sections?\n\n");
+  eq(AC.quote({ questions: [] }), "");
+  const five = AC.quote({ questions: [1, 2, 3, 4, 5].map(n => ({ text: "q" + n })) });
+  eq(five, "> q1\n> q2\n> q3\n> q4\n> …\n\n");
+  eq(AC.quote({ questions: [{ text: "x".repeat(300) }] }).length, 2 + 200 + 2);
+});
+
+const K = (key, extra = {}) => ({ key, ...extra });
+const ctx = (where, extra = {}) => ({ where, index: 1, total: 3, stop: 1, stops: 3, fast: false, multi: false, other: false, ...extra });
+
+t("left and right move between questions from an answer, up and down between answers, Enter picks", () => {
+  eq(AC.keyAction(K("ArrowRight"), ctx("option")), { do: "question", to: 2, focus: true });
+  eq(AC.keyAction(K("ArrowLeft"), ctx("option")), { do: "question", to: 0, focus: true });
+  eq(AC.keyAction(K("ArrowLeft"), ctx("option", { index: 0 })), { do: "question", to: 0, focus: true });
+  eq(AC.keyAction(K("ArrowDown"), ctx("option")), { do: "stop", to: 2 });
+  eq(AC.keyAction(K("ArrowDown"), ctx("option", { stop: 2 })), { do: "stop", to: 2 });
+  eq(AC.keyAction(K("ArrowUp"), ctx("option", { stop: 0 })), { do: "stop", to: 0 });
+  eq(AC.keyAction(K("Enter"), ctx("option")), { do: "pick", submit: false, advance: true });
+  eq(AC.keyAction(K("Enter"), ctx("option", { multi: true })), { do: "pick", submit: false, advance: false });
+  eq(AC.keyAction(K("Enter"), ctx("option", { index: 2 })), { do: "pick", submit: false, advance: false });
+  eq(AC.keyAction(K("Enter"), ctx("option", { other: true })), { do: "pick", submit: false, advance: false });
+  eq(AC.keyAction(K("Enter"), ctx("option", { total: 1, index: 0, fast: true })), { do: "pick", submit: true, advance: false });
+  eq(AC.keyAction(K("ArrowRight"), ctx("option", { total: 1, index: 0 })), { do: "stay" });
+});
+
+t("on a tab the arrows, home and end move the tab, and down enters its answers", () => {
+  eq(AC.keyAction(K("ArrowRight"), ctx("tab")), { do: "question", to: 2 });
+  eq(AC.keyAction(K("ArrowRight"), ctx("tab", { index: 2 })), { do: "question", to: 2 });
+  eq(AC.keyAction(K("Home"), ctx("tab")), { do: "question", to: 0 });
+  eq(AC.keyAction(K("End"), ctx("tab")), { do: "question", to: 2 });
+  eq(AC.keyAction(K("ArrowDown"), ctx("tab")), { do: "question", to: 1, focus: true });
+  eq(AC.keyAction(K("Enter"), ctx("tab")), null);                          // the button keeps its own Enter and Space
+});
+
+t("in a text field only up, down and Enter (to move on) are taken; a text area keeps every key", () => {
+  eq(AC.keyAction(K("ArrowLeft"), ctx("text")), null);
+  eq(AC.keyAction(K("ArrowRight"), ctx("text")), null);
+  eq(AC.keyAction(K("ArrowUp"), ctx("text", { stop: 3, stops: 4 })), { do: "stop", to: 2 });
+  eq(AC.keyAction(K("Enter"), ctx("text")), { do: "question", to: 2, focus: true });
+  eq(AC.keyAction(K("Enter"), ctx("text", { index: 2 })), null);
+  eq(AC.keyAction(K("Enter", { shift: true }), ctx("text")), null);
+  for (const k of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter"]) eq(AC.keyAction(K(k), ctx("area")), null);
+});
+
+t("Ctrl+Enter sends from anywhere and other modifiers leave the key to the browser", () => {
+  for (const w of ["tab", "option", "text", "area", ""]) eq(AC.keyAction(K("Enter", { ctrl: true }), ctx(w)), { do: "send" });
+  eq(AC.keyAction(K("ArrowLeft", { alt: true }), ctx("option")), null);
+  eq(AC.keyAction(K("ArrowLeft", { meta: true }), ctx("tab")), null);
+  eq(AC.keyAction(K("ArrowLeft"), ctx("")), null);
+});
+
 const results = cases.map(([name, fn]) => { try { fn(); return { name, ok: true }; } catch (e) { return { name, ok: false, error: String(e.message || e) }; } });
 console.log(JSON.stringify(results));
