@@ -30,7 +30,7 @@ from harness.rule_of_two import LEVELS
 from harness.syntax_check import DEFAULT_GUARD as DEFAULT_EDIT_GUARD, GUARD_LEVELS as EDIT_GUARD_LEVELS
 from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
 from harness import digest
-from harness import auto_approve, inject_screen, memory_rank, side_uses, tool_extract
+from harness import auto_approve, awareness, inject_screen, memory_rank, side_uses, tool_extract
 from harness.side import side_context, side_extra, use as side_use
 from harness.prompt_blocks import instruction_blocks
 from harness.project_profile import clean_list
@@ -833,6 +833,12 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     if not valid_role(cfg.role):
         raise ValueError(f"role must be one of {list(ROLE_IDS)}")
     role = RolePolicy(workspace, tool_names, cfg.role, on_change=role_changed, checks=lambda: permissions.safe_commands)
+    present = {"browser": cfg.browser, "vault": bool(cfg.vault_dir), "phone": cfg.phone, "memory": memory is not None, "personal_memory": bool(cfg.personal_memory_dir),
+               "past": bool(cfg.past_index), "skills": bool(cfg.personal_skills_dir), "lsp": cfg.lsp, "mcp": bool(cfg.mcp_servers)}
+    builder.pin("self", awareness.self_model(
+        model="", window=context.budget_tokens, mask_at=context.mask_at, compaction_at=cfg.compaction_threshold, compaction=cfg.compaction, max_turns=cfg.max_turns,
+        max_tokens=cfg.max_total_tokens, max_seconds=cfg.max_seconds, role=cfg.role, level=level.value, absent=awareness.absent_features(present),
+        lessons=""))
     agent = AgentLoop(
         client=client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key),
         tool_registry=registry,
@@ -856,6 +862,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         clock=local_now,
         max_tokens=cfg.max_tokens,
     )
+    awareness.register_self_status(registry, lambda: awareness.status_of(agent, context.budget_tokens))
     quick = technical if technical is not None else client          # the quick jobs never take the conversation's own route
     if quick is not None:                               # the technical session's two readers of tool results (both off until switched on)
         compactor.extract = tool_extract.make_extractor(quick, lambda: agent.last_user_text)

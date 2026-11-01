@@ -76,10 +76,10 @@ def test_the_lists_are_data_and_an_unknown_name_is_an_error(tmp_path):
 
 
 def test_compact_shortens_the_conversation_when_nothing_is_under_way(tmp_path):
-    turns = [say(f"answer {i} " + "word " * 120) for i in range(6)]
+    turns = [say(f"answer {i} " + "word " * 120) for i in range(9)]
     session, ev, built = make(tmp_path, Scripted(*turns))
     assert commands.run("compact", "", session)["data"] == {"done": False, "reason": "short", "tokens": built.agent.context.estimate_tokens(built.agent.messages)}
-    for i in range(6):
+    for i in range(9):
         n = len(ev.items)
         session.send(f"m{i}", f"question {i} " + "text " * 100)
         ev.wait("done", after=n)
