@@ -19,6 +19,8 @@ CHUNK_TOKENS = 500
 CHUNK_CHARS = int(CHUNK_TOKENS * CHARS_PER_TOKEN)
 PER_SESSION = 2                    # most pieces one conversation gives to a search
 SNIPPET_CHARS = 420
+CARD_ROLE = "card"                 # the role of a conversation's card, kept as one extra piece of the conversation (turn 0)
+CARD_CHARS = 900                   # most of a card a search hit shows
 KINDS = ("chat", "agent", "routine")
 _PARAGRAPH = re.compile(r"\n\s*\n")
 
@@ -77,6 +79,9 @@ class PastIndex:
                 id INTEGER PRIMARY KEY, session TEXT NOT NULL, turn INTEGER NOT NULL, seq INTEGER NOT NULL, role TEXT NOT NULL,
                 title TEXT NOT NULL, project TEXT NOT NULL, kind TEXT NOT NULL, routine TEXT NOT NULL, at REAL NOT NULL, text TEXT NOT NULL)""")
             self.conn.execute("CREATE INDEX IF NOT EXISTS chunks_session ON chunks(session, seq)")
+            self.conn.execute("""CREATE TABLE IF NOT EXISTS cards (
+                session TEXT PRIMARY KEY, made REAL NOT NULL, covers REAL NOT NULL, source TEXT NOT NULL, tries INTEGER NOT NULL DEFAULT 0, saw TEXT NOT NULL DEFAULT '')""")
+            self.conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             self.conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text, content='chunks', content_rowid='id')")
             self.conn.execute("""CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
                 INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text); END""")
@@ -106,23 +111,90 @@ class PastIndex:
                 rows.append((session, max(turn, 1), seq, role, title, project, kind, routine, stamp, part))
                 seq += 1
         with self._lock, self.conn:
-            self.conn.execute("DELETE FROM chunks WHERE session = ?", (session,))
+            self.conn.execute("DELETE FROM chunks WHERE session = ? AND role != ?", (session, CARD_ROLE))      # the card stays until a new one replaces it
             self.conn.executemany("INSERT INTO chunks (session, turn, seq, role, title, project, kind, routine, at, text) VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
         return len(rows)
 
     def drop(self, session: str) -> int:
+        """Everything kept of a conversation, its card included; returns how many pieces of text went."""
         with self._lock, self.conn:
-            return self.conn.execute("DELETE FROM chunks WHERE session = ?", (session,)).rowcount
+            self.conn.execute("DELETE FROM cards WHERE session = ?", (session,))
+            gone = self.conn.execute("DELETE FROM chunks WHERE session = ?", (session,)).rowcount
+            return gone
 
     def count(self) -> int:
+        """The pieces of text kept (cards are not counted)."""
         with self._lock:
-            return int(self.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0])
+            return int(self.conn.execute("SELECT COUNT(*) FROM chunks WHERE role != ?", (CARD_ROLE,)).fetchone()[0])
+
+    # -- cards: what a conversation is about, in the words a person may use later (harness/cards.py) ------------------
+
+    def info(self, session: str) -> Optional[Dict[str, Any]]:
+        """Where a conversation is from and when it was last changed, or None when it has no text kept."""
+        with self._lock:
+            row = self.conn.execute("SELECT title, project, kind, routine, MAX(at) AS at FROM chunks WHERE session = ? AND role != ? GROUP BY session",
+                                    (session, CARD_ROLE)).fetchone()
+        return dict(row) if row else None
+
+    def set_card(self, session: str, text: str, source: str, saw: str = "", failed: bool = False) -> bool:
+        """Keeps `text` as the card of a conversation, replacing its old card; false when the conversation has no text kept (it was dropped meanwhile).
+        `source` says who wrote it ("model" or "fallback"); a card written after a failed attempt counts the try."""
+        with self._lock, self.conn:
+            row = self.conn.execute("SELECT title, project, kind, routine, MAX(at) AS at FROM chunks WHERE session = ? AND role != ? GROUP BY session",
+                                    (session, CARD_ROLE)).fetchone()
+            if row is None or not text.strip():
+                return False
+            old = self.conn.execute("SELECT tries FROM cards WHERE session = ?", (session,)).fetchone()
+            tries = (int(old["tries"]) if old else 0) + (1 if failed else 0)
+            self.conn.execute("DELETE FROM chunks WHERE session = ? AND role = ?", (session, CARD_ROLE))
+            self.conn.execute("INSERT INTO chunks (session, turn, seq, role, title, project, kind, routine, at, text) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                              (session, 0, -1, CARD_ROLE, row["title"], row["project"], row["kind"], row["routine"], row["at"], text.strip()))
+            self.conn.execute("INSERT OR REPLACE INTO cards (session, made, covers, source, tries, saw) VALUES (?,?,?,?,?,?)",
+                              (session, time.time(), row["at"], source, tries, saw))
+        return True
+
+    def card_of(self, session: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            row = self.conn.execute("""SELECT c.text, k.made, k.covers, k.source, k.tries, k.saw FROM cards k JOIN chunks c ON c.session = k.session AND c.role = ?
+                                       WHERE k.session = ?""", (CARD_ROLE, session)).fetchone()
+        return dict(row) if row else None
+
+    def cards_wanted(self, limit: int = 1, model: bool = True, tries: int = 3) -> List[str]:
+        """Conversations whose card is missing, then those changed since their card, then (with `model`) those whose card was written by code
+        and has not been tried `tries` times; newest first within each group."""
+        with self._lock:
+            rows = self.conn.execute("""SELECT t.session AS session, t.at AS at, k.source AS source, k.covers AS covers, COALESCE(k.tries, 0) AS tries
+                                        FROM (SELECT session, MAX(at) AS at FROM chunks WHERE role != ? GROUP BY session) t
+                                        LEFT JOIN cards k ON k.session = t.session ORDER BY t.at DESC""", (CARD_ROLE,)).fetchall()
+        missing = [r["session"] for r in rows if r["source"] is None]
+        changed = [r["session"] for r in rows if r["source"] is not None and r["at"] > r["covers"] + 1e-6]
+        upgrade = [r["session"] for r in rows if model and r["source"] == "fallback" and r["tries"] < tries and r["at"] <= r["covers"] + 1e-6]
+        return (missing + changed + upgrade)[:max(0, limit)]
+
+    def card_counts(self) -> Dict[str, int]:
+        """The conversations kept, those with a card that is up to date, and who wrote those."""
+        with self._lock:
+            rows = self.conn.execute("""SELECT k.source AS source, t.at AS at, k.covers AS covers
+                                        FROM (SELECT session, MAX(at) AS at FROM chunks WHERE role != ? GROUP BY session) t
+                                        LEFT JOIN cards k ON k.session = t.session""", (CARD_ROLE,)).fetchall()
+        current = [r for r in rows if r["source"] is not None and r["at"] <= r["covers"] + 1e-6]
+        return {"total": len(rows), "current": len(current), "model": sum(1 for r in current if r["source"] == "model"),
+                "fallback": sum(1 for r in current if r["source"] == "fallback")}
+
+    def meta_get(self, key: str, default: str = "") -> str:
+        with self._lock:
+            row = self.conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+
+    def meta_set(self, key: str, value: str) -> None:
+        with self._lock, self.conn:
+            self.conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
 
     def sessions(self) -> List[Dict[str, Any]]:
         """The conversations kept, newest first."""
         with self._lock:
             rows = self.conn.execute("""SELECT session, title, project, kind, routine, MAX(at) AS at, MAX(turn) AS turns, COUNT(*) AS pieces
-                                        FROM chunks GROUP BY session ORDER BY at DESC""").fetchall()
+                                        FROM chunks WHERE role != 'card' GROUP BY session ORDER BY at DESC""").fetchall()
         return [dict(r) for r in rows]
 
     @staticmethod
@@ -141,10 +213,12 @@ class PastIndex:
             if value is not None:
                 where.append(clause)
                 args.append(value)
+        rows: List[sqlite3.Row] = []
         with self._lock:
             try:
-                rows = self.conn.execute(f"""SELECT c.* FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid WHERE {' AND '.join(where)}
-                                             ORDER BY chunks_fts.rank LIMIT ?""", (*args, CANDIDATES)).fetchall()
+                for clause in ("c.role = ?", "c.role != ?"):                         # the cards first, then the text
+                    rows += self.conn.execute(f"""SELECT c.* FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid WHERE {' AND '.join(where)} AND {clause}
+                                                  ORDER BY chunks_fts.rank LIMIT ?""", (*args, CARD_ROLE, CANDIDATES)).fetchall()
             except sqlite3.OperationalError:
                 return []
         out, taken = [], {}
@@ -152,8 +226,9 @@ class PastIndex:
             if taken.get(row["session"], 0) >= PER_SESSION:
                 continue
             taken[row["session"]] = taken.get(row["session"], 0) + 1
-            out.append({"session": row["session"], "turn": row["turn"], "role": row["role"], "title": row["title"], "project": row["project"], "kind": row["kind"],
-                        "routine": row["routine"], "at": row["at"], "snippet": self._snippet(row["text"], terms)})
+            card = row["role"] == CARD_ROLE
+            out.append({"session": row["session"], "turn": max(1, row["turn"]), "role": row["role"], "title": row["title"], "project": row["project"], "kind": row["kind"],
+                        "routine": row["routine"], "at": row["at"], "card": card, "snippet": row["text"][:CARD_CHARS] if card else self._snippet(row["text"], terms)})
             if len(out) >= max(1, limit):
                 break
         return out
@@ -202,7 +277,7 @@ def register_past_tools(registry: Any, index: PastIndex, local: Callable[[], boo
         since = time.time() - int(days) * 86400 if int(days or 0) > 0 else None
         hits = index.search(str(query), since=since, project=project or None, kind=kind if kind in KINDS else None, limit=max(1, min(int(limit), 20)))
         return {"hits": [{"conversation": h["session"], "turn": h["turn"], "title": h["title"], "project": h["project"], "kind": h["kind"], "routine": h["routine"],
-                          "date": day(h["at"]), "who": h["role"], "text": h["snippet"]} for h in hits],
+                          "date": day(h["at"]), "who": h["role"], "card": h["card"], "text": h["snippet"]} for h in hits],
                 "next": "open_past(conversation, first_turn, last_turn) reads the turns around a hit in full"}
 
     def open_past(conversation: str, first_turn: int = 1, last_turn: int = 0) -> Any:
@@ -216,7 +291,9 @@ def register_past_tools(registry: Any, index: PastIndex, local: Callable[[], boo
     registry.register(
         name="search_past",
         description=("Searches the person's earlier conversations (every chat, project and, where the person allowed it, routine) by words. Use it when they refer to something "
-                     "said before, in this or another conversation. Words that were used then may differ from yours: try the other name, language or short form."),
+                     "said before, in this or another conversation. Each conversation also has a card (a hit with card true) that lists its topics, entities and the other names they "
+                     "go by; a card comes first. The words used then may differ from yours: if a search finds nothing, search again with the other name, the abbreviation, the "
+                     "other language (UE, EU, Unione Europea, European Union) or a synonym, and then open the conversation with open_past."),
         parameters={"type": "object", "properties": {
             "query": {"type": "string", "description": "Words to look for"},
             "days": {"type": "integer", "description": "Only the last N days (0: any time)", "default": 0},
@@ -226,7 +303,8 @@ def register_past_tools(registry: Any, index: PastIndex, local: Callable[[], boo
         effect=EffectClass.PURE, handler=search_past, untrusted=True)
     registry.register(
         name="open_past",
-        description="Reads turns of an earlier conversation as they were said, by the conversation id and turn numbers that search_past gave.",
+        description=("Reads turns of an earlier conversation as they were said, by the conversation id and turn numbers that search_past gave. For a hit that is a card, "
+                     "read from turn 1: the card is a summary, the turns are what was said."),
         parameters={"type": "object", "properties": {
             "conversation": {"type": "string", "description": "The conversation id from search_past"},
             "first_turn": {"type": "integer", "default": 1},
