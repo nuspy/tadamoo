@@ -1,0 +1,38 @@
+/* Settings > Benchmarks */
+.bn-intro { max-width: 880px; color: var(--fg-2); margin: 0 0 16px; }
+.bn-block { margin: 0 0 18px; padding: 0 0 14px; border-bottom: 1px solid var(--line-soft); max-width: 880px; }
+.bn-block h3 { margin: 0 0 8px; font: 600 14px/1.3 var(--font-sans); color: var(--fg); }
+.bn-sub { margin: 14px 0 0; }
+.bn-sub h4, .bn-detail h4 { margin: 0 0 6px; font: 600 14px/1.4 var(--font-sans); color: var(--fg); }
+.bn-sub h5 { margin: 10px 0 4px; font: 600 13px/1.4 var(--font-sans); color: var(--fg-2); }
+.bn-line { margin: 4px 0; overflow-wrap: anywhere; }
+.bn-list, .bn-runs, .bn-classes, .bn-metrics, .bn-lessons, .bn-checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.bn-top { margin: 0; padding: 0 0 0 20px; display: grid; gap: 8px; }
+.bn-card { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.bn-card.open { border-color: var(--accent); }
+.bn-title { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
+.bn-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; }
+.bn-bar .btn, .bn-field input, .bn-field select, .bn-field textarea { min-height: 44px; min-width: 44px; }
+.bn-field { display: grid; gap: 4px; margin: 0 0 10px; }
+.bn-field label { font-weight: 600; }
+.bn-field input, .bn-field select, .bn-field textarea { width: 100%; max-width: 100%; padding: 8px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 15px/1.5 var(--font-sans); box-sizing: border-box; }
+.bn-field textarea { resize: vertical; font-family: var(--font-mono); font-size: 13px; }
+.bn-confirm { margin: 10px 0 0; padding: 10px; border: 1px dashed var(--line); border-radius: 8px; }
+.bn-detail { margin: 12px 0 0; padding: 12px 0 0; border-top: 1px solid var(--line-soft); }
+.bn-checks { margin: 10px 0 0; }
+.bn-checklist li { padding: 8px; border: 1px solid var(--line-soft); border-radius: 6px; overflow-wrap: anywhere; }
+.bn-checklist li.bad { border-color: var(--warn); }
+.bn-mark { font-weight: 600; }
+.bn-fix { margin: 4px 0 0; color: var(--fg); }
+.bn-run { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px; border: 1px solid var(--line-soft); border-radius: 6px; }
+.bn-run.open { border-color: var(--accent); }
+.bn-runname { flex: 1 1 220px; overflow-wrap: anywhere; }
+.bn-runstate { color: var(--fg-2); }
+.bn-metrics li.primary { font-weight: 600; }
+.bn-summary { margin: 6px 0; padding: 8px; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.5 var(--font-mono); background: var(--panel); border-radius: 6px; user-select: text; }
+.bn-warn { color: var(--warn); }
+.bn-bad { color: #FF8A8A; overflow-wrap: anywhere; }
+.bn-ok { color: var(--fg); overflow-wrap: anywhere; }
+.bn-block progress { width: 100%; height: 14px; }
+@media (max-width: 520px) { .bn-bar .btn { flex: 1 1 100%; } }
+@media (prefers-reduced-motion: reduce) { .bn-block progress { transition: none; } }

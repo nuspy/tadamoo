@@ -16,6 +16,7 @@
       { id: "privacy", view: "settings", label: () => T("sub.privacy") },
       { id: "mobile", view: "settings", label: () => T("sub.mobile") },
       { id: "memories", view: "settings", label: () => T("sub.memories") },
+      { id: "benchmarks", view: "settings", label: () => T("sub.benchmarks") },
       { id: "wallet", view: "wallet", label: () => T("tab.wallet") }],
   };
   const strip = document.getElementById("viewsub");

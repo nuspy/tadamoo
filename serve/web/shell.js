@@ -83,6 +83,7 @@
       { label: T("pal.set.mobile"), group: T("pal.g.settings"), run: settingsAt("mb-h", "mobile") },
       { label: T("pal.set.memories"), group: T("pal.g.settings"), run: settingsAt("me-h", "memories") },
       { label: T("pal.set.lessons"), group: T("pal.g.settings"), run: settingsAt("ls-h", "memories") },
+      { label: T("pal.set.bench"), group: T("pal.g.settings"), run: settingsAt("bn-h", "benchmarks") },
       { label: T("pal.set.prompt"), group: T("pal.g.settings"), run: settingsAt("ps-h", "inference") },
       { label: T("pal.addr"), group: T("pal.g.actions"), run: async () => { try { await navigator.clipboard.writeText(location.origin + "/"); } catch (e) { /* the clipboard may be blocked */ } } },
     ];
