@@ -28,7 +28,7 @@
     const r = await api("GET", "api/memories?" + q);
     if (!r.ok) { note = errText(r); paint(); return; }
     S = r.data;
-    const sig = JSON.stringify([S.items.map(i => i.id + i.updated + i.seen), S.log.length && S.log[0].at, S.worker, S.counts]);
+    const sig = JSON.stringify([S.items.map(i => i.id + i.updated + i.seen), S.log.length && S.log[0].at, S.worker, S.counts, S.cards]);
     if (full || sig !== seen) { seen = sig; paint(); }
   }
   function poll() {
@@ -198,6 +198,22 @@
     box.append(S.log.length ? list : el("p", "dim", T("me.log.empty")));
     return box;
   }
+  /* ---- the cards of the past conversations: how many are written, and the back-fill of the old ones ---- */
+  function cardsBlock() {
+    const c = S.cards;
+    if (!c) return null;
+    const box = el("div", "me-block");
+    box.append(el("h3", "", T("me.cards.title")), el("p", "help", T("me.cards.help")));
+    box.append(el("p", "me-cards", T("me.cards.progress", c.current, c.total) + (c.fallback ? " " + T("me.cards.bycode", c.fallback) : "")));
+    box.append(el("p", "help", T(c.backfill ? (c.current >= c.total ? "me.cards.done" : "me.cards.on") : "me.cards.off")));
+    if (c.error) box.append(el("p", "mb-bad", T("me.log.error", c.error)));
+    box.append(btn(T(c.backfill ? "me.cards.stop" : "me.cards.start"), "ghost", async () => {
+      const r = await api("POST", "api/memories/cards", { backfill: !c.backfill });
+      note = r.ok ? "" : errText(r);
+      await refresh(true);
+    }));
+    return box;
+  }
   /* ---- a copy of the notes as Markdown files, to read or edit outside; the encrypted store stays the master ---- */
   function exportBlock() {
     const box = el("div", "me-block");
@@ -233,7 +249,7 @@
     const focus = document.activeElement && document.activeElement.id;
     const cols = el("div", "me-cols");
     cols.append(memoryBlock("long"), memoryBlock("short"));
-    host.replaceChildren(el("p", "me-intro", T("me.intro")), ...(note ? [el("p", "mb-bad", note)] : []), cols, cloudBlock(), notesBlock(), logBlock(), exportBlock(), dangerBlock());
+    host.replaceChildren(el("p", "me-intro", T("me.intro")), ...(note ? [el("p", "mb-bad", note)] : []), cols, cloudBlock(), notesBlock(), logBlock(), ...(S.cards ? [cardsBlock()] : []), exportBlock(), dangerBlock());
     const again = focus && document.getElementById(focus);
     if (again && again !== document.activeElement) again.focus();
   }
