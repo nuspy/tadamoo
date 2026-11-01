@@ -325,6 +325,7 @@ class LongFlow(lf.LongAnswer):
     def __init__(self, client: Any, spec: lf.Spec, *, hint_words: int = 0, stated: bool = False, **kw: Any) -> None:
         super().__init__(client, spec, **kw)
         self.hint_words = hint_words or spec.target_words       # the words the rules found
+        self.hinted = bool(hint_words)                          # without them the estimate is bound by nothing but the range of a text
         self.stated = stated                                    # the person chose the length: no estimate is asked
         self.applied = 0
         self.rounds = 0
@@ -353,7 +354,7 @@ class LongFlow(lf.LongAnswer):
             source = "asked"
         else:
             reply = yield from self._short(estimate_messages(spec.task), ESTIMATE_TOKENS, ESTIMATE_FORMAT)
-            found = parse_estimate(reply or "", asked=asked, hint=self.hint_words)
+            found = parse_estimate(reply or "", asked=asked, hint=self.hint_words if self.hinted else 0)
             source = "model"
             if found is None:
                 found, source = {"words": self.hint_words, "reason": "", "bounded": False}, "rule"
@@ -366,6 +367,10 @@ class LongFlow(lf.LongAnswer):
 
     def _plan(self) -> Iterator[Any]:
         spec = self.spec
+        if spec.outline:                                        # the request gave the plan: it is followed, and neither the length nor the parts are asked
+            plan, fallback = yield from super()._plan()
+            self.plan_parts = plan
+            return plan, fallback
         words = yield from self._estimate()
         low, high = chunk_bounds(words)
         parts = lf.chunk_count(words)

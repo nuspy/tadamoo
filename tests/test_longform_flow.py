@@ -246,7 +246,7 @@ def test_the_side_hook_reads_the_side_module_when_there_is_one_and_is_empty_when
     monkeypatch.setitem(sys.modules, "harness.side", None)                     # an import that fails
     assert lf._side() == {}
     fake = types.ModuleType("harness.side")
-    fake.side_extra = lambda: {"session": "tech"}
+    fake.side_extra = lambda **_kw: {"session": "tech"}
     monkeypatch.setitem(sys.modules, "harness.side", fake)
     assert lf._side() == {"session": "tech"}
 

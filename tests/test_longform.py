@@ -111,11 +111,33 @@ def test_units_keep_tables_lists_and_headings_whole():
 def test_pack_glues_headings_and_never_cuts_a_table():
     table = "\n".join(["| a | b |", "|---|---|"] + [f"| {i} | {i} |" for i in range(300)])
     para = " ".join(f"word{i}." for i in range(900))
-    pieces = lf.pack(lf.split_units(f"# One\n\n{para}\n\n{table}\n\n## Two\n\nshort"), 400)
+    pieces = lf.pack(lf.split_units(f"# One\n\n{para}\n\n{table}\n\n## Two\n\nshort"), 1200)
     assert any(table in p for p in pieces)
     assert all(not p.rstrip().endswith("## Two") for p in pieces)
     assert sum(lf.count_words(p) for p in pieces) == lf.count_words(f"# One\n\n{para}\n\n{table}\n\n## Two\n\nshort")
     assert pieces[0].startswith("# One")
+
+
+def test_a_table_over_the_limit_is_cut_at_rows_with_its_header_repeated():
+    rows = [f"| {i} | {i} |" for i in range(300)]
+    table = "\n".join(["| a | b |", "|---|---|"] + rows)
+    pieces = lf.pack(lf.split_units(f"intro\n\n{table}\n\nend"), 400)
+    tables = [p for p in pieces if "| a | b |" in p]
+    assert len(tables) > 1
+    seen = []
+    for p in tables:
+        assert -1 not in lf.table_shapes(p) and set(lf.table_shapes(p)) == {2}
+        seen += [ln for ln in p.split("\n") if ln in rows]
+    assert seen == rows                                                     # no row lost, none twice, in order
+
+
+def test_a_code_block_left_in_the_source_is_one_unit_and_a_huge_one_is_cut_at_lines():
+    code = "```python\n" + "\n\n".join(f"x{i} = {i}" for i in range(40)) + "\n```"
+    assert lf.split_units(f"before\n\n{code}\n\nafter") == ["before", code, "after"]
+    big = "```python\n" + "\n".join(f"value_{i} = compute({i}, {i + 1}, {i + 2})" for i in range(400)) + "\n```"
+    pieces = lf.pack(lf.split_units(big), 300)
+    assert len(pieces) > 1 and all(p.startswith("```python\n") and p.rstrip().endswith("```") for p in pieces)
+    assert sum(p.count("compute(") for p in pieces) == 400
 
 
 # -- the checks -------------------------------------------------------------------------------------------------------

@@ -23,6 +23,7 @@ from xml.etree import ElementTree as ET
 
 from harness import untrusted
 from harness.context_patterns import bm25_scores
+from harness.markdown_chunks import safe_line_end, whole_blocks
 
 NAME_CHARS = 120
 FAMILIES = ("text", "data", "document", "image", "audio", "video", "pdf", "other")
@@ -36,6 +37,7 @@ CHARS_PER_TOKEN = 3.5
 QUOTES_OVER_TOKENS = 20_000       # above this many tokens of documents the model is asked to quote before answering
 MAX_ROWS_SHOWN = 20
 CHUNK_LINES = 40
+READ_LOOKAHEAD = 200              # lines past a cut of a read that are looked at to see whether the cut falls inside a block
 
 
 # -- what a file is ----------------------------------------------------------------------------------------------
@@ -380,6 +382,15 @@ def manifest(meta: Dict[str, Any], text: Optional[str], note: str) -> str:
     return f"{base}: cannot be read ({note})."
 
 
+def _block_prefix(text: str, limit: int) -> Optional[str]:
+    """The start of `text` of at most `limit` characters that ends between Markdown blocks (so not inside a code block, a table or a list
+    item), or None when the first block alone is longer than that and the caller cuts at a line."""
+    if limit <= 0 or len(text) <= limit:
+        return None
+    first = whole_blocks(text[:limit + 1], limit)[0].rstrip()           # a block that the window cuts is longer than the limit: never in the piece
+    return first if first and len(first) <= limit else None
+
+
 def compose_message(store: AttachmentStore, session: str, ids: List[str], question: str, window_tokens: int = 32768) -> Tuple[str, bool]:
     """The message the model gets: the documents first, each in its own block with where it came from and what part is shown, then the
     question. Returns (message, documents_were_inlined). Large files are shown by their manifest and read in pieces."""
@@ -406,9 +417,11 @@ def compose_message(store: AttachmentStore, session: str, ids: List[str], questi
             shown, label = "", "none"
         else:
             limit = max(0, min(room, budget // 2))
-            cut = text[:limit]
-            if "\n" in cut and len(text) > limit:
-                cut = cut[:cut.rindex("\n")]                       # whole lines when there are lines
+            cut = _block_prefix(text, limit)
+            if cut is None:
+                cut = text[:limit]
+                if "\n" in cut and len(text) > limit:
+                    cut = cut[:cut.rindex("\n")]                   # whole lines when there are lines
             n = len(_lines(cut)) if cut else 0
             shown = cut
             label = f"lines 1-{n} of {len(lines)}" if len(lines) > 1 else f"characters 1-{len(cut)} of {len(text)}"
@@ -452,7 +465,10 @@ def read_range(text: str, start: int = 1, end: Optional[int] = None, max_chars: 
             ln = ln[:max_chars] + f" [... {len(ln) - max_chars} more characters on this line]"
         out.append(f"{i}: {ln}")
         size += len(ln) + 1
-    head = f"Lines {start}-{start + len(out) - 1} of {len(lines)}" + (f" (continue from line {start + len(out)})" if start + len(out) <= len(lines) else " (the end)") + "\n"
+    shown = start + len(out) - 1
+    if out and shown < len(lines) and (not end or shown < int(end)):          # the window ended at the tool's own limit: not inside a code block, table or list item
+        out = out[:safe_line_end(lines[start - 1:shown + READ_LOOKAHEAD], len(out))]
+    head =f"Lines {start}-{start + len(out) - 1} of {len(lines)}" + (f" (continue from line {start + len(out)})" if start + len(out) <= len(lines) else " (the end)") + "\n"
     return head + "\n".join(out) if out else f"The file has {len(lines)} lines."
 
 

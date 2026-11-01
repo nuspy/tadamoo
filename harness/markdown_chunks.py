@@ -276,3 +276,54 @@ def _split_prose(core: str, limit: int, level: int) -> List[str]:
     if len(parts) == 1 and parts[0][0] != "fence":
         return _split_prose(core, limit, level + 1)
     return _pack(parts, limit, lambda kind, text: _split_fence(text, limit) if kind == "fence" else _split_prose(text, limit, level + 1))
+
+
+# -- exact cuts and joins for text that is read or delivered as it is -------------------------------------------------------
+
+def whole_blocks(text: str, limit: int) -> List[str]:
+    """Pieces of `text` that joined give it back exactly. A piece ends between blocks (paragraphs, headings, list items, code blocks, tables)
+    and holds as many whole blocks as `limit` allows; a block longer than the limit is a piece of its own, never cut, so a piece may be longer."""
+    if limit < 1:
+        raise ValueError("limit must be at least 1")
+    out: List[str] = []
+    cur = ""
+    for _kind, block in _blocks(text):
+        if cur and len(cur) + len(block) > limit:
+            out.append(cur)
+            cur = ""
+        cur += block
+    if cur:
+        out.append(cur)
+    return out
+
+
+def safe_line_end(lines: List[str], stop: int) -> int:
+    """The number of lines to show from the start of `lines` (a window of a text, lines without their line ends) when `stop` is the most that
+    fits: the largest count at most `stop` after which the rest does not continue a code block, a table or a list item. `stop` itself when the
+    window ends at a boundary already or holds no boundary at all."""
+    if stop >= len(lines) or stop < 1:
+        return min(stop, len(lines))
+    best, n = 0, 0
+    for _kind, block in _blocks("\n".join(lines) + "\n"):
+        used = block.splitlines()
+        n += len(used)
+        end = n
+        while used and not used[-1].strip():                 # the blank lines after a block are the gap to the next one, not part of it
+            used.pop()
+            end -= 1
+        if end <= stop:
+            best = max(best, end)
+    return best or stop
+
+
+def joiner(before: str, after: str) -> str:
+    """What goes between two pieces of one text that were written apart: a line end when the second continues a list or a table that the first
+    ends in, else a blank line."""
+    last = before.rstrip().splitlines()[-1] if before.strip() else ""
+    rest = after.lstrip().splitlines()
+    first = rest[0] if rest else ""
+    if _LIST_ITEM.match(last) and _LIST_ITEM.match(first):
+        return "\n"
+    if "|" in last and "|" in first and last.lstrip().startswith("|") and first.lstrip().startswith("|") and not (len(rest) > 1 and _TABLE_DELIMITER.match(rest[1])):
+        return "\n"
+    return "\n\n"
