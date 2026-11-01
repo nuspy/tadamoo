@@ -110,7 +110,11 @@ folder of the user data folder (`benchmarks/<id>/`), with their licence kept bes
 4. ClawBench: the null and random-click harnesses on two Lite cases to prove the pipeline, then the adapter if the browser can attach to an external one.
 5. MCPMark/Toolathlon and Claw-Eval route A.
 
-## Questions for the owner
+## Decisions of the owner (1 November)
+
+First: Terminal-Bench 2.0, SWE-bench Verified (a subset), ClawBench, BFCL v4 and tau3-bench. Benchmark code and data stay outside the repository and are imported automatically at the current version or branch, with the commit recorded in each run. Every benchmark runs only on Basalt with Qwen3.8-Flash-Next IQ4_XS: never another model, never a cloud API, so a judge or a simulated user that is a cloud model in the official setup is replaced by this model (or the judge-free mode) and the score is labelled not comparable with the board. Docker and WSL2 are prepared step by step.
+
+## Questions for the owner (answered above)
 
 Which suites first; whether benchmark code stays out of the repository as read here (fetched and pinned in the user data folder); whether a cloud judge key may be used and with what
 cost cap; whether WSL2 and Docker may be set up on this PC.
