@@ -1,6 +1,7 @@
 "use strict";
 /* Chat: streams from this server's /v1/chat/completions. Replies are rendered from escaped text, so the model's
-   output can never inject markup. The conversation is kept in this browser's localStorage when it allows it. */
+   output can never inject markup. The conversation is kept in this browser's localStorage when it allows it, and its words are handed to the server's
+   index of earlier conversations (POST /api/past/chat) so that other conversations can find them. */
 (() => {
   const STORE = "basalt.chat", EFFORT = "basalt.effort", IMAGE_MAX = 12 << 20;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -262,6 +263,23 @@
   function save() {
     // images make the store large: if it is full, keep the text and the image names only
     if (!keep(STORE, messages)) keep(STORE, messages.map(m => ({ ...m, images: (m.images || []).map(i => ({ name: i.name })) })));
+    indexSoon();
+  }
+  // the words of the conversation go to the server once the page is quiet; nothing here depends on the answer
+  const ID_KEY = "basalt.chat.id";
+  const chatId = () => { let v = load(ID_KEY, ""); if (!/^[A-Za-z0-9_-]{6,64}$/.test(v || "")) { v = Date.now().toString(36) + Math.random().toString(36).slice(2, 10); keep(ID_KEY, v); } return v; };
+  const wordsOf = c => typeof c === "string" ? c : Array.isArray(c) ? c.filter(p => p && p.type === "text").map(p => p.text).join("\n") : "";
+  let indexTimer = null;
+  function indexSoon() {
+    clearTimeout(indexTimer);
+    indexTimer = setTimeout(() => {
+      if (busy) return indexSoon();
+      const turns = messages.filter(m => m && (m.role === "user" || m.role === "assistant")).map(m => ({ role: m.role, content: wordsOf(m.content) })).filter(m => m.content);
+      if (!turns.length) return;
+      const first = turns.find(m => m.role === "user");
+      fetch("/api/past/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: chatId(), title: first ? first.content.replace(/\s+/g, " ").slice(0, 80) : "", messages: turns }) }).catch(() => {});
+    }, 1500);
   }
   msgs.addEventListener("click", e => {
     const u = e.target.closest(".undo");
@@ -585,7 +603,7 @@
     const a = agent();
     if (a) { a.newChat(); prompt.focus(); return; }
     if (busy) busy.controller.abort();
-    messages = []; save(); render(); status(T("ch.new")); prompt.focus(); meter();
+    clearTimeout(indexTimer); keep(ID_KEY, ""); messages = []; save(); render(); status(T("ch.new")); prompt.focus(); meter();
   };
 
   /* ---- images (only when the server reads them) ---- */

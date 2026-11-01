@@ -1436,7 +1436,7 @@ topics, projects). Each note has a section, a text of any length, an origin (`sa
 
 - **Storage.** `personal-memory/memories.bin` in the user data folder: AES-256-GCM, key derived (HMAC-SHA256) from the vault's `device.key` (DPAPI-wrapped), so the same protection and the same
   limit as the vault. The file also holds the queue of messages to learn from and the last 100 changes. `memory-settings.json` beside it (not secret) holds the switches: `learn_long`, `learn_short`,
-  `use_long`, `use_short`, `short_days` (default 14), `long_days` (default 0, no limit), `cloud_ok`, and a weight (`off`, `low`, `normal`, `high`, `highest`) for each section. **Everything is off by default.**
+  `use_long`, `use_short`, `short_days` (default 14), `long_days` (default 0, no limit), `cloud_ok`, and a weight (`off`, `low`, `normal`, `high`, `highest`) for each section. **Learning and using are on by default for both memories; `cloud_ok` is off.** The file is one for the person, not per chat or project, so a switch applies to every conversation, new or running, and survives restarts.
   One process writes it (the server); each conversation process reads it again whenever the file changes, so a switch works on a running conversation.
 - **Learning.** `SessionManager` collects what the person writes in a turn (and the `search_web` queries run for it) and hands it to `MemoryWorker.offer` when the turn ends; a routine's conversation is
   excluded (`keep_out_of_memory`). The message is queued only if a memory learns. `MemoryWorker` runs a thread: when `gpu_free(svc)` is true (the model is loaded, nothing is served or queued, the last request
@@ -1456,6 +1456,16 @@ topics, projects). Each note has a section, a text of any length, an origin (`sa
   list a phone may reach does not include them, so a phone neither sees nor edits the memories, though its conversations use them. `clear` needs `confirm: true`.
 - **What it is not.** Matching is by words, not meaning: a question that shares none with a note does not bring it (except the core notes of a heavy section at the start, and `recall_about_user`). A note the
   person pasted into a message as if it were their own can be learned: read the list now and then. The quality of what the loaded model keeps has not been measured (`tests/QUEUE_daytime.md`, row 27).
+
+## Earlier conversations
+
+`harness/past.py`, `serve/agent_sessions.py` (`index_past`, `index_all_past`, `routine_run`), `serve/handler.py` (`/api/past/chat`). One SQLite FTS5 file, `<user data>/memory/past.db`, indexes every conversation the person has had, whatever the tab:
+the Chat in its conversation modes, projects, and the model-only chat. It is cut into pieces of about 500 tokens (paragraph ends), each kept with its conversation, turn, project (the folder's name; none for the Chat), kind (`chat`, `agent`, `routine`), routine name and date. The text is stored, so a hit can be read again as it was said. Tool results and system messages are not indexed.
+
+- **Filling it.** When a turn ends the server adds the whole conversation (`history`, with the originals compaction removed) and replaces what it had of it; at start a background pass adds the conversations saved before the index or changed since. The model-only chat keeps its conversation in the browser and posts its words to `POST /api/past/chat` (this PC only) when the page has been quiet for a moment.
+- **Routines.** A routine's conversations are left out unless its switch "Remember what it does" (`index_past`, off by default) is on; they are then indexed with kind `routine` and the routine's name. Other unattended conversations stay out.
+- **Using it.** The conversation process is started with `--past-index` and has two read-only tools whose results are untrusted data: `search_past(query, days, project, kind)` (at most two pieces from one conversation, each with conversation id, turn, date and a stretch of text) and `open_past(conversation, first_turn, last_turn)`. With a provider that is not this PC both answer with nothing. The Question-only mode has no tools, so it does not search.
+- **Limits.** Matching is by words, as for the project notes: "UE" does not find "Unione Europea". The index is not encrypted (like the conversation files it is made from); the memories of the person are separate and encrypted. Nothing masks a secret the person typed into the model-only chat.
 
 ## Routines
 

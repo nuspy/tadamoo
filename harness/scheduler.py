@@ -215,11 +215,11 @@ class Scheduler:
         return r
 
     def add(self, name: Any, prompt: Any, workspace: Any, schedule: Any, max_turns: Any = None, max_minutes: Any = None,
-            skill: Any = "", values: Any = None, yield_s: Any = None) -> Dict[str, Any]:
+            skill: Any = "", values: Any = None, yield_s: Any = None, index_past: Any = False) -> Dict[str, Any]:
         """A new routine, enabled. With a `skill` it runs that personal skill with `values` instead of a prompt.
         `max_turns` and `max_minutes` limit the steps and the time of a run, `yield_s` how long it may go on once a conversation
-        of the person's is at work; empty means no limit."""
-        routine = self._check(name, prompt, workspace, schedule, max_turns, max_minutes, skill, values, yield_s)
+        of the person's is at work; empty means no limit. `index_past` adds what the routine does to the index of earlier conversations (off unless the person asks)."""
+        routine = self._check(name, prompt, workspace, schedule, max_turns, max_minutes, skill, values, yield_s, index_past)
         now = self.clock()
         routine.update(id=secrets.token_hex(3), enabled=True, enabled_at=now, created=now, last_run=0, last_status="")
         with self._lock:
@@ -231,9 +231,9 @@ class Scheduler:
     def update(self, routine_id: str, **fields: Any) -> Dict[str, Any]:
         with self._lock:
             current = self._find(routine_id)
-            merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "max_turns", "max_minutes", "skill", "values", "yield_s")}}
+            merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "max_turns", "max_minutes", "skill", "values", "yield_s", "index_past")}}
             checked = self._check(merged["name"], merged["prompt"], merged["workspace"], merged["schedule"], merged.get("max_turns"),
-                                  merged.get("max_minutes"), merged.get("skill", ""), merged.get("values"), merged.get("yield_s"))
+                                  merged.get("max_minutes"), merged.get("skill", ""), merged.get("values"), merged.get("yield_s"), merged.get("index_past", False))
             current.update(checked)
             self._due[routine_id] = self._advance(current, self.clock())
             self._save()
@@ -241,7 +241,7 @@ class Scheduler:
 
     @staticmethod
     def _check(name: Any, prompt: Any, workspace: Any, schedule: Any, max_turns: Any = None, max_minutes: Any = None,
-               skill: Any = "", values: Any = None, yield_s: Any = None) -> Dict[str, Any]:
+               skill: Any = "", values: Any = None, yield_s: Any = None, index_past: Any = False) -> Dict[str, Any]:
         if not isinstance(name, str) or not name.strip() or len(name) > NAME_MAX:
             raise RoutineError(f"Give the routine a name of at most {NAME_MAX} characters.", "bad_name")
         if skill:
@@ -266,7 +266,9 @@ class Scheduler:
             raise RoutineError("The time of a run is a whole number of minutes from 1, or empty for no limit.", "bad_minutes")
         if yield_s is not None and (not isinstance(yield_s, int) or isinstance(yield_s, bool) or not 0 <= yield_s <= YIELD_MAX_S):
             raise RoutineError(f"The time to go on once a conversation of yours is at work is from 0 to {YIELD_MAX_S} seconds, or empty for never.", "bad_yield")
-        return {"yield_s": yield_s, "name": name.strip(), "prompt": prompt.strip(), "workspace": str(Path(workspace.strip()).resolve()),
+        if not isinstance(index_past, bool):
+            raise RoutineError("Indexing is on or off.", "bad_index")
+        return {"yield_s": yield_s, "index_past": index_past, "name": name.strip(), "prompt": prompt.strip(), "workspace": str(Path(workspace.strip()).resolve()),
                 "schedule": " ".join(str(schedule).lower().split()), "max_turns": max_turns, "max_minutes": max_minutes,
                 **({"skill": skill, "values": dict(values or {})} if skill else {"skill": "", "values": {}})}
 
@@ -496,6 +498,7 @@ class SessionRoutineRunner:
                          routine.get("max_turns") or NO_STEP_LIMIT, worktree="off", unattended=True)["id"]
         self._own.add(sid)
         getattr(mgr, "keep_out_of_memory", lambda _sid: None)(sid)          # a routine is not the person talking: nothing in it is learned
+        getattr(mgr, "routine_run", lambda *_a: None)(sid, routine["name"], bool(routine.get("index_past")))      # indexed for later search only when the routine says so
         try:
             if routine.get("skill"):                          # the values are worked out now: "today" is the day of this run
                 try:

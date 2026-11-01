@@ -528,3 +528,13 @@ def test_a_budget_that_is_not_a_whole_number_of_seconds_in_range_is_refused(tmp_
     with pytest.raises(RoutineError):
         sched.update(routine["id"], yield_s=bad)
     assert sched.update(routine["id"], yield_s=30)["yield_s"] == 30 and sched.update(routine["id"], yield_s=None)["yield_s"] is None
+
+
+def test_a_routine_is_not_indexed_for_later_search_unless_the_person_says_so(tmp_path, folder):
+    sched, _ = make(tmp_path, FakeRunner())
+    first = add(sched, folder)
+    assert first["index_past"] is False
+    assert sched.update(first["id"], index_past=True)["index_past"] is True
+    with pytest.raises(RoutineError, match="on or off"):
+        sched.update(first["id"], index_past="yes")
+    assert add(sched, folder, name="other", index_past=True)["index_past"] is True

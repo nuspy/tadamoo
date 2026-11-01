@@ -185,3 +185,50 @@ class PastIndex:
     def close(self) -> None:
         with self._lock:
             self.conn.close()
+
+
+def register_past_tools(registry: Any, index: PastIndex, local: Callable[[], bool] = lambda: True) -> None:
+    """`search_past` and `open_past`: the model looks for what was said in the person's earlier conversations and reads it again as it was said.
+
+    What comes back is untrusted data. It stays on this PC: when the request goes to another provider the tools answer with nothing."""
+    from harness.tools.registry import EffectClass
+
+    def day(stamp: Any) -> str:
+        return time.strftime("%Y-%m-%d", time.localtime(float(stamp))) if stamp else ""
+
+    def search_past(query: str, days: int = 0, project: str = "", kind: str = "", limit: int = 5) -> Any:
+        if not local():
+            return {"hits": [], "note": "the earlier conversations stay on this PC and this request goes elsewhere"}
+        since = time.time() - int(days) * 86400 if int(days or 0) > 0 else None
+        hits = index.search(str(query), since=since, project=project or None, kind=kind if kind in KINDS else None, limit=max(1, min(int(limit), 20)))
+        return {"hits": [{"conversation": h["session"], "turn": h["turn"], "title": h["title"], "project": h["project"], "kind": h["kind"], "routine": h["routine"],
+                          "date": day(h["at"]), "who": h["role"], "text": h["snippet"]} for h in hits],
+                "next": "open_past(conversation, first_turn, last_turn) reads the turns around a hit in full"}
+
+    def open_past(conversation: str, first_turn: int = 1, last_turn: int = 0) -> Any:
+        if not local():
+            return {"messages": [], "note": "the earlier conversations stay on this PC and this request goes elsewhere"}
+        got = index.open(str(conversation), int(first_turn), int(last_turn) if int(last_turn or 0) > 0 else None)
+        return {"conversation": got["session"], "title": got["title"], "project": got["project"], "date": day(got["at"]),
+                "messages": [{"turn": m["turn"], "who": m["role"], "text": m["text"]} for m in got["messages"]],
+                "cut": got["more"]}
+
+    registry.register(
+        name="search_past",
+        description=("Searches the person's earlier conversations (every chat, project and, where the person allowed it, routine) by words. Use it when they refer to something "
+                     "said before, in this or another conversation. Words that were used then may differ from yours: try the other name, language or short form."),
+        parameters={"type": "object", "properties": {
+            "query": {"type": "string", "description": "Words to look for"},
+            "days": {"type": "integer", "description": "Only the last N days (0: any time)", "default": 0},
+            "project": {"type": "string", "description": "Only this project's folder name", "default": ""},
+            "kind": {"type": "string", "enum": ["", *KINDS], "default": ""},
+            "limit": {"type": "integer", "default": 5}}, "required": ["query"]},
+        effect=EffectClass.PURE, handler=search_past, untrusted=True)
+    registry.register(
+        name="open_past",
+        description="Reads turns of an earlier conversation as they were said, by the conversation id and turn numbers that search_past gave.",
+        parameters={"type": "object", "properties": {
+            "conversation": {"type": "string", "description": "The conversation id from search_past"},
+            "first_turn": {"type": "integer", "default": 1},
+            "last_turn": {"type": "integer", "description": "0: to the end", "default": 0}}, "required": ["conversation"]},
+        effect=EffectClass.PURE, handler=open_past, untrusted=True)

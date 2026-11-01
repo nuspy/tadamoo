@@ -1,6 +1,7 @@
 import pytest
 
-from harness.past import CHUNK_CHARS, PER_SESSION, PastIndex, pieces, text_of
+from harness.past import CHUNK_CHARS, PER_SESSION, PastIndex, pieces, register_past_tools, text_of
+from harness.tools.registry import ToolRegistry
 
 
 def convo(*lines):
@@ -117,3 +118,42 @@ def test_the_list_of_conversations_is_newest_first(tmp_path):
 def test_a_kind_that_does_not_exist_is_refused(tmp_path):
     with pytest.raises(ValueError, match="kind"):
         make(tmp_path).add_session("s", convo("a", "b"), kind="dream")
+
+
+def tools(past, local=lambda: True):
+    registry = ToolRegistry()
+    register_past_tools(registry, past, local=local)
+    return registry._tools["search_past"].handler, registry._tools["open_past"].handler, registry
+
+
+def test_the_model_finds_a_hit_and_reads_the_turns_around_it(tmp_path):
+    past = make(tmp_path)
+    past.add_session("c1", convo("Quali eventi dell'Unione Europea a novembre?", "Il vertice di Bruxelles il 14.", "E dopo?", "Il consiglio di dicembre."),
+                     title="Eventi UE", kind="chat", at=1_800_000_000.0)
+    search, open_, registry = tools(past)
+    got = search("vertice Bruxelles")
+    assert got["hits"][0]["conversation"] == "c1" and got["hits"][0]["turn"] == 1 and got["hits"][0]["date"].startswith("2027-01") and "open_past" in got["next"]
+    read = open_("c1", 1, 2)
+    assert [m["text"] for m in read["messages"]] == ["Quali eventi dell'Unione Europea a novembre?", "Il vertice di Bruxelles il 14.", "E dopo?", "Il consiglio di dicembre."]
+    assert registry._tools["search_past"].untrusted and registry._tools["open_past"].untrusted           # what comes back is data from the past, not instructions
+
+
+def test_the_tools_narrow_by_days_project_and_kind(tmp_path):
+    import time
+    past = make(tmp_path)
+    past.add_session("old", convo("tax return", "ok"), project="A", kind="chat", at=time.time() - 40 * 86400)
+    past.add_session("new", convo("tax return", "ok"), project="B", kind="agent", at=time.time() - 86400)
+    search, _, _ = tools(past)
+    assert {h["conversation"] for h in search("tax")["hits"]} == {"old", "new"}
+    assert [h["conversation"] for h in search("tax", days=7)["hits"]] == ["new"]
+    assert [h["conversation"] for h in search("tax", project="A")["hits"]] == ["old"]
+    assert [h["conversation"] for h in search("tax", kind="agent")["hits"]] == ["new"]
+    assert {h["conversation"] for h in search("tax", kind="nonsense")["hits"]} == {"old", "new"}
+
+
+def test_nothing_is_given_to_a_provider_that_is_not_this_pc(tmp_path):
+    past = make(tmp_path)
+    past.add_session("c1", convo("secret plans", "noted"))
+    search, open_, _ = tools(past, local=lambda: False)
+    assert search("secret")["hits"] == [] and "stay on this PC" in search("secret")["note"]
+    assert open_("c1")["messages"] == []
