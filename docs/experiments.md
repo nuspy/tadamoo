@@ -334,7 +334,12 @@ many functions three modules have (the ledger lines), whether three modules had 
 needed (incidental): the name of the first function of three modules and the value of `LIMIT` in three others. Every answer is known from the generated files; each probe is checked by the text of the reply.
 
 **Scorer.** `success` is the task's checks. `recall` is the share of probes answered right. `reread_tokens` is what the server read again (prompt tokens less cached tokens), `compactions` and
-`generation` come from the compaction counter and the compacted records the conversation holds. **Metrics**: success, recall_task, recall_incidental, recall (all), reread_tokens, compactions, generation, tokens, tool calls, seconds. **k = 5**.
+`generation` come from the compaction counter and the compacted records the conversation holds. `summary_cut` is the summary calls that ended cut off, `carry` the share of the first twelve
+modules whose ledger line (`mod_003: 4 functions`, right count) can still be read in the conversation when the job ends, `artifact_reads` the calls that went to the saved copies of earlier results.
+**Metrics**: success, recall_task, recall_incidental, recall (all), summary_cut, carry, artifact_reads, reread_tokens, compactions, generation, tokens, tool calls, seconds. **k = 5**.
+
+**Large job.** `--only long200 --window 65536` (it runs only when named): 200 modules, one at a time with `read_file` and `edit_file`, scripts forbidden in the request, about 2.6 times the prompt budget of
+that window, so masking and compaction both come due. The existing `long60` and `long45` are unchanged.
 
 **Rule.** `A` beats `N` when its `recall_task` is higher than the pooled `N` and `N~aa` rate by more than the gap and by 10 points, its `success` is not lower by more than the gap, and it takes no more than
 twice `N`'s seconds. Tokens read again are reported, not decided on.

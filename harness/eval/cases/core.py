@@ -114,6 +114,7 @@ class Experiment:
     default_k: int = 5
     needs_model: bool = True
     extra_report: Optional[Callable[[Sequence[CaseTrial]], List[str]]] = None       # lines the experiment adds after the decision
+    opt_in: Sequence[str] = ()                           # task ids that run only when named with --only
 
 
 @dataclass
@@ -233,13 +234,18 @@ def rotate(items: Sequence[Any], n: int) -> List[Any]:
     return list(items[n:]) + list(items[:n])
 
 
+def selected_tasks(exp: Experiment, only: Sequence[str] = ()) -> List[Any]:
+    """The tasks to run: those named in `only`, else all but the ones that run only when named."""
+    return [t for t in exp.tasks() if (exp.task_id(t) in only if only else exp.task_id(t) not in exp.opt_in)]
+
+
 def run_fingerprint(exp: Experiment, ctx: Context, k: int, arms: Optional[Sequence[str]] = None, only: Sequence[str] = (),
                     environment: Optional[Mapping[str, Any]] = None, model_file: Optional[str] = None) -> Dict[str, Any]:
     """What a resumed run must match (harness/eval/resume.py): the code, the model file, the settings the run records, the arms chosen, the tasks and k."""
     sampling = {"temperature": ctx.temperature, "seed_base": ctx.seed_base, "power_limit_w": ctx.power_limit_w, "plumbing": ctx.plumbing, **{f"extra.{n}": v for n, v in ctx.extra.items()}}
     env = {n: v for n, v in (environment or {}).items() if n not in ("Endpoint", "Harness")}           # the port changes between server starts; the code is in the git part
     chosen = [a for a in exp.arms if not arms or a.name in arms]
-    tasks = [exp.task_id(t) for t in exp.tasks() if not only or exp.task_id(t) in only]
+    tasks = [exp.task_id(t) for t in selected_tasks(exp, only)]
     return make_fingerprint(experiment=exp.id, k=k, arms=[asdict(a) for a in chosen], tasks=tasks, sampling=sampling, environment=env, model_file=model_file)
 
 
@@ -248,7 +254,7 @@ def run_experiment(exp: Experiment, ctx: Context, k: int, arms: Optional[Sequenc
     """Every task k times under every arm, arms alternating: for each repetition and task the arms run in a rotating order. With a journal, every
     finished trial is written to it and a valid one it already holds is reused instead of run."""
     chosen = [a for a in exp.arms if not arms or a.name in arms]
-    tasks = [t for t in exp.tasks() if not only or exp.task_id(t) in only]
+    tasks = selected_tasks(exp, only)
     trials: List[CaseTrial] = []
     for rep in range(1, k + 1):
         for i, task in enumerate(tasks):

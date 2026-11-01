@@ -8,9 +8,14 @@ as in E5, so the job outgrows it. The fixture is E5's generated repository (`fix
 the same conversation after the job, with the tools taken away, about the first modules of the job: eight the job needed later (a ledger count, whether a module had the
 misspelling, the standing rules) and six it did not (a name, a value). The rule decides on the first group. The proxy arms of the design (the proxy folding
 old turns itself, alone or stacked with Basalt's compaction) need the proxy in the loop and are not built here; the Chat's short record is not measured here either.
+
+`--only long200` runs the large job instead: 200 modules, one at a time with read_file and edit_file and no scripts, about 2.6 times the prompt budget of a 65,536
+window (`--window 65536`). It runs only when named. Extra columns: `summary_cut` (summary calls that ended cut off), `carry` (share of the first twelve modules whose
+ledger line is still readable in the conversation when the job ends), `artifact_reads` (calls that went to the saved copies of earlier results).
 """
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 import time
@@ -19,6 +24,7 @@ from typing import Any, Dict, List
 
 from harness import agent_loop as al
 from harness import compacted
+from harness.compaction import text_of
 from harness.tools.registry import ToolRegistry
 
 from .agentrun import CountingClient, close_quietly, open_agent, snapshot, transcript_measures, write_files
@@ -28,7 +34,7 @@ from .e5_compaction import WINDOW, notes_of, score
 from .fixtures import context_probes as cp
 from .fixtures import long_turn_repo as lt
 
-COLUMNS = ("success", "recall_task", "recall_incidental", "recall", "probes_right", "compactions", "generation", "reread_tokens", "prompt_tokens", "cached_tokens", "tool_calls", "seconds")
+COLUMNS = ("success", "recall_task", "recall_incidental", "recall", "probes_right", "compactions", "generation", "summary_cut", "carry", "artifact_reads", "reread_tokens", "prompt_tokens", "cached_tokens", "tool_calls", "seconds")
 
 ARMS = with_control([
     Arm("N", "compaction off (masking only)", {"compaction": False}, "--no-compaction"),
@@ -42,8 +48,31 @@ RULE = Rule(
          "succeeds no less often than N (within 10 points or the gap), and it takes no more than twice N's seconds. Tokens read again are reported and not decided on.")
 
 
+# The large job, named with --only: about 2.6 times the prompt budget of a 65,536-token window, handled one module at a time with the file tools.
+LARGE = {"id": "long200", "modules": 200, "seed": 23, "per_module": True}
+OPT_IN = (LARGE["id"],)
+CARRY_MODULES = 12                    # the first modules, which the probes ask about
+
+
 def variants() -> List[Dict[str, Any]]:
-    return lt.VARIANTS
+    return [*lt.VARIANTS, LARGE]
+
+
+def carry_of(repo: lt.Repo, messages: List[Dict[str, Any]]) -> float:
+    """The share of the first modules whose ledger line (`mod_003: 4 functions`, with the right count) can still be read in the conversation."""
+    text = "\n".join(text_of(m) for m in messages if isinstance(m, dict) and m.get("role") != "system")
+    names = [f"mod_{i:03d}" for i in range(min(CARRY_MODULES, len(repo.functions)))]
+    return sum(1 for n in names if re.search(rf"(?<!\w){n}: {repo.functions[n]} functions", text)) / max(1, len(names))
+
+
+def artifact_reads(turns: List[Any]) -> int:
+    """Calls that went to the saved copies of earlier results (`.basalt/artifacts`) instead of the files themselves."""
+    found = 0
+    for turn in turns:
+        for call in turn.tool_calls:
+            args = call.arguments if isinstance(call.arguments, dict) else {}
+            found += any(".basalt/artifacts" in str(v).replace("\\", "/") for v in args.values())
+    return found
 
 
 def generation_of(messages: List[Dict[str, Any]]) -> int:
@@ -77,7 +106,7 @@ def run_trial(arm: Arm, variant: Dict[str, Any], rep: int, ctx: Context) -> Case
         built = open_agent(workspace, client, root / "data", context_window=int(ctx.extra.get("window", WINDOW)), max_turns=int(ctx.extra.get("max_turns", 500)),
                            max_seconds=float(ctx.extra.get("max_seconds", 3 * 3600)), **arm.settings)
         built.agent.sampling = {"seed": ctx.seed_base + rep, **({"temperature": ctx.temperature} if ctx.temperature is not None else {})}
-        turns = built.agent.run(lt.request(variant["modules"]))
+        turns = built.agent.run(lt.request(variant["modules"], bool(variant.get("per_module"))))
         reason = built.agent.stop_reason
         final = al.answer_text(turns)
         order = sorted(repo.functions, key=lambda n: (workspace / "pkg" / f"{n}.py").stat().st_mtime_ns)
@@ -86,11 +115,13 @@ def run_trial(arm: Arm, variant: Dict[str, Any], rep: int, ctx: Context) -> Case
         trial.trace, trial.components = observe(turns, built.agent, built.audit, client)
         trial.success, trial.notes = bool(scored["success"]), notes_of(scored)
         before = client.prompt_tokens - client.cached_tokens
+        carried = carry_of(repo, getattr(built.agent, "messages", []))
         probes = cp.build(repo, variant["modules"])
         asked = ask_probes(built, probes) if reason == al.FINAL else {"right": 0, "of": len(probes), "wrong": [p["id"] for p in probes], "answers": {}, "task": 0.0, "incidental": 0.0}
         comp = getattr(getattr(built.agent.context, "compaction", None), "count", 0)
         trial.metrics = {"recall": asked["right"] / max(1, asked["of"]), "recall_task": asked["task"], "recall_incidental": asked["incidental"], "probes_right": asked["right"], "compactions": comp,
                          "generation": generation_of(getattr(built.agent, "messages", [])), "tool_calls": measures["tool_calls"],
+                         "summary_cut": getattr(getattr(built.agent.context, "compaction", None), "cuts", 0), "carry": carried, "artifact_reads": artifact_reads(turns),
                          "prompt_tokens": client.prompt_tokens, "cached_tokens": client.cached_tokens, "reread_tokens": client.prompt_tokens - client.cached_tokens,
                          "reread_tokens_in_probes": (client.prompt_tokens - client.cached_tokens) - before, "completion_tokens": client.completion_tokens}
         if asked["wrong"]:
@@ -112,5 +143,5 @@ def run_trial(arm: Arm, variant: Dict[str, Any], rep: int, ctx: Context) -> Case
 def experiment() -> Experiment:
     return Experiment(
         id="e9", title="What the agent still knows after a fold: compaction off or on", arms=ARMS, rule=RULE, columns=COLUMNS, tasks=variants, run_trial=run_trial,
-        task_id=lambda v: v["id"], default_k=5,
+        task_id=lambda v: v["id"], default_k=5, opt_in=OPT_IN,
         question="After a long job outgrew the context, does the agent still answer about the folded part, with Basalt's compaction on where masking alone loses it?")

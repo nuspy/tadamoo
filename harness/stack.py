@@ -17,7 +17,7 @@ from harness.agent_loop import AgentLoop, local_now
 from harness.audit import AuditLedger
 from harness.checkpoints import CheckpointManager
 from harness.client import BasaltClient
-from harness.compaction import DEFAULT_THRESHOLD as DEFAULT_COMPACTION_THRESHOLD, MAX_THRESHOLD as MAX_COMPACTION_THRESHOLD, MIN_THRESHOLD as MIN_COMPACTION_THRESHOLD, Compaction
+from harness.compaction import DEFAULT_THRESHOLD as DEFAULT_COMPACTION_THRESHOLD, MAX_THRESHOLD as MAX_COMPACTION_THRESHOLD, MIN_THRESHOLD as MIN_COMPACTION_THRESHOLD, Compaction, SummaryCut
 from harness.context import ContextBuilder, ContextManager, TokenJuiceCompactor, available_budget
 from harness.context_patterns import PatternContext, Snapshots, normalize_config
 from harness.gate import DEFAULT_ROUNDS, MAX_ROUNDS, MODES as VERIFY_MODES, VerifyGate, clean_commands
@@ -452,10 +452,10 @@ class BuiltAgent:
             self.mcp.close()
 
 
-def _summarizer(client: Optional[Any]):
+def _summarizer(client: Optional[Any], reject_cut: bool = False):
     """(instructions, text) -> summary, written by the model the compaction function is pointed at; None without a client. A text larger
     than the technical session is read in parts (harness/digest.py); without one, or on a cloud route, a text over the limit loses its
-    middle, so the start and the newest part are both read."""
+    middle, so the start and the newest part are both read. With `reject_cut` an answer that ended on the length limit raises SummaryCut."""
     if client is None:
         return None
 
@@ -476,8 +476,11 @@ def _summarizer(client: Optional[Any]):
                     time.sleep(2.0)
                     continue
                 raise
-        if strict and reply["choices"][0].get("finish_reason") == "length":          # cut off: the digest asks again with less
-            raise digest.Truncated()
+        if reply["choices"][0].get("finish_reason") == "length":
+            if strict:                                                               # cut off: the digest asks again with less
+                raise digest.Truncated()
+            if reject_cut:
+                raise SummaryCut()
         return (reply["choices"][0]["message"].get("content") or "").strip()
 
     def summarize(instructions: str, text: str) -> str:
@@ -678,7 +681,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     snapshots = Snapshots(Path(cfg.snapshot_dir) if cfg.snapshot_dir else data / "snapshots" / (cfg.run_id or "default")) if patterns["versioning"]["on"] else None
     context = PatternContext(compactor, budget_tokens=budget, patterns=patterns, snapshots=snapshots, mask_at=min(0.95, max(0.3, cfg.context_threshold)),
                              summarize=_summarizer(summarizer or client) if patterns["summary"]["on"] else None,
-                             compaction=Compaction(_summarizer(_compaction_client(summarizer, client)), cfg.compaction, cfg.compaction_threshold))
+                             compaction=Compaction(_summarizer(_compaction_client(summarizer, client), reject_cut=True), cfg.compaction, cfg.compaction_threshold))
 
     def refresh_budget() -> None:
         """Asks the server again, so a model loaded or changed since the conversation began sets the budget; no answer leaves it as it is."""

@@ -110,7 +110,7 @@ class Asked:
 
 def test_the_summary_call_is_a_separate_bounded_call_through_the_client_and_keeps_the_newest_text():
     client = Asked()
-    write = _summarizer(client, 1500)
+    write = _summarizer(client)
     big = "A" * 30000 + "MIDDLE" + "B" * 120000 + "THE-NEWEST-LINE"
     assert write("instructions", big) == "Goal: carry on\nOpen items: none"
     messages, tools, kwargs = client.calls[0]
