@@ -154,6 +154,7 @@ class BasaltClient:
     def __init__(self, base_url: str = "http://127.0.0.1:7232", api_key: Optional[str] = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
+        self.call_timeout: Optional[float] = None       # seconds a model call may take when the caller gives none (a whole answer arrives at once when it is not streamed)
 
     def _headers(self) -> Dict[str, str]:
         headers = {
@@ -226,7 +227,7 @@ class BasaltClient:
         tool_choice: Optional[str | Dict[str, Any]] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        timeout: float = 60.0,
+        timeout: Optional[float] = None,
         response_format: Optional[Dict[str, Any]] = None,
         extra: Optional[Dict[str, Any]] = None,
         on_delta: Optional[Callable[[str, str], None]] = None,
@@ -234,6 +235,7 @@ class BasaltClient:
         """Sends a request to /v1/chat/completions. With `on_delta(kind, text)` the answer is asked for as a stream
         and each piece of text ("content" or "reasoning") is handed on as it arrives; the return value is the same
         whole answer as without it. Without a `temperature` or `max_tokens` the request carries none, so the server's own apply."""
+        timeout = timeout if timeout is not None else (self.call_timeout or 60.0)
         payload: Dict[str, Any] = {"messages": messages}
         if temperature is not None:
             payload["temperature"] = temperature
