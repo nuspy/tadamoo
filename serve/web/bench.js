@@ -13,7 +13,7 @@
   const FIELDS = /^(INPUT|TEXTAREA|SELECT)$/;
   let S = null, note = "", sel = "", pre = {}, pending = "", armed = "", armTimer = 0, timer = 0, visible = false, started = {};
   let runId = "", R = null, rep = null, rank = null, boardText = "", boardAddr = "", lessonNote = {}, pack = null, desk = null, typed = "", deskNote = "", rankNote = "";
-  const form = { subset: {}, trials: {}, attempts: {}, reasoning: {}, power: "" };
+  const form = { subset: {}, trials: {}, attempts: {}, reasoning: {}, tasks: {}, power: "" };
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, disabled) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (disabled) b.disabled = true; return b; };
@@ -171,14 +171,19 @@
     [["", "bn.start.reasoning.model"], ["low", "bn.start.reasoning.low"], ["medium", "bn.start.reasoning.medium"], ["high", "bn.start.reasoning.high"]].forEach(([v, k]) => { const o = el("option", "", T(k)); o.value = v; reasoning.append(o); });
     reasoning.value = form.reasoning[b.id] || "";
     reasoning.onchange = () => { form.reasoning[b.id] = reasoning.value; };
-    const row1 = el("div", "bn-field"), row2 = el("div", "bn-field"), row3 = el("div", "bn-field"), row4 = el("div", "bn-field");
+    const only = el("input"), ol = el("label", "", T("bn.start.tasks"));
+    only.id = "bn-tasks-" + b.id; ol.htmlFor = only.id; only.type = "text"; only.autocomplete = "off"; only.spellcheck = false;
+    only.value = form.tasks[b.id] || "";
+    only.oninput = () => { form.tasks[b.id] = only.value; };
+    const row1 = el("div", "bn-field"), row2 = el("div", "bn-field"), row3 = el("div", "bn-field"), row4 = el("div", "bn-field"), row5 = el("div", "bn-field");
+    row5.append(ol, only, el("p", "bn-line dim", T("bn.start.tasks.help")));
     row1.append(sl, subset); row2.append(tl, trials); row3.append(atl, attempts, el("p", "bn-line dim", T("bn.start.attempts.help")));
     row4.append(rl, reasoning, el("p", "bn-line dim", T("bn.start.reasoning.help")));
     const why = startBlock(b);
-    box.append(row1, row2, row3, row4, el("p", "bn-line dim", S.model ? T("bn.start.model", S.model.name, S.model.quantisation || "?") : T("bn.model.none")));
+    box.append(row1, row5, row2, row3, row4, el("p", "bn-line dim", S.model ? T("bn.start.model", S.model.name, S.model.quantisation || "?") : T("bn.model.none")));
     if (why) box.append(el("p", "bn-line bn-warn", why));
     box.append(btn(T("bn.start.go"), "primary", () => {
-      const n = Number(form.trials[b.id] || 1), body = { id: b.id, subset: form.subset[b.id] || b.subsets[0].id, trials: n, max_failed_attempts: Number(form.attempts[b.id] || 0), reasoning: form.reasoning[b.id] || "" };
+      const n = Number(form.trials[b.id] || 1), body = { id: b.id, subset: form.subset[b.id] || b.subsets[0].id, trials: n, max_failed_attempts: Number(form.attempts[b.id] || 0), reasoning: form.reasoning[b.id] || "", tasks: (form.tasks[b.id] || "").split(/[\s,;]+/).filter(Boolean) };
       if (S.power_limit_w == null || !S.power_limit_measured) if (form.power) body.power_limit_w = Number(form.power);
       act("start", b.id, body);
     }, !!why));
