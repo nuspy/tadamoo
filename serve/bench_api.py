@@ -24,7 +24,9 @@ POWER_CACHE_S = 60.0
 CSV_MAX = 1 << 20
 PHRASE_MAX = 200
 REASONING_LEVELS = ("low", "medium", "high")      # how long the model thinks; not given: the model's own default
-SETTINGS_KEYS = ("subset", "trials", "max_failed_attempts", "reasoning")
+TASK_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$")
+TASKS_MAX = 200                       # the most task names one run may name; none named: the whole subset
+SETTINGS_KEYS = ("subset", "trials", "max_failed_attempts", "reasoning", "tasks")
 ERROR_TYPES = {"BadConfirmation": "confirmation", "NotConfigured": "not_configured", "PackageChanged": "package_changed", "NotOffered": "not_offered"}
 
 
@@ -192,6 +194,9 @@ class BenchApi:
         reasoning = req.get("reasoning", "")
         if reasoning not in ("", *REASONING_LEVELS):
             raise BenchApiError(f"the reasoning level is one of: {', '.join(REASONING_LEVELS)}, or left empty for the model's own")
+        tasks = req.get("tasks", [])
+        if not isinstance(tasks, list) or len(tasks) > TASKS_MAX or not all(isinstance(t, str) and TASK_NAME.match(t) for t in tasks):
+            raise BenchApiError(f"the tasks are a list of up to {TASKS_MAX} task names (letters, digits, dots, dashes), or empty for the whole subset")
         typed = req.get("power_limit_w")
         if typed is not None:
             if isinstance(typed, bool) or not isinstance(typed, (int, float)) or not POWER_RANGE[0] <= typed <= POWER_RANGE[1]:
@@ -201,8 +206,8 @@ class BenchApi:
             raise BenchApiError("The GPU power limit could not be read. Type it (in watts): every result is labelled with it.", "power_limit_unknown", 409)
         extra = {k: v for k, v in req.items() if k not in ("id", "power_limit_w", *SETTINGS_KEYS)}
         if extra:
-            raise BenchApiError("only the subset, the number of trials, the failed attempts allowed, the reasoning level and the power limit can be set: a benchmark runs only with the served model")
-        return {"subset": subset, "trials": trials, **({"max_failed_attempts": attempts} if attempts else {}), **({"reasoning": reasoning} if reasoning else {})}
+            raise BenchApiError("only the subset, the number of trials, the failed attempts allowed, the reasoning level, the tasks and the power limit can be set: a benchmark runs only with the served model")
+        return {"subset": subset, "trials": trials, **({"max_failed_attempts": attempts} if attempts else {}), **({"reasoning": reasoning} if reasoning else {}), **({"tasks": list(dict.fromkeys(tasks))} if tasks else {})}
 
     def _job(self, action: str, bench: str, settings: Dict[str, Any]) -> None:
         try:
