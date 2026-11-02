@@ -6,9 +6,9 @@ once, the running total survives a restart, and any file that fails verification
 No connector moves money: an authorization is a recorded decision, and what lets a payment happen is the
 card the vault then releases to the site that was named, for a few uses, while that decision still stands.
 
-The amount written in the declaration is the cap per payment; a second, cumulative cap is also required;
-a waiver lasts 30 days unless shorter, and may name the only sites it covers. The caps are the person's
-own numbers, to any amount. The amount is checked here, when the payment is asked for; the form that
+The amount written in the declaration is the cap per payment; a cumulative cap is optional (left out, it is
+effectively none); a waiver has no end unless the person gives one, and may name the only sites it covers.
+The caps are the person's own numbers, to any amount. The amount is checked here, when the payment is asked for; the form that
 charges the card is the merchant's, so the card's own limit is what bounds what that form can take.
 Files in the data folder are protected from edits by anything but their owner; an agent running as the
 same OS user could still reach them, which only a separate OS user fully prevents.
@@ -39,6 +39,7 @@ from harness.waiver.phrase import normalize, parse_amount, verify_phrase
 
 DAY = 86400.0
 DIGITS = 60
+NO_CUMULATIVE_CAP = "999999999999999"          # the cumulative cap when none is given: effectively none
 
 
 @contextlib.contextmanager
@@ -117,6 +118,12 @@ def site_ok(site: str, allowed: List[str]) -> bool:
     return bool(host) and any(host == a or host.endswith("." + a) for a in allowed)
 
 
+def _in_time(waiver: Dict[str, Any], now: float) -> bool:
+    """Whether a waiver has not ended by time; one with no end date never does."""
+    end = waiver.get("expires_at")
+    return end is None or now < end
+
+
 def money(cents: int, currency: str) -> str:
     with localcontext() as ctx:
         ctx.prec = 100                                   # a limit is the person's to set, however large: every digit is kept
@@ -178,10 +185,43 @@ class PaymentsBroker:
         os.replace(tmp, self.state_path)
 
     def _verified_ledger(self) -> None:
+        """Reads the ledger again; a damaged one is set aside and replaced by its readable rows, and payments go on (called with the lock held)."""
         self.ledger = AuditLedger(self.ledger.path)          # re-read what is on disk
         ok, why = self.ledger.verify_integrity()
         if not ok:
-            raise PermissionError(f"The payment ledger failed verification ({why}); all payments are stopped")
+            self._recover_ledger(why or "")
+
+    def _recover_ledger(self, why: str) -> None:
+        """The damaged ledger file keeps its name with a suffix; a new chain holds every row that can still be read, so what was
+        spent is worked out from them again; a row of the new chain says what happened."""
+        path = self.ledger.path
+        readable = [r for r in self.ledger.records
+                    if isinstance(r.get("action"), str) and isinstance(r.get("details"), dict) and isinstance(r.get("actor"), str)]
+        dropped = len(self.ledger.records) - len(readable)
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(self.clock()))
+        aside = path.with_name(f"{path.name}.damaged-{stamp}")
+        n = 1
+        while aside.exists():
+            n += 1
+            aside = path.with_name(f"{path.name}.damaged-{stamp}-{n}")
+        head = self.ledger.head_path
+        if path.is_file():
+            os.replace(path, aside)
+        if head.is_file():
+            os.replace(head, aside.with_name(aside.name + ".head"))
+        prev, lines = "0" * 64, []
+        for i, r in enumerate(readable):
+            entry = {"index": i, "timestamp": r["timestamp"] if isinstance(r.get("timestamp"), (int, float)) else self.clock(),
+                     "actor": r["actor"], "action": r["action"], "details": r["details"], "prev_hash": prev}
+            entry["hash"] = prev = AuditLedger._calculate_hash(entry)
+            lines.append(json.dumps(entry, ensure_ascii=False))
+        path.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+        if lines:
+            head.write_text(json.dumps({"count": len(lines), "hash": prev}), encoding="utf-8")
+        fresh = AuditLedger(path)
+        fresh.record("broker", "ledger_recovered", {"reason": why, "set_aside": aside.name, "rows_kept": len(readable), "rows_lost": dropped})
+        self.ledger = fresh
+        self._notify({"status": "warning", "warning": f"The payment ledger was damaged ({why}); it was set aside as {aside.name} and {len(readable)} readable rows were kept"})
 
     # -- systems and waivers ---------------------------------------------------------------------
 
@@ -231,8 +271,9 @@ class PaymentsBroker:
 
     def recent(self, count: int = 50) -> List[Dict[str, Any]]:
         """The last entries of the ledger, for the person to read: what was authorized, refused or granted."""
-        self._verified_ledger()
-        keep = ("payment_authorized", "payment_confirmed", "payment_refused", "waiver_granted", "waiver_revoked", "system_registered", "system_removed")
+        with self._lock():
+            self._verified_ledger()
+        keep = ("payment_authorized", "payment_confirmed", "payment_refused", "waiver_granted", "waiver_revoked", "system_registered", "system_removed", "ledger_recovered")
         rows = [r for r in self.ledger.records if r.get("action") in keep]
         return [{"index": r["index"], "at": r["timestamp"], "action": r["action"], "details": {k: v for k, v in r["details"].items() if k != "dossier_sha256"}}
                 for r in rows[-count:]][::-1]
@@ -251,12 +292,12 @@ class PaymentsBroker:
         user_name: str,
         typed_text: str,
         per_payment: str,
-        cumulative: str,
+        cumulative: str = "",
         read_to_end: bool,
         release_ack: bool,
         retyped_names: Dict[str, str],
         pasted: bool = False,
-        ttl_days: float = 30.0,
+        ttl_days: Optional[float] = None,
         lang: str = "it",
         typing_intervals_ms: Optional[List[int]] = None,
         screenshots: Optional[Dict[str, str]] = None,
@@ -269,12 +310,16 @@ class PaymentsBroker:
                 raise KeyError(f"unknown payment system '{system_id}'")
             currency = system["currency"]
             per_value, _ = parse_amount(per_payment)
-            cum_value, _ = parse_amount(cumulative)
-            per_cents, cum_cents = to_cents(per_value), to_cents(cum_value)
-            if cum_cents < per_cents:
-                raise ValueError("the cumulative cap cannot be below the cap per payment")
-            if not 0 < ttl_days <= 365:
-                raise ValueError("the waiver must last between a moment and 365 days")
+            per_cents = to_cents(per_value)
+            if str(cumulative or "").strip():
+                cum_value, _ = parse_amount(cumulative)
+                cum_cents = to_cents(cum_value)
+                if cum_cents < per_cents:
+                    raise ValueError("the cumulative cap cannot be below the cap per payment")
+            else:
+                cum_cents = max(to_cents(NO_CUMULATIVE_CAP), per_cents)
+            if ttl_days is not None and not (math.isfinite(ttl_days) and ttl_days >= 0):
+                raise ValueError("the waiver's length must be a number of days, or none")
             if not (read_to_end and release_ack):
                 raise ValueError("read both dialogs to the end and accept the release first")
             for dialog in ("release", "acceptance"):
@@ -299,7 +344,7 @@ class PaymentsBroker:
                     w["revoked_at"], w["revoked_reason"] = now, "superseded"
             waiver = {"waiver_id": f"wv_{secrets.token_hex(6)}", "system_id": system_id, "user": user_name,
                       "currency": currency, "per_payment_cents": per_cents, "cumulative_cents": cum_cents,
-                      "granted_at": now, "expires_at": now + ttl_days * DAY, "dossier_id": ref.dossier_id,
+                      "granted_at": now, "expires_at": now + ttl_days * DAY if ttl_days else None, "dossier_id": ref.dossier_id,
                       "revoked_at": None, "sites": allowed_sites}
             state["waivers"].append(waiver)
             self._save_state(state)
@@ -330,7 +375,7 @@ class PaymentsBroker:
     def _active(self, state: Dict[str, Any], system_id: str) -> Optional[Dict[str, Any]]:
         now = self.clock()
         for w in reversed(state["waivers"]):
-            if w["system_id"] == system_id and not w.get("revoked_at") and now < w["expires_at"]:
+            if w["system_id"] == system_id and not w.get("revoked_at") and _in_time(w, now):
                 return w
         return None
 
@@ -341,7 +386,8 @@ class PaymentsBroker:
     def status(self) -> List[Dict[str, Any]]:
         """The active waivers, for the permanent banner."""
         state = self._load_state()
-        self._verified_ledger()
+        with self._lock():
+            self._verified_ledger()
         out = []
         for system_id, system in state["systems"].items():
             w = self._active(state, system_id)
@@ -350,7 +396,8 @@ class PaymentsBroker:
                 cur = w["currency"]
                 out.append({"system": system_id, "name": system["name"], "per_payment": money(w["per_payment_cents"], cur),
                             "cumulative": money(w["cumulative_cents"], cur), "spent": money(spent, cur),
-                            "remaining": money(w["cumulative_cents"] - spent, cur), "expires_at": w["expires_at"],
+                            "remaining": money(w["cumulative_cents"] - spent, cur), "expires_at": w.get("expires_at"),
+                            "no_cumulative_cap": w["cumulative_cents"] >= to_cents(NO_CUMULATIVE_CAP),
                             "sites": list(w.get("sites") or [])})
         return out
 
@@ -436,7 +483,7 @@ class PaymentsBroker:
                         return False
                 if found["action"] == "payment_authorized":
                     w = next((x for x in state["waivers"] if x["waiver_id"] == found["details"].get("waiver_id")), None)
-                    return bool(w) and not w.get("revoked_at") and self.clock() < w["expires_at"]
+                    return bool(w) and not w.get("revoked_at") and _in_time(w, self.clock())
                 return True
         except (PermissionError, OSError, ValueError, KeyError):
             return False                                   # a damaged state stops every release too

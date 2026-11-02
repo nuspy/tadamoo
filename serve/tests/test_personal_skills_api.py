@@ -73,16 +73,16 @@ def test_a_skill_is_saved_listed_read_and_deleted_from_the_page(server):
 
 
 def test_what_cannot_be_saved_is_said(server):
-    for body, word in (({"skill": DEFINITION, "script": "import os\ndef main(params): pass"}, "import os"), ({"skill": {"name": ""}, "script": SCRIPT}, "name"),
-                       ({"skill": {**DEFINITION, "mode": "free"}, "script": SCRIPT}, "two confirmations"), ({"script": SCRIPT}, "definition")):
+    for body, word in (({"skill": DEFINITION, "script": "import os"}, "main"), ({"skill": {"name": ""}, "script": SCRIPT}, "name"),
+                       ({"script": SCRIPT}, "definition")):
         code, data, _ = call(server, "POST", "/api/personal-skills", body)
         assert code == 400 and word in data["error"]["message"], data
-    code, data, _ = call(server, "POST", "/api/personal-skills", {"skill": {**DEFINITION, "mode": "free"}, "script": "import os\ndef main(params): return os.getcwd()", "confirm_free": True})
-    assert code == 200 and data["skill"]["mode"] == "free"
+    code, data, _ = call(server, "POST", "/api/personal-skills", {"skill": DEFINITION, "script": "import os\ndef main(params): return os.getcwd()"})
+    assert code == 200 and "mode" not in data["skill"]
 
 
 def test_the_script_is_checked_as_it_is_written_and_the_form_is_read_as_it_is_filled(server):
-    code, data, _ = call(server, "POST", "/api/personal-skills/check", {"script": "import os\ndef main(params): pass"})
+    code, data, _ = call(server, "POST", "/api/personal-skills/check", {"script": "import os"})
     assert code == 200 and data["problems"][0]["line"] == 1 and data["tools"] == []
     code, data, _ = call(server, "POST", "/api/personal-skills/check", {"script": SCRIPT})
     assert data["problems"] == [] and data["tools"] == ["read_file"]
@@ -92,20 +92,18 @@ def test_the_script_is_checked_as_it_is_written_and_the_form_is_read_as_it_is_fi
     assert "not a date" in data["errors"]["day"]
 
 
-def test_a_skill_goes_to_another_pc_as_a_file_and_comes_back_to_approve(server):
+def test_a_skill_goes_to_another_pc_as_a_file_and_arrives_usable(server):
     call(server, "POST", "/api/personal-skills", {"skill": DEFINITION, "script": SCRIPT})
     code, data, resp = call(server, "GET", "/api/personal-skills/read-a-day/export")
     assert code == 200 and resp.getheader("Content-Disposition") == 'attachment; filename="read-a-day.pskill"' and data[:2] == b"PK"
     code, imported, _ = call(server, "POST", "/api/personal-skills/import", {"data": base64.b64encode(data).decode()})
-    assert code == 200 and imported["skill"]["status"] == "pending" and imported["skill"]["slug"] == "read-a-day-2"
-    code, approved, _ = call(server, "POST", "/api/personal-skills/read-a-day-2/approve", {})
-    assert approved["skill"]["status"] == "approved"
+    assert code == 200 and imported["skill"]["status"] == "approved" and imported["skill"]["slug"] == "read-a-day-2"
+    assert call(server, "POST", "/api/personal-skills/read-a-day-2/approve", {})[0] == 404           # there is no approval step any more
     for bad in ("###", "", None):
         assert call(server, "POST", "/api/personal-skills/import", {"data": bad})[0] == 400
 
 
-def test_only_the_servers_own_page_may_change_skills(server):
-    assert call(server, "POST", "/api/personal-skills", {"skill": DEFINITION, "script": SCRIPT}, {"Origin": "http://evil.example"})[0] == 403
+def test_skills_are_changed_only_with_the_servers_secret(server):
     assert call(server, "POST", "/api/personal-skills", {"skill": DEFINITION, "script": SCRIPT}, {"X-Basalt-Control": "wrong"})[0] == 403
 
 
@@ -149,21 +147,33 @@ def test_a_skill_starts_in_the_conversation_with_its_values_worked_out_and_is_sa
     assert manager.get(sid)["title"] == "Read a day"
 
 
-def test_a_skill_that_is_not_approved_or_has_bad_values_or_does_not_exist_does_not_start(manager, tmp_path):
+def test_a_skill_with_bad_values_or_that_does_not_exist_does_not_start(manager, tmp_path):
     ws = tmp_path / "ws"
     ws.mkdir()
-    manager.skills.save(DEFINITION, SCRIPT, approve=False)
+    manager.skills.save(DEFINITION, SCRIPT)
     sid = manager.create(str(ws))["id"]
-    with pytest.raises(RunError) as err:
-        manager.run_skill(sid, "read-a-day", {"file": "a"})
-    assert err.value.code == "needs_approval"
-    manager.skills.approve("read-a-day")
-    for slug, values, code in (("read-a-day", {}, "bad_values"), ("read-a-day", {"file": "a", "day": "never"}, "bad_values"), ("read-a-day", {"file": "a", "x": 1}, "bad_values"),
+    for slug, values, code in (("read-a-day", {"file": "a", "day": "never"}, "bad_values"), ("read-a-day", {"file": "a", "x": 1}, "bad_values"),
                                ("nope", {}, "no_skill"), (5, {}, "bad_skill"), ("read-a-day", [], "bad_skill")):
         with pytest.raises(RunError) as err:
             manager.run_skill(sid, slug, values)
         assert err.value.code == code, (slug, values)
     assert [e["event"] for e in manager.events(sid)["events"]] == []
+
+
+def test_a_required_value_left_out_does_not_stop_the_run_and_is_told_to_the_model_as_missing_then_the_last_one_is_used(manager, tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    manager.skills.save(DEFINITION, SCRIPT)
+    sid = manager.create(str(ws))["id"]
+    manager.run_skill(sid, "read-a-day", {})
+    first = manager.events(sid)["events"][0]
+    assert first["event"] == "user" and "File = (no value was given" in first["text"]
+    until(lambda: any(e["event"] == "done" for e in manager.events(sid)["events"]))
+    manager.run_skill(sid, "read-a-day", {"file": "notes.txt"})
+    until(lambda: sum(e["event"] == "done" for e in manager.events(sid)["events"]) == 2)
+    manager.run_skill(sid, "read-a-day", {})
+    users = [e for e in manager.events(sid)["events"] if e["event"] == "user"]
+    assert "no value was given" not in users[-1]["text"]                                 # notes.txt, kept from the last run
 
 
 def test_a_skill_waits_for_the_agent_to_finish_and_a_closed_conversation_takes_none(manager, tmp_path):
@@ -224,7 +234,7 @@ def test_the_script_is_written_from_the_parameters_the_person_kept(manager, tmp_
     monkeypatch.setattr(manager, "_skill_client", lambda: model)
     got = manager.skill_script(sid, [1], "Leggi", "reads a file", [{"name": "file", "type": "path", "value_seen": "notes.txt", "label": "File"}])
     assert got["problems"] == [] and got["unused"] == [] and "params.file" in got["script"]
-    assert got["skill"]["name"] == "Leggi" and got["skill"]["mode"] == "restricted" and got["skill"]["source"] == {"conversation": sid, "requests": [1]}
+    assert got["skill"]["name"] == "Leggi" and got["skill"]["source"] == {"conversation": sid, "requests": [1]}
     assert "<<params.file>>" in model.sent[0][1]["content"]
     saved = manager.skills.save(got["skill"], got["script"])                             # and it can be saved as it came
     assert saved["status"] == "approved" and saved["params"][0]["name"] == "file"
@@ -240,3 +250,12 @@ def test_what_cannot_be_made_into_a_skill_is_said(manager, tmp_path, monkeypatch
     with pytest.raises(RunError) as err:
         manager.skill_script(sid, [1], "x", "", [{"name": "A B"}])
     assert err.value.code == "bad_params"
+
+
+def test_a_routine_run_becomes_a_script_that_counts_the_places_left_to_the_model(manager, tmp_path, monkeypatch):
+    sid = conversation_with_a_tool(manager, tmp_path)
+    proposal = json.dumps({"name": "Leggi", "description": "reads a file", "params": [{"name": "file", "type": "path", "value_seen": "notes.txt", "explanation": "which"}]})
+    script = "```python\nfrom basalt_skill import tool, ai\n\ndef main(params):\n    text = tool('read_file', path=params.file)\n    return ai('summarise', text)\n```"
+    monkeypatch.setattr(manager, "_skill_client", lambda: Model(proposal, script))
+    got = manager.routine_skill(sid, "Morning notes")
+    assert got["name"] == "Morning notes" and got["problems"] == [] and got["tool_steps"] == 1 and got["ai_calls"] == 1 and "params.file" in got["script"]

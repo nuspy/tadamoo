@@ -13,6 +13,7 @@ class JobsScreen extends StatefulWidget {
 
 class _JobsScreenState extends State<JobsScreen> {
   List<Map<String, dynamic>> jobs = [];
+  List<Map<String, dynamic>> pending = [];
   String? error;
   bool loading = false;
 
@@ -28,6 +29,7 @@ class _JobsScreenState extends State<JobsScreen> {
     try {
       final r = await widget.api.get('/api/routines');
       jobs = ((r['routines'] as List?) ?? const []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+      pending = ((r['pending'] as List?) ?? const []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
       error = null;
     } on ApiError catch (e) {
       error = e.message;
@@ -60,6 +62,15 @@ class _JobsScreenState extends State<JobsScreen> {
     _load();
   }
 
+  Future<void> _dismiss(Map<String, dynamic> p) async {
+    try {
+      await widget.api.post('/api/routines/${p['id']}/dismiss');
+    } on ApiError catch (e) {
+      _say(e.message);
+    }
+    _load();
+  }
+
   void _say(String t) {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
   }
@@ -74,6 +85,20 @@ class _JobsScreenState extends State<JobsScreen> {
         child: ListView(children: [
           if (error != null) Padding(padding: const EdgeInsets.all(24), child: Text(error!)),
           if (error == null && jobs.isEmpty) Padding(padding: const EdgeInsets.all(24), child: Text(Texts.t('jobs.empty'), textAlign: TextAlign.center)),
+          if (pending.isNotEmpty) Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0), child: Text(Texts.t('jobs.pending'), style: theme.textTheme.titleSmall)),
+          for (final p in pending)
+            Card(
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${p['name']} · ${_when(p['created'] as num?)}', style: theme.textTheme.bodySmall),
+                  Text('${p['question']}'),
+                  if (((p['options'] as List?) ?? const []).isNotEmpty) Text(Texts.t('jobs.options', [((p['options'] as List).join(' / '))]), style: theme.textTheme.bodySmall),
+                  Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => _dismiss(p), child: Text(Texts.t('jobs.dismiss')))),
+                ]),
+              ),
+            ),
           for (final j in jobs)
             Card(
               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),

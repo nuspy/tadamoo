@@ -229,9 +229,11 @@ def check_spec(spec: Any) -> List[str]:
     return problems
 
 
-def resolve(specs: List[Dict[str, Any]], given: Dict[str, Any], now: Optional[datetime] = None) -> Tuple[Dict[str, Any], Dict[str, str]]:
-    """The values for a run: what the person gave, else the default (a date written in words is worked out now). Returns
-    ({name: {"type", "value"}}, {name: what is wrong}); a parameter with neither value nor default is an error."""
+def resolve(specs: List[Dict[str, Any]], given: Dict[str, Any], now: Optional[datetime] = None,
+            last: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    """The values for a run: what the person gave, else the default (a date written in words is worked out now), else the value
+    used last time (`last`). Returns ({name: {"type", "value"}}, {name: what is wrong}). A required parameter with no value at all does
+    not stop the run: it comes back with `value` None and `missing` True, for the run to tell the model."""
     now = now or datetime.now()
     values: Dict[str, Any] = {}
     errors: Dict[str, str] = {}
@@ -244,16 +246,18 @@ def resolve(specs: List[Dict[str, Any]], given: Dict[str, Any], now: Optional[da
         raw = given.get(name)
         if blank(raw):
             raw = spec.get("default")
+        if blank(raw) and last:
+            raw = last.get(name)
         if blank(raw):
-            if spec.get("required", True):
-                errors[name] = "needs a value"
-            else:
-                values[name] = {"type": kind, "value": None}
+            values[name] = {"type": kind, "value": None, **({"missing": True} if spec.get("required", True) else {})}
             continue
         try:
             values[name] = {"type": kind, "value": parse_value(spec, raw, now)}
         except ValueError_ as exc:
-            errors[name] = str(exc)
+            if raw is not given.get(name) and last and raw is last.get(name):         # a value kept from before that no longer fits is dropped
+                values[name] = {"type": kind, "value": None, **({"missing": True} if spec.get("required", True) else {})}
+            else:
+                errors[name] = str(exc)
     extra = sorted(set(given) - {s["name"] for s in specs})
     for name in extra:
         errors[name] = "is not a parameter of this skill"

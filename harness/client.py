@@ -5,14 +5,51 @@ content, and server/telemetry metrics retrieval.
 """
 from __future__ import annotations
 
+import http.client
 import json
+import os
 import re
+import socket
+import time
 import urllib.request
 import urllib.error
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 THINK_REGEX = re.compile(r"<think>(.*?)</think>", re.DOTALL)
+CONNECT_S = 4.0                # a connection that has not gone through by now is dropped and tried again, not waited for until the system gives up
+CONNECT_TRIES = 4
+RESET_TRIES = 3                # a request whose connection was closed under it before any answer came is sent again, up to this many times
+
+
+class _Connection(http.client.HTTPConnection):
+    """A connection that tries its connect a few times with a short wait each. Only the connect is repeated, never a request already sent."""
+
+    def connect(self) -> None:
+        last: Optional[OSError] = None
+        for _ in range(CONNECT_TRIES):
+            try:
+                wait = CONNECT_S if not self.timeout else min(CONNECT_S, float(self.timeout))
+                self.sock = socket.create_connection((self.host, self.port), wait, self.source_address)
+                self.sock.settimeout(self.timeout)
+                self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                return
+            except OSError as exc:
+                last = exc
+        raise last if last is not None else OSError("cannot connect")
+
+
+class _Handler(urllib.request.HTTPHandler):
+    def http_open(self, req: urllib.request.Request) -> Any:
+        return self.do_open(_Connection, req)
+
+
+_OPENER = urllib.request.build_opener(_Handler)
+
+
+def open_url(req: urllib.request.Request, timeout: float) -> Any:
+    """urlopen with a connect that is repeated when it does not go through quickly (a connection to this PC that the system lets hang for 21 seconds)."""
+    return _OPENER.open(req, timeout=timeout)
 
 
 class BasaltError(RuntimeError):
@@ -107,6 +144,7 @@ def _collect_stream(resp: Any, on_delta: Callable[[str, str], None]) -> Dict[str
         whole = [c for c in whole if _is_json_text(c["function"]["arguments"])]       # a call the output ended inside
     if whole:
         message["tool_calls"] = whole
+    meta["cut_calls"] = len(calls) - len(whole)                                     # calls left out because they ended mid-argument
     return {"choices": [{"index": 0, "message": message, "finish_reason": finish}], "usage": usage or {}, **meta}
 
 
@@ -116,6 +154,7 @@ class BasaltClient:
     def __init__(self, base_url: str = "http://127.0.0.1:7232", api_key: Optional[str] = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
+        self.call_timeout: Optional[float] = 60.0       # seconds a model call may take when the caller gives none; None: no limit (a whole answer arrives at once when it is not streamed)
 
     def _headers(self) -> Dict[str, str]:
         headers = {
@@ -124,13 +163,53 @@ class BasaltClient:
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+        if os.environ.get("BASALT_COMPRESS") == "1":
+            headers["X-Basalt-Compress"] = "1"          # the server may compress a streamed conversation (Billion Context)
         return headers
+
+    def context_window(self, timeout: float = 3.0) -> Optional[int]:
+        """The tokens one request can hold, as /v1/status reports them (each parallel slot holds this many); None when the
+        model is not loaded or the server gives no number. Raises BasaltError when the server cannot be reached."""
+        status = self._get("/v1/status", timeout)
+        if status.get("loaded") is False:
+            return None                                    # an engine that is not loaded reports a default, not its context
+        context = status.get("context")
+        value = (context.get("native") if isinstance(context, dict) else None) or status.get("cache_max_tokens")
+        return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else None
 
     def metrics(self, timeout: float = 5.0) -> Dict[str, Any]:
         """Fetches telemetry and engine status from /metrics."""
-        req = urllib.request.Request(f"{self.base_url}/metrics", headers=self._headers(), method="GET")
+        return self._get("/metrics", timeout)
+
+    SIDE_ASK_S = 30.0          # how long the server's answer about its technical session is kept
+    SIDE_RETRY_S = 3.0         # how long "could not be asked" is kept: a connection that failed once is no proof the session is gone
+
+    def side_context(self, timeout: float = 3.0) -> int:
+        """The tokens the server's technical session holds, as /v1/status reports them; 0 when it has none or cannot
+        be reached. Asked at most once per SIDE_ASK_S."""
+        asked = self.__dict__.get("_side")
+        if asked is not None and time.monotonic() - asked[0] < (self.SIDE_ASK_S if asked[2] else self.SIDE_RETRY_S):
+            return asked[1]
+        answered = True
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            try:
+                status = self._get("/v1/status", timeout)
+            except BasaltError as first:
+                if first.status != 0:
+                    raise
+                time.sleep(0.5)                              # a connection that did not go through: once more before saying there is no session
+                status = self._get("/v1/status", timeout)
+            side = (status.get("concurrency") or {}).get("side_slot")
+            tokens = int(side.get("context") or 0) if isinstance(side, dict) else 0
+        except (BasaltError, TypeError, ValueError):
+            tokens, answered = 0, False
+        self._side = (time.monotonic(), tokens, answered)
+        return tokens
+
+    def _get(self, path: str, timeout: float) -> Dict[str, Any]:
+        req = urllib.request.Request(f"{self.base_url}{path}", headers=self._headers(), method="GET")
+        try:
+            with open_url(req, timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             try:
@@ -146,20 +225,20 @@ class BasaltClient:
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[str | Dict[str, Any]] = None,
-        temperature: float = 0.0,
+        temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        timeout: float = 60.0,
+        timeout: Optional[float] = None,
         response_format: Optional[Dict[str, Any]] = None,
         extra: Optional[Dict[str, Any]] = None,
         on_delta: Optional[Callable[[str, str], None]] = None,
     ) -> Dict[str, Any]:
         """Sends a request to /v1/chat/completions. With `on_delta(kind, text)` the answer is asked for as a stream
         and each piece of text ("content" or "reasoning") is handed on as it arrives; the return value is the same
-        whole answer as without it."""
-        payload: Dict[str, Any] = {
-            "messages": messages,
-            "temperature": temperature,
-        }
+        whole answer as without it. Without a `temperature` or `max_tokens` the request carries none, so the server's own apply."""
+        timeout = timeout if timeout is not None else self.call_timeout
+        payload: Dict[str, Any] = {"messages": messages}
+        if temperature is not None:
+            payload["temperature"] = temperature
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         if tools is not None:
@@ -180,16 +259,29 @@ class BasaltClient:
             headers=self._headers(),
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                if on_delta is not None:
-                    return _collect_stream(resp, on_delta)
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
+        shown = [False]                              # a piece of text already handed on: the request is not made again after that
+        if on_delta is not None:
+            hand_on = on_delta
+
+            def on_delta(kind: str, text: str) -> None:        # noqa: F811
+                shown[0] = True
+                hand_on(kind, text)
+        for attempt in range(RESET_TRIES):
             try:
-                detail = json.loads(e.read().decode("utf-8")).get("error", {}).get("message", "")
-            except Exception:
-                detail = ""
-            raise BasaltError(e.code, detail or f"HTTP {e.code}") from None
-        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
-            raise BasaltError(0, f"cannot reach the Basalt server at {self.base_url}: {e}") from None
+                with open_url(req, timeout) as resp:
+                    if on_delta is not None:
+                        return _collect_stream(resp, on_delta)
+                    return json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                try:
+                    detail = json.loads(e.read().decode("utf-8")).get("error", {}).get("message", "")
+                except Exception:
+                    detail = ""
+                raise BasaltError(e.code, detail or f"HTTP {e.code}") from None
+            except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+                reset = isinstance(e, ConnectionError) or isinstance(getattr(e, "reason", None), ConnectionError)
+                if reset and not shown[0] and attempt + 1 < RESET_TRIES:     # the connection was closed under the request: nothing came back yet
+                    time.sleep(1.0 + attempt)
+                    continue
+                raise BasaltError(0, f"cannot reach the Basalt server at {self.base_url}: {e}") from None
+        raise BasaltError(0, f"cannot reach the Basalt server at {self.base_url}")

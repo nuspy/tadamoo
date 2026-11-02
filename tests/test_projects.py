@@ -36,7 +36,7 @@ def test_adding_a_folder_writes_its_registry_and_a_gitignore_and_lists_it(tmp_pa
 
 def test_a_folder_that_is_not_one_the_agent_can_work_in_is_refused(tmp_path):
     store = ProjectStore(tmp_path / "j")
-    for bad, code in (("", "folder_missing"), ("relative/dir", "folder_relative"), (str(tmp_path / "nope"), "folder_not_found"), (tmp_path.anchor, "folder_drive")):
+    for bad, code in (("", "folder_missing"), ("relative/dir", "folder_relative"), (str(tmp_path / "nope"), "folder_not_found")):
         with pytest.raises(RunError) as err:
             store.add(bad)
         assert err.value.code == code

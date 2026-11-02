@@ -8,6 +8,7 @@ from dataclasses import asdict
 from typing import Any, Dict, List, Optional
 
 from .runner import EvalResult
+from .traces import components_section, divergent_section, divergent_tasks
 
 
 def wilson(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -42,6 +43,7 @@ def summarize(results: List[EvalResult]) -> Dict[str, Any]:
         "pass_at_k": sum(1 for r in results if r.pass_at_k > 0), "pass_pow_k": sum(1 for r in results if r.pass_pow_k),
         "tool_calls": calls, "invalid_calls": invalid, "tool_call_validity": (calls - invalid) / calls if calls else None,
         "denied_calls": sum(t.denied_calls for t in trials),
+        "repaired_calls": sum(t.repaired_calls for t in trials), "length_stops": sum(t.length_stops for t in trials),
         "mean_turns": statistics.fmean(t.turns for t in trials) if n else 0.0,
         "mean_seconds": statistics.fmean(t.seconds for t in trials) if n else 0.0,
         "median_seconds": statistics.median(t.seconds for t in trials) if n else 0.0,
@@ -52,11 +54,52 @@ def summarize(results: List[EvalResult]) -> Dict[str, Any]:
         "inconclusive_tasks": [r.task_id for r in results if inconclusive(r)],
         "decided_tasks": len(decided), "decided_pass_pow_k": sum(1 for r in decided if r.pass_pow_k),
         "answered_trial_success": (sum(t.passed for t in answered) / len(answered)) if answered else 0.0,
+        "server": server_figures(results),
     }
 
 
 def _pct(v: Optional[float]) -> str:
     return "n/a" if v is None else f"{v * 100:.1f}%"
+
+
+def _secs(v: Optional[float]) -> str:
+    return "n/a" if v is None else f"{v:.2f} s"
+
+
+MIN_K = 5
+
+
+def k_warning(k: Any) -> Optional[str]:
+    """The sentence to show when a run repeats each task fewer than MIN_K times: pass^k with so few repetitions says little."""
+    if isinstance(k, int) and not isinstance(k, bool) and k < MIN_K:
+        return (f"k = {k} is below {MIN_K}: with so few repetitions pass^k and the success rate do not say how reliable the model is "
+                f"(a task that passes {k} times in a row may still fail one run in four). Use --k {MIN_K} or more for any number you want to keep.")
+    return None
+
+
+def server_figures(results: List[EvalResult]) -> Dict[str, Any]:
+    """What the server's own log showed for the trials: how many had figures, the median time to the first token and prefill, the share read from the cache."""
+    trials = [t for r in results for t in r.trials if t.server_requests]
+    firsts = [t.server_ttft_s for t in trials if t.server_ttft_s is not None]
+    prefills = [t.server_prefill_s for t in trials if t.server_prefill_s is not None]
+    prompt, cached = sum(t.server_prompt_tokens for t in trials), sum(t.server_cached_tokens for t in trials)
+    return {"trials": len(trials), "requests": sum(t.server_requests for t in trials), "ttft_median_s": statistics.median(firsts) if firsts else None,
+            "prefill_median_s": statistics.median(prefills) if prefills else None, "cache_hit_rate": (cached / prompt) if prompt else None}
+
+
+def strategy_rows(results: List[EvalResult]) -> List[Dict[str, Any]]:
+    """The none / rag / cag comparison: tasks that were run once per strategy (ids like `task@rag`), grouped by strategy."""
+    rows = []
+    for strategy in ("none", "rag", "cag"):
+        rs = [r for r in results if r.task_id.endswith("@" + strategy)]
+        if not rs:
+            continue
+        ts = [t for r in rs for t in r.trials]
+        prompt = sum(t.prompt_tokens for t in ts)
+        rows.append({"strategy": strategy, "tasks": len(rs), "trials": len(ts), "success": sum(t.passed for t in ts) / len(ts) if ts else 0.0,
+                     "pass_pow_k": sum(1 for r in rs if r.pass_pow_k), "prompt_tokens": prompt // len(ts) if ts else 0,
+                     "seconds": statistics.fmean(t.seconds for t in ts) if ts else 0.0, "cache": (sum(t.cached_tokens for t in ts) / prompt) if prompt else None})
+    return rows
 
 
 def generate_eval_report(
@@ -91,6 +134,9 @@ def generate_eval_report(
     ]
     for k, v in (config or {}).items():
         lines.append(f"- **{k}**: {v}")
+    warn = k_warning((config or {}).get("k"))
+    if warn:
+        lines += ["", f"> **Warning**: {warn}"]
     lines += [
         "",
         "## Result",
@@ -99,11 +145,21 @@ def generate_eval_report(
         f"- **Trial success**: {_pct(s['trial_success'])} (95% interval {s['trial_success_ci95'][0] * 100:.0f}-{s['trial_success_ci95'][1] * 100:.0f}%)",
         f"- **pass@k** (at least one trial passes): {s['pass_at_k']}/{s['tasks']}",
         f"- **pass^k** (every trial passes, the reliability that matters): {s['pass_pow_k']}/{s['tasks']}",
-        f"- **Tool calls**: {s['tool_calls']}, valid {_pct(s['tool_call_validity'])}, refused by permissions {s['denied_calls']}",
+        f"- **Tool calls**: {s['tool_calls']}, valid {_pct(s['tool_call_validity'])}, refused by permissions {s['denied_calls']}, "
+        f"mended before they ran {s['repaired_calls']}",
+        f"- **Replies ended by the output limit** (`length_stops`): {s['length_stops']}",
         f"- **Cost per trial**: {s['mean_turns']:.1f} turns, {s['mean_seconds']:.1f} s on average ({s['median_seconds']:.1f} s median)",
         f"- **Tokens**: {s['prompt_tokens']} in, {s['completion_tokens']} out, prefix cache hit rate {_pct(s['cache_hit_rate'])}",
         f"- **Not model faults**: {s['server_errors']} server error(s), {s['crashed']} crashed trial(s)",
     ]
+    srv = server_figures(results)
+    if srv["trials"]:
+        first, prefill = _secs(srv["ttft_median_s"]), _secs(srv["prefill_median_s"])
+        lines.append(f"- **Seen by the server** (its request log, {srv['requests']} requests in {srv['trials']} trials): median time to the first token "
+                     f"{first}, median prefill {prefill}, prompt read from the cache {_pct(srv['cache_hit_rate'])}. "
+                     "The figures belong to the trials only if nothing else used the server meanwhile.")
+    else:
+        lines.append("- **Seen by the server**: not read (request log off, or an older server); the cache figure above is the one in the answers' usage.")
     if s["inconclusive_tasks"]:
         lines += [
             f"- **Inconclusive** (every failure was the server's, so nothing was learned about the model): "
@@ -121,16 +177,28 @@ def generate_eval_report(
         rs = [r for r in results if r.category == cat]
         ts = [t for r in rs for t in r.trials]
         lines.append(f"| {cat} | {len(rs)} | {_pct(sum(t.passed for t in ts) / len(ts) if ts else 0)} | {sum(r.pass_pow_k for r in rs)}/{len(rs)} |")
-    lines += ["", "## By task", "", "| Task | Category | k | Passed | pass^k | Turns | Calls (invalid) | Tokens in | Seconds | First failure |",
-              "| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |"]
+    rows = strategy_rows(results)
+    if len(rows) > 1:
+        lines += ["", "## Reference documents: none, RAG, CAG", "",
+                  "The same tasks with the documents left out (none), searched on demand (rag) or held in the fixed start of the prompt (cag). A difference under about 3 points is noise.", "",
+                  "| Strategy | Tasks | Trial success | pass^k | Tokens in per trial | Seconds per trial | Prompt read from the cache |", "| :--- | :---: | :---: | :---: | :---: | :---: | :---: |"]
+        lines += [f"| {x['strategy']} | {x['tasks']} | {_pct(x['success'])} | {x['pass_pow_k']}/{x['tasks']} | {x['prompt_tokens']} | {x['seconds']:.1f} | {_pct(x['cache'])} |" for x in rows]
+    lines += ["", "## By task", "", "| Task | Category | k | Passed | pass^k | Turns | Calls (invalid) | Tokens in | Cache | TTFT (s) | Seconds | First failure |",
+              "| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |"]
     for r in results:
         n = max(len(r.trials), 1)
         first = next((t.failures[0] for t in r.trials if t.failures), "")
+        prompt = sum(t.prompt_tokens for t in r.trials)
+        firsts = [t.server_ttft_s for t in r.trials if t.server_ttft_s is not None]
         lines.append(
             f"| `{r.task_id}` | {r.category} | {r.k_trials} | {sum(t.passed for t in r.trials)} | {'inconclusive' if inconclusive(r) else 'yes' if r.pass_pow_k else 'no'} | "
             f"{sum(t.turns for t in r.trials) / n:.1f} | {sum(t.tool_calls for t in r.trials)} ({sum(t.invalid_calls for t in r.trials)}) | "
-            f"{sum(t.prompt_tokens for t in r.trials) // n} | {sum(t.seconds for t in r.trials) / n:.1f} | {first[:90].replace('|', '/')} |")
-    lines += ["", "Read the transcripts of failed trials before trusting a low score: a task that fails every time is usually a broken task, not a weak model.", ""]
+            f"{prompt // n} | {_pct(sum(t.cached_tokens for t in r.trials) / prompt) if prompt else 'n/a'} | "
+            f"{f'{statistics.median(firsts):.2f}' if firsts else 'n/a'} | {sum(t.seconds for t in r.trials) / n:.1f} | {first[:90].replace('|', '/')} |")
+    lines.append("")
+    lines += divergent_section(divergent_tasks({r.task_id: [(t.repetition, t.passed, t.trace) for t in r.trials] for r in results}))
+    lines += components_section([("all trials", [t.components for r in results for t in r.trials])])
+    lines += ["Read the transcripts of failed trials before trusting a low score: a task that fails every time is usually a broken task, not a weak model.", ""]
     return "\n".join(lines)
 
 

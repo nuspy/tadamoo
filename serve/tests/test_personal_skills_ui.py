@@ -13,7 +13,7 @@ I18N = (WEB / "i18n.js").read_text(encoding="utf-8")
 
 class PersonalSkillsPageTest(unittest.TestCase):
     def test_the_list_button_comes_right_after_branches_and_the_script_is_loaded_after_the_chat(self):
-        self.assertRegex(HTML, r'id="branches-open"[^\n]*\n\s*<button[^>]*id="pskills-open"')
+        self.assertRegex(re.sub(r'\n\s*<button[^>]*id="(?:wud-toggle|tech-toggle|priv-toggle|forget-open)"[^\n]*', '', HTML), r'id="branches-open"[^\n]*\n\s*<button[^>]*id="export-open"[^\n]*\n\s*<button[^>]*id="pskills-open"')     # Export is just left of Skills
         self.assertLess(HTML.index("web/agentchat.js"), HTML.index("web/pskills.js"))
         self.assertLess(HTML.index("web/slash.js"), HTML.index("web/pskills.js"))
 
@@ -48,9 +48,10 @@ class PersonalSkillsPageTest(unittest.TestCase):
         self.assertIn("psk.pf.dateHelp", PSK)
         self.assertRegex(PSK, r'"psk\.pf\.becomes"')
 
-    def test_a_skill_that_is_not_approved_cannot_be_run_from_the_form_and_a_free_one_asks_the_two_questions(self):
-        self.assertRegex(PSK, r'skill\.status !== "approved"[\s\S]*go\.disabled = true')
-        self.assertIn('mode.value === "free" && !(await riskConfirm([T("psk.mode.risk")]))', PSK)
+    def test_the_form_runs_a_skill_with_no_approval_step_and_no_access_mode_is_asked(self):
+        self.assertNotIn("approve", PSK)
+        self.assertNotIn("riskConfirm", PSK)
+        self.assertNotIn("mode.value", PSK)
 
     def test_a_delete_asks_again_and_the_texts_exist_in_both_languages(self):
         self.assertIn('armed !== s.slug', PSK)
@@ -58,9 +59,8 @@ class PersonalSkillsPageTest(unittest.TestCase):
         self.assertGreater(len(keys), 40)
         for key in keys:
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
-        for dynamic in ("psk.type.", "psk.item.", "psk.mode."):
-            for name in (("text", "number", "date", "datetime", "choice", "list", "path", "bool") if dynamic == "psk.type." else
-                         ("number", "text", "mixed") if dynamic == "psk.item." else ("restricted", "free")):
+        for dynamic in ("psk.type.", "psk.item."):
+            for name in (("text", "number", "date", "datetime", "choice", "list", "path", "bool") if dynamic == "psk.type." else ("number", "text", "mixed")):
                 self.assertEqual(I18N.count(f'"{dynamic}{name}":'), 2, dynamic + name)
 
 

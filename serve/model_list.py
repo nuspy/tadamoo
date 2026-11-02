@@ -153,6 +153,10 @@ def served(svc, local: bool) -> list[dict]:
              "meta": {"n_ctx": ctx}, "context_length": ctx,
              "architecture": {"input_modalities": ["text", "image"] if svc.vision is not None else ["text"],
                               "output_modalities": ["text"]}}
+    side = svc.side_slot_info() if hasattr(svc, "side_slot_info") else None
+    if side is not None:                       # the conversations' slots hold `context_length`; the technical session its own
+        model["side_slot"] = side
+        model["meta"]["side_n_ctx"] = side["context"]
     if local and path:
         model["path"] = path
     aliases = [x for x in served_names(svc) if x != svc.model]

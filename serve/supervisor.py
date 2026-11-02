@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from serve import loader, settings
-from serve.config import build_parser, check_engine_flags, engine_flags_of, parse_settings, sampling_defaults_from_config, sampling_line
+from serve.config import build_parser, check_engine_flags, engine_flags_of, grammar_words, parse_settings, sampling_defaults_from_config, sampling_line
 from serve.engine.errors import EngineStartError
 from serve.engine.flags import flag_index, flag_value
 from serve.engine.vision import EngineVision, Vision, child_env, engine_args, gpus_in_play, vision_env
@@ -49,11 +49,12 @@ def settings_info(a, words: list[str], argv: list[str]) -> dict:
                "server.vision-projector": getattr(a, "vision_projector", "auto"),
                "server.vision-hold": getattr(a, "vision_hold", "keep"),
                "server.slot-full-context": bool(a.slot_full_context),
+               "server.side-slot": a.side_slot if isinstance(getattr(a, "side_slot", 0), int) else 0,
                "server.grammar": bool(getattr(a, "grammar", True)),
                "server.reasoning-budget-tokens": getattr(a, "reasoning_budget_tokens", None)}
     for name in ("max-context", "kv", "spec", "relaxed-drafting", "expert-cache", "prefill", "resident-experts",
                  "vram-reserve-mib", "ple-io", "pool-workers", "kv-resident", "resident-budget-gib", "mmap-experts",
-                 "adapt-swaps", "prefill-cpu-share", "vram-elastic", "release-vram-commit", "expert-profile-save",
+                 "adapt-swaps", "prefill-cpu-share", "vram-elastic", "keep-vram-commit", "expert-profile-save",
                  "expert-profile-save-every", "prompt-cache", "prompt-cache-every", "prompt-cache-root",
                  "conversation-cache-mib", "conversation-cache-slots", "conversation-cache-min-free-mib",
                  "rope-scaling", "rope-scale", "rope-freq-base"):
@@ -237,7 +238,8 @@ class Supervisor:
         engine.close()
         self._set(phase="starting")
         spawn = list(engine.spawn)
-        spawn[0], spawn[1], spawn[3], spawn[4] = cfg["engine_bin"], engine_args(cfg), cfg.get("log"), env
+        launch = engine_args(cfg) + grammar_words(engine_flags_of(cfg["engine_bin"]))      # as at start: a request's grammar is enforced
+        spawn[0], spawn[1], spawn[3], spawn[4] = cfg["engine_bin"], launch, cfg.get("log"), env
         engine.spawn = tuple(spawn)
         before = loader.system_now(getattr(svc, "gpu_index", 0))
         engine.restart(tries=1)

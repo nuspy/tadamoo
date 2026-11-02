@@ -107,12 +107,10 @@ class Route(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertEqual(self.engine.calls, [4000, None])
 
-    def test_bad_input_busy_and_foreign_pages(self):
+    def test_bad_input_and_busy(self):
         self.engine.loaded = True
         for bad in ({"reserve_mib": -1}, {"reserve_mib": "8 GiB"}, {"reserve_mib": True}, {"reserve_mib": 1.5}):
             self.assertEqual(self.request("/v1/vram", bad)[0], 400, bad)
-        self.assertEqual(self.request("/v1/vram", {"reserve_mib": 1}, {"Origin": "https://other.example"})[0], 403)
-        self.assertEqual(self.request("/v1/vram", {"reserve_mib": 1}, {"Content-Type": "text/plain"})[0], 415)
         self.svc.vram_wait_s = 0.2
         with self.svc.fifo:                                   # a request is running
             self.assertEqual(self.request("/v1/vram", {"reserve_mib": 1})[0], 409)

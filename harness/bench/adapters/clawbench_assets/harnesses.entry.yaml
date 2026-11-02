@@ -1,0 +1,11 @@
+  - name: basalt
+    image: clawbench-basalt
+    dockerfile: basalt/Dockerfile.basalt
+    setup_script: basalt/setup-basalt.sh
+    run_script: basalt/run-basalt.sh
+    usage_emitter: basalt/usage-emitter.py
+    extra_files:
+      - basalt/basalt_driver.py
+    agent_message_sources:
+      - type: file
+        path: /data/agent-messages.jsonl

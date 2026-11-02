@@ -97,9 +97,16 @@ class FakeImap:
                         w(f"* SEARCH {' '.join(str(u) for u in sorted(outer.messages))}\r\n{tag} OK done\r\n")
                     elif rest.upper().startswith("UID FETCH"):
                         uid = int(rest.split(" ")[2])
-                        sender, subject = outer.messages[uid]
-                        head = f"From: {sender}\r\nSubject: {subject}\r\n\r\n".encode()
-                        w(b"* %d FETCH (UID %d BODY[HEADER.FIELDS (FROM SUBJECT)] {%d}\r\n" % (uid, uid, len(head)) + head + b")\r\n" + f"{tag} OK done\r\n".encode())
+                        sender, subject, *more = outer.messages[uid]
+                        head = f"From: {sender}\r\nSubject: {subject}\r\n".encode()
+                        whole = head + (more[0] if more else b"\r\n").replace(b"\n", b"\r\n").replace(b"\r\r\n", b"\r\n")
+                        if "RFC822.SIZE" in rest:
+                            w(b"* %d FETCH (UID %d RFC822.SIZE %d)\r\n" % (uid, uid, len(whole)) + f"{tag} OK done\r\n".encode())
+                        elif "BODY.PEEK[])" in rest:
+                            w(b"* %d FETCH (UID %d BODY[] {%d}\r\n" % (uid, uid, len(whole)) + whole + b")\r\n" + f"{tag} OK done\r\n".encode())
+                        else:
+                            head += b"\r\n"
+                            w(b"* %d FETCH (UID %d BODY[HEADER.FIELDS (FROM SUBJECT)] {%d}\r\n" % (uid, uid, len(head)) + head + b")\r\n" + f"{tag} OK done\r\n".encode())
                     elif cmd == "LOGOUT":
                         w(f"* BYE\r\n{tag} OK bye\r\n")
                         return
@@ -191,7 +198,7 @@ def test_a_feed_that_cannot_be_reached_is_an_error_not_a_crash(web):
 
 # -- a mailbox -------------------------------------------------------------------------------------------
 
-def test_the_mailbox_is_read_only_and_only_sender_and_subject_are_asked_for(imap):
+def test_the_mailbox_is_read_only_and_the_text_of_a_message_is_read_without_marking_it(imap):
     imap.messages = {1: ("Vecchio <old@x.org>", "Roba vecchia")}
     src = ImapSource("posta", "127.0.0.1", lambda: (imap.user, imap.password), imap.port, ssl=False)
     assert src.poll() == []                                                         # the mail already there is learned, not announced
@@ -203,9 +210,55 @@ def test_the_mailbox_is_read_only_and_only_sender_and_subject_are_asked_for(imap
     assert src.poll() == []
     used = " | ".join(imap.commands)
     assert "EXAMINE" in used and "SELECT" not in used                               # opened read-only
-    assert "BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)]" in used
-    for forbidden in ("STORE", "EXPUNGE", "APPEND", "DELETE", "COPY", "RFC822", "BODY[]", "BODY.PEEK[]", "BODY[TEXT]"):
+    assert "BODY.PEEK[]" in used
+    for forbidden in ("STORE", "EXPUNGE", "APPEND", "DELETE", "COPY"):
         assert forbidden not in used, forbidden
+    assert "BODY[" not in used.replace("BODY.PEEK[", "")                              # nothing is fetched in a way that sets \Seen
+
+
+def _mail(imap, *messages):
+    imap.messages = {1: ("Vecchio <old@x.org>", "Roba vecchia")}
+    src = ImapSource("posta", "127.0.0.1", lambda: (imap.user, imap.password), imap.port, ssl=False)
+    src.poll()
+    imap.messages.update({i + 2: m for i, m in enumerate(messages)})
+    return src.poll()
+
+
+def test_the_plain_text_of_a_message_is_the_events_text_decoded_and_whole(imap):
+    long = "Il treno è soppresso. " * 400
+    events = _mail(imap, ("Gianni <g@x.org>", "Sciopero", b"Content-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: quoted-printable\n\nCaff=C3=A8 e sciopero.\n" + long.encode()),
+                   ("Anna <a@x.org>", "Doppia", b"Content-Type: multipart/alternative; boundary=XX\n\n--XX\nContent-Type: text/html\n\n<p>solo html</p>\n--XX\nContent-Type: text/plain\n\nsolo testo\n--XX--\n"),
+                   ("Luca <l@x.org>", "Solo html", b"Content-Type: text/html\n\n<p>niente testo</p>\n"))
+    assert events[0].text.startswith("Email from Gianni: Sciopero. Caffè e sciopero. Il treno è soppresso.") and len(events[0].text) > 8000
+    assert events[1].text == "Email from Anna: Doppia. solo testo"
+    assert events[2].text == "Email from Luca: Solo html"
+
+
+def test_a_message_over_the_memory_guard_gives_its_sender_and_subject_only(imap, monkeypatch):
+    monkeypatch.setattr(sources, "MAX_MESSAGE_BYTES", 100)
+    events = _mail(imap, ("Gianni <g@x.org>", "Grande", b"Content-Type: text/plain\n\n" + b"x" * 500))
+    assert [e.text for e in events] == ["Email from Gianni: Grande"]
+    assert "BODY.PEEK[]" not in " | ".join(imap.commands[-4:])
+
+
+def test_nothing_caps_the_new_messages_of_a_poll_nor_the_length_of_an_event(imap, web):
+    events = _mail(imap, *[("a <a@x.org>", f"n{i}") for i in range(80)])
+    assert len(events) == 80
+    w = web()
+    w.routes["/f.xml"] = (200, rss(*[{"id": str(i), "title": f"t{i}", "text": "y" * 3000} for i in range(60)]))
+    src = RssSource("f", f"{w.url}/f.xml")
+    assert src.poll() == []
+    w.routes["/f.xml"] = (200, rss(*[{"id": str(i), "title": f"t{i}", "text": "y" * 3000} for i in range(120)]))
+    fresh = src.poll()
+    assert len(fresh) == 60 and all(len(e.text) > 3000 for e in fresh)
+
+
+def test_there_is_no_limit_on_the_number_of_sources_nor_their_interval():
+    many = [{"kind": "rss", "id": f"f{i}", "url": "http://example.org/x.xml", "interval_seconds": 100000} for i in range(15)]
+    assert len(sources.clean_sources(many)) == 15
+    assert clean_source({"kind": "rss", "url": "http://example.org/x.xml", "interval_seconds": 0.5})["interval_seconds"] == 0.5
+    with pytest.raises(ValueError):
+        clean_source({"kind": "rss", "url": "http://example.org/x.xml", "interval_seconds": 0})
 
 
 def test_a_new_uid_validity_starts_the_mailbox_over_and_a_bad_login_never_shows_the_password(imap):
@@ -267,8 +320,8 @@ def test_a_sources_settings_are_checked_and_hold_no_credentials():
             clean_source(bad)
     with pytest.raises(ValueError, match="same id"):
         clean_sources([{"kind": "rss", "url": "https://x", "id": "a"}, {"kind": "rss", "url": "https://y", "id": "a"}])
-    with pytest.raises(ValueError, match="at most"):
-        clean_sources([{"kind": "rss", "url": "https://x", "id": f"s{i}"} for i in range(11)])
+    with pytest.raises(ValueError, match="a list"):
+        clean_sources("rss")
 
 
 def test_the_runner_polls_on_threads_delivers_what_is_new_and_stops_cleanly():
@@ -337,16 +390,16 @@ def test_the_pump_runs_on_its_own_thread_survives_a_failing_handler_and_stops_wh
     assert got.wait(5) and wait_for(lambda: pump.errors)
     assert "handler broke" in pump.errors[0]
     pump.stop()
-    assert not pump.running and not any(t.name == "inbox-pump" and t.is_alive() for t in threading.enumerate())
+    assert not pump.running
     inbox.add("a", "Altra frana")
     time.sleep(0.1)
     assert inbox.pending() == {"a": 1}                                                  # nobody takes it any more
 
 
-def test_an_events_text_is_capped_in_the_buffer():
-    buf = EventBuffer(max_event_chars=50)
-    buf.add_event("x" * 5000)
-    assert len(buf.flush()[0]) == 50
+def test_an_events_text_is_kept_whole_in_the_buffer():
+    buf = EventBuffer()
+    buf.add_event("x" * 50000)
+    assert len(buf.flush()[0]) == 50000
 
 
 # -- the service ------------------------------------------------------------------------------------------
@@ -356,9 +409,20 @@ SNOW = {"plan_id": "neve", "title": "Neve", "target_type": "occasional",
                             "conditions": {"when": "'nev' in text", "set": {"neve": True}}}}}
 
 
+_made = []
+
+
+@pytest.fixture(autouse=True)
+def _close_services():
+    yield
+    while _made:
+        _made.pop().close()
+
+
 def service(tmp_path, model=None, **kw):
     svc = PlanService(tmp_path / "planner", client_factory=(lambda: model) if model else None, pump_batch=2, pump_window=300, pump_poll=0.02, **kw)
     svc.registry = False
+    _made.append(svc)
     return svc
 
 
@@ -366,7 +430,8 @@ def test_the_mailbox_feeds_the_sensors_even_with_the_pump_off_and_buffers_nothin
     svc = service(tmp_path)
     svc.create({"plan": PLAN, "card": CARD})
     svc.create({"plan": SNOW})
-    assert svc.settings()["event_pump"] is False
+    assert svc.settings()["event_pump"] is True                                           # on unless the person turns it off
+    svc.update_settings({"event_pump": False})
     quiet = svc.ingest({"text": "Sole a Cervinia", "source": "meteo"})
     assert quiet == {"accepted": 1, "resolved": {}, "buffered": {}, "pump": False}
     res = svc.ingest({"events": [{"text": "Nevicata in arrivo", "source": "meteo", "at": 1.7e9}, "altra cosa"]})
@@ -387,9 +452,10 @@ def test_with_the_pump_on_events_are_buffered_judged_and_a_wake_starts_the_repla
     model = FakeModel()
     svc = service(tmp_path, model)
     svc.create({"plan": PLAN, "card": CARD})
-    svc.create({"plan": SNOW})                                                             # no card: its events cannot be judged
+    svc.create({"plan": SNOW})
+    svc.handle_event("neve", {"type": "plan:mark", "node_id": "meteo", "status": "completed"})     # a finished plan has nothing left to protect
     try:
-        svc.update_settings({"event_pump": True})
+        svc.update_settings({"event_pump": True, "auto_apply": False})
         assert svc.events_status()["pump"] is True
         res = svc.ingest([{"text": "Nuovo museo a Parigi", "source": "rss"}, {"text": "Sciopero dei treni venerdì", "source": "rss"}])
         assert res["pump"] is True and res["buffered"] == {"cervinia": 2}
@@ -403,25 +469,54 @@ def test_with_the_pump_on_events_are_buffered_judged_and_a_wake_starts_the_repla
     assert not svc.events_status()["pump"]
 
 
-def test_the_pump_is_off_until_turned_on_and_off_again_stops_the_threads(tmp_path):
+def test_the_pump_is_on_by_default_stops_when_turned_off_and_stays_off_after_a_restart(tmp_path):
     svc = service(tmp_path)
     svc.create({"plan": PLAN, "card": CARD})
-    assert not svc.events_status()["pump"] and not any(t.name == "inbox-pump" for t in threading.enumerate() if t.is_alive())
-    svc.update_settings({"event_pump": True})
-    assert any(t.name == "inbox-pump" and t.is_alive() for t in threading.enumerate())
+    pump = svc._pump
+    assert svc.events_status()["pump"] is True and pump.running
     svc.update_settings({"event_pump": False})
-    assert wait_for(lambda: not any(t.name == "inbox-pump" and t.is_alive() for t in threading.enumerate()))
+    assert wait_for(lambda: not pump.running) and svc.events_status()["pump"] is False
     with pytest.raises(ValueError, match="event_pump"):
         svc.update_settings({"event_pump": "yes"})
-    # saved as on, a new service (a restart) brings the pump back when the planner is first used
-    svc.update_settings({"event_pump": True})
     svc.close()
-    again = service(tmp_path)
-    try:
-        again.list()
-        assert again.events_status()["pump"] is True
-    finally:
-        again.close()
+    again = service(tmp_path)                                                               # a restart: the person's "off" is kept
+    again.list()
+    assert again.events_status()["pump"] is False and again._pump is None
+    again.update_settings({"event_pump": True})
+    again.close()
+    third = service(tmp_path)
+    third.list()
+    assert third.events_status()["pump"] is True
+
+
+def test_the_pump_starts_with_the_server_not_at_the_first_request(tmp_path):
+    svc = service(tmp_path)
+    assert svc._pump is None
+    svc.start()
+    assert svc.events_status()["pump"] is True and svc._pump.running
+
+
+def test_an_idle_pump_sleeps_until_an_event_comes_and_then_judges_it(tmp_path):
+    model = FakeModel()
+    svc = service(tmp_path, model)
+    svc.create({"plan": PLAN, "card": CARD})
+    pump = svc._pump
+    assert wait_for(lambda: pump.running)
+    real, looks = pump.process_once, []
+    pump.process_once = lambda: (looks.append(1), real())[1]
+    time.sleep(0.4)                                                   # twenty polls of 0.02 seconds, were it polling
+    assert len(looks) <= 1
+    svc.ingest({"events": ["Sciopero dei treni", "Frana sulla strada"], "plan_id": PLAN["plan_id"]})
+    assert wait_for(lambda: pump.batches == 1)                        # woke on the event and judged the batch of 2
+
+
+def test_closing_ends_a_sleeping_pump(tmp_path):
+    svc = service(tmp_path)
+    svc.create({"plan": PLAN, "card": CARD})
+    pump = svc._pump
+    assert pump.running
+    svc.close()
+    assert wait_for(lambda: not pump.running)
 
 
 def test_configured_sources_read_the_vault_deliver_into_plans_and_hold_no_secret_in_the_settings(tmp_path, web, imap):
@@ -453,7 +548,7 @@ def test_configured_sources_read_the_vault_deliver_into_plans_and_hold_no_secret
         assert "mail" in blob and "tgbot" in blob                                                 # only the names of the entries are kept
     finally:
         svc.close()
-    assert wait_for(lambda: not any(t.name.startswith(("source-", "inbox-")) and t.is_alive() for t in threading.enumerate()))
+    assert wait_for(lambda: not any(t.name in ("source-feed", "source-posta", "source-bot") and t.is_alive() for t in threading.enumerate()))
 
 
 def test_a_source_whose_vault_entry_is_missing_reports_it_without_stopping_the_others(tmp_path, web):

@@ -76,10 +76,9 @@ def register_extra_tools(registry: Any, config: Any = None, *, workspace: Any = 
     chosen = set(ALL) if wanted is None else set(wanted) & set(ALL)
     root = workspace if workspace is not None else _get(config, "workspace", ".")
     added: List[str] = []
-
     if "run_code" in chosen:
         from harness.tools.execute import register_run_code
-        register_run_code(registry, root, sandbox, python=_get(config, "code_python"), cancel=cancel)
+        register_run_code(registry, root, sandbox, python=_get(config, "code_python"), cancel=cancel, broker=secrets)
         added.append("run_code")
 
     if "spawn_subagent" in chosen and client is not None:
@@ -145,7 +144,7 @@ def _register_acp(registry: Any, agents: Dict[str, Dict[str, Any]], workspace: A
          "properties": {"agent": {"type": "string", "enum": sorted(agents)}, "task": {"type": "string", "description": "What it should do; it does not see this conversation"},
                         "timeout": {"type": "number", "description": "Seconds to wait (default 900)", "default": 900.0}},
          "required": ["agent", "task"]},
-        EffectClass.IRREVERSIBLE, delegate, untrusted=True)
+        EffectClass.IRREVERSIBLE, delegate, untrusted=True, outward=True)
     return True
 
 
@@ -173,5 +172,5 @@ def _register_a2a(registry: Any, agents: Dict[str, Dict[str, Any]], cancel: Opti
          "properties": {"agent": {"type": "string", "enum": sorted(agents)}, "message": {"type": "string", "description": "What to ask or ask it to do; it does not see this conversation"},
                         "timeout": {"type": "number", "description": "Seconds to wait (default 600)", "default": 600.0}},
          "required": ["agent", "message"]},
-        EffectClass.IRREVERSIBLE, ask, untrusted=True)
+        EffectClass.IRREVERSIBLE, ask, untrusted=True, outward=True)
     return True

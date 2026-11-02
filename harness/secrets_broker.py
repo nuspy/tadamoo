@@ -3,14 +3,15 @@
 The model only ever writes placeholders such as {{secret:github_token}}; the value is substituted at
 the execution boundary and masked again in anything that flows back. A secret may name the hosts it
 can be sent to; a command that would send it anywhere else is refused. This is a check of what the
-command says, not network isolation: a command that builds its address at run time needs a firewall.
+command and the scripts it names say (and a command that uses the network without naming a site is refused), not network isolation.
 """
 from __future__ import annotations
 
 import base64
 import os
 import re
-from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Mapping, Optional
+from pathlib import Path
+from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Mapping, Optional, Tuple
 from urllib.parse import quote, quote_plus
 
 PLACEHOLDER = re.compile(r"\{\{secret:([A-Za-z0-9_]+)\}\}")
@@ -24,8 +25,18 @@ NETWORK_TOOLS = {"curl", "wget", "iwr", "irm", "invoke-webrequest", "invoke-rest
                  "ssh", "scp", "sftp", "ftp", "telnet", "certutil", "bitsadmin"}
 
 
-PROTECTED_NAMES = ["vault.bin", "device.key", "payments_state.json", "payments.jsonl", "browser-profile"]
+PROTECTED_NAMES = ["vault.bin", "device.key", "payments_state.json", "payments.jsonl", "browser-profile", "api-keys.json", "mcp_oauth.json"]
 CONTROL_TOKEN = re.compile(r"control-\d+\.token")
+# files of the user data folder that no tool of the agent opens: the secret of the control routes, the phones' keys, the OAuth tokens
+# and the records that hold each conversation's permission rules
+PROTECTED_FILES = ("control-*.token", "api-keys.json", "mcp_oauth.json", "rule_of_two.json", "journal/agent_sessions.json", "journal/agent_runs.json")
+
+
+def _real(path: Any) -> Path:
+    try:
+        return Path(os.path.realpath(str(path)))
+    except (OSError, ValueError):
+        return Path(str(path))
 
 
 def _flat(text: str) -> str:
@@ -109,8 +120,11 @@ class SecretsBroker:
         self._hosts: Dict[str, FrozenSet[str]] = {k: frozenset(h.lower() for h in v)
                                                   for k, v in (allowed_hosts or {}).items()}
         self._protected: List[str] = []                 # places the agent's own commands must not name: the vault, the payment files, the browser's sign-ins
+        self._places: List[Path] = []                   # the same places as real paths, for the tools that open files and for the guard
+        self._in_folders: List[Tuple[Path, Tuple[str, ...]]] = []   # (folder, name patterns) whose matching files are protected
         self.vault: Any = None                          # the person's vault (harness.vault.Vault), when there is one
         self.ask_code: Optional[Callable[[str], str]] = None   # how to ask the person for a second-factor code
+        self.on_unchecked: Optional[Callable[[List[str], List[str]], None]] = None   # told (secrets, network tools) when a destination could not be deduced
 
     @classmethod
     def from_environment(cls, names: Iterable[str], allowed_hosts: Optional[Mapping[str, Iterable[str]]] = None) -> "SecretsBroker":
@@ -133,6 +147,39 @@ class SecretsBroker:
                 needle = _flat(str(place))
                 if needle not in self._protected:
                     self._protected.append(needle)
+                    self._places.append(_real(place))
+
+    def protect_in(self, folder: Any, *patterns: str) -> None:
+        """Protects the files of `folder` that match the name patterns (looked up at each use: the files may appear later)."""
+        if folder:
+            self._in_folders.append((_real(folder), patterns))
+
+    def environment(self) -> Dict[str, str]:
+        """The values this broker holds, and the vault's, as environment variables for code the person let run free on this PC."""
+        env = {"BASALT_SECRET_" + re.sub(r"[^A-Z0-9]+", "_", k.upper()).strip("_"): v for k, v in self._secrets.items() if v}
+        if self.vault is not None:
+            env.update(self.vault.environment())
+        return env
+
+    def places(self) -> List[str]:
+        """The real paths of everything protected, files of the protected folders included."""
+        out = [str(p) for p in self._places]
+        for folder, patterns in self._in_folders:
+            for pattern in patterns:
+                out += [str(_real(p)) for p in folder.glob(pattern)]
+        return list(dict.fromkeys(out))
+
+    def path_hit(self, path: Any) -> str:
+        """The protected place a file path is or lies in (links followed), or ''. For the tools that open a file the model names."""
+        real = _flat(str(_real(path)))
+        for place in self.places():
+            flat = _flat(place)
+            if real == flat or real.startswith(flat + "/"):
+                return place
+        name = real.rsplit("/", 1)[-1]
+        if name in PROTECTED_NAMES or CONTROL_TOKEN.fullmatch(name):
+            return name
+        return ""
 
     def protected_hit(self, command: str) -> str:
         """The protected place a command names, or ''."""
@@ -163,31 +210,41 @@ class SecretsBroker:
             masked = masked.replace(value, label)
         return self.vault.mask(masked) if self.vault is not None else masked
 
+    def find_secret(self, texts: List[str], present: Callable[[str, List[str]], bool]) -> str:
+        """The name of a secret whose value, in any of the shapes a command can give it, is in one of `texts`; '' if none is."""
+        for name, value in self._secrets.items():
+            if value and any(present(form, texts) for form in shapes(value)):
+                return name
+        return self.vault.find_secret(texts, present) if self.vault is not None else ""
+
     def references(self, text: str) -> List[str]:
         """Names of the secrets a text asks for, known or not."""
         return PLACEHOLDER.findall(text)
 
-    def check_destinations(self, text: str, hosts: Iterable[str], network_tools: Iterable[str] = ()) -> None:
-        """Raises SecretDestinationError if a secret in `text` would go to a host it may not reach."""
+    def check_destinations(self, text: str, hosts: Iterable[str], network_tools: Iterable[str] = ()) -> List[str]:
+        """Raises SecretDestinationError if a secret limited to named sites would go to another one; a secret with no site named goes anywhere.
+        Returns the secrets limited to named sites that a command with a network tool and no site could not be checked for: the command goes on
+        and `on_unchecked` (set to the audit record) is told which."""
         hosts, tools = list(hosts), list(network_tools)
-        if self.vault is not None:
-            self.vault.check_destinations(text, hosts, tools)
+        unchecked: List[str] = list(self.vault.check_destinations(text, hosts, tools)) if self.vault is not None else []
         for name in self.references(text):
             if name not in self._secrets:
                 continue
             allowed = self._hosts.get(name)
-            if allowed is None:
-                if hosts or tools:
-                    raise SecretDestinationError(
-                        f"Secret '{name}' is for local use only; it cannot be put in a command that reaches the network")
+            if allowed is None or "*" in allowed:
+                continue
             else:
                 if tools and not hosts:
-                    raise SecretDestinationError(
-                        f"Secret '{name}' may only go to {', '.join(sorted(allowed))}; this command runs a network tool but names no site, so where it would go cannot be checked")
+                    if name not in unchecked:
+                        unchecked.append(name)
+                    continue
                 bad = [h for h in hosts if h not in allowed]
                 if bad:
                     raise SecretDestinationError(
                         f"Secret '{name}' may only be sent to {', '.join(sorted(allowed))}, not to {', '.join(bad)}")
+        if unchecked and self.on_unchecked is not None:
+            self.on_unchecked(unchecked, tools)
+        return unchecked
 
     def resolve_tokens(self, text: str, destinations: Optional[Iterable[str]] = None) -> str:
         """Substitutes {{secret:NAME}} with the stored value; unknown names are left as written.

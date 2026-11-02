@@ -1,0 +1,11 @@
+FROM clawbench-base
+
+# The Basalt harness: standard library only, apart from `cryptography`. `payload/` holds the harness package and the few modules of the server it imports;
+# the adapter copies both there before the image is built. The model is reached over the network (BASE_URL), so nothing of it is in the image.
+RUN pip install --no-cache-dir --break-system-packages "cryptography>=44" || pip install --no-cache-dir "cryptography>=44"
+COPY harnesses/basalt/payload /opt/basalt
+COPY harnesses/basalt/setup-basalt.sh /setup-basalt.sh
+COPY harnesses/basalt/run-basalt.sh /run-harness.sh
+COPY harnesses/basalt/basalt_driver.py /basalt_driver.py
+COPY harnesses/basalt/usage-emitter.py /usage-emitter.py
+RUN chmod +x /setup-basalt.sh /run-harness.sh /basalt_driver.py /usage-emitter.py

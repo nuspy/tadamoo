@@ -53,10 +53,20 @@ def checkpoint_report(data_dir: Path, workspace: Path) -> List[Dict[str, Any]]:
                          "time": r.get("timestamp")} for r in ran if r["details"].get("effect") != "pure"]
     out = []
     for meta in checkpoints.list_checkpoints():
-        ran = after.get(meta["checkpoint_id"], [])
-        out.append({"id": meta["checkpoint_id"], "time": meta.get("timestamp"), "description": meta.get("description", ""),
-                    "files": len(meta.get("files", [])), "after": ran, "not_undone": [a for a in ran if a["effect"] == "irreversible"]})
+        short = checkpoints.summary(meta)
+        ran = after.get(short["id"], [])
+        out.append({"id": short["id"], "time": short["time"], "description": short["description"], "files": len(short["files"]),
+                    "paths": short["files"], "bytes": short["bytes"], "legacy": short["legacy"], "after": ran,
+                    "not_undone": [a for a in ran if a["effect"] == "irreversible"]})
     return out
+
+
+def delete_checkpoints(data_dir: Path, workspace: Path, checkpoint_id: Optional[str] = None) -> int:
+    """Deletes one checkpoint, or all of this workspace's when no id is given; returns how many went."""
+    checkpoints = CheckpointManager(workspace, storage_dir=data_dir / "checkpoints")
+    if checkpoint_id is None:
+        return checkpoints.delete_all()
+    return 1 if checkpoints.delete(checkpoint_id) else 0
 
 
 # What a conversation's tool calls do, by name, for histories that did not record it. A name not found here is "unknown"
@@ -64,7 +74,7 @@ def checkpoint_report(data_dir: Path, workspace: Path) -> List[Dict[str, Any]]:
 KNOWN_EFFECTS: Dict[str, str] = {
     **dict.fromkeys(("read_file", "list_directory", "search_web", "browse_url", "list_attachments", "read_attachment", "search_attachment",
                      "browser_open", "browser_read", "find_capability", "load_capability", "ask_council", "wiki_search", "wiki_page",
-                     "wiki_context", "diagnostics", "go_to_definition", "find_references", "plan_list", "plan_get", "ask_user", "repo_map", "recall"), "pure"),
+                     "wiki_context", "diagnostics", "go_to_definition", "find_references", "plan_list", "plan_get", "ask_user", "repo_map", "repo_diagram", "recall", "search_code", "tree"), "pure"),
     **dict.fromkeys(("write_file", "edit_file", "transcribe_attachment", "write_output_file", "publish_output_file", "plan_create", "plan_set_profile",
                      "plan_check", "plan_mark", "plan_step_start", "plan_propose_change", "plan_archive", "remember", "forget"), "reversible"),
     **dict.fromkeys(("shell_command", "browser_click", "browser_type", "browser_sign_in", "browser_select", "browser_press", "browser_back",
@@ -72,7 +82,8 @@ KNOWN_EFFECTS: Dict[str, str] = {
                      "delegate_to_acp_agent", "ask_a2a_agent"), "irreversible"),
 }
 FILE_TOOLS = ("write_file", "edit_file")
-NOT_RUN = ("Permission denied", "Cancelled before it ran", "Loop detected", "Unknown tool", "No checkpoint could be taken", "Tool '", "The arguments of")
+NOT_RUN = ("Permission denied", "Cancelled before it ran", "Loop detected", "Unknown tool", "No checkpoint could be taken", "Tool '", "The arguments of",
+           '{"status": "refused"', '{"status": "unchanged"')
 
 
 def tool_effect(name: str, learned: Optional[Dict[str, str]] = None) -> str:
@@ -176,6 +187,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--workspace", default=".", help="the folder the agent worked in")
     p.add_argument("--data-dir", default=None, help="the agent's data folder (default: the one for this workspace)")
     p.add_argument("--to", default=None, metavar="CHECKPOINT", help="go back to this checkpoint")
+    p.add_argument("--delete", default=None, metavar="CHECKPOINT|all", help="delete this checkpoint, or all of them")
     p.add_argument("--keep-new", action="store_true", help="do not delete files created since the checkpoint")
     p.add_argument("--yes", action="store_true", help="go back even though some later actions cannot be undone")
     p.add_argument("--json", action="store_true")
@@ -186,6 +198,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
     from harness.stack import data_dir_for                # imported here: the helpers below are used where the whole agent is not
     data_dir = Path(args.data_dir) if args.data_dir else data_dir_for(workspace)
+    if args.delete is not None:
+        try:
+            gone = delete_checkpoints(data_dir, workspace, None if args.delete == "all" else args.delete)
+        except ValueError as exc:
+            print(f"Could not delete: {exc}", file=sys.stderr)
+            return 2
+        print(f"Deleted {gone} checkpoint(s).")
+        return 0 if gone else 2
     report = checkpoint_report(data_dir, workspace)
 
     if args.to is None:

@@ -133,18 +133,6 @@
   async function runForm(skill, preset = {}) {
     const w = windowOf(T("psk.run.title", skill.name));
     if (skill.description) w.body.append(mk("p", "psk-lead", skill.description));
-    if (skill.status !== "approved") {
-      const box = mk("div", "psk-pending");
-      box.append(mk("p", "", T("psk.run.pending")));
-      const code = mk("pre", "psk-code-view"); code.textContent = (await api("GET", `api/personal-skills/${skill.slug}`)).json.skill?.script || "";
-      const ok = button(T("psk.approve"), "primary", async () => {
-        const r = await api("POST", `api/personal-skills/${skill.slug}/approve`, {});
-        if (!r.ok) { status.textContent = errText(r); return; }
-        w.close(); const fresh = await api("GET", `api/personal-skills/${skill.slug}`); if (fresh.ok) runForm(fresh.json.skill, preset);
-      });
-      box.append(code, ok);
-      w.body.append(box);
-    }
     const fields = (skill.params || []).map(p => ({ spec: p, ...valueField(p, preset[p.name]) }));
     fields.forEach(f => w.body.append(f.el));
     if (!fields.length) w.body.append(mk("p", "psk-help", T("psk.run.noparams")));
@@ -172,8 +160,7 @@
       w.close();
       A().refresh();
     });
-    if (skill.status === "approved") w.foot.append(go);
-    else go.disabled = true;
+    w.foot.append(go);
     w.foot.append(button(T("psk.close"), "ghost", w.close));
     const first = fields[0] && fields[0].control; if (first) first.focus();
   }
@@ -203,8 +190,6 @@
     const row = s => {
       const el = mk("section", "psk-item"), top = mk("div", "psk-itemhead");
       top.append(mk("b", "", s.name));
-      if (s.status !== "approved") top.append(mk("span", "psk-badge warn", T("psk.pending")));
-      if (s.mode === "free") top.append(mk("span", "psk-badge warn", T("psk.free")));
       el.append(top);
       if (s.description) el.append(mk("p", "psk-help", s.description));
       el.append(mk("p", "psk-help", T("psk.meta", (s.params || []).length, s.uses || 0)));
@@ -250,23 +235,21 @@
     const addCard = (spec, o) => { const c = paramCard(spec, { ...o, remove: () => { const i = cards.indexOf(c); if (i >= 0) cards.splice(i, 1); } }); cards.push(c); paramBox.append(c.el); return c; };
     (skill.params || []).forEach(p => addCard(p, {}));
     const code = mk("textarea", "psk-code"); code.rows = 20; code.spellcheck = false; code.value = skill.script || "";
-    const mode = select(["restricted", "free"], skill.mode === "free" ? "free" : "restricted", m => T("psk.mode." + m));
+    const limit = input(skill.timeout || ""); limit.inputMode = "numeric";
     const out = mk("div", "psk-out"), status = mk("p", "psk-status");
     status.setAttribute("role", "status");
-    const risk = mk("div"); const paintRisk = () => { risk.replaceChildren(...(mode.value === "free" ? [riskLabel(T("psk.mode.risk"))] : [])); };
-    mode.onchange = paintRisk; paintRisk();
     w.body.append(field(T("psk.field.name"), name), field(T("psk.field.desc"), desc), mk("h3", "", T("psk.make.params")), paramBox,
                   button(T("psk.make.add"), "", () => addCard({ type: "text" }, {})), mk("h3", "", T("psk.field.script")), code, out,
-                  field(T("psk.field.mode"), mode), risk);
+                  field(T("psk.field.limit"), limit, T("psk.limit.help")));
     if (skill.unused && skill.unused.length) out.append(mk("p", "psk-warn", T("psk.unused", skill.unused.join(", "))));
     const collect = () => {
       const params = [];
       for (const c of cards) params.push(c.read());
-      return { name: name.value.trim(), description: desc.value.trim(), mode: mode.value, params, ...(skill.source ? { source: skill.source } : {}) };
+      return { name: name.value.trim(), description: desc.value.trim(), timeout: Math.max(0, parseInt(limit.value, 10) || 0), params, ...(skill.source ? { source: skill.source } : {}) };
     };
     const check = async () => {
       out.replaceChildren();
-      const r = await api("POST", "api/personal-skills/check", { script: code.value, mode: mode.value });
+      const r = await api("POST", "api/personal-skills/check", { script: code.value });
       if (!r.ok) { status.textContent = errText(r); return false; }
       const problems = r.json.problems || [];
       if (problems.length) {
@@ -281,9 +264,8 @@
       let spec;
       try { spec = collect(); } catch (e) { status.textContent = e.message; return; }
       if (!spec.name) { status.textContent = T("psk.name.need"); return; }
-      if (mode.value === "free" && !(await riskConfirm([T("psk.mode.risk")]))) return;
       save.disabled = true;
-      const r = await api("POST", "api/personal-skills", { skill: spec, script: code.value, slug: fresh ? undefined : skill.slug, confirm_free: mode.value === "free" });
+      const r = await api("POST", "api/personal-skills", { skill: spec, script: code.value, slug: fresh ? undefined : skill.slug });
       save.disabled = false;
       if (!r.ok) { status.textContent = errText(r); return; }
       w.close();
@@ -291,7 +273,6 @@
       if (done) done(r.json.skill);
     });
     w.foot.append(status, button(T("psk.check"), "", check), save);
-    if (!fresh && skill.status !== "approved") w.foot.append(button(T("psk.approve"), "", async () => { const r = await api("POST", `api/personal-skills/${skill.slug}/approve`, {}); status.textContent = r.ok ? T("psk.approved") : errText(r); if (r.ok && done) done(r.json.skill); }));
     if (!fresh && (skill.versions || []).length) {
       const versions = select((skill.versions || []).map(String), String(skill.versions[skill.versions.length - 1]), v => T("psk.version", v));
       w.foot.append(versions, button(T("psk.restore"), "ghost", async () => {

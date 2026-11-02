@@ -204,10 +204,10 @@ def register_visual_tools(registry: Any, outputs: Any, session: str, allow_priva
         return {"type": "object", "properties": props, "required": required}
 
     registry.register("page_images", "Lists the pictures a web page shows, its own headline picture first, with their alt text and captions. Use it on the article you cite.",
-                      obj({"url": {"type": "string", "description": "http or https address of the page"}}, ["url"]), EffectClass.PURE, list_images, untrusted=True)
+                      obj({"url": {"type": "string", "description": "http or https address of the page"}}, ["url"]), EffectClass.PURE, list_images, untrusted=True, outward=True)
     registry.register("show_image", "Fetches a picture (PNG, JPEG, GIF or WebP, up to 8 MB) from a web address into this conversation, so an answer can show it. Returns how to show it.",
                       obj({"url": {"type": "string", "description": "address of the picture itself"}, "caption": {"type": "string", "description": "a few words naming it"}}, ["url"]),
-                      EffectClass.REVERSIBLE, show_image, untrusted=True)
+                      EffectClass.REVERSIBLE, show_image, untrusted=True, outward=True)
 
 
 IMAGE_RULES = {
@@ -231,8 +231,8 @@ CHART_RULES = {
 FILES_GUIDANCE = (
     "The person reads you in a page that turns a link to a file into a button that saves it. To offer a file you made with write_output_file or publish_output_file, "
     "write [name](basalt-file:ID) with the ID from its [file:ID:name] line. To point to a file in the folder, write [name](basalt-path:relative/path), with the path "
-    "relative to the folder and only for a file that exists. Do it when the person asks for a file, or when you mention one they would want to keep, and do not paste a "
-    "long file into the answer when a button will do.")
+    "relative to the folder and only for a file that exists. Offer a file when the person asks for a file or would want to keep one; when the person asks to see "
+    "a text on screen, the text goes in the answer.")
 
 
 def guidance(images: str, charts: str) -> str:

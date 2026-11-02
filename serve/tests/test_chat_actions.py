@@ -12,7 +12,8 @@ class ChatActionsTest(unittest.TestCase):
     def test_a_prompt_a_reasoning_window_and_an_answer_each_end_with_a_copy_icon(self):
         self.assertIn('acts.append(copyButton(() => it.text || ""), backButton(it), skillButton(it));', CHAT)
         self.assertIn('d.querySelector(".think-end").append(copyButton(() => b.s || ""));', CHAT)
-        self.assertIn('it.actsEl.append(copyButton(() => it.blocks.filter(x => x.t === "text")', CHAT)
+        self.assertIn("it.actsEl.append(copyButton(() => answerText(it)), save, branchBtn);", CHAT)
+        self.assertIn('const answerText = it => it.blocks.filter(x => x.t === "text")', CHAT)
 
     def test_an_answer_that_is_done_can_be_branched_from_where_it_stands(self):
         self.assertIn("if (it.done && !it.actsEl)", CHAT)

@@ -33,8 +33,8 @@ class McpAuthApi:
     def _server(self, entry_id: Any) -> Dict[str, Any]:
         for s in self.capabilities.index.remote_servers():
             if s["id"] == entry_id:
-                if s["state"] != "approved":
-                    raise McpAuthError("Approve this server first (look at its address, then press Approve).", "needs_approval")
+                if s["state"] == "off":
+                    raise McpAuthError("This server is turned off: turn it on in Settings, under Capabilities.", "turned_off")
                 return s
         raise McpAuthError("That server is not there any more: look again.", "gone")
 

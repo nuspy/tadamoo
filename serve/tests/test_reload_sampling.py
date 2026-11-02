@@ -100,5 +100,27 @@ class RefusedBeforeStopping(unittest.TestCase):
         self.assertEqual(svc.sampling_defaults, {"temperature": 0.7})
 
 
+class ReloadKeepsGrammarOn(unittest.TestCase):
+    def reload_spawn_args(self, known_flags):
+        engine = mock.MagicMock()
+        engine.spawn = ("old-bin", [], None, None, {})
+        svc = mock.MagicMock(engine=engine, vision=None, sampling_defaults={})
+        sup = supervisor.Supervisor.__new__(supervisor.Supervisor)
+        sup.svc, sup.facts, sup.argv = svc, {}, []
+        sup._set = lambda **k: None
+        cfg = {"engine_bin": "basalt.exe", "args": ["--model", "m"]}
+        a = Namespace(sampling_launch={}, sampling_cli=set())
+        with mock.patch.object(supervisor, "engine_config", return_value=cfg),                 mock.patch.object(supervisor, "engine_flags_of", return_value=known_flags),                 mock.patch.object(supervisor, "child_env", return_value={}),                 mock.patch.object(supervisor, "settings_info", return_value={"running": {}}),                 mock.patch.object(supervisor, "record_memory"),                 mock.patch.object(supervisor, "make_vision", return_value=None),                 mock.patch.object(supervisor, "gpus_in_play", return_value=[0]),                 mock.patch.object(supervisor.loader, "free_share_chosen", return_value=None),                 mock.patch.object(supervisor.loader, "system_now", return_value={}),                 contextlib.redirect_stdout(io.StringIO()):
+            sup._reload_engine(a, [])
+        return list(engine.spawn[1])
+
+    def test_a_reload_starts_the_engine_with_grammar_on_when_it_knows_the_flag(self):
+        self.assertEqual(self.reload_spawn_args({"--grammar"}), ["--model", "m", "--grammar", "on"])
+
+    def test_a_reload_adds_nothing_for_an_engine_without_the_flag(self):
+        self.assertEqual(self.reload_spawn_args(set()), ["--model", "m"])
+        self.assertEqual(self.reload_spawn_args(None), ["--model", "m"])
+
+
 if __name__ == "__main__":
     unittest.main()

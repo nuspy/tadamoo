@@ -5,8 +5,12 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
+import 'capabilities_screen.dart';
+import 'chat_options.dart';
 import 'i18n.dart';
 import 'place.dart';
+import 'pskills_screen.dart';
+import 'server_prefs.dart';
 import 'settings.dart';
 import 'voice.dart';
 
@@ -28,9 +32,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool bad = false;
   bool testing = false;
   bool hideKey = true;
+  late final ServerPrefs prefs = ServerPrefs(Api(widget.settings));
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.settings.configured) prefs.load();
+  }
 
   @override
   void dispose() {
+    prefs.dispose();
     address.dispose();
     key.dispose();
     locale.dispose();
@@ -56,6 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final hello = await Api(widget.settings).hello();
       message = Texts.t('set.test.ok', ['${hello['device'] ?? ''}']);
       bad = false;
+      prefs.load();
     } on ApiError catch (e) {
       message = Texts.t('set.test.fail', [e.message]);
       bad = true;
@@ -80,22 +93,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         bad = true;
       });
     }
-  }
-
-  Future<void> _confirmAuto(String value) async {
-    if (value == 'auto') {
-      for (final text in [Texts.t('mode.auto.risk'), Texts.t('mode.auto.risk2')]) {
-        final ok = await showDialog<bool>(
-          context: context,
-          builder: (c) => AlertDialog(content: Text(text), actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: Text(Texts.t('conv.cancel'))),
-            FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(Texts.t('chat.yes'))),
-          ]),
-        );
-        if (ok != true) return;
-      }
-    }
-    await widget.settings.setMode(value);
   }
 
   /// Switching it on asks Android for the permission; switching it off makes the PC forget the last position it was given.
@@ -167,6 +164,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ]),
           ),
         ),
+        if (widget.settings.configured) ...[
+          const Divider(height: 32),
+          Text(Texts.t('set.more'), style: theme.textTheme.titleMedium),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.auto_fix_high_outlined),
+            title: Text(Texts.t('psk.title')),
+            subtitle: Text(Texts.t('psk.sub')),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => PersonalSkillsScreen(api: Api(widget.settings), settings: widget.settings, voice: widget.voice))),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.extension_outlined),
+            title: Text(Texts.t('cap.title')),
+            subtitle: Text(Texts.t('cap.sub')),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CapabilitiesScreen(api: Api(widget.settings)))),
+          ),
+          const Divider(height: 32),
+          Text(Texts.t('opts.title'), style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          ServerOptionsBody(prefs: prefs),
+        ],
         const Divider(height: 32),
         Text(Texts.t('set.voice'), style: theme.textTheme.titleMedium),
         SwitchListTile(contentPadding: EdgeInsets.zero, title: Text(Texts.t('set.autospeak')), value: widget.settings.autoSpeak, onChanged: (v) => widget.settings.setAutoSpeak(v).then((_) => setState(() {}))),
@@ -196,7 +217,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           initialValue: widget.settings.mode,
           decoration: InputDecoration(labelText: Texts.t('set.mode'), border: const OutlineInputBorder()),
           items: [for (final m in const ['plan', 'read_only', 'default', 'auto']) DropdownMenuItem(value: m, child: Text(Texts.t('mode.$m')))],
-          onChanged: (v) => v == null ? null : _confirmAuto(v).then((_) => setState(() {})),
+          onChanged: (v) => v == null ? null : widget.settings.setMode(v).then((_) => setState(() {})),
         ),
       ]),
     );

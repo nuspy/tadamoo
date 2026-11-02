@@ -4,8 +4,8 @@
    gives back what it changed, unless the person changed that setting since. Pure functions on the form's values; loader.js does
    the reading and writing of the form. */
 (function (root) {
-  const SPEC = "engine.spec", MTP = "mtp", PARALLEL = "server.parallel", FULL = "server.slot-full-context";
-  const NAMES = [MTP, SPEC, PARALLEL, FULL];
+  const SPEC = "engine.spec", MTP = "mtp", PARALLEL = "server.parallel", FULL = "server.slot-full-context", SIDE = "server.side-slot";
+  const NAMES = [MTP, SPEC, PARALLEL, FULL, SIDE];
   const SPEC_ON = "7";                                        // the window the measurements used
   const num = v => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
 
@@ -16,6 +16,7 @@
     if (!cur[MTP] || num(cur[SPEC]) < 2) { before[MTP] = !!cur[MTP]; before[SPEC] = cur[SPEC] ?? ""; set[MTP] = true; set[SPEC] = SPEC_ON; }
     if (num(cur[PARALLEL] || 1) > 1) { before[PARALLEL] = cur[PARALLEL]; set[PARALLEL] = "1"; }
     if (cur[FULL]) { before[FULL] = true; set[FULL] = false; }
+    if (num(cur[SIDE]) > 0) { before[SIDE] = cur[SIDE]; set[SIDE] = "0"; }      // the technical session turns the batch on: no relaxed drafting there
     return { before, set };
   }
 

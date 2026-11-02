@@ -102,8 +102,6 @@ def test_the_choice_decides_who_looks(setup):
     index.save_settings(visual="none")
     assert "not set up" in registry.execute("analyze_image", {"path": "a.png", "question": "?"})
     index.save_settings(visual="skill:ocr-reader")
-    assert "not available or not approved" in registry.execute("analyze_image", {"path": "a.png", "question": "?"})
-    index.approve("skill:ocr-reader", index.review("skill:ocr-reader")["sha"])
     out = registry.execute("analyze_image", {"path": "a.png", "question": "leggi il testo"})
     assert "Do the thing." in out and "a.png" in out and model.sent == []
     index.save_settings(visual="mcp:ghost")

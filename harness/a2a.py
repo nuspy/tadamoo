@@ -17,6 +17,8 @@ import urllib.request
 import uuid
 from typing import Any, Dict, List, Optional
 
+from harness import netscope
+
 CARD_PATH = "/.well-known/agent-card.json"
 MEDIA_TYPE = "application/a2a+json"
 BINDING = "HTTP+JSON"
@@ -50,6 +52,10 @@ class A2AClient:
     # -- wire ------------------------------------------------------------------------------------
 
     def _http(self, method: str, url: str, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        try:
+            netscope.require_private(url)
+        except netscope.OutsideNetwork as exc:
+            raise A2AError(str(exc)) from None
         headers = {"Accept": MEDIA_TYPE + ", application/json"}
         if self.interface:
             headers["A2A-Version"] = _version(self.interface)

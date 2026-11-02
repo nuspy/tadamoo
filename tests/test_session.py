@@ -10,7 +10,7 @@ import pytest
 
 from harness import agent_loop as al
 from harness.client import BasaltError
-from harness.session import Session, SessionStore, main
+from harness.session import UNAVAILABLE_NOTE, Session, SessionStore, approving_value, main, question_source, unattended_confirm
 from harness.stack import AgentConfig, build_agent
 from harness.tools.registry import EffectClass
 
@@ -102,10 +102,10 @@ def test_the_history_survives_the_process_and_the_prefix_does_not_change(tmp_pat
     client2 = Scripted(say("Tre."))
     session2, ev2, store2, built2 = make(tmp_path, client2)
     assert session2.restore() == 2
-    assert built2.agent.messages[:3] == saved[:3]                      # the same system prompt and the same first turn
+    assert [{k: v for k, v in m.items() if k != "code"} for m in built2.agent.messages[:3]] == [{k: v for k, v in m.items() if k != "code"} for m in saved[:3]]      # the same system prompt and the same first turn (the code mark is bookkeeping, made again on demand)
     session2.send("m2", "secondo")
     ev2.wait("done")
-    assert client2.sent[0][:3] == [{k: v for k, v in m.items() if k not in ("pinned", "pin_category")} for m in saved[:3]]
+    assert client2.sent[0][:3] == [{k: v for k, v in m.items() if k not in ("pinned", "pin_category", "code")} for m in saved[:3]]
 
 
 class Streamer:
@@ -227,35 +227,73 @@ def test_a_busy_server_is_retried_with_waits_and_the_turn_ends_well(tmp_path):
     assert [m["role"] for m in client.sent[2]] == ["system", "user"]       # the message was not added again
 
 
-def test_a_refusal_waiting_cannot_change_is_not_retried_and_the_person_decides(tmp_path):
+def test_a_model_error_of_any_kind_never_blocks_it_is_retried_and_the_event_says_what_is_waited_for(tmp_path):
     client = Scripted(BasaltError(400, "the prompt is over the context"), say("Ora sì."))
     session, ev, *_ = make(tmp_path, client)
     session.send("m1", "enorme")
-    blocked = ev.wait("blocked")
-    assert blocked["reason"] == "refused" and blocked["options"] == ["resume", "close"]
-    assert "retrying" not in ev.kinds() and len(client.sent) == 1
-    assert session.busy is False
-    n = len(ev.items)
-    assert session.resume()
-    assert ev.wait("done", after=n)["final"] == "Ora sì."
+    assert ev.wait("done")["final"] == "Ora sì."
+    assert "blocked" not in ev.kinds() and len(client.sent) == 2
+    retry = next(e for e in ev.items if e["event"] == "retrying")
+    assert retry["status"] == 400 and retry["waiting_for"]
 
 
-def test_retries_that_run_out_end_as_blocked_and_wait_for_the_person(tmp_path):
-    client = Scripted(*[BasaltError(503, "busy")] * 4, say("Finalmente."))
+def test_a_model_that_is_not_loaded_is_loaded_by_the_session_and_attended_auto_does_not_block(tmp_path):
+    client = Scripted(BasaltError(503, "no model is loaded yet"), say("Carico."))
+    session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": False})
+    session.endpoint = "http://127.0.0.1:1"
+    loads = []
+    session.load_model = lambda wait_s: loads.append(wait_s) or "started"
+    session.send("m1", "ciao")
+    assert ev.wait("done")["final"] == "Carico." and len(loads) == 1 and "blocked" not in ev.kinds()
+    retry = next(e for e in ev.items if e["event"] == "retrying")
+    assert "loading" in retry["waiting_for"] and "load_error" not in retry
+
+
+def test_a_load_the_loader_refuses_is_said_in_the_event_and_the_retries_go_on(tmp_path):
+    client = Scripted(BasaltError(503, "no model is loaded yet"), BasaltError(503, "no model is loaded yet"), say("Eccomi."))
+    session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": False})
+    session.endpoint = "http://127.0.0.1:1"
+
+    def refuse(wait_s):
+        raise RuntimeError("no model is chosen: pick one in the Loader's model list first")
+    session.load_model = refuse
+    session.send("m1", "ciao")
+    assert ev.wait("done")["final"] == "Eccomi." and "blocked" not in ev.kinds()
+    retries = [e for e in ev.items if e["event"] == "retrying"]
+    assert len(retries) == 2 and "no model is chosen" in retries[0]["load_error"]
+
+
+def test_a_server_that_loads_by_itself_is_not_asked_to_load(tmp_path):
+    client = Scripted(BasaltError(503, "no model is loaded yet"), say("Ok."))
+    session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": True})
+    session.endpoint = "http://127.0.0.1:1"
+    session.load_model = lambda wait_s: pytest.fail("loaded by the session")
+    session.send("m1", "ciao")
+    assert ev.wait("done")["final"] == "Ok."
+
+
+def test_retries_never_run_out_and_the_last_wait_is_repeated(tmp_path):
+    client = Scripted(*[BasaltError(503, "busy")] * 7, say("Finalmente."))
     session, ev, *_ = make(tmp_path, client, waits=(0, 0, 0))
     session.send("m1", "ciao")
-    blocked = ev.wait("blocked")
-    assert blocked["reason"] == "model_unavailable" and len(client.sent) == 4          # one try and three new ones
-    n = len(ev.items)
-    session.resume()
-    assert ev.wait("done", after=n)["final"] == "Finalmente."
+    assert ev.wait("done")["final"] == "Finalmente."
+    assert "blocked" not in ev.kinds() and len(client.sent) == 8
+    retries = [e for e in ev.items if e["event"] == "retrying"]
+    assert [r["attempt"] for r in retries] == list(range(1, 8)) and all("of" not in r for r in retries)
 
 
-def test_a_model_the_server_will_not_load_is_a_block_not_a_loop(tmp_path):
-    client = Scripted(BasaltError(503, "no model loaded"))
+def test_the_waits_grow_up_to_a_few_minutes_and_stay_there():
+    from harness.session import BACKOFF_S
+    assert list(BACKOFF_S) == sorted(BACKOFF_S) and 120 <= BACKOFF_S[-1] <= 600 and BACKOFF_S[0] <= 5
+
+
+def test_a_model_the_server_will_not_load_is_retried_and_the_facts_are_in_the_event(tmp_path):
+    client = Scripted(BasaltError(503, "no model loaded"), say("Ora è carico."))
     session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": False})
     session.send("m1", "ciao")
-    assert ev.wait("blocked")["reason"] == "model_not_loaded" and len(client.sent) == 1
+    assert ev.wait("done")["final"] == "Ora è carico."
+    retry = next(e for e in ev.items if e["event"] == "retrying")
+    assert retry["reachable"] is True and retry["loaded"] is False and retry["auto_load"] is False
 
 
 def test_a_tool_that_fails_is_seen_by_the_model_and_not_retried_by_the_session(tmp_path):
@@ -270,7 +308,7 @@ class Died(BaseException):
     """What a process dying in the middle of a tool looks like to the code."""
 
 
-def test_an_action_that_cannot_be_undone_is_never_run_again_after_a_crash(tmp_path):
+def test_an_action_that_cannot_be_undone_is_not_run_again_by_the_harness_after_a_crash(tmp_path):
     ran = []
 
     def pay(**kw):
@@ -288,13 +326,13 @@ def test_an_action_that_cannot_be_undone_is_never_run_again_after_a_crash(tmp_pa
     session2, ev2, store2, built2 = make(tmp_path, client2)
     built2.agent.tools.register("pay", "pays", {"type": "object", "properties": {}}, EffectClass.IRREVERSIBLE, lambda **k: ran.append("again"))
     session2.restore()
-    assert session2.blocked["reason"] == "interrupted_irreversible" and session2.blocked["tool"] == "pay"
+    assert session2.blocked is None                                             # nothing stops: the model is told instead
     assert store2.inflight() is None
     session2.send("m2", "come è andata?")
     ev2.wait("done")
-    note = next(m["content"] for m in client2.sent[0] if m["role"] == "user" and "interrupted" in m["content"])
-    assert "pay" in note and "Do not run it again" in note
-    assert ran == [{"amount": "10"}]                                          # never run a second time
+    note = next(m["content"] for m in client2.sent[0] if m["role"] == "user" and "may have run" in m["content"])
+    assert "pay" in note and "Check what really happened before repeating it" in note
+    assert ran == [{"amount": "10"}]                                          # the harness never runs it a second time
 
 
 def test_no_secret_reaches_the_history_file(tmp_path, monkeypatch):
@@ -341,7 +379,7 @@ def test_the_process_speaks_lines_of_json_and_closes_on_command(tmp_path, monkey
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent
-    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=client: real_build(cfg, client=_c))
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=client: real_build(cfg, client=_c))
     feed, out = Feed(), io.StringIO()
     t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "p1",
                                               "--no-memory", "--no-checkpoints", "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)
@@ -375,7 +413,7 @@ def test_a_position_sent_with_a_message_brings_the_tool_for_that_turn(tmp_path, 
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent
-    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=client: real_build(cfg, client=_c))
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=client: real_build(cfg, client=_c))
     feed, out = Feed(), io.StringIO()
     t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "pl",
                                               "--no-memory", "--no-checkpoints", "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)
@@ -414,7 +452,7 @@ class FakePlans:
         self.plans = [p for p in self.plans if p["plan_id"] != plan_id]
 
 
-def with_planner(tmp_path, client, plans=None, mode="auto"):
+def with_planner(tmp_path, client, plans=None, mode="default"):
     ws = tmp_path / "ws"
     ws.mkdir(exist_ok=True)
     built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False,
@@ -453,18 +491,21 @@ def test_an_answer_that_is_not_one_of_the_buttons_is_ignored_and_a_cancel_ends_t
     assert ev.wait("done")["stop_reason"] == al.CANCELLED and plans.archived == []
 
 
-def test_a_question_tool_ends_the_turn_and_the_button_is_the_next_message(tmp_path):
-    client = Scripted(call("ask_user", question_text="Quale giorno?", options=[{"label": "Sabato", "value": "Parto sabato"}]), say("Va bene sabato."))
+def test_a_question_tool_ends_the_turn_and_the_answer_is_the_next_message(tmp_path):
+    client = Scripted(call("ask_user", questions=[{"text": "Quale giorno?", "kind": "single", "options": [{"label": "Sabato", "recommended": True}, {"label": "Domenica"}]}]),
+                      say("Va bene sabato."))
     session, ev, plans, built = with_planner(tmp_path, client)
     session.send("m1", "organizza il weekend")
     ask = ev.wait("ask")
-    assert ask["mode"] == "question" and ask["options"] == [{"label": "Sabato", "value": "Parto sabato"}]
+    assert ask["mode"] == "question" and ask["kind"] == "questions" and ask["questions"][0]["options"][0]["recommended"] and ask["question"] == "Quale giorno?"
     done = ev.wait("done")
     assert done["stop_reason"] == al.ASKED and len(client.sent) == 1                  # the model was not called again
     n = len(ev.items)
-    session.send("m2", ask["options"][0]["value"])                                      # the button is pressed
+    text = "The user answered your questions:\n1. Quale giorno? -> Sabato (your recommended option)\nGo on with these answers. Do not ask them again."
+    session.send("m2", text)                                                           # the server puts the card's answer in words
     assert ev.wait("done", after=n)["final"] == "Va bene sabato."
-    assert [m["content"] for m in client.sent[1] if m["role"] == "user"][-1] == "Parto sabato"
+    assert [m["content"] for m in client.sent[1] if m["role"] == "user"][-1] == text
+    assert "Asking the user (ask_user)" in client.sent[0][0]["content"]               # the rules are in the prompt when the tool is
 
 
 def test_the_permission_question_is_put_in_the_conversation(tmp_path):
@@ -612,7 +653,7 @@ def test_a_plan_the_person_approves_ends_plan_mode_and_the_work_goes_on(tmp_path
     done = ev.wait("done")
     assert done["stop_reason"] == al.FINAL and (ws / "a.txt").read_text(encoding="utf-8") == "after approval"
     assert not built.permissions.plan_mode and built.permissions.level.value == "default"
-    assert "present_plan" not in built.agent.tools.names()
+    assert "present_plan" in built.agent.tools.names()                       # the tool list does not change with the mode
     assert [r["action"] for r in built.audit.records if r["action"].startswith("plan_")] == ["plan_approved"]
     assert any("Plan mode active" in m["content"] for m in built.agent.messages if m["role"] == "tool")
 
@@ -647,7 +688,8 @@ def test_a_run_with_nobody_to_ask_stays_a_plan_and_the_mode_can_be_set_back_to_p
         assert "Nobody can approve" in tool.execute("present_plan", {"plan": "do x"}) and built.permissions.plan_mode
         assert "plan is empty" in tool.execute("present_plan", {"plan": "  "})
         built.set_mode("auto")
-        assert "present_plan" not in tool.names() and not built.permissions.plan_mode
+        assert "present_plan" in tool.names() and not built.permissions.plan_mode
+        assert "Plan mode is not on" in tool.execute("present_plan", {"plan": "do x"})            # there is nothing to approve outside plan mode
         built.set_mode("plan")
         assert "present_plan" in tool.names() and built.permissions.plan_mode
         with pytest.raises(ValueError):
@@ -674,7 +716,7 @@ def test_refused_calls_are_counted_in_the_conversation_state_and_in_its_closing_
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent
-    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=client: real_build(cfg, client=_c))
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=client: real_build(cfg, client=_c))
     feed, out = Feed(), io.StringIO()
     t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "d1", "--deny", "shell_command:*",
                                               "--no-memory", "--no-checkpoints", "--no-planner", "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)
@@ -721,22 +763,274 @@ def test_always_allow_answers_the_question_and_the_same_kind_of_command_then_run
                                lambda **kw: ran.append(kw) or "ok")
     session.send("m1", "prova")
     ask = ev.wait("ask")
+    assert [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "cancel"]       # this call, this conversation, for good
     always = next(o for o in ask["options"] if o["value"] == "always")
     assert always["rule"] == "shell_command:pytest *"
     session.answer(ask["id"], "always")
-    assert ev.wait("rule_added")["rule"] == "shell_command:pytest *"
+    added = ev.wait("rule_added")
+    assert added["rule"] == "shell_command:pytest *" and added["scope"] == "global"
     ev.wait("done")
     assert [r["command"] for r in ran] == ["pytest -q", "pytest tests/a.py"]
     assert len([e for e in ev.items if e["event"] == "ask"]) == 1                      # the second command did not ask
 
 
-def test_no_always_button_for_a_command_that_chains_others_or_a_payment(tmp_path):
+def test_allowing_for_this_conversation_is_not_for_good_and_a_program_that_runs_code_gets_the_same_choices(tmp_path):
+    client = Scripted(call("shell_command", command="python -c 1"), say("Fatto."))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="default")
+    built.agent.tools.register("shell_command", "runs", {"type": "object", "properties": {"command": {"type": "string"}}}, EffectClass.IRREVERSIBLE,
+                               lambda **kw: "ok")
+    session.send("m1", "prova")
+    ask = ev.wait("ask")
+    chat = next(o for o in ask["options"] if o["value"] == "chat")
+    assert chat["rule"] == "shell_command:python *"
+    session.answer(ask["id"], "chat")
+    assert ev.wait("rule_added")["scope"] == "chat"
+
+
+def test_a_command_that_chains_others_gets_the_same_three_choices_and_a_payment_only_its_own(tmp_path):
     client = Scripted(call("shell_command", command="pytest && rm -rf x"), say("no"))
     session, ev, plans, built = with_planner(tmp_path, client, mode="default")
     built.agent.tools.register("shell_command", "runs", {"type": "object", "properties": {"command": {"type": "string"}}}, EffectClass.IRREVERSIBLE,
                                lambda **kw: "ok")
     session.send("m1", "prova")
     ask = ev.wait("ask")
-    assert [o["value"] for o in ask["options"]] == ["confirm", "cancel"]
+    assert [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "cancel"]
+    assert ask["options"][2]["rules"] == ["shell_command:pytest *", "shell_command:rm *"]
     session.answer(ask["id"], "cancel")
     ev.wait("done")
+
+
+def test_a_tool_with_a_colon_in_its_name_gets_the_three_levels_and_its_own_rule(tmp_path):
+    session, ev, plans, built = with_planner(tmp_path, Scripted(), mode="default")
+    answers = []
+    t = threading.Thread(target=lambda: answers.append(session.permission_confirm("acp_permission:codex:run tests", {"title": "run tests"})))
+    t.start()
+    ask = ev.wait("ask")
+    assert [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "cancel"]
+    assert ask["options"][2]["rules"] == ["acp_permission:codex:run tests"]
+    session.answer(ask["id"], "always")
+    t.join(5)
+    assert answers == [True] and ev.wait("rule_added")["rule"] == "acp_permission:codex:run tests"
+    assert built.permissions.allowed_by("acp_permission:codex:run tests", {})              # the next one passes without asking
+
+
+def test_a_payment_the_broker_does_not_decide_gets_the_three_levels_and_an_allow_covers_the_next(tmp_path):
+    session, ev, plans, built = with_planner(tmp_path, Scripted(), mode="default")
+    request = {"amount": "5", "recipient": "Bar", "reason": "caffe", "system": "card"}
+    answers = []
+    t = threading.Thread(target=lambda: answers.append(session.ask_payment(request)))
+    t.start()
+    ask = ev.wait("ask")
+    assert [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "cancel"]
+    assert ask["options"][1]["rules"] == ["request_payment:card"]
+    session.answer(ask["id"], "chat")
+    t.join(5)
+    assert answers == [True] and ev.wait("rule_added")["scope"] == "chat"
+    assert session.ask_payment(request) is True and len([e for e in ev.items if e["event"] == "ask"]) == 1
+
+
+def test_a_phone_call_in_a_manual_chat_has_the_three_levels_and_the_always_rule_covers_the_next_call(tmp_path):
+    ran = []
+    client = Scripted(call("phone_call", x="Anna"), call("phone_call", x="Luca"), say("Fatto."))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="default")
+    register(built, "phone_call", ran)
+    session.send("m1", "chiama")
+    ask = ev.wait("ask")
+    assert ask["kind"] == "permission" and [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "cancel"]
+    assert ask["options"][2]["rules"] == ["phone_call"]
+    session.answer(ask["id"], "always")
+    ev.wait("done")
+    assert [r["x"] for r in ran] == ["Anna", "Luca"] and len([e for e in ev.items if e["event"] == "ask"]) == 1
+
+
+def test_a_phone_call_at_the_auto_level_is_not_asked_even_with_the_person_there(tmp_path):
+    ran = []
+    client = Scripted(call("phone_call", x="Anna"), say("Fatto."))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="auto")
+    register(built, "phone_call", ran)
+    session.send("m1", "chiama")
+    ev.wait("done")
+    assert ran == [{"x": "Anna"}] and "ask" not in ev.kinds()
+
+
+def test_the_rule_of_two_question_has_the_three_levels_and_an_always_answer_stops_it_asking_again(tmp_path):
+    ran = []
+    client = Scripted(call("browse_url", x="a"), call("browse_url", x="b"), say("Fatto."))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="default")
+    built.agent.tools.register("browse_url", "opens", {"type": "object", "properties": {"x": {"type": "string"}}}, EffectClass.PURE,
+                               lambda **kw: ran.append(kw) or "page", outward=True)
+    built.permissions.two.set_level("ask")
+    built.permissions.note_untrusted_input("a page")
+    built.permissions.note_private_data(".env")
+    session.send("m1", "apri")
+    ask = ev.wait("ask")
+    assert [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "cancel"] and ask["options"][2]["rules"] == ["browse_url"]
+    session.answer(ask["id"], "chat")
+    ev.wait("done")
+    assert len(ran) == 2 and len([e for e in ev.items if e["event"] == "ask"]) == 1
+
+
+def test_an_unattended_session_answers_the_card_itself_parks_what_involves_people_and_does_not_end_the_turn(tmp_path):
+    card = [{"text": "Quale giorno?", "kind": "single", "options": [{"label": "Sabato", "recommended": True}, {"label": "Domenica"}]},
+            {"text": "Chiamo il veterinario?", "kind": "confirm", "recommended": True, "involves": ["people: il veterinario"]},
+            {"text": "Il nome?", "kind": "free", "default": "Rex"}, {"text": "Quanti giorni?", "kind": "free"}]
+    client = Scripted(call("ask_user", questions=card), say("Scelgo sabato."))
+    session, ev, store, built = unattended_session(tmp_path, client)
+    session.enable_planner(FakePlans())
+    session.send("m1", "organizza")
+    done = ev.wait("done")
+    assert done["final"] == "Scelgo sabato." and "ask" not in ev.kinds() and done["stop_reason"] != al.ASKED
+    autos = [e for e in ev.items if e["event"] == "auto_answered"]
+    assert [e["chosen"] for e in autos] == ["recommended", "parked", "default", "none"] and all(e["kind"] == "question" for e in autos)
+    assert autos[1]["source"]["named"] == "people"
+    told = json.dumps(client.sent[1])
+    assert "Sabato (chosen automatically: your recommended option)" in told and "Rex (default)" in told and "the person will answer later" in told
+    assert "decide yourself, conservatively" in told
+    pending = ev.wait("pending")
+    assert pending["kind"] == "parked_question" and pending["question"] == "Chiamo il veterinario?" and pending["source"]["named"] == "people"
+    assert session.answer(pending["id"], "yes") is True and ev.wait("pending_done")["value"] == "Yes"
+
+
+def test_a_skill_run_asked_while_a_task_is_under_way_is_queued_and_started_when_it_is_free(tmp_path):
+    gate, started = threading.Event(), threading.Event()
+
+    def slow():
+        started.set()
+        gate.wait(5)
+        return say("fatto")
+
+    session, ev, store, built = make(tmp_path, Scripted(slow))
+    ran = []
+    session._run_skill_task = lambda task: (ran.append(task.skill["name"]), setattr(task.agent, "stop_reason", al.FINAL), "done")[2]
+    session.send("m1", "lavora")
+    started.wait(5)
+    assert session.run_skill("k1", {"name": "daily"}) is True
+    queued = ev.wait("queued")
+    assert queued["kind"] == "skill" and queued["position"] == 1 and ran == [] and not session.idle()
+    gate.set()
+    ev.wait("accepted")
+    deadline = time.monotonic() + 5
+    while (ran != ["daily"] or not session.idle()) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert ran == ["daily"] and session.skill_queue == []
+
+
+def test_a_change_to_a_plan_asks_nothing_at_the_auto_level(tmp_path):
+    client = Scripted(call("plan_archive", plan_id="p1"), say("Archiviato."))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="auto")
+    session.send("m1", "metti via quel piano")
+    ev.wait("done")
+    assert "ask" not in ev.kinds()
+
+
+def unattended_session(tmp_path, client, **kw):
+    ws = tmp_path / "ws"
+    ws.mkdir(exist_ok=True)
+    built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False,
+                                    permission_mode="default", max_turns=6), client=client)
+    events = Events()
+    store = SessionStore(tmp_path / "hist", redact=built.agent.secrets.mask_secrets)
+    session = Session(built, store, events, session_id="s1", sleep=lambda s: None, unattended=True, **kw)
+    built.permissions.confirm_callback = session.permission_confirm
+    return session, events, store, built
+
+
+def register(built, name, ran):
+    built.agent.tools.register(name, "does it", {"type": "object", "properties": {"x": {"type": "string"}}}, EffectClass.IRREVERSIBLE,
+                               lambda **kw: ran.append(kw) or "done it")
+
+
+def test_an_unattended_session_approves_what_is_not_a_named_exception_at_once(tmp_path):
+    ran = []
+    client = Scripted(call("pay", x="5"), say("Fatto."))
+    session, ev, store, built = unattended_session(tmp_path, client)
+    register(built, "pay", ran)
+    session.send("m1", "paga")
+    assert ev.wait("done")["final"] == "Fatto."
+    assert ran == [{"x": "5"}] and "ask" not in ev.kinds()                              # nobody was asked, nothing waited
+    auto = ev.wait("auto_answered")
+    assert auto["kind"] == "permission" and auto["value"] == "confirm" and auto["available"] is True and auto["source"]["named"] is None
+
+
+def test_an_unattended_session_tells_the_model_plainly_that_data_only_the_person_has_is_not_available(tmp_path):
+    session, ev, store, built = unattended_session(tmp_path, Scripted())
+    assert session.ask_code("bank") == ""
+    auto = ev.wait("auto_answered")
+    assert auto["kind"] == "code" and auto["available"] is False and auto["source"]["needs_data"] is True
+    assert "not available" in UNAVAILABLE_NOTE and "Continue with what you have" in UNAVAILABLE_NOTE
+
+
+def test_an_unattended_session_parks_a_call_to_another_person_and_the_model_goes_on(tmp_path):
+    ran = []
+    client = Scripted(call("phone_call", x="Anna"), say("Ho messo la chiamata in attesa e vado avanti."))
+    session, ev, store, built = unattended_session(tmp_path, client)
+    register(built, "phone_call", ran)
+    session.send("m1", "chiama Anna")
+    assert ev.wait("done")["final"] == "Ho messo la chiamata in attesa e vado avanti."
+    pending = ev.wait("pending")
+    assert pending["kind"] == "permission" and pending["tool"] == "phone_call" and pending["source"]["named"] == "people"
+    assert ran == [] and "ask" not in ev.kinds()
+    seen = json.dumps(client.sent[1])
+    assert "The answer is pending" in seen and "go on with other work".lower() in seen.lower()
+    assert [i["id"] for i in session.parked_questions()] == [pending["id"]]
+    assert json.loads((tmp_path / "hist" / "history.json").read_text(encoding="utf-8"))["parked"][0]["id"] == pending["id"]
+
+
+def test_the_answer_to_a_parked_question_is_applied_and_the_model_is_told(tmp_path):
+    ran = []
+    client = Scripted(call("phone_call", x="Anna"), say("In attesa."), call("phone_call", x="Anna"), say("Chiamata fatta."))
+    session, ev, store, built = unattended_session(tmp_path, client)
+    register(built, "phone_call", ran)
+    session.send("m1", "chiama Anna")
+    ev.wait("done")
+    pending = ev.wait("pending")
+    assert session.answer(pending["id"], "maybe") is False and ev.wait("error")["code"] == "bad_answer"
+    assert session.answer(pending["id"], "confirm")
+    assert ev.wait("pending_done")["id"] == pending["id"]
+    ev.wait("done", after=ev.kinds().index("done") + 1)                                  # a turn was started for the note
+    assert "The user answered a question that was pending" in json.dumps(client.sent[2]) and "run the call again" in json.dumps(client.sent[2])
+    assert ran == [{"x": "Anna"}]                                                        # the re-run call passes without asking again
+    assert session.parked_questions() == []
+
+
+def test_a_parked_question_survives_the_process(tmp_path):
+    client = Scripted(call("phone_call", x="Anna"), say("In attesa."))
+    session, ev, store, built = unattended_session(tmp_path, client)
+    register(built, "phone_call", [])
+    session.send("m1", "chiama Anna")
+    pending = ev.wait("pending")
+    ev.wait("done")
+    session2, ev2, store2, built2 = unattended_session(tmp_path, Scripted())
+    session2.restore()
+    assert [i["id"] for i in session2.parked_questions()] == [pending["id"]]
+
+
+def test_a_session_with_the_person_present_still_asks(tmp_path):
+    session, ev, store, built = make(tmp_path, Scripted())
+    result = []
+    t = threading.Thread(target=lambda: result.append(session.ask_code("bank")))
+    t.start()
+    ask = ev.wait("ask")
+    assert ask["kind"] == "code" and "auto_answered" not in ev.kinds()
+    session.answer(ask["id"], "123456")
+    t.join(5)
+    assert result == ["123456"]
+
+
+def test_the_source_of_a_question_is_told_with_facts():
+    assert question_source({"kind": "payment"})["named"] == "resource"
+    assert question_source({"kind": "permission", "tool": "phone_call"})["named"] == "people"
+    assert question_source({"kind": "permission", "tool": "shell_command"})["named"] is None
+    assert question_source({"facts": {"kind": "plan_x", "involves": ["a booking"]}})["named"] == "booking"
+    assert question_source({"facts": {"involves": ["someone else"]}})["named"] == "people"
+    assert question_source({"kind": "code"})["needs_data"] is True
+    assert approving_value({"options": [{"value": "cancel"}, {"value": "confirm"}]}) == "confirm"
+    assert approving_value({"options": [{"value": "no"}, {"value": "yes"}]}) == "yes"
+    assert approving_value({"options": [{"value": "Saturday"}]}) == "Saturday"
+
+
+def test_the_approvals_board_of_an_unattended_run_only_gets_the_named_exceptions():
+    board = []
+    confirm = unattended_confirm(lambda tool, arguments: board.append(tool) or False)
+    assert confirm("shell_command", {}) is True and board == []
+    assert confirm("phone_call", {}) is False and board == ["phone_call"]

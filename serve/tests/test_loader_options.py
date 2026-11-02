@@ -13,6 +13,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from serve import config, hardware, loader, loader_api, profiles, settings, supervisor  # noqa: E402
+from serve.engine.flags import flag_value  # noqa: E402
 from serve.tests.test_loader import make_service  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -20,10 +21,10 @@ GiB, MiB = 1 << 30, 1 << 20
 ROOMY = {"ram_total": 128 * GiB, "ram_available": 120 * GiB, "commit_limit": 144 * GiB, "commit_used": 10 * GiB,
          "vram_total": 32 * GiB, "vram_free": 31 * GiB}
 F = loader.DEMO_FACTS
-BASE = {"engine.max-context": 65536, "engine.kv": "int8", "engine.spec": 0, "engine.expert-cache": 2000,
+BASE = {"engine.max-context": 65536, "engine.kv": "int8", "engine.spec": 0, "engine.expert-cache": 2000, "server.side-slot": 0,
         "engine.resident-experts": True}
 NEW = {"engine.kv-resident": 40960, "engine.resident-budget-gib": 24.5, "engine.adapt-swaps": 0,
-       "engine.prefill-cpu-share": 0.25, "engine.vram-elastic": True, "engine.release-vram-commit": True,
+       "engine.prefill-cpu-share": 0.25, "engine.vram-elastic": True, "engine.keep-vram-commit": True,
        "engine.expert-profile-save": "profiles/learned.json", "engine.expert-profile-save-every": 5,
        "engine.prompt-cache": 3, "engine.prompt-cache-every": 8192, "engine.prompt-cache-root": 0,
        "engine.conversation-cache-mib": 2048, "engine.conversation-cache-slots": 2,
@@ -42,7 +43,7 @@ class Validation(unittest.TestCase):
               ("engine", "mmap-experts", True, True), ("engine", "adapt-swaps", 0, 0), ("engine", "adapt-swaps", 96, 96),
               ("engine", "prefill-cpu-share", 0, 0), ("engine", "prefill-cpu-share", "0,6", 0.6),
               ("engine", "prefill-cpu-share", 1.0, 1), ("engine", "vram-elastic", False, False),
-              ("engine", "release-vram-commit", True, True), ("engine", "expert-profile-save", " p/x.json ", "p/x.json"),
+              ("engine", "keep-vram-commit", True, True), ("engine", "expert-profile-save", " p/x.json ", "p/x.json"),
               ("engine", "expert-profile-save-every", 0, 0), ("engine", "expert-profile-save-every", 2.5, 2.5),
               ("engine", "prompt-cache", 0, 0), ("engine", "prompt-cache-every", 0, 0), ("engine", "prompt-cache-root", 2048, 2048),
               ("engine", "conversation-cache-mib", 0, 0), ("engine", "conversation-cache-slots", 4, 4),
@@ -61,7 +62,7 @@ class Validation(unittest.TestCase):
                ("engine", "resident-budget-gib", "lots"), ("engine", "resident-budget-gib", float("nan")),
                ("engine", "mmap-experts", "yes"), ("engine", "mmap-experts", 1), ("engine", "adapt-swaps", -1),
                ("engine", "adapt-swaps", 1.5), ("engine", "prefill-cpu-share", 1.1), ("engine", "prefill-cpu-share", -0.1),
-               ("engine", "prefill-cpu-share", "x"), ("engine", "vram-elastic", "on"), ("engine", "release-vram-commit", 1),
+               ("engine", "prefill-cpu-share", "x"), ("engine", "vram-elastic", "on"), ("engine", "keep-vram-commit", 1),
                ("engine", "expert-profile-save", ""), ("engine", "expert-profile-save", "a\nb"),
                ("engine", "expert-profile-save", "--kv"), ("engine", "expert-profile-save", 5),
                ("engine", "expert-profile-save-every", -1), ("engine", "expert-profile-save-every", True),
@@ -115,7 +116,7 @@ class ConfigFile(unittest.TestCase):
         self.assertFalse(a.grammar)
         self.assertEqual(a.reasoning_budget_tokens, 4096)
         for words in (["--kv-resident", "40960"], ["--resident-budget-gib", "24.5"], ["--adapt-swaps", "0"],
-                      ["--prefill-cpu-share", "0.25"], ["--vram-elastic"], ["--release-vram-commit"],
+                      ["--prefill-cpu-share", "0.25"], ["--vram-elastic"], ["--keep-vram-commit"],
                       ["--expert-profile-save", "profiles/learned.json"], ["--expert-profile-save-every", "5"],
                       ["--prompt-cache", "3"], ["--prompt-cache-every", "8192"], ["--prompt-cache-root", "0"],
                       ["--conversation-cache-mib", "2048"], ["--conversation-cache-slots", "2"],
@@ -193,6 +194,56 @@ class PlanAccounting(unittest.TestCase):
         p = self.plan(**{"server.parallel": 2, "server.slot-full-context": True, "engine.kv-resident": 30000})
         self.assertEqual(item(p, "ram", "kv_host"), 2 * loader.ATTENTION_LAYERS * loader.KV_CELL_BYTES["int8"] * 65536)
 
+    def test_the_technical_session_costs_one_more_session_of_its_own_size(self):
+        off, on = self.plan(), self.plan(**{"server.side-slot": 30000})
+        self.assertEqual(on["side_context"], 30000)
+        self.assertEqual(off["side_context"], 0)
+        side_kv = loader.KV_TOKEN_BYTES["int8"] * 30000 + loader.SESSION_FIXED
+        self.assertEqual(item(on, "vram", "kv") - item(off, "vram", "kv"), side_kv)
+        self.assertEqual([n["code"] for n in on["notes"]], ["side"])
+        self.assertEqual(on["notes"][0], {"code": "side", "context": 30000, "kv": side_kv})
+        # it comes out of the expert cache, not on top of it (auto cache), and the checkpoints are the conversations' only
+        auto_off = self.plan(**{"engine.expert-cache": "auto"})
+        auto_on = self.plan(**{"engine.expert-cache": "auto", "server.side-slot": 30000})
+        self.assertLess(auto_on["vram"]["expert_slots"], auto_off["vram"]["expert_slots"])
+        self.assertEqual(item(on, "ram", "checkpoints"), item(off, "ram", "checkpoints"))
+        two = self.plan(**{"server.parallel": 2, "server.side-slot": 30000})
+        self.assertEqual(two["slot_context"], 32768)                              # the conversations' slots divide the context
+        self.assertEqual(item(two, "vram", "kv") - item(self.plan(**{"server.parallel": 2}), "vram", "kv"), side_kv)
+
+    def test_the_technical_session_is_never_larger_than_a_slot(self):
+        p = self.plan(**{"server.parallel": 4, "server.side-slot": 30000})           # slots of 16384
+        self.assertEqual(p["side_context"], 16384)
+        self.assertEqual(item(p, "vram", "kv") - item(self.plan(**{"server.parallel": 4}), "vram", "kv"),
+                         loader.KV_TOKEN_BYTES["int8"] * 16384 + loader.SESSION_FIXED)
+
+    def test_the_technical_session_adds_a_draft_cache_and_turns_relaxed_drafting_off(self):
+        spec = {"engine.spec": 7}
+        off, on = self.plan(**spec), self.plan(**spec, **{"server.side-slot": 30000})
+        cell = loader.KV_CELL_BYTES["int8"] + 128
+        self.assertEqual(item(on, "vram", "drafter") - item(off, "vram", "drafter"), cell * 30000)
+        rx = self.plan(**spec, **{"engine.relaxed-drafting": 0.3, "server.side-slot": 30000})["relaxed"]
+        self.assertEqual((rx["effective"], rx["why"]), (False, ["side"]))
+        self.assertTrue(self.plan(**spec, **{"engine.relaxed-drafting": 0.3})["relaxed"]["effective"])
+
+    def test_the_technical_session_is_saved_and_checked(self):
+        self.assertEqual(settings.check_value("server", "side-slot", 0), 0)
+        self.assertEqual(settings.check_value("server", "side-slot", "30000"), 30000)
+        self.assertEqual(settings.check_value("server", "side-slot", True), config.SIDE_SLOT_DEFAULT)
+        for bad in (100, -1, 2.5, "x"):
+            with self.assertRaises(ValueError, msg=bad):
+                settings.check_value("server", "side-slot", bad)
+        self.assertIn(("server", "side-slot"), settings.LOADER_FIELDS)               # persisted with the other Loader fields
+        self.assertEqual(loader.effective({})["server.side-slot"], config.SIDE_SLOT_DEFAULT)      # on unless the Loader says 0
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "basalt.json")
+            Path(path).write_text(json.dumps({"server": {"model": "m.basalt"}}), encoding="utf-8")
+            settings.save(path, {"server.side-slot": 30000}, settings.LOADER_FIELDS)
+            self.assertEqual(settings.values_of(settings.read_file(path), settings.LOADER_FIELDS)["server.side-slot"], 30000)
+            ap = config.build_parser()
+            a, _, file_words, _ = config.parse_settings(ap, ["--config", path])
+            self.assertEqual((a.side_slot, flag_value(file_words, "--side-context")), (30000, "30000"))
+
     def test_resident_budget_limits_the_ram_of_the_experts(self):
         full, capped = self.plan(), self.plan(**{"engine.resident-budget-gib": 10})
         spare = loader.RESIDENT_SPARE_BLOBS * F["max_blob"]
@@ -228,7 +279,7 @@ class PlanAccounting(unittest.TestCase):
         p = self.plan()
         q = self.plan(**{"engine.adapt-swaps": 0, "engine.prefill-cpu-share": 0.2, "engine.rope-scaling": "yarn",
                          "engine.rope-scale": 2, "engine.expert-profile-save": "x.json", "server.grammar": False,
-                         "engine.vram-elastic": True, "engine.release-vram-commit": True})
+                         "engine.vram-elastic": True, "engine.keep-vram-commit": True})
         self.assertEqual((q["vram"]["need"], q["ram"]["need"]), (p["vram"]["need"], p["ram"]["need"]))
 
     def test_the_fingerprint_of_a_calibration_made_before_these_options_is_unchanged(self):
@@ -280,7 +331,7 @@ class SavedConfigurations(unittest.TestCase):
         self.assertEqual(profiles.get_load("Vecchia"), old)
         e = loader.effective(profiles.get_load("Vecchia"))
         self.assertEqual((e["engine.adapt-swaps"], e["server.grammar"], e["engine.prompt-cache"]), (96, True, 6))
-        self.assertEqual(profiles.listing()["load"][1]["summary"]["text"], "64K · int8 · no MTP")
+        self.assertEqual(profiles.listing()["load"][1]["summary"]["text"], "64K · int8 · no MTP · technical session 30000")
 
     def test_a_bad_or_contradictory_configuration_is_refused(self):
         for values in ({"engine.kv-resident": 5}, {"engine.rope-scaling": "ntk"}, {"engine.kv": "k8v4", "engine.kv-resident": 30000},
@@ -363,7 +414,7 @@ class GpuNames(unittest.TestCase):
             with mock.patch.dict(os.environ, {"BASALT_CACHE": dirs.name, "BASALT_DATA": dirs.name}), \
                     mock.patch.object(hardware, "_read_gpu_list", return_value=self.GPUS), \
                     mock.patch.object(loader, "system_now", return_value=dict(ROOMY)):
-                body = loader_api.info(svc, True)
+                body = loader_api.info(svc)
                 self.assertEqual(body["limits"]["gpus"], self.GPUS)
                 self.assertEqual(body["limits"]["vision"], ["off", "dynamic", "cpu"])
                 self.assertEqual(body["limits"]["windows"], os.name == "nt")
@@ -376,7 +427,7 @@ class GpuNames(unittest.TestCase):
             with mock.patch.dict(os.environ, {"BASALT_CACHE": dirs.name, "BASALT_DATA": dirs.name}), \
                     mock.patch.object(hardware, "_read_gpu_list", return_value=[]), \
                     mock.patch.object(loader, "system_now", return_value=dict(ROOMY)):
-                self.assertEqual(loader_api.info(svc, True)["limits"]["gpus"], [])
+                self.assertEqual(loader_api.info(svc)["limits"]["gpus"], [])
                 self.assertEqual(loader_api.evaluate(svc, {"server.vision": "3"})["vision_gpu"], {"index": 3, "name": None})
         finally:
             dirs.cleanup()

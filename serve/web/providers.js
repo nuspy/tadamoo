@@ -41,21 +41,27 @@
 
   /* ---- the two sub-tabs ---- */
   function sub(which) {
-    const prov = which === "providers", cv = which === "converter";
-    panel.hidden = !prov; qwen.hidden = prov || cv;
+    const prov = which === "providers", cv = which === "converter", lc = which === "llamacpp";
+    panel.hidden = !prov; qwen.hidden = prov || cv || lc;
     if (conv) conv.hidden = !cv;
+    const lcPanel = document.getElementById("ld-llamacpp");
+    if (lcPanel) lcPanel.hidden = !lc;
     document.getElementById("sub-providers").setAttribute("aria-selected", String(prov));
-    document.getElementById("sub-qwen").setAttribute("aria-selected", String(!prov && !cv));
+    document.getElementById("sub-qwen").setAttribute("aria-selected", String(!prov && !cv && !lc));
     const tab = document.getElementById("sub-converter");
     if (tab) tab.setAttribute("aria-selected", String(cv));
+    const lcTab = document.getElementById("sub-llamacpp");
+    if (lcTab) lcTab.setAttribute("aria-selected", String(lc));
     keep(SUB_KEY, which);
     if (prov) refresh();
-    if (cv) document.dispatchEvent(new CustomEvent("basalt:models-sub", { detail: "converter" }));
+    document.dispatchEvent(new CustomEvent("basalt:models-sub", { detail: which }));
   }
   document.getElementById("sub-providers").onclick = () => sub("providers");
   document.getElementById("sub-qwen").onclick = () => sub("qwen");
   const convTab = document.getElementById("sub-converter");
   if (convTab) convTab.onclick = () => sub("converter");
+  const lcTabBtn = document.getElementById("sub-llamacpp");
+  if (lcTabBtn) lcTabBtn.onclick = () => sub("llamacpp");
 
   /* ---- reading ---- */
   async function refresh() {
@@ -119,6 +125,35 @@
     return sec;
   }
 
+  /* ---- the council: roles, rounds and what a debate costs ---- */
+  function councilSection() {
+    const c = state.council, cur = c.settings, sec = h("section", "sec pv-council");
+    sec.append(h("div", "sh", h("b", "", T("pv.council"))), h("p", "setnote", T("pv.council.help")));
+    const rounds = h("input"); rounds.type = "number"; rounds.min = "1"; rounds.max = String(c.limits.rounds); rounds.value = cur.rounds; rounds.inputMode = "numeric";
+    sec.append(field("pv-c-rounds", T("pv.council.rounds"), rounds, T("pv.council.rounds.help", c.limits.rounds)));
+    const rows = [];
+    const person = (id, title, role) => {
+      const name = h("input"), job = h("textarea");
+      name.type = "text"; name.maxLength = c.limits.name; name.value = role.name; name.autocomplete = "off";
+      job.rows = 2; job.maxLength = c.limits.job; job.value = role.job;
+      const box = h("fieldset", "pv-role", h("legend", "", title), field(id + "-n", T("pv.council.name"), name), field(id + "-j", T("pv.council.job"), job));
+      rows.push({ name, job });
+      sec.append(box);
+    };
+    cur.roles.forEach((r, i) => person("pv-c-r" + i, T("pv.council.adviser", i + 1), r));
+    person("pv-c-m", T("pv.council.moderator"), cur.moderator);
+    const e = c.estimate;
+    const cost = h("p", "pv-cost", T("pv.council.cost", e.calls_min, e.calls_max, e.read_tokens_min, e.read_tokens_max, e.written_tokens_max));
+    cost.setAttribute("role", "status");
+    sec.append(cost, h("p", "setnote", T("pv.council.order")));
+    if (e.outside_calls_max) sec.append(h("p", "setnote warnnote", T("pv.council.outside", e.outside_calls_max)));
+    if (!c.configured) sec.append(h("p", "setnote", T("pv.council.off")));
+    const collect = () => ({ rounds: Number(rounds.value), roles: rows.slice(0, 3).map(r => ({ name: r.name.value, job: r.job.value })), moderator: { name: rows[3].name.value, job: rows[3].job.value } });
+    const save = async body => { const r = await call("POST", "api/llm/council", body); if (r.ok) { state = r.data; say(T("pv.saved")); draw(); } else say(explain(r), true); };
+    sec.append(h("div", "pv-actions", btn(T("pv.save"), "primary", () => save(collect())), btn(T("pv.council.reset"), "ghost", () => save(c.defaults))));
+    return sec;
+  }
+
   /* ---- the providers ---- */
   function providerCard(p) {
     const card = h("li", "pv-card");
@@ -158,17 +193,21 @@
     const name = h("input"), url = h("input"), model = h("input"), key = h("input"), cap = h("input"), level = h("select", "", state.reasoning_levels.map(l => Object.assign(h("option", "", l.label || l.value), { value: l.value })));
     key.type = "password"; key.autocomplete = "off"; key.spellcheck = false;
     cap.type = "number"; cap.min = "0"; cap.step = "1000"; cap.inputMode = "numeric";
+    const ctx = h("input"), out = h("input");
+    [ctx, out].forEach(i => { i.type = "number"; i.min = "0"; i.step = "1000"; i.inputMode = "numeric"; });
     [name, url, model].forEach(i => { i.type = "text"; i.autocomplete = "off"; i.spellcheck = false; });
+    if (existing) { ctx.value = existing.context_window || ""; out.value = existing.max_output || ""; }
     if (existing) { profile.value = existing.profile || ""; type.value = existing.type; type.disabled = true; name.value = existing.name || ""; url.value = existing.base_url || ""; model.value = existing.model || ""; cap.value = existing.daily_token_cap || ""; level.value = existing.reasoning_level || "inherit"; }
     const hint = () => { const t = state.types.find(x => x.type === type.value) || {}; url.placeholder = t.base_url || ""; key.placeholder = existing && existing.has_key ? T("pv.key.keep") : ""; };
     const profileField = field("pv-profile", T("pv.f.profile"), profile, T("pv.f.profile.help"));
     const here = () => type.value === "basalt";
-    type.onchange = () => { hint(); profileField.hidden = !here(); }; hint(); profileField.hidden = !here();
+    const limitFields = [field("pv-ctx", T("pv.f.ctx"), ctx, T("pv.f.ctx.help")), field("pv-out", T("pv.f.out"), out, T("pv.f.out.help"))];
+    type.onchange = () => { hint(); profileField.hidden = !here(); limitFields.forEach(x => { x.hidden = here(); }); }; hint(); profileField.hidden = !here(); limitFields.forEach(x => { x.hidden = here(); });
     f.append(field("pv-type", T("pv.f.type"), type), field("pv-name", T("pv.f.name"), name), field("pv-url", T("pv.f.url"), url, T("pv.f.url.help")),
       field("pv-model", T("pv.f.model"), model), field("pv-key", T("pv.f.key"), key, T("pv.f.key.help")),
-      profileField, field("pv-level", T("pv.f.level"), level), field("pv-cap", T("pv.f.cap"), cap, T("pv.f.cap.help")));
+      profileField, field("pv-level", T("pv.f.level"), level), field("pv-cap", T("pv.f.cap"), cap, T("pv.f.cap.help")), ...limitFields);
     f.append(h("div", "pv-actions", btn(existing ? T("pv.save") : T("pv.add"), "primary", async () => {
-      const body = { type: type.value, name: name.value, base_url: url.value, model: model.value, api_key: key.value, reasoning_level: level.value, daily_token_cap: cap.value === "" ? 0 : cap.value, profile: here() ? profile.value : "" };
+      const body = { type: type.value, name: name.value, base_url: url.value, model: model.value, api_key: key.value, reasoning_level: level.value, daily_token_cap: cap.value === "" ? 0 : cap.value, profile: here() ? profile.value : "", context_window: here() ? 0 : ctx.value, max_output: here() ? 0 : out.value };
       const r = existing ? await call("POST", `api/llm/providers/${existing.id}`, body) : await call("POST", "api/llm/providers", body);
       if (r.ok) { editing = ""; key.value = ""; say(T("pv.saved")); await refresh(); } else say(explain(r), true);
     }), existing ? btn(T("pv.cancel"), "ghost", () => { editing = ""; draw(); }) : null));
@@ -199,10 +238,12 @@
     if (!state) return;
     const top = await strip();
     const noteEl = h("p", "setnote pv-note", note); noteEl.setAttribute("role", "status"); noteEl.hidden = !note; noteEl.dataset.bad = noteBad ? "1" : "";
-    panel.replaceChildren(noteEl, top, functionsTable(), providersSection());
+    panel.replaceChildren(noteEl, top, functionsTable(), councilSection(), providersSection());
   }
 
   document.addEventListener("basalt:view", e => { if (e.detail === "loader" && !panel.hidden) refresh(); });
   applyT(view.querySelector(".subtabs"));
-  sub(["providers", "converter"].includes(load(SUB_KEY, "qwen")) ? load(SUB_KEY, "qwen") : "qwen");
+  const saved = load(SUB_KEY, "qwen");
+  sub(["providers", "converter", "llamacpp"].includes(saved) ? saved : "qwen");
+  if (saved.startsWith("engine:")) keep(SUB_KEY, saved);                       // engines.js restores its own tab
 })();

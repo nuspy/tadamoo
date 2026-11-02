@@ -16,6 +16,7 @@
     { group: "context", name: "engine.rope-freq-base", kind: "num", min: 0, step: "any" },
     { group: "context", name: "server.parallel", kind: "int", min: 1, max: 8, step: 1 },
     { group: "context", name: "server.slot-full-context", kind: "bool" },
+    { group: "context", name: "server.side-slot", kind: "int", min: 0, max: 262144, step: 1024 },
     { group: "speed", name: "engine.prefill", kind: "text", list: ["auto", "auto:8192", "auto:16384", "auto:32768", "2048", "512"] },
     { group: "speed", name: "mtp", kind: "bool", virtual: true },
     { group: "speed", name: "engine.spec", kind: "int", min: 2, max: 8, step: 1 },
@@ -27,7 +28,7 @@
     { group: "memory", name: "engine.resident-budget-gib", kind: "num", min: 0.1, max: 65536, step: "any" },
     { group: "memory", name: "engine.mmap-experts", kind: "bool" },
     { group: "memory", name: "engine.vram-elastic", kind: "bool" },
-    { group: "memory", name: "engine.release-vram-commit", kind: "bool", windows: true },
+    { group: "memory", name: "engine.keep-vram-commit", kind: "bool", windows: true },
     { group: "memory", name: "engine.ple-io", kind: "choice", options: ["direct", "mmap", "ram"] },
     { group: "memory", name: "engine.pool-workers", kind: "int", min: 1, max: 256, step: 1 },
     { group: "cache", name: "engine.prompt-cache", kind: "int", min: 0, max: 1024, step: 1 },
@@ -50,7 +51,7 @@
   const GiBn = 2 ** 30;
   const gib = n => nfmt(n / GiBn, 1);
   let INFO = null, PROF = null, seq = 0, timer = 0, poll = 0;
-  const RX = "engine.relaxed-drafting";
+  const RX = "engine.relaxed-drafting", SIDE = "server.side-slot";
   const fallback = { "engine.relaxed-drafting": "off", "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep", "engine.kv": "fp16", "engine.ple-io": "direct" };
 
   /* ---- the form ---- */
@@ -93,11 +94,44 @@
         }
         d.insertAdjacentHTML("beforeend", `<p class="help" id="${help}">${esc(T("h." + key))}</p>`);
         if (f.name === RX) d.insertAdjacentHTML("beforeend", '<div class="rx-note" id="rx-note" role="status" aria-live="polite"></div>');
+        if (f.name === SIDE) d.insertAdjacentHTML("beforeend", '<div class="rx-note" id="side-note" role="status" aria-live="polite" hidden></div>');
         d.insertAdjacentHTML("beforeend", `<p class="help unsup" hidden>${esc(T(f.windows ? "ld.windows" : "ld.unsupported"))}</p>`);
         grid.append(d);
       }
+      if (g === "server") fs.querySelector(".fields").append(secretRow());
       return fs;
     }));
+  }
+  /* ---- the secret of the changes: the switch and the chosen text are saved on their own (POST /api/control-secret), never with the load values ---- */
+  function secretRow() {
+    const d = document.createElement("div");
+    d.className = "cs";
+    d.innerHTML = `<div class="field check"><label for="ld-cs-on"><input id="ld-cs-on" type="checkbox" aria-describedby="ld-cs-h"><span>${esc(T("cs.on"))}</span></label></div>` +
+      `<div class="pfrow wrap"><input id="ld-cs-value" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" maxlength="200" aria-label="${esc(T("cs.value"))}" placeholder="${esc(T("cs.value"))}">` +
+      `<button class="btn primary" id="ld-cs-save" type="button">${esc(T("cs.save"))}</button><button class="btn ghost" id="ld-cs-clear" type="button" hidden>${esc(T("cs.clear"))}</button></div>` +
+      `<p class="help" id="ld-cs-h">${esc(T("cs.help"))}</p><p class="pfmsg" id="ld-cs-msg" role="status" aria-live="polite"></p>`;
+    const q = id => d.querySelector("#ld-cs-" + id);
+    const msg = (text, kind) => { q("msg").textContent = text; q("msg").dataset.kind = kind || ""; };
+    const save = async body => {
+      const { r, j } = await post("api/control-secret", body);
+      if (!r.ok) { msg((j.error && j.error.message) || T("cs.err"), "err"); return; }
+      paintSecret(j);
+      q("value").value = "";
+      msg(T(j.running === j.enabled ? "cs.saved.same" : "cs.saved"), "");
+    };
+    q("save").onclick = () => { const v = q("value").value; save({ enabled: q("on").checked, ...(v ? { secret: v } : {}) }); };
+    q("clear").onclick = () => save({ secret: null });
+    return d;
+  }
+  function paintSecret(state) {
+    const on = $("#ld-cs-on");
+    if (!on) return;
+    on.checked = !!state.enabled;
+    $("#ld-cs-value").placeholder = T(state.set ? "cs.kept" : "cs.value");
+    $("#ld-cs-clear").hidden = !state.set;
+  }
+  async function loadSecret() {
+    try { paintSecret(await get("api/control-secret")); } catch (e) { /* no config file: the row stays as it is */ }
   }
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const el = name => $("#" + fid(name));
@@ -276,6 +310,12 @@
     const rx = !!el(RX).value;
     el("mtp").disabled = rx && el("mtp").checked;
     el("server.parallel").disabled = rx && par <= 1;
+    // the technical session: relaxed drafting and it exclude each other, and it takes one of the engine's 8 slots
+    const side = Number(el(SIDE).value || 0);
+    el(SIDE).disabled = rx && !(side > 0);
+    el("server.parallel").max = side > 0 ? "7" : "8";
+    const note = $("#side-note");
+    if (note) { note.hidden = !(side > 0); note.textContent = side > 0 ? T("side.on", nfmt(side)) : ""; }
   }
 
   /* ---- the prediction: resources, speed, the Load button ---- */
@@ -307,7 +347,7 @@
     // what the memory settings did to the figures: the KV split, the resident budget, the caches' formula
     const gb = n => gib(n || 0);
     const noteText = n => T("pn." + n.code, ...({
-      kv_stream: [nfmt(n.cells), gb(n.vram), gb(n.host)], kv_fits: [nfmt(n.cells)], kv_k8v4: [], mmap_wins: [],
+      kv_stream: [nfmt(n.cells), gb(n.vram), gb(n.host)], kv_fits: [nfmt(n.cells)], kv_k8v4: [], mmap_wins: [], side: [nfmt(n.context), gb(n.kv)], side_kv: [n.kv],
       budget: [gb(n.bytes)], caches: [nfmt(n.checkpoints), nfmt(n.slots), gb(n.parked)],
     }[n.code] || []));
     const pnotes = (p.notes || []).map(noteText);
@@ -316,7 +356,8 @@
     const problems = (p.problems || []).map(x => LANG === "it" ? x.text_it : x.text);
     const editable = INFO && INFO.editable, busy = INFO && INFO.status && ["waiting", "stopping", "starting", "calibrating"].includes(INFO.status.phase);
     const why = !editable ? T("ld.ro." + ((INFO && INFO.reason) || "no_config")) : busy ? T("ld.busy") : problems.length ? T("ld.refused", problems.join(" ")) : "";
-    const label = T("ld.load");
+    const blocked = !editable || busy;                          // not fitting only warns: the load can go ahead anyway
+    const label = problems.length ? T("ld.loadanyway") : T("ld.load");
     return `<section class="sec ldres" aria-label="${esc(T("pr.title"))}">
         <div class="sh"><b>${esc(T("pr.title"))}</b></div>
         <div class="pad">
@@ -340,7 +381,7 @@
       <div class="sec ldgo">
         <p class="ldwhy" role="status" aria-live="polite" ${why ? "" : "hidden"}>${esc(why)}</p>
         <p class="ldstate setstatus" role="status" aria-live="polite"></p>
-        <div class="setactions"><button type="button" class="btn primary" data-act="load" ${why ? "disabled" : ""}>${esc(label)}</button></div>
+        <div class="setactions"><button type="button" class="btn primary" data-act="load" data-force="${problems.length ? "1" : ""}" ${blocked ? "disabled" : ""}>${esc(label)}</button></div>
       </div>`;
   }
   /* the projectors this model can read images with, each with the RAM it keeps: the model file's own and the files of the models folders */
@@ -391,7 +432,7 @@
     const go = $("#ld-side [data-act=load]");
     $("#ld-sticky").innerHTML = `<span class="stk-parts">${part("vram", T("pr.vram"))}${part("ram", T("pr.ram"))}${part("commit", "Commit")}` +
       `<span>~${nfmt((p.speed || {}).decode, 0)} tok/s</span></span>` +
-      `<a class="btn ${go && !go.disabled ? "primary" : "ghost"}" href="#ld-side">${esc(go && !go.disabled ? T("ld.load") : T("pr.nofit"))}</a>`;
+      `<a class="btn ${go && !go.disabled && !(p.problems || []).length ? "primary" : "ghost"}" href="#ld-side">${esc(go && !go.disabled ? ((p.problems || []).length ? T("ld.loadanyway") : T("ld.load")) : T("pr.nofit"))}</a>`;
   }
 
   async function plan(values, model) {
@@ -431,9 +472,11 @@
     if (r.status === 401) askKey();
     return { r, j };
   }
-  async function load(values, target, mode, model) {
+  async function load(values, target, mode, model, force) {
     const m = model || modelNow();
-    const { r, j } = await post("api/loader/load", m ? { values, model: m } : { values });
+    const body = m ? { values, model: m } : { values };
+    if (force) body.force = true;
+    const { r, j } = await post("api/loader/load", body);
     if (r.status === 422 && j.plan) { renderSide(target, j.plan, mode); return; }
     if (!r.ok) { say(T("ld.phase.failed", (j.error && j.error.message) || `HTTP ${r.status}`), "err"); return; }
     if ((j.notes || []).includes("model_restart")) { say(T("ld.model.relaunch", BasaltModels.name(j.model)), "ok"); waitRestart(); return; }
@@ -483,6 +526,7 @@
         if (["waiting", "stopping", "starting", "calibrating"].includes(st.phase)) { poll = setTimeout(tick, 600); return; }
         await refresh();
         showStatus();
+        document.dispatchEvent(new CustomEvent("basalt:loader"));          // a load ended: the technical session may have come or gone (optimize.js asks again)
       } catch (e) { poll = setTimeout(tick, 1500); }
     };
     showStatus();
@@ -668,6 +712,7 @@
     $("#ld-cli").hidden = !(INFO.from_command_line || []).length;
     $("#ld-cli").textContent = T("ld.cli", (INFO.from_command_line || []).join(", "));
     if (!formTouched) writeForm(INFO.values);
+    loadSecret();
     syncReserve("lf", el("engine.vram-reserve-mib"));
     $("#ld-safe-list").innerHTML = Object.entries(INFO.safe || {}).map(([k, v]) => {
       const why = (INFO.safe_why || {})[k];
@@ -725,7 +770,7 @@
   document.addEventListener("click", e => {
     const b = e.target.closest("[data-act]");
     if (!b || b.disabled) return;
-    if (b.dataset.act === "load") load(readForm(), "#ld-side", "loader");
+    if (b.dataset.act === "load") load(readForm(), "#ld-side", "loader", undefined, b.dataset.force === "1");
     if (b.dataset.act === "calibrate") calibrate();
   });
   document.addEventListener("basalt:view", e => { if (e.detail === "loader" || e.detail === "settings") refresh(); });

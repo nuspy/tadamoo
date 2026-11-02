@@ -35,13 +35,15 @@ the Chat can reach, the others can reach:
 
 | option | meaning |
 |---|---|
-| `--permission-mode plan\|read_only\|default\|auto` | `plan` changes and runs nothing until you approve a plan (see below); `default` allows edits in the workspace and asks for the rest |
+| `--permission-mode plan\|read_only\|default\|auto` | `plan` changes and runs nothing until you approve a plan (see below); `default` allows edits in the workspace and asks for the rest; headless defaults to `auto`, and to `default` with `--interactive` |
 | `--after-plan default\|auto` | the mode the run goes on in when you approve a plan |
 | `--allow PATTERN`, `--deny PATTERN` | rules such as `shell_command:pytest*`; a deny always wins |
 | `--secret-env NAME[=host,host]` | lets the agent write `{{secret:NAME}}`; with hosts, the value can only be sent to them |
+| `--rule-of-two {off,ask,strict}` | when an action that reaches the outside asks (default `ask`; see the Rule of Two below) |
 | `--vault-dir`, `--payments-dir` | the Wallet's vault and payment systems (`{{vault:ENTRY.FIELD}}`, `request_payment`) |
-| `--browser`, `--browser-headless`, `--browser-private`, `--browser-profile DIR` | the browser tools and how they run |
-| `--capabilities` | `find_capability`, `load_capability`, `call_capability`, `analyze_image`: the skills, plugins and MCP servers found on this PC |
+| `--browser`, `--browser-headless`, `--browser-private`, `--browser-profile DIR`, `--browser-cdp-url URL` | the browser tools and how they run; with a URL the tools drive a browser that is already running (its debugging port) and never start or close one |
+| `--browser-consent {follow,necessary,accept,reject,off}`, `--browser-permissions {follow,ask,grant,grant-safe,deny}` | what the browser does about cookie banners and permission requests; `follow` (default) is accept / grant at the Auto level and necessary / ask otherwise |
+| `--capabilities` | `find_capability`, `load_capability`, `read_capability`, `call_capability`, `analyze_image`: the skills, plugins and MCP servers found on this PC |
 | `--lsp` | `diagnostics`, `go_to_definition`, `find_references` when a language server is found |
 | `--council` | `ask_council` when a council is set up (the Chat always offers it) |
 | `--wiki`, `--wiki-project` | wikibridge tools (`BASALT_WIKIBRIDGE_URL`, `BASALT_WIKIBRIDGE_KEY`) |
@@ -52,7 +54,18 @@ the Chat can reach, the others can reach:
 | `--context-patterns JSON`, `--context-threshold`, `--end-turn-bias`, `--attachments-dir`, `--outputs-dir`, `--no-memory`, `--no-checkpoints` | as in the Chat |
 | `--reference DIR`, `--reference-strategy auto\|cag\|rag\|none` | (headless) reference documents: fixed block, searched passages, or by size |
 | `--interactive`, `--ask-server` | (headless) ask on the terminal, or on the server's pages, before risky actions, payments and plans |
-| `--max-tokens-budget`, `--timeout-seconds`, `--max-turns` | (headless) stop after this much |
+| `--max-tokens-budget`, `--timeout-seconds` | (headless) stop after this much |
+| `--max-turns` | the model turns one answer may take; below 1 or not given: no limit |
+| `--max-failed-attempts` | the failed calls, commands and project checks one request may use up before it is stopped as failed and the person is told; below 1 or not given: no limit |
+| `--temperature T` | the sampling temperature of every model call; not given, none is sent and the model file's own sampling applies (see "How a reply ends") |
+| `--max-tokens N` | the most one reply may write; not given, the server's own limit applies |
+| `--instruction-blocks` | six short working rules in the system prompt (see "Working rules"); off unless asked for |
+| `--verify-command CMD`, `--verify-gate {off,unattended,always}`, `--verify-rounds N` | the project's own checks, run before a turn that changed files ends; off by default (see [harness-gates.md](harness-gates.md)) |
+| `--role ROLE`, `--safe-command CMD`, `--project-check CMD` | what the agent is for (build, plan, ask, debug, orchestrate, general), the exact commands that run without a question, and the folder's accepted checks for the verify gate (see [coding-mode.md](coding-mode.md)) |
+| `--no-compaction`, `--compaction-threshold SHARE` | off, or the share of the prompt budget (0.5 to 0.98, default 0.85) at which the older steps of a long turn are summarised (see [compaction.md](compaction.md)) |
+| `--no-budget-grace` | a budget that runs out ends the answer at once, without the warning and the last report |
+| `--no-error-classifier` | retry every model error without end; by default a model error that waiting cannot cure ends the turn and shows the error (see [harness-gates.md](harness-gates.md)) |
+| `--unattended` | (conversations) nobody answers: a question is approved at once, or says the data is not available, or, if it is for another person, the user, a resource that is not the PC's own or a booking, is parked in the `pending` list while the model goes on |
 
 A headless run has nobody to type a second-factor code; a login that needs one fails there. Payments and plans go through the same question as
 a risky action (`--interactive`, `--ask-server`); with neither, a payment above the person's waiver is refused and a plan stays a plan.
@@ -65,7 +78,7 @@ are left out, as are the changes of a command that writes more than 50 files; a 
 30 MB of text is not watched.
 
 Exit codes: 0 finished, 1 error, 2 bad usage, 3 turn limit, 4 budget, 5 stuck in a loop, 6 ended on a question for the person
-(the answer would be the next message), 7 put aside before it was done, 130 cancelled. With `--json` the result has the stop reason
+(the answer would be the next message), 7 put aside before it was done, 8 the project's checks still failed or could not be run (`verify_failed`), 130 cancelled. With `--json` the result has the stop reason
 (`status` is `success` only for a finished run), the changes, token and cache counts, how many calls the permission layer refused
 (`permission_denials`, in all and by tool) and the path of the audit log. The Chat's process reports the same count in each
 `heartbeat` and `done` (`denied`) and in `closed` (`permission_denials`); the `session_end` hook is given it too.
@@ -77,45 +90,61 @@ repository; the only thing written in the workspace is `.basalt/artifacts` (full
 
 A conversation is one long-lived process, `python -m harness session`, so a message does not pay for the start (tools,
 skills, connections) and the history is kept between messages. The server starts and watches these processes
-(`serve/agent_sessions.py`, routes under `/api/agent/sessions`, from this PC and the server's own page only):
+(`serve/agent_sessions.py`, routes under `/api/agent/sessions`, from this PC and from a phone with a key):
 
 | route | what it does |
 |---|---|
 | `GET /api/agent/sessions` | the conversations, newest first, with their state: `dormant`, `starting`, `idle`, `busy`, `blocked`, `closed` |
-| `POST /api/agent/sessions` | creates one: `workspace`, `mode`, `allow`, `ask_only` (answers without tools), `title`, `max_turns` |
+| `POST /api/agent/sessions` | creates one: `workspace`, `mode`, `allow`, `ask_only` (answers without tools), `title`, `max_turns` (the steps one answer may take: `-1`, the default, for no limit, or 1 and more) |
 | `POST .../<id>/send` | `{"text"}`; a dormant conversation wakes from its saved history; 409 while it is still answering |
-| `GET .../<id>/events?after=N` | what happened since event N: `user`, `ready`, `accepted`, `agent` (assistant text, tool start and end), `retrying`, `restarting`, `stalled`, `ask`, `answered`, `done`, `blocked` |
+| `GET .../<id>/events?after=N` | what happened since event N: `user`, `ready`, `accepted`, `agent` (assistant text, tool start and end), `retrying`, `restarting`, `stalled`, `ask`, `answered`, `auto_answered`, `pending`, `pending_done`, `done`, `blocked` |
 | `GET .../<id>/history` | the saved messages |
 | `POST .../<id>/answer` | `{"ask", "value"}`: the person's answer to a confirmation the conversation is waiting for (`asking`); the value must be one of the buttons |
 | `POST .../<id>/cancel`, `/resume`, `/close` | stop the turn; go on after a block; end the conversation |
-| `POST .../<id>/mode` | `{"mode", "confirm_auto"}`: what the conversation may do without asking, from its next action on; `auto` needs `confirm_auto: true`, as at the start |
+| `POST .../<id>/mode` | `{"mode"}`: what the conversation may do without asking, from its next action on; `auto` asks for nothing |
 | `POST .../<id>/effort` | `{"level"}`: `none`, `low`, `medium`, `high` or empty (the model's own); also a field of the create call |
+| `POST .../<id>/settings` | `{"max_turns"?, "end_turn_bias"?}`: changes them for the conversation from its next run |
 | `POST .../<id>/favorite`, `/delete` | `{"favorite": true\|false}`: the page lists favorites apart, above the rest (the conversation's place in time does not change); `delete` takes the conversation away for good: its process, saved messages, attached and made files and its own copy of the folder (branches made from it stay) |
+| `GET .../nodes`, `GET .../<id>/switch-cost?current=<id>`, `POST .../merge` | the messages of every conversation as shared immutable nodes (`serve/conv_nodes.py`, one `nodes.jsonl` beside the conversations; a branch is a pointer to a node and writes no history file until it runs): runs between forks; the tokens to read again on switching (`if_cache_cold`, `if_cache_warm`, system prompt and tool list not counted); `{"a","b","instruction"?}`: the model writes one synthesis of two idle conversations into a new one that continues `a` |
 | `POST .../<id>/rename`, `/command` | `{"title"}`; `{"name", "args"}`: a slash command the process answers (below), whose answer comes as a `command` event |
 
 The history is saved after every model turn, and a message is on disk before the model sees it. Failures are handled in
 two places and never hidden:
 
-* **in the process**: a model call that fails because the server is busy or unreachable (HTTP 0, 408, 425, 429, 5xx) is
-  tried again with waits of 2, 5, 15, 30 and 60 seconds, checking whether the model is loaded in between; a refusal that
-  waiting cannot change (4xx), a model the server will not load, or retries that ran out end the turn as `blocked`;
-* **in the server**: a process that dies, or stops answering its heartbeat, or makes no progress for 20 minutes, is
-  started again from its history and the turn goes on (a message it never confirmed is sent again), at most 3 times in
-  10 minutes; after that the conversation is `blocked` (`process_unstable`).
+* **in the process**: a model call that fails, whatever the error (busy, unreachable, model not loaded, refused), is
+  tried again with waits of 2, 5, 15, 30, 60, 120, 180 and then 300 seconds, for as long as it takes, and never ends the
+  turn as `blocked`. `retrying` carries the attempt, the wait and `waiting_for` (what is waited for). When the model is not
+  loaded and the server does not load it by itself, the conversation asks the Loader to load it (`load_error` when the Loader
+  refuses);
+* **in the server**: a process that dies or stops answering its heartbeat is started again from its history, after a wait
+  that grows with the restarts of the last 10 minutes (0, 2, 5, 15, 30, 60, 120, 180, then 300 seconds, `restarting`
+  carries `attempt` and `wait_s`), and the turn goes on (a message it never confirmed is sent again). It never gives up
+  by itself; stopping the conversation (`cancel`) or closing it ends the restarts.
 
-A `blocked` conversation waits: `resume` goes on, `close` ends it, a new message also goes on. Nothing is decided for the
-person. A tool that cannot be undone is **never run again by a restart**: its start is noted on disk, and if the process
-dies while it runs, the next start reports `interrupted_irreversible`, nothing goes on by itself, and the conversation
-gets a note that the tool may already have run. A conversation idle for 30 minutes loses its process (it is `dormant`; the
-history stays). The processes end with the server. Secrets are masked before the history reaches the disk.
+A `blocked` conversation waits: `resume` goes on, `close` ends it, a new message also goes on. If the process dies while
+a tool that cannot be undone runs, the next start does not block: the model gets a note that the previous call may have
+run and must be checked before it is repeated.
+
+**Questions nobody answers.** In a conversation with the person present a question (permission, code, plan, connection
+choice, skill question) waits for as long as the person takes. In an `unattended` conversation (routine, plan step, task:
+the starter passes `unattended: true` to the create call, or `--unattended`) a question never blocks. One that is not a
+named exception is answered at once: approved ("confirm", or the option that says yes), or, for data only the person or a
+service can give (a code, a connection's input, a capability choice), answered as not available, and the model is told to
+go on with what it has (`auto_answered`: `kind`, `value`, `available`, `source`). A question that involves another person
+(a phone call), the user, a resource that is not the PC's own (a payment) or a booking is parked: `pending` carries it with
+`source.named` (`people`, `resource` or `booking`), the conversation lists it in `pending`, the model is told the answer is
+pending and to go on with other work, and `POST .../<id>/answer` with its id applies the answer later, from the page or a
+phone (`pending_done`; a permission the person approves lets the model's repeated call through, and the model reads the
+answer as a note at its next turn). Facts about the source are given; the model decides what to do. A conversation's process is closed after a set idle time (`idle_s`; no limit unless you set one; it is then `dormant` and the
+history stays). A process silent for `beat_timeout_s` is stopped and started again (no limit unless you set one: a long call without
+output is never killed). Both are in `limits.json` (see "Time limits"). The processes end with the server. Secrets are masked before the history reaches the disk.
 
 ### The mode, the thinking level and the slash commands
 
 The permission mode (*Plan only*, *Read only*, *Ask first*, *Automatic*) can be changed while the conversation lives: a label by the
 *New conversation* button says which one is on (*Shift + TAB to change mode: actual …*), **Shift+Tab** in the message box goes to the
-next (Ask first, Plan only, Read only, Automatic, and round), and so does pressing the label. Going to Automatic asks the two
-confirmations of the risk dialog the first time only (kept in the page's session storage, so until the window is closed); a refusal passes
-over it to the next. With no conversation yet, it changes the mode the next one starts
+next (Ask first, Plan only, Read only, Automatic, and round), and so does pressing the label. Going to Automatic asks nothing; while
+the mode is Automatic, the risk questions of the page's other settings are answered yes by themselves, and show nothing. With no conversation yet, it changes the mode the next one starts
 with (the Chat settings' choice); with one, it changes that one only, and the process tells the page (`mode` event). The *Thinking* list
 is the conversation's too: a new one starts with its value, a change reaches the process (`effort`), and an opened one sets the list.
 
@@ -128,12 +157,12 @@ Code that make sense here, plus Basalt's own:
   `/branch`, `/branches`, `/resume`, `/rewind` (points at the *Back* button), `/stop`, `/diff` (the conversation's copy of the folder),
   `/plans` and `/wallet`;
 * **answered by the conversation's process** (`harness/commands.py`, data the page words in its language): `/status`, `/context`,
-  `/compact` (the older half of the conversation becomes a summary, only when nothing is under way), `/tools`, `/hooks`, `/mcp`,
-  `/memory [search]`, `/permissions` (the mode, the rules, the refusals);
+  `/compact` (the older steps become a summary and the newest stay as written, only when nothing is under way), `/tools`, `/hooks`, `/mcp`,
+  `/memory [search]`, `/permissions` (the mode, the rules, the refusals), `/audit` (whether the audit log is whole);
 * **requests worded for the model**: `/init` (write AGENTS.md), `/review` and `/security-review` (the changes in the folder), and
   `/research question` (also `/search`), which asks to read the sources themselves and to name the pages it could not open;
 * **skills** found on this PC (Settings, Capabilities): `/name text` asks the agent to load the skill with `load_capability` and follow it;
-  a skill not yet approved says so instead of running.
+  a skill turned off is not offered.
 
 Not carried over from Claude Code, on purpose: the ones that belong to its account, terminal or cloud (`/login`, `/usage`, `/theme`,
 `/vim`, `/ide`, `/remote-*`, `/install-*`, `/voice`, `/mobile`…), and `/model`'s switching, because the model is the one loaded in
@@ -177,11 +206,11 @@ An urgent request is not put aside for another urgent one: they go in order.
 ### The Chat and the planner
 
 A conversation has the planner's tools (`harness/planner_tools.py`), unless it is started `ask_only`: `plan_list`,
-`plan_get` and `plan_step_requests` (the call and the wiki question a step prepared) read; `plan_create`, `plan_propose_change`, `plan_mark`, `plan_step_start`, `plan_prepare_call` and `plan_archive` change (`plan_step_start` starts a ready step for the agent: the step is marked in progress and shows in the Tasks panel with its plan, and is marked done or failed after the result is read); `ask_user` asks a question with
+`plan_get`, `plan_proposals` (what each pending proposal would do: steps added, changed, removed, links; the text is data, so the tool is untrusted) and `plan_step_requests` (the call and the wiki question a step prepared) read; `plan_create`, `plan_set_card`, `plan_decide_proposal` (approve or reject a pending proposal, with the user's yes to that real change), `plan_propose_change`, `plan_mark`, `plan_step_start`, `plan_prepare_call` and `plan_archive` change (`plan_step_start` starts a ready step for the agent: the step is marked in progress and shows in the Tasks panel with its plan, and is marked done or failed after the result is read); `ask_user` asks a question with
 buttons. The plans live in the server, in the one store the Plans view uses, and every change made from the Chat names the
 Chat as its author in the plan's history.
 
-**Every change to a plan has the person's yes, in every permission mode**, and it is one of two things:
+**Every change to a plan has the person's yes, in every permission mode below `auto`; at `auto` it is asked only for the step it touches that involves other people, a call to prepare or effects that cannot be undone (bookings, payments)**, and it is one of two things:
 
 * *their own words*: the call carries a literal quotation (`quote`) of what they asked for. It counts only when it is
   at least 6 characters, is in their latest message, and nothing from outside (a page, a file, a memory, a plan read in this
@@ -194,9 +223,21 @@ meanwhile is refused until it is read again. A proposed change to a plan's struc
 removes and changes, and a no rejects the proposal. With nobody to ask (a headless run) the tool says so plainly and changes
 nothing.
 
-`ask_user` ends the turn. The buttons are the question's options (a label and the text sent when it is pressed, at most 300
-characters), the person can always write instead, and whatever they press or write is their next message. Permission
-questions (a risky shell command, a phone call) are put in the conversation the same way.
+At `auto` the decision is made step by step (`harness/planner/involvement.py`: `step_facts`, `split_diff`). A step is an exception by
+its data: assignee `third_party`, a `call_request`, or a recorded effect that is a booking, a payment or a resource the software does
+not control (`kind` on the effect, or `request_payment`); an effect that is only not reversible does not hold a step back. A step for
+the user is a to-do and is not. A change that touches no such step is applied without a question. A change that mixes both is applied for the part that
+touches none (`plan:approve` with `safe_only`) and the rest stays a pending proposal, with the steps that hold it back named in
+`involves`; a step that depends on a held step is held too. The plan goes on and the tool says what was applied and what waits. A
+plan made at `auto` is created without its steps for other people, which wait as a proposal; the person's own quoted words
+still cover them. Below `auto` nothing changes: the whole change is asked.
+
+`ask_user` puts a card of one to four questions (single choice, multiple choice, free text, yes/no) with a recommended option first. It ends the
+turn when the person is there; their answer is put in words by the server and is their next message, and they can always answer in the chat
+instead. In an unattended run it does not end the turn: each question is answered at once with what the model recommended and every such
+choice is reported as an assumption; what involves another person, a booking or a resource is parked. Permission questions (a risky shell
+command, a phone call) are put in the conversation the same way. Details, the look at each request before the model works, and the
+next-message chips: [intake.md](intake.md).
 
 The conversation is told about the plans in a short note placed *before* the person's message and only when the plans changed
 since the last note (the most recently touched plans first, at most 8), so the server's cache is not disturbed and a claim
@@ -204,22 +245,47 @@ about plans never follows a message from outside.
 
 ## How a tool call is decided
 
-Every call goes through the same gate, in this order: the arguments are checked against the tool's schema (the model gets
-a message saying what to change); pre-tool hooks (dangerous commands are refused even when everything is allowed, and a hook
-that fails refuses too); the permission manager; a checkpoint of the workspace before the first change of a turn; the
+Every call goes through the same gate, in this order: a tool name or arguments that are nearly right are mended (see "Mended calls");
+the arguments are checked against the tool's schema (the model gets a message saying what to change); pre-tool hooks (dangerous commands are refused even when everything is allowed, and a hook
+that fails refuses too); the permission manager; a checkpoint of the files the call changes (one per turn, filled as calls come); the
 tool; secrets masked in the result; results of untrusted tools fenced as data; an audit record.
 
-Permissions: plan mode refuses anything that is not read-only; then **deny rules** (matched against every segment of a
-shell command and the words inside `cmd /c`, `powershell -c`); tools that always ask (`phone_call`); **allow rules**, which
-never cover a command that chains or redirects (`pytest && rm -rf ~` is not `pytest`); then the level: read-only asks for
-anything, `default` allows reversible workspace edits and asks for irreversible actions, `auto` allows everything **unless
-the Rule of Two is broken**: once the session has read untrusted content (web, MCP, phone, wiki, memory) and can reach
-sensitive data (secrets or a vault entry), irreversible actions ask again. Whether the session can reach sensitive data is looked at at each call,
-not when the conversation began, so an entry the person adds to the Wallet later counts at once. One tool is outside this check:
-`request_payment` carries an allow rule, which skips the level and the Rule of Two, because the payment broker is its only gate (the
-person's limit, the waiver, and a question to the person above them), whatever the conversation has read. `write_file` and `edit_file` are reversible, except inside a `.git` folder
-(a hook or the config can make git run code later): there the person is asked, once per file, as for an irreversible action (the
-level and the Rule of Two decide it, and with nobody to ask it is refused), and the checkpoint before it holds the hooks and the config.
+Permissions: a rule can name a group of tools, `group:read`, `group:write`, `group:shell`, `group:web`, `group:browser`, `group:phone`, `group:plan`, `group:agents` or `group:mcp` (`GROUPS` in `harness/permissions.py`), and `/permissions` says which deny rule refuses which tool. Plan mode refuses anything that is not read-only; then **deny rules** (matched against every segment of a
+shell command and the words inside `cmd /c`, `powershell -c`); then, **at the `auto` level everything passes and nothing is asked, except the Rule of Two and orders found in outside text (below)**: the
+person chose that. Below it: tools that always ask (`phone_call`); **allow rules**, which cover a command of several statements when each
+statement is covered (`cd x && make` needs `cd *` and `make *`; a command built at run time with `$(...)`, a backtick or `%VAR%` is covered
+by none); then **safe verification** (a command the person listed or accepted for the folder, written exactly, passes; see [coding-mode.md](coding-mode.md)); then the level: read-only asks for anything, `default` allows reversible workspace edits and asks for irreversible actions.
+The Rule of Two asks at every level, `auto` included, and only for an outward action. Text from outside that speaks to the AI (see `inject_screen` below) makes every call that changes or sends something ask, at every level and also where an allow rule covers it, until the person authorizes those instructions; in a run nobody watches the question is parked. `request_payment` carries an allow rule because the payment broker
+is its only gate (the person's limit, the waiver, and a question to the person above them). `write_file` and `edit_file` are reversible,
+also inside a `.git` folder: no special question, they follow the rules of any workspace write, and the checkpoint before it holds the hooks and
+the config. Every question below `auto` offers three levels (this call, this conversation, for good); the last two add an allow rule made from the
+tool name (`write_file:.git/config`, `acp_permission:...`, `request_payment:<system>`, `phone_call`) or from the command, and an allow rule also
+covers the Rule of Two and a tool that asks every time.
+When the technical session's `auto_approve` use is on (off by default), it reads a call the person would be asked about at the read-only and default levels, with their request, and may approve it; it can only say yes, a doubt asks the person, and the Rule of Two, orders found in outside text and tools that always ask never go to it. An approval is reported as an `auto_approved` event.
+**Work until done** (`harness/persistence.py`, `harness/completion.py`): one switch for every conversation, in the chat header of the Chat and the Agent, on by default and kept in `work-until-done.json` in the user data folder (`GET`/`POST /api/persistence`, this PC only; off where nothing configures it, as in a library call). While it is on, when the agent gives a final answer the harness checks that the request is met: an answer that admits it did not finish, or a `no: ...` from the technical session's `completion_check` use, sends the agent back with a precise note, at most twice per request (`completion_check` event; the limits, the stall guards and the person's stop stay in force). **Outcomes and lessons** (`harness/lessons.py`): every request of the person is recorded by code (`Recorder`) and ends as one line in `<project>/.basalt/outcomes.jsonl` plus, when something was learned (an error that a later call fixed, a gate failure that was cleared, a loop that ended, a refusal that was worked around, a budget that ran out, a re-read after a fold), lessons in `<project>/.basalt/lessons.md` and the global `lessons.md` in the user data folder; the technical session's `lessons` use writes their sentences, and without it the code's drafts stay. The lessons that match a new request are added after it as a note of advice. Entries that read like orders or hold a secret are refused, and the files are plain Markdown the person can edit.
+**Course watch** (`harness/course.py`): before each model call of a request, deterministic signals are looked at: the same tool failing the same way, the project's checks failing again, the loop guards striking, a checklist that does not move while half the steps are used, a context close to the masking threshold. The first time a signal appears the agent gets a note with the facts and the matching lessons (`course_check` event); if it comes back after the note, the same card as `ask_user` is put to the person with three options, the first recommended, and the turn ends to wait for the answer (where nobody watches, the recommended option answers). **Lessons view**: Settings > Memories lists the project's and the global lessons with a summary of recent outcomes, and edits, pins, deletes or promotes them to `AGENTS.md` after a preview and a confirmation (`serve/lessons_api.py`, `GET /api/lessons`, `POST /api/lessons/<action>`, this PC only).
+**Card after a task** (`harness/nextsteps.py`, `Session._next_steps`): after a final answer, where the person is (never in an unattended run, never for a side task, a skill, a plan, or the answer to a card), the harness builds one `ask_user` card by code from the facts of the work: checks that failed (the gate gave up), items still open on the checklist, files changed with no check set up, and the matching lesson's fix in the description. It appears only after a task of at least 6 steps or with an open item, once per task. The first fitting option is recommended; "Nothing more" and a typed answer are always there, and "Nothing more" is answered by the harness with no model call. The switch is `next-steps.json` in the user data folder (`GET`/`POST /api/next-steps`, this PC only; on by default, off where nothing configures it), shown in Settings > Memories > Lessons.
+**The folder's own checks, offered once** (`serve/coding_prefs.py`, same card): the first time a conversation in a folder has changed files, and only if the folder still has no accepted or typed checks and was never asked, the card asks "Run these checks before finishing?" with the checks detected from the project files (`harness/project_profile.py`: pyproject/pytest.ini/setup.cfg/tox.ini, package.json scripts, Makefile, Cargo.toml, go.mod, CMake) as a multiple choice (a yes or no for a single one). The server marks the folder as offered when the card is shown, saves the ticked commands as accepted checks (they become safe commands and, with the check gate on, run before an answer ends) and tells the running conversations; ticking nothing is a remembered no. Nothing runs without the person's tick. With the gate off the card says so.
+**Shell failures as lessons** (`harness/shell_lessons.py`): a shell or code call that failed and a later call of the same intent that worked count as an `error_fix` only after a real change in between: another program, other flags or arguments, or a file edit. A plain red test run, a failed look around (grep with no match, ls of a missing folder, git status) and the same command run again unchanged are never lessons, unless the command could not run at all (not found, a module missing).
+**Work that repeats** (`harness/repeats.py`): a request signature is its meaningful words, first ten, sorted. When the project's `outcomes.jsonl` holds the same signature at least 3 times, each finished in at least 8 steps, the conversation tells the page once (`script_hint` event, marked in `.basalt/repeats.json`): a note in the chat with the "Make a skill" button, which opens the existing request picker on the request just done, and a line in the Lessons view. Nothing is made without the person.
+The agent is told about itself by code (`harness/awareness.py`): a fixed block "About yourself" in the system prompt (room for the conversation, when old results are masked and the conversation folded and that the originals are on disk, the limits, what is not available here), and the `self_status` tool, which reads the live numbers (context filled and the next thresholds, steps and tokens used and left, folds so far, loop strikes, gate rounds, refused calls, instructions waiting for authorization). Study and plan: [harness-study/awareness.md](harness-study/awareness.md).
+`shell_command` with `background: true` starts a job in a thread of its own and returns its id; `job_status`, `job_log` and `job_kill` follow it (the output is whole once the job ends or is killed), and the next tool result tells the model when a job ended (`harness/tools/background.py`). While a job runs its output is kept and `job_log` reads what is there; the chat shows each job as a block of its own with a colour of its own, filled as the output is written (the `job` and `job_output` events). When the person writes a message that changes or cancels the work while a message's batch of calls is running, the calls not yet made are recorded as "Not run" and the message is read next (`batch_interrupt`, the `batch_interrupted` event); a message that would wait or is a different request does not stop it. The job goes through the same checks as any shell command; it is not kept after the conversation's process ends.
+
+The Rule of Two is kept as three facts about the conversation (`harness/rule_of_two.py`). **Untrusted**: it read content from outside the
+person's control: a page, a search result, an MCP or A2A answer, a file, a command's output, an attachment, a recalled note, a note the
+planner made from an event. **Private**: it touched a stored credential (`{{secret:}}`, `{{vault:}}`), a file that holds keys (`.env`,
+`id_rsa`, `*.pem`, `.aws/credentials`...) or a command or answer that showed a key, an attachment, or the person's own memories.
+**Outward**: the tool sends what the model wrote out of this PC (`outward=True` on `browse_url`, `search_web`, `browser_open`, the
+browser's click, type, select and key, `page_images`, `show_image`, `find_online_capability`, `call_capability`, MCP and A2A/ACP calls).
+When all three are true the call asks, before an allow rule can pass it, and the question lists the first sources of the first two facts.
+With `--rule-of-two strict` it asks after the first fact alone, with `off` never; at `auto` the same level also decides whether an
+irreversible action asks once the first fact and a stored secret (or the second fact) are there. The Wallet page sets the level for
+the conversations started afterwards. Whatever the level, the arguments of an outward call are searched for the value of a stored
+secret, a vault secret field, or a secret read from a file during the conversation (as written, URL-decoded, reversed, in another case,
+hex or base64; a value under eight characters only as a whole word); a match asks the person before anything is sent (the question names the
+secret and the sites it would reach, never the value; it can be answered for the call, the conversation or for good), and with `off` nothing is asked.
+
+**How freely code runs (`harness/exec_level.py`).** The person chooses, in the Wallet page ("Code the agent writes and runs"), one of three levels for every conversation. It is one file (`exec-level.json` in the user data folder) that a running conversation reads again at its next command. The default is `free`; a process nobody configured (a library caller, a test) is `contained`. What follows describes `contained`. With `free` a command or a `run_code` program runs with the person's own rights: no memory or process cap, no time limit unless the model sets one, the whole environment of Basalt plus the vault's values and the broker's secrets as `BASALT_VAULT_<entry>_<field>` and `BASALT_SECRET_<name>`, no deny list, no refusal for the person's secret places, no audit hook. The permission level in front of the tool is the only gate, and output is still masked of the values it holds. A time limit of the person's own (`tool_timeout_s`) still applies. `admin` is `free` for a Basalt that runs as administrator: the page says whether it does, and the programs inherit the rights of the process; nothing here elevates by itself.
 
 What this is **not**: an OS sandbox. A command runs with your files and network rights, with a scrubbed environment, no
 stdin, a time limit and capped output. On Windows each command also runs in its own job object, created before the command
@@ -227,26 +293,36 @@ executes anything: 4 GiB of memory and 64 processes for all of it together, and 
 or times out (a server a command leaves running does not survive it). The deny list stops the obvious system-changing tools
 wherever they appear as a command word. File and network isolation (a dedicated Windows user, firewall rules, a VM for
 untrusted code) is not provided; until it is, `auto` should only be used in a folder you can lose. Hooks, rules and
-the secrets check read what a command *says*: a command that builds its address at run time needs a firewall.
+the secrets check read what a command *says* and the text of the workspace scripts it names (`harness/secret_scan.py`): a secret limited to some sites
+is not given to a command that uses the network without naming one (an address built at run time), and a script that names another site refuses it. A
+program that hides its address better than that still needs a firewall.
 
-Checkpoints are stored outside the workspace and are bounded: they leave out `node_modules`, `.venv`, `venv`, `__pycache__`, `build`,
-`dist`, `.basalt` and `.git/objects` (change the list with the `exclude` argument or `BASALT_CHECKPOINT_EXCLUDE`, comma separated),
-skip a file over 50 MB with a warning in the log (`BASALT_CHECKPOINT_MAX_FILE_MB`), stop one snapshot at 2 GB, and delete the oldest
-snapshots when all together pass 2 GB (`BASALT_CHECKPOINT_MAX_TOTAL_MB`); what a snapshot skipped is listed in its `meta.json`, and a
-rewind neither touches nor deletes those files. Of a `.git` folder only the hooks and the config are kept. A rewind takes a safety
-snapshot of the current state first (it is never the one rotated away). To go back:
+Checkpoints are stored outside the workspace and keep only what an action is about to change: before a file tool or a shell command
+changes a file, the checkpoint stores that file's previous content (or that it did not exist), from any folder, whatever its size. There
+is no size limit, no total limit and no rotation; a checkpoint goes only when its owner deletes it (the Checkpoints list in the chat
+settings deletes one or all, or `python -m harness.rewind --delete ID|all`). A shell command cannot be known beforehand, so the files its
+text names are kept (quoted paths, `*` patterns that match, redirect targets); a folder named is not, and a change the text does not name
+(a script that rewrites a tree) is not covered. The setting has three positions: on (a checkpoint that cannot be taken stops the action),
+on but never stopping the action (the failure is written in the audit log as `checkpoint_failed` and told to the model), and off. Unset, it
+follows the permission level: on, and the second one in Automatic. It is global (`checkpoints.json` in the user data folder), read at
+every action, set in the chat settings or with `/checkpoints on|soft|off|default`. Old whole-folder checkpoints are still listed and
+restored. Going back to a checkpoint also undoes the later ones (each file returns to its earliest kept state), skips files that already
+hold that content, and takes a safety checkpoint of the same files first. To go back:
 `python -m harness.rewind --workspace D:\proj` lists the checkpoints with what the agent did after each, and `--to ID`
 restores the files (`--keep-new` leaves files created since). Restoring files does not undo a command the agent ran, a call
 it placed or an MCP tool, so a rewind over any of those lists them and needs `--yes`; the rewind is written in the audit log
 and its safety snapshot can be rewound to as well. The audit log
-(`audit.jsonl`) is tamper-evident (a hash chain, a head file, secrets masked), not tamper-proof.
+(`audit.jsonl`) is tamper-evident (a hash chain, a head file, secrets masked), not tamper-proof. Conversations of one folder share it: each
+record is appended under a file lock after reading what the others added, so the chain does not fork, and `/audit` verifies the file as it is now.
 
 **The audit log keeps no file contents.** A tool call leaves one record with the tool, `args_sha256` (the SHA-256 of its arguments after
 secrets are masked), `arguments` (a masked preview with every value cut at 60 characters), `permission` (`allowed`, `denied`,
 `not_required` with no permission manager, or `not_reached` when something earlier refused it), `outcome` (`ok`, `error`, `refused`, `cancelled`)
 and `duration_ms` (how long the tool ran), with the reason for a refusal or an error. Actions: `permission_granted` (written before the tool runs, with
 outcome `started`, so a crash leaves a trace), then `tool_executed`, `tool_error` or `tool_cancelled`; `permission_denied`, `tool_blocked`
-(a hook or a failed checkpoint), `tool_invalid` and `tool_loop` for calls that were not run; `plan_approved`, `plan_rejected`. Records
+(a hook or a failed checkpoint), `tool_invalid` and `tool_loop` for calls that were not run; `plan_approved`, `plan_rejected`. A call that was mended
+before it was checked carries `"repaired": true`. Other actions of the loop: `answer_truncated`, `tool_call_cut`, `answer_empty`, `output_degenerate`
+(see "How a reply ends"). Records
 written earlier, with the arguments in full, stay in the file and still verify (the chain covers whatever the details hold).
 `AuditLedger.verify_integrity()` never raises: a line that cannot be read, a record with a missing field, a broken link, a tampered
 record, a damaged head file or a shortened ledger each come back as a reason, and `problems()` lists every one instead of stopping at
@@ -257,15 +333,19 @@ the first.
 In plan mode the tools that read work and nothing else does. The model has one more tool, `present_plan(plan)`: the plan is put to the
 person like any question the harness asks (a button in the Chat, a prompt in the terminal, the editor's permission dialog in ACP, a page in
 the server's approvals), with a note when the agent read content from outside before writing it. A yes ends plan mode and the run goes on, in the
-same turn, in the mode the person chose (`--after-plan default|auto`; ACP offers one button for each); `present_plan` goes away with it, and
-`session/set_mode` to `plan` brings it back. A no, a Stop, or a run with nobody to ask leaves plan mode on and tells the model so. The approval
+same turn, in the mode the person chose (`--after-plan default|auto`; ACP offers one button for each). `present_plan` is in the tool list in every
+mode, so a change of mode never rewrites the cached start of the prompt; outside plan mode it answers that there is nothing to approve. A no, a Stop, or a run with nobody to ask leaves plan mode on and tells the model so. The approval
 and the rejection are in the audit log.
 
 ### Stopping and time limits
 
+When the steps, tokens or time of an answer reach nine tenths the model is told in a note at the tail; when they run out it gets one more reply, with no tools, to say what is done and what is not (`--no-budget-grace` turns both off; [harness-gates.md](harness-gates.md)).
+
 Stop ends a command that is running: a shell command and everything it started (on Windows the whole job) end within a fraction of a second
-after the run is cancelled, instead of when the command finishes. Every tool also has a time limit, 15 minutes unless set otherwise
-(`--tool-timeout SECONDS`, or `NAME=SECONDS` for one tool; `0` for none; `ToolRegistry.set_timeout` in code). A tool that runs past it is
+after the run is cancelled, instead of when the command finishes. Every tool also has a time limit, one hour unless set otherwise
+(`tool_timeout_s` in `limits.json`, which is never unlimited; or `--tool-timeout SECONDS`, or `NAME=SECONDS` for one tool; `0` for none; `ToolRegistry.set_timeout` in code).
+`limits.json` lives in the user data folder (`serve/limits.py`): `{"beat_timeout_s": null, "idle_s": null, "compare_wait_s": null, "tool_timeout_s": 3600}`;
+`null` or `0` is no limit (default for all but the tool's), `BASALT_LIMIT_<NAME>` sets one from the environment, and the file is read again whenever it changes. A tool that runs past it is
 stopped and the model is told which tool and how long. The stop is an exception raised in the tool's own thread, so no thread is left running
 behind; a tool that is inside one blocking system call stops when that call returns. The clock does not run while the person is being asked
 something inside the tool (a plan change, a payment, a code). A shell command keeps its own `timeout` (up to 10 minutes); `transcribe_attachment`,
@@ -276,7 +356,68 @@ something inside the tool (a plan change, a payment, a code). A shell command ke
 Besides the same call three times in a row, the same error from the same tool twice in a row (the same message, whatever the arguments) adds a
 note to the second result telling the model to change what it asks or to take another way; from the third time in a row each one also counts
 as a strike, the same strikes that refused identical calls give, and a run with more than two strikes ends as a loop. A model message that is only calls that are cut off or not valid
-JSON is sent back with the reason, never taken as the final answer.
+JSON is sent back with the reason, never taken as the final answer. A strike for calls that could not be read (the same error three times in a row)
+counts only when none of the calls of that turn was valid; the valid calls of a mixed batch run, and only the invalid ones get an error.
+The loop guard also looks at what calls bring back (cycles of two to four calls, one result for many different calls, long results that repeat),
+and a change to the files clears what it counted: see [harness-gates.md](harness-gates.md).
+
+### How a reply ends
+
+The loop reads `finish_reason` of every reply (`harness/agent_loop.py`, `_complete`):
+
+- **Cut by the output limit, with text and no tool call.** The text is kept as an assistant message and a `[harness]` note (`note: true`, at the
+  tail, so the cached start is untouched) asks the model to go on exactly where it stopped, at most 2 times per request. After that the answer
+  is delivered as it is, flagged cut (`AgentLoop.cut`, `cut` in the `done` event, `turn.cut`). The pieces are joined by `answer_text(turns)`.
+  Every cut gives an `answer_truncated` event (`final`, `continuation`, `of`, `degenerate`) and audit record; the Agent tab shows "the model is
+  asked to go on (1 of 2)" under the answer while it goes on. A text that is a repetition loop is never continued.
+  The cut text goes back to the model only up to its last whitespace (`harness/continuation.py`, `cut_point`): the model starts its new reply
+  with the unfinished word, which a new reply could not otherwise do without a space. `join_continuation` puts the pieces together with no
+  doubled or missing space, one paragraph break at most, and none of the words (6 characters or more, whole words) the model began a little early
+  with. The Agent page does the same on the streamed text (`serve/web/cuttext.js`, the Chat's copy of the two functions); one table of cases
+  runs through both (`tests/test_continuation.py`).
+- **A tool call cut inside its arguments** is never run. The reply is dropped from the conversation and asked again with the ceiling doubled (from the
+  setting, else from what the reply had written), up to 3 times, and the larger ceiling is kept for the rest of the request; if it is still cut the
+  run ends as `length` with a notice in `error`. Events and records: `tool_call_cut`.
+- **No text after thinking** (an empty reply with reasoning, or one the limit ended). Asked once per request, at a lower thinking level
+  (`high` and `medium` to `low`, `low` to `none`) and with a note to answer shortly. A second empty reply ends the run as `empty` with a notice in `error`
+  ("The model produced no answer: its thinking used up the whole output..."), never as a silent empty final. Records: `answer_empty`.
+- **A repetition loop** (`harness/output_guard.py`). A stream is watched while it is written: the end of the text (answer and reasoning apart) is looked
+  at when it first passes 16,384 characters and each time its length doubles; a 60-character unit that comes back 5 or more times and covers at least half
+  of a fragment of 400 characters or more is a loop, unless the lines of the fragment mostly differ (tables, logs). The stream is closed, the partial
+  answer and any partial tool call are dropped, and the request is made once more with `repetition_penalty` a step higher (1.1 more than the session's,
+  at most 1.5; only this server receives it). A reply that the limit ended and that is a loop gets the same treatment. A second loop in the request ends
+  the run as `degenerate`. Records: `output_degenerate`. A run without streaming only judges a reply the limit ended.
+- `length_stops` (replies the limit ended, per run) is in every trial of `python -m harness.eval` and in its report; so is the number of calls that were mended.
+- **A reply still cut after the continuations** shows "The output limit ended this answer" and a Continue button in the Agent tab (the Chat has its own). A text too long for one turn is written in parts by the harness itself (it estimates the length, plans the parts, writes them and checks the whole), after a card offers it when a request asks for over 3000 tokens (about 2000 words); there is no tool for it, so a conversation saved before `plan_long_answer` was removed has a different tool list in its cached prefix once; see [longform.md](longform.md).
+
+The loop passes no temperature and no `max_tokens` unless the session sets them (`--temperature`, `--max-tokens`, the `settings` command of the
+conversation's process, `/status`): without a temperature the model file's own sampling applies. **A temperature above 0 makes tool calls less
+repeatable**, which is why a session that needs repeatable calls (and every test) sets it. Whether the model file's sampling is as good as 0 for tool calls
+is measured with `python -m harness.eval --set core --k 5` (and `--set toolcalls`), once with `--temperature model` (none sent) and once with
+`--temperature 0`; the A/B is in `tests/QUEUE_daytime.md`.
+
+### Mended calls
+
+Before the checks and the permission layer see a tool call, `harness/tools/repair.py` mends what is not in doubt and leaves the rest:
+
+- **JSON** by passes: raw control characters inside strings, trailing commas, brackets left open (closed in the order they were opened, not inside a
+  string), closing brackets after the end. Text that ends inside a string or after a colon is never completed; a JSON string that holds the JSON of an object
+  is read as the object.
+- **Value types** against the tool's schema: `"42"` to 42, `"3.5"` to 3.5, `"true"` to true, a JSON text to an array or an object, a single value to a
+  one-element array. Anything in doubt stays as it was and fails the check: a property with an `enum` is never changed, `"00123"` stays a string, `"007"`
+  is not an integer, `"yes"` is not a boolean.
+- **Tool names**: case, separators, CamelCase, a `_tool` suffix, a namespace prefix (`functions.read_file`), text after a quote or bracket, then a spelling at least
+  0.7 alike and at most two characters apart (`write_files` is `write_file`; `read_file` is never taken for `write_file`), and only when one tool fits clearly. An unknown name gets up to three near matches, not the list of all tools.
+
+The call that ran is the mended one (it is also what the conversation keeps), with `repaired` in its audit record and on its result.
+
+### Working rules
+
+`--instruction-blocks` adds six lines under `# Working rules` right after the core of the system prompt (`harness/prompt_blocks.py`): act on a request now, change
+the query, path or command once before concluding that nothing is there, check what can change, say that something is done only with a tool result or a named blocker,
+never invent a result, never end a turn on a promise. A line that names tools names only those the conversation has and is left out when it has none. It is
+off by default until `python -m harness.eval --set core --k 5 --instruction-blocks` shows a gain against the same run without the flag (the A/B is in
+`tests/QUEUE_daytime.md`).
 
 ### Hooks you write
 
@@ -297,9 +438,10 @@ from starting with the reason: a policy that is silently dropped protects nothin
 
 | key | meaning |
 |---|---|
-| `event` | `pre_tool`, `post_tool`, `turn_end`, `session_start` or `session_end` |
+| `event` | `pre_tool`, `post_tool`, `stop`, `turn_end`, `session_start`, `session_end`, `pre_compact`, `post_compact`, `subagent_start` or `subagent_stop` (what a `post_tool` and a `stop` hook can say back: [harness-gates.md](harness-gates.md)) |
 | `command` | what to run (text, or a list of words), in the workspace, with a scrubbed environment and the job limits of any command; the event is given as JSON on its standard input (`event`, `tool`, `arguments`, and for `post_tool` the `result`, masked; for the other events `turn`, `goal`, `stop_reason`, ...) and in `BASALT_HOOK_EVENT` and `BASALT_HOOK_TOOL` |
-| `action` | `block`, instead of a command, only on `pre_tool`: refuses a matching call with `reason`, running nothing |
+| `action` | `block`, instead of a command, only on `pre_tool`: refuses a matching call with `reason`, running nothing; `ask`, also only on `pre_tool`: the person decides the matching call, at every level (a command hook asks by exiting with code 3 or printing `{"decision": "ask", "reason": ...}`; a refusal by another hook wins over a question; where nobody watches the question waits in the pending list); or `plan_event`, on any other event: gives the planner an event whose `text` is the one written here (`{event}` and `{tool}` are filled in, nothing else of the call goes in; only the Chat's conversation has a planner to tell) |
+| `text` | what a `plan_event` action tells the planner, up to 300 characters |
 | `tool` | a pattern or a list of patterns for the tool's name (`*` and `?`); default every tool; `pre_tool` and `post_tool` only |
 | `match` | `{"argument": "pattern"}`: all must match the call's arguments (text, case does not matter); `pre_tool` and `post_tool` only |
 | `timeout` | seconds, more than 0 and at most 120; default 10 |
@@ -308,28 +450,30 @@ from starting with the reason: a policy that is silently dropped protects nothin
 A `pre_tool` command lets the call pass with exit code 0; it blocks it with exit code 2 (what it printed is the reason) or by printing
 `{"decision": "block", "reason": "..."}`. A hook that cannot decide, because it exited with another code, did not finish in time, could not
 start or is not allowed to run, blocks the call too, and says so: a check that cannot run never reads as approval. The built-in refusal of
-dangerous commands runs first and cannot be turned off by a file. Hooks of the other events cannot change the outcome; their failures are
+dangerous commands runs first and cannot be turned off by a file. A `post_tool` hook that exits 2 or prints `{"decision": "block", "reason": ...}`
+gives the model feedback beside the result, and a `stop` hook that does so sends it back to work (at most twice per request). Hooks of the other events cannot change the outcome; their failures are
 kept and reported, never raised. **What a hook prints is untrusted**: the model sees it cut to 500 characters, with secrets masked, inside an
 `<untrusted_data>` block that it cannot close, with the reason for the block outside it. A fixed `reason` you wrote is shown as it is.
 
 ## Secrets, payments and phone calls
 
 - **Secrets**: the model writes `{{secret:NAME}}`; the shell tool fills it in at the last moment and masks the value in
-  everything that comes back. A secret without hosts is for local commands only; one with hosts is refused if the command
-  names any other host or a network tool without a site. The sites of a command are read from its addresses (every reading of a
+  everything that comes back. A secret without hosts, or with `*`, goes anywhere; one with hosts is refused if the command
+  names any other host. When a command runs a network tool but names no site the check cannot be made: the command runs and the audit
+  records `secret_destination_unchecked`. The sites of a command are read from its addresses (every reading of a
   backslash or an `@`, since parsers disagree on them) and, when it runs a network tool, from bare names (`curl evil.example/x`) and
   `user@host`; file names such as `out.txt` are not taken for sites.
 - **The vault** (`vault.py`, the **Wallet** view): cards, personal data for bookings, logins and secrets, in one file encrypted
   with AES-256-GCM under the device key (Windows DPAPI wraps the key for this user; code running as the same user can still ask
   Windows for it). The model writes `{{vault:ENTRY.FIELD}}`; the value is put in only where a tool uses it, only toward the
-  sites the entry names (none: this PC only; a star: any site), and masked again in what comes back, one-time codes included.
+  sites the entry names (none or a star: any site; the entry form has a *Use anywhere* box), and masked again in what comes back, one-time codes included.
   The list shows which fields are set and the last four digits of a card; the owner can show or copy a value when editing an entry (the page asks the server on that press, nothing the model can call does), generate a password, search and filter, and import the logins exported by Edge, Chrome, Firefox or a password manager as CSV, each one sent only to its own site. `browser_sign_in` fills a login's user name and password into the page's sign-in fields. A conversation that holds a vault
   entry counts as holding a secret for the Rule of Two, decided at each tool call, so an entry added in the page reaches a running conversation.
   What comes back is masked of a value in its forms: as it is, reversed, in the other case, base64, hex, percent-encoded, and a card number
   however its digits are spaced. **A cipher, or a value cut in pieces, cannot be recognised in text**: what keeps the model from deriving
   a value is that it never has one, and a model that can run commands as this same user on this PC can reach more than the vault can
   hide. For that reason a command cannot name the vault, the payment files, the control token or the browser's profile (a fence for a model
-  led astray, not a wall), and the real separation is to run the agent as another user. On Linux and macOS there is no DPAPI: the device key
+  led astray; programs the agent runs are held back by the hook described under Running code, and the file tools never open these places), and the real separation is to run the agent as another user. On Linux and macOS there is no DPAPI: the device key
   sits beside the vault, readable only by its owner, so the file is protected from a copy of itself and from other users, not from this user.
   A **backup** (Wallet view) is the entries under a key made from a passphrase the person chooses (scrypt, AES-GCM), to keep or to open on
   another PC; making one and reading a value (`vault_revealed`, by name) are written to the payment ledger.
@@ -340,10 +484,10 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
 - **Payments**: a payment system is held by a card or a login of the vault (or by a provider's own virtual card, token or
   mandate). The broker (`payments_broker.py`) keeps a state file signed with the device key and a hash-chained ledger under a
   file lock, re-read on every request, so a revocation made in the page applies at once, the server and the conversations'
-  processes keep one chain, and any file that fails verification stops all payments. Amounts are exact cents, with every digit kept
+  processes keep one chain, and a payments file that fails verification is set aside (renamed `.damaged-<time>`), the rows that still read are kept in a new chain, the amounts spent are worked out again from them and payments go on with a `ledger_recovered` row and a warning event (the state file `payments_state.json` still stops payments when its signature fails). Amounts are exact cents, with every digit kept
   (up to 60, only so that a number cannot fill the memory). The limit is the person's to set, to any amount; until it is set it is 0 and
   every payment asks the person. A waiver (the design's level 4, §4.8.4) lets the agent pay by itself up to a cap per payment
-  and a cumulative cap until it expires; above them it asks again. Granting one is the dictated declaration (checked in Italian
+  and, if the person set one, a cumulative cap, until it ends (it has no end date unless one is set); above them it asks again. Granting one is the dictated declaration (checked in Italian
   and English against the chosen amount), the release and acceptance dialogs with the name typed again, and an AES-256-GCM
   evidence dossier (needs the `cryptography` package, see `harness/requirements.txt`). The agent can only *ask*
   (`request_payment`, offered when a payment system exists, with the `site` that will take the payment); nothing it can call grants or
@@ -361,21 +505,44 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   to Google, which is the kept profile above, and its sheet is a window the browser follows. None of these was tried against the real services. Decisions still yours: the default 30-day expiry and a lawyer's review of the three dialogs.
 - **The browser** (`browser.py`, `--browser`): Edge or Chrome on this PC, driven over the DevTools protocol, for forms, purchases and
   bookings (`browser_open`, `browser_read`, `browser_click`, `browser_type`, `browser_select`, `browser_press`, `browser_back`).
-  A page is read as numbered elements and text, fenced as untrusted. A vault value is typed only if the page's site is one the
+  Where the conversation has a place for files (the Chat), `browser_screenshot` keeps a PNG of the page as a file of the conversation, and `browser_open`, `browser_click`,
+  `browser_select`, `browser_press` and `browser_back` take `screenshot: true` to keep one of the page they lead to. The result names the file (its path, `output:<id>` for
+  `analyze_image`, and the `basalt-file:` link to show it); the call is in the audit log. In a browser where a vault value was typed a picture could show it (it cannot be masked like text): at the Auto level it is taken, otherwise the person is asked.
+  A page is read as numbered elements and text, fenced as untrusted. Nothing is cut off: `browser_read` takes `offset` and `limit` (the list is read in pages of 150
+  elements), `contains` and `role` (only the matching elements, numbered as on the whole page), and `words_from` and `words` (the text, 1000 words at a time); a cut says how to read on. A vault value is typed only if the page's site is one the
   entry names, and a field that holds one is listed as set. Each conversation has its own browser, and the
   browser ends with it, however it ends. By default its profile is thrown away with it; the person can choose to keep one profile, so that
   the sign-ins they make in it (Google, a bank, a shop: **Open the browser to sign in** in the Wallet view) are there in every conversation.
   Only one browser at a time can use that profile; another conversation starts with a fresh one and is told so. Pages on this PC or its
-  network (private, loopback, link-local, shared-carrier ranges such as a tailnet) are reached only if the person allowed them: every request of
+  network (private, loopback, link-local, shared-carrier ranges such as a tailnet) are reached at the Auto level and when the person allowed them in the Wallet view; otherwise opening one asks the person (`browser_private_page`, this
+  call, this conversation or for good, per host). Without that, every request of
   a page and of its frames goes through a check before it leaves, so a link, a redirect, a script or an image cannot reach them, and a refused
   one is reported to the model. A name that resolves to another address between the check and the request (DNS rebinding) is not stopped.
-  A value from the vault is not typed on a plain `http` page of the internet. The browser's debugging port listens on 127.0.0.1 without a
+  A value from the vault is typed on a plain `http` page of the internet only when the person allows it (`browser_insecure_typing`; at Auto it is allowed). The browser's debugging port listens on 127.0.0.1 without a
   password, so a command run as this user can reach the browser and its cookies; this is the same limit as above. It reaches the page, the frames of its own site, the frames of other sites the page
   holds (an embedded Stripe card form: each is a session of its own, and a value typed there goes only to a site the vault entry names), and
   the windows the page opens (a payment sheet), which become the page it works on until they close. Whether the conversations have a
   browser, whether it shows a window, whether it may open pages of this PC and whether it keeps sign-ins is set in the Wallet view, each risky
   choice with a highlighted label and two questions.
-- **Phone calls** (`--phone`): `phone_call` always asks, even at the `auto` level and with an allow rule; the call opens by
+  What would hide a page is dealt with by the harness itself, by fixed rules (`browser_consent.py`) and the person's two policies (Wallet view, or
+  `--browser-consent`, `--browser-permissions`), never by the page's words. At the Auto level the browser asks nothing; below it each question
+  (`browser_private_page`, `browser_permission`, `browser_dialog`, `browser_download`, `browser_screenshot`, `browser_insecure_typing`) goes through the
+  conversation's confirmation with the three answers, and an allow rule can name a site: `browser_permission:https://shop.example:camera`, `browser_dialog:*`. *Cookie banners*: after a page loads (and for a few seconds if the banner
+  comes late) the browser looks for a known consent manager's container (OneTrust, Cookiebot, Didomi, Quantcast, TrustArc, Usercentrics, Iubenda,
+  CookieYes, Complianz, Osano, Sourcepoint, Google's consent page) or a dialog or pinned banner that speaks of cookies or privacy, and only inside
+  it clicks a plain button whose label matches a fixed phrase in English, Italian, French, German or Spanish. `follow` (default) is `accept` at the Auto level and `necessary` below it; `necessary` rejects, or keeps
+  only the necessary, or opens the settings to reach one of those, and accepts only if none can be used; `accept` accepts; `reject` never accepts;
+  `off` leaves banners to the model. It never clicks a link that goes elsewhere, a button that sends a form, or a label that asks for a payment, a
+  sign-in or a download; a newsletter pop-up is closed by its close mark, never subscribed to. Each click is recorded in the audit ledger and put at
+  the top of the page the model reads (`consent banner: clicked "Reject all" (policy necessary)`). A page can still imitate a banner in a dialog; the
+  worst a click there does is what the page's own plain button does. *Permissions*: before any page loads every permission that reveals the person
+  or reaches a device (notifications, location, camera, microphone, screen, clipboard, MIDI, sensors, payment handlers...) is set to refused in the
+  browser's profile and through the DevTools `Browser.setPermission`, and the browser starts with `--deny-permission-prompts`; no flag that answers a
+  prompt is ever passed. `ask` puts the question to the person (site and permission, through the conversation's own confirmation) when a page asks, and
+  grants for that site only on a yes; `grant-safe` also allows only writing to the clipboard. USB, serial and HID choosers are never granted. JavaScript
+  dialogs never send anything: an alert is accepted, a question or a prompt dismissed, a warning on leaving accepted only when `browser_open` or
+  `browser_back` asked to go; each is reported to the model.
+- **Phone calls** (`--phone`): below the `auto` level `phone_call` asks (this call, this conversation or for good); the call opens by
   saying it is an AI assistant calling for you; what the other person says is untrusted. Tests of real calls are skipped
   and queued in `tests/QUEUE_live_calls.md` until you authorize them (`BASALT_LIVE_CALLS=1`).
 - **Recordings** (audio and video attachments): the same callAPIcall client sends a file to the service's analysis routes in
@@ -390,15 +557,38 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   placeholder; long outputs keep their head, tail and **every error line** (a line over 2000 characters is cut in the middle and a whole result is held to 40,000 characters, with the
   full text saved and named at the end); JSON is trimmed and HTML reduced to text. The
   system block is byte-stable so the engine's prefix checkpoint is reused; retrieved memories go after the goal as untrusted data.
+- When masking is not enough, the older steps of a long turn become a structured summary and the newest stay as written, with an
+  identifier audit and a report of what the server reads again; Settings > General > Long work: [compaction.md](compaction.md).
+- **Code is never masked or summarised in a session with file or shell tools** (the Agent): code the person sent, code the model wrote, source it
+  read or searched, and shell output that is source stay whole, up to 60% of the prompt budget; past that the oldest code results are masked
+  again with a note, an event `code_masked` and an audit record, and the model is told once. In the Chat (no such tools) code in a message
+  older than 4 messages (3 to 5) reaches the model as a plain description with the original saved in a file; see
+  [context-layers.md](context-layers.md#code).
 - `repo_map` lists the source files of a folder with the classes, functions and methods in each (Python through `ast`; JavaScript,
   TypeScript, C, C++, CUDA, Go, Rust and Java through cautious line patterns, so a miss is a missing line, never an invented one), the
   most relevant files first: changed lately (modified time), used by other files (how many mention the names they define), or named
   in `focus`. It stops at a token budget (default 1500, at most 8000) and says how many files it left out; no one file takes the whole
   map. It reads files only, skips dependency, build and hidden folders, and does not use tree-sitter or git.
-- `AGENTS.md` (else `CLAUDE.md`, else `GEMINI.md`), searched from the workspace up to the repository root, is part of the prompt.
+- `repo_diagram` (`harness/repodiagram.py`) draws a folder as Mermaid text worked out from the files, with no model, the same on every run: `kind` `imports`
+  (which module imports which: Python, JavaScript/TypeScript and C/C++ imports that resolve to a file in the folder, one node per file or, when there are too
+  many, per folder with the number of imports on each arrow; the least-connected nodes go first past `max_nodes`) or `folders` (the folder tree with the count of
+  source files in each). It reads files only (pure effect), stays inside the workspace and the result carries a `mermaid` block the model puts in its answer.
+- The file tools are described in [harness-file-tools.md](harness-file-tools.md): `edit_file` takes several edits per call and finds its target through exact, trailing-whitespace, indentation and Unicode passes (a tolerant pass only when exactly one place matches), errors show the closest text with line numbers; `write_file` refuses to replace a file that was not read in full or changed since, or a summary of it, unless `overwrite`; a syntax check (`--edit-guard` off, warn, block) follows each write; `read_file` can number lines and return the block around a line; `search_code` (a regular expression over the text files, `.gitignore` aware, no ripgrep needed) and `tree` (line counts per file and folder) are pure tools.
+- `AGENTS.md` (else `CLAUDE.md`, else `GEMINI.md`), searched from the workspace up to the repository root, is part of the prompt. Only its first 32 KiB are
+  read; a longer file ends with the line `[AGENTS.md was cut at 32 KiB; N bytes ignored; read the file directly]` in the prompt, and `/context` and `/status` show it (`notices`).
+- The start of every request is the system prompt and then the tool list, and the server reuses it only while it is identical. The tools come in three groups,
+  each by name: the fixed ones, those the conversation's setup adds, and those of outside servers last, so adding a server or a mode change moves nothing before it.
+  `/context` lists the size in bytes and a short hash of each block of the prompt (`system_core`, `environment`, `project_rules`...) and of each group of tools
+  (`tools:stable`, `tools:session`, `tools:external`), then of the whole start (`prefix_sha`): when a hash changes between two requests, everything after that
+  part was read again.
+- Text from outside is written as `<untrusted_data source="name" id="16 hex digits">...</untrusted_data id="...">` (`harness/untrusted.py`): the id is random for
+  each block, so no text can close it; before the text is placed in it, the boundary tag in any form (full-width letters, CJK brackets, zero-width characters,
+  spaces) is replaced by `[/untrusted_data]` and the control tokens of chat templates (`<|im_start|>`, `<|endoftext|>`, `[INST]`, `<<SYS>>`, `<start_of_turn>`, any
+  `<|...|>`) by `[REMOVED_SPECIAL_TOKEN]`. Code that compares two fenced texts compares `untrusted.normalize(text)`. The working folder in the prompt has its
+  control, format and separator characters removed.
 - Memory is SQLite full-text search per workspace, kept in the user data folder (never in the repository); identifiers such as
   `sm_120` are searchable, and a question whose words are not all in a note still finds it. The model keeps notes itself with
-  `remember` (a short note and a category; the same text is kept once, at most 5000 notes), reads them with `recall` and deletes
+  `remember` (a note and a category; the same text is kept once, with no limit on its length or on how many are kept), reads them with `recall` and deletes
   one with `forget`. What `recall` returns is untrusted data like the notes that arrive after your message, and none of it goes
   into the system block, so the engine's cached start does not change when a note is added. With `use_memory` off the three tools
   are not offered. Limits, as read in the code: the file is named by the hash of the workspace's full path (case ignored), so a
@@ -406,7 +596,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   `chat-workspace` of the user data folder and shares one memory between its conversations; notes are stored as written (not masked,
   not encrypted); the model alone decides what to keep (the system prompt does not mention the tools); `remember` and `forget` are
   reversible, so they ask nobody at the `default` and `auto` levels; the notes the retrieval adds at the tail stop a quotation from
-  confirming a plan change (`untrusted_since_user`) but, unlike a `recall` result, do not set the Rule of Two flag; the search is by
+  confirming a plan change (`untrusted_since_user`) but, like a `recall` result, set the Rule of Two flag; the search is by
   words (FTS5, no stemming, no embeddings).
 - `browse_url` reads a web page with the standard library only: http and https, no user name in the address, no address that is
   not a site on the internet (private, loopback, link-local, carrier-grade NAT and multicast ranges are refused) unless you allowed
@@ -421,8 +611,8 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   provider of `harness/tools/search/providers.json` for which you have a key (its environment variable, or a vault entry named
   after the provider, e.g. `tavily`, with the key in its `value` field). The provider's server is started when the first search is
   made. The Exa endpoint is reached with the key in an `x-api-key` header, which has not been tried against the live service.
-- Skills (`SKILL.md`) are listed in a stable catalog and loaded on request; a skill needs your approval, stored with the
-  hash of the text you read, and any change withdraws it.
+- Skills (`SKILL.md`) are listed in a stable catalog and loaded on request; there is no approval step: a skill on the PC is
+  usable unless you turn it off, and an edit never withdraws anything. A header `requires: git, node` and `env: NAME` makes the catalog say "not ready: missing ..." while the program or the variable is absent. `check_skill_text` gives every problem of a skill a model wrote at once (a name, a description of 60 characters at most, the sections "When to use" and "Steps"). An instruction file or a skill with a phrase that can only be an order to a model ("ignore all previous instructions") makes the conversation ask before anything changes or is sent, until the person authorizes it.
 - Reference documents are offered as a fixed block after the project rules (**cag**: the prefix is reused every turn, but a
   change re-reads everything and the block crowds the context) or searched (**rag**: small context, passages arrive fenced as
   untrusted data). `auto` picks by size; the threshold is a starting point. `python -m harness.eval --set knowledge` asks the
@@ -439,16 +629,25 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   older one, which is spoken to with `initialize` in revisions 2025-11-25 down to 2024-11-05. `modern=False` skips the probe.
   A server that asks for sampling, elicitation or roots is refused with a clear error, because the client declares none
   of them; a result that only carries `requestState` is retried with that state echoed back and a new id. Pagination,
-  `isError`, a drained stderr and a scrubbed environment are as before. Server tools are always irreversible and untrusted
-  whatever they claim. `MCPHub` holds servers of both eras and puts their tools in the registry the way Claude Code does: one by one
-  (`server__tool`) while there are at most 24, and behind two tools, `mcp_search` (their definitions, searched by words) and `mcp_call`,
-  when there are more, so the prompt stays short. OAuth for remote servers is implemented (see "Signing in to remote MCP servers").
+  `isError`, a drained stderr and a scrubbed environment are as before. Server tools are always untrusted and outward (their results are fenced as data and
+  count for the Rule of Two); a tool the server declares read-only (`annotations.readOnlyHint: true`) is registered as a pure operation, every other
+  tool as irreversible, which only the manual level asks about. `MCPHub` holds servers of both eras and puts their tools in the registry the way Claude Code does: one by one
+  (`server__tool`) while there are at most 24, and behind three tools, `mcp_search` (their definitions, searched by words, each marked `read_only` or not), `mcp_read` (a pure
+  operation that calls only a tool declared read-only) and `mcp_call` (irreversible, any tool), when there are more, so the prompt stays short. OAuth for remote servers is implemented (see "Signing in to remote MCP servers").
   **Not implemented**: `subscriptions/listen`. Two details were inferred, not read: that `requestState` sits in
   the retried request's `params`, and the shape of the `notifications/cancelled` sent on a stdio timeout.
 - The ACP agent follows protocol version 1 over stdio: `initialize`, `session/new`, `session/prompt`, `session/cancel`,
   `session/set_mode`, `session/update` (message and thought text, tool calls, edits as `diff` content) and
-  `session/request_permission` toward the editor. It edits files itself rather than through the editor's `fs/*`, offers no
-  `session/load` and no authentication, and reads text only. It is built like the command line's agent and takes the same options
+  `session/request_permission` toward the editor, plus `session/load`, `authenticate` and the editor's `fs/read_text_file` and
+  `fs/write_text_file`. Each conversation is saved after every prompt (`acp_sessions/<id>/history.json` in the user data folder of the
+  folder the agent was started in); `session/load` takes the id, replays the conversation as `user_message_chunk`, thought, message,
+  `tool_call` and `tool_call_update` updates, and the next prompt goes on from it. When the editor says it offers `fs`, the file tools read
+  through it (so unsaved text is seen) and write through it (a write the editor refuses is an error for the model); every edit is still
+  reported as a diff. When the Basalt server refuses requests without a key and the agent has none, `initialize` lists the method
+  `basalt_api_key` and `session/new` and `session/load` answer -32000 with `data.authRequired` until `authenticate` finds the key accepted;
+  the key itself can only be given at launch (`BASALT_API_KEY` or `--api-key`), so `authenticate` checks it and does not receive it. It
+  reads text only and has no `terminal/*`. It was tested against a scripted editor over in-memory pipes and against Basalt's own ACP client,
+  never in Zed or JetBrains. It is built like the command line's agent and takes the same options
   (`python -m harness acp --capabilities --lsp --vault-dir ...`), and the `mcpServers` the editor sends with `session/new` (a program to
   start, or a Streamable HTTP address; SSE is refused) are connected for that session: their tools are always irreversible and untrusted,
   so they ask like any action that cannot be undone, and a server that cannot be started is reported on stderr and left out. Plan mode
@@ -469,18 +668,27 @@ and the bridge the page talks to.
   (`plan_check` with `with_model`, or the button), kept with the plan, said to be out of date once the plan changes, and never stated
   as fact. Plans are not compared for overlap with each other, only short ones with long ones. Not done: aims that are numbers to
   measure (KPIs, habits), a review that records what was found, and reading conflicts between two long-term plans by arithmetic.
+- **Every plan has a card** (what events are judged against), however it was made: one that is not given is drawn from the plan (title, dates of the profile,
+  the steps and their state) and those fields follow the plan until someone writes them (`card_auto` in the snapshot). The place, the participants
+  and what limits them are not in a plan's data: `card_missing` lists what a trip lacks, the `plan_create`/`plan_get` text tells the model to ask the
+  person only that (`ask_user`) and to save it with `plan_set_card` (the person's yes), and a plan made elsewhere (the Plans view) while the Chat is open
+  is asked about once, as a note from the planner. Without the cloud filter's consent nothing of a card leaves the machine.
 - A plan is a graph of action, sensor, decision and merge nodes with shared values. Decisions route by simple conditions
-  (`len(guests) >= 2`; never code); merges wait for their inputs; a task the software cannot do is offered to you with an
+  (`len(guests) >= 2`; never code) and need at least two exits, each with a condition: a plan or a change that breaks this is refused, and a
+  stored decision that breaks it cannot be completed (the Plans view adds a decision together with its exits and their conditions). When a decision is completed and no exit holds (or a condition cannot be read yet) it is
+  not taken: the step becomes the user's, nothing below it is skipped, and the step shows which conditions were read and with which values
+  (`state_variables.no_route`; the Chat is told and `plan_mark` says so). A step writes the plan's values when it is completed (`outputs` of
+  `plan:mark` and of `plan_mark`: names a condition can read, plain data up to 4,000 characters each and 50,000 in all); merges wait for their inputs; a task the software cannot do is offered to you with an
   alternative and, if you decline, becomes yours and blocks what depends on it. You can rewind a step. A rewind says first which recorded actions of those steps stay done (see *Branches, going back and comparing*).
 - Incoming events wait in a buffer (10 events or 5 minutes after the first) and are judged by the filter. **The cloud filter
-  (TypeSafe Jev) is off.** It needs your consent in Settings *and* a key in the server's `TYPESAFE_API_KEY`; only the plan
+  (TypeSafe Jev) is off.** It needs your consent in Settings *and* a key (typed in Settings > Planner, where it goes to the credential store with the providers' keys and is never shown again, or set in the server's `TYPESAFE_API_KEY`); only the plan
   fields you tick are sent. People's names are replaced by labels (a full name also by its first name and its surname on their
   own, case-insensitively; common words such as "amico" or "nonna" are not taken for names), and e-mail addresses and phone
-  numbers are taken out of the events and the card; one switch ("replace names") controls both. **By default the participants'
-  health, allergies and personal constraints (`profilo_e_vincoli_partecipanti`) are not sent**; they go only when you tick that
-  field in Settings (a highlighted label and two questions), and the filter judges events that depend on them less well without it. The
+  numbers are taken out of the events and the card; one switch ("replace names") controls both. **By default the participants' health, allergies and personal constraints (`profilo_e_vincoli_partecipanti`) stay home**; ticking them in
+  Settings sends them (with a risk question), as in the specification's experiment: they are what lets the filter see an event that matters only through them. `tests/test_jev_replay.py` replays the recorded answers of the real service
+  through the gate and the payload, offline; the quality of the cloud verdict with pseudonymized names has not been measured. The
   answer says whether it came from the cloud, from the local keyword filter or from a failure. When the filter says wake, the local model proposes two or three alternatives
-  as diffs; only the ones that apply cleanly are shown, and nothing changes until you approve.
+  as diffs; only the ones that apply cleanly are shown. With `auto_apply` on (the default) the recommended one is applied at once, as far as it touches no step with other people, a call, a booking or a payment (`PlanCanvasBridge.replan(..., auto_apply=True)`; the applied part is a proposal with `auto: true`, the history says `planner`); what is held back and the other alternatives stay pending. With it off nothing changes until you approve.
 - Every change to a plan raises its **revision** and adds a line to its **history** that says who made it (`user`, `chat`,
   `planner` or `system`; the sender states it, so it is a note and not proof of identity). An edit that writes straight into
   the plan (`plan:update_node`, `plan:move`, `plan:mark`, `plan:rewind`, `plan:update_meta`, `plan:fallback_response`) may carry
@@ -490,10 +698,10 @@ and the bridge the page talks to.
 - A plan is archived, not erased: `POST /api/plans/<id>/archive` moves it out of the list and `POST /api/plans/<id>/restore`
   brings it back with its history; an archived plan keeps its id. The Plans page shows the history with who made each
   change, edits a plan's details, archives it after two presses and lists the archived plans with *Restore*.
-- **The gate** (`gate_mode` in Settings): `or` (the default) wakes the local model when the blocker probability is above 0.80, *or* the whole batch
+- **The gate** (`gate_mode` in Settings): `or` (the default) wakes the local model when the blocker probability is above the threshold (`blocker_threshold`, 0.80 by default), *or* the whole batch
   is affected, *or* the strongest event is serious or critical; `and` also needs a serious/critical impact or a whole-batch scope together with
   the probability. `and` leaves asleep the events the filter rates as relevant but minor (a price rise on goods already bought, a feast of
-  bovines for a guest allergic to ovines) and also a serious event it rates below 0.80.
+  bovines for a guest allergic to ovines) and also a serious event it rates below the threshold. Two more settings steer the call: `cloud_timeout` (seconds to wait for the cloud before the local filter answers, 5 by default) and `max_events` (events per cloud request, 20 by default; a longer batch goes in several and the worst answer counts). An event is judged whole, with no cut in its text.
 - **One filter per process, with its numbers**: the gatekeeper is one object for the whole server, so its telemetry adds up (judgements, answered
   by the cloud, by the local filter by choice, by the local filter because the cloud failed, tokens, wakes). `GET /api/plans/telemetry` returns it,
   and the Plans view shows a line in *Judge events*. Re-planning runs one plan at a time: a second triage that wakes the model while it is still at
@@ -501,23 +709,26 @@ and the bridge the page talks to.
   `not_asked`); `GET /api/plans/<id>` carries `replanning`. The ids `events` and `telemetry` cannot be plan ids.
 - **Steps**: a step with a `retry_policy` (`max_attempts` 1-10, the first try counts; `wait_seconds`; `backoff`) is not marked failed by the first
   failure: it goes back to pending, is not ready until the wait is over, and fails for good on the last try (`plan:mark` answers `retry`, the Chat's
-  `plan_mark` says so). A **sensor** step has `conditions: {"when": <expression>, "set": {name: value}}`; once its turn has come (its parents are done)
+  `plan_mark` says so). A step without a policy gets 3 tries with a wait of 30 s doubling each time. When a step fails for good or times out
+  (`plan:timeout`, a warning event), the steps below it are parked (`blocked`, `parked_by`) and the plan is sent to re-planning; independent
+  branches go on. A **sensor** step has `conditions: {"when": <expression>, "set": {name: value}}`; once its turn has come (its parents are done)
   it resolves on the first event whose text (in lower case, as `text`), `source` or `at` satisfy `when` (the plan's values can be used too), and writes
   `set` into the plan's values (a text that starts with `=` is an expression, e.g. `"=text"`). A sensor whose condition cannot be judged waits for the
   next event and shows why. A step also carries its `position` on the canvas, an optional prepared `call_request` and a `wiki_query` (below).
   Conditions are bounded (lists and texts up to 10,000, whole numbers up to 256 bits, powers up to 64) and everything that goes wrong is a plan error.
 - **Events from the world**: `POST /api/plans/events` takes `{"text", "source", "at"?, "plan_id"?}` or `{"events": [...]}` (up to 100). Each event goes to
-  the sensors of the plan it names, or of every plan, always; with the event pump on it also goes into that plan's buffer (only plans with a card),
+  the sensors of the plan it names, or of every plan, always; with the event pump on it also goes into that plan's buffer (only plans with something left to protect: a long-term plan, or one with an unfinished step),
   and the pump thread judges a buffer when it holds 10 events or 5 minutes have passed since the first, tells the plan's viewers (`plan:triage` with
-  `via: "pump"`) and, when the filter says wake, starts the local model, which only prepares proposals. **The pump is off** until it is turned on in
-  Settings (`event_pump`); it ends with the server (`atexit`) and when it is turned off, and a pump saved as on starts again the first time the planner
-  is used after a restart (not at server start). The read-only **sources** (`sources` in Settings, up to 10) poll on their own threads, with the standard library only:
-  an RSS or Atom feed (the first look only learns what is there, a DTD is refused), a mailbox over IMAP (opened with EXAMINE, headers fetched with
-  `BODY.PEEK`, only sender and subject, never the body; the login is a `login` entry of the Wallet, read when needed) and a Telegram bot (long polling
+  `via: "pump"`) and, when the filter says wake, starts the local model, which prepares proposals (applied as `auto_apply` says). **The pump is on** unless it is turned off in
+  Settings (`event_pump`): it starts with the server when planner settings are saved (otherwise at the first use of the planner), sleeps with no polling
+  while nothing is waiting, ends with the server and when it is turned off, and a pump turned off stays off after a restart. Without the cloud
+  filter's consent the pump judges with the local keyword filter, which sends nothing out. The read-only **sources** (`sources` in Settings) poll on their own threads, with the standard library only:
+  an RSS or Atom feed (the first look only learns what is there, a DTD is refused), a mailbox over IMAP (opened with EXAMINE, the message fetched with
+  `BODY.PEEK[]`: sender, subject and the decoded text/plain body, joined as one event, with no cut and no limit on the sources, their number per poll or their interval; the only guards are for memory: a message over 64 MiB gives sender and subject alone and a feed over 256 MiB is refused; the login is a `login` entry of the Wallet, read when needed) and a Telegram bot (long polling
   of `getUpdates`, the token a `secret` entry, only the chats in `allowed_chat_ids`; it never sends anything). Settings hold the names of the Wallet
-  entries, never a password or a token, and an error shown for a source never contains one. SMS is not done: it needs a provider or the modem.
+  entries, never a password or a token, and an error shown for a source never contains one. Two sources need nothing from outside: `system` (`disk_path`, `min_free_gb`: one event when the free space falls below the limit) and `deadlines` (`lead_days`, default 7, 3, 1 and 0: a plan whose profile dates are near gets one event for the nearest lead time, addressed to that plan; plans with nothing left to protect are left out). A hook with the `plan_event` action (see *Hooks*) also feeds the mailbox. SMS and calendar have their interface (`SmsSource`, `CalendarSource` in `harness/planner/local_sources.py`, which take items from a provider function) but nothing connects them to a modem or an account, so a Settings entry cannot name them; an ACP sensor has no schema in this code, and the mailbox takes such events as they are.
 - **A step and a call, or the wiki**: a step can carry `call_request` `{number, reason, text}` prepared by the plan (`plan_prepare_call`, with the
-  person's yes). Nothing places it: `plan_step_requests` shows it, and the Chat places the call only with `phone_call`, which asks every time. A step's
+  person's yes). Nothing places it: `plan_step_requests` shows it, and the Chat places the call only with `phone_call`, which asks below `auto`. A step's
   `wiki_query` is shown with `wiki_context` as the way to ask when the conversation has the wiki tools (`--wiki`). When `phone_call` cannot place
   a call the message says why: the service is not running, it refused the token, a call is already in progress (HTTP 409), or it refused the call
   with its reason; and when the call **may have started** (no answer in time, the connection broke, a server error) the status is `unknown`, the
@@ -546,7 +757,7 @@ and the bridge the page talks to.
 ## Attached files and files the agent makes
 
 In the conversations Chat the person attaches any file (button, drag and drop); each is uploaded to this conversation
-(`POST /api/attachments?session=&name=`, from this PC and the server's own page only) and kept as it came, with a card (what it is,
+(`POST /api/attachments?session=&name=`, from this PC and from a phone with a key) and kept as it came, with a card (what it is,
 decided by its first bytes, size, SHA-256). Limits are the normal inference settings: the model's context window and the policy for
 a full context; nothing else caps a file except the server's upload limit.
 
@@ -580,16 +791,27 @@ top and the four tools cost about 400.
   `~/.claude/plugins` (their skills and `.mcp.json`), `~/.claude.json`, the project's `.mcp.json` and
   `%APPDATA%\Claude\claude_desktop_config.json`. It keeps names, descriptions, tags and the command of a server with anything that
   looks like a key blanked out; it never reads a server's environment variables. A folder named `*.disabled` is off.
-- **Nothing found is active.** An entry is *to approve* until the person opens it in Settings, reads its text (a skill) or its command
-  (a server) and approves; the approval is tied to the hash they were shown, and a file that changes afterwards is *to approve* again.
+- **What is found is usable.** There is no approval by hash: an entry on this PC is active unless the person turned it off in Settings
+  (*View text* shows what the agent reads or runs). What the harness finds online by itself is installed only on the person's
+  authorisation (see below).
 - **The tree**: vision (analysis, generation), documents, data, web, code, audio and video, knowledge, communication, other. A declared
   `tags`/`category` decides; else the words of the description; the person's correction wins and is kept.
-- **Tools**: `find_capability` (local FTS5/BM25, five results at most, results are untrusted text), `load_capability` (the text of an
-  approved skill, read again and checked against its hash; it is the text the person approved, so it is not fenced as outside content
-  and does not count towards the Rule of Two), `call_capability` (a tool of an approved MCP server; it asks the person
-  like any action that cannot be undone; the server is started with no environment from the config). The prompt holds one line:
+- **Tools**: `find_capability` (local FTS5/BM25, five results at most, results are untrusted text), `load_capability` (the text of a
+  skill, read again from the file; it is the person's own text, so it is not fenced as outside content and does not count towards
+  the Rule of Two), `read_capability` and `call_capability` (a tool of an MCP server; the server is started with no environment from the
+  config). `read_capability` calls only a tool the server declares read-only (`annotations.readOnlyHint`), is a pure operation (allowed
+  in plan mode and at every level, still untrusted and outward for the Rule of Two); `call_capability` calls any tool, is irreversible and
+  asks the person like any action that cannot be undone. With no `tool` it lists the
+  server's tools with their arguments (a star marks a required one); `query` finds tools of a large server and returns their whole
+  definitions; `tool` with `describe` returns one definition (input and result schema) without calling it; a call with wrong
+  arguments comes back with the definition. A tool's own failure (`isError`) is told apart from a server that cannot be used, a
+  structured result is kept next to the text, and the pages of `tools/list` (`nextCursor`) are all read. A server that stops in the
+  middle of a call to ask for values (elicitation, form mode; in the stateless revision an `input_required` result) asks the person
+  in the conversation (`harness/mcp_elicit.py`): the values come back after the prefix `elicit:`, only the declared fields are taken
+  and checked against the server's schema. A tool a 2025-11-25 server runs only as a task is called as one and polled to its result;
+  the tasks extension of the stateless revision, sampling and roots are not offered. The prompt holds one line:
   the roots and how many entries each has.
-- **Visual analysis** (Settings): the loaded model's own vision, an approved skill or MCP server from the vision/analysis branch, or
+- **Visual analysis** (Settings): the loaded model's own vision, a skill or MCP server from the vision/analysis branch, or
   none. `analyze_image(path, question, crop)` crops and enlarges a region for fine detail, limits the image's size, and says so
   when the model's vision is off instead of pretending.
 - `skills.md` in the capabilities folder is generated from the index, for reading.
@@ -612,7 +834,15 @@ reasons in a line, the warnings, the command that would run and the keys it need
 you* (a sentence of up to 500 characters, sent as `other:<sentence>` and returned to the model as the person's words) and *Do not
 install*. After a choice it installs and tells the model the id (`mcp:<name>` or `skill:<name>`) and that `call_capability` (with an
 empty `tool` to list the server's tools) or `load_capability` uses it; it does not start the server itself. Without a way to ask
-(no Chat), nothing is installed and the options come back as text. The tool is registered as reversible, so plan mode refuses it.
+(an unattended run), nothing is installed and the finds are queued as an **install request** (`harness/discovery/requests.py`,
+`install_requests.json`, shared by the agent and the server): the model is told to go on without it and may add its comparison with
+`explain_install_request(request_id, comparison)` (per candidate: what it does, advantages, disadvantages; plain text, stored for the
+person to read). The person installs one candidate or rejects the request in Settings, Capabilities, *Install requests*
+(`GET /api/capabilities/requests`, `POST /api/capabilities/requests/approve` with `id` and `number`, `.../reject`), or in the Chat when
+the agent calls `ask_install_request(request_id)`, which puts the same choice (with the comparison) as a `capability_choice` question.
+A request holds the candidate's fields, not a command: on approval they are checked against the same strict patterns and installed by
+the same fixed commands, so authorising is the only way an online find is installed (besides the person's own *install the best one
+by itself* setting). The tool is registered as reversible, so plan mode refuses it.
 The model gives only the need: the tool has no argument that names a package, a command or an address.
 
 **What goes onto the network.** Only GET requests, with the User-Agent `basalt-capability-search/1.0`, a 12 s timeout, a cap on the
@@ -644,8 +874,11 @@ Capabilities, *Search online*, and in `discovery.json`.
 
 **What is downloaded, and what is never run.**
 - *npm*: `npm install --prefix <user data>/capabilities/mcp/<name> <package>@<exact version> --ignore-scripts --no-audit --no-fund`.
-  No script of any package runs at install (a package that needs one may not work). The `integrity` npm wrote in the lock file is
-  compared with the one the registry published for that release; a different hash deletes the folder. The server is started from the
+  No script runs at install unless the person chose *allow scripts* when approving (the flag is then left out and the record says so). The
+  `integrity` npm wrote in the lock file is compared with the one the registry published for that release; a different hash deletes the
+  folder and shows both hashes, and the person may go on with *install anyway* (the record keeps `integrity_differs`). An installed package
+  is refused with *update*, which replaces it and puts the old one back if the new install fails. The size limits of a downloaded skill
+  (`max_skill_files`, `max_skill_mb`, `max_skill_file_mb` in `discovery.json`) are 0, no limit, until the person sets them. The server is started from the
   installed program in `node_modules/.bin`, never through `npx -y`.
 - *PyPI*: the release is downloaded as a wheel only (`pip download --no-deps --only-binary=:all:`), its sha256 is compared with the ones
   PyPI lists for the release, then it is installed with `uv pip install --no-build` (if `uv` is on the PC) or `pip install
@@ -660,7 +893,7 @@ Capabilities, *Search online*, and in `discovery.json`.
 - Candidates that would need an argument Basalt cannot fill, another kind of package (OCI, NuGet, MCPB) or a missing `npm`, `uv` or
   `pip` are not offered, and the answer names what is missing.
 
-**Registration.** The entry is written to `installed.json` as installed by Basalt (origin `basalt`) and approved with the hash of
+**Registration.** The entry is written to `installed.json` as installed by Basalt (origin `basalt`); its hash is checked to be that of
 exactly what was shown: the start command or the address, or the text of `SKILL.md`. It shows in Settings, Capabilities, can be turned
 off or moved like any other, and `find_capability` finds it at once. Using it is still a `call_capability`, which asks like any
 action that cannot be undone.
@@ -676,9 +909,9 @@ once, and the result in the Chat says that this was a standing instruction.
 
 **Where the files are** (the capabilities folder of the user data folder): `discovery.json` (the settings; `base_urls` there points the
 sources at other addresses and is not written by the page), `installed.json` (one record per install: source, version, score, command,
-integrity, the variables and their vault entries), `mcp/<name>/`, `skills/<name>/`, `approved.json`. **Removing**: Settings,
-Capabilities, *Search online*, *Remove* (it asks for a second press); it deletes the folder, the record and the approval. Doing it by hand
-is the same three things. Both installers are told to install into that folder; their own download caches stay where npm and pip keep them.
+integrity, the variables and their vault entries), `mcp/<name>/`, `skills/<name>/`, `install_requests.json` (the queue below). **Removing**: Settings,
+Capabilities, *Search online*, *Remove* (it asks for a second press); it deletes the folder and the record. Doing it by hand
+is the same two things. Both installers are told to install into that folder; their own download caches stay where npm and pip keep them.
 
 Not done: no update of what was installed; no download counts for PyPI and no ratings from any source; the installed server's tools
 are not listed by the install; the score does not read the code or any security database.
@@ -707,7 +940,7 @@ model (structured and incremental summaries) use the provider chosen for the com
 when it fails.
 
 Going back: each request of the person in the conversations Chat has a "Back to here" button (two presses); the conversation returns to just after
-that request, a copy of what came later is kept in its folder, and the files the agent changed are not touched (the Changes panel undoes them). Actions that cannot be undone are listed first and need an explicit yes (see *Branches, going back and comparing*).
+that request, a copy of what came later is kept in its folder, and the files the agent changed are not touched (the Changes panel undoes them). Actions that cannot be undone are listed and stay done (see *Branches, going back and comparing*).
 A plan can be copied as a Mermaid diagram from the Plans view (`GET /api/plans/<id>/mermaid`).
 
 Not done: a rewriting that the model proposes and the person approves, candidates written in parallel, named versions of
@@ -730,9 +963,9 @@ before these fields existed have none and show as plain conversations.
   (`reversible`: the Changes panel puts them back) and those that stay (`not_undone`: a command, a call, a payment, a browser action,
   an MCP tool, a tool whose effect is not known, a file outside the copy). A call the agent refused or that was cancelled is not
   counted. The class of each tool comes from what it declared when the conversation used it (kept in `tool_effects.json`), else from
-  the table in `harness/rewind.py`. `POST .../<id>/back` refuses (`needs_yes`, 409) while any call stays, unless the body has
-  `accept_irreversible: true`; the page shows the list and asks for one more press. The list is kept in the `rewinds` mark and the
-  `went_back` event as still done: nothing pretends to have undone it.
+  the table in `harness/rewind.py`. `POST .../<id>/back` goes back without a yes (a run in progress is stopped by it); the list of what
+  stays done is kept in the `rewinds` mark and the `went_back` event: nothing pretends to have undone it. The same holds for putting
+  files back to a checkpoint (`.../checkpoints/restore`, `POST /api/agent/runs/<id>/rewind`): the reply carries `not_undone`.
 - **A plan's steps.** While a conversation works on a plan's step (between `plan_step_start` and `plan_mark` to completed, failed or
   skipped), the manager writes each reversible or irreversible tool call that succeeded onto the step (`plan:note_effect`, in the step's
   `state_variables.effects`). `plan:rewind_impact` lists what a rewind from a step would reset and which of those actions stay; `plan:rewind`
@@ -741,7 +974,7 @@ before these fields existed have none and show as plain conversations.
   from there a rewind over a recorded irreversible action shows the refusal.
 - **Run both and compare.** `POST .../<id>/compare` with `{turn, variants: [{text, mode?, max_turns?, ask_only?, end_turn_bias?, label?}, {...}]}`
   branches the conversation twice from that request and sends each branch its message, the first and then the second, never together
-  (there is one GPU; two comparisons also wait for each other). Automatic mode is not offered. `GET /api/agent/sessions/compares/<id>`
+  (there is one GPU; two comparisons also wait for each other; a side waits as long as `compare_wait_s` allows, no limit by default). Any mode may be used, automatic included. `GET /api/agent/sessions/compares/<id>`
   returns both answers, a diff of them and, when both branches worked in copies of the folder, the files each changed with a diff of
   each file between the two; without copies there is no file comparison. A side that asks something or is blocked is left for the
   person to answer from its branch. The list is kept across restarts (a comparison that was running is marked interrupted).
@@ -800,7 +1033,7 @@ Models page, sub-tab Providers; other programs that use this server still see on
   take their provider from here.
 
 Routes: `GET /api/llm`; `POST /api/llm/providers`, `/providers/<id>`, `/providers/<id>/remove`, `/providers/<id>/test`,
-`/assign`, `/consent`, `/import`. Changes are accepted only from this PC and from the server's own page.
+`/assign`, `/consent`, `/import`. Changes are accepted only from this PC.
 
 **Reasoning levels.** A function or provider can say how much to reason with one of seven levels (or inherit). Each kind of provider
 gets them in its own words (`reasoning_effort` for OpenAI-like servers, a budget for NIM and Claude), never two spellings at once. This
@@ -820,6 +1053,81 @@ the threshold says. A pattern the person chose in the settings is not overridden
 Not done: reloading a model with another profile when a function wants one (it needs the engine to be idle, which the server does not report yet),
 and the spending report per function.
 
+## The technical session
+
+When the server runs with `--side-slot` (see [running](running.md#the-technical-session---side-slot-tokens)) it keeps one slot with a
+short context for the harness's own short calls. `harness/side.py` is the whole of the harness side: `side_extra(client=None)` returns
+`{"cache_slot": "side"}` for a local server that reports a session (its `/v1/status` `concurrency.side_slot`, asked at most every 30
+seconds by `BasaltClient.side_context()`) and `{}` otherwise; `SIDE_CONTEXT_TOKENS` is the default size (30000); `use(client)` registers
+the client `side_extra()` asks when it is called without one (the stack does this). The calls that use it are the intake's triage
+(`harness/intake.py`), the next-prompt suggestions (`harness/suggestions.py`), the compaction summary (`harness/stack.py`), the judge
+(`harness/llm/judge.py`), the router's judge (`harness/router.py`) and the rewrite of the person's message when Optimize prompt is on
+(`harness/optimize.py`, [intake.md](intake.md#optimize-prompt)); the calls for the length estimate, the plan of parts and the
+verification of a long text are built on the same function. `cache_slot` is in `THIS_SERVER_ONLY` (`harness/llm/client.py`): it is never
+sent to a cloud route, a command-line agent or the Anthropic dialect. The server serves a call that does not fit the session from the
+ordinary slots, so a caller keeps its prompt short and nothing more. A summary of more than the session holds is made in parts
+(`harness/digest.py`, [compaction](compaction.md#the-technical-session)); `side_context(client)` is the size the harness plans by, 0 when
+the server has no session, and then no call carries `cache_slot`. The suggestions call carries the conversation, so in the session it
+reads that conversation again each time instead of reusing the main slot's cache; a long conversation falls back to the ordinary slots.
+
+**A long text is cut between Markdown blocks** (`harness/markdown_chunks.py`). A piece never ends inside a fenced code block, a table or a
+list item while a boundary outside them exists. `split_markdown` (pieces within a limit; a code block or table longer than a piece is cut at
+lines, each piece closing and reopening the fence or repeating the table header) is what `digest.split` uses, so the parts of a compaction
+summary, of the Chat's summary and of a large tool result are cut so. `whole_blocks` (pieces that joined give the text back exactly, a block
+longer than the limit alone in its piece) cuts the start of a big attachment shown in the message (`compose_message`), and `safe_line_end`
+ends a `read_attachment` window between blocks (the "continue from line N" it names is then the start of a block; a read with an `end` the
+model asked for is not moved, and a text with no block boundary in the window is cut at a line as before). The long-answer flow uses the same
+rules on the way out: [longform.md](longform.md#pieces-and-seams).
+
+While the session is on the engine is in batch mode: `end_turn_bias`, `logit_bias` and relaxed drafting are unavailable and a request
+alone is no longer on the pure single-stream path. The Loader says so next to the setting, in English and Italian. It is on by default
+(owner's decision); the Loader turns it off with 0 and sets its size, and Settings > Inference shows the size read-only.
+
+### The uses of the session
+
+`harness/side_uses.py` lists every use, with its switch, its numbers and its prompt, in `side_uses.json` of the user data folder (read
+again when it changes, by every process). The uses: `triage` (the look at a request), `judge`, `router`, `optimize`, `suggestions`
+(the newest turns under a prompt of its own, no tools), `compaction` (the agent's summary, read in parts when larger than the session),
+`chat_summary`, `chat_abstract`, `code_abstract` (a plain description of old code in a Chat message, the original saved), `longform`, `memory_extract` (learning the person's memories, which in the session need not wait for the
+card to be free), `memory_rank` (which of the notes the word match found really bear on a request), `progress` (a line on how far a task
+nobody watches has got), `planner` (comparison and re-planning), `tool_extract` (a large tool result read for the lines that matter,
+checked line by line against the result, the full text saved) and `inject_screen` (a second look at outside text for instructions to the
+assistant; a list of phrases does the same without the session, also on files and command output, with only the strict phrases there). `tool_extract` changes what the model reads, so it starts off; like `memory_rank` and `progress` it is not made
+without the session.
+
+A call names its use: `side_extra(client, "judge")` is `{}` when the use is switched off (the call then runs in an ordinary slot, except
+the uses that need the session, which are not made), else `{"cache_slot": "side", "side_use": "judge"}`; the server counts the calls by
+that name (`/api/side-uses`: calls, those an ordinary slot served, those cut off, seconds). A call that must not take a conversation's slot
+sends `cache_slot: "side_only"` (`side_extra_for`, the digest's parts): the server refuses it with a 400 naming the technical session
+when it does not fit, and the digest halves the part. Every use sends its own system prompt written for its task, or none; never the
+conversation's. The prompts of `chat_summary`, `chat_abstract` and `code_abstract`, whose answer is free text, can be replaced in Settings; the others are
+read by their form and cannot. Numbers are checked against a range and fall back to their default when the file holds a bad one.
+
+Settings > Inference > Technical session > *Manage uses* lists them (`serve/web/sideuses.js`): the switch, the numbers, the prompt, the
+counters, *Restore this one* and *Restore all defaults*. With no session the dialog is shown greyed. A text read in parts is a *job*
+(`side_uses.job`): it writes a small file in `side_jobs/` while it runs, so the dialog lists it with its part number from any process,
+and *Stop* (`side_stop.json`) ends it at its next call; the summary of a stopped compaction is then made without the model.
+
+#### Where the quick jobs run
+
+The quick jobs have a function of their own, `technical` (Models > Providers, with consent like any function that sees personal data).
+Unassigned, they run on this PC: in the engine's technical session, and the conversation's own route (a cloud model, say) never
+carries them. The session's agent builds that client once (`client_for("technical", here)`, `BuiltAgent.technical`) and gives it to the
+look at a request, Optimize prompt, the suggestions, the progress line, the notes' choice and the two readers of tool results.
+
+Pointed at another provider (a small, cheap model on a cloud service, or a second small model loaded in LM Studio or vLLM) the jobs
+run there as ordinary calls: there is no slot to reserve on those servers, `cache_slot` is never sent to them, and the window the
+harness plans by is the one set for the provider, at most 30000 tokens. A provider outside this PC runs them only while the master switch
+*Allow the quick jobs to run on a provider outside this PC* (`_external` in `side_uses.json`, off by default) is on, since each job is then
+a paid call and the text leaves this PC. A second small model on this PC's own address (llama-server, LM Studio or vLLM on 127.0.0.1) needs
+neither the switch nor the consent: nothing leaves the PC (`RoutedClient.stays_on_pc`). It is chosen in one step in the dialog (*Use a
+second small model on this PC*, `POST /api/llm/technical`): the provider `technical-<kind>` is made or updated and the function `technical`
+assigned to it, all in the providers' registry, so it survives a restart; the window is the one stated (default 8192, at most 30000), and a
+llama-server started from Models > llama.cpp supplies its address, model and window (`docs/llamacpp.md`). A JSON form (`response_format`)
+sent to an Anthropic-dialect provider goes as `output_config.format` (a schema) or as an instruction (a bare JSON object), and the JSON is
+taken out of any prose or fence around it.
+The conversation's own function (`executor`, `chat`) is never affected by the switch.
+
 ## A conversation's own copy of the folder
 
 Two conversations in one folder can step on each other's files, and an edit is otherwise applied as soon as it is made. In a folder under git
@@ -828,8 +1136,7 @@ folder, started from the folder's last commit plus the changes not yet committed
 
 - **When**: `worktree` when a conversation is made is `auto` (the default: a copy when another open conversation already works in that folder),
   `always` (the server accepts it; the Chat page no longer offers it, as it sends no project folder) or `off`. A folder that is not under git cannot be
-  copied: with `always` that is an error, with `auto` the conversation works in the folder itself, and two of those never work at once
-  (`folder_busy`: the second message waits until the first conversation's turn is over).
+  copied: with `always` that is an error, with `auto` the conversation works in the folder itself, and two of those may work in it at once.
 - **Reviewing**: the Chat shows "Works in its own copy of the folder" and a button that lists the changed files (added, changed, deleted) with
   each file's diff (`GET /api/agent/sessions/<id>/copy` and `/copy/diff?path=`).
 - **Applying**: the checked files, or all, go to the person's folder as **staged** changes, never a commit (`POST .../copy/apply`). They are
@@ -843,8 +1150,8 @@ changes only when they apply.
 
 ## Signing in to remote MCP servers
 
-A remote MCP server (an address in a `.mcp.json`, not a command) is found like the others and approved by the person after they look at its address
-(the query part of an address is dropped: a key does not belong there). One that wants a sign-in answers 401, and Settings, under Capabilities,
+A remote MCP server (an address in a `.mcp.json`, not a command) is found like the others (the person sees its address in Settings;
+the query part of an address is dropped: a key does not belong there). One that wants a sign-in answers 401, and Settings, under Capabilities,
 shows **Sign in** next to it (`harness/mcp_oauth.py`, `serve/mcp_auth_api.py`). The flow is the one the MCP authorization specification asks of
 a client: the server's resource metadata (RFC 9728) names the authorization server, whose metadata (RFC 8414 or OpenID discovery) gives the
 endpoints; a client id is registered by itself (RFC 7591) when the server allows it; the person approves in their browser (authorization code, PKCE
@@ -855,7 +1162,7 @@ with S256, a `state` that must come back, the server's address as `resource`, RF
   endpoints are and the client id. A refresh token that the server refuses means signing in again; the client id is kept.
 - Every address the discovery documents name must be https (plain http only when the MCP server itself is on this PC), and for a server that is not
   on this PC it must not be on a private network; metadata for another resource or issuer, or without S256, is refused.
-- The agent calls an approved remote server through `call_capability` like a local one; the token goes only to that server, in the `Authorization`
+- The agent calls a remote server through `call_capability` like a local one; the token goes only to that server, in the `Authorization`
   header of every request, and a token that ran out is renewed once before the call is given up. A server that is not signed in says so in the
   tool's answer.
 
@@ -864,17 +1171,21 @@ the server runs on, and the other transports' own sign-ins.
 
 ## A council for hard questions
 
-`ask_council(question, context)` asks three advisers and a chair (`harness/council.py`). The advisers are the functions *Council member 1, 2, 3* on the
-Providers page, the chair is *Council chair*, so each can be a different model, local or in the cloud; they get different jobs (answer, find what is wrong
-or risky, propose another way). They answer at the same time, a member that fails is reported and the others go on, and the chair, told that the answers are
-untrusted text, writes where they agree, where they differ and what to do (at most 250 words). It costs several model calls and is meant for a decision that is
-worth it.
+`ask_council(question, context)` starts a debate between three advisers and a moderator (`harness/council.py`). The advisers are the functions *Council member
+1, 2, 3* on the Providers page, the moderator is *Council chair*, so each can be a different model, local or in the cloud. Each adviser has a role, a name and a
+job the person edits under *Council* on that page (the defaults are a proposer, a critic and an engineer; the moderator has a job too), and a number of rounds
+at most (1 to 6, default 3). A round is every adviser speaking in turn, each having read what was said before, then the moderator summing up in at most 250
+words (agreement, disagreement, recommendation) and ending with `CONSENSUS: YES` or `CONSENSUS: NO`. The debate stops when the moderator says yes, or at the
+last round, where the moderator gives a recommendation anyway; a missing or unclear line counts as no. The speakers run one after the other, never together:
+each answers the others, and a local model has one GPU. An adviser that fails is reported and the others go on; with fewer than two answers in a round the
+debate ends. What the advisers wrote is untrusted text for the others, the moderator and the agent. The cost is worked out before it runs (calls, tokens read
+and written, calls that go outside this PC) and is shown on the Providers page and in the tool's description; it is meant for a decision that is worth it.
 
 The tool exists only when the person pointed at least one of those functions somewhere (a provider, or "Basalt (this server)" for the loaded model in
 several roles); with nothing chosen it is not offered, and what leaves this PC follows the rules of any other function (personal data to a cloud provider only
 where the person said yes for that function, daily caps, fallback only to a route that is as local or more).
 
-Whether it helps has not been measured: `python -m harness.eval --set council` runs six decisions about code (five with a flaw a reviewer finds, one sound);
+Whether it helps, and whether a debate beats one round, has not been measured: `python -m harness.eval --set council` runs six decisions about code (five with a flaw a reviewer finds, one sound);
 run it without `--council` and with it, after setting a council up, and compare (a difference under 3 points is noise until it repeats).
 
 ## Language servers
@@ -913,7 +1224,7 @@ wide, not for phones.
   `[name](basalt-path:relative/path)` (a file in the folder the conversation works in) becomes a button in the answer that saves it; so does a file the agent wrote or edited,
   with a *Save* button in its step. The page asks for the file with the API key and saves it the way the place it runs in allows: the *Save as* window of the desktop app, the browser's
   save window, or a plain download. The folder's files come from `GET /api/agent/sessions/<id>/file?path=`, which sends only a regular file inside the folder the conversation works in
-  (its own copy when it has one), never one in `.basalt` or `.git`, never above 200 MB, as an attachment with `nosniff` and a sandboxing policy. The agent is told how to write these links
+  (its own copy when it has one), never one in `.basalt` or `.git`, as an attachment with `nosniff` and a sandboxing policy. The agent is told how to write these links
   (`--page-files`, `FILES_GUIDANCE` in `harness/visuals.py`), only in the conversations of this page.
 - **Pictures and charts in answers**: two switches in *Chat settings → Pictures and charts*, each with a level of presence (very low, low,
   normal, high, very high, highest), for the next new conversation (`images` and `charts` of `POST /api/agent/sessions`, `--images` and `--charts` of the
@@ -929,7 +1240,7 @@ wide, not for phones.
 - **Agent**: the conversation page of the Chat, working in a **folder** you add. The column at the left lists the folders, each with the
   conversations held in it (*New conversation in this folder*, a cross takes the folder off the list and keeps its files and conversations).
   *Add folder* asks for the full path (the Windows dialog inside the app, a typed path in a browser) and checks that the agent can work there:
-  the folder is not a whole drive and Basalt can write in it. Adding it makes `<folder>/.basalt/project.json`, the folder's own registry
+  Basalt can write in it. Adding it makes `<folder>/.basalt/project.json`, the folder's own registry
   (its name and the conversations held in it, kept up to date as they are made, renamed and deleted), and `<folder>/.basalt/.gitignore`
   (the agent's `artifacts/`). The list of folders is in `journal/projects.json` of the user data folder; `GET/POST /api/agent/projects` and
   `/api/agent/projects/remove` serve it. A conversation of a folder is created with that folder as its `workspace`: its file tools stay inside it
@@ -938,6 +1249,8 @@ wide, not for phones.
   and the copy of a git folder are the Chat's. The Chat tab lists only the conversations with no folder (the server's `chat-workspace`), the
   Agent tab only those of the folders. Each tab goes back to its own last conversation. A conversation sends each file edit to the Changes
   panel (`--report-changes`), which opens beside the conversation with the *Changes* button.
+- **Questions and suggestions**: `ask_user` v2 (a card with choices, a row of your own and a recommended option), a look at each request before the agent works (cleaning, a note of assumptions, at most one structured question card, large requests recorded as tasks) and next-message chips that only fill the box, and an Optimize prompt checkbox that has the technical session rewrite each message before the model reads it (the chat keeps the person's words, and a note under the message shows the rewrite). Settings > Inference (the Prompt analysis switch and the checkbox are also in the Chat toolbar). See [intake.md](intake.md).
+- **Target Loop**: a button next to Send in the Chat and in the Agent tab opens a dialog with a large text box (and list tools that every prompt box now has: numbered and bulleted lists, Enter for the next item, Tab to indent, Ctrl+Enter to send). The target is split into items to check and tasks, which are done one by one in the conversation and judged against the evidence until all are met, it stalls, or you stop it; achieved parts are struck through in red, with notes and the history of the session's targets. See [target-loop.md](target-loop.md).
 - **Plans**: the graph (drawn with status as icon and word as well as colour), an ordered list that works by keyboard,
   proposed changes shown on the graph before they are applied, approve and reject, tasks handed to you, a box to judge events.
 
@@ -948,6 +1261,8 @@ run with `python -m pytest serve/tests/test_web_static.py`.
 
 ## Personal skills
 
+The agent can write a skill itself with `create_skill(name, description, script, params)` (`harness/personal_skills/authoring.py`, offered when the conversation is given `--personal-skills-dir`). The tool answers every problem of the script at once, and counts the `ai()` calls left in it; its description tells the model to put everything that can be code in code. A skill made this way carries `source: {agent: true}`. **Make a script of a routine**: on the Cron Jobs page, "Make it a script" writes a skill from the routine's last good run (`POST /api/routines/<id>/improve`, nothing changes), and "Use this script" saves it and makes the routine run it (`improve_apply`).
+
 A personal skill is a folder in the user data folder, `personal-skills/<slug>/`, with `skill.json` (name, description, parameters, mode, the tools the
 script names, version, counts) and `skill.py`, plus `.versions/` (the last ten) and `.cache/` (the answers of `ai()`). `harness/personal_skills/`
 holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/pskills.js` the windows.
@@ -956,18 +1271,17 @@ holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/
   and raises `ToolError` when it is refused or fails; `ai(prompt, cache=True, **inputs)` is one model call at temperature 0 with no thinking, and its answer
   is kept for the same prompt and inputs; `ask(question, options)` asks the person with buttons; `say(text)` tells how it is going. `params.name` holds
   each value (`datetime.date` for a date, `datetime.datetime` for a moment, numbers, lists). What `print` writes is the run's output.
-- **Where it runs.** In a process of its own (`harness/personal_skills/runner.py`: the interpreter in isolated mode, the scrubbed environment, a job object
-  with a memory and process cap on Windows, a time limit, Stop ends it and what it started), talking in lines of JSON. The calls are answered in the
+- **Where it runs.** In a process of its own (`harness/personal_skills/runner.py`: the interpreter in isolated mode, the whole environment of the server, a job object
+  on Windows that ends what it started, a time limit only when the skill sets one, Stop ends it and what it started; no cap on memory, processes or output), talking in lines of JSON. The calls are answered in the
   conversation's process (`hosting.py`): `tool` goes through `AgentLoop.call_tool`, which is the same gate as a model's call (arguments checked, hooks,
   permissions, a checkpoint, the audit record, a question to the person when one is needed, secrets masked, outside content fenced) and keeps the call and
   its answer in the conversation; it is not counted as a loop when a script repeats a call. A skill is a task of the conversation (`Session.run_skill`):
   one at a time, Stop works, and what it returns is the answer.
-- **Access modes.** *Restricted* (the default) is checked before it is saved (`check.py`: only a short list of modules, no `open`, `eval`, `exec`,
-  `getattr`, dunder attributes, files, programs or network) and again when it runs (the builtins are cut and `import` is guarded). It is a fence against
-  mistakes, not a sandbox. *Free* only needs a `main`; the server saves it only with `confirm_free`, which the page sends after the risk label and its
-  two questions.
-- **Approval.** A skill saved from the page is approved (the person saw it). One imported, or whose files changed outside the app, is *to approve*:
-  the approval is the hash of the definition and the script (`approved.json`), and `run_skill` refuses it until the person approves.
+- **Access.** There is one: the script runs as a program of the person, with any module, files, programs and the network. `check.py` only needs a
+  syntactically valid `main(params)`. What goes through `tool(...)` is decided by the permissions, the hooks and the audit record; the rest of the script is
+  not. The optional time limit (seconds, empty for none) is set in the editor.
+- **No approval.** A skill saved, edited or imported from the page is the person's own and runs at once; nothing is tied to a hash and an edit
+  never withdraws anything. The `.pskill` manifest still carries a hash, which `import` checks against the file.
 - **Values.** Types: text, number, date, datetime, choice, list (numbers, texts or mixed), path, bool (`values.py`). A date is read as a date or in
   Italian or English words (yesterday, now, in 3 days, next monday, start of month…); a default written in words is worked out at each run, so a
   skill started later gets that day. `POST /api/personal-skills/preview` reads a form as it is filled.
@@ -979,12 +1293,11 @@ holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/
   program (`skill-script`), told to use code for everything that can be code and `ai()` only where the language must be understood; a script the check
   refuses is sent back with the reasons, twice at most.
 - **Routes.** `GET /api/personal-skills`, `GET /api/personal-skills/<slug>` and `.../export` (the `.pskill` zip: `manifest.json` with a hash, `skill.json`,
-  `skill.py`); `POST /api/personal-skills` (save), `/check`, `/preview`, `/import` (the file in base64; it arrives to approve), `/<slug>/delete`, `/approve`
-  and `/restore`; `POST /api/agent/sessions/<id>/skill` (run), `/skill-propose` and `/skill-script`. All from this PC and the server's own page only.
+  `skill.py`); `POST /api/personal-skills` (save), `/check`, `/preview`, `/import` (the file in base64; it arrives usable), `/<slug>/delete`
+  and `/restore`; `POST /api/agent/sessions/<id>/skill` (run), `/skill-propose` and `/skill-script`. All from this PC and from a phone with a key.
 - **On a schedule:** a routine can run a skill instead of a prompt (`skill` and `values` of `POST /api/routines`, chosen in the Cron Jobs tab). The values are kept as the person
-  wrote them and read at each run, so a date in words (`today`, `tomorrow`, `in 3 days`) is the day of that run. The skill must be approved on this PC, and its values are tried when the routine is
-  saved, so a wrong one is refused then and not at night. The routine's mode and rules for commands are the permissions the skill's tool calls run under (read-only by default: a call that needs
-  an answer ends the run as `asked`, with the question). The run is a conversation of its own, closed when it ends, like any routine.
+  wrote them and read at each run, so a date in words (`today`, `tomorrow`, `in 3 days`) is the day of that run. Its values are tried when the routine is
+  saved, so a wrong one is refused then and not at night. The skill's tool calls run in Automatic, like any routine. The run is a conversation of its own, closed when it ends.
 - **Not done:** a test run that compares with the recording, going on with the agent from the step that failed, and a skill for the Agent tab or the command line.
 
 ## Evaluation
@@ -992,7 +1305,12 @@ holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/
 ```powershell
 python -m harness.eval --set core --k 5 --endpoint http://127.0.0.1:7232 --gpu-power-limit-w 450 --out report.md
 python -m harness.eval --set toolcalls --k 5
+python -m harness.eval --set core --k 5 --temperature model --instruction-blocks   # no temperature sent (the model file's own); the working rules added
 python -m harness.eval --set knowledge --k 3 --strategies none,rag,cag
+python -m harness.eval --compare-strategies --k 5          # the same, and the report gets a none / RAG / CAG table
+python -m harness.eval --bfcl D:\data\bfcl --k 5 --limit 200
+python -m harness.eval --terminal-bench D:\data\terminal-bench --only tb/hello-world --k 5
+python -m harness.eval --swebench D:\data\swe-bench-pro --limit 20 --k 3
 ```
 
 Each trial is a fresh agent run on a fresh workspace with its own seed, checked on what happened (files, commands, the
@@ -1006,8 +1324,33 @@ validity, cost per trial and the prefix cache hit rate. These are development A/
 points is noise until repeated. The task sets are small starting points; add private tasks of your own. Running other
 harnesses against the same endpoint is not automated.
 
+The trials also count `length_stops` (replies the output limit ended) and the calls the harness mended before they ran (`repaired_calls`: a model that passes only
+because of the mending shows it there); the report gives both. Checks on a call's arguments (`tool_args`, BFCL) read the arguments as the model wrote them, so a mended value does not pass.
+
+A `--k` below 5 is accepted but warned about, on stderr and at the top of the report: pass^k over so few repetitions says little. The
+report also carries what the server itself measured: with the request log on (the default) each trial reads the `timing` events of its
+requests (`harness/eval/serverlog.py`) and the report gives the median time to the first token and prefill time, the share of the prompt
+read from the cache, and a TTFT and cache column per task; the figures belong to a trial only when nothing else used the server meanwhile,
+and `--no-server-timings` leaves them out. With `--compare-strategies` (or `--strategies` on the `knowledge` set) the report adds a table of
+none, RAG and CAG side by side: success, pass^k, tokens in, seconds and cache share.
+
+**Public benchmarks** are read from a folder you downloaded yourself; nothing is fetched (`harness/eval/benchmarks.py` has the layouts).
+`--bfcl` takes `BFCL_v<n>_<category>.json` with `possible_answer/` beside it (simple, multiple, parallel, parallel_multiple and irrelevance by
+default) and scores the calls by BFCL's rule: the function, every required argument, no unknown argument, each value among the accepted ones, parallel
+calls in any order, and for irrelevance no call at all; Java, JavaScript, SQL, REST and multi-turn files are left out and listed. `--terminal-bench`
+takes a folder of tasks (`task.yaml` and `tests/`): the model works in a copy that holds neither the tests nor the solution, the tests are copied in for
+the check with `/app` rewritten to the workspace, and the task passes when its own `pytest` does. `--swebench` takes `instances.jsonl` and a checkout of
+each repository at its base commit in `repos/<instance_id>` (without `.git`): the instance's test patch is applied with `git apply` and the instance
+is resolved when its FAIL_TO_PASS tests pass and its PASS_TO_PASS tests still do (`--swebench-test-command` changes the test command). These run on this machine
+with the local Python, not in the containers the datasets were made for, so choose a subset this machine can check (`--only`, `--limit`); the layouts are the ones
+the datasets are described as having and were written without a copy of them, so the first real folder is the test. No dataset has been run and no score exists yet.
+
 `python -m harness.eval.alternate` measures what it costs when two conversations take turns on one model (the time to the first token and the share of the
 prompt read from the cache, taking turns against one after the other). It decides whether a queue that groups requests by conversation is worth building.
+
+`python -m harness.eval.cases` runs the case studies E1 to E8, the design questions that reasoning cannot settle (the Target Loop's first message, the verify gate, the error
+classifier, intake, compaction in a long turn, long answers, prefix-cache survival, Optimize prompt): each has a fixture, a plain-code scorer, an A/A control that measures the noise and a
+decision rule written before the run. See [experiments.md](experiments.md).
 
 ## Replay of a recorded session
 
@@ -1023,6 +1366,12 @@ the folder, and `confirm_from_trace(trace)` to answer questions as the person di
 does the first and prints the divergence. Permissions are decided by the rules you replay under, so a replay under another level is
 the way to see what a change in the rules would have done to a past session.
 
+The LOGS page reaches the same code (section **Session traces**; `serve/traces_api.py`): `GET /api/agent/traces` lists the conversations
+with a saved history, `POST /api/agent/traces/<id>/replay` (`{"mode": "read_only|default|auto", "results": bool}`) replays one with the
+stand-ins, `GET /api/agent/traces/<id>/export` downloads the masked JSONL, and `GET /api/agent/traces/<id>/audit?limit=<n>` verifies the
+hash chain of the audit ledger of the conversation's folder (`status`: `intact`, `broken`, `empty` or `missing`) and returns its newest
+records. The ledger belongs to the folder, not to one conversation.
+
 ## Running code
 
 `run_code` (`harness/tools/execute.py`) runs a snippet in a separate process: Python with the interpreter of Basalt's own
@@ -1034,22 +1383,28 @@ bytes per stream. Files the code leaves in its working folder are listed in the 
 none leaves nothing behind. Edits the code makes to workspace text files are recorded for review like a shell command's.
 
 It is an irreversible action for the permission layer (it can write anywhere the user can), so it asks at the default level,
-is refused in plan mode, and can be allowed or denied with a rule named `run_code`. **There is no network or file isolation
-beyond the working folder** (open decision D5): Python and node run with the user's rights. Only deno narrows things (read
-access to the working folder and the workspace, write access to the working folder, no network); that path was built from
-Deno's documented flags and not run here, because deno is not installed on the development PC. The memory and process caps
+is refused in plan mode, and can be allowed or denied with a rule named `run_code`. **There is no network isolation, and Python can read what
+the user can, except the person's secrets.** Python and every Python program it starts load an audit hook
+(`harness/sandbox/guard/`) that refuses to open, copy, link, rename, delete or hand to sqlite the vault, the payment files, the
+browser profile, the control-token file, the phone keys, the OAuth tokens and the conversations' records, whatever way the path was built
+at run time, and refuses `ctypes` libraries and any command that names those places. The shell's Python programs get the same hook. It
+does not stop a program in another language that builds the path itself (a PowerShell script started by Python, say), or code written
+to defeat the hook: the real separation stays running the agent as another user. JavaScript and TypeScript are narrower: deno and node
+(with its permission model) read only the working folder and the workspace, write only the working folder, and node starts no programs.
+That deno path was built from Deno's documented flags and not run here, because deno is not installed on the development PC. The memory and process caps
 are Windows-only. There is no retry loop of its own: a program that fails is reported with its traceback, and the loop
 detector stops identical repeats.
 
 ## Subagents
 
 `spawn_subagent` (`harness/swarm/subagent.py`) hands a task to a second conversation and returns its last message as a
-summary. The subagent has its own messages and only the tools named in `tools` (by default the read-only ones; never
-`spawn_subagent` itself), up to `max_turns` turns (8 by default, 20 at most). It shares the parent's model client, permission
+summary. The subagent has its own messages and the tools named in `tools` (by default all of the caller's, `spawn_subagent` included, so it may
+start another one), for as many turns as `max_turns` says (no limit by default), and the task and the summary are not cut. It shares the parent's model client, permission
 manager, hooks, checkpoints, secrets and cancel flag, so its calls are decided by the same rules and questions as the parent's
 (plan mode and deny rules included, and reading outside content taints the parent too), and its calls land in the same audit
 ledger between `subagent_start` and `subagent_end` records. A summary that follows outside content is fenced as untrusted
-data. Subagents run one after another, never at once. The older `SwarmOrchestrator` and its `swarm.json` only divide a token
+data. Subagents run one after another, never at once: the model serves one conversation at a time, and the shared permissions, questions and
+ledger are not made for two at once; a nested one runs inside the one that started it. The older `SwarmOrchestrator` and its `swarm.json` only divide a token
 budget among roles and run a mock; nothing uses it and `spawn_subagent` does not.
 
 ## Phones and several API keys
@@ -1057,19 +1412,31 @@ budget among roles and run a mock; nothing uses it and `spawn_subagent` does not
 `serve/remote.py`. The server has the one key of `--api-key` (kept as it was) and, besides it, any number of **device keys**: each has a name (the phone it is for), is made on this PC in
 *Settings > Phones*, and is checked by its SHA-256 hash in `api-keys.json` of the user data folder. The key itself is kept in the same file encrypted (AES-256-GCM under a key derived from the vault's device key, with the key's id as associated data), so its code can be shown again (`keys/show`, this PC only); a key made before that, or where `cryptography` is missing, is shown once only. A key is taken away on its own and stops working at once. On the server's own address nothing changes: the master key, when there is one, and no key otherwise. A device key counts only on the **listener for phones** described below, where every request
 needs the master key or a device key, as `Authorization: Bearer ...` or `x-api-key`.
+A device key **ends** only when the person chose a length when making it (30, 90, 365 days; the default is never, with the risk written under the box), and *Renew* in *Settings > Phones* gives it a new end; a phone whose key ran out is refused with `key_expired`
+and the name of the key. Keys made before this have no end and show so. By default a phone chooses for itself, as the person does at the PC
+(`remote.json`: `phone_chooses`, on). With it off, a conversation, run or routine started or switched from a phone gets the person's limits
+(`max_mode`, default `auto`, and `rules`, any number of them): a mode above the limit is refused with `phone_mode_limit`, a rule sent by the phone with
+`phone_rules`, and the PC's own rules take the place of the phone's. A holder of a stolen key can still answer the
+questions of the conversations it starts, so the limit keeps a phone from starting unattended work, not from using what the phone is for.
 
-A phone comes through a second listener, which is bound to **this PC's Tailscale address and nothing else** (`remote.json` keeps whether it is on; it starts
-with the server and follows Tailscale's address). It is off until the person turns it on. What such a client may reach is a short list (`remote_path_ok`): the model (`/v1/`), the
-conversations (`/api/agent/`), attached files and the files the agent made (`/api/attachments`, `/api/outputs`), the routines, the plans, the personal skills (read only) and
-`GET /api/files/roots|list|read`, which let the app browse and read the folders added in the Agent tab and the Chat's own folder (nothing outside them, never `.basalt` or `.git`; `serve/files_api.py`), and `GET /api/remote/hello`, which tells the app that its address and key are good (and the name of the key). Everything else, the page itself included, is refused with 403 before any key is
-looked at: the vault, the wallet, the settings, the loading of models, the control routes and phone setup stay on this PC. The writes a phone may make (starting and talking to a
-conversation, attaching files, the routines) need a device key and the Tailscale range (`100.64.0.0/10`); the server's control secret, which protects the page from other sites, is not asked
-of a phone, whose own key is the proof.
+A phone comes through a second listener, which binds to the address the person chose in *Settings > Phones > Listen on* (`remote.json`: `listen`): **this PC's Tailscale address** (the default, followed as Tailscale moves it), every interface (`0.0.0.0`) or one IPv4 address typed by hand. `remote.json` also keeps whether it is on; it starts
+with the server. It is off until the person turns it on. Every request to it needs the master key or a device key, the page itself included. With a valid key a phone reaches every route that a client on this PC reaches with the same credentials: the model (`/v1/`), the
+conversations, attached files and the files the agent made, the routines, the plans, the personal skills, the capabilities' on/off list and install requests (`/api/capabilities/settings`, `requests/approve`, `requests/reject`; the other capability changes stay on this PC), `GET /api/remote/hello` (which tells the app that its address and key are good, and the name of the key), `GET /api/remote/peers` and `GET /api/files/roots|list|read`, which let the app browse and read any folder or file of this PC (the roots offered first are the folders added in the Agent tab and the Chat's own folder, then the drives; nothing is hidden or cut; `serve/files_api.py`). A phone also works in any folder. The routes that answer only to a client on this PC (`settings.is_loopback`: the vault, the wallet, the settings, the loading of models, phone setup) refuse a phone, whose address is never this PC's. The control secret is not asked
+of a phone, whose own key is the proof. The client's address is not checked, so a key works from anywhere the listener can be reached.
+
+**The control secret on this PC (off unless `--control-secret` is given, or the Loader's switch saves it in the config file, with a text of the person's own choosing or a random one).** Without it the writes through `/api/*` and `/api/control/*` check only that the request comes from this PC.
+With it, writes through `/api/*` (approving a question or a plan, the wallet, the settings) need the server's secret,
+kept in `control-<port>.token` in the user data folder and given to the page as a cookie. The cookie is given only to a browser navigation to
+`/` (`Sec-Fetch-*`; a program has to imitate it), or, with `--api-key`, from `GET /api/session` to a request that carries the key, and never to
+a client whose process descends from an agent session (the server finds the client process of the connection and walks its parents against the
+processes it started; `serve/util/peer.py`). The same client is refused when it presents the secret in the header or the cookie. The file itself is among the places the
+agent's tools cannot open. What stays open: a process the agent starts outside its own tree (a scheduled task, a service) is not seen as the
+agent's, and a program that reads the file as this user, outside the agent's tools, can use it.
 
 *Settings > Phones* does the setup: it shows whether Tailscale is installed (`tailscale status --json`), installs it with `winget` when asked (`POST /api/remote/tailscale/install`; with no
 winget it points to tailscale.com/download), connects it (`tailscale/up`; when a sign-in is needed the page shows the address to open), turns phones on or off (`enable`, `disable`), and makes
-(`keys/create`) and takes away (`keys/revoke`, asked twice) the keys. A key is shown with a **QR code** (when it is made and, from the list, any time after) that holds `{"v":1,"url":"http://<tailscale address>:<port>","key":"bsk_...","name":"..."}`
-for the app. All these routes work only from this PC and the server's own page. The phone needs Tailscale too (Play Store), signed in to the same account. The app's settings (the address, the key, the preferences) survive an update; for an uninstall and reinstall the app allows Android's backup of that one settings file only (`res/xml/backup_rules.xml`, `data_extraction_rules.xml`), which restores it when the phone's backup and automatic restore are on. Without it, the key is shown again from the PC and scanned once.
+(`keys/create`) and takes away (`keys/revoke`, asked twice) the keys, and chooses where the listener binds (`listen`). A key is shown with a **QR code** (when it is made and, from the list, any time after) that holds `{"v":1,"url":"http://<address>:<port>"`,"key":"bsk_...","name":"..."}`
+for the app. All these routes work only from this PC. The phone needs Tailscale too (Play Store), signed in to the same account. The app's settings (the address, the key, the preferences) survive an update; for an uninstall and reinstall the app allows Android's backup of that one settings file only (`res/xml/backup_rules.xml`, `data_extraction_rules.xml`), which restores it when the phone's backup and automatic restore are on. Without it, the key is shown again from the PC and scanned once.
 
 **The Android app** (`mobile/`, Flutter; see `mobile/README.md`) is the phone's side: the address (IP:port) and the key are in its Settings, with a QR scan, and it uses the routes above plus
 `GET /api/remote/peers` (the other devices Tailscale sees, for *+ > Documents/Files > Network*). The conversation page is a port of the web page's: the same events (`user`, `delta`, `agent`,
@@ -1094,17 +1461,17 @@ geocoder when it has one (coordinates alone otherwise), and puts it in the body 
 - **Forgetting.** Switching the app's setting off calls `POST /api/agent/place/forget`, which erases the last position from the server; a restart of the server erases it too. It is not written to the conversation's history
   or to the person's memories.
 - **What it does not do.** It does not place a call. A conversation of the Chat has no phone tools (`--phone` is not passed to it), so in an emergency the assistant can tell the person the address to give and what number to
-  call, but does not call for them; `phone_call` exists in the harness, asks every time, and is not offered to the Chat.
+  call, but does not call for them; `phone_call` exists in the harness, asks below `auto`, and is not offered to the Chat.
 
 ## The person's own memories
 
 `harness/personal_memory.py`, `harness/memory_extract.py`, `serve/memory_worker.py`, `serve/memories_api.py`, `serve/web/memories.js`. Two memories about the person, apart from the per-project
 `MemoryStore`: **long-term** (sections identity, place, people, companies, partners, character, tastes, interests, values, thinking, foundations, emotions, card) and **short-term** (facts, searches,
-topics, projects). Each note has a section, a text of up to 400 characters, an origin (`said`, `inferred` with a confidence, `confirmed`, `manual`), the time it was last seen and how many times.
+topics, projects). Each note has a section, a text of any length, an origin (`said`, `inferred` with a confidence, `confirmed`, `manual`), the time it was last seen and how many times.
 
 - **Storage.** `personal-memory/memories.bin` in the user data folder: AES-256-GCM, key derived (HMAC-SHA256) from the vault's `device.key` (DPAPI-wrapped), so the same protection and the same
   limit as the vault. The file also holds the queue of messages to learn from and the last 100 changes. `memory-settings.json` beside it (not secret) holds the switches: `learn_long`, `learn_short`,
-  `use_long`, `use_short`, `short_days` (default 14), `long_days` (default 0, no limit), `cloud_ok`, and a weight (`off`, `low`, `normal`, `high`, `highest`) for each section. **Everything is off by default.**
+  `use_long`, `use_short`, `short_days` (default 14), `long_days` (default 0, no limit), `cloud_ok`, and a weight (`off`, `low`, `normal`, `high`, `highest`) for each section. **Learning and using are on by default for both memories; `cloud_ok` is off.** The file is one for the person, not per chat or project, so a switch applies to every conversation, new or running, and survives restarts.
   One process writes it (the server); each conversation process reads it again whenever the file changes, so a switch works on a running conversation.
 - **Learning.** `SessionManager` collects what the person writes in a turn (and the `search_web` queries run for it) and hands it to `MemoryWorker.offer` when the turn ends; a routine's conversation is
   excluded (`keep_out_of_memory`). The message is queued only if a memory learns. `MemoryWorker` runs a thread: when `gpu_free(svc)` is true (the model is loaded, nothing is served or queued, the last request
@@ -1125,30 +1492,41 @@ topics, projects). Each note has a section, a text of up to 400 characters, an o
 - **What it is not.** Matching is by words, not meaning: a question that shares none with a note does not bring it (except the core notes of a heavy section at the start, and `recall_about_user`). A note the
   person pasted into a message as if it were their own can be learned: read the list now and then. The quality of what the loaded model keeps has not been measured (`tests/QUEUE_daytime.md`, row 27).
 
+## Earlier conversations
+
+`harness/past.py`, `serve/agent_sessions.py` (`index_past`, `index_all_past`, `routine_run`), `serve/handler.py` (`/api/past/chat`). One SQLite FTS5 file, `<user data>/memory/past.db`, indexes every conversation the person has had, whatever the tab:
+the Chat in its conversation modes, projects, and the model-only chat. It is cut into pieces of about 500 tokens (paragraph ends), each kept with its conversation, turn, project (the folder's name; none for the Chat), kind (`chat`, `agent`, `routine`), routine name and date. The text is stored, so a hit can be read again as it was said. Tool results and system messages are not indexed.
+
+- **Filling it.** When a turn ends the server adds the whole conversation (`history`, with the originals compaction removed) and replaces what it had of it; at start a background pass adds the conversations saved before the index or changed since. The model-only chat keeps its conversation in the browser and posts its words to `POST /api/past/chat` (this PC only) when the page has been quiet for a moment.
+- **Routines.** A routine's conversations are left out unless its switch "Remember what it does" (`index_past`, off by default) is on; they are then indexed with kind `routine` and the routine's name. Other unattended conversations stay out.
+- **Using it.** The conversation process is started with `--past-index` and has two read-only tools whose results are untrusted data: `search_past(query, days, project, kind)` (at most two pieces from one conversation, each with conversation id, turn, date and a stretch of text) and `open_past(conversation, first_turn, last_turn)`. With a provider that is not this PC both answer with nothing. The Question-only mode has no tools, so it does not search.
+- **Limits.** Matching is by words, as for the project notes: "UE" does not find "Unione Europea". The index is not encrypted (like the conversation files it is made from); the memories of the person are separate and encrypted. Nothing masks a secret the person typed into the model-only chat.
+
 ## Routines
 
 `harness/scheduler.py` keeps recurring tasks for the agent in the user data folder (`routines.json`, results in
-`routine_runs.json`, the last 200). A routine is a prompt, a folder, a schedule, a mode and allow rules. Schedules are
-`every 30m`, `every 2h`, `every 1d` (at least a minute) or fixed local times: `daily 08:30`, `weekdays 08:30`, `weekends 10:00`,
-`mon,wed,fri 18:15`; there is no cron syntax. A routine is created **disabled** and its mode is read-only unless the person
-chooses otherwise (`auto` needs the same confirmation as a conversation). Only one routine runs at a time and only while no
-other conversation is busy or asking; a due routine waits (an hour at most, then the result is `skipped`). A routine that is
-running is not interrupted when the person starts talking. A routine runs as a conversation through the server's
-`SessionManager`, which is closed when it ends; if the agent needs an answer nobody can give, the result is `asked` with the
-question, and nothing is decided for the person. Overdue interval routines run once when the program starts; a fixed time that
-passed while it was off is skipped.
+`routine_runs.json`, the last 200). A routine is a prompt, a folder and a schedule, with optional limits on steps (`max_turns`) and time (`max_minutes`); empty means none. Schedules are
+`every 30s`, `every 30m`, `every 2h`, `every 1d` (seconds, minutes, hours or days, any number) or fixed local times: `daily 08:30`, `weekdays 08:30`, `weekends 10:00`,
+`mon,wed,fri 18:15`; there is no cron syntax. A routine may have a `check`: a command run in its folder before the model is woken, which costs no model time. Exit code 0 goes on and what it printed is given to the agent, 1 ends the run as `skipped` (nothing to do), any other code fails it. The agent ends its answer with `OUTCOME: nothing_new|progress|done|blocked`; the outcome words and first lines of the last three runs go into the next run's prompt (from the second run on). The file `routines.stop` in the data folder is the kill switch: while it exists nothing starts and what runs is stopped (`Scheduler.emergency_stop`). The next due time is fixed when a run is queued, before it starts. A routine is created **enabled** and always runs in Automatic (it has no mode and no allow rules; an old stored one loses them). Different routines run
+at the same time; the same routine never overlaps with itself (a time that falls due during a run waits for it, once). A conversation of the person never holds a routine back, unless the
+routine has `yield_s` (0 to 3600 seconds, empty for never): once a conversation of the person's has been at work that long (one that is only asking does not count) the routine is asked to stop and the
+result is `yielded`; it is not run again by itself. A routine runs as a conversation through the server's
+`SessionManager`, which is closed when it ends. A question does not end the run: a request that only the person can settle is put in the pending list
+(`routine_pending.json`, shown in the Cron Jobs tab as *Waiting for you*, removed with `POST /api/routines/<pending id>/dismiss`) and the rest goes on; a run that ends on such a question, or on a blocked step,
+has the result `parked`, not `failed`. Overdue interval routines run once when the program starts; a fixed time that
+passed while it was off is run once, late, at the start.
 
-The API is `GET /api/routines` (routines, what runs, the latest results) and `GET /api/routines/runs?id=&limit=`, and the writes
-`POST /api/routines` (create), `POST /api/routines/<id>/update|enable|disable|run|remove` and `POST /api/routines/cancel`, behind
+The API is `GET /api/routines` (routines, the ids that run, the queued ones, the pending requests) and `GET /api/routines/runs?id=&limit=`, and the writes
+`POST /api/routines` (create), `POST /api/routines/<id>/update|enable|disable|run|remove|dismiss` and `POST /api/routines/cancel`, behind
 the same control-secret gate, loopback check and own-page check as the other writes. The scheduler is made when the
 conversation manager is first made (when the Chat first asks for its conversations) or when the routines API is first used, not
 when the server starts, so routines do not run in a server that nobody has opened a page on.
 
 The **Cron Jobs** tab is their page: a list (each job with its schedule, the next time, the last result, and *Turn on/off*, *Run now* and *Delete*, the delete
-asking twice), an editor (name, task, folder with the folders of the Agent tab suggested, the schedule with a few quick choices, the four modes, the most steps, the
-rules for commands; Automatic asks the two questions) and, under it, the job's latest results. A new job starts off. At the right a small chat talks a job over with the
+asking twice), an editor (name, task, folder with the folders of the Agent tab suggested, the schedule with a few quick choices, the optional most steps and longest time, the optional time to give way to a conversation) and, under it, the job's latest results. A new job starts on.
+Above the list, *Waiting for you* shows the pending requests, each with *Dismiss*. At the right a small chat talks a job over with the
 loaded model (a plain request to `/v1/chat/completions`, no tools): it is given the schedule syntax, the folders and the current jobs, and it may answer with a
-```` ```job ```` block of JSON; the page turns that into a card with *Use in the editor*, which only fills the editor. Nothing is saved or turned on by the chat.
+```` ```job ```` block of JSON; the page turns that into a card with *Use in the editor*, which only fills the editor. Nothing is saved by the chat.
 
 ## Other agents: ACP client and A2A
 
@@ -1172,7 +1550,7 @@ cancel or after the wait). The agents are listed in `a2a_agents.json` (`{"agents
 notifications, files and the extended card are not done. It was written from the specification at a2a-protocol.org (version
 1.0.0) and tested against a local fake, never against a real agent; the exact error bodies are read leniently. **Basalt does not
 serve an Agent Card or receive A2A tasks**: a card must list an endpoint that accepts tasks, and receiving a task means running
-the agent for a remote caller, which needs a decision about who may call it. Both tools are irreversible and untrusted.
+the agent for a remote caller, which needs a decision about who may call it. Both tools are irreversible and untrusted. An A2A agent is reached only when its address, and every address its name resolves to, is in the person's own network (`harness/netscope.py`: this PC, 10/8, 172.16/12, 192.168/16, link-local, the shared 100.64/10 space of private overlays); an ACP agent is a local program over stdio. Any listener that takes instructions from agents has to call `netscope.require_private` first.
 
 ## Energy of a task
 
@@ -1192,5 +1570,5 @@ An approval from the page asks the server for an answer, and any process on this
 one, so it matters that an agent which can run arbitrary code (an allow rule such as `python *`, or Automatic mode) can approve
 its own later requests: such a rule already grants that power, and only the isolation below would take it away.
 
-Not done: file and network isolation for commands (the job object limits resources only); `fs/*` and `session/load` in ACP;
+Not done: file and network isolation for commands (the job object limits resources only); `terminal/*` in ACP and a try of the ACP agent in a real editor;
 reading bank accounts through an authorized aggregator, and a test of Google Pay or an embedded Stripe form on a real site; the compaction of an overlong chat still inserts its summary mid-context, which re-reads what follows.

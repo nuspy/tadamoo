@@ -265,6 +265,15 @@ class Vault:
             raise VaultError(f"'{entry_id}' has no field '{field}'")
         return entry["fields"][field]
 
+    def environment(self) -> Dict[str, str]:
+        """Every stored value as an environment variable, BASALT_VAULT_<ENTRY>_<FIELD>, for code the person let run free on this PC."""
+        out: Dict[str, str] = {}
+        for entry_id, entry in self._read().items():
+            for field, value in entry["fields"].items():
+                if isinstance(value, str) and value:
+                    out["BASALT_VAULT_" + re.sub(r"[^A-Z0-9]+", "_", f"{entry_id}_{field}".upper()).strip("_")] = value
+        return out
+
     def login_facts(self) -> List[Dict[str, Any]]:
         """What an import needs to tell what is already here: each entry's name, its first site, and for a login its user and password."""
         return [{"id": i, "host": (e["hosts"][0] if e["hosts"] else ""), "username": e["fields"].get("username") if e["kind"] == "login" else None,
@@ -308,7 +317,7 @@ class Vault:
         lines = []
         for e in self.entries():
             names = ", ".join(sorted(set(e["fields"]) | ({"totp"} if e.get("second_factor") in ("manual", "automatic") else set())))
-            where = ("any site" if "*" in e["hosts"] else ", ".join(e["hosts"])) if e["hosts"] else "no site: local use only"
+            where = "any site" if "*" in e["hosts"] or not e["hosts"] else ", ".join(e["hosts"])
             held = "; its number, expiry and cvc come out only after request_payment approves a payment" if e.get("guard") else ""
             lines.append(f"- {e['id']} ({e['kind']}: {e['label']}) fields: {names}; may be sent to: {where}{held}")
         return ("Entries in the person's vault; write {{vault:ENTRY.FIELD}} where a value is needed and it is filled in for you "
@@ -322,24 +331,27 @@ class Vault:
     def references(self, text: str) -> List[str]:
         return [f"{i}.{f}" for i, f in PLACEHOLDER.findall(text)]
 
-    def check_destinations(self, text: str, hosts: Iterable[str], network_tools: Iterable[str] = ()) -> None:
+    def check_destinations(self, text: str, hosts: Iterable[str], network_tools: Iterable[str] = ()) -> List[str]:
+        """Raises SecretDestinationError if an entry with named sites would go to another one. An entry with no site named, or "*", goes anywhere.
+        Returns the entries limited to named sites that a command with a network tool and no site could not be checked for."""
         hosts, tools, entries = list(hosts), list(network_tools), self._read()
+        unchecked: List[str] = []
         for entry_id, field in PLACEHOLDER.findall(text):
             e = entries.get(entry_id)
             if e is None:
                 continue
             allowed = e["hosts"]
-            if "*" in allowed:
+            if "*" in allowed or not allowed:
                 continue
-            if not allowed:
-                if hosts or tools:
-                    raise SecretDestinationError(f"'{entry_id}' is for local use only; it cannot be put in a command that reaches the network")
             else:
                 if tools and not hosts:
-                    raise SecretDestinationError(f"'{entry_id}' may only be sent to {', '.join(allowed)}; this command runs a network tool but names no site, so where it would go cannot be checked")
+                    if entry_id not in unchecked:
+                        unchecked.append(entry_id)
+                    continue
                 bad = [h for h in hosts if h not in allowed and not any(h.endswith("." + a) for a in allowed)]
                 if bad:
                     raise SecretDestinationError(f"'{entry_id}' may only be sent to {', '.join(allowed)}, not to {', '.join(bad)}")
+        return unchecked
 
     def resolve(self, text: str, hosts: Optional[Iterable[str]] = None, ask_code: Optional[Callable[[str], str]] = None) -> str:
         """Fills in the placeholders. With `hosts` (where the text goes) a value only goes to a site its entry names."""
@@ -403,6 +415,26 @@ class Vault:
                 raise VaultError("no code was given")
             return code
         raise VaultError(f"'{entry_id}' has no second factor: choose one in the vault")
+
+    def find_secret(self, texts: List[str], present: Callable[[str, List[str]], bool]) -> str:
+        """The entry and field of a secret value (a password, a card number, a code: not a name or an address) found in one of `texts`, or ''."""
+        try:
+            entries = self._read()
+        except VaultError:
+            return ""
+        for i, e in entries.items():
+            for n, v in e["fields"].items():
+                if not (n in SECRET_FIELDS or e["kind"] == "secret"):
+                    continue
+                forms = set(shapes(v))
+                if n == "number":
+                    forms |= shapes(re.sub(r"[\s\-.]", "", v))
+                if any(present(f, texts) for f in forms if len(f) >= MIN_SECRET_LENGTH):
+                    return f"{i}.{n}"
+        for code, name in self._issued:
+            if len(code) >= MIN_SECRET_LENGTH and present(code, texts):
+                return name
+        return ""
 
     def mask(self, text: str) -> str:
         """Replaces the values in `text` by their names, longest first."""

@@ -5,22 +5,30 @@ import 'package:flutter/services.dart';
 
 import 'answer_view.dart';
 import 'api.dart';
+import 'ask_card.dart';
 import 'chat_model.dart';
+import 'chat_options.dart';
+import 'event_blocks.dart';
 import 'files.dart';
 import 'i18n.dart';
 import 'network_screen.dart';
 import 'place.dart';
+import 'server_prefs.dart';
 import 'settings.dart';
 import 'voice.dart';
 
 /// One conversation: the messages, what the agent is doing, its questions with their buttons, and the box to write in.
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.api, required this.settings, required this.voice, this.sessionId, this.workspace = ''});
+  const ChatScreen({super.key, required this.api, required this.settings, required this.voice, this.sessionId, this.workspace = '', this.options, this.agent = false});
   final Api api;
   final AppSettings settings;
   final Voice voice;
   final String? sessionId;
   final String workspace;
+  final NewChat? options;
+
+  /// Opened from the Agent tab (a folder), where the role of the agent can be chosen.
+  final bool agent;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -34,7 +42,10 @@ class _Attached {
 
 class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   late final ChatController ctl;
+  late final ServerPrefs prefs = ServerPrefs(widget.api);
+  late NewChat? pending = widget.options;
   final input = TextEditingController();
+  final inputFocus = FocusNode();
   final scroll = ScrollController();
   final List<_Attached> attached = [];
   String uploading = '';
@@ -87,7 +98,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ctl.removeListener(_changed);
     widget.voice.removeListener(_changed);
     ctl.dispose();
+    prefs.dispose();
     input.dispose();
+    inputFocus.dispose();
     scroll.dispose();
     super.dispose();
   }
@@ -100,8 +113,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<bool> _ensure() async {
     if (ctl.ready) return true;
     try {
-      final auto = widget.settings.mode == 'auto';
-      await ctl.create(workspace: widget.workspace, mode: widget.settings.mode, confirmAuto: auto);
+      await ctl.create(workspace: widget.workspace, options: pending ?? NewChat(mode: widget.settings.mode));
       return true;
     } on ApiError catch (e) {
       _say(e.message);
@@ -227,7 +239,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final id = await ctl.branchFrom(a);
       if (!mounted) return;
       _say(Texts.t('chat.branched'));
-      await Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => ChatScreen(api: widget.api, settings: widget.settings, voice: widget.voice, sessionId: id)));
+      await Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => ChatScreen(api: widget.api, settings: widget.settings, voice: widget.voice, sessionId: id, agent: widget.agent)));
     } on ApiError catch (e) {
       _say(e.message);
     }
@@ -252,27 +264,31 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ),
     );
     if (picked == null || picked == now) return;
-    var confirm = false;
-    if (picked == 'auto') {
-      if (!await _sure(Texts.t('mode.auto.risk')) || !await _sure(Texts.t('mode.auto.risk2'))) return;
-      confirm = true;
-    }
     try {
-      await ctl.setMode(picked, confirmAuto: confirm);
+      await ctl.setMode(picked);
     } on ApiError catch (e) {
       _say(e.message);
     }
   }
 
-  Future<bool> _sure(String text) async =>
-      await showDialog<bool>(
-        context: context,
-        builder: (c) => AlertDialog(content: Text(text), actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: Text(Texts.t('conv.cancel'))),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(Texts.t('chat.yes'))),
-        ]),
-      ) ??
-      false;
+  // ---- the options ----
+  String get _role => ctl.ready ? (ctl.info?.role ?? defaultAgentRole) : (pending?.role.isNotEmpty == true ? pending!.role : (widget.settings.agentRole.isEmpty ? defaultAgentRole : widget.settings.agentRole));
+
+  /// Changes the role: at once in a conversation that exists, else it goes with the request that creates it. Returns the complaint, if any.
+  Future<String?> _setRole(String role) async {
+    if (!ctl.ready) {
+      pending = (pending ?? NewChat(mode: widget.settings.mode)).copy(role: role);
+      return null;
+    }
+    try {
+      await ctl.setRole(role);
+      return null;
+    } on ApiError catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<void> _options() => showChatOptions(context, prefs: prefs, role: widget.agent ? _role : null, onRole: widget.agent ? _setRole : null);
 
   // ---- drawing ----
   @override
@@ -282,7 +298,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         title: Text(ctl.info == null || ctl.info!.title.isEmpty ? Texts.t('conv.untitled') : ctl.info!.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
-          if (widget.voice.speaking) IconButton(icon: const Icon(Icons.volume_off), onPressed: widget.voice.stopSpeaking),
+          if (widget.voice.speaking) IconButton(tooltip: Texts.t('chat.silence'), icon: const Icon(Icons.volume_off), onPressed: widget.voice.stopSpeaking),
+          IconButton(tooltip: Texts.t('opts.title'), icon: const Icon(Icons.tune), onPressed: _options),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: ActionChip(label: Text(Texts.t('mode.$mode')), onPressed: _modeSheet),
@@ -381,6 +398,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         );
       case 'tool':
         return _tool(b);
+      case 'job':
+        return JobBlock(block: b);
       case 'ask':
         return _ask(b);
       case 'blocked':
@@ -390,7 +409,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             padding: const EdgeInsets.all(12),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(b.detail.isEmpty ? b.reason : b.detail),
-              if (b.options.isNotEmpty) Row(children: [TextButton(onPressed: () => ctl.control('resume'), child: Text(Texts.t('chat.resume'))), TextButton(onPressed: () => ctl.control('close'), child: Text(Texts.t('chat.close')))]),
+              Row(children: [TextButton(onPressed: () => ctl.control('resume'), child: Text(Texts.t('chat.resume'))), TextButton(onPressed: () => ctl.control('close'), child: Text(Texts.t('chat.close')))]),
             ]),
           ),
         );
@@ -422,12 +441,38 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Widget _ask(Block b) {
     final theme = Theme.of(context);
     final done = b.answered != null;
+    if (b.mode == 'confirm' && (b.instructions.isNotEmpty || b.hook.isNotEmpty)) {
+      return OutsideAskCard(key: ValueKey('outside-${b.id}'), block: b, onAnswer: (value) async {
+        try {
+          await ctl.answer(b, value);
+        } on ApiError catch (e) {
+          _say(e.message);
+        }
+      });
+    }
     if (b.kind == 'code') return _CodeCard(key: ValueKey('code-${b.id}'), question: b.question, done: done, onSend: (code) => ctl.answer(b, code));
+    if (b.kind == 'questions') {
+      return QuestionsCard(
+        key: ValueKey('ask-${b.id}'),
+        questions: b.questions,
+        intro: b.intro,
+        answered: b.answered,
+        onSend: (value, how) async {
+          try {
+            await ctl.answerCard(b, value, how);
+            if (how == 'chat') inputFocus.requestFocus();
+          } on ApiError catch (e) {
+            _say(e.message);
+          }
+        },
+      );
+    }
     String label(Map<String, dynamic> o) {
       final v = '${o['value']}';
-      if (b.mode == 'confirm') {
+      if (b.mode == 'confirm' && b.kind != 'parked_question') {
         if (v == 'always') return Texts.t('chat.always', ['${o['rule'] ?? ''}']);
-        return Texts.t(v == 'confirm' ? 'chat.yes' : 'chat.no');
+        if (v == 'chat') return Texts.t('chat.chat', ['${o['rule'] ?? ''}']);
+        return Texts.t(v == 'confirm' ? (b.kind == 'permission' ? 'chat.once' : 'chat.yes') : 'chat.no');
       }
       return '${o['label'] ?? v}';
     }
@@ -445,7 +490,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             for (final o in b.options)
               (b.mode == 'confirm' && o['value'] == 'confirm'
                   ? FilledButton(onPressed: done ? null : () => ctl.answer(b, '${o['value']}'), child: Text(label(o)))
-                  : OutlinedButton(onPressed: done || (b.mode == 'question' && ctl.busy) ? null : () => ctl.answer(b, '${o['value']}'), child: Text(label(o)))),
+                  : OutlinedButton(onPressed: done ? null : () => ctl.answer(b, '${o['value']}'), child: Text(label(o)))),
           ]),
           if (done && (b.answered ?? '').isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(Texts.t('chat.answered', [b.answered]), style: theme.textTheme.bodySmall)),
         ]),
@@ -469,11 +514,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 if (uploading.isNotEmpty) Padding(padding: const EdgeInsets.only(right: 6), child: Chip(label: Text(Texts.t('plus.uploading', [uploading])))),
               ]),
             ),
+          SuggestionChips(
+            items: ctl.suggestions,
+            onPick: (p) {
+              input.text = p;
+              input.selection = TextSelection.collapsed(offset: p.length);
+              inputFocus.requestFocus();
+            },
+          ),
           Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
             IconButton(tooltip: '+', icon: const Icon(Icons.add_circle_outline), onPressed: _plus),
             Expanded(
               child: TextField(
                 controller: input,
+                focusNode: inputFocus,
                 minLines: 1,
                 maxLines: 6,
                 textCapitalization: TextCapitalization.sentences,

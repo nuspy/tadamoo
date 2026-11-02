@@ -79,10 +79,12 @@ def anthropic_events(svc: Service, req: dict, ids, thinking, tools, max_new, can
                 {"stop": "end_turn", "length": "max_tokens", "cancel": "end_turn"}[x["finish"]]
             # input_tokens excludes the cached part, which is cache_read_input_tokens
             reused = min(x.get("reused") or 0, len(ids))
-            yield "message_delta", {"type": "message_delta", "delta": {"stop_reason": stop,
-                                                                       "stop_sequence": x.get("stop_sequence")},
-                                    "usage": {"input_tokens": len(ids) - reused, "cache_read_input_tokens": reused,
-                                              "output_tokens": x["completion_tokens"]}}
+            delta = {"type": "message_delta", "delta": {"stop_reason": stop, "stop_sequence": x.get("stop_sequence")},
+                     "usage": {"input_tokens": len(ids) - reused, "cache_read_input_tokens": reused,
+                               "output_tokens": x["completion_tokens"]}}
+            if x.get("cache_slot"):
+                delta["cache_slot"] = x["cache_slot"]       # "side" or "main": the kind of slot that served a request that chose one
+            yield "message_delta", delta
             yield "message_stop", {"type": "message_stop"}
 
 
@@ -114,5 +116,7 @@ def anthropic_collect(events) -> dict:
             msg["stop_reason"] = e["delta"]["stop_reason"]
             msg["stop_sequence"] = e["delta"].get("stop_sequence")
             msg["usage"].update(e["usage"])
+            if e.get("cache_slot"):
+                msg["cache_slot"] = e["cache_slot"]
     msg["content"] = blocks
     return msg

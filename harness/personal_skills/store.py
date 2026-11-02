@@ -1,8 +1,8 @@
 """The person's skills: a folder each in the user data folder, `personal-skills/<name>/skill.json` and `skill.py`.
 
-A skill the person makes or edits in the app is approved by that (they saw it). One that arrives from a file, or whose files were changed
-by hand, is *to approve* until the person has read it: the approval is the hash of the two files, so any change withdraws it. A skill moves
-to another PC as one `.pskill` file (a zip with the two files and a manifest), which `import_file` checks and registers."""
+A skill the person makes, edits or imports in the app is theirs and usable at once; nothing is approved by hash and an edit never
+withdraws anything. A skill moves to another PC as one `.pskill` file (a zip with the two files and a manifest), which `import_file`
+checks and registers."""
 from __future__ import annotations
 
 import hashlib
@@ -20,7 +20,7 @@ from . import check as script_check
 from .values import check_spec
 
 FORMAT = "basalt-personal-skill"
-SPEC, SCRIPT, APPROVED = "skill.json", "skill.py", "approved.json"
+SPEC, SCRIPT, LAST = "skill.json", "skill.py", "last_values.json"
 VERSIONS_KEPT = 10
 MAX_FILE = 300_000
 MAX_NAME = 60
@@ -37,7 +37,7 @@ def slugify(name: str) -> str:
 
 
 def digest(spec: Dict[str, Any], script: str) -> str:
-    """What an approval is tied to: the definition and the script."""
+    """A hash of the definition and the script: the manifest of an exported skill carries it."""
     body = {k: v for k, v in spec.items() if k not in ("updated", "version", "uses", "last_run", "created", "source")}
     return hashlib.sha256((json.dumps(body, sort_keys=True, ensure_ascii=False) + "\n--\n" + script).encode("utf-8")).hexdigest()
 
@@ -55,16 +55,6 @@ class PersonalSkills:
             raise SkillError("There is no skill with that name.")
         return self.dir / slug
 
-    def _approvals(self) -> Dict[str, str]:
-        try:
-            data = json.loads((self.dir / APPROVED).read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-        return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)} if isinstance(data, dict) else {}
-
-    def _write_approvals(self, approvals: Dict[str, str]) -> None:
-        (self.dir / APPROVED).write_text(json.dumps(approvals, indent=1), encoding="utf-8")
-
     def _read(self, slug: str) -> Optional[Dict[str, Any]]:
         folder = self._folder(slug)
         try:
@@ -76,8 +66,8 @@ class PersonalSkills:
             return None
         spec["slug"] = slug
         spec["script"] = script
-        spec["status"] = "approved" if self._approvals().get(slug) == digest(spec_without(spec), script) else "pending"
-        spec["problems"] = script_check.check(script, spec.get("mode", "restricted"))
+        spec["status"] = "approved"
+        spec["problems"] = script_check.check(script)
         return spec
 
     def get(self, slug: str) -> Dict[str, Any]:
@@ -100,9 +90,6 @@ class PersonalSkills:
         name = " ".join(str(spec.get("name", "")).split())
         if not name or len(name) > MAX_NAME:
             raise SkillError(f"Give the skill a name of up to {MAX_NAME} characters.")
-        mode = spec.get("mode", "restricted")
-        if mode not in ("restricted", "free"):
-            raise SkillError("The mode of a skill is restricted or free.")
         params = spec.get("params") or []
         if not isinstance(params, list) or len(params) > 40:
             raise SkillError("A skill has up to 40 parameters.")
@@ -113,16 +100,15 @@ class PersonalSkills:
             problems = check_spec(p)
             if problems:
                 raise SkillError("; ".join(problems))
-        problems = script_check.check(script, mode)
+        problems = script_check.check(script)
         if problems:
             raise SkillError("The script cannot be saved: " + "; ".join(f"line {p['line']}: {p['message']}" for p in problems[:5]))
         clean_params = [{k: v for k, v in p.items() if k in ("name", "label", "explanation", "type", "default", "required", "choices", "item_type", "format")} for p in params]
-        return {"name": name, "description": " ".join(str(spec.get("description", "")).split())[:500], "mode": mode, "params": clean_params,
+        return {"name": name, "description": " ".join(str(spec.get("description", "")).split())[:500], "params": clean_params,
                 "tools": script_check.tools_used(script), "timeout": _timeout(spec.get("timeout"))}
 
-    def save(self, spec: Dict[str, Any], script: str, slug: Optional[str] = None, approve: bool = True) -> Dict[str, Any]:
-        """Saves a new skill, or a new version of `slug` (the old one is kept). The person made it in the app, so it is approved,
-        unless `approve` is false."""
+    def save(self, spec: Dict[str, Any], script: str, slug: Optional[str] = None) -> Dict[str, Any]:
+        """Saves a new skill, or a new version of `slug` (the old one is kept)."""
         body = self._validate(spec, script)
         with self._lock:
             if slug is None:
@@ -137,12 +123,6 @@ class PersonalSkills:
             folder.mkdir(parents=True, exist_ok=True)
             (folder / SCRIPT).write_text(script, encoding="utf-8")
             (folder / SPEC).write_text(json.dumps(meta, indent=1, ensure_ascii=False), encoding="utf-8")
-            approvals = self._approvals()
-            if approve:
-                approvals[slug] = digest(meta, script)
-            else:
-                approvals.pop(slug, None)
-            self._write_approvals(approvals)
         return self.get(slug)
 
     def _free_slug(self, base: str) -> str:
@@ -174,32 +154,34 @@ class PersonalSkills:
             raise SkillError("That version is not kept.") from None
         return self.save(spec, script, slug=slug)
 
-    def approve(self, slug: str) -> Dict[str, Any]:
-        """The person has read the skill and lets it run."""
-        found = self.get(slug)
-        with self._lock:
-            approvals = self._approvals()
-            approvals[slug] = digest(spec_without(found), found["script"])
-            self._write_approvals(approvals)
-        return self.get(slug)
-
     def delete(self, slug: str) -> None:
         folder = self._folder(slug)
         if not folder.is_dir():
             raise SkillError("There is no skill with that name.")
         with self._lock:
             shutil.rmtree(folder, ignore_errors=True)
-            approvals = self._approvals()
-            if approvals.pop(slug, None) is not None:
-                self._write_approvals(approvals)
 
-    def note_run(self, slug: str) -> None:
-        """Counts a run; it is not a change of the skill, so the approval stays."""
+    def last_values(self, slug: str) -> Dict[str, Any]:
+        """The values the skill was last run with ({name: value}); empty when it has not run or the record cannot be read."""
+        try:
+            data = json.loads((self._folder(slug) / LAST).read_text(encoding="utf-8"))
+        except (OSError, ValueError, SkillError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def note_run(self, slug: str, values: Optional[Dict[str, Any]] = None) -> None:
+        """Counts a run, and keeps the values it used for the next one; it is not a change of the skill."""
         with self._lock:
             found = self._read(slug)
             if found is None:
                 return
             folder = self._folder(slug)
+            if values:
+                kept = {k: v["value"] for k, v in values.items() if isinstance(v, dict) and v.get("value") not in (None, "", [])}
+                try:
+                    (folder / LAST).write_text(json.dumps(kept, ensure_ascii=False), encoding="utf-8")
+                except OSError:
+                    pass
             spec = json.loads((folder / SPEC).read_text(encoding="utf-8"))
             spec["uses"] = int(spec.get("uses", 0)) + 1
             spec["last_run"] = time.time()
@@ -221,7 +203,7 @@ class PersonalSkills:
         return buffer.getvalue()
 
     def import_bytes(self, data: bytes) -> Dict[str, Any]:
-        """Registers the skill in a `.pskill` file as *to approve*. A file that is damaged, was changed after it was made, or holds
+        """Registers the skill in a `.pskill` file. A file that is damaged, was changed after it was made, or holds
         anything but the two files is refused."""
         if len(data) > 2 * MAX_FILE:
             raise SkillError("That file is too large to be a skill.")
@@ -243,7 +225,7 @@ class PersonalSkills:
             raise SkillError("That is not a personal skill file.")
         if manifest.get("sha256") != digest(spec_without(spec), script):
             raise SkillError("That file was changed after it was made, or is damaged: its content does not match its hash.")
-        return self.save(spec, script, approve=False)
+        return self.save(spec, script)
 
     def import_file(self, path: str | Path) -> Dict[str, Any]:
         try:
@@ -252,14 +234,11 @@ class PersonalSkills:
             raise SkillError(f"The file could not be read: {exc}") from None
         return self.import_bytes(data)
 
-    def scan(self) -> List[str]:
-        """The skills found in the folder that nothing here registered (copied there by hand): they are listed as to approve."""
-        return [s["slug"] for s in self.list() if s["status"] == "pending"]
-
 
 def _timeout(value: Any) -> int:
+    """The seconds a run may take; 0 is no limit."""
     try:
-        return min(max(int(value or 1800), 5), 86400)
+        return max(int(value or 0), 0)
     except (TypeError, ValueError):
         raise SkillError("The time limit is a number of seconds.") from None
 

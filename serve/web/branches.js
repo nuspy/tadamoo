@@ -1,5 +1,6 @@
 "use strict";
 /* Branches: the conversations placed under the one each was branched from (an indented tree a keyboard and a screen reader can walk),
+   the messages as shared nodes with the cost of changing conversation and a merge of two,
    two continuations of one point run one after the other and shown side by side, and a safe preview of the files the agent made.
    Everything the server or the agent wrote enters the page through text nodes; the preview of a page runs in a sandboxed frame
    with no scripts, and a diagram is shown as its source. */
@@ -95,8 +96,60 @@
     if (first) first.tabIndex = 0;
   }
 
-  /* ---- two continuations from one point of the open conversation ---- */
   const field = (id, name, el) => { const w = mk("label", "brd-f"); w.htmlFor = id; el.id = id; w.append(mk("span", "", name), el); return w; };
+
+  /* ---- the messages as nodes: runs of messages, the forks between them, what changing to a conversation costs, and merging two ---- */
+  const nodesBox = $b("#br-nodes"), costBox = $b("#br-cost");
+  function sessionButton(s) {
+    return btn(T("br.nodes.go", s.title), "ghost", async () => {
+      costBox.replaceChildren(mk("p", "brd-dim", T("br.cost.loading")));
+      const r = await api(`/${encodeURIComponent(s.id)}/switch-cost?current=${encodeURIComponent(current())}`);
+      if (!r.ok) { costBox.replaceChildren(mk("p", "brd-dim", errText(r))); return; }
+      const c = r.json, ok = btn(T("br.cost.go"), "primary", () => open(s.id)), no = btn(T("br.cost.cancel"), "ghost", () => costBox.replaceChildren());
+      costBox.replaceChildren(mk("p", "", T("br.cost.text", s.title, c.if_cache_cold, c.if_cache_warm, c.shared_with_current)), mk("p", "brd-dim", T("br.cost.note")), ok, no);
+      ok.focus();
+    });
+  }
+  function runItem(run) {
+    const li = mk("li"), row = mk("div", "brd-row brd-nrow");
+    row.append(mk("span", "brd-t", T("br.nodes.run", run.messages) + (run.request ? ` · ${run.request}` : "")));
+    (run.merges || []).forEach(m => row.append(mk("span", "brd-sub", T("br.nodes.merges", (m.sessions[0] && m.sessions[0].title) || m.node))));
+    if (!(run.sessions || []).length && !(run.children || []).length) row.append(mk("span", "brd-tag", T("br.nodes.orphan")));
+    if ((run.children || []).length > 1) row.append(mk("span", "brd-tag", T("br.nodes.fork", run.children.length)));
+    (run.sessions || []).forEach(s => row.append(sessionButton(s)));
+    li.append(row);
+    if ((run.children || []).length) { const g = mk("ul"); run.children.forEach(c => g.append(runItem(c))); li.append(g); }
+    return li;
+  }
+  const flat = run => [...(run.sessions || []), ...(run.children || []).flatMap(flat)];
+  async function drawNodes() {
+    const r = await api("/nodes");
+    if (!r.ok) { say(errText(r), true); return; }
+    const roots = r.json.roots || [];
+    nodesBox.replaceChildren(...roots.map(runItem));
+    $b("#br-nodes-empty").hidden = roots.length > 0;
+    drawMerge(roots.flatMap(flat));
+  }
+  function drawMerge(sessions) {
+    const box = $b("#br-merge");
+    box.replaceChildren();
+    if (sessions.length < 2) { box.append(mk("p", "brd-dim", T("br.merge.none"))); return; }
+    const pick = () => { const s = mk("select"); sessions.forEach(x => s.append(Object.assign(mk("option", "", x.title), { value: x.id }))); return s; };
+    const a = pick(), b = pick(), text = mk("textarea"); text.rows = 2; b.selectedIndex = 1;
+    const go = btn(T("br.merge.go"), "primary", async () => {
+      if (a.value === b.value) { say(T("br.merge.same"), true); return; }
+      go.disabled = true; say(T("br.merge.working"));
+      const r = await api("/merge", "POST", { a: a.value, b: b.value, instruction: text.value });
+      go.disabled = false;
+      if (!r.ok) { say(errText(r), true); return; }
+      say(T("br.merge.done")); await drawNodes();
+      open(r.json.session.id);
+    });
+    box.append(field("br-merge-a", T("br.merge.a"), a), field("br-merge-b", T("br.merge.b"), b), field("br-merge-text", T("br.merge.text"), text), go);
+  }
+
+  /* ---- two continuations from one point of the open conversation ---- */
+
   function variantBox(key, title) {
     const box = mk("fieldset", "brd-v"); box.append(mk("legend", "", title));
     const text = mk("textarea"); text.rows = 3;
@@ -234,7 +287,7 @@
     say("");
     if (!dlg.open) dlg.showModal();
     openBtn.setAttribute("aria-expanded", "true");
-    await Promise.all([drawTree(), drawForm(), drawFiles()]);
+    await Promise.all([drawTree(), drawNodes(), drawForm(), drawFiles()]);
     const running = await drawCompares();
     if (running) schedule();
     const t = tree.querySelector('[tabindex="0"]');

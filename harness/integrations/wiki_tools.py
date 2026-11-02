@@ -25,11 +25,11 @@ def register_wiki_tools(registry: ToolRegistry, client: WikiBridgeClient, defaul
         return slugs[0]
 
     def unreachable() -> RuntimeError:
-        return RuntimeError(f"{client.last_error or 'wikibridge did not answer'}. Check that wikibridge is running and its address "
-                            "and key are set (BASALT_WIKIBRIDGE_URL, BASALT_WIKIBRIDGE_KEY).")
+        return RuntimeError(f"{client.last_error or 'wikibridge did not answer at ' + client.base_url}. Check that wikibridge is running and that its address "
+                            "is right (Settings, Memories, Wiki) and, if it asks for one, its key (BASALT_WIKIBRIDGE_KEY).")
 
     def wiki_search(query: str, project: str = "", limit: int = 5) -> List[Dict[str, Any]]:
-        hits = client.search(project_of(project or None), query, limit=max(1, min(int(limit), 20)))
+        hits = client.search(project_of(project or None), query, limit=max(1, int(limit)))
         if not hits and client.last_error:
             raise unreachable()
         return hits or [{"note": "No page matches."}]
@@ -41,7 +41,7 @@ def register_wiki_tools(registry: ToolRegistry, client: WikiBridgeClient, defaul
         return body
 
     def wiki_context(query: str, project: str = "", max_chars: int = 6000) -> Dict[str, Any]:
-        ctx = client.rag_context(project_of(project or None), query, max_chars=max(500, min(int(max_chars), 30000)))
+        ctx = client.rag_context(project_of(project or None), query, max_chars=int(max_chars))
         if not ctx["blocks"] and client.last_error:
             raise unreachable()
         return {"blocks": [{"path": b.get("path"), "title": b.get("title"), "text": b.get("text")} for b in ctx["blocks"]],

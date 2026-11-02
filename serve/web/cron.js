@@ -1,15 +1,15 @@
 "use strict";
 /* Cron Jobs: the agent's recurring tasks (the routines of the server), with a list, an editor, the latest results of a job, and a small
-   chat with the model to talk a job over. The chat only proposes: a proposal fills the editor and nothing is saved or turned on until the
-   person presses Save and On. Everything the server or the model wrote enters the page as text. */
+   chat with the model to talk a job over. The chat only proposes: a proposal fills the editor and nothing is saved until the
+   person presses Save. Everything the server or the model wrote enters the page as text. */
 (function () {
   const root = document.getElementById("cron-root");
   if (!root) return;
 
-  const MODES = ["plan", "read_only", "default", "auto"];
   const PRESETS = ["every 1h", "every 30m", "daily 08:30", "weekdays 08:30", "mon,wed,fri 18:15"];
   const POLL_MS = 5000;
-  const S = { jobs: [], running: "", queued: [], selected: "", runs: [], armed: "", chat: [], busy: false, ready: false, skills: [] };
+  const STATUSES = ["done", "parked", "failed", "cancelled", "timeout", "yielded", "skipped"];
+  const S = { jobs: [], running: [], queued: [], pending: [], selected: "", runs: [], armed: "", chat: [], busy: false, ready: false, skills: [], stopped: false, improve: null };
   let timer = 0, armTimer = 0, form = null, msgEl, statusEl;
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -32,7 +32,7 @@
   function jobRow(j) {
     const li = el("li", "cj" + (j.id === S.selected ? " sel" : "") + (j.enabled ? " on" : ""));
     const open = el("button", "cj-open"); open.type = "button"; open.title = T("cj.tip.edit");
-    const last = j.last_status ? `${T("cj.status." + (["done", "asked", "failed", "skipped", "cancelled", "timeout"].includes(j.last_status) ? j.last_status : "failed"))} ${when(j.last_run)}` : T("cj.never");
+    const last = j.last_status ? `${T("cj.status." + (STATUSES.includes(j.last_status) ? j.last_status : "failed"))} ${when(j.last_run)}` : T("cj.never");
     const next = j.enabled && j.next_run ? T("cj.next", when(j.next_run)) : T("cj.off");
     open.append(el("span", "cj-t", j.name), el("span", "cj-s", `${j.schedule} · ${next}`), el("span", "cj-s", last));
     if (j.skill) open.append(el("span", "cj-s", T("cj.skillrow", j.skill)));
@@ -51,8 +51,26 @@
     list.replaceChildren(...S.jobs.map(jobRow));
     document.getElementById("cj-empty").hidden = S.jobs.length > 0;
     const run = document.getElementById("cj-running");
-    run.hidden = !S.running;
-    run.textContent = S.running ? T("cj.running", (job(S.running) || {}).name || S.running) : "";
+    run.hidden = !S.running.length;
+    run.textContent = S.running.length ? T("cj.running", S.running.map(id => (job(id) || {}).name || id).join(", ")) : "";
+    paintPending();
+  }
+  function paintPending() {
+    const box = document.getElementById("cj-pending"), list = document.getElementById("cj-pending-list");
+    box.hidden = !S.pending.length;
+    list.replaceChildren(...S.pending.map(p => {
+      const li = el("li", "cj-pend");
+      li.append(el("b", "", p.name || p.routine), el("span", "", ` · ${when(p.created)}`), el("p", "cj-sum", String(p.question || "").slice(0, 600)));
+      if ((p.options || []).length) li.append(el("p", "help", T("cj.pending.options", p.options.join(" / "))));
+      li.append(btn(T("cj.pending.dismiss"), "ghost", () => dismiss(p), T("cj.tip.dismiss")));
+      return li;
+    }));
+  }
+  async function dismiss(p) {
+    const r = await api("POST", `api/routines/${p.id}/dismiss`, {});
+    if (!r.ok) { say(errText(r), true); return; }
+    say(T("cj.pending.dismissed"));
+    load();
   }
   async function loadSkills() {
     const r = await api("GET", "api/personal-skills");
@@ -62,11 +80,50 @@
     const r = await api("GET", "api/routines");
     if (!r.ok) { say(errText(r) || T("cj.offline"), true); return; }
     S.jobs = r.data.routines || [];
-    S.running = r.data.running || "";
+    S.running = r.data.running || [];
+    S.pending = r.data.pending || [];
     S.queued = r.data.queued || [];
+    S.stopped = !!r.data.stopped;
+    paintStop();
     paintList();
     if (S.selected && S.selected !== "new" && !job(S.selected)) { S.selected = ""; paintEditor(); }
     if (S.selected && S.selected !== "new") loadRuns();
+  }
+  async function setStop() {
+    const r = await api("POST", "api/routines/stop", { on: !S.stopped });
+    if (!r.ok) { say(errText(r), true); return; }
+    S.stopped = !!r.data.stopped;
+    paintStop();
+    say(T(S.stopped ? "cj.stop.on" : "cj.stop.off"));
+  }
+  function paintStop() {
+    const b = document.getElementById("cj-stop");
+    if (!b) return;
+    b.textContent = T(S.stopped ? "cj.stop.release" : "cj.stop.btn");
+    b.classList.toggle("primary", S.stopped);
+    b.setAttribute("aria-pressed", S.stopped ? "true" : "false");
+  }
+  async function improveJob(existing) {
+    form.msg.textContent = T("cj.improve.working"); form.msg.classList.remove("bad");
+    const r = await api("POST", `api/routines/${existing.id}/improve`, {});
+    if (!r.ok) { form.msg.textContent = errText(r); form.msg.classList.add("bad"); return; }
+    S.improve = r.data;
+    form.msg.textContent = "";
+    paintImprove(existing);
+  }
+  function paintImprove(existing) {
+    const box = document.getElementById("cj-improve");
+    if (!box) return;
+    const p = S.improve;
+    if (!p) { box.hidden = true; return; }
+    box.hidden = false;
+    const code = el("pre", "cj-code"); code.textContent = p.script;
+    box.replaceChildren(el("p", "help", T("cj.improve.result", p.tool_steps, p.ai_calls)), code,
+      btn(T("cj.improve.apply"), "primary", async () => {
+        const a = await api("POST", `api/routines/${existing.id}/improve_apply`, p);
+        if (!a.ok) { say(errText(a), true); return; }
+        S.improve = null; say(T("cj.improve.done", a.data.skill)); await load(); paintEditor();
+      }, T("cj.improve.tip")), btn(T("cj.improve.discard"), "ghost", () => { S.improve = null; paintImprove(existing); }));
   }
   async function loadRuns() {
     const r = await api("GET", `api/routines/runs?id=${encodeURIComponent(S.selected)}&limit=8`);
@@ -115,7 +172,7 @@
     host.hidden = !S.selected;
     document.getElementById("cj-pick").hidden = !!S.selected;
     if (!S.selected) return;
-    const v = values || existing || { name: "", prompt: "", workspace: defaultFolder(), schedule: "weekdays 08:30", mode: "read_only", allow: [], max_turns: 10 };
+    const v = values || existing || { name: "", prompt: "", workspace: defaultFolder(), schedule: "weekdays 08:30", max_turns: null, max_minutes: null };
     const name = el("input"); name.id = "cj-name"; name.maxLength = 80; name.value = v.name || ""; name.autocomplete = "off";
     const prompt = el("textarea"); prompt.id = "cj-prompt"; prompt.rows = 6; prompt.maxLength = 4000; prompt.value = v.prompt || "";
     const folder = el("input"); folder.id = "cj-folder"; folder.setAttribute("list", "cj-folders"); folder.value = v.workspace || ""; folder.autocomplete = "off"; folder.spellcheck = false;
@@ -123,8 +180,12 @@
     folders.replaceChildren(...((window.agentProjects && window.agentProjects.list()) || []).map(p => { const o = el("option"); o.value = p.path; return o; }));
     const schedule = el("input"); schedule.id = "cj-schedule"; schedule.value = v.schedule || ""; schedule.autocomplete = "off"; schedule.spellcheck = false;
     const presets = el("div", "cj-presets"); presets.append(...PRESETS.map(p => btn(p, "ghost", () => { schedule.value = p; schedule.focus(); })));
-    const steps = el("input"); steps.id = "cj-steps"; steps.type = "number"; steps.min = "1"; steps.max = "50"; steps.value = String(v.max_turns || 10);
-    const allow = el("textarea"); allow.id = "cj-allow"; allow.rows = 3; allow.spellcheck = false; allow.value = (v.allow || []).join("\n");
+    const steps = el("input"); steps.id = "cj-steps"; steps.type = "number"; steps.min = "1"; steps.inputMode = "numeric"; steps.placeholder = T("cj.limit.none"); steps.value = Number.isInteger(v.max_turns) ? String(v.max_turns) : "";
+    const minutes = el("input"); minutes.id = "cj-minutes"; minutes.type = "number"; minutes.min = "1"; minutes.inputMode = "numeric"; minutes.placeholder = T("cj.limit.none"); minutes.value = Number.isInteger(v.max_minutes) ? String(v.max_minutes) : "";
+    const yieldS = el("input"); yieldS.id = "cj-yield"; yieldS.type = "number"; yieldS.min = "0"; yieldS.max = "3600"; yieldS.inputMode = "numeric"; yieldS.placeholder = T("cj.yield.never");
+    yieldS.value = Number.isInteger(v.yield_s) ? String(v.yield_s) : "";
+    const check = el("input"); check.id = "cj-check"; check.value = v.check || ""; check.maxLength = 1000; check.autocomplete = "off"; check.spellcheck = false;
+    const indexPast = el("input"); indexPast.id = "cj-index"; indexPast.type = "checkbox"; indexPast.checked = v.index_past === true;
     // what it runs: a task written here, or one of the person's personal skills with its values
     const kinds = el("fieldset", "cj-modes"); kinds.append(el("legend", "", T("cj.kind")));
     ["task", "skill"].forEach(k => {
@@ -153,45 +214,36 @@
       skillWrap.hidden = !skill; valuesBox.hidden = !skill; promptWrap.hidden = skill;
       if (skill) drawValues();
     }
-    const modes = el("fieldset", "cj-modes"); modes.append(el("legend", "", T("cj.mode")));
-    const risk = el("div", "cj-risk");
-    MODES.forEach(m => {
-      const lab = el("label", "cj-mode"), r = el("input"); r.type = "radio"; r.name = "cj-mode"; r.value = m; r.checked = (v.mode || "read_only") === m;
-      r.onchange = () => paintRisk();
-      const t = el("span"); t.append(el("b", "", T("ag.mode." + m)), el("small", "", T("ag.mode." + m + ".d")));
-      lab.append(r, t); modes.append(lab);
-    });
-    function paintRisk() { risk.replaceChildren(...(modeNow() === "auto" ? [riskLabel(T("cj.risk"))] : [])); }
-    const modeNow = () => (modes.querySelector("input:checked") || {}).value || "read_only";
-    paintRisk();
     const save = btn(T("cj.save"), "primary", () => saveJob(existing), T("cj.tip.save"));
     const msg = el("p", "cj-msg"); msg.id = "cj-msg"; msg.setAttribute("role", "status");
     const promptWrap = field("cj-prompt", T("cj.prompt"), prompt, T("cj.prompt.help"));
     const valuesNow = () => { const out = {}; fields.forEach(f => { const x = f.get(); if (String(x).trim() !== "") out[f.spec.name] = x; }); return out; };
-    form = { name, prompt, folder, schedule, steps, allow, modeNow, msg, kindNow, skillSel, valuesNow };
+    form = { name, prompt, folder, schedule, steps, minutes, yieldS, check, indexPast, msg, kindNow, skillSel, valuesNow };
     host.replaceChildren(
       el("div", "sh", ""),
       (() => { const f = el("form", "pad cj-form"); f.noValidate = true; f.onsubmit = e => { e.preventDefault(); saveJob(existing); };
         f.append(field("cj-name", T("cj.name"), name), kinds, skillWrap, valuesBox, promptWrap,
           field("cj-folder", T("cj.folder"), folder, T("cj.folder.help")),
-          field("cj-schedule", T("cj.schedule"), schedule, T("cj.schedule.help")), presets, modes, risk,
-          field("cj-steps", T("cj.steps"), steps), field("cj-allow", T("cj.allow"), allow, T("cj.allow.help")),
-          existing ? el("p", "help", T(existing.enabled ? "cj.is.on" : "cj.is.off")) : el("p", "help", T("cj.new.off")), msg, el("div", "cj-buttons", save)); return f; })());
+          field("cj-schedule", T("cj.schedule"), schedule, T("cj.schedule.help")), presets, el("p", "help", T("cj.auto.help")),
+          field("cj-steps", T("cj.steps"), steps, T("cj.steps.help")), field("cj-minutes", T("cj.minutes"), minutes, T("cj.minutes.help")), field("cj-yield", T("cj.yield"), yieldS, T("cj.yield.help")),
+          field("cj-check", T("cj.check"), check, T("cj.check.help")),
+          field("cj-index", T("cj.index"), indexPast, T("cj.index.help")),
+          el("p", "help", T(existing ? (existing.enabled ? "cj.is.on" : "cj.is.off") : "cj.new.on")), msg,
+          (() => { const row = el("div", "cj-buttons"); row.append(save, ...(existing ? [btn(T("cj.improve"), "ghost", () => improveJob(existing), T("cj.improve.help"))] : [])); return row; })(),
+          (() => { const d = el("div", "cj-improve"); d.id = "cj-improve"; d.hidden = true; return d; })()); return f; })());
     host.firstChild.append(el("b", "", existing ? T("cj.edit", existing.name) : T("cj.new")));
     paintKind();
     document.getElementById("cj-runs").hidden = !existing;
+    S.improve = null;
   }
   const defaultFolder = () => { const p = window.agentProjects && window.agentProjects.list()[0]; return p ? p.path : ""; };
   async function saveJob(existing) {
     const f = form;
     const skill = f.kindNow() === "skill";
-    const body = { name: f.name.value.trim(), prompt: skill ? "" : f.prompt.value.trim(), workspace: f.folder.value.trim(), schedule: f.schedule.value.trim(), mode: f.modeNow(),
-      allow: f.allow.value.split("\n").map(s => s.trim()).filter(Boolean), max_turns: Number(f.steps.value) || 10,
+    const body = { name: f.name.value.trim(), prompt: skill ? "" : f.prompt.value.trim(), workspace: f.folder.value.trim(), schedule: f.schedule.value.trim(),
+      max_turns: f.steps.value.trim() === "" ? null : Number(f.steps.value), max_minutes: f.minutes.value.trim() === "" ? null : Number(f.minutes.value),
+      yield_s: f.yieldS.value.trim() === "" ? null : Number(f.yieldS.value), index_past: f.indexPast.checked, check: f.check.value.trim(),
       skill: skill ? f.skillSel.value : "", values: skill ? f.valuesNow() : {} };
-    if (body.mode === "auto") {
-      if (!(await riskConfirm([T("cj.risk")]))) return;
-      body.confirm_auto = true;
-    }
     const r = existing ? await api("POST", `api/routines/${existing.id}/update`, body) : await api("POST", "api/routines", body);
     if (!r.ok) { f.msg.textContent = errText(r); f.msg.classList.add("bad"); return; }
     say(T(existing ? "cj.saved" : "cj.created", r.data.routine.name));
@@ -205,7 +257,7 @@
     document.getElementById("cj-runs-none").hidden = S.runs.length > 0;
     list.replaceChildren(...S.runs.map(r => {
       const li = el("li", "cj-run " + r.status);
-      li.append(el("b", "", T("cj.status." + (["done", "asked", "failed", "skipped", "cancelled", "timeout"].includes(r.status) ? r.status : "failed"))), el("span", "", ` · ${when(r.started)}${r.seconds ? ` · ${Math.round(r.seconds)} s` : ""}`));
+      li.append(el("b", "", T("cj.status." + (STATUSES.includes(r.status) ? r.status : "failed"))), el("span", "", ` · ${when(r.started)}${r.seconds ? ` · ${Math.round(r.seconds)} s` : ""}`));
       if (r.summary) li.append(el("p", "cj-sum", r.summary.slice(0, 600)));
       return li;
     }));
@@ -213,16 +265,15 @@
 
   /* ---- the small chat: it talks a job over and may propose one; the proposal only fills the editor ---- */
   function system() {
-    const jobs = S.jobs.map(j => `- id ${j.id}: "${j.name}" | ${j.schedule} | ${j.mode} | ${j.enabled ? "on" : "off"} | folder ${j.workspace} | task: ${String(j.prompt).replace(/\s+/g, " ").slice(0, 160)}`).join("\n") || "(none yet)";
+    const jobs = S.jobs.map(j => `- id ${j.id}: "${j.name}" | ${j.schedule} | ${j.enabled ? "on" : "off"} | folder ${j.workspace} | task: ${String(j.prompt).replace(/\s+/g, " ").slice(0, 160)}`).join("\n") || "(none yet)";
     const folders = ((window.agentProjects && window.agentProjects.list()) || []).map(p => p.path).join("\n") || "(none added)";
     const skills = S.skills.filter(s => s.status === "approved").map(s => `- ${s.slug}: ${(s.params || []).map(p => `${p.name} (${p.type})`).join(", ") || "no parameters"}`).join("\n") || "(none)";
     return ["You help the person plan the recurring jobs of their local agent. Answer briefly, in the person's language.",
       "A job has: name (at most 80 characters), prompt (what the agent does each time, written as an instruction), workspace (the full path of an existing folder),",
-      "schedule, mode and max_turns. Schedules are only `every 30m`, `every 2h`, `every 1d` (at least a minute) or fixed local times: `daily 08:30`, `weekdays 08:30`,",
-      "`weekends 10:00`, `mon,wed,fri 18:15`. There is no cron syntax: if the person gives one, convert it. Modes: plan, read_only (the default), default (edits files, asks",
-      "before commands) and auto (runs commands without asking: suggest it only if the person asks for it). A job runs by itself, so its prompt must not need an answer",
-      "from the person. When you propose a new job or a change, write it in one fenced block with the language job holding JSON with those fields (add \"id\" with the id of the",
-      "existing job when you change one) and say what it does in a sentence; the person reviews it in the editor and decides. Never say that a job was saved or turned on.",
+      "schedule, and the optional limits max_turns (steps) and max_minutes (time of a run; leave them out for none). Schedules are only `every 30s`, `every 30m`, `every 2h`, `every 1d` or fixed local times: `daily 08:30`, `weekdays 08:30`,",
+      "`weekends 10:00`, `mon,wed,fri 18:15`. There is no cron syntax: if the person gives one, convert it. A job runs by itself, in Automatic, and keeps going",
+      "when the person is away: write its prompt so that it does not wait for an answer. When you propose a new job or a change, write it in one fenced block with the language job holding JSON with those fields (add \"id\" with the id of the",
+      "existing job when you change one) and say what it does in a sentence; the person reviews it in the editor and decides. Never say that a job was saved or is running.",
       "A job may instead run one of the person's personal skills: add \"skill\" (its slug) and \"values\" (an object of name: text) and leave prompt empty. Dates in values may be",
       "words such as today, tomorrow or in 3 days: they are worked out each time the job runs. Use only the skills listed here.",
       "", "Folders the person added:", folders, "", "Personal skills (slug: parameters):", skills, "", "Current jobs:", jobs].join("\n");
@@ -235,8 +286,8 @@
       if (!p || typeof p !== "object" || Array.isArray(p)) return null;
       return { skill: typeof p.skill === "string" ? p.skill : "", values: p.values && typeof p.values === "object" && !Array.isArray(p.values) ? p.values : {},
         id: typeof p.id === "string" ? p.id : "", name: String(p.name || "").slice(0, 80), prompt: String(p.prompt || "").slice(0, 4000), workspace: String(p.workspace || ""),
-        schedule: String(p.schedule || ""), mode: MODES.includes(p.mode) ? p.mode : "read_only", allow: Array.isArray(p.allow) ? p.allow.filter(x => typeof x === "string").slice(0, 10) : [],
-        max_turns: Number.isInteger(p.max_turns) ? p.max_turns : 10 };
+        schedule: String(p.schedule || ""),
+        max_turns: Number.isInteger(p.max_turns) && p.max_turns >= 1 ? p.max_turns : null, max_minutes: Number.isInteger(p.max_minutes) && p.max_minutes >= 1 ? p.max_minutes : null };
     } catch (e) { return null; }
   }
   function use(p) {
@@ -253,7 +304,7 @@
       d.append(el("div", "cjm-t", m.text.replace(/```job[\s\S]*?```/g, "").trim() || (m.proposal ? T("cj.chat.proposal") : "")));
       if (m.proposal) {
         const card = el("div", "cj-prop");
-        card.append(el("b", "", m.proposal.name || T("cj.new")), el("span", "", ` · ${m.proposal.schedule} · ${T("ag.mode." + m.proposal.mode)}`),
+        card.append(el("b", "", m.proposal.name || T("cj.new")), el("span", "", ` · ${m.proposal.schedule}`),
           el("p", "cj-sum", m.proposal.skill ? T("cj.skillrow", m.proposal.skill) : m.proposal.prompt.slice(0, 240)), btn(T("cj.proposal.use"), "primary", () => use(m.proposal), T("cj.tip.use")));
         d.append(card);
       }
@@ -284,6 +335,7 @@
     statusEl = document.getElementById("cj-status");
     msgEl = document.getElementById("cj-chat-msgs");
     document.getElementById("cj-new").onclick = () => select("new");
+    document.getElementById("cj-stop").onclick = setStop;
     const input = document.getElementById("cj-chat-input");
     document.getElementById("cj-chat-form").onsubmit = e => { e.preventDefault(); const t = input.value.trim(); input.value = ""; ask(t); };
     input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); document.getElementById("cj-chat-form").requestSubmit(); } });

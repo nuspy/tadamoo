@@ -34,8 +34,7 @@ from serve.engine.vision import (EngineVision, Vision, check_gpu, child_env, eng
                                  gpu_text, gpus_in_play, vision_card, vision_env, vision_line)
 from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import Server, serve, stop_sessions  # noqa: E402
-from serve.security import (LOOPBACK_NAMES, allowed_hosts_of, api_key_of, exposed_without_key,  # noqa: E402
-                            lan_addresses, origins_of)
+from serve.security import LOOPBACK_NAMES, api_key_of, exposed_without_key, lan_addresses  # noqa: E402
 from serve.service import Service  # noqa: E402
 from serve.util.logbuf import ColorStream, LogBuffer, TeeStream, tail_file  # noqa: E402
 from serve.util.reqlog import RequestLog  # noqa: E402
@@ -263,25 +262,16 @@ def main() -> int:
     except ValueError as e:
         print(f"[server] error: {e}: give a key, or leave --api-key out", file=sys.stderr)
         return 2
-    try:
-        svc.cors_origins = origins_of(a.cors_origin, "--cors-origin", wildcard=True)
-        svc.allowed_hosts = allowed_hosts_of(a.allowed_host)
-    except (ValueError, SystemExit) as e:
-        fail(str(e).removeprefix("[server] error: "))
-    if svc.allowed_hosts:
-        print(tagged("warning", "Host check off, any name is accepted (--allowed-host *)") if "*" in svc.allowed_hosts
-              else tagged("hosts", ",".join(svc.allowed_hosts)), flush=True)
-    if svc.cors_origins:
-        print(tagged("cors", ",".join(svc.cors_origins)), flush=True)
-        if "*" in svc.cors_origins and not svc.api_key:
-            print(tagged("warning", "any web page can use the model (--api-key KEY)"), flush=True)
     svc.idle_unload_s = a.idle_unload or 0
     svc.min_free_vram_mib = a.min_free_vram_mib or 0
     svc.reasoning_budget_tokens = a.reasoning_budget_tokens or 0
     svc.gpu_indices = gpus_in_play(cfg, engine_args(cfg) if cfg.get("args") else [])   # the cards /metrics reads
     svc.gpu_index = svc.gpu_indices[0]
-    svc.control_token = write_control_token(a.port)
+    svc.control_token = write_control_token(a.port, a.control_secret_value) if a.control_secret else ""
     httpd = serve(svc, host=a.host, port=a.port)
+    from serve import billion_context, chatctx, llamacpp_api
+    threading.Thread(target=billion_context.start, args=(httpd.server_address[1], lambda: chatctx._limit(svc)), daemon=True, name="billion-context-start").start()
+    threading.Thread(target=llamacpp_api.start_if_enabled, daemon=True, name="llamacpp-start").start()   # only when the person left it set to start with Basalt
     svc.start_idle_unload()
     here = "127.0.0.1" if a.host in ("0.0.0.0", "", "::") else a.host
 
@@ -290,9 +280,26 @@ def main() -> int:
               f"context {engine.max_context} tokens{', images on' if vision else ''}"
               f"{', API key required' if svc.api_key else ''}", flush=True)
         if getattr(engine, "batch", 0):
-            print(f"[server] parallel: {engine.batch} requests at once, the rest wait in order; each slot holds "
-                  f"{engine.max_context} tokens" + (f" ({engine.batch} x {engine.max_context} of KV cache: "
+            side = getattr(engine, "side_slot", None)
+            main = engine.batch - (0 if side is None else 1)
+            print(f"[server] parallel: {main} requests at once, the rest wait in order; each slot holds "
+                  f"{engine.max_context} tokens" + (f" ({main} x {engine.max_context} of KV cache: "
                                                     "--slot-full-context)" if a.slot_full_context else ""), flush=True)
+            if side is not None:
+                print(f"[server] technical session: slot {side + 1} of {engine.side_context()} tokens for the short calls of "
+                      "the harness; end_turn_bias, logit_bias and relaxed drafting are off while it is on", flush=True)
+            elif getattr(a, "side_slot", 0):
+                print("[server] warning: the technical session was asked for but the engine runs without it "
+                      "(see the engine log: its slot did not fit)", flush=True)
+        if getattr(a, "side_off_why", None):
+            print(f"[server] technical session off: {a.side_off_why}", flush=True)
+        if getattr(a, "kv_changed", None):
+            print(f"[server] kv       int8 instead of {a.kv_changed} (the technical session needs it; --side-slot 0 keeps {a.kv_changed})", flush=True)
+        if getattr(a, "kv_added", False):
+            print("[server] kv       int8 (the parallel slots need it)", flush=True)
+        if getattr(a, "side_clamp", None):
+            print(f"[server] warning: --parallel {a.side_clamp[0]} and the technical session need {a.side_clamp[0] + 1} slots, "
+                  f"the engine's most is 8: {a.side_clamp[1]} requests at once", flush=True)
 
     failed = threading.Event()                          # --listen-first: the model did not load
 

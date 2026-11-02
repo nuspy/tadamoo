@@ -49,7 +49,7 @@ A config file is one JSON object with two optional blocks:
 ```
 
 - Keys are the flag names without the dashes (`_` works for `-`). Values are strings or numbers; a switch is `true`, and
-  `false` leaves it off. A repeatable option (`allowed-host`, `cors-origin`) takes a list.
+  `false` leaves it off. A repeatable option (`script`) takes a list.
 - `model` and `tokenizer` paths are relative to the config file.
 - **Precedence:** command line > config file > built-in defaults. The engine receives the config file's flags, then
   the command line's, and a flag given twice takes its last value.
@@ -93,9 +93,7 @@ Server options. Command line `--name`, config `server` block `"name"`.
 | `host` | address | `127.0.0.1` | The address to listen on. `127.0.0.1` is this machine only; `0.0.0.0` also serves the network. Never listen beyond `127.0.0.1` without `api-key`. |
 | `port` | integer | `7232` | The TCP port. |
 | `api-key` | string | none | Require this key on `/v1/*` (`Authorization: Bearer ...` or `x-api-key`). Command line only. Set it whenever `host` is not `127.0.0.1`. |
-| `allowed-host` | string, repeatable | none | Also answer to this `Host` name; `"*"` turns the check off. Needed when clients reach the server by a name other than its address. |
-| `cors-origin` | string, repeatable | none | Let web pages from this origin call `/v1/*`. |
-| `fit-max-tokens` | switch | off | Clamp a request's `max_tokens` to the context that remains instead of rejecting it with 400. |
+| `fit-max-tokens` | switch | on | Clamp a request's `max_tokens` to the context that remains instead of rejecting it with 400; `--no-fit-max-tokens` rejects it. |
 | `open` | switch | off | Open the local web page in the browser once the model is ready. |
 | `lazy` | switch | off | Start the text-only API unloaded and load the model on the first request. Turns vision off. |
 | `idle-unload` | seconds | off | Unload the model after this long without requests; the next request loads it again. Frees VRAM for other programs. |
@@ -146,7 +144,7 @@ The model's experts live in VRAM (the expert cache), in RAM, or in the file. The
 | `expert-profile-save` | engine | file path | off | Save what the adaptive tier learned (experts in VRAM and routing counts) to this file on exit and periodically. `tools/convert/convert.py --profile` reads it. |
 | `expert-profile-save-every` | engine | minutes | 10 (`0` = on exit only) | How often the profile is saved. |
 | `vram-elastic` | engine | switch | off | Hold the expert cache in segments so `POST /v1/vram` can lend VRAM to other programs between requests. Works with `resident-experts`: a shrink first copies the experts it gives back into RAM, so none is read from the file, and is refused (nothing changed) when the RAM above the floor cannot hold them; a grow frees those copies. |
-| `release-vram-commit` | engine | switch | off | Windows: give back the system commit WDDM charges for the GPU memory (see [WINDOWS.md](WINDOWS.md#the-commit-of-the-gpu-memory)). If another program then pushes the engine's VRAM out, the engine can hang. |
+| `keep-vram-commit` | engine | switch | off | Windows: keep the system commit WDDM charges for the GPU memory. Off, the engine gives that commit back once the model is loaded (see [WINDOWS.md](WINDOWS.md#the-commit-of-the-gpu-memory)); if another program then pushes the engine's VRAM out, the engine can hang. |
 | `expert-cache` | engine | `auto`, or an integer count of expert blobs | `auto` (on packs with an expert profile) | Keep this many expert blobs in VRAM and compute their rows on the GPU. `auto` takes as many as fit in the VRAM left after the weights, the session and `vram-reserve-mib`. |
 | `adapt-swaps` | engine | integer | 96 (`0` = off) | Most experts one adaptive round swaps into the main GPU. `0` turns the swaps off. |
 | `peer-adapt-swaps` | engine | integer | the value of `adapt-swaps` | Peer card cache swaps per adaptation step. Only with a peer card. |
@@ -191,7 +189,11 @@ plain decoding would give.
 | --- | --- | --- | --- | --- |
 | `parallel` | server | integer 1..8 | 1 | Serve N requests at once in batch slots; further requests wait their turn. `max-context` is shared: each slot holds `max-context / N` tokens. The slots' KV cache comes out of the expert cache. Sets the engine's `batch`. |
 | `slot-full-context` | server | switch | off | With `parallel`, give every slot the whole `max-context` instead of an equal share. Costs N times the KV cache. |
+| `side-slot` | server | `0` or tokens from 4096 (`true`: 30000) | 30000 | The technical session (`0`: off): one more slot of that many tokens for the harness's short calls (a request with `cache_slot: "side"`), so they never wait behind a conversation or overwrite its cache. Sets the engine's `batch` to `parallel + 1` (at most 8 in all) and `side-context` to this value. Costs the KV cache and state of that many tokens; while it is on `end_turn_bias`, `logit_bias` and relaxed drafting are unavailable. Left off, with the reason in the log, when the setup cannot hold it. See [running](../running.md#the-technical-session---side-slot-tokens). |
+| `control-secret` | server | switch | off | Ask for a secret on the changes made through `/api/*` and `/api/control/*`; the page receives it as a cookie, programs send it in `X-Basalt-Control`. The Loader sets it (Server group) and saves it in this file. |
+| `control-secret-value` | server | text, letters, digits and signs, up to 200 | empty | With `control-secret`, the text used as the secret instead of a random one made at each start. Kept in this file as written; the Loader never shows it again. |
 | `batch` / `slots` | engine | integer 2..8 | off | The engine flag `parallel` sets. Use `parallel`; setting both is an error. |
+| `side-context` | engine | integer tokens | 0 (off) | The engine flag `side-slot` sets: the last `batch` slot holds this many tokens (at most `max-context`) and keeps no conversation checkpoints. Use `side-slot`; setting both is an error. |
 
 ## Conversation cache
 

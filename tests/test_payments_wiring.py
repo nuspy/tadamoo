@@ -79,7 +79,7 @@ def test_over_the_cap_the_person_is_asked_and_a_no_stops_it(tmp_path):
     session, ev, built = session_for(tmp_path, client)
     session.send("m1", "paga")
     ask = ev.wait("ask")
-    assert ask["kind"] == "payment" and ask["facts"]["amount"] == "30.00 EUR" and [o["value"] for o in ask["options"]] == ["confirm", "cancel"]
+    assert ask["kind"] == "payment" and ask["facts"]["amount"] == "30.00 EUR" and [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "cancel"]
     assert session.answer(ask["id"], "cancel")
     assert ev.wait("done")["final"] == "non pagato"
     assert "refused" in json.dumps(client.sent[1]).lower()

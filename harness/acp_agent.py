@@ -10,30 +10,39 @@ The agent is built the way the command line builds it (harness/stack.py): it tak
 this PC, browser, language servers, vault and payments, hooks...), and the `mcpServers` the editor sends with `session/new` are
 connected for that session.
 
-Not offered: `session/load`, authentication, image/audio input and delegating file access to the
-editor (`fs/*`); the agent edits the files itself and reports each edit as a diff.
+A conversation is saved after each prompt, so `session/load` brings it back: the agent replays it as updates and goes on from there.
+When the editor offers `fs/read_text_file` and `fs/write_text_file`, the file tools read and write through it (so unsaved text is
+seen and an edit goes through the editor's own undo); every edit is also reported as a diff. When the server wants a key and the
+agent has none, `initialize` offers an `authenticate` method and `session/new` is refused until the key is accepted.
+
+Not offered: image/audio input and the editor's terminals (`terminal/*`).
 """
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import threading
+import urllib.error
+import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TextIO
 
 from harness import agent_loop as al
 from harness.client import BasaltClient
-from harness.stack import AgentConfig, BuiltAgent, add_agent_arguments, agent_settings, build_agent
+from harness.replay import infer_decision
+from harness.session import SessionStore
+from harness.stack import AgentConfig, BuiltAgent, add_agent_arguments, agent_settings, build_agent, data_dir_for
 from harness.tools.registry import clock_paused
 
 PROTOCOL_VERSION = 1
 STOP_REASONS = {al.FINAL: "end_turn", al.MAX_TURNS: "max_turn_requests", al.CANCELLED: "cancelled", al.BUDGET: "max_tokens",
-                al.LOOP: "end_turn"}
-KINDS = {"read_file": "read", "list_directory": "read", "write_file": "edit", "edit_file": "edit",
+                al.LOOP: "end_turn", al.LENGTH: "max_tokens", al.EMPTY: "end_turn", al.DEGENERATE: "end_turn"}
+KINDS = {"read_file": "read", "list_directory": "read", "tree": "read", "search_code": "search", "write_file": "edit", "edit_file": "edit",
          "shell_command": "execute", "search_web": "fetch", "browse_url": "fetch", "mcp_search": "search",
-         "mcp_call": "other", "phone_call": "other", "request_payment": "other", "present_plan": "think"}
+         "mcp_call": "other", "mcp_read": "fetch", "read_capability": "fetch", "phone_call": "other", "request_payment": "other", "present_plan": "think"}
 MODES = [
     {"id": "default", "name": "Default", "description": "Edits in the workspace are allowed; the rest asks"},
     {"id": "plan", "name": "Plan", "description": "Read only: nothing is changed or run until you approve a plan"},
@@ -41,6 +50,16 @@ MODES = [
     {"id": "auto", "name": "Auto", "description": "Runs without asking, except where untrusted input meets sensitive data"},
 ]
 INVALID_PARAMS, METHOD_NOT_FOUND, INVALID_REQUEST, PARSE_ERROR, SERVER_ERROR = -32602, -32601, -32600, -32700, -32000
+AUTH_REQUIRED = -32000
+AUTH_METHOD = {"id": "basalt_api_key", "name": "Basalt API key",
+               "description": "The Basalt server wants an API key. Start this agent with BASALT_API_KEY set (or --api-key), then authenticate."}
+SESSION_ID = re.compile(r"acp_[0-9a-f]{12}")
+SESSIONS_FOLDER = "acp_sessions"
+REPLAY_OUTPUT = 4000
+
+
+class _AuthRequired(Exception):
+    """The server wants an API key that this agent has not been given."""
 
 
 class _Session:
@@ -50,6 +69,9 @@ class _Session:
         self.built = built
         self.busy = threading.Lock()
         self.current_call: Optional[Dict[str, Any]] = None
+        self.store: Optional[SessionStore] = None
+        self.prompts = 0
+        self.mode = "default"
 
 
 class ACPAgentServer:
@@ -73,6 +95,7 @@ class ACPAgentServer:
         self.out_stream = out_stream or sys.stdout
         self.sessions: Dict[str, _Session] = {}
         self.client_capabilities: Dict[str, Any] = {}
+        self.key_needed = False                       # the server wants a key this agent does not have, until `authenticate` succeeds
         self.running = False
         self._out_lock = threading.Lock()
         self._next_id = 0
@@ -130,22 +153,32 @@ class ACPAgentServer:
                     session.built.cancel.set()
             elif method == "initialize":
                 self.client_capabilities = params.get("clientCapabilities") or {}
+                self.key_needed = self._server_wants_key()
                 self._reply(req_id, {
                     "protocolVersion": PROTOCOL_VERSION,
-                    "agentCapabilities": {"loadSession": False,
+                    "agentCapabilities": {"loadSession": True,
                                           "promptCapabilities": {"image": False, "audio": False, "embeddedContext": True},
                                           "mcpCapabilities": {"http": True, "sse": False}},
-                    "authMethods": [],
+                    "authMethods": [AUTH_METHOD] if self.key_needed else [],
                     "agentInfo": {"name": "basalt", "title": "Basalt Agent", "version": "1.0"},
                 })
+            elif method == "authenticate":
+                self._reply(req_id, self._authenticate(params))
             elif method == "session/new":
+                self._need_key()
                 self._reply(req_id, self._new_session(params))
+            elif method == "session/load":
+                self._need_key()
+                self._reply(req_id, self._load_session(params))
             elif method == "session/set_mode":
                 self._reply(req_id, self._set_mode(params))
             elif method == "session/prompt":
                 self._start_prompt(req_id, params)
             elif req_id is not None:
                 self._reply(req_id, error={"code": METHOD_NOT_FOUND, "message": f"Method not found: {method}"})
+        except _AuthRequired as exc:
+            if req_id is not None:
+                self._reply(req_id, error={"code": AUTH_REQUIRED, "message": str(exc), "data": {"authRequired": True}})
         except ValueError as exc:
             if req_id is not None:
                 self._reply(req_id, error={"code": INVALID_PARAMS, "message": str(exc)})
@@ -153,7 +186,45 @@ class ACPAgentServer:
             if req_id is not None:
                 self._reply(req_id, error={"code": SERVER_ERROR, "message": f"{type(exc).__name__}: {exc}"})
 
-    def _new_session(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    # -- the key of the server ---------------------------------------------------------------------
+
+    def _status(self, key: Optional[str]) -> Optional[int]:
+        """The HTTP status of the server's status page with `key`; None if it cannot be reached."""
+        req = urllib.request.Request(self.endpoint.rstrip("/") + "/v1/status", headers={"Authorization": f"Bearer {key}"} if key else {})
+        try:
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
+                return resp.status
+        except urllib.error.HTTPError as exc:
+            return exc.code
+        except (urllib.error.URLError, OSError, ValueError):
+            return None
+
+    def _server_wants_key(self) -> bool:
+        """True when this agent talks to the server itself, has no key, and the server refuses a request without one."""
+        return self.client is None and not self.api_key and self._status(None) in (401, 403)
+
+    def _need_key(self) -> None:
+        if self.key_needed:
+            raise _AuthRequired("Authentication required: the Basalt server wants an API key. Start this agent with BASALT_API_KEY set, then authenticate.")
+
+    def _authenticate(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        if params.get("methodId") != AUTH_METHOD["id"]:
+            raise ValueError("unknown authentication method")
+        status = self._status(self.api_key)
+        if status is None:
+            raise RuntimeError(f"cannot reach the Basalt server at {self.endpoint}")
+        if not self.api_key or status in (401, 403):
+            raise _AuthRequired("The Basalt server did not accept the API key (BASALT_API_KEY is not set or is wrong).")
+        self.key_needed = False
+        return {}
+
+    # -- the sessions ------------------------------------------------------------------------------
+
+    def _history_dir(self, session_id: str) -> Path:
+        root = Path(self.data_dir) if self.data_dir else data_dir_for(Path(self.workspace_dir).resolve())
+        return root / SESSIONS_FOLDER / session_id
+
+    def _check_new(self, params: Dict[str, Any]) -> "tuple[str, List[Any]]":
         cwd = params.get("cwd") or self.workspace_dir
         if not isinstance(cwd, str) or not Path(cwd).is_absolute() and cwd != self.workspace_dir:
             raise ValueError("cwd must be an absolute path")
@@ -162,13 +233,25 @@ class ACPAgentServer:
         servers = params.get("mcpServers") or []
         if not isinstance(servers, list):
             raise ValueError("mcpServers must be a list")
-        session_id = f"acp_{uuid.uuid4().hex[:12]}"
+        return cwd, servers
+
+    def _new_session(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        cwd, servers = self._check_new(params)
+        session = self._build_session(f"acp_{uuid.uuid4().hex[:12]}", cwd, servers)
+        return {"sessionId": session.id, "modes": self._modes(session)}
+
+    def _modes(self, session: _Session) -> Dict[str, Any]:
+        return {"currentModeId": session.mode if session.mode in {m["id"] for m in MODES} else "default", "availableModes": MODES}
+
+    def _build_session(self, session_id: str, cwd: str, servers: List[Any]) -> _Session:
         holder: List[_Session] = []
         settings = {**self.settings, "workspace": cwd, "endpoint": self.endpoint, "api_key": self.api_key, "max_turns": self.max_turns}
         cfg = AgentConfig(**settings, data_dir=self.data_dir, mcp_servers=servers,
                           confirm=lambda tool, args: self._confirm(holder[0], tool, args))
         built = build_agent(cfg, client=self.client)
         session = _Session(session_id, cwd, built)
+        session.mode = cfg.permission_mode
+        session.store = SessionStore(self._history_dir(session_id), redact=built.agent.secrets.mask_secrets if built.agent.secrets else None)
         holder.append(session)
         built.agent.on_event = lambda event: self._on_event(session, event)
         if built.payment_confirm is not None:
@@ -177,9 +260,84 @@ class ACPAgentServer:
             built.plan_gate.ask = lambda plan, modes, outside: self._ask_plan(session, plan, modes, outside)
         for name, why in built.mcp_errors.items():
             print(f"MCP server '{name}' could not be used: {why}", file=sys.stderr, flush=True)
+        fs = self.client_capabilities.get("fs") if isinstance(self.client_capabilities.get("fs"), dict) else {}
+        if fs.get("readTextFile") is True:
+            built.sandbox.read_through = lambda path: self._editor_read(session, path)
+        if fs.get("writeTextFile") is True:
+            built.sandbox.write_through = lambda path, text: self._editor_write(session, path, text)
         self.sessions[session_id] = session
-        mode = cfg.permission_mode if cfg.permission_mode in {m["id"] for m in MODES} else "default"
-        return {"sessionId": session_id, "modes": {"currentModeId": mode, "availableModes": MODES}}
+        return session
+
+    def _load_session(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """`session/load`: the saved conversation comes back, replayed to the editor as updates, and the agent goes on from it."""
+        session_id = params.get("sessionId")
+        if not isinstance(session_id, str) or not SESSION_ID.fullmatch(session_id):
+            raise ValueError("unknown sessionId")
+        folder = self._history_dir(session_id)
+        if not (folder / "history.json").is_file():
+            raise ValueError("unknown sessionId")
+        cwd, servers = self._check_new(params)
+        session = self.sessions.get(session_id)
+        if session is None:
+            session = self._build_session(session_id, cwd, servers)
+            data = session.store.load() if session.store else None
+            if data:
+                session.built.agent.messages = [session.built.agent.messages[0], *data["messages"]]
+        self._replay(session)
+        return {"modes": self._modes(session)}
+
+    @staticmethod
+    def _unwrapped(text: str) -> str:
+        """What the person wrote, from the request as the model saw it."""
+        if text.startswith("<request>\n") and "\n</request>" in text:
+            return text[len("<request>\n"):text.index("\n</request>")]
+        return text
+
+    def _replay(self, session: _Session) -> None:
+        tools: Dict[str, str] = {}
+        for m in session.built.agent.messages[1:]:
+            if not isinstance(m, dict) or m.get("note") or m.get("summary"):
+                continue
+            role, text = m.get("role"), m.get("content") if isinstance(m.get("content"), str) else ""
+            if role == "user" and text:
+                self._update(session.id, {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": self._unwrapped(text)}})
+            elif role == "assistant":
+                if m.get("reasoning_content"):
+                    self._update(session.id, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": str(m["reasoning_content"])}})
+                if text:
+                    self._update(session.id, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
+                for c in m.get("tool_calls") or []:
+                    fn = c.get("function") or {}
+                    try:
+                        args = json.loads(fn.get("arguments") or "{}")
+                    except ValueError:
+                        args = {}
+                    args = args if isinstance(args, dict) else {}
+                    tools[c.get("id", "")] = fn.get("name", "")
+                    self._update(session.id, {"sessionUpdate": "tool_call", "toolCallId": c.get("id", ""), "title": f"{fn.get('name', '')} {str(args.get('command') or args.get('path') or args.get('query') or '')[:80]}".strip(),
+                                              "kind": KINDS.get(fn.get("name", ""), "other"), "status": "pending", "rawInput": args, "locations": self._location(session, args)})
+            elif role == "tool":
+                failed = infer_decision(text) != "executed"
+                self._update(session.id, {"sessionUpdate": "tool_call_update", "toolCallId": m.get("tool_call_id", ""), "status": "failed" if failed else "completed",
+                                          "content": [{"type": "content", "content": {"type": "text", "text": text[:REPLAY_OUTPUT]}}]})
+
+    def _save(self, session: _Session) -> None:
+        """The conversation after each prompt, for `session/load`."""
+        if session.store is None:
+            return
+        session.store.save(session.built.agent.messages[1:], {"session": session.id, "cwd": session.cwd, "turns": session.prompts})
+
+    # -- the editor holds the files ------------------------------------------------------------------
+
+    def _editor_read(self, session: _Session, path: Path) -> Optional[str]:
+        """A file's text as the editor has it, unsaved changes included; None when the editor does not know it."""
+        result = self._ask_client("fs/read_text_file", {"sessionId": session.id, "path": str(path)}, session)
+        content = (result or {}).get("content")
+        return content if isinstance(content, str) else None
+
+    def _editor_write(self, session: _Session, path: Path, text: str) -> None:
+        if self._ask_client("fs/write_text_file", {"sessionId": session.id, "path": str(path), "content": text}, session) is None:
+            raise OSError(f"the editor did not write {path}")
 
     def _set_mode(self, params: Dict[str, Any]) -> Dict[str, Any]:
         session = self.sessions.get(params.get("sessionId"))
@@ -187,6 +345,7 @@ class ACPAgentServer:
         if session is None or mode not in {m["id"] for m in MODES}:
             raise ValueError("unknown session or mode")
         session.built.set_mode(mode)
+        session.mode = mode
         self._update(session.id, {"sessionUpdate": "current_mode_update", "currentModeId": mode})
         return {}
 
@@ -231,13 +390,19 @@ class ACPAgentServer:
     def _run_prompt(self, req_id: Any, session: _Session, text: str) -> None:
         try:
             agent = session.built.agent
-            agent.run(text, retrieved=session.built.retrieved_message(text))
+            try:
+                agent.run(text, retrieved=session.built.retrieved_message(text))
+            finally:
+                session.prompts += 1
+                self._save(session)                         # before the answer, so a `session/load` right after it finds this prompt
             reason = agent.stop_reason
             if reason == al.ERROR:
                 return self._reply(req_id, error={"code": SERVER_ERROR, "message": agent.error or "the model request failed"})
             if reason == al.LOOP:
                 self._update(session.id, {"sessionUpdate": "agent_message_chunk", "content": {
                     "type": "text", "text": "\n\n[Stopped: the same action kept repeating.]"}})
+            elif reason in (al.LENGTH, al.EMPTY, al.DEGENERATE):
+                self._update(session.id, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"\n\n[{agent.error}]"}})
             self._reply(req_id, {"stopReason": STOP_REASONS.get(reason, "end_turn")})
         except Exception as exc:
             self._reply(req_id, error={"code": SERVER_ERROR, "message": f"{type(exc).__name__}: {exc}"})

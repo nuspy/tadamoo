@@ -19,6 +19,8 @@
   const btn = (text, cls, fn) => { const b = h("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = fn; return b; };
   const label = (key, prefix) => { const t = T(prefix + key); return t === prefix + key ? key : t; };
   const when = ts => new Date(ts * 1000).toLocaleDateString(LANG === "it" ? "it-IT" : "en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const ends = w => w.expires_at ? T("wl.until", when(w.expires_at)) : T("wl.until.none");
+  const stopLine = (name, w) => w.no_cumulative_cap ? T("wl.stop.line.nocap", name, w.per_payment, w.spent, ends(w)) : T("wl.stop.line", name, w.per_payment, w.cumulative, w.spent, w.remaining, ends(w));
 
   async function call(method, path, payload) {
     try {
@@ -64,7 +66,7 @@
     const on = (data.systems || []).filter(s => s.waiver);
     if (!on.length) return null;
     const box = h("section", "sec wl-sec wl-on", h("div", "sh", h("b", "", T("wl.stop.t"))));
-    const body = h("div", "wl-body", on.map(s => h("p", "", T("wl.stop.line", s.name, s.waiver.per_payment, s.waiver.cumulative, s.waiver.spent, s.waiver.remaining, when(s.waiver.expires_at)))));
+    const body = h("div", "wl-body", on.map(s => h("p", "", stopLine(s.name, s.waiver))));
     body.append(btn(T("wl.stop.btn"), "primary", async () => {
       const r = await call("POST", "api/wallet/revoke", {});
       if (r.ok) { say(T("wl.stopped")); await load(); } else say(why(r), true);
@@ -97,7 +99,7 @@
     const lines = [];
     const order = data.kinds[en.kind] || [], rank = n => (order.includes(n) ? order.indexOf(n) : order.length);
     lines.push(h("ul", "wl-chips", Object.entries(en.fields).sort((a, b) => rank(a[0]) - rank(b[0])).map(([n, hint]) => h("li", "", label(n, "wl.field."), hint === "set" ? "" : ` ${hint}`))));
-    const sites = en.hosts.length ? en.hosts.join(", ") : T("wl.local");
+    const sites = en.hosts.includes("*") || !en.hosts.length ? T("wl.anywhere") : en.hosts.join(", ");
     const facts = [`${T("wl.hosts")}: ${sites}`];
     if (en.kind === "login") facts.push(`${T("wl.sf")}: ${T("wl.sf." + (en.second_factor || "none"))}`);
     if (en.kind === "card") facts.push(`${T("wl.cardkind." + en.card_kind)}${en.currency ? " · " + en.currency : ""}`, T(en.guard ? "wl.guard.on" : "wl.guard.off"));
@@ -174,7 +176,10 @@
       form.append(fs);
     }
     hosts = h("textarea"); hosts.rows = 3; hosts.spellcheck = false; hosts.value = e.hosts !== undefined ? e.hosts : (en.hosts || []).join("\n");
-    form.append(field(T("wl.hosts"), hosts, T("wl.hosts.help")));
+    const anywhere = h("input"); anywhere.type = "checkbox"; anywhere.checked = String(hosts.value).split(/[\s,]+/).includes("*") || !String(hosts.value).trim();
+    const lock = () => { hosts.disabled = anywhere.checked; };
+    anywhere.onchange = lock; lock();
+    form.append(h("label", "check", anywhere, h("span", "", T("wl.anywhere.use"))), field(T("wl.hosts"), hosts, T("wl.hosts.help")));
     const out = h("p", "wl-msg", ""); out.setAttribute("role", "alert");
     const save = h("button", "btn primary", T("wl.save")); save.type = "submit";
     form.append(out, h("div", "wl-actions", save, btn(T("wl.cancel"), "ghost", () => { editing = null; draw(); })));
@@ -183,7 +188,7 @@
       const fields = {};
       Object.entries(inputs).forEach(([n, i]) => { if (removes[n] && removes[n].checked) fields[n] = ""; else if (i.value) fields[n] = i.value; });
       if (extra && extra[0].value.trim()) fields[extra[0].value.trim()] = extra[1].value;
-      const body = { id: id.value.trim(), kind: e.kind, label: lab.value.trim(), fields, hosts: hosts.value };
+      const body = { id: id.value.trim(), kind: e.kind, label: lab.value.trim(), fields, hosts: anywhere.checked ? "*" : hosts.value };
       if (e.kind === "card") Object.assign(body, { card_kind: cardKind.value, currency: currency.value.trim(), guard: guard.checked });
       if (e.kind === "login") body.second_factor = second;
       const was = new Set(entryRisks(en).map(r => r[0]));
@@ -262,7 +267,7 @@
   /* ---- the payment systems ---- */
   function systemCard(s) {
     const w = s.waiver;
-    const status = w ? T("wl.sys.auto", w.per_payment, w.cumulative, w.spent, w.remaining, when(w.expires_at)) : T("wl.sys.manual");
+    const status = w ? (w.no_cumulative_cap ? T("wl.sys.auto.nocap", w.per_payment, w.spent, ends(w)) : T("wl.sys.auto", w.per_payment, w.cumulative, w.spent, w.remaining, ends(w))) : T("wl.sys.manual");
     const actions = h("div", "wl-actions");
     actions.append(btn(T("wl.sys.go"), w ? "ghost" : "primary", () => openWizard(s)));
     if (w) actions.append(btn(T("wl.sys.stop"), "", async () => {
@@ -323,18 +328,22 @@
     const on = h("input"); on.type = "checkbox"; on.id = "wl-br-on"; on.checked = b.enabled; on.disabled = !b.found;
     const hide = h("input"); hide.type = "checkbox"; hide.id = "wl-br-hide"; hide.checked = b.headless; hide.disabled = !b.found;
     const save = async () => {
-      const r = await call("POST", "api/wallet/browser", { enabled: on.checked, headless: hide.checked, private: priv.checked, persistent: keep.checked });
+      const r = await call("POST", "api/wallet/browser", { enabled: on.checked, headless: hide.checked, private: priv.checked, persistent: keep.checked, consent: consent.value, permissions: perms.value });
       if (r.ok) { data.browser = r.data.browser; say(T("wl.saved")); draw(); } else say(why(r), true);
     };
     const priv = h("input"); priv.type = "checkbox"; priv.id = "wl-br-priv"; priv.checked = !!b.private; priv.disabled = !b.found;
     const keep = h("input"); keep.type = "checkbox"; keep.id = "wl-br-keep"; keep.checked = !!b.persistent; keep.disabled = !b.found;
+    const pick = (id, key, values, current) => { const s = select(values.map(v => [v, T("wl.br." + key + "." + v)]), current, !b.found); s.id = id; s.onchange = save; return s; };
+    const consent = pick("wl-br-consent", "consent", ["follow", "necessary", "accept", "reject", "off"], b.consent || "follow");
+    const perms = pick("wl-br-perm", "perm", ["follow", "ask", "grant", "grant-safe", "deny"], b.permissions || "follow");
+    const policy = (input, key) => { const l = h("label", "", T("wl.br." + key)); l.htmlFor = input.id; return h("div", "wl-pick", l, input, h("p", "help", T("wl.br." + key + ".help"))); };
     keep.onchange = async () => { if (keep.checked && !(await riskConfirm([T("wl.risk.persist")]))) { keep.checked = false; return; } save(); };
     on.onchange = save; hide.onchange = save;
     priv.onchange = async () => { if (priv.checked && !(await riskConfirm([T("wl.risk.private")]))) { priv.checked = false; return; } save(); };
     const row = (input, text) => { const l = h("label", "wl-rm", input, h("span", "", text)); l.htmlFor = input.id; return l; };
     return h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.br"))), h("div", "wl-body", h("p", "help", T("wl.br.help")),
       b.found ? null : h("p", "wl-note", T("wl.br.none")), row(on, T("wl.br.on")), row(hide, T("wl.br.hide")), row(priv, T("wl.br.private")),
-      ...(b.private ? [riskLabel(T("wl.risk.private"))] : []), row(keep, T("wl.br.keep")), ...(b.persistent ? [riskLabel(T("wl.risk.persist"))] : []),
+      ...(b.private ? [riskLabel(T("wl.risk.private"))] : []), row(keep, T("wl.br.keep")), policy(consent, "consent"), policy(perms, "perm"), ...(b.persistent ? [riskLabel(T("wl.risk.persist"))] : []),
       ...(b.persistent ? [h("p", "help", T("wl.br.signin.help")), h("div", "wl-actions", btn(T("wl.br.signin"), "", async () => {
         const r = await call("POST", "api/wallet/browser/signin", {});
         say(r.ok ? T("wl.br.opened") : why(r), !r.ok);
@@ -342,6 +351,62 @@
         const r = await call("POST", "api/wallet/browser/forget", {});
         say(r.ok ? T("wl.br.forgot") : why(r), !r.ok);
       }))] : []), h("p", "help", T("wl.br.next"))));
+  }
+
+  /* ---- how strict the Rule of Two is ---- */
+  function twoSection() {
+    const cur = data.rule_of_two;
+    if (!cur) return null;
+    const order = ["strict", "ask", "off"];
+    const s = select(order.map(v => [v, T("wl.two." + v)]), cur.level, false);
+    s.id = "wl-two";
+    s.onchange = async () => {
+      const lower = order.indexOf(s.value) > order.indexOf(cur.level);
+      if (lower && !(await riskConfirm([T("wl.two.risk." + s.value)]))) { s.value = cur.level; return; }
+      const r = await call("POST", "api/wallet/rule-of-two", { level: s.value });
+      if (r.ok) { data.rule_of_two = r.data.rule_of_two; say(T("wl.saved")); draw(); } else { say(why(r), true); s.value = cur.level; }
+    };
+    const l = h("label", "", T("wl.two.label")); l.htmlFor = "wl-two";
+    return h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.two"))), h("div", "wl-body", h("p", "help", T("wl.two.help")),
+      h("div", "wl-pick", l, s, h("p", "help", T("wl.two." + cur.level + ".help"))), ...(cur.level === "off" ? [riskLabel(T("wl.two.risk.off"))] : []),
+      h("p", "help", T("wl.two.next"))));
+  }
+
+  /* ---- how freely the code the model writes runs ---- */
+  function execSection() {
+    const cur = data.exec_level;
+    if (!cur) return null;
+    const order = ["contained", "free", "admin"];
+    const s = select(order.map(v => [v, T("wl.ex." + v)]), cur.level, false);
+    s.id = "wl-exec";
+    s.onchange = async () => {
+      const wider = order.indexOf(s.value) > order.indexOf(cur.level);
+      if (wider && !(await riskConfirm([T("wl.ex.risk." + s.value)]))) { s.value = cur.level; return; }
+      const r = await call("POST", "api/wallet/exec-level", { level: s.value });
+      if (r.ok) { data.exec_level = r.data.exec_level; say(T("wl.saved")); draw(); } else { say(why(r), true); s.value = cur.level; }
+    };
+    const l = h("label", "", T("wl.ex.label")); l.htmlFor = "wl-exec";
+    return h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.ex"))), h("div", "wl-body", h("p", "help", T("wl.ex.help")),
+      h("div", "wl-pick", l, s, h("p", "help", T("wl.ex." + cur.level + ".help"))), ...(cur.level !== "contained" ? [riskLabel(T("wl.ex.risk." + cur.level))] : []),
+      ...(cur.level === "admin" ? [h("p", cur.elevated ? "help" : "wl-note", T(cur.elevated ? "wl.ex.elevated" : "wl.ex.notelevated"))] : []),
+      h("p", "help", T("wl.ex.next"))));
+  }
+
+  /* ---- what is allowed for every conversation ---- */
+  function allowSection() {
+    const rules = data.allow_rules;
+    if (!rules) return null;
+    const input = h("input"); input.type = "text"; input.id = "wl-allow-new"; input.spellcheck = false; input.placeholder = "shell_command:pytest *";
+    const l = h("label", "", T("wl.allow.add")); l.htmlFor = input.id;
+    const send = async (action, rule) => {
+      const r = await call("POST", "api/wallet/allow-rules", { action, rule });
+      if (r.ok) { data.allow_rules = r.data.allow_rules; say(T("wl.saved")); draw(); } else say(why(r), true);
+    };
+    const rows = rules.map(rule => h("li", "wl-rule", h("code", "", rule), btn(T("wl.allow.remove"), "ghost", () => send("remove", rule))));
+    return h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.allow"))), h("div", "wl-body", h("p", "help", T("wl.allow.help")),
+      rows.length ? h("ul", "wl-rules", rows) : h("p", "help", T("wl.allow.none")),
+      h("div", "wl-pick", l, input, btn(T("wl.allow.addbtn"), "primary", () => { if (input.value.trim()) send("add", input.value); })),
+      h("p", "help", T("wl.allow.next"))));
   }
 
   /* ---- the history ---- */
@@ -358,7 +423,7 @@
   /* ---- automatic payments: the three dialogs, in order ---- */
   const norm = t => t.replace(/[’‘]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, " ").trim().toLowerCase();
   function openWizard(system) {
-    wizard = { step: 1, system, name: "", per: "", cum: "", days: "30", sites: "", typed: "", pasted: false, intervals: [], last: 0, phrase: "", seen2: false, seen3: false, ack2: false, ack3: false, n2: "", n3: "", error: "", timer: 0 };
+    wizard = { step: 1, system, name: "", per: "", cum: "", days: "", sites: "", typed: "", pasted: false, intervals: [], last: 0, phrase: "", seen2: false, seen3: false, ack2: false, ack3: false, n2: "", n3: "", error: "", timer: 0 };
     drawWizard();
     if (!dlg.open) dlg.showModal();
   }
@@ -407,8 +472,8 @@
       const copy = btn(T("wl.w.copy"), "ghost", async () => {
         try { await navigator.clipboard.writeText(w.phrase); copy.textContent = T("wl.w.copied"); } catch (e) { const r = document.createRange(); r.selectNodeContents(dlg.querySelector(".wl-phrase")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
       });
-      body.append(field(T("wl.w.name"), name), field(T("wl.w.per") + (w.system.currency ? ` (${w.system.currency})` : ""), per), field(T("wl.w.cum") + (w.system.currency ? ` (${w.system.currency})` : ""), cum),
-        field(T("wl.w.days"), days), field(T("wl.w.sites"), sites, T("wl.w.sites.help")), h("div", "field", h("b", "", T("wl.w.phrase")), h("p", "wl-phrase", T("wl.w.fill")), copy), field(T("wl.w.typed"), typed), h("p", "wl-mismatch dim", ""));
+      body.append(field(T("wl.w.name"), name), field(T("wl.w.per") + (w.system.currency ? ` (${w.system.currency})` : ""), per), field(T("wl.w.cum") + (w.system.currency ? ` (${w.system.currency})` : ""), cum, T("wl.w.cum.help")),
+        field(T("wl.w.days"), days, T("wl.w.days.help")), field(T("wl.w.sites"), sites, T("wl.w.sites.help")), h("div", "field", h("b", "", T("wl.w.phrase")), h("p", "wl-phrase", T("wl.w.fill")), copy), field(T("wl.w.typed"), typed), h("p", "wl-mismatch dim", ""));
       next.onclick = () => { w.step = 2; drawWizard(); };
     } else {
       const two = w.step === 2, key = two ? "2" : "3";
@@ -426,7 +491,7 @@
         next.onclick = async () => {
           next.disabled = true;
           const r = await call("POST", "api/wallet/grant", { system_id: w.system.id, user_name: w.name, typed_text: w.typed, per_payment: w.per, cumulative: w.cum,
-            read_to_end: w.seen2 && w.seen3, release_ack: w.ack2, retyped_names: { release: w.n2, acceptance: w.n3 }, pasted: w.pasted, ttl_days: Number(w.days) || 30,
+            read_to_end: w.seen2 && w.seen3, release_ack: w.ack2, retyped_names: { release: w.n2, acceptance: w.n3 }, pasted: w.pasted, ttl_days: Number(w.days) || 0,
             lang: LANG, typing_intervals_ms: w.intervals, sites: w.sites.split(/[\s,;]+/).filter(Boolean) });
           if (r.ok) { dlg.close(); say(T("wl.w.done", w.system.name)); wizard = null; await load(); }
           else { w.error = why(r); next.disabled = false; msg.textContent = w.error; }
@@ -452,7 +517,7 @@
   }
   function paintPop(on) {                                          // the detail behind the pill: the limits and the expiry of each system, as text
     pop.setAttribute("aria-label", T("wl.pill.panel"));
-    pop.replaceChildren(...on.map(s => h("p", "", T("wl.stop.line", s.name, s.waiver.per_payment, s.waiver.cumulative, s.waiver.spent, s.waiver.remaining, when(s.waiver.expires_at)))),
+    pop.replaceChildren(...on.map(s => h("p", "", stopLine(s.name, s.waiver))),
       h("div", "wl-actions", btn(T("wl.pill.open"), "primary", () => { closePop(false); view("wallet", true); }), btn(T("wl.pill.close"), "ghost", () => closePop(true))));
   }
   function paintPill() {                                          // while automatic payments are on, every screen says so; the pill opens the detail
@@ -480,7 +545,7 @@
     const n = h("p", "wl-note", note); n.hidden = !note; n.dataset.bad = noteBad ? "1" : "";
     const problems = (data.problems || []).map(p => h("p", "wl-note", p));
     problems.forEach(p => { p.dataset.bad = "1"; });
-    root.replaceChildren(...[banner(), h("div", "wl-top", h("p", "wl-lead", T("wl.lead")), n, ...problems), vaultSection(), paySection(), browserSection(), histSection()].filter(Boolean));
+    root.replaceChildren(...[banner(), h("div", "wl-top", h("p", "wl-lead", T("wl.lead")), n, ...problems), vaultSection(), paySection(), browserSection(), twoSection(), execSection(), allowSection(), histSection()].filter(Boolean));
   }
   const inField = () => { const a = document.activeElement; return !!a && root.contains(a) && a.matches("input, select, textarea"); };
   /* quiet: a periodic or view refresh. It redraws only when the data changed, and never while a field of the page has the focus (the next one does),

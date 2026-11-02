@@ -1,0 +1,30 @@
+/* Models > the engine tabs: one panel per engine, facts, install, load and stop. */
+.eng-all { margin-left: auto; min-height: 44px; min-width: 44px; }
+.eng-all[aria-pressed="true"] { border-color: var(--accent); color: var(--fg); }
+.subtab[data-incompatible="1"] { opacity: .75; border-style: dashed; }
+.eng-panel { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); padding: 0 0 24px; min-width: 0; }
+.eng-panel[hidden] { display: none; }
+.eng-title { margin: 0; font-size: 18px; }
+.eng-panel .setnote { padding: 0; font-size: 15px; }
+.eng-status { margin: 0; font-weight: 600; color: var(--err); overflow-wrap: anywhere; }
+.eng-status[data-ok="1"] { color: var(--fg); }
+.eng-note[data-bad="1"] { color: var(--warn); }
+.eng-facts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px 16px; margin: 0; padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.eng-facts dt { color: var(--fg-2); font-size: 14px; }
+.eng-facts dd { margin: 0 0 8px; overflow-wrap: anywhere; }
+.eng-actions .btn { min-height: 44px; min-width: 44px; }
+.eng-section { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); border: 1px solid var(--line); border-radius: 8px; background: var(--panel); min-width: 0; }
+.eng-sub { margin: 0; padding: 12px 16px 0; font-size: 16px; }
+.eng-section .fields { padding: 8px 16px; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }
+.eng-section .setnote { padding: 0 16px 12px; }
+.eng-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px; }
+.eng-bar { width: calc(100% - 32px); margin: 0 16px; height: 12px; }
+.eng-check { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.eng-check input { width: 24px; min-height: 24px; flex: none; }
+.eng-run[data-bad="1"] { color: var(--err); }
+.eng-run:empty { display: none; }
+.eng-section select, .eng-section input[type="text"], .eng-section input[type="number"] { min-height: 44px; }
+@media (min-width: 720px) {
+  .eng-facts { grid-template-columns: max-content minmax(0, 1fr); }
+  .eng-facts dd { margin: 0; }
+}

@@ -17,7 +17,7 @@ class ViewSubtabsTest(unittest.TestCase):
             self.assertIn(f'id="view-{name}"', HTML)
             self.assertIn(f'"{name}"', re.search(r"const VIEWS = \[([^\]]*)\]", APP).group(1))
             self.assertIn(f"aria-labelledby=\"sub-{name}\"", HTML)                   # the strip's button names the page
-        self.assertIn('const TAB_OF = { hardware: "stats", logs: "stats", wallet: "settings" };', APP)
+        self.assertIn('const TAB_OF = { hardware: "stats", logs: "stats", security: "stats", wallet: "settings" };', APP)
 
     def test_the_strip_is_one_element_filled_by_the_script_and_loaded_after_the_app(self):
         self.assertEqual(HTML.count('id="viewsub"'), 1)
@@ -33,7 +33,7 @@ class ViewSubtabsTest(unittest.TestCase):
         sections = re.findall(r'<section class="sec [^>]*>', block)
         self.assertGreaterEqual(len(sections), 7)
         for tag in sections:
-            self.assertRegex(tag, r'data-sub="(general|models|privacy|mobile|memories)"', tag)
+            self.assertRegex(tag, r'data-sub="(general|inference|models|privacy|mobile|memories|benchmarks)"', tag)
 
     def test_the_monitor_has_no_tasks_or_changes_panel_and_the_requests_list_is_long(self):
         monitor = HTML[HTML.index('id="view-stats"'):HTML.index('id="view-plans"')]

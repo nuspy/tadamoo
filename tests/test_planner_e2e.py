@@ -20,6 +20,7 @@ from harness.integrations._http import ServiceError  # noqa: E402
 from harness.integrations.telephony_tools import register_phone_tools  # noqa: E402
 from harness.integrations.wiki_tools import register_wiki_tools  # noqa: E402
 from harness.permissions import PermissionLevel, PermissionManager  # noqa: E402
+from harness.planner.card import CARD_FIELDS  # noqa: E402
 from harness.planner_tools import Confirmer, register_planner_tools  # noqa: E402
 from harness.tools.registry import ToolRegistry  # noqa: E402
 from serve.plans import PlanService  # noqa: E402
@@ -95,7 +96,7 @@ def tool_texts(agent):
 def test_an_event_in_the_mailbox_ends_in_a_prepared_call_that_only_the_chat_can_place_after_a_yes(world):
     svc, jev, phone, wiki, model = world
     svc.create({"plan": PLAN, "card": CARD})
-    svc.update_settings({"cloud_triage": True, "event_pump": True})
+    svc.update_settings({"cloud_triage": True, "event_pump": True, "card_fields": list(CARD_FIELDS)})
 
     # 1. events arrive: they are buffered, and nothing is judged until a batch is due
     first = svc.ingest({"text": "Sciopero dei treni venerdì: Gianni è stato precettato, scrivete a gianni@example.com o al 333 1234567", "source": "rss"})
@@ -106,7 +107,7 @@ def test_an_event_in_the_mailbox_ends_in_a_prepared_call_that_only_the_chat_can_
     assert wait_for(lambda: svc.snapshot("cervinia")["proposals"] and not svc.snapshot("cervinia")["replanning"])
     sent = json.dumps(jev.requests[0]["body"], ensure_ascii=False)
     assert "Persona 1" in sent and not any(w in sent for w in ("Gianni", "gianni@example.com", "333 1234567"))      # names and contacts did not leave
-    assert "Allergica" not in sent and "Macchinista" not in sent                                                        # nor the personal constraints
+    assert "Allergica agli ovini" in sent and "Persona 3" in sent                                                       # the profile goes with the card, under the labels
     assert jev.requests[0]["headers"]["Authorization"] == "Bearer sk-test"
     triage = [e for e in svc.events_since("cervinia", 0) if e["type"] == "plan:triage"][0]
     assert triage["via"] == "pump" and triage["result"]["source"] == "cloud" and triage["result"]["replan_state"] == "started"

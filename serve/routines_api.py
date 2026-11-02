@@ -3,11 +3,15 @@
 The scheduler is made when first needed and runs the routines through the server's conversation manager. Routes, under
 /api/routines (the writes pass the same gates as the other /api/ writes):
 
-  GET  /api/routines                  the routines, what is running or queued, and the latest results
+  GET  /api/routines                  the routines, what is running or queued, the pending requests and the latest results
   GET  /api/routines/runs?id=&limit=  results, newest first
-  POST /api/routines                  a new routine (disabled)
+  POST /api/routines                  a new routine (enabled; it always runs in Automatic)
   POST /api/routines/<id>/update | enable | disable | run | remove
-  POST /api/routines/cancel           stops the routine that is running
+  POST /api/routines/<pending id>/dismiss   removes a pending request from the list
+  POST /api/routines/cancel           stops the routines that are running
+  POST /api/routines/stop             the kill switch ({"on": false} takes it off)
+  POST /api/routines/<id>/improve     the script that would do what the last good run did (nothing changes)
+  POST /api/routines/<id>/improve_apply   saves that script as a personal skill and makes the routine run it
 """
 from __future__ import annotations
 
@@ -42,7 +46,7 @@ class RoutinesApi:
         return {"runs": self.scheduler.runs(routine_id, count)}
 
     def _skill_ok(self, slug: Any, values: Any) -> None:
-        """A routine that runs a skill names one that is approved on this PC, and gives values the skill takes (a date in words is read at each run;
+        """A routine that runs a skill names one that exists on this PC, and gives values the skill takes (a date in words is read at each run;
         here it is only tried, so a wrong one is refused now and not at three in the morning)."""
         skills = getattr(self.sessions, "skills", None)
         if skills is None:
@@ -51,8 +55,6 @@ class RoutinesApi:
             skill = skills.get(slug)
         except SkillError as exc:
             raise RoutineError(str(exc), "bad_skill") from None
-        if skill.get("status") != "approved":
-            raise RoutineError("Read the skill and approve it first: it has not been approved on this PC.", "needs_approval")
         _, errors = resolve_values(skill.get("params") or [], values or {}, datetime.now())
         if errors:
             raise RoutineError("; ".join(f"{k}: {v}" for k, v in errors.items()), "bad_values")
@@ -61,8 +63,8 @@ class RoutinesApi:
         if req.get("skill"):
             self._skill_ok(req.get("skill"), req.get("values"))
         return {"routine": self.scheduler.add(req.get("name"), req.get("prompt"), req.get("workspace"), req.get("schedule"),
-                                              req.get("mode", "read_only"), req.get("allow"), req.get("max_turns", 10),
-                                              req.get("confirm_auto") is True, req.get("skill") or "", req.get("values"))}
+                                              req.get("max_turns"), req.get("max_minutes"), req.get("skill") or "",
+                                              req.get("values"), req.get("yield_s"), req.get("index_past", False), req.get("check") or "")}
 
     def act(self, routine_id: str, action: str, req: Dict[str, Any]) -> Dict[str, Any]:
         s = self.scheduler
@@ -75,6 +77,13 @@ class RoutinesApi:
         if action == "remove":
             s.remove(routine_id)
             return {"removed": routine_id}
+        if action == "dismiss":
+            s.dismiss(routine_id)
+            return {"dismissed": routine_id}
+        if action == "improve":
+            return self.improve(routine_id)
+        if action == "improve_apply":
+            return self.improve_apply(routine_id, req)
         if action == "update":
             fields = {k: v for k, v in req.items() if k != "id"}
             current = s.get(routine_id)
@@ -83,6 +92,36 @@ class RoutinesApi:
                 self._skill_ok(slug, fields.get("values", current.get("values")))
             return {"routine": s.update(routine_id, **fields)}
         raise RoutineError("Unknown action.", "unknown")
+
+    def stop(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """The kill switch: nothing starts and what runs is stopped, until it is taken off (`{"on": false}`)."""
+        self.scheduler.emergency_stop(bool(req.get("on", True)))
+        return {"stopped": self.scheduler.stopped()}
+
+    def improve(self, routine_id: str) -> Dict[str, Any]:
+        """The script that would do what the routine's last good run did, for the person to read; nothing is changed."""
+        routine = self.scheduler.get(routine_id)
+        last = next((r for r in self.scheduler.runs(routine_id, 50) if r.get("status") == "done" and r.get("session")), None)
+        if last is None:
+            raise RoutineError("The routine has no finished run to learn from yet.", "no_run")
+        from serve.agent_runs import RunError
+        try:
+            return {"routine": routine_id, "from_run": last["id"], **self.sessions.routine_skill(last["session"], routine["name"])}
+        except RunError as exc:
+            raise RoutineError(str(exc), "improve") from None
+
+    def improve_apply(self, routine_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
+        """Saves the script as a personal skill and makes the routine run it, with each parameter's default as its value."""
+        skills = getattr(self.sessions, "skills", None)
+        if skills is None:
+            raise RoutineError("The personal skills are not available.", "bad_skill")
+        params = req.get("params") if isinstance(req.get("params"), list) else []
+        try:
+            skill = skills.save({"name": req.get("name"), "description": req.get("description"), "params": params, "source": {"routine": routine_id}}, str(req.get("script") or ""))
+        except SkillError as exc:
+            raise RoutineError(str(exc), "bad_skill") from None
+        values = {p["name"]: p["default"] for p in params if isinstance(p, dict) and p.get("name") and p.get("default") is not None}
+        return {"skill": skill["slug"], "routine": self.scheduler.update(routine_id, skill=skill["slug"], values=values)}
 
     def cancel(self) -> Dict[str, Any]:
         self.scheduler.cancel_running()

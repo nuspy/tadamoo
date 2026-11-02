@@ -6,10 +6,12 @@ Effect classes:
 - IRREVERSIBLE: executes external commands, state-changing network requests, or hardware calls
 
 A tool marked `untrusted` returns content from outside the user's control (web pages, mail,
-third-party servers); its results are fenced as data and taint the session's permissions.
+third-party servers); its results are fenced as data and taint the session's permissions. A tool marked
+`outward` sends what the model wrote (an address, a query, a form) out of this PC: the Rule of Two looks at it
+(harness/rule_of_two.py).
 
-Every tool has a time limit: the registry's default, or its own (`timeout=` when it is registered, or
-`set_timeout`; None means no limit). The tool runs in the calling thread, and a watchdog raises
+Every tool has a time limit: the registry's default (the person's `tool_timeout_s` in limits.json, never
+unlimited), or its own (`timeout=` when it is registered, or `set_timeout`; None means no limit). The tool runs in the calling thread, and a watchdog raises
 `ToolTimeout` in that thread when the limit is spent, so no thread is left running behind. The clock does
 not run while the person is being asked something (`clock_paused`). A tool stuck inside one blocking
 system call is stopped when that call returns.
@@ -24,8 +26,19 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
-DEFAULT_TOOL_TIMEOUT = 900.0          # more than the longest a shell command may run, so the command's own limit comes first
+from harness.tools.repair import coerce_arguments, resolve_tool_name
+
+DEFAULT_TOOL_TIMEOUT = 3600.0         # the limit when the person has not set one (serve/limits.py, tool_timeout_s); a tool call always has one
 _TICK = 0.1
+
+
+def configured_tool_timeout() -> float:
+    """The person's limit for one tool call, in seconds: limits.json or the default; never unlimited."""
+    try:
+        from serve import limits
+        return limits.get("tool_timeout_s", DEFAULT_TOOL_TIMEOUT) or DEFAULT_TOOL_TIMEOUT
+    except Exception:
+        return DEFAULT_TOOL_TIMEOUT
 _local = threading.local()            # the clock of the tool call this thread is running
 
 _JSON_TYPES = {
@@ -111,6 +124,8 @@ class ToolDefinition:
     effect: EffectClass
     handler: Callable[..., Any]
     untrusted: bool = False
+    outward: bool = False        # sends something the model wrote (an address, a query, a form) out of this PC
+    tier: int = 1                # where its definition goes in the tool list: STABLE, SESSION or EXTERNAL (see ToolRegistry.schemas)
 
 
 def validate_arguments(name: str, schema: Dict[str, Any], arguments: Any) -> Dict[str, Any]:
@@ -141,12 +156,46 @@ def validate_arguments(name: str, schema: Dict[str, Any], arguments: Any) -> Dic
 
 _UNSET: Any = object()
 
+# The tool list is part of the prompt prefix the server caches, so tools that rarely change come first.
+STABLE, SESSION, EXTERNAL = 0, 1, 2
+
+# The optional argument every tool takes beside its own: one sentence for the person. The first name a tool does not already use is the one offered.
+DESCRIPTION_KEYS = ("description", "explain")
+DESCRIPTION_CHARS = 300
+TOOL_CALL_NOTE = f"The person sees your `{DESCRIPTION_KEYS[0]}` of each tool call beside it."
+_DESCRIPTION_HELP = "One short sentence for the person, in the language they write in, saying what this call does and why."
+
+
+def description_key(parameters: Dict[str, Any]) -> Optional[str]:
+    """The name under which a tool with these parameters takes the person's sentence; None if the tool uses every name."""
+    props = parameters.get("properties") or {}
+    return next((k for k in DESCRIPTION_KEYS if k not in props), None)
+
+
+def split_description(parameters: Dict[str, Any], arguments: Any) -> "tuple[Any, str]":
+    """The arguments without the person's sentence, and the sentence (trimmed, one line, at most DESCRIPTION_CHARS; empty if none).
+    It is display text only: nothing that decides or runs sees it."""
+    key = description_key(parameters)
+    if key is None or not isinstance(arguments, dict) or key not in arguments:
+        return arguments, ""
+    rest = {k: v for k, v in arguments.items() if k != key}
+    text = arguments[key]
+    return rest, " ".join(text.split())[:DESCRIPTION_CHARS] if isinstance(text, str) else ""
+
 
 class ToolRegistry:
-    def __init__(self, default_timeout: Optional[float] = DEFAULT_TOOL_TIMEOUT) -> None:
+    def __init__(self, default_timeout: Optional[float] = _UNSET) -> None:
         self._tools: Dict[str, ToolDefinition] = {}
-        self.default_timeout = default_timeout               # seconds; None: no limit unless a tool has its own
+        self._default_timeout = default_timeout              # seconds; None: no limit unless a tool has its own; unset: the person's limit
         self._timeouts: Dict[str, Optional[float]] = {}      # a tool's own limit (None: no limit for that tool)
+
+    @property
+    def default_timeout(self) -> Optional[float]:
+        return configured_tool_timeout() if self._default_timeout is _UNSET else self._default_timeout
+
+    @default_timeout.setter
+    def default_timeout(self, seconds: Optional[float]) -> None:
+        self._default_timeout = seconds
 
     def set_timeout(self, name: str, seconds: Optional[float]) -> None:
         """The time limit of one tool; None or 0 for no limit."""
@@ -164,6 +213,8 @@ class ToolRegistry:
         handler: Callable[..., Any],
         untrusted: bool = False,
         timeout: Optional[float] = _UNSET,
+        outward: bool = False,
+        tier: int = SESSION,
     ) -> None:
         if timeout is not _UNSET:
             self.set_timeout(name, timeout)
@@ -174,7 +225,14 @@ class ToolRegistry:
             effect=effect,
             handler=handler,
             untrusted=untrusted,
+            outward=outward,
+            tier=tier,
         )
+
+    def mark_stable(self) -> None:
+        """The tools registered so far are the fixed set every conversation has: they lead the tool list."""
+        for tool in self._tools.values():
+            tool.tier = STABLE
 
     def unregister(self, name: str) -> bool:
         self._timeouts.pop(name, None)
@@ -187,26 +245,43 @@ class ToolRegistry:
         return sorted(self._tools)
 
     def schemas(self) -> List[Dict[str, Any]]:
-        """Standard OpenAI/Basalt tool definitions, in a stable order so the prompt prefix stays identical."""
-        return [
-            {
-                "type": "function",
-                "function": {"name": t.name, "description": t.description, "parameters": t.parameters},
-            }
-            for t in sorted(self._tools.values(), key=lambda t: t.name)
-        ]
+        """Standard OpenAI/Basalt tool definitions, in a stable order so the prompt prefix stays identical: the fixed tools first, then
+        those a conversation's setup adds, then those of outside servers, each group by name. Each tool also offers the optional sentence
+        for the person (see DESCRIPTION_KEYS); the tool's own parameters are not changed."""
+        out = []
+        for t in sorted(self._tools.values(), key=lambda t: (t.tier, t.name)):
+            parameters, key = t.parameters, description_key(t.parameters)
+            if key is not None:
+                parameters = {**parameters, "properties": {**(parameters.get("properties") or {}), key: {"type": "string", "description": _DESCRIPTION_HELP}}}
+            out.append({"type": "function", "function": {"name": t.name, "description": t.description, "parameters": parameters}})
+        return out
+
+    def split_description(self, name: str, arguments: Any) -> "tuple[Any, str]":
+        """`split_description` for a registered tool (an unknown name has nothing to split)."""
+        tool = self.get(name)
+        return (arguments, "") if tool is None else split_description(tool.parameters, arguments)
+
+    def resolve(self, name: str) -> "tuple[Optional[str], List[str]]":
+        """The registered tool a name stands for (see repair.resolve_tool_name) and, when there is none, the tools with a similar name."""
+        return resolve_tool_name(name, self.names())
+
+    def coerce(self, name: str, arguments: Any) -> "tuple[Any, bool]":
+        """The arguments with each value made the type the tool's schema asks for where that is not in doubt, and whether any changed."""
+        tool = self.get(name)
+        return (arguments, False) if tool is None else coerce_arguments(tool.parameters, arguments)
 
     def validate(self, name: str, arguments: Any) -> Dict[str, Any]:
+        """The arguments checked against the tool's schema, after the safe coercions; the checked arguments are returned."""
         tool = self.get(name)
         if tool is None:
             raise KeyError(f"Unknown tool: '{name}'")
-        return validate_arguments(name, tool.parameters, arguments)
+        return validate_arguments(name, tool.parameters, self.coerce(name, arguments)[0])
 
     def execute(self, name: str, arguments: Dict[str, Any]) -> Any:
         tool = self.get(name)
         if tool is None:
             raise KeyError(f"Unknown tool: '{name}'")
-        validate_arguments(name, tool.parameters, arguments)
+        arguments = validate_arguments(name, tool.parameters, self.coerce(name, arguments)[0])
         limit = self.timeout_for(name)
         if not limit:
             return tool.handler(**arguments)

@@ -12,28 +12,60 @@
 <link rel="stylesheet" href="web/app.css">
 <link rel="stylesheet" href="web/plans.css">
 <link rel="stylesheet" href="web/cron.css">
+<link rel="stylesheet" href="web/traces.css">
 <link rel="stylesheet" href="web/mobile.css">
 <link rel="stylesheet" href="web/memories.css">
+<link rel="stylesheet" href="web/lessons.css">
+<link rel="stylesheet" href="web/bench.css">
 <link rel="stylesheet" href="web/converter.css">
+<link rel="stylesheet" href="web/engines.css">
 <link rel="stylesheet" href="web/shell.css">
 <link rel="stylesheet" href="web/wallet.css">
 <link rel="stylesheet" href="web/risk.css">
 <link rel="stylesheet" href="web/branches.css">
+<link rel="stylesheet" href="web/export.css">
+<link rel="stylesheet" href="web/checkpoints.css">
+<link rel="stylesheet" href="web/netwatch.css">
+<link rel="stylesheet" href="web/rea.css">
+<link rel="stylesheet" href="web/target.css">
+<link rel="stylesheet" href="web/coding.css">
+<link rel="stylesheet" href="web/longform.css">
+<link rel="stylesheet" href="web/promptswitch.css">
+<link rel="stylesheet" href="web/sideuses.css">
 <script defer src="web/i18n.js"></script>
+<script defer src="web/cuttext.js"></script>
 <script defer src="web/risk.js"></script>
 <script defer src="web/app.js"></script>
+<script defer src="web/listtools.js"></script>
 <script defer src="web/shell.js"></script>
 <script defer src="web/subtabs.js"></script>
 <script defer src="web/patterns.js"></script>
 <script defer src="web/chatset.js"></script>
 <script defer src="web/chat.js"></script>
 <script defer src="web/projects.js"></script>
+<script defer src="web/askcard.js"></script>
 <script defer src="web/agentchat.js"></script>
+<script defer src="web/privacy.js"></script>
+<script defer src="web/persistence.js"></script>
+<script defer src="web/technical.js"></script>
+<script defer src="web/target.js"></script>
+<script defer src="web/coding.js"></script>
+<script defer src="web/longform.js"></script>
+<script defer src="web/checkpoints.js"></script>
+<script defer src="web/billioncontext.js"></script>
 <script defer src="web/slash.js"></script>
 <script defer src="web/pskills.js"></script>
+<script defer src="web/export.js"></script>
 <script defer src="web/branches.js"></script>
 <script defer src="web/settings.js"></script>
 <script defer src="web/capabilities.js"></script>
+<script defer src="web/knowledge.js"></script>
+<script defer src="web/promptswitch.js"></script>
+<script defer src="web/optimize.js"></script>
+<script defer src="web/intake.js"></script>
+<script defer src="web/sideuses.js"></script>
+<script defer src="web/gate.js"></script>
+<script defer src="web/compaction.js"></script>
 <script defer src="web/models.js"></script>
 <script defer src="web/download.js"></script>
 <script defer src="web/relaxed.js"></script>
@@ -41,14 +73,22 @@
 <script defer src="web/charts.js"></script>
 <script defer src="web/converter.js"></script>
 <script defer src="web/providers.js"></script>
+<script defer src="web/llamacpp.js"></script>
+<script defer src="web/engines.js"></script>
 <script defer src="web/wizard.js"></script>
 <script defer src="web/reqlog.js"></script>
+<script defer src="web/traces.js"></script>
 <script defer src="web/changes.js"></script>
 <script defer src="web/plans.js"></script>
 <script defer src="web/cron.js"></script>
 <script defer src="web/mobile.js"></script>
 <script defer src="web/memories.js"></script>
+<script defer src="web/lessons.js"></script>
+<script defer src="web/bench.js"></script>
 <script defer src="web/wallet.js"></script>
+<script defer src="web/netwatch.js"></script>
+<script defer src="web/rea.js"></script>
+<script defer src="web/canary.js"></script>
 </head>
 <body>
 
@@ -133,6 +173,124 @@
   </form>
 </dialog>
 
+<dialog class="sud" id="su-dlg" aria-labelledby="su-dlg-title">
+  <div class="sud-h"><h2 id="su-dlg-title" data-t="su.dlg.title">Technical session</h2><span class="sud-grow"></span>
+    <button type="button" class="btn" id="su-defaults" data-t="su.defaults">Restore all defaults</button>
+    <button type="button" class="btn primary" id="su-close" data-t="su.close">Close</button></div>
+  <div class="sud-body">
+    <p class="sud-dim" id="su-dlg-state" role="status" aria-live="polite"></p>
+    <fieldset class="sud-route" id="su-route-box">
+      <legend data-t="su.route.title">Where the quick jobs run</legend>
+      <p class="sud-dim" data-t="su.route.help"></p>
+      <div class="sud-num"><label for="su-route" data-t="su.route.pick">Provider and model</label><select id="su-route"></select></div>
+      <label class="sud-switch" id="su-route-consent-row"><input type="checkbox" id="su-route-consent"><span data-t="su.route.consent">I allow my conversations and notes to go to this provider for these jobs</span></label>
+      <label class="sud-switch"><input type="checkbox" id="su-external"><span data-t="su.external.on">Allow the quick jobs to run on a provider outside this PC</span></label>
+      <p class="sud-dim" data-t="su.external.help"></p>
+      <p class="sud-dim" id="su-route-state" role="status" aria-live="polite"></p>
+      <details class="sud-setup" id="su-setup">
+        <summary data-t="su.setup.title">Use a second small model on this PC</summary>
+        <p class="sud-dim" data-t="su.setup.help"></p>
+        <div class="sud-num"><label for="su-setup-type" data-t="su.setup.type">Server</label>
+          <select id="su-setup-type"><option value="llamacpp">llama-server (llama.cpp)</option><option value="lmstudio">LM Studio</option><option value="vllm">vLLM</option></select></div>
+        <div class="sud-num"><label for="su-setup-model" data-t="su.setup.model">Model name</label><input id="su-setup-model" type="text" autocomplete="off" spellcheck="false"></div>
+        <div class="sud-num"><label for="su-setup-url" data-t="su.setup.url">Address (empty: the server's usual one)</label><input id="su-setup-url" type="text" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:8080/v1"></div>
+        <div class="sud-num"><label for="su-setup-window" data-t="su.setup.window">Context of the model, in tokens (at most 30000)</label><input id="su-setup-window" type="number" inputmode="numeric" min="1024" max="30000" placeholder="8192"></div>
+        <div class="sud-actions"><button type="button" class="btn primary" id="su-setup-go" data-t="su.setup.go">Use this model for the quick jobs</button></div>
+      </details>
+    </fieldset>
+    <section class="sud-running" id="su-running" aria-labelledby="su-running-h" hidden>
+      <h3 id="su-running-h" data-t="su.running">Running now</h3>
+      <ul id="su-running-list"></ul>
+      <button type="button" class="btn" id="su-stop" data-t="su.stop">Stop</button>
+    </section>
+    <div id="su-list"></div>
+    <p class="sud-dim" id="su-note" role="status" aria-live="polite"></p>
+  </div>
+</dialog>
+
+<dialog class="tgd" id="target-dlg" aria-labelledby="tg-title">
+  <div class="tgd-h"><h2 id="tg-title" data-t="tg.title">Target Loop</h2><span class="tgd-grow"></span>
+    <button type="button" class="btn" id="tg-close" data-t="tg.close" data-t-title="tg.close.tip">Close</button></div>
+  <div class="tgd-body">
+    <nav class="tgd-hist" aria-labelledby="tg-hist-h">
+      <h3 id="tg-hist-h" data-t="tg.hist">Targets of this conversation</h3>
+      <button type="button" class="btn primary" id="tg-new" data-t="tg.new" data-t-title="tg.new.tip">New target</button>
+      <ul class="tgd-list" id="tg-list"></ul>
+      <p class="tgd-dim" id="tg-hist-empty" data-t="tg.hist.empty" hidden>No target yet in this conversation.</p>
+    </nav>
+    <section class="tgd-pane" aria-labelledby="tg-title">
+      <p class="tgd-dim" data-t="tg.help"></p>
+      <div class="tgd-status" id="tg-status" role="status" aria-live="polite"></div>
+      <form class="tgd-new" id="tg-new-view" novalidate>
+        <div class="tgd-labelrow"><label for="tg-text" data-t="tg.text.label">Describe the target</label><span id="tg-bar"></span></div>
+        <textarea id="tg-text" rows="12" spellcheck="true" aria-describedby="tg-text-help" data-t-ph="tg.text.ph"></textarea>
+        <p class="tgd-dim" id="tg-text-help" data-t="tg.text.help"></p>
+        <details class="tgd-opt">
+          <summary data-t="tg.opt.title">Options</summary>
+          <div class="tgd-optgrid">
+            <label for="tg-verify" data-t="tg.opt.verify">Commands that must succeed (one per line)</label>
+            <textarea id="tg-verify" rows="3" spellcheck="false" aria-describedby="tg-verify-h"></textarea>
+            <p class="tgd-dim" id="tg-verify-h" data-t="tg.opt.verify.help"></p>
+            <label for="tg-files" data-t="tg.opt.files">Files that must exist (one per line)</label>
+            <textarea id="tg-files" rows="2" spellcheck="false" aria-describedby="tg-files-h"></textarea>
+            <p class="tgd-dim" id="tg-files-h" data-t="tg.opt.files.help"></p>
+            <label for="tg-stall" data-t="tg.opt.stall">Passes before a different approach</label>
+            <input id="tg-stall" type="number" min="2" max="20" value="3" aria-describedby="tg-stall-h">
+            <p class="tgd-dim" id="tg-stall-h" data-t="tg.opt.stall.help"></p>
+            <label for="tg-max" data-t="tg.opt.max">Most passes (0 is no limit)</label>
+            <input id="tg-max" type="number" min="0" max="1000" value="0" aria-describedby="tg-max-h">
+            <p class="tgd-dim" id="tg-max-h" data-t="tg.opt.max.help"></p>
+            <label for="tg-first" data-t="tg.opt.first">First message</label>
+            <select id="tg-first" aria-describedby="tg-first-h">
+              <option value="joined" data-t="tg.opt.first.joined">My text and the first task in one message</option>
+              <option value="separate" data-t="tg.opt.first.separate">My text alone, then one message for each task</option>
+            </select>
+            <p class="tgd-dim" id="tg-first-h" data-t="tg.opt.first.help"></p>
+          </div>
+        </details>
+        <div class="tgd-actions"><button type="submit" class="btn primary" id="tg-start" data-t="tg.start" data-t-title="tg.start.tip">Start</button></div>
+      </form>
+      <div class="tgd-view" id="tg-view" hidden></div>
+    </section>
+  </div>
+</dialog>
+
+<dialog class="lad" id="long-dlg" aria-labelledby="la-title">
+  <form id="la-form" class="lad-form" novalidate>
+    <div class="lad-h"><h2 id="la-title" data-t="la.title">Long answer</h2><span class="lad-grow"></span>
+      <button type="button" class="btn" id="la-close" data-t="la.close" data-t-title="la.close.tip">Close</button></div>
+    <p class="lad-dim" data-t="la.help"></p>
+    <div class="lad-row"><label for="la-mode" data-t="la.mode">What to write</label>
+      <select id="la-mode" aria-describedby="la-mode-h">
+        <option value="write" data-t="la.mode.write">A new text from my message</option>
+        <option value="translate" data-t="la.mode.translate">A translation of my message</option>
+        <option value="rewrite" data-t="la.mode.rewrite">A rewrite of my message</option>
+      </select>
+      <p class="lad-dim" id="la-mode-h" data-t="la.mode.h"></p></div>
+    <div class="lad-row" id="la-words-box"><label for="la-words" data-t="la.words">Length in words</label>
+      <input id="la-words" type="number" inputmode="numeric" min="50" max="200000" step="100" value="3000" aria-describedby="la-words-h">
+      <p class="lad-dim" id="la-words-h" data-t="la.words.h"></p></div>
+    <div class="lad-row" id="la-lang-box"><label for="la-lang" data-t="la.lang">Language of the text</label>
+      <input id="la-lang" type="text" autocomplete="off" aria-describedby="la-lang-h" data-t-ph="la.lang.ph">
+      <p class="lad-dim" id="la-lang-h" data-t="la.lang.h"></p></div>
+    <div class="lad-row" id="la-instr-box"><label for="la-instr" data-t="la.instr">What to change</label>
+      <input id="la-instr" type="text" autocomplete="off" aria-describedby="la-instr-h" data-t-ph="la.instr.ph">
+      <p class="lad-dim" id="la-instr-h" data-t="la.instr.h"></p></div>
+    <div class="lad-row"><label for="la-style" data-t="la.style">Style (optional)</label>
+      <input id="la-style" type="text" autocomplete="off" aria-describedby="la-style-h">
+      <p class="lad-dim" id="la-style-h" data-t="la.style.h"></p></div>
+    <div class="lad-row"><label for="la-gloss" data-t="la.gloss">Glossary (optional)</label>
+      <textarea id="la-gloss" rows="3" spellcheck="false" aria-describedby="la-gloss-h" data-t-ph="la.gloss.ph"></textarea>
+      <p class="lad-dim" id="la-gloss-h" data-t="la.gloss.h"></p></div>
+    <div class="lad-check"><input id="la-protect" type="checkbox" checked aria-describedby="la-protect-h"><label for="la-protect" data-t="la.protect">Keep images, links, code, tables and diagrams as they are</label></div>
+    <p class="lad-dim" id="la-protect-h" data-t="la.protect.h"></p>
+    <p class="lad-msg" id="la-msg" role="alert"></p>
+    <div class="lad-actions">
+      <button type="submit" class="btn primary" id="la-on" data-t="la.on" data-t-title="la.on.tip">Use for the next message</button>
+      <button type="button" class="btn" id="la-off" data-t="la.off" data-t-title="la.off.tip">Turn off</button></div>
+  </form>
+</dialog>
+
 <dialog class="brd" id="branches" aria-labelledby="br-title">
   <div class="brd-h"><h2 id="br-title" data-t="br.title">Branches</h2><button type="button" class="btn" id="br-close" data-t="br.close">Close</button></div>
   <div class="brd-b">
@@ -142,6 +300,16 @@
       <p class="brd-dim" data-t="br.help"></p>
       <ul role="tree" class="brd-tree" id="br-tree" aria-labelledby="br-h-tree"></ul>
       <p class="brd-dim" id="br-empty" data-t="br.empty" hidden></p>
+    </section>
+    <section aria-labelledby="br-h-nodes">
+      <h3 id="br-h-nodes" data-t="br.nodes.title">Messages as nodes</h3>
+      <p class="brd-dim" data-t="br.nodes.help"></p>
+      <p class="brd-dim" id="br-nodes-empty" data-t="br.nodes.empty" hidden></p>
+      <ul class="brd-nodes" id="br-nodes"></ul>
+      <div class="brd-cost" id="br-cost" role="status" aria-live="polite"></div>
+      <h4 data-t="br.merge.title">Merge and summarize</h4>
+      <p class="brd-dim" data-t="br.merge.help"></p>
+      <div id="br-merge"></div>
     </section>
     <section aria-labelledby="br-h-cmp">
       <h3 id="br-h-cmp" data-t="br.cmp.title">Run both and compare</h3>
@@ -192,6 +360,11 @@
       <div class="sh chathead">
         <button type="button" class="btn" id="new-chat" data-t="ch.newbtn">New conversation</button>
         <button type="button" class="btn" id="branches-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="branches" data-t="br.open" hidden>Branches</button>
+        <button type="button" class="btn" id="export-open" aria-haspopup="dialog" data-t="exp.btn" data-t-title="exp.btn.title">Export</button>
+        <button type="button" class="btn" id="tech-toggle" aria-pressed="true">Technical session: on</button>
+        <button type="button" class="btn" id="wud-toggle" aria-pressed="true">Work until done: on</button>
+        <button type="button" class="btn" id="priv-toggle" aria-pressed="false">Private</button>
+        <button type="button" class="btn" id="forget-open">Forget</button>
         <button type="button" class="btn" id="pskills-open" aria-haspopup="dialog" data-t="psk.btn" data-t-title="psk.btn.title" hidden>Skills</button>
         <button type="button" class="btn" id="chg-open" aria-expanded="false" aria-controls="chg-side" data-t="ch.title" hidden>Changes</button>
         <span class="folderchip" id="folder-chip" hidden></span>
@@ -200,12 +373,17 @@
         <span class="learnbadge" id="learn-badge" role="status" hidden></span>
         <span id="chat-model" hidden></span>
         <span class="grow"></span>
+        <div class="ps" id="ps-chat" data-panel="ps-chat-panel"></div>
+        <div class="po" id="po-chat" data-po></div>
         <label class="effort" for="chatmode" id="chatmode-label"><span data-t="ch.mode">Mode</span>
           <select id="chatmode">
             <option value="agent" data-t="ch.mode.agent">With tools</option>
             <option value="ask" data-t="ch.mode.ask">Question only</option>
             <option value="direct" data-t="ch.mode.direct">Model only</option>
           </select>
+        </label>
+        <label class="effort coderole" for="coderole" id="coderole-label" hidden><span data-t="cd.role">Role</span>
+          <select id="coderole" data-t-title="cd.role.tip"></select>
         </label>
         <label class="effort" for="effort"><span>Thinking</span>
           <select id="effort">
@@ -216,16 +394,37 @@
           </select>
         </label>
         <button type="button" class="btn" id="cs-open" aria-expanded="false" aria-controls="chatset" data-t="cs.open">Settings</button>
+        <div class="ps-panel" id="ps-chat-panel" hidden></div>
       </div>
       <div class="acopy" id="acopy" hidden>
         <span class="acopy-text" id="acopy-text" role="status"></span>
         <button type="button" class="btn" id="acopy-open" aria-expanded="false" aria-controls="acopy-panel" hidden></button>
       </div>
       <div class="acopy-panel" id="acopy-panel" hidden></div>
+      <section class="codingcard" id="coding-card" aria-labelledby="coding-h" hidden>
+        <div class="cc-head">
+          <b id="coding-h" data-t="cd.card.title">Project checks</b>
+          <span class="cc-sum" id="coding-sum" role="status"></span>
+          <span class="grow"></span>
+          <button type="button" class="btn" id="coding-toggle" aria-expanded="false" aria-controls="coding-body" data-t-title="cd.card.tip">Review</button>
+        </div>
+        <div class="cc-next" id="coding-next">
+          <button type="button" class="btn" id="coding-go" data-t-title="cd.go.tip" hidden></button>
+          <button type="button" class="btn" id="coding-bug" data-t-title="cd.bug.tip" hidden></button>
+        </div>
+        <div class="cc-body" id="coding-body" hidden></div>
+      </section>
+      <section class="rea" id="rea-box" aria-labelledby="rea-title">
+        <label class="rea-check"><input type="checkbox" id="rea-on" aria-describedby="rea-hint"><span id="rea-title" data-t="rea.title">Reverse engineering (REA)</span></label>
+        <p class="rea-hint" id="rea-hint" data-t="rea.hint"></p>
+        <div id="rea-state"></div>
+        <details class="rea-more"><summary data-t="rea.more">Programs REA can use, risk and installers</summary><div id="rea-body"></div></details>
+        <p class="rea-line" id="rea-msg" role="status"></p>
+      </section>
       <div class="msgs" id="msgs" role="log" aria-label="Messages" aria-live="polite" aria-busy="false" tabindex="0">
         <div class="chat-empty" id="chat-empty">
           <b>Ask the model anything.</b>
-          <span>Answers stream from this server's own <code>/v1/chat/completions</code>. The conversation stays in this browser.</span>
+          <span>Answers stream from this server's own <code>/v1/chat/completions</code>. The conversation stays in this browser; its words are also added to the index of earlier conversations on this PC.</span>
         </div>
       </div>
       <div class="msgs amsgs" id="amsgs" role="log" aria-label="Conversation" aria-live="polite" tabindex="0" hidden>
@@ -255,6 +454,8 @@
             <span class="ctxm-t" id="ctx-text">Context: —</span><span class="ctxm-bar" aria-hidden="true"><i id="ctx-bar"></i></span>
           </div>
           <button type="button" class="btn" id="stop" hidden>Stop</button>
+          <button type="button" class="btn" id="long-open" aria-haspopup="dialog" aria-pressed="false" data-t="la.open" data-t-title="la.open.tip">Long answer</button>
+          <button type="button" class="btn" id="target-open" aria-haspopup="dialog" data-t="tg.open" data-t-title="tg.open.tip">Target Loop</button>
           <button type="submit" class="btn primary" id="send">Send</button>
         </div>
         <div class="sr" id="chat-status" role="status"></div>
@@ -295,12 +496,43 @@
         <fieldset class="csgroup">
           <legend data-t="cs.context">When the context is full</legend>
           <p class="help" data-t="cs.context.help"></p>
-          <label class="radio"><input type="radio" name="cs-policy" value="stop" checked><span><b data-t="cs.policy.stop">Stop at the limit</b><small data-t="cs.policy.stop.help"></small></span></label>
+          <label class="radio"><input type="radio" name="cs-policy" value="stop"><span><b data-t="cs.policy.stop">Stop at the limit</b><small data-t="cs.policy.stop.help"></small></span></label>
           <label class="radio"><input type="radio" name="cs-policy" value="rolling"><span><b data-t="cs.policy.rolling">Sliding window</b><small data-t="cs.policy.rolling.help"></small></span></label>
-          <label class="radio"><input type="radio" name="cs-policy" value="compact"><span><b data-t="cs.policy.compact">Compact</b><small data-t="cs.policy.compact.help"></small></span></label>
+          <label class="radio"><input type="radio" name="cs-policy" value="compact" checked><span><b data-t="cs.policy.compact">Compact</b><small data-t="cs.policy.compact.help"></small></span></label>
           <div class="csnum" id="cs-threshold-box">
             <label for="cs-threshold" data-t="cs.threshold">Compact at (% of context)</label>
             <input id="cs-threshold" type="number" inputmode="numeric" min="30" max="100" step="5" placeholder="80">
+          </div>
+        </fieldset>
+        <fieldset class="csgroup" id="cs-abs">
+          <legend data-t="abs.title">Old answers as a short record</legend>
+          <label class="check"><input type="checkbox" id="cs-abs-on" aria-describedby="cs-abs-h"><span data-t="abs.on">Send the model a short record of old long answers</span></label>
+          <p class="help" id="cs-abs-h" data-t="abs.help"></p>
+          <div class="csnum">
+            <label for="cs-abs-keep" data-t="abs.keep">Newest turns kept in full</label>
+            <input id="cs-abs-keep" type="number" inputmode="numeric" min="1" max="20" step="1">
+          </div>
+          <div class="csnum">
+            <label for="cs-code-keep" data-t="abs.codekeep">Newest messages whose code is sent in full</label>
+            <input id="cs-code-keep" type="number" inputmode="numeric" min="3" max="5" step="1" aria-describedby="cs-code-h">
+          </div>
+          <p class="help" id="cs-code-h" data-t="abs.codehelp"></p>
+        </fieldset>
+        <fieldset class="csgroup" id="cs-bc">
+          <legend data-t="bc.title">Billion Context</legend>
+          <p class="help" data-t="bc.help"></p>
+          <label class="check"><input type="checkbox" id="cs-bc-on" aria-describedby="cs-bc-state"><span data-t="bc.on">Compress long conversations before they reach the model</span></label>
+          <label class="check"><input type="checkbox" id="cs-bc-compress" aria-describedby="cs-bc-compress-h"><span data-t="bc.compress">Let the model fold old turns itself</span></label>
+          <p class="help" id="cs-bc-compress-h" data-t="bc.compress.help"></p>
+          <div class="csnum">
+            <label for="cs-bc-port" data-t="bc.port">Port of the local process</label>
+            <input id="cs-bc-port" type="number" inputmode="numeric" min="1024" max="65535" step="1" aria-describedby="cs-bc-port-h">
+            <p class="help" id="cs-bc-port-h" data-t="bc.port.help"></p>
+          </div>
+          <p class="help" id="cs-bc-state" role="status" aria-live="polite"></p>
+          <div class="csrow wrap">
+            <button type="button" class="btn" id="cs-bc-save" data-t="bc.save">Save</button>
+            <button type="button" class="btn ghost" id="cs-bc-restart" data-t="bc.restart">Restart</button>
           </div>
         </fieldset>
         <fieldset class="csgroup" id="cs-visuals">
@@ -325,6 +557,21 @@
             <textarea id="cs-allow" rows="4" spellcheck="false" autocomplete="off" aria-describedby="cs-allow-h" data-t-ph="ag.allow.ph"></textarea>
             <p class="help" id="cs-allow-h" data-t="ag.allow.help"></p></div>
         </fieldset>
+        <fieldset class="csgroup" id="cs-cp">
+          <legend data-t="ck.title">Checkpoints (files put back)</legend>
+          <p class="help" data-t="ck.help"></p>
+          <p class="help" data-t="ck.scope"></p>
+          <label class="radio"><input type="radio" name="cs-cp" value="" checked><span><b data-t="ck.m.default">Follow the permission level</b><small data-t="ck.m.default.d"></small></span></label>
+          <label class="radio"><input type="radio" name="cs-cp" value="on"><span><b data-t="ck.m.on">On</b><small data-t="ck.m.on.d"></small></span></label>
+          <label class="radio"><input type="radio" name="cs-cp" value="soft"><span><b data-t="ck.m.soft">On, never stop the action</b><small data-t="ck.m.soft.d"></small></span></label>
+          <label class="radio"><input type="radio" name="cs-cp" value="off"><span><b data-t="ck.m.off">Off</b><small data-t="ck.m.off.d"></small></span></label>
+          <p class="help" id="cs-cp-state" role="status"></p>
+          <div class="ck-bar">
+            <button type="button" class="btn" id="cs-cp-refresh" data-t="ck.refresh">Refresh the list</button>
+            <button type="button" class="btn" id="cs-cp-all" data-t="ck.delete.all">Delete all</button>
+          </div>
+          <ul id="cs-cp-list" class="ck-list"></ul>
+        </fieldset>
         <fieldset class="csgroup">
           <legend data-t="pt.title">Context patterns</legend>
           <p class="help" data-t="pt.help"></p>
@@ -340,6 +587,16 @@
             <div class="csnum"><label for="cs-max_tokens" data-t="cs.max_tokens">Max output tokens</label>
               <input id="cs-max_tokens" type="number" inputmode="numeric" min="1" step="256" aria-describedby="cs-max_tokens-h">
               <p class="help" id="cs-max_tokens-h" data-t="cs.max_tokens.help"></p></div>
+            <div class="csnum"><label for="cs-max_answer_tokens" data-t="cs.max_answer_tokens">Max answer tokens</label>
+              <input id="cs-max_answer_tokens" type="number" inputmode="numeric" min="1" step="256" aria-describedby="cs-max_answer_tokens-h">
+              <p class="help" id="cs-max_answer_tokens-h" data-t="cs.max_answer_tokens.help"></p></div>
+            <div class="csnum"><label for="cs-auto_continue" data-t="cs.auto_continue">Automatic continuations</label>
+              <input id="cs-auto_continue" type="number" inputmode="numeric" min="0" max="20" step="1" placeholder="4" aria-describedby="cs-auto_continue-h">
+              <p class="help" id="cs-auto_continue-h" data-t="cs.auto_continue.help"></p></div>
+            <div class="csnum"><label for="cs-max_turns" data-t="cs.max_turns">Max steps per answer</label>
+              <input id="cs-max_turns" type="number" inputmode="numeric" min="-1" step="1" placeholder="-1" aria-describedby="cs-max_turns-h">
+              <p class="help" id="cs-max_turns-h" data-t="cs.max_turns.help"></p>
+              <p class="help" id="cs-live" role="status" aria-live="polite" hidden></p></div>
           </div>
         </fieldset>
         <fieldset class="csgroup">
@@ -481,8 +738,13 @@
   <div class="view cron" id="view-cron" role="tabpanel" aria-labelledby="tab-cron" hidden>
     <div class="cj-grid" id="cron-root">
       <section class="sec cj-listsec" aria-labelledby="cj-h">
-        <div class="sh"><b id="cj-h" data-t="cj.title">Cron Jobs</b><span class="grow"></span><button type="button" class="btn primary" id="cj-new" data-t="cj.newbtn" data-t-title="cj.tip.new">New job</button></div>
+        <div class="sh"><b id="cj-h" data-t="cj.title">Cron Jobs</b><span class="grow"></span><button type="button" class="btn" id="cj-stop" aria-pressed="false" data-t="cj.stop.btn" data-t-title="cj.stop.tip">Stop all</button> <button type="button" class="btn primary" id="cj-new" data-t="cj.newbtn" data-t-title="cj.tip.new">New job</button></div>
         <p class="help pad" id="cj-running" role="status" hidden></p>
+        <div class="cj-pending" id="cj-pending" hidden>
+          <div class="sh"><b data-t="cj.pending.title">Waiting for you</b></div>
+          <p class="help pad" data-t="cj.pending.help"></p>
+          <ul class="cj-pendlist" id="cj-pending-list"></ul>
+        </div>
         <ul class="cj-list" id="cj-list" aria-label="Cron Jobs" data-t-aria="cj.title"></ul>
         <p class="pad dim" id="cj-empty" data-t="cj.empty" hidden>No jobs yet.</p>
         <p class="cj-status pad" id="cj-status" role="status" aria-live="polite"></p>
@@ -545,9 +807,11 @@
       <button type="button" class="btn subtab" role="tab" id="sub-providers" aria-selected="false" aria-controls="ld-providers" data-t="pv.sub.providers">Providers</button>
       <button type="button" class="btn subtab" role="tab" id="sub-qwen" aria-selected="true" aria-controls="ld-qwen" data-t="pv.sub.qwen">Qwen Loader</button>
       <button type="button" class="btn subtab" role="tab" id="sub-converter" aria-selected="false" aria-controls="ld-converter" data-t="pv.sub.converter">Model converter</button>
+      <button type="button" class="btn subtab" role="tab" id="sub-llamacpp" aria-selected="false" aria-controls="ld-llamacpp" data-t="pv.sub.llamacpp">llama.cpp</button>
     </div>
     <div class="pv" id="ld-providers" role="tabpanel" aria-labelledby="sub-providers" hidden></div>
     <div id="ld-converter" role="tabpanel" aria-labelledby="sub-converter" hidden></div>
+    <div class="eng-panel" id="ld-llamacpp" role="tabpanel" aria-labelledby="sub-llamacpp" hidden></div>
     <div id="ld-qwen" role="tabpanel" aria-labelledby="sub-qwen">
     <p class="sec setnote warnnote ldgpu" id="ld-gpu" role="alert" hidden></p>
     <p class="sec setnote ldstandby" id="ld-standby" data-t="ld.standby" role="status" hidden></p>
@@ -556,6 +820,7 @@
     <div class="ldgrid">
       <form class="sec ldform" id="ld-form" novalidate>
         <div class="sh"><b data-t="ld.title">Load the model</b><span class="grow"></span><span class="ldmodel" id="ld-model"></span></div>
+        <p class="setnote" data-t="ld.disks">The server loads models from its own disks, whichever device you open this page from.</p>
         <div class="ldprof" id="ld-prof"></div>
         <p class="setnote warnnote" id="ld-reason" hidden></p>
         <p class="setnote" id="ld-cli" hidden></p>
@@ -621,6 +886,48 @@
       <div class="sh"><b id="me-h" data-t="me.title">Memories</b></div>
       <div class="pad" id="me-root"></div>
     </section>
+    <section class="sec stknowledge" data-sub="memories" id="kn-section" aria-labelledby="kn-h">
+      <div class="sh"><b id="kn-h" data-t="kn.title">Project notes, wiki and reference documents</b></div>
+      <div class="pad" id="kn-root"></div>
+    </section>
+    <section class="sec stlessons" data-sub="memories" id="ls-section" aria-labelledby="ls-h">
+      <div class="sh"><b id="ls-h" data-t="ls.title">Lessons from earlier tasks</b></div>
+      <div class="pad" id="ls-root"></div>
+    </section>
+    <section class="sec stbench" data-sub="benchmarks" id="bn-section" aria-labelledby="bn-h">
+      <div class="sh"><b id="bn-h" data-t="bn.title">Benchmarks</b></div>
+      <div class="pad" id="bn-root"></div>
+    </section>
+    <section class="sec stpromptswitch" data-sub="inference" id="ps-section" aria-labelledby="ps-h">
+      <div class="sh"><b id="ps-h" data-t="ps.title">Prompt analysis</b></div>
+      <div class="pad">
+        <p class="setnote" data-t="ps.intro"></p>
+        <div class="ps" id="ps-set" data-panel="ps-set-panel" data-label="off"></div>
+        <div class="ps-panel" id="ps-set-panel" hidden></div>
+        <div class="po" id="po-set" data-po></div>
+        <p class="setnote po-help" data-t="po.tip"></p>
+      </div>
+    </section>
+    <section class="sec stintake" data-sub="inference" id="iq-section" aria-labelledby="iq-h">
+      <div class="sh"><b id="iq-h" data-t="iq.title">Questions and suggestions</b></div>
+      <div class="pad" id="iq-root"></div>
+    </section>
+    <section class="sec stsideuses" data-sub="inference" id="su-section" aria-labelledby="su-h">
+      <div class="sh"><b id="su-h" data-t="su.title">Technical session: what uses it</b></div>
+      <div class="pad">
+        <p class="setnote" id="su-state" role="status" aria-live="polite"></p>
+        <p class="setnote kn-help" data-t="su.help"></p>
+        <div class="kn-actions"><button type="button" class="btn primary" id="su-open" data-t="su.open">Manage uses…</button></div>
+      </div>
+    </section>
+    <section class="sec stgate" data-sub="general" id="gt-section" aria-labelledby="gt-h">
+      <div class="sh"><b id="gt-h" data-t="gt.title">Checks before an answer ends</b></div>
+      <div class="pad" id="gt-root"></div>
+    </section>
+    <section class="sec stcompaction" data-sub="general" id="cx-section" aria-labelledby="cx-h">
+      <div class="sh"><b id="cx-h" data-t="cx.title">Long work: summarising older steps</b></div>
+      <div class="pad" id="cx-root"></div>
+    </section>
     <section class="sec stprefs" data-sub="general" id="st-prefs" aria-labelledby="st-prefs-h">
       <div class="sh"><b id="st-prefs-h" data-t="st.prefs.title">Memory and start</b></div>
       <form class="stprefs-body" id="st-share-form" novalidate>
@@ -638,6 +945,7 @@
       </form>
     </section>
   </div>
+  <div class="view nw" id="view-security" role="tabpanel" aria-labelledby="sub-security" hidden></div>
   <div class="view logs" id="view-logs" role="tabpanel" aria-labelledby="sub-logs" hidden>
     <svg class="rl-sprite" width="0" height="0" aria-hidden="true" focusable="false">
       <symbol id="rl-i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
@@ -647,6 +955,10 @@
       <symbol id="rl-i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></symbol>
       <symbol id="rl-i-play" viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
     </svg>
+    <div class="tr-switch" id="tr-switch" role="group" aria-label="Sections of LOGS" data-t-aria="tr.switch.aria">
+      <button type="button" class="btn" id="tr-sw-req" aria-pressed="true" data-t="tr.switch.requests">Requests</button>
+      <button type="button" class="btn" id="tr-sw-tr" aria-pressed="false" data-t="tr.switch.traces">Session traces</button>
+    </div>
     <section class="sec rl" id="rl" aria-label="Request log" data-t-aria="lg.region">
       <div class="rl-off" id="rl-off" hidden>
         <h2 data-t="lg.off.title">The request log is off</h2>
@@ -662,6 +974,10 @@
             <button type="button" class="btn" id="rl-save"><svg class="rl-ic" aria-hidden="true" focusable="false"><use href="#rl-i-save"/></svg><span data-t="lg.save">Save log</span></button>
             <label class="sr" for="rl-format" data-t="lg.format">File format</label>
             <select id="rl-format"><option value="text" data-t="lg.fmt.text">Text</option><option value="jsonl" data-t="lg.fmt.jsonl">JSONL</option></select>
+            <label class="sr" for="rl-mask" data-t="lg.mask">What to hide in the file</label>
+            <select id="rl-mask"><option value="none" data-t="lg.mask.none">Hide nothing</option><option value="secrets" data-t="lg.mask.secrets" selected>Hide secrets</option><option value="personal" data-t="lg.mask.personal">Hide secrets, e-mails, phones, IBANs</option></select>
+            <label class="sr" for="rl-hide" data-t="lg.hide">Words to hide as well, separated by commas</label>
+            <input id="rl-hide" type="text" autocomplete="off" spellcheck="false" placeholder="Also hide: names, words" data-t-ph="lg.hide.ph">
           </div>
           <div class="rl-find">
             <label class="sr" for="rl-q" data-t="lg.find">Find in the log</label>
@@ -680,6 +996,45 @@
         <div class="rl-wrap">
           <div class="rl-log" id="rl-log" role="log" aria-live="off" aria-label="Request log" data-t-aria="lg.region" tabindex="0"></div>
           <button type="button" class="btn rl-latest" id="rl-latest" hidden data-t="lg.latest">Latest</button>
+        </div>
+      </div>
+    </section>
+    <section class="sec tr" id="tr" aria-labelledby="tr-h" hidden>
+      <div class="tr-body">
+        <h2 id="tr-h" data-t="tr.title">Session traces</h2>
+        <p class="tr-help" data-t="tr.intro"></p>
+        <div class="tr-pick">
+          <div class="field">
+            <label for="tr-sel" data-t="tr.pick">Conversation</label>
+            <select id="tr-sel"></select>
+          </div>
+          <button type="button" class="btn" id="tr-refresh" data-t="tr.refresh">Refresh the list</button>
+        </div>
+        <p class="tr-help" id="tr-none" data-t="tr.none" hidden></p>
+        <div class="tr-cards" id="tr-cards">
+          <div class="tr-card">
+            <h3 data-t="tr.replay.title">Replay</h3>
+            <div class="field">
+              <label for="tr-mode" data-t="tr.mode">Permission level of the replay</label>
+              <select id="tr-mode" aria-describedby="tr-mode-h"><option value="default" data-t="tr.mode.default">Default</option><option value="read_only" data-t="tr.mode.read_only">Read only</option><option value="auto" data-t="tr.mode.auto">Automatic</option></select>
+              <p class="tr-help" id="tr-mode-h" data-t="tr.mode.help"></p>
+            </div>
+            <label class="tr-check" for="tr-results"><input type="checkbox" id="tr-results"><span data-t="tr.results">Also compare whether each call succeeded</span></label>
+            <div class="tr-act"><button type="button" class="btn primary" id="tr-replay" data-t="tr.replay">Replay this conversation</button></div>
+            <div class="tr-out" id="tr-replay-out" role="status" aria-live="polite"></div>
+          </div>
+          <div class="tr-card">
+            <h3 data-t="tr.export.title">Export</h3>
+            <p class="tr-help" data-t="tr.export.help"></p>
+            <div class="tr-act"><button type="button" class="btn" id="tr-export" data-t="tr.export">Save the trace (secrets masked)</button></div>
+            <div class="tr-out" id="tr-export-out" role="status" aria-live="polite"></div>
+          </div>
+          <div class="tr-card">
+            <h3 data-t="tr.ledger.title">Audit ledger</h3>
+            <p class="tr-help" data-t="tr.ledger.help"></p>
+            <div class="tr-act"><button type="button" class="btn" id="tr-verify" data-t="tr.verify">Verify the ledger</button></div>
+            <div class="tr-out" id="tr-ledger-out" role="status" aria-live="polite"></div>
+          </div>
         </div>
       </div>
     </section>

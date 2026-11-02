@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -32,7 +33,7 @@ LOAD_FIELDS = [f"{s}.{k}" for s, k in settings.LOADER_FIELDS]
 # the chat settings a preset keeps (serve/web/chatset.js)
 INFERENCE_KEYS = ("system", "stop", "policy", "threshold", "effort", "temperature", "top_p", "top_k", "min_p",
                   "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n", "seed",
-                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias")
+                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias", "max_turns", "max_answer_tokens", "auto_continue")
 
 
 def path() -> Path:
@@ -53,7 +54,7 @@ def _read() -> dict:
     if not isinstance(data.get("default"), str):
         data["default"] = None                          # none chosen: default_of() picks one
     for p in data["load"].values():
-        if isinstance(p, dict) and isinstance(p.get("values"), dict):
+        if isinstance(p, dict) and isinstance(p.get("values"), dict) and not p.get("engine"):
             p["values"] = {k: v for k, v in p["values"].items() if k not in settings.REMOVED_KEYS}
     return data
 
@@ -149,7 +150,21 @@ def check_inference(values) -> dict:
         out["context_patterns"] = check_config(out["context_patterns"])
     if out.get("end_turn_bias") not in (None, ""):
         from serve.api.logit_bias import add_end_turn
+        if isinstance(out["end_turn_bias"], str) and re.fullmatch(r"\s*-?\d+(\.\d+)?\s*", out["end_turn_bias"]):
+            out["end_turn_bias"] = float(out["end_turn_bias"])                 # the page keeps its fields as typed
         add_end_turn({"end_turn_bias": out["end_turn_bias"]}, [0])          # the one rule for the value
+    if out.get("max_turns") not in (None, ""):
+        steps = out["max_turns"]
+        if isinstance(steps, str) and re.fullmatch(r"-?\d{1,9}", steps.strip()):
+            steps = int(steps)
+        if isinstance(steps, bool) or not isinstance(steps, int) or not (steps == -1 or steps >= 1):
+            raise ValueError("max_turns: -1 for no limit, or a whole number from 1")
+    if out.get("auto_continue") not in (None, ""):
+        times = out["auto_continue"]
+        if isinstance(times, str) and re.fullmatch(r"\d{1,3}", times.strip()):
+            times = int(times)
+        if isinstance(times, bool) or not isinstance(times, int) or not 0 <= times <= 20:
+            raise ValueError("auto_continue: a whole number from 0 (off) to 20")
     if len(json.dumps(out)) > 256 << 10:
         raise ValueError("settings: larger than 256 KiB")
     return out
@@ -166,7 +181,7 @@ def listing(system: dict | None = None, facts: dict | None = None, holds: dict |
                                                        holds_vram=holds_vram), "builtin": True, "model": None}]
     loads += [{"name": n, "values": p.get("values", {}), "builtin": False, "saved": p.get("saved"),
                "model": p.get("model") if isinstance(p.get("model"), str) else None}
-              for n, p in sorted(data["load"].items(), key=lambda kv: kv[0].lower())]
+              for n, p in sorted(data["load"].items(), key=lambda kv: kv[0].lower()) if engine_of(p) == "basalt"]
     default = default_of(data)
     for p in loads:
         p["default"] = p["name"] == default
@@ -188,6 +203,8 @@ def summary(values: dict, facts: dict, system: dict | None, holds: dict | None =
              f"spec {v['engine.spec']}" if int(v["engine.spec"] or 0) >= 2 else "no MTP"]
     if int(v["server.parallel"]) > 1:
         parts.append(f"{v['server.parallel']} slots")
+    if int(v["server.side-slot"] or 0) > 0:
+        parts.append(f"technical session {v['server.side-slot']}")
     out = {"text": " · ".join(parts), "port": values.get("server.port", DEFAULT_PORT)}
     if system:
         p = loader.plan(values, facts, system, holds, holds_vram)
@@ -218,7 +235,7 @@ def get_load(name: str, facts: dict | None = None) -> dict | None:
     if name == SAFE_NAME:
         return safe_values(facts=facts)
     p = _read()["load"].get(name)
-    return dict(p.get("values", {})) if p else None
+    return dict(p.get("values", {})) if p and engine_of(p) == "basalt" else None
 
 
 def get_model(name: str) -> str | None:
@@ -227,6 +244,32 @@ def get_model(name: str) -> str | None:
         return None
     p = _read()["load"].get(name) or {}
     return p.get("model") if isinstance(p.get("model"), str) else None
+
+
+def engine_of(item) -> str:
+    """The engine a load profile is for: "basalt" unless it was saved with another (serve/engines.py)."""
+    return item.get("engine") or "basalt" if isinstance(item, dict) else "basalt"
+
+
+def _engine_item(engine: str, values, model) -> dict:
+    """A profile of another engine: its controls (engines.check_values) and the model file or run config to load."""
+    from serve import engines
+    if engine not in engines.ENGINES or engine == "basalt":
+        raise ValueError(f"engine: one of {', '.join(k for k in engines.ENGINES if k != 'basalt')}")
+    if not isinstance(model, str) or not os.path.isfile(model):
+        raise ValueError("model: a file on this PC")
+    return {"engine": engine, "values": engines.check_values(engine, values), "model": model}
+
+
+def engine_profiles(engine: str) -> list[dict]:
+    """The load profiles saved for `engine`: {"name", "values", "model", "saved", "model_missing"}."""
+    out = []
+    for n, p in sorted(_read()["load"].items(), key=lambda kv: kv[0].lower()):
+        if engine_of(p) == engine:
+            m = p.get("model") if isinstance(p.get("model"), str) else None
+            out.append({"name": n, "values": p.get("values", {}), "model": m, "saved": p.get("saved"),
+                        "model_missing": not (m and os.path.isfile(m))})
+    return out
 
 
 def _load_item(values, model) -> dict:
@@ -255,8 +298,12 @@ def change(req: dict) -> dict:
             name = check_name(req.get("name"))
             if kind == "load" and name == SAFE_NAME:
                 raise ValueError(f"{SAFE_NAME} is built in: save under another name")
-            item = _load_item(req.get("values"), req.get("model")) if kind == "load" else \
-                {"settings": check_inference(req.get("settings"))}
+            if kind == "load" and req.get("engine") not in (None, "", "basalt"):
+                item = _engine_item(req["engine"], req.get("values"), req.get("model"))
+            elif kind == "load":
+                item = _load_item(req.get("values"), req.get("model"))
+            else:
+                item = {"settings": check_inference(req.get("settings"))}
             box[name] = {**item, "saved": loader.now_iso()}
         elif action == "rename":
             old, new = check_name(req.get("name")), check_name(req.get("new_name"))
@@ -279,7 +326,7 @@ def change(req: dict) -> dict:
                 data["default"] = None
         elif action == "default":
             name = check_name(req.get("name"))
-            if kind != "load" or (name != SAFE_NAME and name not in box):
+            if kind != "load" or (name != SAFE_NAME and name not in box) or engine_of(box.get(name)) != "basalt":
                 raise ValueError(f"no load profile named {name!r}")
             data["default"] = name
         elif action == "import":

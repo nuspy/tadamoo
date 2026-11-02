@@ -57,7 +57,7 @@ def make(tmp_path, model, judge=None, parallel=1):
     ws = tmp_path / "ws"
     ws.mkdir(exist_ok=True)
     built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False,
-                                    permission_mode="auto", max_turns=6), client=model)
+                                    permission_mode="default", max_turns=6), client=model)
     events = Events()
     store = SessionStore(tmp_path / "hist", redact=built.agent.secrets.mask_secrets)
     health = lambda: {"reachable": True, "loaded": True, "loading": False, "auto_load": True, "parallel": parallel}
@@ -229,7 +229,7 @@ def test_a_waiting_request_can_be_made_urgent_or_dropped(tmp_path):
     assert [e["turn"] for e in ev.items if e["event"] == "done"][:1] == ["m2"]
 
 
-def test_the_waiting_requests_survive_the_process_and_wait_for_the_person_to_release_them(tmp_path):
+def test_the_waiting_requests_survive_the_process_and_go_on_with_the_next_resume(tmp_path):
     gate, started = threading.Event(), threading.Event()
     model = Model((said_in("mail"), lambda: say("Mail fatte.")), (said_in("organizza"), gated(gate, started, then=say("Cena."))))
     session, ev, store, built = make(tmp_path, model, judge=lambda text, ctx: "queue")
@@ -248,9 +248,9 @@ def test_the_waiting_requests_survive_the_process_and_wait_for_the_person_to_rel
     (tmp_path / "hist" / "history.json").write_text(json.dumps({"messages": [{"role": "user", "content": "organizza la cena"}, {"role": "assistant", "content": "Cena."}],
                                                                  "turns": 1, "pending": [{"turn": "m2", "text": "controlla le mail"}]}), encoding="utf-8")
     session2.restore()
-    assert session2.blocked["reason"] == "unfinished_requests" and "1 request" in session2.blocked["detail"]
+    assert session2.blocked is None                                             # a restart is never a block
     time.sleep(0.2)
-    assert "done" not in ev2.kinds()                                            # nothing went on by itself
+    assert "done" not in ev2.kinds()                                            # they go on with the resume the server sends after the start
     assert session2.resume()
     assert ev2.wait("done")["final"] == "Mail fatte dopo il riavvio."
 

@@ -287,6 +287,7 @@ def offer_search(registry: Any, secrets: Any = None, hub: Any = None, environ: O
         effect=EffectClass.PURE,
         handler=handler,
         untrusted=True,
+        outward=True,
     )
     return ready
 

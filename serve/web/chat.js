@@ -1,6 +1,7 @@
 "use strict";
 /* Chat: streams from this server's /v1/chat/completions. Replies are rendered from escaped text, so the model's
-   output can never inject markup. The conversation is kept in this browser's localStorage when it allows it. */
+   output can never inject markup. The conversation is kept in this browser's localStorage when it allows it, and its words are handed to the server's
+   index of earlier conversations (POST /api/past/chat) so that other conversations can find them. */
 (() => {
   const STORE = "basalt.chat", EFFORT = "basalt.effort", IMAGE_MAX = 12 << 20;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -166,7 +167,9 @@
       el.innerHTML = `<details class="think" hidden><summary><span class="think-t"></span></summary><div class="think-b" tabindex="0" role="region" aria-label="Reasoning"></div></details>` +
         `<div class="answer"></div><div class="meta"><span class="meta-t"></span>` +
         `<button type="button" class="btn ghost copy" hidden>Copy</button>` +
-        `<button type="button" class="btn ghost retry" hidden></button></div>`;
+        `<button type="button" class="btn ghost savefile" hidden></button>` +
+        `<button type="button" class="btn ghost retry" hidden></button>` +
+        `<button type="button" class="btn ghost goon" hidden></button></div>`;
       const row = document.createElement("div"), body = document.createElement("div");
       row.className = "arow"; body.className = "abody";
       while (el.firstChild) body.append(el.firstChild);
@@ -213,17 +216,35 @@
     if (m.error) {
       a.replaceChildren(Object.assign(document.createElement("p"), { className: "err", textContent: `Error: ${m.error}` }));
     } else if (!m.text && streaming) {
-      a.innerHTML = `<p class="wait">${m.reasoning ? "Thinking" : "Waiting for the model"}<span class="dots" aria-hidden="true"></span></p>`;
+      a.innerHTML = `<p class="wait">${m.progress ? esc(m.progress) : m.reasoning ? "Thinking" : "Waiting for the model"}<span class="dots" aria-hidden="true"></span></p>`;
     } else {
       a.innerHTML = markdown(m.text || "");
     }
+    if (m.notice) a.insertBefore(Object.assign(document.createElement("p"), { className: "ctx-notice", textContent: m.notice }), a.firstChild);
+    if (m.text && streaming && m.progress) a.append(Object.assign(document.createElement("p"), { className: "ctx-notice", textContent: m.progress }));
+    if (!streaming && m.long && m.long.warnings && m.long.warnings.length) {
+      a.append(Object.assign(document.createElement("p"), { className: "ctx-notice", textContent: T("la.warn", m.long.warnings.length, m.long.warnings.slice(0, 6).map(w => `${w.segment}: ${w.code}`).join("; ")) }));
+    }
     el.querySelector(".meta-t").textContent = m.meta || (streaming ? "" : m.stopped ? "Stopped" : "");
     el.querySelector(".copy").hidden = streaming || !m.text;
-    const retry = el.querySelector(".retry");
-    retry.hidden = streaming || !m.cut;
-    if (m.cut && !streaming) el.querySelector(".meta-t").textContent = `${m.meta ? m.meta + " · " : ""}${T("chat.cut")}`;
+    const save = el.querySelector(".savefile");
+    save.hidden = streaming || !m.text;
+    save.textContent = T("sf.btn"); save.title = T("sf.tip");
+    const retry = el.querySelector(".retry"), goon = el.querySelector(".goon");
+    retry.hidden = streaming || !(m.cut || m.repeated);
+    const limit = !streaming && lengthCut(m);
+    goon.hidden = !limit;
+    if (!streaming && (m.cut || m.repeated || limit || m.long)) {
+      const why = m.long ? T("la.summary", m.long.words, m.long.target_words, m.long.segments, m.long.of)
+        + (m.long.applied || (m.long.unapplied || []).length ? " " + T("la.fixes", m.long.applied || 0, (m.long.unapplied || []).length) : "") : m.repeated ? T("chat.repeated") : limit ? T("chat.length") : T("chat.cut");
+      el.querySelector(".meta-t").textContent = `${m.meta ? m.meta + " · " : ""}${why}`;
+    }
     retry.textContent = T("chat.retry");
+    goon.textContent = T("chat.continue");
   }
+  /* a reply the output limit ended: the text is whole up to there and the model can go on from it */
+  const lengthCut = m => m.role === "assistant" && m.finish === "length" && !m.error && !m.stopped && !m.repeated && !m.long;
+  const CONTINUE_NOTE = "Continue exactly where you stopped. Do not repeat anything already written.";
   /* a reply the model ended in the middle of a word: no stop, no length limit, no error. Sent back with the
      conversation it teaches the model to end the next replies the same way, so it is kept on the page but not sent;
      the reader can ask again with it removed */
@@ -243,6 +264,26 @@
   function save() {
     // images make the store large: if it is full, keep the text and the image names only
     if (!keep(STORE, messages)) keep(STORE, messages.map(m => ({ ...m, images: (m.images || []).map(i => ({ name: i.name })) })));
+    indexSoon();
+  }
+  // the words of the conversation go to the server once the page is quiet; nothing here depends on the answer
+  const ID_KEY = "basalt.chat.id";
+  const chatId = () => { let v = load(ID_KEY, ""); if (!/^[A-Za-z0-9_-]{6,64}$/.test(v || "")) { v = Date.now().toString(36) + Math.random().toString(36).slice(2, 10); keep(ID_KEY, v); } return v; };
+  const wordsOf = c => typeof c === "string" ? c : Array.isArray(c) ? c.filter(p => p && p.type === "text").map(p => p.text).join("\n") : "";
+  const PRIV_KEY = "basalt.chat.private";
+  const isPrivate = () => load(PRIV_KEY, "0") === "1";                              // a private conversation is never sent to the index
+  let indexTimer = null;
+  function indexSoon() {
+    clearTimeout(indexTimer);
+    if (isPrivate()) return;
+    indexTimer = setTimeout(() => {
+      if (busy) return indexSoon();
+      const turns = messages.filter(m => m && (m.role === "user" || m.role === "assistant")).map(m => ({ role: m.role, content: wordsOf(m.text != null ? m.text : m.content) })).filter(m => m.content);
+      if (!turns.length) return;
+      const first = turns.find(m => m.role === "user");
+      fetch("/api/past/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: chatId(), title: first ? first.content.replace(/\s+/g, " ").slice(0, 80) : "", messages: turns }) }).catch(() => {});
+    }, 1500);
   }
   msgs.addEventListener("click", e => {
     const u = e.target.closest(".undo");
@@ -252,6 +293,12 @@
         messages.splice(i, 1, ...(s.originals || []));
         save(); render(); status(T("compact.undone")); meter();
       }
+      return;
+    }
+    const go = e.target.closest(".goon");
+    if (go && !busy) {                                  // the limit ended the reply: ask the model to go on, in the same message
+      const m = messages[+go.closest(".cmsg").dataset.i];
+      if (m && lengthCut(m)) send(m);
       return;
     }
     const rt = e.target.closest(".retry");
@@ -266,6 +313,12 @@
       }
       return;
     }
+    const sv = e.target.closest(".savefile");
+    if (sv && !busy) {                                  // only on the person's click: the message is saved as a file through the export route
+      const m = messages[+sv.closest(".cmsg").dataset.i];
+      if (m && window.BasaltSave) window.BasaltSave.message(sv, { text: m.text, time: (m.time || 0) / 1000, turn: +sv.closest(".cmsg").dataset.i + 1 });
+      return;
+    }
     const b = e.target.closest(".copy");
     if (!b) return;
     const m = messages[+b.closest(".cmsg").dataset.i];
@@ -276,21 +329,65 @@
   /* ---- sending ---- */
   // the conversation as API messages, with the system prompt first; `at[k]` is the conversation index of message k
   // (-1 for the system prompt). A compaction summary goes as the user message the server wrote for it.
-  function apiMessages() {
+  /* Old replies as a short record: the conversation keeps every reply, but from the turn after the newest few the model reads the abstract of
+     each long one (written in the technical session when the reply ends, with the same compaction mark as every other record). Chat only. */
+  const ABS_KEY = "basalt.abstract", ABS_MIN = 400, ABS_KEEP = 6;     // the server decides from 400 characters up (Settings > Technical session)
+  const absPrefs = () => {
+    try { const v = JSON.parse(localStorage.getItem(ABS_KEY) || "{}"); return { on: v.on !== false, keep: Math.max(1, Math.min(20, Math.round(Number(v.keep)) || ABS_KEEP)), codeKeep: Math.max(3, Math.min(5, Math.round(Number(v.codeKeep)) || CODE_KEEP)) }; } catch (e) { return { on: true, keep: ABS_KEEP, codeKeep: CODE_KEEP }; }
+  };
+  const absSave = () => { try { localStorage.setItem(ABS_KEY, JSON.stringify({ on: $("#cs-abs-on").checked, keep: Number($("#cs-abs-keep").value) || ABS_KEEP, codeKeep: Number($("#cs-code-keep").value) || CODE_KEEP })); } catch (e) { /* kept for this session */ } };
+  /* Old code as a description, for the model only: from the Nth message back, a message that holds code is sent with each block replaced by a short plain
+     description and the name of the file where the server saved the original (the technical session writes it, a fixed outline when it cannot). The message on
+     screen and in the saved copy is not touched. Chat only; the Agent keeps its code whole. */
+  const CODE_KEEP = 4;
+  const codeLike = t => /```/.test(t) || (t.split("\n").length >= 6 && (t.match(/^\s*(def |class |import |from \S+ import |function[ (]|const |let |var |#include|public |private |return\b)|;\s*$|^\s*[{}]\s*$/gm) || []).length >= 0.4 * t.split("\n").length);
+  const sentCount = () => { const l = messages[messages.length - 1]; return messages.length - (l && l.role === "assistant" && !(l.text || "") ? 1 : 0); };      // the reply being written is not a message of the request
+  async function codeAbstracts() {
+    if (agent()) return;
+    const keep = absPrefs().codeKeep;
+    for (let i = 0; i < sentCount() - keep; i++) {
+      const m = messages[i], len = (m.text || "").length;
+      if ((m.role !== "user" && m.role !== "assistant") || m.error || !len || m.codeOf === len || m.codeNone === len || !codeLike(m.text)) continue;
+      try {
+        const r = await fetch("api/chat/code-abstract", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ text: m.text }) });
+        if (!r.ok) continue;
+        const j = await r.json();
+        if ((m.text || "").length !== len) continue;
+        if (j.text) { m.codeAbstract = j.text; m.codeOf = len; } else m.codeNone = len;
+        save();
+      } catch (e) { /* the message goes whole */ }
+    }
+  }
+  async function abstractLater(m) {
+    if (!absPrefs().on || m.role !== "assistant" || m.error || m.stopped || m.cut || m.long || (m.text || "").length < ABS_MIN || agent()) return;
+    const len = m.text.length;
+    try {
+      const r = await fetch("api/chat/abstract", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ text: m.text }) });
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j.text && (m.text || "").length === len) { m.abstract = j.text; m.abstractOf = len; save(); meter(); }
+    } catch (e) { /* the reply stays whole */ }
+  }
+  function apiMessages(full) {
     const out = [], at = [];
+    const usersAfter = [], prefs = absPrefs();
+    const codeSaid = (m, i, text) => !agent() && m.codeAbstract && m.codeOf === (m.text || "").length && sentCount() - 1 - i >= prefs.codeKeep ? m.codeAbstract : text;      // old code as its description
+    for (let k = messages.length - 1, u = 0; k >= 0; k--) { usersAfter[k] = u; if (messages[k].role === "user") u++; }
     const sys = chatSettings.system();
     if (sys) { out.push({ role: "system", content: sys }); at.push(-1); }
     messages.forEach((m, i) => {
       if (busy && busy.msg === m) return;
       if (m.role === "user") {
         const imgs = (m.images || []).filter(i => i.url);
-        out.push({ role: "user", content: imgs.length ? [{ type: "text", text: m.text }, ...imgs.map(i => ({ type: "image_url", image_url: { url: i.url } }))] : m.text });
+        out.push({ role: "user", content: imgs.length ? [{ type: "text", text: codeSaid(m, i, m.text) }, ...imgs.map(i => ({ type: "image_url", image_url: { url: i.url } }))] : codeSaid(m, i, m.text) });
       } else if (m.role === "summary") {
-        out.push({ role: "user", content: m.content || m.text || "" });
+        const o = full && m.originals ? m.originals.filter(x => x.text).map(x => ({ role: x.role === "user" ? "user" : "assistant", content: x.text })) : [];
+        out.push({ role: "user", content: m.content || m.text || "", ...(o.length ? { originals: o } : {}) });   // sent along only when the context is being fitted: a stretch is compacted again from its own text
       } else {
         if (m.error && !m.text) return;                 // a failed reply is not part of the conversation
         if (m.cut) return;                              // nor is one the model ended mid-word: it would teach the next ones to stop short
-        out.push({ role: "assistant", content: m.text || "" });
+        const aged = prefs.on && m.abstract && m.abstractOf === (m.text || "").length && usersAfter[i] >= prefs.keep;
+        out.push({ role: "assistant", content: aged ? m.abstract : busy && busy.cont === m ? (m.text || "").slice(0, cutText.cutPoint(m.text || "")) : codeSaid(m, i, m.text || "") });   // a cut reply goes back up to its last whitespace
       }
       at.push(i);
     });
@@ -309,14 +406,18 @@
     $("#ctx-bar").style.width = pctv.toFixed(1) + "%";
     box.dataset.level = pctv >= 90 ? "full" : pctv >= 70 ? "high" : "";
   }
-  async function context(policy, extra) {
-    const { out, at } = apiMessages();
+  async function context(policy, extra, full) {
+    const { out, at } = apiMessages(full);
     if (!out.length) return { out, at, r: null };
     const sampling = chatSettings.body();
     const body = { messages: out, policy, max_tokens: sampling.max_tokens || 0, threshold: chatSettings.threshold(), ...extra };
     if (effort.value) body.reasoning_effort = effort.value;
     const r = await fetch("api/chat/context", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify(body) });
-    if (!r.ok) return { out, at, r: null };
+    if (!r.ok) {
+      let err = `HTTP ${r.status}`;
+      try { err = (await r.json()).error.message || err; } catch (e) { /* not JSON */ }
+      return { out, at, r: null, err };
+    }
     return { out, at, r: await r.json() };
   }
   function meter() {
@@ -337,10 +438,17 @@
   // apply the policy before a send: true to go on, false when the conversation cannot be sent
   async function fitContext(m) {
     const policy = chatSettings.policy();
-    let res;
-    try { res = await context(policy); } catch (e) { return true; }   // the server says no later if it must
-    const r = res.r;
-    if (!r) return true;
+    let res = null, why = "";
+    try { res = await context(policy, undefined, policy === "compact"); why = res.err || ""; } catch (e) { why = e.message; }
+    if ((!res || !res.r) && policy === "compact") {          // the summary failed: drop the oldest messages instead
+      try { const again = await context("rolling"); if (again.r) { res = again; m.notice = T("ctx.fallback", why); } } catch (e) { /* sent as it is below */ }
+    }
+    const r = res && res.r;
+    if (!r) {                                               // the send goes on; the server clamps the answer cap
+      if (why) { m.notice = T("ctx.failed", why); status(m.notice); }
+      return true;
+    }
+    if (r.notice) m.notice = r.notice;
     limitKnown = r.limit;
     messages.forEach(x => { delete x.outside; });
     if (r.action === "over") {
@@ -356,7 +464,7 @@
     } else if (r.action === "compacted") {
       const idx = r.summary.replaces.map(k => res.at[k]).filter(i => i >= 0).sort((a, b) => a - b);
       const originals = idx.map(i => messages[i]).flatMap(x => x.role === "summary" ? (x.originals || [x]) : [x]);
-      const entry = { role: "summary", text: r.summary.text, content: r.summary.message.content, originals, time: Date.now() };
+      const entry = { role: "summary", text: r.summary.text, content: r.summary.message.content, mark: r.summary.mark, originals, time: Date.now() };
       for (let k = idx.length - 1; k >= 0; k--) messages.splice(idx[k], 1);
       messages.splice(idx[0], 0, entry);
     }
@@ -373,31 +481,45 @@
   // the conversations mode (agentchat.js) takes the composer when it is on; this file keeps the model-only chat
   const agent = () => (window.agentChat && window.agentChat.active() ? window.agentChat : null);
 
-  async function send() {
-    if (prompt.value.startsWith("/") && window.slash) {              // a command is run, not sent; an unknown one stays to be edited
-      const done = window.slash.run(prompt.value.trim());
-      if (done === "keep") return;
-      if (done) { prompt.value = ""; autosize(); return; }
+  /* `cont`: an assistant message the output limit ended; the model is asked to go on and its words join that message. `auto`: the
+     continuation is the page's own (the setting "Automatic continuations"), not a press of the Continue button */
+  async function send(cont, auto) {
+    let m, long = null, text = "", head = null, fresh = "";
+    if (cont) {
+      if (busy) return;
+      m = cont;
+      delete m.finish; m.stopped = false; m.cut = false; m.error = ""; m.capped = false;
+      head = m.text || "";                                              // the cut text; what comes now is joined to it
+      m.chain = auto ? (m.chain || 0) + 1 : 0;
+      m.progress = auto ? T("chat.auto", m.chain, chatSettings.autoContinue()) : "";
+    } else {
+      if (prompt.value.startsWith("/") && window.slash) {              // a command is run, not sent; an unknown one stays to be edited
+        const done = window.slash.run(prompt.value.trim());
+        if (done === "keep") return;
+        if (done) { prompt.value = ""; autosize(); return; }
+      }
+      const a = agent();
+      if (a) { const t = prompt.value.trim(); if (t) { prompt.value = ""; autosize(); a.send(window.longAnswer ? window.longAnswer.decorate(t) : t); } return; }
+      text = prompt.value.trim();
+      if ((!text && !attachments.length) || busy) return;
+      long = window.longAnswer ? window.longAnswer.request() : null;      // the person asked for a long answer: written in parts by the server
+      messages.push({ role: "user", text, images: attachments, time: Date.now() });
+      attachments = []; drawAttachments();
+      prompt.value = ""; autosize();
+      m = { role: "assistant", text: "", reasoning: "", time: Date.now() };
+      messages.push(m);
     }
-    const a = agent();
-    if (a) { const t = prompt.value.trim(); if (t) { prompt.value = ""; autosize(); a.send(t); } return; }
-    const text = prompt.value.trim();
-    if ((!text && !attachments.length) || busy) return;
-    messages.push({ role: "user", text, images: attachments, time: Date.now() });
-    attachments = []; drawAttachments();
-    prompt.value = ""; autosize();
-    const m = { role: "assistant", text: "", reasoning: "", time: Date.now() };
-    messages.push(m);
     render();
-    let el = msgs.lastElementChild;
+    let el = cont ? msgs.querySelector(`.cmsg[data-i="${messages.indexOf(m)}"]`) : msgs.lastElementChild;
     const controller = new AbortController();
-    busy = { controller, msg: m, el };
+    busy = { controller, msg: cont ? null : m, el, cont: cont || null };
     setBusy(true);
     let first = null, thinkStart = null, usage = null, frame = 0;
     const draw = () => { frame = 0; paint(el, m, true); scrollDown(); };
-    if (chatSettings.policy() === "compact") status(T("ctx.compacting"));
-    const fits = await fitContext(m);
-    if (busy && busy.msg === m) { render(); el = busy.el = msgs.lastElementChild; paint(el, m, true); }
+    if (!cont && chatSettings.policy() === "compact") status(T("ctx.compacting"));
+    if (!cont) await codeAbstracts();                                  // old code goes to the model as its description
+    const fits = cont ? true : await fitContext(m);
+    if (!cont && busy && busy.msg === m) { render(); el = busy.el = msgs.lastElementChild; paint(el, m, true); }
     if (!fits || controller.signal.aborted) {
       if (controller.signal.aborted) m.stopped = true;
       busy = null; setBusy(false); paint(el, m, false);
@@ -412,10 +534,12 @@
     const body = { model: model || undefined, ...chatSettings.body(), stream: true };
     const api = apiMessages();                          // the sliding window leaves out what is marked outside
     body.messages = api.out.filter((x, k) => api.at[k] < 0 || !messages[api.at[k]].outside);
+    if (cont) body.messages.push({ role: "user", content: CONTINUE_NOTE });
     if (effort.value) body.reasoning_effort = effort.value;
+    if (long) { body.long_answer = long; for (const k of ["max_tokens", "max_answer_tokens", "response_format", "structured_retries"]) delete body[k]; }
     try {
       const r = await fetch("v1/chat/completions", { method: "POST", signal: controller.signal,
-        headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify(body) });
+        headers: { "Content-Type": "application/json", ...(long ? {} : { "X-Basalt-Compress": "1" }), ...authHeaders() }, body: JSON.stringify(body) });
       if (!r.ok) {
         let msg = `HTTP ${r.status}`;
         try { msg = (await r.json()).error.message || msg; } catch (e) { /* not JSON */ }
@@ -439,6 +563,9 @@
           try { j = JSON.parse(data); } catch (e) { continue; }
           if (j.error) throw new Error(j.error.message || "the engine reported an error");
           if (j.usage) usage = j.usage;
+          if (j.long_answer) longEvent(m, j.long_answer);
+          if (j.repeated) m.repeated = true;
+          if (j.answer_capped) m.capped = true;
           if (j.structured_output) m.structured = j.structured_output;
           if (j.choices && j.choices[0] && j.choices[0].finish_reason) m.finish = j.choices[0].finish_reason;
           const d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
@@ -446,7 +573,8 @@
           if (d.content) {
             first = first || performance.now();
             if (thinkStart && m.thinkSecs == null) m.thinkSecs = (performance.now() - thinkStart) / 1000;
-            m.text += d.content;
+            if (head != null) { fresh += d.content; m.text = cutText.joinCut(head, fresh); }       // no doubled space, no repeated words at the seam
+            else m.text += d.content;
           }
           if (!frame) frame = requestAnimationFrame(draw);
         }
@@ -458,15 +586,17 @@
     if (frame) cancelAnimationFrame(frame);
     if (thinkStart && m.thinkSecs == null) m.thinkSecs = (performance.now() - thinkStart) / 1000;
     const n = usage && usage.completion_tokens;
+    m.tokens = (cont ? m.tokens || 0 : 0) + (n || 0);
     if (n && first) {
       const secs = (performance.now() - first) / 1000;
-      m.meta = `${n.toLocaleString("en-US")} tokens${secs > 0.25 ? ` · ${(n / secs).toFixed(1)} tok/s` : ""}${m.stopped ? " · stopped" : ""}`;
+      m.meta = `${m.tokens.toLocaleString("en-US")} tokens${secs > 0.25 ? ` · ${(n / secs).toFixed(1)} tok/s` : ""}${m.stopped ? " · stopped" : ""}`;
     } else if (m.stopped) m.meta = "Stopped";
     if (body.response_format) {                         // JSON held to its schema by the engine: shown as a code block
       if (m.structured) m.meta = `${m.meta ? m.meta + " · " : ""}${T("cs.validated", m.structured.attempts)}`;
       try { m.text = "```json\n" + JSON.stringify(JSON.parse(m.text), null, 2) + "\n```"; } catch (e) { /* left as sent */ }
     }
     m.cut = looksCut(m);
+    delete m.progress;
     busy = null;
     setBusy(false);
     paint(el, m, false);
@@ -474,8 +604,29 @@
     save();
     scrollDown();
     meter();
+    abstractLater(m);
+    // a reply the output limit cut goes on by itself, up to the setting; not a loop, not the answer cap, not a stop, and only while words keep coming
+    if (lengthCut(m) && !m.capped && (head == null || fresh.trim()) && (m.chain || 0) < chatSettings.autoContinue()) send(m, true);
   }
 
+  /* the events of a long answer (serve/longform.py) as one line under the text, and the totals at the end */
+  function longEvent(m, ev) {
+    if (ev.event === "plan") m.progress = T("la.p.plan", ev.segments.length);
+    else if (ev.event === "segment_start") m.progress = T("la.p.part", ev.index, ev.of);
+    else if (ev.event === "segment_progress") m.progress = T("la.p.words", ev.index, ev.words);
+    else if (ev.event === "segment_done") m.progress = T("la.p.done", ev.index, ev.of, ev.words);
+    else if (ev.event === "estimate") m.progress = T(ev.long ? "la.p.estimate" : "la.p.short", ev.words);
+    else if (ev.event === "review") m.progress = T("la.p.review", ev.round, ev.of);
+    else if (ev.event === "fix") {
+      const r = ev.reason, known = ["not_found", "ambiguous", "too_short", "spans_blocks", "protected", "heading", "table", "limit"];
+      const why = T(known.includes(r) ? "la.r." + r : r === "rejected_length" ? "la.r.length" : String(r).startsWith("rejected") ? "la.r.rejected" : "la.r.invalid");
+      m.progress = ev.status === "applied" ? T("la.p.fix.ok", ev.n, ev.of, ev.chunk) : T("la.p.fix.no", ev.n, ev.of, ev.chunk, why);
+    }
+    else if (ev.event === "revised") m.text = ev.text;      // the check corrected the text: the corrected whole replaces what was shown while the parts were written
+    else if (ev.event === "done") { m.long = ev; m.progress = ""; }
+  }
+  { const p = absPrefs(); $("#cs-abs-on").checked = p.on; $("#cs-abs-keep").value = p.keep; $("#cs-code-keep").value = p.codeKeep;
+    for (const id of ["#cs-abs-on", "#cs-abs-keep", "#cs-code-keep"]) $(id).addEventListener("change", () => { absSave(); meter(); }); }
   $("#composer").onsubmit = e => { e.preventDefault(); send(); };
   $("#stop").onclick = () => { const a = agent(); if (a) a.stop(); else if (busy) busy.controller.abort(); };
   prompt.addEventListener("keydown", e => {
@@ -488,7 +639,7 @@
     const a = agent();
     if (a) { a.newChat(); prompt.focus(); return; }
     if (busy) busy.controller.abort();
-    messages = []; save(); render(); status(T("ch.new")); prompt.focus(); meter();
+    clearTimeout(indexTimer); keep(ID_KEY, ""); keep(PRIV_KEY, "0"); messages = []; save(); render(); status(T("ch.new")); prompt.focus(); meter();
   };
 
   /* ---- images (only when the server reads them) ---- */
@@ -603,9 +754,35 @@
       }
     }
   }
+  /* the model-only conversation as plain data, and the SVG a diagram was drawn as (empty when it was not): both read by export.js */
+  function snapshot() {
+    const items = [];
+    messages.forEach((m, n) => {
+      const time = (m.time || 0) / 1000;
+      if (m.role === "user") items.push({ kind: "prompt", text: m.text || "", time, images: (m.images || []).filter(i => i.url).map(i => ({ name: i.name || "", url: i.url })) });
+      else if (m.role === "assistant") {
+        if (m.reasoning) items.push({ kind: "reasoning", turn: n, text: m.reasoning, time });
+        if (m.text) items.push({ kind: "answer", turn: n, text: m.text, time });
+      }
+    });
+    return { title: "", session: "", items };
+  }
   window.chatUi = {
     renderMarkdown: (el, text) => { el.innerHTML = markdown(text || ""); loadPictures(el); drawDiagrams(el); },
+    snapshot, diagram: code => drawn.get(code) || "",
     sessionId: () => "",
+    privacy: {
+      get: isPrivate,
+      set: on => { keep(PRIV_KEY, on ? "1" : "0"); if (on) clearTimeout(indexTimer); else indexSoon(); },
+      forget: async () => {                                                        // everything the server took from this conversation
+        clearTimeout(indexTimer);
+        try {
+          const r = await fetch("/api/past/forget", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ id: chatId() }) });
+          const j = await r.json().catch(() => ({}));
+          return { ok: r.ok, json: j };
+        } catch (e) { return { ok: false, json: {} }; }
+      },
+    },
     watchThink, paintThink, scrollDown, autosize, stamp, sourceLink,
     setPrompt: t => { prompt.value = t; autosize(); prompt.focus(); },
   };

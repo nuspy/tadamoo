@@ -1,8 +1,7 @@
 """Starts the agent from the server's pages, watches it and stops it.
 
 The agent is the separate process `python -m harness`; this only launches it with the choices made on the page,
-keeps its progress lines in a log, reads its result file, and records how it ended. One run at a time: the model serves one conversation at a time
-and two agents in one folder would undo each other. A run that is still going when the server ends is killed with it.
+keeps its progress lines in a log, reads its result file, and records how it ended. A run that is still going when the server ends is killed with it.
 """
 from __future__ import annotations
 
@@ -19,17 +18,14 @@ from typing import Any, Dict, List, Optional
 from serve import ROOT
 from serve.approvals import ApprovalBoard
 from serve.tasks import OPEN_STATES, TaskJournal, _write_json
+from serve.util import peer
 from serve.util.winjob import contain
 
 MODES = ("plan", "read_only", "default", "auto")
 KEEP_RUNS = 50
-GOAL_CHARS = 4000
 SHOWN_CHARS = 300
 LOG_TAIL_BYTES = 65_536
-MAX_ALLOW = 10
 RUNS_FILE = "agent_runs.json"
-SAFE_ENV_KEYS = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "COMSPEC", "PATHEXT", "USERPROFILE", "HOME", "APPDATA",
-                 "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMDATA", "LANG", "LC_ALL", "TERM", "BASALT_DATA"}
 
 
 class RunError(ValueError):
@@ -72,6 +68,7 @@ class AgentRunner:
         self._lock = threading.RLock()
         self._procs: Dict[str, "subprocess.Popen[bytes]"] = {}
         self.runs: List[Dict[str, Any]] = self._load()
+        peer.add_provider(self.agent_pids)
 
     # -- records ---------------------------------------------------------------------------------------
 
@@ -95,6 +92,21 @@ class AgentRunner:
 
     def _result_path(self, run_id: str) -> Path:
         return self.directory / "runs" / f"{run_id}.json"
+
+    def _pid_path(self, run_id: str) -> Path:
+        return self.directory / "runs" / f"{run_id}.pid"
+
+    def agent_pids(self) -> List[int]:
+        """The process ids of the agents running now, as each one wrote them."""
+        with self._lock:
+            ids = [rid for rid, proc in self._procs.items() if proc.poll() is None]
+        out: List[int] = []
+        for rid in ids:
+            try:
+                out.append(int(self._pid_path(rid).read_text(encoding="ascii").strip()))
+            except (OSError, ValueError):
+                continue
+        return out
 
     def view(self) -> Dict[str, Any]:
         with self._lock:
@@ -137,17 +149,19 @@ class AgentRunner:
         path, data = self._workspace_of(run_id)
         return [{**cp, "after": cp["after"][-8:]} for cp in checkpoint_report(data, path)]
 
-    def rewind(self, run_id: str, checkpoint_id: Any, accept_irreversible: bool = False) -> Dict[str, Any]:
+    def rewind(self, run_id: str, checkpoint_id: Any) -> Dict[str, Any]:
+        """Puts the files back to a checkpoint; a run still working is stopped first, and the actions that stay done are returned as `not_undone`."""
         from harness.rewind import checkpoint_report, rewind
         path, data = self._workspace_of(run_id)
         with self._lock:
-            if any(r["status"] == "running" for r in self.runs):
-                raise RunBusy("Stop the agent before going back: it is still working in a folder.", "busy")
+            for r in [r for r in self.runs if r["status"] == "running"]:
+                try:
+                    self.stop(r["id"])
+                except RunError:
+                    pass
             target = next((c for c in checkpoint_report(data, path) if c["id"] == checkpoint_id), None)
             if target is None:
                 raise RunError("That checkpoint is not there any more.", "no_checkpoint")
-            if target["not_undone"] and accept_irreversible is not True:
-                raise RunError("Some later actions cannot be undone by putting the files back.", "needs_yes")
             try:
                 return {**rewind(data, path, checkpoint_id), "not_undone": target["not_undone"]}
             except (OSError, ValueError) as exc:
@@ -164,41 +178,32 @@ class AgentRunner:
             raise RunError("Give the full path of the folder, for example D:\\projects\\site.", "folder_relative")
         if not path.is_dir():
             raise RunError(f"That folder does not exist: {path}", "folder_not_found")
-        path = path.resolve()
-        if len(path.parts) <= 1:
-            raise RunError("Choose a folder, not a whole drive.", "folder_drive")
-        return path
+        return path.resolve()
 
-    def start(self, workspace: Any, goal: Any, mode: Any = "default", allow: Any = None, max_turns: Any = 15,
-              confirm_auto: bool = False) -> Dict[str, Any]:
+    def start(self, workspace: Any, goal: Any, mode: Any = "auto", allow: Any = None, max_turns: Any = -1) -> Dict[str, Any]:
         path = self.check_workspace(workspace)
         if not isinstance(goal, str) or not goal.strip():
             raise RunError("Write what the agent should do.", "goal_missing")
-        if len(goal) > GOAL_CHARS:
-            raise RunError(f"The task is too long ({len(goal)} characters; at most {GOAL_CHARS}).", "goal_long")
         if mode not in MODES:
             raise RunError("The mode must be one of: " + ", ".join(MODES) + ".", "bad_mode")
-        if mode == "auto" and confirm_auto is not True:
-            raise RunError("Automatic mode runs commands without asking. Confirm that you want that, in a folder you can lose.", "auto_confirm")
         rules = allow if isinstance(allow, list) else []
-        if len(rules) > MAX_ALLOW or any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
-            raise RunError(f"Allow rules are lines of text, at most {MAX_ALLOW}.", "bad_rules")
-        if not isinstance(max_turns, int) or isinstance(max_turns, bool) or not 1 <= max_turns <= 50:
-            raise RunError("The number of steps must be between 1 and 50.", "bad_steps")
+        if any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
+            raise RunError("Allow rules are lines of text.", "bad_rules")
+        if not isinstance(max_turns, int) or isinstance(max_turns, bool) or max_turns == 0 or max_turns < -1:
+            raise RunError("The number of steps is -1 for no limit, or a whole number from 1.", "bad_steps")
 
         with self._lock:
-            if any(r["status"] == "running" for r in self.runs):
-                raise RunBusy("An agent is already running. Stop it or wait for it to finish.", "busy")
             run_id = secrets.token_hex(3)
             log_path = self._log_path(run_id)
             log_path.parent.mkdir(parents=True, exist_ok=True)
             command = [self.python, "-m", "harness", f"--prompt={goal.strip()}", "--workspace", str(path), "--endpoint", self.endpoint,
                        "--permission-mode", mode, "--max-turns", str(max_turns), "--progress", "--result-file", str(self._result_path(run_id)),
-                       "--run-id", run_id, "--ask-server"]
+                       "--run-id", run_id, "--ask-server",
+                       "--pid-file", str(self._pid_path(run_id))]
             for rule in rules:
                 command += ["--allow", rule.strip()]
-            env = {k: v for k, v in os.environ.items() if k.upper() in SAFE_ENV_KEYS}
-            env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root)})
+            env = dict(os.environ)
+            env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root), "BASALT_COMPRESS": "1"})
             if self.api_key:
                 env["BASALT_API_KEY"] = self.api_key
             flags = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW) if os.name == "nt" else 0

@@ -1,4 +1,5 @@
 """run_code: output, errors, timeout and cancel that kill the tree, a clean environment, caps, and the tool's place in the permission layer."""
+import os
 import shutil
 import sys
 import threading
@@ -59,6 +60,15 @@ def test_files_the_code_makes_are_kept_and_listed(ws):
     assert res["files"] == [{"path": "out.csv", "bytes": 8}]
     assert (ws / res["folder"] / "out.csv").read_bytes() == b"a,b\n1,2\n"
     assert not (ws / res["folder"] / "main.py").exists()
+
+
+def test_a_working_folder_is_never_deleted_for_being_old(ws):
+    first = run_code("python", "open('keep.txt', 'w').write('x')", ws, RUNTIMES)
+    old = ws / first["folder"]
+    long_ago = time.time() - 90 * 86400
+    os.utime(old, (long_ago, long_ago))
+    run_code("python", "print(1)", ws, RUNTIMES)
+    assert (old / "keep.txt").exists()
 
 
 def test_output_is_capped(ws):

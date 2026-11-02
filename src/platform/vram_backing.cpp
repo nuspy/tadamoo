@@ -131,7 +131,7 @@ bool restore_vram_backing_on_suspend(std::string& why) {
     static bool ok = false;
     static std::string err;
     std::call_once(once, [] {
-        // powrprof.dll is loaded when asked, not linked: a start without --release-vram-commit keeps its imports
+        // powrprof.dll is loaded when asked, not linked: a start with --keep-vram-commit keeps its imports
         HMODULE dll = LoadLibraryA("powrprof.dll");
         using Register = DWORD(WINAPI*)(DWORD, HANDLE, PHPOWERNOTIFY);
         const auto reg = dll ? (Register) (void*) GetProcAddress(dll, "PowerRegisterSuspendResumeNotification") : nullptr;

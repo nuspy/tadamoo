@@ -2,6 +2,8 @@
 
 The chain makes edits, deletions and reordering detectable; it cannot stop someone who rewrites the
 whole file. A small head file next to the ledger (count and last hash) also exposes a truncated tail.
+Several processes may share one ledger: each record is appended under a file lock, after reading again
+what the others added, so the chain never forks; verifying reads the file as it is now.
 
 A tool call is recorded without its arguments in full: their SHA-256, a masked preview with every long value
 cut (under `arguments`, where older rows hold the whole), the permission decision, the outcome and the time
@@ -10,6 +12,7 @@ whatever the details hold.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -22,6 +25,34 @@ GENESIS = "0" * 64
 FIELDS = ("index", "timestamp", "actor", "action", "details", "prev_hash")
 PREVIEW_VALUE_CHARS = 60          # each value of the arguments in the preview
 PREVIEW_CHARS = 600               # the whole preview; past it the preview is plain text, cut
+
+
+@contextlib.contextmanager
+def file_lock(path: Path):
+    """One writer at a time across processes, held on a file of its own (never on the data)."""
+    handle = open(path, "a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            while True:
+                try:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    time.sleep(0.02)
+        else:
+            import fcntl
+            fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        finally:
+            handle.close()
 
 
 def _redact(value: Any, redactor: Callable[[str], str]) -> Any:
@@ -41,7 +72,23 @@ class AuditLedger:
         self.head_path = self.path.with_suffix(self.path.suffix + ".head")
         self.redactor = redactor
         self._lock = threading.RLock()
+        self._lock_path = self.path.with_suffix(self.path.suffix + ".lock")
+        self._stamp: Any = None                            # size and time of the file when this object last read or wrote it
         self.records: List[Dict[str, Any]] = self._load()
+        self._stamp = self._disk_stamp()
+
+    def _disk_stamp(self) -> Any:
+        try:
+            st = self.path.stat()
+        except OSError:
+            return None
+        return (st.st_size, st.st_mtime_ns)
+
+    def _refresh(self, force: bool = False) -> None:
+        """Reads the ledger again when another process (or anything else) changed the file since this object last saw it."""
+        if force or self._disk_stamp() != self._stamp:
+            self.records = self._load()
+            self._stamp = self._disk_stamp()
 
     def _load(self) -> List[Dict[str, Any]]:
         if not self.path.is_file():
@@ -61,10 +108,10 @@ class AuditLedger:
         return records
 
     def call_details(self, tool: str, arguments: Any, *, permission: str, outcome: str, duration_s: float,
-                     effect: str = "", reason: str = "") -> Dict[str, Any]:
+                     effect: str = "", reason: str = "", repaired: bool = False) -> Dict[str, Any]:
         """What a tool call leaves in the ledger: the tool, the SHA-256 of its arguments (as masked), a masked and shortened
         preview of them, the permission decision, how it ended (ok, error, refused or cancelled; "started" for the note made
-        when it is let through) and how long it took."""
+        when it is let through), how long it took and, when it is true, that the call was repaired."""
         masked = _redact(arguments, self.redactor) if self.redactor else arguments       # masked first: a cut-off secret would not be recognised
         canonical = json.dumps(masked, sort_keys=True, ensure_ascii=False, default=str)
         details: Dict[str, Any] = {
@@ -77,6 +124,8 @@ class AuditLedger:
             details["effect"] = effect
         if reason:
             details["reason"] = reason[:300]
+        if repaired:
+            details["repaired"] = True               # the call's name, JSON or value types were mended before it was checked
         return details
 
     @staticmethod
@@ -102,7 +151,8 @@ class AuditLedger:
         """Appends a chained record; secret values are masked by the redactor before anything is written."""
         if self.redactor:
             details = _redact(details, self.redactor)
-        with self._lock:
+        with self._lock, file_lock(self._lock_path):
+            self._refresh()
             prev = self.records[-1].get("hash", GENESIS) if self.records else GENESIS
             entry = {
                 "index": len(self.records),
@@ -118,6 +168,7 @@ class AuditLedger:
                 f.flush()
                 os.fsync(f.fileno())
             self.records.append(entry)
+            self._stamp = self._disk_stamp()
             self._write_head(entry)
             return entry
 
@@ -127,7 +178,13 @@ class AuditLedger:
         os.replace(tmp, self.head_path)
 
     def problems(self) -> List[str]:
-        """Everything wrong with the ledger, in order; an unreadable or malformed line is a problem of its own, never skipped."""
+        """Everything wrong with the ledger as it is on disk now, in order (a record another process added is read first); an unreadable or
+        malformed line is a problem of its own, never skipped."""
+        with self._lock, file_lock(self._lock_path):
+            self._refresh(force=True)
+            return self._problems()
+
+    def _problems(self) -> List[str]:
         found: List[str] = []
         expected_prev: Optional[str] = GENESIS            # None after a line that cannot be read: the next link cannot be checked
         for i, rec in enumerate(self.records):

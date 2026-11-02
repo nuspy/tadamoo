@@ -117,7 +117,7 @@ def test_an_incomplete_card_lists_what_is_missing():
 def test_the_waiver_needs_every_step(broker):
     cases = [dict(read_to_end=False), dict(release_ack=False),
              dict(retyped_names={"release": NAME, "acceptance": "Luigi Verdi"}), dict(retyped_names={"release": NAME}),
-             dict(cum="10"), dict(ttl_days=0), dict(ttl_days=400), dict(typed_text="I agree")]
+             dict(cum="10"), dict(ttl_days=-1), dict(ttl_days=float("nan")), dict(typed_text="I agree")]
     for kw in cases:
         with pytest.raises(ValueError):
             grant(broker, **kw)
@@ -299,16 +299,48 @@ def test_a_state_file_signed_with_another_key_is_refused(broker, tmp_path):
         broker.authorize("vcard", "5", "EUR", "x", "y")
 
 
-def test_a_tampered_ledger_stops_all_payments(broker, tmp_path):
+def test_a_damaged_ledger_is_set_aside_and_payments_go_on(broker, tmp_path):
     grant(broker)
     broker.authorize("vcard", "10", "EUR", "x", "y")
+    broker.authorize("vcard", "20", "EUR", "x", "y")
     ledger = tmp_path / "data" / "payments.jsonl"
     lines = ledger.read_text(encoding="utf-8").splitlines()
     last = json.loads(lines[-1])
-    last["details"]["amount_cents"] = 1                                      # hide most of what was spent
-    ledger.write_text("\n".join(lines[:-1] + [json.dumps(last)]) + "\n", encoding="utf-8")
-    with pytest.raises(PermissionError, match="ledger failed verification"):
-        broker.authorize("vcard", "5", "EUR", "x", "y")
+    last["details"]["amount_cents"] = 1                                      # a row that still reads but no longer matches its hash
+    ledger.write_text("\n".join(lines[:-1] + ["{not json", json.dumps(last)]) + "\n", encoding="utf-8")
+    seen = []
+    broker.notify = seen.append
+    result = broker.authorize("vcard", "5", "EUR", "x", "y")
+    assert result["status"] == "authorized"
+    assert len(list(ledger.parent.glob("payments.jsonl.damaged-*"))) == 2     # the file and its head
+    assert AuditLedger(ledger).verify_integrity()[0]
+    actions = [r["action"] for r in broker.ledger.records]
+    assert actions.count("ledger_recovered") == 1
+    recovered = next(r for r in broker.ledger.records if r["action"] == "ledger_recovered")
+    assert recovered["details"]["rows_kept"] == len(lines) and recovered["details"]["rows_lost"] == 1
+    assert seen[0]["status"] == "warning"
+    assert broker.status()[0]["spent"] == "15.01 EUR"                        # 10.00 + 0.01 (the row as read) + the new 5.00
+    assert any(r["action"] == "ledger_recovered" for r in broker.recent())
+
+
+def test_a_missing_ledger_with_its_head_left_is_recovered_too(broker, tmp_path):
+    grant(broker)
+    (tmp_path / "data" / "payments.jsonl").unlink()
+    assert broker.authorize("vcard", "5", "EUR", "x", "y")["status"] == "authorized"
+    assert AuditLedger(tmp_path / "data" / "payments.jsonl").verify_integrity()[0]
+
+
+def test_a_waiver_with_no_end_date_and_no_cumulative_cap(broker, clock):
+    waiver = grant(broker, per="50", cum="", ttl_days=None)
+    assert waiver["expires_at"] is None
+    clock.t += 5000 * 86400
+    assert broker.authorize("vcard", "50", "EUR", "x", "y")["status"] == "authorized"
+    row = broker.status()[0]
+    assert row["expires_at"] is None and row["no_cumulative_cap"] is True
+    assert grant(broker, per="50", cum="999999999999999999", ttl_days=0)["expires_at"] is None
+    assert broker.status()[0]["no_cumulative_cap"] is True
+    assert grant(broker, per="50", cum="100", ttl_days=800)["expires_at"] == clock.t + 800 * 86400
+    assert broker.status()[0]["no_cumulative_cap"] is False
 
 
 def test_a_failing_notification_does_not_undo_the_payment(broker):

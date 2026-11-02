@@ -1,0 +1,27 @@
+/* The Agent tab's role selector and the card of project checks. Colours are the app's own variables; a state is told by a word, never by colour alone. */
+.coderole select { min-height: var(--btn-h); max-width: 14rem; }
+.codingcard { margin: 0 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.cc-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 6px 10px; }
+.cc-head b { font: 600 14px/1.3 var(--font-sans); }
+.cc-sum { color: var(--fg-2); overflow-wrap: anywhere; }
+.cc-next { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 10px 8px; }
+.cc-next .btn { max-width: 100%; text-align: left; overflow-wrap: anywhere; }
+.cc-body { display: grid; gap: 8px; padding: 4px 10px 12px; max-height: calc(60vh / var(--z, 1)); overflow: auto; }
+.cc-dim { margin: 0; color: var(--fg-2); font-size: 13px; overflow-wrap: anywhere; }
+.cc-row { display: grid; gap: 4px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--bg); min-width: 0; }
+.cc-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.cc-kind { font: 600 12.5px/1.3 var(--font-sans); color: var(--fg-2); text-transform: uppercase; letter-spacing: .04em; }
+.cc-cmd { font: 400 13px/1.4 var(--font-mono); overflow-wrap: anywhere; word-break: break-all; }
+.cc-state { font-size: 12.5px; color: var(--fg-2); }
+.cc-state[data-state="accepted"] { color: var(--fg); }
+.cc-state[data-state="changed"] { color: var(--warn); }
+.cc-meta { color: var(--fg-3); font-size: 12.5px; overflow-wrap: anywhere; }
+.cc-checks { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.cc-check { display: inline-flex; align-items: center; gap: 8px; min-height: var(--btn-h); }
+.cc-check input { width: 18px; height: 18px; flex: none; }
+.cc-own { display: grid; gap: 4px; }
+.cc-own textarea { width: 100%; max-width: 40rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: 400 13px/1.5 var(--font-mono); padding: 6px 8px; }
+.cc-empty { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--fg-2); }
+.cc-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cc-status { margin: 0; color: var(--fg-2); }
+.cc-status[data-bad="1"] { color: var(--err); }

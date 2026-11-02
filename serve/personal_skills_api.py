@@ -1,4 +1,4 @@
-"""The page's side of the personal skills: the list, one skill, saving, deleting, approving, moving as a `.pskill` file, and the
+"""The page's side of the personal skills: the list, one skill, saving, deleting, moving as a `.pskill` file, and the
 live reading of a form (what a date written in words will be). The skills themselves are in harness/personal_skills/."""
 from __future__ import annotations
 
@@ -25,13 +25,10 @@ class PersonalSkillsApi:
         return {"skill": found}
 
     def save(self, req: Dict[str, Any]) -> Dict[str, Any]:
-        """{"skill": {...definition}, "script", "slug"?, "confirm_free"?}: a skill in the free mode (a script that may use files, programs and
-        the network by itself) is saved only when the page says the person went through the two questions of the risk dialog."""
+        """{"skill": {...definition}, "script", "slug"?}"""
         spec, script = req.get("skill"), req.get("script")
         if not isinstance(spec, dict) or not isinstance(script, str):
             raise SkillError("Send the skill's definition and its script.")
-        if spec.get("mode") == "free" and req.get("confirm_free") is not True:
-            raise SkillError("A skill in the free mode needs the two confirmations of the risk dialog.")
         slug = req.get("slug")
         if slug is not None and not isinstance(slug, str):
             raise SkillError("There is no skill with that name.")
@@ -40,9 +37,6 @@ class PersonalSkillsApi:
     def delete(self, slug: str) -> Dict[str, Any]:
         self.store.delete(slug)
         return {"deleted": slug}
-
-    def approve(self, slug: str) -> Dict[str, Any]:
-        return {"skill": self.store.approve(slug)}
 
     def restore(self, slug: str, version: Any) -> Dict[str, Any]:
         if not isinstance(version, int) or isinstance(version, bool):
@@ -62,10 +56,10 @@ class PersonalSkillsApi:
             raise SkillError("Send the file's content in base64.")
         return {"skill": self.store.import_bytes(raw)}
 
-    def check(self, script: Any, mode: Any = "restricted") -> Dict[str, Any]:
-        if not isinstance(script, str) or mode not in ("restricted", "free"):
-            raise SkillError("Send the script and its mode (restricted or free).")
-        return {"problems": script_check.check(script, mode), "tools": script_check.tools_used(script)}
+    def check(self, script: Any) -> Dict[str, Any]:
+        if not isinstance(script, str):
+            raise SkillError("Send the script.")
+        return {"problems": script_check.check(script), "tools": script_check.tools_used(script)}
 
     def preview(self, params: Any, given: Any) -> Dict[str, Any]:
         """What each value of a form will be, as the person types it: a date in words becomes the day it means now."""
@@ -94,6 +88,9 @@ def describe(skill: Dict[str, Any], values: Dict[str, Any]) -> str:
     parts: List[str] = []
     for spec in skill.get("params") or []:
         item = values.get(spec["name"])
+        if item is not None and item.get("missing"):
+            parts.append(f"{spec.get('label') or spec['name']} = (no value was given: work without it, or ask)")
+            continue
         if item is None or item.get("value") in (None, ""):
             continue
         v = item["value"]

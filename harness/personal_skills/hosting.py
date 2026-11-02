@@ -16,13 +16,11 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from harness.client import BasaltError, extract_reasoning_and_content
-from harness.personal_skills.runner import DEFAULT_TIMEOUT, Handlers, RunResult, run
+from harness.personal_skills.runner import Handlers, RunResult, run
 
 AI_SYSTEM = ("You are one step of a program. Do exactly what the text asks and answer with the result only: no greeting, no explanation, "
              "no markdown fence unless the text asks for one. If the text gives data, work only on that data.")
-TRANSIENT = frozenset({0, 408, 425, 429, 500, 502, 503, 504})
 CACHE_FILE, CACHE_KEPT = "ai.json", 400
-WAITS = (2.0, 5.0, 15.0)
 
 
 def fill(prompt: str, inputs: Dict[str, Any]) -> str:
@@ -59,8 +57,8 @@ class SkillRun:
                 kept = {}
             if isinstance(kept.get(key), str):
                 return kept[key]
-        answer = ""
-        for attempt in range(len(WAITS) + 1):
+        answer, attempt = "", 0
+        while True:
             if self.agent.cancel.is_set():
                 raise RuntimeError("stopped")
             try:
@@ -69,10 +67,11 @@ class SkillRun:
                 answer = extract_reasoning_and_content((resp.get("choices") or [{}])[0].get("message") or {})[1].strip()
                 self.agent.total_tokens += int((resp.get("usage") or {}).get("total_tokens") or 0)
                 break
-            except BasaltError as exc:
-                if exc.status not in TRANSIENT or attempt >= len(WAITS):
-                    raise RuntimeError(f"the model did not answer: {exc}") from None
-                if not self.session._wait(WAITS[attempt], self.agent.cancel):
+            except BasaltError:                                # waited for like the conversation's own calls: the last wait repeats until the person stops it
+                waits = self.session.waits
+                wait = waits[min(attempt, len(waits) - 1)]
+                attempt += 1
+                if not self.session._wait(wait, self.agent.cancel):
                     raise RuntimeError("stopped") from None
         if path is not None:
             kept[key] = answer
@@ -106,8 +105,8 @@ class SkillRun:
             self.session.emit({"event": "skill", "turn": self.task.turn, "phase": "start", "name": self.skill.get("name")})
             handlers = Handlers(self._tool, self._ai, self._ask, self._say)
             workspace = Path(self.session.built.sandbox.root)
-            result = run(script, self.skill.get("mode", "restricted"), self.skill.get("values") or {}, handlers, self.agent.cancel,
-                         float(self.skill.get("timeout") or DEFAULT_TIMEOUT), workspace if workspace.is_dir() else None)
+            result = run(script, self.skill.get("values") or {}, handlers, self.agent.cancel,
+                         float(self.skill.get("timeout") or 0) or None, workspace if workspace.is_dir() else None)
             self.session.emit({"event": "skill", "turn": self.task.turn, "phase": "end", "name": self.skill.get("name"), "ok": result.ok,
                                "seconds": result.seconds, "calls": len(result.calls)})
             return result

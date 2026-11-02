@@ -164,8 +164,8 @@ class RunningServer(Isolated):
         self.cfg = root / "basalt_config.json"
         self.cfg.write_text(json.dumps({"server": {"port": PORT}}), encoding="utf-8")
         self.model = tiny_basalt(root / "a.basalt", "A")
-        profiles.change({"action": "save", "kind": "load", "name": "Uguale", "values": {}})
-        profiles.change({"action": "save", "kind": "load", "name": "Corto", "values": {"engine.max-context": 8192}})
+        profiles.change({"action": "save", "kind": "load", "name": "Uguale", "values": {"server.side-slot": 0}})
+        profiles.change({"action": "save", "kind": "load", "name": "Corto", "values": {"engine.max-context": 8192, "server.side-slot": 0}})
         self.envs = {**os.environ, "BASALT_DATA": self.dir.name, "BASALT_CACHE": self.dir.name, "PYTHONUTF8": "1",
                      "BASALT_NO_DIALOG": "1", "BASALT_LANG": "it"}
         self.server = subprocess.Popen([sys.executable, "-m", "serve.server", "--mock-engine", "--config", str(self.cfg),

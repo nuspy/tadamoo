@@ -751,7 +751,9 @@ sealed class MainForm : Form
         try
         {
             var m = JsonDocument.Parse(e.WebMessageAsJson).RootElement;
-            if (m.GetProperty("type").GetString() != "pickFolder") return;
+            string kind = m.GetProperty("type").GetString();
+            if (kind == "exportPdf") { _ = ExportPdf(m.Clone()); return; }
+            if (kind != "pickFolder") return;
             string id = m.TryGetProperty("id", out var i) ? i.GetString() : "";
             string start = m.TryGetProperty("path", out var sp) && sp.ValueKind == JsonValueKind.String ? sp.GetString() : null;
             string title = m.TryGetProperty("title", out var tp) && tp.ValueKind == JsonValueKind.String && tp.GetString().Length > 0 ? tp.GetString() : Tr.T("Cartella dei modelli", "Models folder");
@@ -761,6 +763,75 @@ sealed class MainForm : Form
             web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "folder", id, path }));
         }
         catch (Exception ex) { report.Add("web message: " + ex.Message); }
+    }
+
+    /// <summary>A window that never takes the focus and sits outside the screen: it hosts the page that is printed to PDF.</summary>
+    sealed class QuietForm : Form
+    {
+        protected override bool ShowWithoutActivation => true;
+    }
+
+    /// <summary>The page asks for a conversation to be printed to PDF: {"type": "exportPdf", "id": ..., "name": ..., "url": ...}, where
+    /// the url is a page this server holds for one fetch (api/export/held/&lt;token&gt;). The answers are {"type": "exportPdf", "id": ...,
+    /// "state": "started"} at once, then "completed", "cancelled" or "failed" (with "error"). The Windows "Save as" window picks the file;
+    /// the page is loaded in a window of its own that nobody sees and printed with the browser engine's own print to PDF.</summary>
+    async Task ExportPdf(JsonElement m)
+    {
+        string id = m.TryGetProperty("id", out var ip) && ip.ValueKind == JsonValueKind.String ? ip.GetString() : "";
+        string name = m.TryGetProperty("name", out var np) && np.ValueKind == JsonValueKind.String ? Path.GetFileName(np.GetString()) : "";
+        string url = m.TryGetProperty("url", out var up) && up.ValueKind == JsonValueKind.String ? up.GetString() : "";
+        void Tell(string state, string error = null)
+        {
+            try { web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "exportPdf", id, state, error })); } catch (Exception) { }
+        }
+        if (web.CoreWebView2 == null || !url.StartsWith($"http://127.0.0.1:{serverPort}/api/export/held/", StringComparison.Ordinal))
+        {
+            Tell("failed", "address");
+            return;
+        }
+        Tell("started");
+        if (string.IsNullOrWhiteSpace(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) name = "conversation.pdf";
+        string target;
+        if (opt.TestMock)
+        {
+            target = Path.Combine(Path.GetTempPath(), "basalt-desktop-test", "saved", name);
+            Directory.CreateDirectory(Path.GetDirectoryName(target));
+        }
+        else
+        {
+            using var dlg = new SaveFileDialog
+            {
+                FileName = name, OverwritePrompt = true, DefaultExt = "pdf", Title = Tr.T("Salva il PDF", "Save the PDF"),
+                Filter = Tr.T("PDF|*.pdf|Tutti i file|*.*", "PDF|*.pdf|All files|*.*"),
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) { Tell("cancelled"); return; }
+            target = dlg.FileName;
+        }
+        try
+        {
+            using var host = new QuietForm { FormBorderStyle = FormBorderStyle.None, ShowInTaskbar = false, StartPosition = FormStartPosition.Manual, Location = new Point(-32000, -32000), Size = new Size(900, 700) };
+            using var view = new Microsoft.Web.WebView2.WinForms.WebView2 { Dock = DockStyle.Fill };
+            host.Controls.Add(view);
+            host.Show();
+            await view.EnsureCoreWebView2Async(web.CoreWebView2.Environment);
+            var loaded = new TaskCompletionSource<bool>();
+            view.CoreWebView2.NavigationCompleted += (_, a) => loaded.TrySetResult(a.IsSuccess);
+            view.CoreWebView2.Navigate(url);
+            if (await Task.WhenAny(loaded.Task, Task.Delay(60000)) != loaded.Task || !loaded.Task.Result) { Tell("failed", "load"); return; }
+            var print = view.CoreWebView2.Environment.CreatePrintSettings();
+            print.ShouldPrintBackgrounds = true;
+            print.ShouldPrintHeaderAndFooter = false;
+            print.PageWidth = 8.27;                       // A4, in inches
+            print.PageHeight = 11.69;
+            print.MarginTop = print.MarginBottom = print.MarginLeft = print.MarginRight = 0.63;
+            bool ok = await view.CoreWebView2.PrintToPdfAsync(target, print);
+            Tell(ok ? "completed" : "failed", ok ? null : "print");
+        }
+        catch (Exception ex)
+        {
+            report.Add("export pdf: " + ex.Message);
+            Tell("failed", ex.Message);
+        }
     }
 
     /// <summary>A download started by the page (a file the agent made, an exported profile): the Windows "Save as" window opens with the

@@ -45,7 +45,7 @@ const ctx = {
   $, authHeaders: () => ({}), window: { agentChat, chatUi: { setPrompt: t => { $("#prompt").value = t; }, autosize() {} } },
   fetch: async url => { log.fetches.push(url); return { ok: true, json: async () => ({ entries: [
     { kind: "skill", id: "skill:deploy", name: "deploy", state: "approved", description: "Ship it" },
-    { kind: "skill", id: "skill:draft", name: "draft", state: "pending", description: "Write drafts" },
+    { kind: "skill", id: "skill:draft", name: "draft", state: "approved", description: "Write drafts" },
     { kind: "skill", id: "skill:old", name: "old", state: "off", description: "" },
     { kind: "mcp", id: "mcp:x", name: "x", state: "approved", description: "" }] }) }; },
 };
