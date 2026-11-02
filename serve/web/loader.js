@@ -98,8 +98,40 @@
         d.insertAdjacentHTML("beforeend", `<p class="help unsup" hidden>${esc(T(f.windows ? "ld.windows" : "ld.unsupported"))}</p>`);
         grid.append(d);
       }
+      if (g === "server") fs.querySelector(".fields").append(secretRow());
       return fs;
     }));
+  }
+  /* ---- the secret of the changes: the switch and the chosen text are saved on their own (POST /api/control-secret), never with the load values ---- */
+  function secretRow() {
+    const d = document.createElement("div");
+    d.className = "cs";
+    d.innerHTML = `<div class="field check"><label for="ld-cs-on"><input id="ld-cs-on" type="checkbox" aria-describedby="ld-cs-h"><span>${esc(T("cs.on"))}</span></label></div>` +
+      `<div class="pfrow wrap"><input id="ld-cs-value" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" maxlength="200" aria-label="${esc(T("cs.value"))}" placeholder="${esc(T("cs.value"))}">` +
+      `<button class="btn primary" id="ld-cs-save" type="button">${esc(T("cs.save"))}</button><button class="btn ghost" id="ld-cs-clear" type="button" hidden>${esc(T("cs.clear"))}</button></div>` +
+      `<p class="help" id="ld-cs-h">${esc(T("cs.help"))}</p><p class="pfmsg" id="ld-cs-msg" role="status" aria-live="polite"></p>`;
+    const q = id => d.querySelector("#ld-cs-" + id);
+    const msg = (text, kind) => { q("msg").textContent = text; q("msg").dataset.kind = kind || ""; };
+    const save = async body => {
+      const { r, j } = await post("api/control-secret", body);
+      if (!r.ok) { msg((j.error && j.error.message) || T("cs.err"), "err"); return; }
+      paintSecret(j);
+      q("value").value = "";
+      msg(T(j.running === j.enabled ? "cs.saved.same" : "cs.saved"), "");
+    };
+    q("save").onclick = () => { const v = q("value").value; save({ enabled: q("on").checked, ...(v ? { secret: v } : {}) }); };
+    q("clear").onclick = () => save({ secret: null });
+    return d;
+  }
+  function paintSecret(state) {
+    const on = $("#ld-cs-on");
+    if (!on) return;
+    on.checked = !!state.enabled;
+    $("#ld-cs-value").placeholder = T(state.set ? "cs.kept" : "cs.value");
+    $("#ld-cs-clear").hidden = !state.set;
+  }
+  async function loadSecret() {
+    try { paintSecret(await get("api/control-secret")); } catch (e) { /* no config file: the row stays as it is */ }
   }
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const el = name => $("#" + fid(name));
@@ -680,6 +712,7 @@
     $("#ld-cli").hidden = !(INFO.from_command_line || []).length;
     $("#ld-cli").textContent = T("ld.cli", (INFO.from_command_line || []).join(", "));
     if (!formTouched) writeForm(INFO.values);
+    loadSecret();
     syncReserve("lf", el("engine.vram-reserve-mib"));
     $("#ld-safe-list").innerHTML = Object.entries(INFO.safe || {}).map(([k, v]) => {
       const why = (INFO.safe_why || {})[k];
