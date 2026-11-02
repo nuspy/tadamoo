@@ -54,7 +54,7 @@ def settings_info(a, words: list[str], argv: list[str]) -> dict:
                "server.reasoning-budget-tokens": getattr(a, "reasoning_budget_tokens", None)}
     for name in ("max-context", "kv", "spec", "relaxed-drafting", "expert-cache", "prefill", "resident-experts",
                  "vram-reserve-mib", "ple-io", "pool-workers", "kv-resident", "resident-budget-gib", "mmap-experts",
-                 "adapt-swaps", "prefill-cpu-share", "vram-elastic", "release-vram-commit", "expert-profile-save",
+                 "adapt-swaps", "prefill-cpu-share", "vram-elastic", "keep-vram-commit", "expert-profile-save",
                  "expert-profile-save-every", "prompt-cache", "prompt-cache-every", "prompt-cache-root",
                  "conversation-cache-mib", "conversation-cache-slots", "conversation-cache-min-free-mib",
                  "rope-scaling", "rope-scale", "rope-freq-base"):

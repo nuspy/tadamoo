@@ -76,7 +76,7 @@ ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.pref
                    "server.port": 7232,
                    "engine.kv-resident": 0, "engine.resident-budget-gib": None, "engine.mmap-experts": False,
                    "engine.adapt-swaps": 96, "engine.prefill-cpu-share": 0.6, "engine.vram-elastic": False,
-                   "engine.release-vram-commit": False, "engine.expert-profile-save": None,
+                   "engine.keep-vram-commit": False, "engine.expert-profile-save": None,
                    "engine.expert-profile-save-every": 10,
                    "engine.prompt-cache": 6, "engine.prompt-cache-every": 16384, "engine.prompt-cache-root": 2048,
                    "engine.conversation-cache-mib": 0, "engine.conversation-cache-slots": 4,
