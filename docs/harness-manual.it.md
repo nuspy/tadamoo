@@ -37,8 +37,8 @@ Quattro modi di usarlo, tutti con le stesse capacità:
 |---|---|
 | Scheda **Chat**, *Con strumenti* | vuoi una conversazione: chiedere, correggere, riprendere domani. Il modo principale. |
 | Scheda **Agente** | vuoi un lavoro in una cartella che indichi, con un registro e una via per tornare indietro. |
-| `python -m harness` / `basalt-agent` | lo vuoi in uno script, con codici di uscita e JSON. |
-| `python -m harness acp` | lo vuoi come agente di un editor che parla l'Agent Client Protocol. |
+| `python -m tadamoo` / `basalt-agent` | lo vuoi in uno script, con codici di uscita e JSON. |
+| `python -m tadamoo acp` | lo vuoi come agente di un editor che parla l'Agent Client Protocol. |
 
 ## 2. Prima di cominciare
 
@@ -189,7 +189,7 @@ conversazione ti dice che potrebbe essere già partito. Dopo di che, o quando il
   copia di ciò che veniva dopo viene conservata. I file non si toccano: annullali dal pannello delle modifiche. Le azioni che restano
   avvenute (un comando, una telefonata, un pagamento, un'azione del browser) sono elencate prima, e devi premere ancora per tornare
   indietro lo stesso.
-- **Checkpoint.** Prima che un'azione cambi dei file, il loro contenuto precedente viene conservato fuori dal progetto: solo i file che cambiano, di qualunque cartella, senza limite di dimensione. I file che un comando di shell non nomina non sono coperti. *Impostazioni > Checkpoint* (o `/checkpoints on|soft|off|default`) sceglie attivo, attivo senza mai fermare l'azione, o spento, li elenca e ne elimina uno o tutti. `python -m harness.rewind
+- **Checkpoint.** Prima che un'azione cambi dei file, il loro contenuto precedente viene conservato fuori dal progetto: solo i file che cambiano, di qualunque cartella, senza limite di dimensione. I file che un comando di shell non nomina non sono coperti. *Impostazioni > Checkpoint* (o `/checkpoints on|soft|off|default`) sceglie attivo, attivo senza mai fermare l'azione, o spento, li elenca e ne elimina uno o tutti. `python -m tadamoo.rewind
   --workspace D:\proj` li elenca e `--to ID` ne ripristina uno; le conversazioni hanno `/rewind` e *Torna qui*. Il ritorno fa prima uno
   snapshot di sicurezza, quindi si può a sua volta annullare. Non disfa un comando che l'agente ha eseguito, e lo dice.
 - **Rami.** `/branch` copia una conversazione a una richiesta; *Rami* mostra l'albero. *Esegui entrambi e confronta* manda una richiesta lungo due
@@ -407,7 +407,7 @@ comandi che esegue non sono limitati alla cartella; un sandbox per loro non c'è
 ## 14. La riga di comando e l'editor
 
 ```powershell
-python -m harness -p "correggi il test che fallisce in calc.py" --workspace D:\work\proj --json
+python -m tadamoo -p "correggi il test che fallisce in calc.py" --workspace D:\work\proj --json
 basalt-agent -p "correggi il test che fallisce" --workspace D:\work\proj      # basalt-agent.cmd: da qualunque cartella
 basalt-agent acp --workspace D:\work\proj                                      # per un editor che parla ACP su stdio
 ```
@@ -464,10 +464,10 @@ scaduto, non autorizzato a girare) blocca anch'esso. Un file con un errore imped
   (a meno che tu imposti un tempo per cedere il passo). Passi e tempo per esecuzione sono limiti facoltativi, vuoti per nessuno. Un orario fisso perso a PC spento viene eseguito una volta, in ritardo, all'avvio.
   Una richiesta che solo tu puoi risolvere resta in *Ti aspettano* mentre il resto dell'esecuzione va avanti. Si gestiscono dalla scheda **Cron Jobs**: un elenco con *Accendi/Spegni*, *Esegui ora* ed *Elimina*, un editor, gli ultimi risultati di ogni job e una
   piccola chat a destra per discuterne uno. La chat propone soltanto: *Usa nell'editor* riempie il modulo, e nulla è salvato finché non premi *Salva*.
-- **Valutazione**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` esegue ogni compito k volte su una
+- **Valutazione**: `python -m tadamoo.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` esegue ogni compito k volte su una
   cartella nuova e riporta pass@k, pass^k, costo e uso della cache (un `--k` sotto 5 viene segnalato). Sono confronti di sviluppo, non numeri da titolo. I benchmark pubblici
   (BFCL, sottoinsiemi di Terminal-Bench e SWE-bench Pro) si leggono da una cartella che hai scaricato tu: `--bfcl DIR`, `--terminal-bench DIR`, `--swebench DIR`.
-- **Riesecuzione**: `python -m harness.replay trace.jsonl --mode auto` rifà una sessione registrata con le risposte registrate del modello
+- **Riesecuzione**: `python -m tadamoo.replay trace.jsonl --mode auto` rifà una sessione registrata con le risposte registrate del modello
   e riporta il primo punto in cui le chiamate agli strumenti divergono. Prova l'harness, non il modello. La stessa riesecuzione,
   l'esportazione JSONL mascherata di una conversazione e il controllo del registro di audit sono nella pagina LOGS, sezione *Tracce delle sessioni*.
 

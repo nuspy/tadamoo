@@ -3,7 +3,7 @@ import json
 
 from test_agent_loop import ScriptedClient, make, say
 
-from harness.permissions import PermissionLevel, PermissionManager
+from tadamoo.permissions import PermissionLevel, PermissionManager
 
 
 def batch(*names):

@@ -6,9 +6,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.agent_loop import AgentLoop, FINAL
-from harness.pipeline import Pipeline, extract_card, feedback, measure
-from harness.tools.registry import ToolRegistry
+from tadamoo.agent_loop import AgentLoop, FINAL
+from tadamoo.pipeline import Pipeline, extract_card, feedback, measure
+from tadamoo.tools.registry import ToolRegistry
 from test_agent_loop import ScriptedClient, say
 
 

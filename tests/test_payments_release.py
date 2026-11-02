@@ -7,9 +7,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.payments_broker import PaymentsBroker
-from harness.vault import Vault, VaultError
-from harness.waiver import PaymentSystem, required_phrase
+from tadamoo.payments_broker import PaymentsBroker
+from tadamoo.vault import Vault, VaultError
+from tadamoo.waiver import PaymentSystem, required_phrase
 
 NAME = "Mario Rossi"
 FORM = "{{vault:trip.number}}"
@@ -140,7 +140,7 @@ def test_changing_the_currency_or_the_card_of_a_system_ends_its_waiver(tmp_path)
 
 def test_reading_a_value_in_the_wallet_is_recorded_without_the_value(tmp_path):
     from serve.wallet_api import WalletApi
-    from harness.browser import BrowserPrefs
+    from tadamoo.browser import BrowserPrefs
     vault, broker = set_up(tmp_path)
     api = WalletApi(lambda: vault, lambda: broker, BrowserPrefs(tmp_path / "b.json"), tmp_path / "profile")
     assert api.reveal({"id": "trip", "field": "number"})["value"] == "4242424242424242"
@@ -152,11 +152,11 @@ def test_the_dossier_names_the_program_that_ran_and_the_clock_against_a_time_ser
     import socket
     import struct
     import time
-    from harness.waiver.dossier import application_hashes, sntp_offset
+    from tadamoo.waiver.dossier import application_hashes, sntp_offset
 
     root = Path(__file__).resolve().parents[1]
     app = application_hashes(root)
-    assert "harness/payments_broker.py" in app["files"] and "serve/handler.py" in app["files"]
+    assert "tadamoo/payments_broker.py" in app["files"] and "serve/handler.py" in app["files"]
     assert not any("/tests/" in name for name in app["files"]) and len(app["combined"]) == 64
 
     server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

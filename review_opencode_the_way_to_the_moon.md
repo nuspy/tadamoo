@@ -30,11 +30,11 @@
 
 ## 2. Analisi Dettagliata dei Bug e delle Fallacie nel Codice (File per File)
 
-### 2.1 `harness/agent_loop.py` (Ciclo Agentico)
+### 2.1 `tadamoo/agent_loop.py` (Ciclo Agentico)
 
 * **Import rotti a monte**:
-  * Linea 16: `from .context import system_blocks` — **Fallisce immediatamente**: [`harness/context.py`](file:///E:/Projects/basalt/harness/context.py) non esporta alcuna funzione `system_blocks`.
-  * Linea 18: `from .permissions import PermissionPolicy` — **Fallisce**: in [`harness/permissions.py`](file:///E:/Projects/basalt/harness/permissions.py) la classe è stata battezzata `PermissionEngine`, non `PermissionPolicy`.
+  * Linea 16: `from .context import system_blocks` — **Fallisce immediatamente**: [`tadamoo/context.py`](file:///E:/Projects/basalt/tadamoo/context.py) non esporta alcuna funzione `system_blocks`.
+  * Linea 18: `from .permissions import PermissionPolicy` — **Fallisce**: in [`tadamoo/permissions.py`](file:///E:/Projects/basalt/tadamoo/permissions.py) la classe è stata battezzata `PermissionEngine`, non `PermissionPolicy`.
 * **Metodo mancante (`AttributeError`)**:
   * Linea 122: `if self._is_repeat(key, last_call, reflected):` — Il metodo `_is_repeat` **non è implementato né nella classe `Agent` né come funzione**. Se invocato, manda il processo in crash immediato.
 * **Calcolo del tempo errato**:
@@ -44,23 +44,23 @@
 
 ---
 
-### 2.2 `harness/audit.py` e `harness/safety.py` (Audit Ledger a Catena di Hash)
+### 2.2 `tadamoo/audit.py` e `harness/safety.py` (Audit Ledger a Catena di Hash)
 
 * **Metodo mancante nel core della catena di hash**:
-  * In [`harness/audit.py`](file:///E:/Projects/basalt/harness/audit.py#L37), linea 37: `self._prev = self._hash(rec)`. Il metodo `_hash` **non esiste** nella classe `AuditLedger`. L'invocazione di `record()` fallisce sempre con `AttributeError: 'AuditLedger' object has no attribute '_hash'`.
+  * In [`tadamoo/audit.py`](file:///E:/Projects/basalt/tadamoo/audit.py#L37), linea 37: `self._prev = self._hash(rec)`. Il metodo `_hash` **non esiste** nella classe `AuditLedger`. L'invocazione di `record()` fallisce sempre con `AttributeError: 'AuditLedger' object has no attribute '_hash'`.
 * **Firma del metodo disallineata e crash dei test**:
-  * In [`harness/audit.py`](file:///E:/Projects/basalt/harness/audit.py#L27):
+  * In [`tadamoo/audit.py`](file:///E:/Projects/basalt/tadamoo/audit.py#L27):
     `def record(self, event: str, tool: str, args: dict, decision: str) -> None:` (4 parametri).
   * In `tests/test_harness.py`:
     `l.record("tool", {}, "allow")` (chiamata con 3 parametri, fallisce con `TypeError`).
-  * In [`harness/payments_broker.py`](file:///E:/Projects/basalt/harness/payments_broker.py#L38):
+  * In [`tadamoo/payments_broker.py`](file:///E:/Projects/basalt/tadamoo/payments_broker.py#L38):
     `self.ledger.record("payment", {"vendor": vendor, ...}, "allow")` (fallisce con `TypeError`).
 * **Duplicazione incoerente di codice**:
   * OpenCode ha implementato una versione di `AuditLedger`, `PermissionEngine`, `HookRunner` e `Checkpoints` in [`harness/safety.py`](file:///E:/Projects/basalt/harness/safety.py) e un'altra versione completamente diversa nei singoli moduli (`audit.py`, `permissions.py`, `hooks.py`, `checkpoints.py`).
 
 ---
 
-### 2.3 `harness/checkpoints.py` (Snapshot e Ripristino File)
+### 2.3 `tadamoo/checkpoints.py` (Snapshot e Ripristino File)
 
 * **Perdita di gerarchia delle directory**:
   * Linea 29: `dst = dst_dir / Path(f).name`. Se l'agente modifica `src/core/layer.cpp` e `src/kernels/layer.cpp`, entrambi vengono copiati come `layer.cpp` nella stessa cartella di checkpoint, sovrascrivendosi a vicenda.
@@ -81,39 +81,39 @@
 
 ---
 
-### 2.4 `harness/tools/__init__.py` e `harness/headless.py`
+### 2.4 `tadamoo/tools/__init__.py` e `tadamoo/headless.py`
 
 * **Import inesistente**:
-  * In [`harness/tools/__init__.py`](file:///E:/Projects/basalt/harness/tools/__init__.py#L15), linea 15: `from ..context import mask_output` — `mask_output` **non esiste** in `context.py`. L'intero pacchetto `harness.tools` non può essere importato.
+  * In [`tadamoo/tools/__init__.py`](file:///E:/Projects/basalt/tadamoo/tools/__init__.py#L15), linea 15: `from ..context import mask_output` — `mask_output` **non esiste** in `context.py`. L'intero pacchetto `tadamoo.tools` non può essere importato.
 * **Nome del dizionario strumenti sbagliato**:
-  * In `harness/tools/__init__.py` il dizionario è dichiarato come `TOOL_BY_NAME`.
-  * In [`harness/headless.py`](file:///E:/Projects/basalt/harness/headless.py#L19), linea 19: `from .tools import TOOL_REGISTRY`. `TOOL_REGISTRY` non esiste, causando `ImportError` al lancio di `basalt-agent`.
+  * In `tadamoo/tools/__init__.py` il dizionario è dichiarato come `TOOL_BY_NAME`.
+  * In [`tadamoo/headless.py`](file:///E:/Projects/basalt/tadamoo/headless.py#L19), linea 19: `from .tools import TOOL_REGISTRY`. `TOOL_REGISTRY` non esiste, causando `ImportError` al lancio di `basalt-agent`.
 
 ---
 
-### 2.5 `harness/integrations/wiki_client.py`
+### 2.5 `tadamoo/integrations/wiki_client.py`
 
 * **Simbolo mancante nel package**:
-  * In [`harness/integrations/__init__.py`](file:///E:/Projects/basalt/harness/integrations/__init__.py#L7):
+  * In [`tadamoo/integrations/__init__.py`](file:///E:/Projects/basalt/tadamoo/integrations/__init__.py#L7):
     `from .wiki_client import WikiBridge, fetch_docs`
-  * In [`harness/integrations/wiki_client.py`](file:///E:/Projects/basalt/harness/integrations/wiki_client.py): `fetch_docs` non è mai stato scritto. Questo rompe direttamente il test unitario `test_client_imports`.
+  * In [`tadamoo/integrations/wiki_client.py`](file:///E:/Projects/basalt/tadamoo/integrations/wiki_client.py): `fetch_docs` non è mai stato scritto. Questo rompe direttamente il test unitario `test_client_imports`.
 
 ---
 
-### 2.6 `harness/swarm/swarm.py`
+### 2.6 `tadamoo/swarm/swarm.py`
 
 * **Import da pacchetto inesistente**:
   * Linea 25: `from . import __version__ as SWARM_VERSION`.
-  * La cartella `harness/swarm/` non possiede nemmeno un file `__init__.py`. L'import solleva `ImportError: cannot import name '__version__' from 'harness.swarm'`.
+  * La cartella `tadamoo/swarm/` non possiede nemmeno un file `__init__.py`. L'import solleva `ImportError: cannot import name '__version__' from 'tadamoo.swarm'`.
 * **Esecuzione fittizia**:
   * La funzione `run(swarm_id)` non avvia alcun thread o processo: si limita a ciclare i membri del file JSON e restituire un dizionario con `"status": "ready"`.
 
 ---
 
-### 2.7 `harness/payments_broker.py` e `harness/secrets_broker.py`
+### 2.7 `tadamoo/payments_broker.py` e `tadamoo/secrets_broker.py`
 
 * **Bug di sicurezza paradossale nella revoca dei pagamenti**:
-  * In [`harness/payments_broker.py`](file:///E:/Projects/basalt/harness/payments_broker.py#L43-L45):
+  * In [`tadamoo/payments_broker.py`](file:///E:/Projects/basalt/tadamoo/payments_broker.py#L43-L45):
     
     ```python
     def revoke(self) -> None:
@@ -123,11 +123,11 @@
     
     Anziché bloccare le autorizzazioni o azzerare il cap, imposta `self.spent = 0.0`, il che **consente all'agente di spendere di nuovo l'intero budget**!
 * **Vault dei segreti in chiaro**:
-  * In [`harness/secrets_broker.py`](file:///E:/Projects/basalt/harness/secrets_broker.py#L26), i segreti vengono scritti in file di testo in chiaro non cifrati in `~/.basalt/secrets/`. Il protocollo di broker cifrato e isolato descritto in §4.8 non esiste.
+  * In [`tadamoo/secrets_broker.py`](file:///E:/Projects/basalt/tadamoo/secrets_broker.py#L26), i segreti vengono scritti in file di testo in chiaro non cifrati in `~/.basalt/secrets/`. Il protocollo di broker cifrato e isolato descritto in §4.8 non esiste.
 
 ---
 
-### 2.8 `harness/mcp_client.py` (Model Context Protocol)
+### 2.8 `tadamoo/mcp_client.py` (Model Context Protocol)
 
 * **Violazione del protocollo JSON-RPC 2.0 (Deadlock)**:
   * A linea 81: `payload = json.dumps({"jsonrpc": JSONRPC_VERSION, "method": method, "params": params})`.
@@ -137,7 +137,7 @@
 
 ---
 
-### 2.9 `harness/sandbox/__init__.py`
+### 2.9 `tadamoo/sandbox/__init__.py`
 
 * **Nessun isolamento reale su Windows**:
   * Il modulo esegue un banale `subprocess.run(command, shell=True)` filtrando su `DEFAULT_DENY = ("reg", "schtasks", "sc", "netsh", "runas")`.
@@ -163,7 +163,7 @@
 ### Fase 0 — Misura & Baseline (Richiesto: L)
 
 * **Requisiti documento**: Benchmark riproducibile su SWE-bench Pro / Terminal-Bench / BFCL, runner k>=5 con metriche hardware e hit-rate da `/metrics`, confronto a modello fisso contro altri harness (Claude Code, OpenCode, Goose, Cline).
-* **Cosa c'è nel codice**: `harness/eval/runner.py` contiene un loop su un file JSON (`sets/core.json`) con 8 task giocattolo ("Somma 17 + 25"). Nessuna suite di benchmark reale, nessun confronto con altri harness. Il runner è rotto a causa di import inesistenti.
+* **Cosa c'è nel codice**: `tadamoo/eval/runner.py` contiene un loop su un file JSON (`sets/core.json`) con 8 task giocattolo ("Somma 17 + 25"). Nessuna suite di benchmark reale, nessun confronto con altri harness. Il runner è rotto a causa di import inesistenti.
 
 ### Fase 1 — Ciclo Agentico Minimo (Richiesto: L)
 

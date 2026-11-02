@@ -9,9 +9,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness.tools import create_standard_tool_registry
-from harness.tools import search
-from harness.tools.search import ProviderUnavailable, clear_backends, duckduckgo_search
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools import search
+from tadamoo.tools.search import ProviderUnavailable, clear_backends, duckduckgo_search
 
 PAGE = """<html><body>
 <div class="result results_links results_links_deep web-result result--ad"><h2 class="result__title"><a rel="nofollow" class="result__a" href="//duckduckgo.com/y.js?ad_domain=shop.example">An advert</a></h2></div>

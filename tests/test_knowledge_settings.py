@@ -12,8 +12,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fake_services import FakeWikibridge
-from harness.session import parse_args as session_args
-from harness.stack import AgentConfig, agent_settings, build_agent
+from tadamoo.session import parse_args as session_args
+from tadamoo.stack import AgentConfig, agent_settings, build_agent
 from serve.agent_sessions import SessionManager
 from serve.knowledge_prefs import KnowledgeError, KnowledgePrefs, check_wiki
 from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)

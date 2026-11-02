@@ -9,11 +9,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.client import BasaltError
-from harness.llm.client import RoutedClient
-from harness.llm.credentials import FileCredentials
-from harness.llm.qwen_loader import QwenLoader, QwenNotReady
-from harness.llm.store import Ledger, SecureRegistry
+from tadamoo.client import BasaltError
+from tadamoo.llm.client import RoutedClient
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.llm.qwen_loader import QwenLoader, QwenNotReady
+from tadamoo.llm.store import Ledger, SecureRegistry
 
 
 class Loader:

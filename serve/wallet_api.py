@@ -7,15 +7,15 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
 
-from harness.browser import BrowserError, BrowserPrefs, find_browser, forget_signins, open_signin_window
-from harness.browser_consent import CONSENT_POLICIES, PERMISSION_POLICIES
-from harness.rule_of_two import LEVELS as RULE_OF_TWO_LEVELS, RuleOfTwoPrefs
-from harness.payments_broker import PaymentsBroker
-from harness.vault import CARD_KINDS, KINDS, SECOND_FACTORS, Vault, VaultError
-from harness.vault_import import parse_logins
-from harness.waiver import DIALOG_TEXTS, PaymentSystem, parse_amount, required_phrase
-from harness.waiver.cards import CREDENTIAL_KINDS, VAULT_KINDS
-from harness.waiver.dossier import DossierUnavailable
+from tadamoo.browser import BrowserError, BrowserPrefs, find_browser, forget_signins, open_signin_window
+from tadamoo.browser_consent import CONSENT_POLICIES, PERMISSION_POLICIES
+from tadamoo.rule_of_two import LEVELS as RULE_OF_TWO_LEVELS, RuleOfTwoPrefs
+from tadamoo.payments_broker import PaymentsBroker
+from tadamoo.vault import CARD_KINDS, KINDS, SECOND_FACTORS, Vault, VaultError
+from tadamoo.vault_import import parse_logins
+from tadamoo.waiver import DIALOG_TEXTS, PaymentSystem, parse_amount, required_phrase
+from tadamoo.waiver.cards import CREDENTIAL_KINDS, VAULT_KINDS
+from tadamoo.waiver.dossier import DossierUnavailable
 
 
 def _days(value: Any) -> Optional[float]:
@@ -38,7 +38,7 @@ class WalletApi:
                  rule_of_two: Optional[RuleOfTwoPrefs] = None, allow_rules: Any = None, exec_prefs: Any = None) -> None:
         self._vault, self._payments, self._browser, self._profile = vault, payments, browser, profile
         self._allow = allow_rules                       # the rules allowed for every conversation (serve/allow_rules.py)
-        self._exec = exec_prefs                         # how freely the code the model writes runs (harness/exec_level.py)
+        self._exec = exec_prefs                         # how freely the code the model writes runs (tadamoo/exec_level.py)
         self._two = rule_of_two                         # how strict the Rule of Two is for the conversations started from now on
 
     # -- what the page shows ---------------------------------------------------------------------
@@ -78,12 +78,12 @@ class WalletApi:
                                                                                  req.get("consent"), req.get("permissions"))}}
 
     def _exec_view(self) -> Dict[str, Any]:
-        from harness import exec_level
+        from tadamoo import exec_level
         return {"level": self._exec.read(), "levels": list(exec_level.LEVELS), "elevated": exec_level.is_elevated()}
 
     def set_exec_level(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """How freely the code the model writes runs, in every conversation: a running one reads the choice again at its next command."""
-        from harness import exec_level
+        from tadamoo import exec_level
         if self._exec is None:
             raise WalletError("the code setting is not available here")
         if req.get("level") not in exec_level.LEVELS:

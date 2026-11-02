@@ -15,8 +15,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.planner import JevTriageGatekeeper, PlanInsightCard, Pseudonymizer
-from harness.planner.card import CARD_FIELDS, scrub_contacts
+from tadamoo.planner import JevTriageGatekeeper, PlanInsightCard, Pseudonymizer
+from tadamoo.planner.card import CARD_FIELDS, scrub_contacts
 from test_planner import FakeJev, jev  # noqa: F401  (the local server and its fixture)
 
 

@@ -1,8 +1,8 @@
 """A masked tool result says what it was, inside the untrusted fence, and where the full text is."""
 import json
 
-from harness import untrusted
-from harness.context import (MASK_HEAD_CHARS, MASK_SAVED_NOTE, ContextManager, TokenJuiceCompactor, describe_result, fence_untrusted,
+from tadamoo import untrusted
+from tadamoo.context import (MASK_HEAD_CHARS, MASK_SAVED_NOTE, ContextManager, TokenJuiceCompactor, describe_result, fence_untrusted,
                              masked_artifact, wire_messages)
 
 

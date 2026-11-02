@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from harness.agent_loop import AgentLoop, DEGENERATE, FINAL
-from harness.output_guard import RepetitionAbort, RepetitionWatch, raised_penalty, repetition_dominated
-from harness.tools import create_standard_tool_registry
+from tadamoo.agent_loop import AgentLoop, DEGENERATE, FINAL
+from tadamoo.output_guard import RepetitionAbort, RepetitionWatch, raised_penalty, repetition_dominated
+from tadamoo.tools import create_standard_tool_registry
 
 LOOP = "I think the answer is that we should consider the following option again. "
 

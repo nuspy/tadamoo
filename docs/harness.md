@@ -20,17 +20,17 @@ nothing from the engine. `python -m pytest tests` runs its tests without a GPU, 
 ## Running the agent
 
 ```powershell
-python -m harness -p "fix the failing test in calc.py" --workspace D:\work\proj --json
-python -m harness.acp_agent --workspace D:\work\proj          # the same agent for an editor that speaks ACP over stdio
-basalt-agent -p "fix the failing test" --workspace D:\work\proj   # basalt-agent.cmd: python -m harness from any folder
-basalt-agent acp --workspace D:\work\proj                          # = python -m harness acp = python -m harness.acp_agent
+python -m tadamoo -p "fix the failing test in calc.py" --workspace D:\work\proj --json
+python -m tadamoo.acp_agent --workspace D:\work\proj          # the same agent for an editor that speaks ACP over stdio
+basalt-agent -p "fix the failing test" --workspace D:\work\proj   # basalt-agent.cmd: python -m tadamoo from any folder
+basalt-agent acp --workspace D:\work\proj                          # = python -m tadamoo acp = python -m tadamoo.acp_agent
 ```
 
 `basalt-agent.cmd` (next to `Avvia-Basalt.ps1`) uses this folder's `.venv` and packages, so it works from the project you are in. There is
 no `pyproject.toml`, so nothing is installed and no command is added to the PATH; put the folder on the PATH, or call the file by its path.
 
-The command line (`python -m harness`), the Chat's process (`python -m harness session`) and the editor's agent (`acp`) take the same
-options and build the agent in the same place (`harness/stack.py`: `add_agent_arguments`, `agent_settings`, `build_agent`), so what
+The command line (`python -m tadamoo`), the Chat's process (`python -m tadamoo session`) and the editor's agent (`acp`) take the same
+options and build the agent in the same place (`tadamoo/stack.py`: `add_agent_arguments`, `agent_settings`, `build_agent`), so what
 the Chat can reach, the others can reach:
 
 | option | meaning |
@@ -88,7 +88,7 @@ repository; the only thing written in the workspace is `.basalt/artifacts` (full
 
 ## Conversations (the Chat's agent)
 
-A conversation is one long-lived process, `python -m harness session`, so a message does not pay for the start (tools,
+A conversation is one long-lived process, `python -m tadamoo session`, so a message does not pay for the start (tools,
 skills, connections) and the history is kept between messages. The server starts and watches these processes
 (`serve/agent_sessions.py`, routes under `/api/agent/sessions`, from this PC and from a phone with a key):
 
@@ -156,7 +156,7 @@ Code that make sense here, plus Basalt's own:
   (plan mode, then the request), `/permissions` and `/settings` (open the Chat settings), `/copy [n]`, `/export` (a text file), `/rename name`,
   `/branch`, `/branches`, `/resume`, `/rewind` (points at the *Back* button), `/stop`, `/diff` (the conversation's copy of the folder),
   `/plans` and `/wallet`;
-* **answered by the conversation's process** (`harness/commands.py`, data the page words in its language): `/status`, `/context`,
+* **answered by the conversation's process** (`tadamoo/commands.py`, data the page words in its language): `/status`, `/context`,
   `/compact` (the older steps become a summary and the newest stay as written, only when nothing is under way), `/tools`, `/hooks`, `/mcp`,
   `/memory [search]`, `/permissions` (the mode, the rules, the refusals), `/audit` (whether the audit log is whole);
 * **requests worded for the model**: `/init` (write AGENTS.md), `/review` and `/security-review` (the changes in the folder), and
@@ -183,7 +183,7 @@ the full date and the timezone). A message saved before this has no time, and it
 ### A message written while the agent works
 
 A conversation is never closed while the agent works. A message that comes meanwhile is looked at before the agent's next model
-call (never in the middle of a tool: an action that has begun is finished), and `harness/router.py` sends it one of three ways:
+call (never in the middle of a tool: an action that has begun is finished), and `tadamoo/router.py` sends it one of three ways:
 
 | how | when | what happens |
 |---|---|---|
@@ -205,7 +205,7 @@ An urgent request is not put aside for another urgent one: they go in order.
 
 ### The Chat and the planner
 
-A conversation has the planner's tools (`harness/planner_tools.py`), unless it is started `ask_only`: `plan_list`,
+A conversation has the planner's tools (`tadamoo/planner_tools.py`), unless it is started `ask_only`: `plan_list`,
 `plan_get`, `plan_proposals` (what each pending proposal would do: steps added, changed, removed, links; the text is data, so the tool is untrusted) and `plan_step_requests` (the call and the wiki question a step prepared) read; `plan_create`, `plan_set_card`, `plan_decide_proposal` (approve or reject a pending proposal, with the user's yes to that real change), `plan_propose_change`, `plan_mark`, `plan_step_start`, `plan_prepare_call` and `plan_archive` change (`plan_step_start` starts a ready step for the agent: the step is marked in progress and shows in the Tasks panel with its plan, and is marked done or failed after the result is read); `ask_user` asks a question with
 buttons. The plans live in the server, in the one store the Plans view uses, and every change made from the Chat names the
 Chat as its author in the plan's history.
@@ -223,7 +223,7 @@ meanwhile is refused until it is read again. A proposed change to a plan's struc
 removes and changes, and a no rejects the proposal. With nobody to ask (a headless run) the tool says so plainly and changes
 nothing.
 
-At `auto` the decision is made step by step (`harness/planner/involvement.py`: `step_facts`, `split_diff`). A step is an exception by
+At `auto` the decision is made step by step (`tadamoo/planner/involvement.py`: `step_facts`, `split_diff`). A step is an exception by
 its data: assignee `third_party`, a `call_request`, or a recorded effect that is a booking, a payment or a resource the software does
 not control (`kind` on the effect, or `request_payment`); an effect that is only not reversible does not hold a step back. A step for
 the user is a to-do and is not. A change that touches no such step is applied without a question. A change that mixes both is applied for the part that
@@ -250,7 +250,7 @@ the arguments are checked against the tool's schema (the model gets a message sa
 that fails refuses too); the permission manager; a checkpoint of the files the call changes (one per turn, filled as calls come); the
 tool; secrets masked in the result; results of untrusted tools fenced as data; an audit record.
 
-Permissions: a rule can name a group of tools, `group:read`, `group:write`, `group:shell`, `group:web`, `group:browser`, `group:phone`, `group:plan`, `group:agents` or `group:mcp` (`GROUPS` in `harness/permissions.py`), and `/permissions` says which deny rule refuses which tool. Plan mode refuses anything that is not read-only; then **deny rules** (matched against every segment of a
+Permissions: a rule can name a group of tools, `group:read`, `group:write`, `group:shell`, `group:web`, `group:browser`, `group:phone`, `group:plan`, `group:agents` or `group:mcp` (`GROUPS` in `tadamoo/permissions.py`), and `/permissions` says which deny rule refuses which tool. Plan mode refuses anything that is not read-only; then **deny rules** (matched against every segment of a
 shell command and the words inside `cmd /c`, `powershell -c`); then, **at the `auto` level everything passes and nothing is asked, except the Rule of Two and orders found in outside text (below)**: the
 person chose that. Below it: tools that always ask (`phone_call`); **allow rules**, which cover a command of several statements when each
 statement is covered (`cd x && make` needs `cd *` and `make *`; a command built at run time with `$(...)`, a backtick or `%VAR%` is covered
@@ -262,16 +262,16 @@ the config. Every question below `auto` offers three levels (this call, this con
 tool name (`write_file:.git/config`, `acp_permission:...`, `request_payment:<system>`, `phone_call`) or from the command, and an allow rule also
 covers the Rule of Two and a tool that asks every time.
 When the technical session's `auto_approve` use is on (off by default), it reads a call the person would be asked about at the read-only and default levels, with their request, and may approve it; it can only say yes, a doubt asks the person, and the Rule of Two, orders found in outside text and tools that always ask never go to it. An approval is reported as an `auto_approved` event.
-**Work until done** (`harness/persistence.py`, `harness/completion.py`): one switch for every conversation, in the chat header of the Chat and the Agent, on by default and kept in `work-until-done.json` in the user data folder (`GET`/`POST /api/persistence`, this PC only; off where nothing configures it, as in a library call). While it is on, when the agent gives a final answer the harness checks that the request is met: an answer that admits it did not finish, or a `no: ...` from the technical session's `completion_check` use, sends the agent back with a precise note, at most twice per request (`completion_check` event; the limits, the stall guards and the person's stop stay in force). **Outcomes and lessons** (`harness/lessons.py`): every request of the person is recorded by code (`Recorder`) and ends as one line in `<project>/.basalt/outcomes.jsonl` plus, when something was learned (an error that a later call fixed, a gate failure that was cleared, a loop that ended, a refusal that was worked around, a budget that ran out, a re-read after a fold), lessons in `<project>/.basalt/lessons.md` and the global `lessons.md` in the user data folder; the technical session's `lessons` use writes their sentences, and without it the code's drafts stay. The lessons that match a new request are added after it as a note of advice. Entries that read like orders or hold a secret are refused, and the files are plain Markdown the person can edit.
-**Course watch** (`harness/course.py`): before each model call of a request, deterministic signals are looked at: the same tool failing the same way, the project's checks failing again, the loop guards striking, a checklist that does not move while half the steps are used, a context close to the masking threshold. The first time a signal appears the agent gets a note with the facts and the matching lessons (`course_check` event); if it comes back after the note, the same card as `ask_user` is put to the person with three options, the first recommended, and the turn ends to wait for the answer (where nobody watches, the recommended option answers). **Lessons view**: Settings > Memories lists the project's and the global lessons with a summary of recent outcomes, and edits, pins, deletes or promotes them to `AGENTS.md` after a preview and a confirmation (`serve/lessons_api.py`, `GET /api/lessons`, `POST /api/lessons/<action>`, this PC only).
-**Card after a task** (`harness/nextsteps.py`, `Session._next_steps`): after a final answer, where the person is (never in an unattended run, never for a side task, a skill, a plan, or the answer to a card), the harness builds one `ask_user` card by code from the facts of the work: checks that failed (the gate gave up), items still open on the checklist, files changed with no check set up, and the matching lesson's fix in the description. It appears only after a task of at least 6 steps or with an open item, once per task. The first fitting option is recommended; "Nothing more" and a typed answer are always there, and "Nothing more" is answered by the harness with no model call. The switch is `next-steps.json` in the user data folder (`GET`/`POST /api/next-steps`, this PC only; on by default, off where nothing configures it), shown in Settings > Memories > Lessons.
-**The folder's own checks, offered once** (`serve/coding_prefs.py`, same card): the first time a conversation in a folder has changed files, and only if the folder still has no accepted or typed checks and was never asked, the card asks "Run these checks before finishing?" with the checks detected from the project files (`harness/project_profile.py`: pyproject/pytest.ini/setup.cfg/tox.ini, package.json scripts, Makefile, Cargo.toml, go.mod, CMake) as a multiple choice (a yes or no for a single one). The server marks the folder as offered when the card is shown, saves the ticked commands as accepted checks (they become safe commands and, with the check gate on, run before an answer ends) and tells the running conversations; ticking nothing is a remembered no. Nothing runs without the person's tick. With the gate off the card says so.
-**Shell failures as lessons** (`harness/shell_lessons.py`): a shell or code call that failed and a later call of the same intent that worked count as an `error_fix` only after a real change in between: another program, other flags or arguments, or a file edit. A plain red test run, a failed look around (grep with no match, ls of a missing folder, git status) and the same command run again unchanged are never lessons, unless the command could not run at all (not found, a module missing).
-**Work that repeats** (`harness/repeats.py`): a request signature is its meaningful words, first ten, sorted. When the project's `outcomes.jsonl` holds the same signature at least 3 times, each finished in at least 8 steps, the conversation tells the page once (`script_hint` event, marked in `.basalt/repeats.json`): a note in the chat with the "Make a skill" button, which opens the existing request picker on the request just done, and a line in the Lessons view. Nothing is made without the person.
-The agent is told about itself by code (`harness/awareness.py`): a fixed block "About yourself" in the system prompt (room for the conversation, when old results are masked and the conversation folded and that the originals are on disk, the limits, what is not available here), and the `self_status` tool, which reads the live numbers (context filled and the next thresholds, steps and tokens used and left, folds so far, loop strikes, gate rounds, refused calls, instructions waiting for authorization). Study and plan: [harness-study/awareness.md](harness-study/awareness.md).
-`shell_command` with `background: true` starts a job in a thread of its own and returns its id; `job_status`, `job_log` and `job_kill` follow it (the output is whole once the job ends or is killed), and the next tool result tells the model when a job ended (`harness/tools/background.py`). While a job runs its output is kept and `job_log` reads what is there; the chat shows each job as a block of its own with a colour of its own, filled as the output is written (the `job` and `job_output` events). When the person writes a message that changes or cancels the work while a message's batch of calls is running, the calls not yet made are recorded as "Not run" and the message is read next (`batch_interrupt`, the `batch_interrupted` event); a message that would wait or is a different request does not stop it. The job goes through the same checks as any shell command; it is not kept after the conversation's process ends.
+**Work until done** (`tadamoo/persistence.py`, `tadamoo/completion.py`): one switch for every conversation, in the chat header of the Chat and the Agent, on by default and kept in `work-until-done.json` in the user data folder (`GET`/`POST /api/persistence`, this PC only; off where nothing configures it, as in a library call). While it is on, when the agent gives a final answer the harness checks that the request is met: an answer that admits it did not finish, or a `no: ...` from the technical session's `completion_check` use, sends the agent back with a precise note, at most twice per request (`completion_check` event; the limits, the stall guards and the person's stop stay in force). **Outcomes and lessons** (`tadamoo/lessons.py`): every request of the person is recorded by code (`Recorder`) and ends as one line in `<project>/.basalt/outcomes.jsonl` plus, when something was learned (an error that a later call fixed, a gate failure that was cleared, a loop that ended, a refusal that was worked around, a budget that ran out, a re-read after a fold), lessons in `<project>/.basalt/lessons.md` and the global `lessons.md` in the user data folder; the technical session's `lessons` use writes their sentences, and without it the code's drafts stay. The lessons that match a new request are added after it as a note of advice. Entries that read like orders or hold a secret are refused, and the files are plain Markdown the person can edit.
+**Course watch** (`tadamoo/course.py`): before each model call of a request, deterministic signals are looked at: the same tool failing the same way, the project's checks failing again, the loop guards striking, a checklist that does not move while half the steps are used, a context close to the masking threshold. The first time a signal appears the agent gets a note with the facts and the matching lessons (`course_check` event); if it comes back after the note, the same card as `ask_user` is put to the person with three options, the first recommended, and the turn ends to wait for the answer (where nobody watches, the recommended option answers). **Lessons view**: Settings > Memories lists the project's and the global lessons with a summary of recent outcomes, and edits, pins, deletes or promotes them to `AGENTS.md` after a preview and a confirmation (`serve/lessons_api.py`, `GET /api/lessons`, `POST /api/lessons/<action>`, this PC only).
+**Card after a task** (`tadamoo/nextsteps.py`, `Session._next_steps`): after a final answer, where the person is (never in an unattended run, never for a side task, a skill, a plan, or the answer to a card), the harness builds one `ask_user` card by code from the facts of the work: checks that failed (the gate gave up), items still open on the checklist, files changed with no check set up, and the matching lesson's fix in the description. It appears only after a task of at least 6 steps or with an open item, once per task. The first fitting option is recommended; "Nothing more" and a typed answer are always there, and "Nothing more" is answered by the harness with no model call. The switch is `next-steps.json` in the user data folder (`GET`/`POST /api/next-steps`, this PC only; on by default, off where nothing configures it), shown in Settings > Memories > Lessons.
+**The folder's own checks, offered once** (`serve/coding_prefs.py`, same card): the first time a conversation in a folder has changed files, and only if the folder still has no accepted or typed checks and was never asked, the card asks "Run these checks before finishing?" with the checks detected from the project files (`tadamoo/project_profile.py`: pyproject/pytest.ini/setup.cfg/tox.ini, package.json scripts, Makefile, Cargo.toml, go.mod, CMake) as a multiple choice (a yes or no for a single one). The server marks the folder as offered when the card is shown, saves the ticked commands as accepted checks (they become safe commands and, with the check gate on, run before an answer ends) and tells the running conversations; ticking nothing is a remembered no. Nothing runs without the person's tick. With the gate off the card says so.
+**Shell failures as lessons** (`tadamoo/shell_lessons.py`): a shell or code call that failed and a later call of the same intent that worked count as an `error_fix` only after a real change in between: another program, other flags or arguments, or a file edit. A plain red test run, a failed look around (grep with no match, ls of a missing folder, git status) and the same command run again unchanged are never lessons, unless the command could not run at all (not found, a module missing).
+**Work that repeats** (`tadamoo/repeats.py`): a request signature is its meaningful words, first ten, sorted. When the project's `outcomes.jsonl` holds the same signature at least 3 times, each finished in at least 8 steps, the conversation tells the page once (`script_hint` event, marked in `.basalt/repeats.json`): a note in the chat with the "Make a skill" button, which opens the existing request picker on the request just done, and a line in the Lessons view. Nothing is made without the person.
+The agent is told about itself by code (`tadamoo/awareness.py`): a fixed block "About yourself" in the system prompt (room for the conversation, when old results are masked and the conversation folded and that the originals are on disk, the limits, what is not available here), and the `self_status` tool, which reads the live numbers (context filled and the next thresholds, steps and tokens used and left, folds so far, loop strikes, gate rounds, refused calls, instructions waiting for authorization). Study and plan: [harness-study/awareness.md](harness-study/awareness.md).
+`shell_command` with `background: true` starts a job in a thread of its own and returns its id; `job_status`, `job_log` and `job_kill` follow it (the output is whole once the job ends or is killed), and the next tool result tells the model when a job ended (`tadamoo/tools/background.py`). While a job runs its output is kept and `job_log` reads what is there; the chat shows each job as a block of its own with a colour of its own, filled as the output is written (the `job` and `job_output` events). When the person writes a message that changes or cancels the work while a message's batch of calls is running, the calls not yet made are recorded as "Not run" and the message is read next (`batch_interrupt`, the `batch_interrupted` event); a message that would wait or is a different request does not stop it. The job goes through the same checks as any shell command; it is not kept after the conversation's process ends.
 
-The Rule of Two is kept as three facts about the conversation (`harness/rule_of_two.py`). **Untrusted**: it read content from outside the
+The Rule of Two is kept as three facts about the conversation (`tadamoo/rule_of_two.py`). **Untrusted**: it read content from outside the
 person's control: a page, a search result, an MCP or A2A answer, a file, a command's output, an attachment, a recalled note, a note the
 planner made from an event. **Private**: it touched a stored credential (`{{secret:}}`, `{{vault:}}`), a file that holds keys (`.env`,
 `id_rsa`, `*.pem`, `.aws/credentials`...) or a command or answer that showed a key, an attachment, or the person's own memories.
@@ -285,7 +285,7 @@ secret, a vault secret field, or a secret read from a file during the conversati
 hex or base64; a value under eight characters only as a whole word); a match asks the person before anything is sent (the question names the
 secret and the sites it would reach, never the value; it can be answered for the call, the conversation or for good), and with `off` nothing is asked.
 
-**How freely code runs (`harness/exec_level.py`).** The person chooses, in the Wallet page ("Code the agent writes and runs"), one of three levels for every conversation. It is one file (`exec-level.json` in the user data folder) that a running conversation reads again at its next command. The default is `free`; a process nobody configured (a library caller, a test) is `contained`. What follows describes `contained`. With `free` a command or a `run_code` program runs with the person's own rights: no memory or process cap, no time limit unless the model sets one, the whole environment of Basalt plus the vault's values and the broker's secrets as `BASALT_VAULT_<entry>_<field>` and `BASALT_SECRET_<name>`, no deny list, no refusal for the person's secret places, no audit hook. The permission level in front of the tool is the only gate, and output is still masked of the values it holds. A time limit of the person's own (`tool_timeout_s`) still applies. `admin` is `free` for a Basalt that runs as administrator: the page says whether it does, and the programs inherit the rights of the process; nothing here elevates by itself.
+**How freely code runs (`tadamoo/exec_level.py`).** The person chooses, in the Wallet page ("Code the agent writes and runs"), one of three levels for every conversation. It is one file (`exec-level.json` in the user data folder) that a running conversation reads again at its next command. The default is `free`; a process nobody configured (a library caller, a test) is `contained`. What follows describes `contained`. With `free` a command or a `run_code` program runs with the person's own rights: no memory or process cap, no time limit unless the model sets one, the whole environment of Basalt plus the vault's values and the broker's secrets as `BASALT_VAULT_<entry>_<field>` and `BASALT_SECRET_<name>`, no deny list, no refusal for the person's secret places, no audit hook. The permission level in front of the tool is the only gate, and output is still masked of the values it holds. A time limit of the person's own (`tool_timeout_s`) still applies. `admin` is `free` for a Basalt that runs as administrator: the page says whether it does, and the programs inherit the rights of the process; nothing here elevates by itself.
 
 What this is **not**: an OS sandbox. A command runs with your files and network rights, with a scrubbed environment, no
 stdin, a time limit and capped output. On Windows each command also runs in its own job object, created before the command
@@ -293,14 +293,14 @@ executes anything: 4 GiB of memory and 64 processes for all of it together, and 
 or times out (a server a command leaves running does not survive it). The deny list stops the obvious system-changing tools
 wherever they appear as a command word. File and network isolation (a dedicated Windows user, firewall rules, a VM for
 untrusted code) is not provided; until it is, `auto` should only be used in a folder you can lose. Hooks, rules and
-the secrets check read what a command *says* and the text of the workspace scripts it names (`harness/secret_scan.py`): a secret limited to some sites
+the secrets check read what a command *says* and the text of the workspace scripts it names (`tadamoo/secret_scan.py`): a secret limited to some sites
 is not given to a command that uses the network without naming one (an address built at run time), and a script that names another site refuses it. A
 program that hides its address better than that still needs a firewall.
 
 Checkpoints are stored outside the workspace and keep only what an action is about to change: before a file tool or a shell command
 changes a file, the checkpoint stores that file's previous content (or that it did not exist), from any folder, whatever its size. There
 is no size limit, no total limit and no rotation; a checkpoint goes only when its owner deletes it (the Checkpoints list in the chat
-settings deletes one or all, or `python -m harness.rewind --delete ID|all`). A shell command cannot be known beforehand, so the files its
+settings deletes one or all, or `python -m tadamoo.rewind --delete ID|all`). A shell command cannot be known beforehand, so the files its
 text names are kept (quoted paths, `*` patterns that match, redirect targets); a folder named is not, and a change the text does not name
 (a script that rewrites a tree) is not covered. The setting has three positions: on (a checkpoint that cannot be taken stops the action),
 on but never stopping the action (the failure is written in the audit log as `checkpoint_failed` and told to the model), and off. Unset, it
@@ -308,7 +308,7 @@ follows the permission level: on, and the second one in Automatic. It is global 
 every action, set in the chat settings or with `/checkpoints on|soft|off|default`. Old whole-folder checkpoints are still listed and
 restored. Going back to a checkpoint also undoes the later ones (each file returns to its earliest kept state), skips files that already
 hold that content, and takes a safety checkpoint of the same files first. To go back:
-`python -m harness.rewind --workspace D:\proj` lists the checkpoints with what the agent did after each, and `--to ID`
+`python -m tadamoo.rewind --workspace D:\proj` lists the checkpoints with what the agent did after each, and `--to ID`
 restores the files (`--keep-new` leaves files created since). Restoring files does not undo a command the agent ran, a call
 it placed or an MCP tool, so a rewind over any of those lists them and needs `--yes`; the rewind is written in the audit log
 and its safety snapshot can be rewound to as well. The audit log
@@ -363,14 +363,14 @@ and a change to the files clears what it counted: see [harness-gates.md](harness
 
 ### How a reply ends
 
-The loop reads `finish_reason` of every reply (`harness/agent_loop.py`, `_complete`):
+The loop reads `finish_reason` of every reply (`tadamoo/agent_loop.py`, `_complete`):
 
 - **Cut by the output limit, with text and no tool call.** The text is kept as an assistant message and a `[harness]` note (`note: true`, at the
   tail, so the cached start is untouched) asks the model to go on exactly where it stopped, at most 2 times per request. After that the answer
   is delivered as it is, flagged cut (`AgentLoop.cut`, `cut` in the `done` event, `turn.cut`). The pieces are joined by `answer_text(turns)`.
   Every cut gives an `answer_truncated` event (`final`, `continuation`, `of`, `degenerate`) and audit record; the Agent tab shows "the model is
   asked to go on (1 of 2)" under the answer while it goes on. A text that is a repetition loop is never continued.
-  The cut text goes back to the model only up to its last whitespace (`harness/continuation.py`, `cut_point`): the model starts its new reply
+  The cut text goes back to the model only up to its last whitespace (`tadamoo/continuation.py`, `cut_point`): the model starts its new reply
   with the unfinished word, which a new reply could not otherwise do without a space. `join_continuation` puts the pieces together with no
   doubled or missing space, one paragraph break at most, and none of the words (6 characters or more, whole words) the model began a little early
   with. The Agent page does the same on the streamed text (`serve/web/cuttext.js`, the Chat's copy of the two functions); one table of cases
@@ -381,24 +381,24 @@ The loop reads `finish_reason` of every reply (`harness/agent_loop.py`, `_comple
 - **No text after thinking** (an empty reply with reasoning, or one the limit ended). Asked once per request, at a lower thinking level
   (`high` and `medium` to `low`, `low` to `none`) and with a note to answer shortly. A second empty reply ends the run as `empty` with a notice in `error`
   ("The model produced no answer: its thinking used up the whole output..."), never as a silent empty final. Records: `answer_empty`.
-- **A repetition loop** (`harness/output_guard.py`). A stream is watched while it is written: the end of the text (answer and reasoning apart) is looked
+- **A repetition loop** (`tadamoo/output_guard.py`). A stream is watched while it is written: the end of the text (answer and reasoning apart) is looked
   at when it first passes 16,384 characters and each time its length doubles; a 60-character unit that comes back 5 or more times and covers at least half
   of a fragment of 400 characters or more is a loop, unless the lines of the fragment mostly differ (tables, logs). The stream is closed, the partial
   answer and any partial tool call are dropped, and the request is made once more with `repetition_penalty` a step higher (1.1 more than the session's,
   at most 1.5; only this server receives it). A reply that the limit ended and that is a loop gets the same treatment. A second loop in the request ends
   the run as `degenerate`. Records: `output_degenerate`. A run without streaming only judges a reply the limit ended.
-- `length_stops` (replies the limit ended, per run) is in every trial of `python -m harness.eval` and in its report; so is the number of calls that were mended.
+- `length_stops` (replies the limit ended, per run) is in every trial of `python -m tadamoo.eval` and in its report; so is the number of calls that were mended.
 - **A reply still cut after the continuations** shows "The output limit ended this answer" and a Continue button in the Agent tab (the Chat has its own). A text too long for one turn is written in parts by the harness itself (it estimates the length, plans the parts, writes them and checks the whole), after a card offers it when a request asks for over 3000 tokens (about 2000 words); there is no tool for it, so a conversation saved before `plan_long_answer` was removed has a different tool list in its cached prefix once; see [longform.md](longform.md).
 
 The loop passes no temperature and no `max_tokens` unless the session sets them (`--temperature`, `--max-tokens`, the `settings` command of the
 conversation's process, `/status`): without a temperature the model file's own sampling applies. **A temperature above 0 makes tool calls less
 repeatable**, which is why a session that needs repeatable calls (and every test) sets it. Whether the model file's sampling is as good as 0 for tool calls
-is measured with `python -m harness.eval --set core --k 5` (and `--set toolcalls`), once with `--temperature model` (none sent) and once with
+is measured with `python -m tadamoo.eval --set core --k 5` (and `--set toolcalls`), once with `--temperature model` (none sent) and once with
 `--temperature 0`; the A/B is in `tests/QUEUE_daytime.md`.
 
 ### Mended calls
 
-Before the checks and the permission layer see a tool call, `harness/tools/repair.py` mends what is not in doubt and leaves the rest:
+Before the checks and the permission layer see a tool call, `tadamoo/tools/repair.py` mends what is not in doubt and leaves the rest:
 
 - **JSON** by passes: raw control characters inside strings, trailing commas, brackets left open (closed in the order they were opened, not inside a
   string), closing brackets after the end. Text that ends inside a string or after a colon is never completed; a JSON string that holds the JSON of an object
@@ -413,10 +413,10 @@ The call that ran is the mended one (it is also what the conversation keeps), wi
 
 ### Working rules
 
-`--instruction-blocks` adds six lines under `# Working rules` right after the core of the system prompt (`harness/prompt_blocks.py`): act on a request now, change
+`--instruction-blocks` adds six lines under `# Working rules` right after the core of the system prompt (`tadamoo/prompt_blocks.py`): act on a request now, change
 the query, path or command once before concluding that nothing is there, check what can change, say that something is done only with a tool result or a named blocker,
 never invent a result, never end a turn on a promise. A line that names tools names only those the conversation has and is left out when it has none. It is
-off by default until `python -m harness.eval --set core --k 5 --instruction-blocks` shows a gain against the same run without the flag (the A/B is in
+off by default until `python -m tadamoo.eval --set core --k 5 --instruction-blocks` shows a gain against the same run without the flag (the A/B is in
 `tests/QUEUE_daytime.md`).
 
 ### Hooks you write
@@ -489,7 +489,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   every payment asks the person. A waiver (the design's level 4, §4.8.4) lets the agent pay by itself up to a cap per payment
   and, if the person set one, a cumulative cap, until it ends (it has no end date unless one is set); above them it asks again. Granting one is the dictated declaration (checked in Italian
   and English against the chosen amount), the release and acceptance dialogs with the name typed again, and an AES-256-GCM
-  evidence dossier (needs the `cryptography` package, see `harness/requirements.txt`). The agent can only *ask*
+  evidence dossier (needs the `cryptography` package, see `tadamoo/requirements.txt`). The agent can only *ask*
   (`request_payment`, offered when a payment system exists, with the `site` that will take the payment); nothing it can call grants or
   widens a waiver. A waiver may name the only sites it covers. An approved payment has an id and lets the fields of the system's card out
   of the vault, as placeholders, to the site it named, nine times at most and for ten minutes at most, **and only while it still
@@ -569,7 +569,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   most relevant files first: changed lately (modified time), used by other files (how many mention the names they define), or named
   in `focus`. It stops at a token budget (default 1500, at most 8000) and says how many files it left out; no one file takes the whole
   map. It reads files only, skips dependency, build and hidden folders, and does not use tree-sitter or git.
-- `repo_diagram` (`harness/repodiagram.py`) draws a folder as Mermaid text worked out from the files, with no model, the same on every run: `kind` `imports`
+- `repo_diagram` (`tadamoo/repodiagram.py`) draws a folder as Mermaid text worked out from the files, with no model, the same on every run: `kind` `imports`
   (which module imports which: Python, JavaScript/TypeScript and C/C++ imports that resolve to a file in the folder, one node per file or, when there are too
   many, per folder with the number of imports on each arrow; the least-connected nodes go first past `max_nodes`) or `folders` (the folder tree with the count of
   source files in each). It reads files only (pure effect), stays inside the workspace and the result carries a `mermaid` block the model puts in its answer.
@@ -581,7 +581,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   `/context` lists the size in bytes and a short hash of each block of the prompt (`system_core`, `environment`, `project_rules`...) and of each group of tools
   (`tools:stable`, `tools:session`, `tools:external`), then of the whole start (`prefix_sha`): when a hash changes between two requests, everything after that
   part was read again.
-- Text from outside is written as `<untrusted_data source="name" id="16 hex digits">...</untrusted_data id="...">` (`harness/untrusted.py`): the id is random for
+- Text from outside is written as `<untrusted_data source="name" id="16 hex digits">...</untrusted_data id="...">` (`tadamoo/untrusted.py`): the id is random for
   each block, so no text can close it; before the text is placed in it, the boundary tag in any form (full-width letters, CJK brackets, zero-width characters,
   spaces) is replaced by `[/untrusted_data]` and the control tokens of chat templates (`<|im_start|>`, `<|endoftext|>`, `[INST]`, `<<SYS>>`, `<start_of_turn>`, any
   `<|...|>`) by `[REMOVED_SPECIAL_TOKEN]`. Code that compares two fenced texts compares `untrusted.normalize(text)`. The working folder in the prompt has its
@@ -608,14 +608,14 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   address, snippet; advertisements dropped), with no key, so the **words of each search go to DuckDuckGo**. The address is checked like
   any page's. It is a page meant for people, not an API: DuckDuckGo may ask for a check after many searches (the tool says so) or change
   the page. `BASALT_WEB_SEARCH=off` removes it. The other engines add to it and are the default only when DuckDuckGo is off: a search tool of a connected MCP server, or a
-  provider of `harness/tools/search/providers.json` for which you have a key (its environment variable, or a vault entry named
+  provider of `tadamoo/tools/search/providers.json` for which you have a key (its environment variable, or a vault entry named
   after the provider, e.g. `tavily`, with the key in its `value` field). The provider's server is started when the first search is
   made. The Exa endpoint is reached with the key in an `x-api-key` header, which has not been tried against the live service.
 - Skills (`SKILL.md`) are listed in a stable catalog and loaded on request; there is no approval step: a skill on the PC is
   usable unless you turn it off, and an edit never withdraws anything. A header `requires: git, node` and `env: NAME` makes the catalog say "not ready: missing ..." while the program or the variable is absent. `check_skill_text` gives every problem of a skill a model wrote at once (a name, a description of 60 characters at most, the sections "When to use" and "Steps"). An instruction file or a skill with a phrase that can only be an order to a model ("ignore all previous instructions") makes the conversation ask before anything changes or is sent, until the person authorizes it.
 - Reference documents are offered as a fixed block after the project rules (**cag**: the prefix is reused every turn, but a
   change re-reads everything and the block crowds the context) or searched (**rag**: small context, passages arrive fenced as
-  untrusted data). `auto` picks by size; the threshold is a starting point. `python -m harness.eval --set knowledge` asks the
+  untrusted data). `auto` picks by size; the threshold is a starting point. `python -m tadamoo.eval --set knowledge` asks the
   same questions with no documents, with rag and with cag and reports accuracy, tokens and cache use for each.
 
 ## MCP and ACP
@@ -648,14 +648,14 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   the key itself can only be given at launch (`BASALT_API_KEY` or `--api-key`), so `authenticate` checks it and does not receive it. It
   reads text only and has no `terminal/*`. It was tested against a scripted editor over in-memory pipes and against Basalt's own ACP client,
   never in Zed or JetBrains. It is built like the command line's agent and takes the same options
-  (`python -m harness acp --capabilities --lsp --vault-dir ...`), and the `mcpServers` the editor sends with `session/new` (a program to
+  (`python -m tadamoo acp --capabilities --lsp --vault-dir ...`), and the `mcpServers` the editor sends with `session/new` (a program to
   start, or a Streamable HTTP address; SSE is refused) are connected for that session: their tools are always irreversible and untrusted,
   so they ask like any action that cannot be undone, and a server that cannot be started is reported on stderr and left out. Plan mode
   asks the editor to approve the plan, with a button for each mode it can go on in.
 
 ## The planner
 
-`harness/planner/` holds the plan graph, the plan card, the event filter (System 1), re-planning by the local model (System 2)
+`tadamoo/planner/` holds the plan graph, the plan card, the event filter (System 1), re-planning by the local model (System 2)
 and the bridge the page talks to.
 
 - **Long-term plans against short ones** (`horizon.py`, `alignment.py`): a *constant* plan is a long-term one, with aims, an optional
@@ -726,7 +726,7 @@ and the bridge the page talks to.
   an RSS or Atom feed (the first look only learns what is there, a DTD is refused), a mailbox over IMAP (opened with EXAMINE, the message fetched with
   `BODY.PEEK[]`: sender, subject and the decoded text/plain body, joined as one event, with no cut and no limit on the sources, their number per poll or their interval; the only guards are for memory: a message over 64 MiB gives sender and subject alone and a feed over 256 MiB is refused; the login is a `login` entry of the Wallet, read when needed) and a Telegram bot (long polling
   of `getUpdates`, the token a `secret` entry, only the chats in `allowed_chat_ids`; it never sends anything). Settings hold the names of the Wallet
-  entries, never a password or a token, and an error shown for a source never contains one. Two sources need nothing from outside: `system` (`disk_path`, `min_free_gb`: one event when the free space falls below the limit) and `deadlines` (`lead_days`, default 7, 3, 1 and 0: a plan whose profile dates are near gets one event for the nearest lead time, addressed to that plan; plans with nothing left to protect are left out). A hook with the `plan_event` action (see *Hooks*) also feeds the mailbox. SMS and calendar have their interface (`SmsSource`, `CalendarSource` in `harness/planner/local_sources.py`, which take items from a provider function) but nothing connects them to a modem or an account, so a Settings entry cannot name them; an ACP sensor has no schema in this code, and the mailbox takes such events as they are.
+  entries, never a password or a token, and an error shown for a source never contains one. Two sources need nothing from outside: `system` (`disk_path`, `min_free_gb`: one event when the free space falls below the limit) and `deadlines` (`lead_days`, default 7, 3, 1 and 0: a plan whose profile dates are near gets one event for the nearest lead time, addressed to that plan; plans with nothing left to protect are left out). A hook with the `plan_event` action (see *Hooks*) also feeds the mailbox. SMS and calendar have their interface (`SmsSource`, `CalendarSource` in `tadamoo/planner/local_sources.py`, which take items from a provider function) but nothing connects them to a modem or an account, so a Settings entry cannot name them; an ACP sensor has no schema in this code, and the mailbox takes such events as they are.
 - **A step and a call, or the wiki**: a step can carry `call_request` `{number, reason, text}` prepared by the plan (`plan_prepare_call`, with the
   person's yes). Nothing places it: `plan_step_requests` shows it, and the Chat places the call only with `phone_call`, which asks below `auto`. A step's
   `wiki_query` is shown with `wiki_context` as the way to ask when the conversation has the wiki tools (`--wiki`). When `phone_call` cannot place
@@ -761,7 +761,7 @@ In the conversations Chat the person attaches any file (button, drag and drop); 
 decided by its first bytes, size, SHA-256). Limits are the normal inference settings: the model's context window and the policy for
 a full context; nothing else caps a file except the server's upload limit.
 
-- **How the model sees them** (`harness/attachments.py`): the documents come first, each in a `<document>` block with its source,
+- **How the model sees them** (`tadamoo/attachments.py`): the documents come first, each in a `<document>` block with its source,
   type and what part is shown, the text inside `<untrusted_data>`, and the person's question last. When the documents are long
   (over 20,000 tokens) the model is asked to copy the passages that matter into `<quotes>` before answering. A file that does not
   fit in 40% of the window shows its start and says so; a table shows its columns, row count and first rows. The model reads the
@@ -784,7 +784,7 @@ says so and keeps the file), and the service's own summary of a recording (not u
 ## Capabilities: skills, plugins and MCP servers found on this PC
 
 A conversation in the Chat can look up skills, plugins and MCP servers without carrying a list of them in its prompt
-(`harness/capabilities.py`). On a PC with 193 skills and 50 servers that list would be about 15,800 tokens on every call; the tree's
+(`tadamoo/capabilities.py`). On a PC with 193 skills and 50 servers that list would be about 15,800 tokens on every call; the tree's
 top and the four tools cost about 400.
 
 - **Discovery only reads.** Sources: `~/.claude/skills`, the workspace's `.claude/skills` and `.agents/skills`, the plugins in
@@ -807,7 +807,7 @@ top and the four tools cost about 400.
   arguments comes back with the definition. A tool's own failure (`isError`) is told apart from a server that cannot be used, a
   structured result is kept next to the text, and the pages of `tools/list` (`nextCursor`) are all read. A server that stops in the
   middle of a call to ask for values (elicitation, form mode; in the stateless revision an `input_required` result) asks the person
-  in the conversation (`harness/mcp_elicit.py`): the values come back after the prefix `elicit:`, only the declared fields are taken
+  in the conversation (`tadamoo/mcp_elicit.py`): the values come back after the prefix `elicit:`, only the declared fields are taken
   and checked against the server's schema. A tool a 2025-11-25 server runs only as a task is called as one and polled to its result;
   the tasks extension of the stateless revision, sampling and roots are not offered. The prompt holds one line:
   the roots and how many entries each has.
@@ -822,7 +822,7 @@ Not done: a second, embedding-based search pass, and a server that needs environ
 ## Finding a missing capability online
 
 When a capability is missing that usually exists as an MCP server or a skill, the agent can look for one online, show the best
-candidates to the person and install the one they choose (`harness/discovery/`). The tool is `find_online_capability(need,
+candidates to the person and install the one they choose (`tadamoo/discovery/`). The tool is `find_online_capability(need,
 look_anyway)`; it exists in a conversation that has the capability index (`--capabilities`), and `find_capability` points to it when it
 finds nothing. The base prompt says to try it before working around the gap with the shell.
 
@@ -834,7 +834,7 @@ reasons in a line, the warnings, the command that would run and the keys it need
 you* (a sentence of up to 500 characters, sent as `other:<sentence>` and returned to the model as the person's words) and *Do not
 install*. After a choice it installs and tells the model the id (`mcp:<name>` or `skill:<name>`) and that `call_capability` (with an
 empty `tool` to list the server's tools) or `load_capability` uses it; it does not start the server itself. Without a way to ask
-(an unattended run), nothing is installed and the finds are queued as an **install request** (`harness/discovery/requests.py`,
+(an unattended run), nothing is installed and the finds are queued as an **install request** (`tadamoo/discovery/requests.py`,
 `install_requests.json`, shared by the agent and the server): the model is told to go on without it and may add its comparison with
 `explain_install_request(request_id, comparison)` (per candidate: what it does, advantages, disadvantages; plain text, stored for the
 person to read). The person installs one candidate or rejects the request in Settings, Capabilities, *Install requests*
@@ -860,7 +860,7 @@ GitHub token is read from the vault (a secret entry named `github`, field `value
 the limit of 60 requests an hour for unidentified requests; when the limit is reached the answer says so and when it resets, and the
 candidates come back without stars and activity (the warning says so) instead of failing.
 
-**The score** (`harness/discovery/scoring.py`) is 0 to 100. It measures popularity and upkeep, **not safety**: a popular, well kept
+**The score** (`tadamoo/discovery/scoring.py`) is 0 to 100. It measures popularity and upkeep, **not safety**: a popular, well kept
 package can still do harm, and numbers such as stars and downloads can be inflated. The parts, with their default weights: weekly
 downloads (20, logarithmic, the whole share at 100,000), age of the last release (20), releases in the last year (10), stars (10, log),
 forks (5, log), open issues against the project's size (5), a declared licence (5), a publisher the registry verified (10; for a name
@@ -921,7 +921,7 @@ are not listed by the install; the score does not read the code or any security 
 Six ways to shape what the model reads, chosen in the Chat settings (each with a checkbox, a strategy and a description with
 four parts: what it does, advantages, drawbacks, when to use it, and what it does to the server's cache). They apply to the Chat's
 conversations with the agent and are kept in the preset under `context_patterns`; other programs that use the server pass only
-`policy` and `threshold`. The catalog is `GET /api/context/patterns` and comes from `harness/context_patterns.py`.
+`policy` and `threshold`. The catalog is `GET /api/context/patterns` and comes from `tadamoo/context_patterns.py`.
 
 Order: injection, rewriting, pruning, summary; versioning wraps them and a branch is an operation on a conversation.
 
@@ -963,7 +963,7 @@ before these fields existed have none and show as plain conversations.
   (`reversible`: the Changes panel puts them back) and those that stay (`not_undone`: a command, a call, a payment, a browser action,
   an MCP tool, a tool whose effect is not known, a file outside the copy). A call the agent refused or that was cancelled is not
   counted. The class of each tool comes from what it declared when the conversation used it (kept in `tool_effects.json`), else from
-  the table in `harness/rewind.py`. `POST .../<id>/back` goes back without a yes (a run in progress is stopped by it); the list of what
+  the table in `tadamoo/rewind.py`. `POST .../<id>/back` goes back without a yes (a run in progress is stopped by it); the list of what
   stays done is kept in the `rewinds` mark and the `went_back` event: nothing pretends to have undone it. The same holds for putting
   files back to a checkpoint (`.../checkpoints/restore`, `POST /api/agent/runs/<id>/rewind`): the reply carries `not_undone`.
 - **A plan's steps.** While a conversation works on a plan's step (between `plan_step_start` and `plan_mark` to completed, failed or
@@ -997,7 +997,7 @@ conversation sleeps and is not woken).
 
 ## The check on an answer
 
-Before an answer is handed over, `harness/pipeline.py` measures it against the request. The request's *card* is made by rules,
+Before an answer is handed over, `tadamoo/pipeline.py` measures it against the request. The request's *card* is made by rules,
 with no model call: a number of words, characters, lines or list items, a language, JSON, a word to leave out; and, apart,
 qualitative constraints (a tone, an audience, "no jargon"). Modes (`--pipeline`, default `full`):
 
@@ -1010,7 +1010,7 @@ A failed answer gets **one** second try: the agent is told the list of what was 
 answer still fails, the Chat says which points are unmet. A request with no constraint costs nothing, and the second answer is
 measured but not judged again. A judge that cannot tell does not block an answer. The Chat shows each check as a note, with the
 calls and seconds it took in the event (`verify`). The judge can be wrong either way and a second try can be worse, so
-the mode is meant to be compared on the same tasks with `harness.eval` before it is relied on.
+the mode is meant to be compared on the same tasks with `tadamoo.eval` before it is relied on.
 
 ## Providers: which model each function uses
 
@@ -1018,16 +1018,16 @@ Basalt's own functions (the Chat, the agent's loop, the planner, the judges) can
 this Basalt, another one on this PC, a cloud service, a command-line agent, or Jev for judging. The choice is made on the
 Models page, sub-tab Providers; other programs that use this server still see only the loaded model.
 
-- `harness/llmswitch/` is the vendored llmswitch package (see its `UPSTREAM.md`); `harness/llm/` is Basalt's layer over it.
+- `tadamoo/llmswitch/` is the vendored llmswitch package (see its `UPSTREAM.md`); `tadamoo/llm/` is Basalt's layer over it.
 - Keys and tokens are kept in the Windows credential manager (the registry file holds only a reference). The page can send
   a key but is never told it back.
-- A function that handles personal data (`harness/llm/functions.py`) cannot be pointed at a provider outside this PC unless
+- A function that handles personal data (`tadamoo/llm/functions.py`) cannot be pointed at a provider outside this PC unless
   the person says yes for that function; taking the yes back puts the function on the loaded model again. The same check runs
   at every call, so a registry edited by hand does not get past it.
 - A provider can have a cap of tokens a day; when it is used up the call goes on with the loaded model. A fall-back goes
   only to a route that is as local as, or more local than, the one that failed.
 - Command-line agents answer text only: they are not offered to functions that need tools.
-- **Jev** does not chat: it answers typed questions. `harness/llm/judge.py` asks it a *choice* question with a short excerpt
+- **Jev** does not chat: it answers typed questions. `tadamoo/llm/judge.py` asks it a *choice* question with a short excerpt
   (at most 1,500 characters), over https only. If it fails, is over its cap or has no key, the loaded model judges instead.
 - The session's router judge (steer, queue or urgent for a message written while the agent works) and the planner's triage
   take their provider from here.
@@ -1040,7 +1040,7 @@ gets them in its own words (`reasoning_effort` for OpenAI-like servers, a budget
 server takes all seven and maps them: `none` and `minimal` turn thinking off, `low` and `medium` stay, `high`, `xhigh` and `max` are the
 highest level the model has.
 
-**Loading Qwen for a function.** A route to this server may name one of the Loader's load profiles (`harness/llm/qwen_loader.py`):
+**Loading Qwen for a function.** A route to this server may name one of the Loader's load profiles (`tadamoo/llm/qwen_loader.py`):
 a model already loaded is used as it is (a profile is never applied over it: a reload loses the conversation); one that is loading is
 waited for; with nothing loaded the route's profile is loaded, and a server that loads by itself on the first request is left to do so
 unless the route names a profile; if the Loader refuses (another program holds the GPU memory, a load is running) its words are the
@@ -1056,21 +1056,21 @@ and the spending report per function.
 ## The technical session
 
 When the server runs with `--side-slot` (see [running](running.md#the-technical-session---side-slot-tokens)) it keeps one slot with a
-short context for the harness's own short calls. `harness/side.py` is the whole of the harness side: `side_extra(client=None)` returns
+short context for the harness's own short calls. `tadamoo/side.py` is the whole of the harness side: `side_extra(client=None)` returns
 `{"cache_slot": "side"}` for a local server that reports a session (its `/v1/status` `concurrency.side_slot`, asked at most every 30
 seconds by `BasaltClient.side_context()`) and `{}` otherwise; `SIDE_CONTEXT_TOKENS` is the default size (30000); `use(client)` registers
 the client `side_extra()` asks when it is called without one (the stack does this). The calls that use it are the intake's triage
-(`harness/intake.py`), the next-prompt suggestions (`harness/suggestions.py`), the compaction summary (`harness/stack.py`), the judge
-(`harness/llm/judge.py`), the router's judge (`harness/router.py`) and the rewrite of the person's message when Optimize prompt is on
-(`harness/optimize.py`, [intake.md](intake.md#optimize-prompt)); the calls for the length estimate, the plan of parts and the
-verification of a long text are built on the same function. `cache_slot` is in `THIS_SERVER_ONLY` (`harness/llm/client.py`): it is never
+(`tadamoo/intake.py`), the next-prompt suggestions (`tadamoo/suggestions.py`), the compaction summary (`tadamoo/stack.py`), the judge
+(`tadamoo/llm/judge.py`), the router's judge (`tadamoo/router.py`) and the rewrite of the person's message when Optimize prompt is on
+(`tadamoo/optimize.py`, [intake.md](intake.md#optimize-prompt)); the calls for the length estimate, the plan of parts and the
+verification of a long text are built on the same function. `cache_slot` is in `THIS_SERVER_ONLY` (`tadamoo/llm/client.py`): it is never
 sent to a cloud route, a command-line agent or the Anthropic dialect. The server serves a call that does not fit the session from the
 ordinary slots, so a caller keeps its prompt short and nothing more. A summary of more than the session holds is made in parts
-(`harness/digest.py`, [compaction](compaction.md#the-technical-session)); `side_context(client)` is the size the harness plans by, 0 when
+(`tadamoo/digest.py`, [compaction](compaction.md#the-technical-session)); `side_context(client)` is the size the harness plans by, 0 when
 the server has no session, and then no call carries `cache_slot`. The suggestions call carries the conversation, so in the session it
 reads that conversation again each time instead of reusing the main slot's cache; a long conversation falls back to the ordinary slots.
 
-**A long text is cut between Markdown blocks** (`harness/markdown_chunks.py`). A piece never ends inside a fenced code block, a table or a
+**A long text is cut between Markdown blocks** (`tadamoo/markdown_chunks.py`). A piece never ends inside a fenced code block, a table or a
 list item while a boundary outside them exists. `split_markdown` (pieces within a limit; a code block or table longer than a piece is cut at
 lines, each piece closing and reopening the fence or repeating the table header) is what `digest.split` uses, so the parts of a compaction
 summary, of the Chat's summary and of a large tool result are cut so. `whole_blocks` (pieces that joined give the text back exactly, a block
@@ -1085,7 +1085,7 @@ alone is no longer on the pure single-stream path. The Loader says so next to th
 
 ### The uses of the session
 
-`harness/side_uses.py` lists every use, with its switch, its numbers and its prompt, in `side_uses.json` of the user data folder (read
+`tadamoo/side_uses.py` lists every use, with its switch, its numbers and its prompt, in `side_uses.json` of the user data folder (read
 again when it changes, by every process). The uses: `triage` (the look at a request), `judge`, `router`, `optimize`, `suggestions`
 (the newest turns under a prompt of its own, no tools), `compaction` (the agent's summary, read in parts when larger than the session),
 `chat_summary`, `chat_abstract`, `code_abstract` (a plain description of old code in a Chat message, the original saved), `longform`, `memory_extract` (learning the person's memories, which in the session need not wait for the
@@ -1131,7 +1131,7 @@ The conversation's own function (`executor`, `chat`) is never affected by the sw
 ## A conversation's own copy of the folder
 
 Two conversations in one folder can step on each other's files, and an edit is otherwise applied as soon as it is made. In a folder under git
-a conversation can work in a copy of its own (`harness/worktrees.py`): a git worktree with its own branch `basalt/<id>`, kept in the user data
+a conversation can work in a copy of its own (`tadamoo/worktrees.py`): a git worktree with its own branch `basalt/<id>`, kept in the user data
 folder, started from the folder's last commit plus the changes not yet committed to tracked files. What the conversation changes stays there.
 
 - **When**: `worktree` when a conversation is made is `auto` (the default: a copy when another open conversation already works in that folder),
@@ -1152,7 +1152,7 @@ changes only when they apply.
 
 A remote MCP server (an address in a `.mcp.json`, not a command) is found like the others (the person sees its address in Settings;
 the query part of an address is dropped: a key does not belong there). One that wants a sign-in answers 401, and Settings, under Capabilities,
-shows **Sign in** next to it (`harness/mcp_oauth.py`, `serve/mcp_auth_api.py`). The flow is the one the MCP authorization specification asks of
+shows **Sign in** next to it (`tadamoo/mcp_oauth.py`, `serve/mcp_auth_api.py`). The flow is the one the MCP authorization specification asks of
 a client: the server's resource metadata (RFC 9728) names the authorization server, whose metadata (RFC 8414 or OpenID discovery) gives the
 endpoints; a client id is registered by itself (RFC 7591) when the server allows it; the person approves in their browser (authorization code, PKCE
 with S256, a `state` that must come back, the server's address as `resource`, RFC 8707); the code becomes tokens. The answer comes back to
@@ -1171,7 +1171,7 @@ the server runs on, and the other transports' own sign-ins.
 
 ## A council for hard questions
 
-`ask_council(question, context)` starts a debate between three advisers and a moderator (`harness/council.py`). The advisers are the functions *Council member
+`ask_council(question, context)` starts a debate between three advisers and a moderator (`tadamoo/council.py`). The advisers are the functions *Council member
 1, 2, 3* on the Providers page, the moderator is *Council chair*, so each can be a different model, local or in the cloud. Each adviser has a role, a name and a
 job the person edits under *Council* on that page (the defaults are a proposer, a critic and an engineer; the moderator has a job too), and a number of rounds
 at most (1 to 6, default 3). A round is every adviser speaking in turn, each having read what was said before, then the moderator summing up in at most 250
@@ -1185,7 +1185,7 @@ The tool exists only when the person pointed at least one of those functions som
 several roles); with nothing chosen it is not offered, and what leaves this PC follows the rules of any other function (personal data to a cloud provider only
 where the person said yes for that function, daily caps, fallback only to a route that is as local or more).
 
-Whether it helps, and whether a debate beats one round, has not been measured: `python -m harness.eval --set council` runs six decisions about code (five with a flaw a reviewer finds, one sound);
+Whether it helps, and whether a debate beats one round, has not been measured: `python -m tadamoo.eval --set council` runs six decisions about code (five with a flaw a reviewer finds, one sound);
 run it without `--council` and with it, after setting a council up, and compare (a difference under 3 points is noise until it repeats).
 
 ## Language servers
@@ -1193,7 +1193,7 @@ run it without `--council` and with it, after setting a council up, and compare 
 When a language server is installed (pyright or pylsp for Python, typescript-language-server, clangd, rust-analyzer, gopls), a conversation
 with tools gets three read-only tools: `diagnostics(path)` (the errors and warnings of a file, with line and column), `go_to_definition` and
 `find_references` (a line and column counted from 1). The server is started on first use for the language of the file and ended with the
-conversation (`harness/lsp.py`). Which program runs comes from `lsp.json` in the user data folder (`{"servers": {"python": ["pyright-langserver",
+conversation (`tadamoo/lsp.py`). Which program runs comes from `lsp.json` in the user data folder (`{"servers": {"python": ["pyright-langserver",
 "--stdio"]}}`) or, without it, the first known server found on the PATH. A folder under work never names a command to run. With no server found
 the tools are not offered. What the tools return is marked as untrusted text. Not done: diagnostics added to the result of an edit by themselves,
 rename and code actions, and servers that need settings of their own.
@@ -1225,7 +1225,7 @@ wide, not for phones.
   with a *Save* button in its step. The page asks for the file with the API key and saves it the way the place it runs in allows: the *Save as* window of the desktop app, the browser's
   save window, or a plain download. The folder's files come from `GET /api/agent/sessions/<id>/file?path=`, which sends only a regular file inside the folder the conversation works in
   (its own copy when it has one), never one in `.basalt` or `.git`, as an attachment with `nosniff` and a sandboxing policy. The agent is told how to write these links
-  (`--page-files`, `FILES_GUIDANCE` in `harness/visuals.py`), only in the conversations of this page.
+  (`--page-files`, `FILES_GUIDANCE` in `tadamoo/visuals.py`), only in the conversations of this page.
 - **Pictures and charts in answers**: two switches in *Chat settings → Pictures and charts*, each with a level of presence (very low, low,
   normal, high, very high, highest), for the next new conversation (`images` and `charts` of `POST /api/agent/sessions`, `--images` and `--charts` of the
   conversation's process). With pictures on, the agent has `page_images` (the pictures a page shows: its own headline picture, then the article's,
@@ -1261,17 +1261,17 @@ run with `python -m pytest serve/tests/test_web_static.py`.
 
 ## Personal skills
 
-The agent can write a skill itself with `create_skill(name, description, script, params)` (`harness/personal_skills/authoring.py`, offered when the conversation is given `--personal-skills-dir`). The tool answers every problem of the script at once, and counts the `ai()` calls left in it; its description tells the model to put everything that can be code in code. A skill made this way carries `source: {agent: true}`. **Make a script of a routine**: on the Cron Jobs page, "Make it a script" writes a skill from the routine's last good run (`POST /api/routines/<id>/improve`, nothing changes), and "Use this script" saves it and makes the routine run it (`improve_apply`).
+The agent can write a skill itself with `create_skill(name, description, script, params)` (`tadamoo/personal_skills/authoring.py`, offered when the conversation is given `--personal-skills-dir`). The tool answers every problem of the script at once, and counts the `ai()` calls left in it; its description tells the model to put everything that can be code in code. A skill made this way carries `source: {agent: true}`. **Make a script of a routine**: on the Cron Jobs page, "Make it a script" writes a skill from the routine's last good run (`POST /api/routines/<id>/improve`, nothing changes), and "Use this script" saves it and makes the routine run it (`improve_apply`).
 
 A personal skill is a folder in the user data folder, `personal-skills/<slug>/`, with `skill.json` (name, description, parameters, mode, the tools the
-script names, version, counts) and `skill.py`, plus `.versions/` (the last ten) and `.cache/` (the answers of `ai()`). `harness/personal_skills/`
+script names, version, counts) and `skill.py`, plus `.versions/` (the last ten) and `.cache/` (the answers of `ai()`). `tadamoo/personal_skills/`
 holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/pskills.js` the windows.
 
 - **The script** defines `main(params)` and uses `from basalt_skill import tool, ai, ask, say`: `tool(name, **arguments)` returns the tool's answer as text
   and raises `ToolError` when it is refused or fails; `ai(prompt, cache=True, **inputs)` is one model call at temperature 0 with no thinking, and its answer
   is kept for the same prompt and inputs; `ask(question, options)` asks the person with buttons; `say(text)` tells how it is going. `params.name` holds
   each value (`datetime.date` for a date, `datetime.datetime` for a moment, numbers, lists). What `print` writes is the run's output.
-- **Where it runs.** In a process of its own (`harness/personal_skills/runner.py`: the interpreter in isolated mode, the whole environment of the server, a job object
+- **Where it runs.** In a process of its own (`tadamoo/personal_skills/runner.py`: the interpreter in isolated mode, the whole environment of the server, a job object
   on Windows that ends what it started, a time limit only when the skill sets one, Stop ends it and what it started; no cap on memory, processes or output), talking in lines of JSON. The calls are answered in the
   conversation's process (`hosting.py`): `tool` goes through `AgentLoop.call_tool`, which is the same gate as a model's call (arguments checked, hooks,
   permissions, a checkpoint, the audit record, a question to the person when one is needed, secrets masked, outside content fenced) and keeps the call and
@@ -1303,14 +1303,14 @@ holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/
 ## Evaluation
 
 ```powershell
-python -m harness.eval --set core --k 5 --endpoint http://127.0.0.1:7232 --gpu-power-limit-w 450 --out report.md
-python -m harness.eval --set toolcalls --k 5
-python -m harness.eval --set core --k 5 --temperature model --instruction-blocks   # no temperature sent (the model file's own); the working rules added
-python -m harness.eval --set knowledge --k 3 --strategies none,rag,cag
-python -m harness.eval --compare-strategies --k 5          # the same, and the report gets a none / RAG / CAG table
-python -m harness.eval --bfcl D:\data\bfcl --k 5 --limit 200
-python -m harness.eval --terminal-bench D:\data\terminal-bench --only tb/hello-world --k 5
-python -m harness.eval --swebench D:\data\swe-bench-pro --limit 20 --k 3
+python -m tadamoo.eval --set core --k 5 --endpoint http://127.0.0.1:7232 --gpu-power-limit-w 450 --out report.md
+python -m tadamoo.eval --set toolcalls --k 5
+python -m tadamoo.eval --set core --k 5 --temperature model --instruction-blocks   # no temperature sent (the model file's own); the working rules added
+python -m tadamoo.eval --set knowledge --k 3 --strategies none,rag,cag
+python -m tadamoo.eval --compare-strategies --k 5          # the same, and the report gets a none / RAG / CAG table
+python -m tadamoo.eval --bfcl D:\data\bfcl --k 5 --limit 200
+python -m tadamoo.eval --terminal-bench D:\data\terminal-bench --only tb/hello-world --k 5
+python -m tadamoo.eval --swebench D:\data\swe-bench-pro --limit 20 --k 3
 ```
 
 Each trial is a fresh agent run on a fresh workspace with its own seed, checked on what happened (files, commands, the
@@ -1329,12 +1329,12 @@ because of the mending shows it there); the report gives both. Checks on a call'
 
 A `--k` below 5 is accepted but warned about, on stderr and at the top of the report: pass^k over so few repetitions says little. The
 report also carries what the server itself measured: with the request log on (the default) each trial reads the `timing` events of its
-requests (`harness/eval/serverlog.py`) and the report gives the median time to the first token and prefill time, the share of the prompt
+requests (`tadamoo/eval/serverlog.py`) and the report gives the median time to the first token and prefill time, the share of the prompt
 read from the cache, and a TTFT and cache column per task; the figures belong to a trial only when nothing else used the server meanwhile,
 and `--no-server-timings` leaves them out. With `--compare-strategies` (or `--strategies` on the `knowledge` set) the report adds a table of
 none, RAG and CAG side by side: success, pass^k, tokens in, seconds and cache share.
 
-**Public benchmarks** are read from a folder you downloaded yourself; nothing is fetched (`harness/eval/benchmarks.py` has the layouts).
+**Public benchmarks** are read from a folder you downloaded yourself; nothing is fetched (`tadamoo/eval/benchmarks.py` has the layouts).
 `--bfcl` takes `BFCL_v<n>_<category>.json` with `possible_answer/` beside it (simple, multiple, parallel, parallel_multiple and irrelevance by
 default) and scores the calls by BFCL's rule: the function, every required argument, no unknown argument, each value among the accepted ones, parallel
 calls in any order, and for irrelevance no call at all; Java, JavaScript, SQL, REST and multi-turn files are left out and listed. `--terminal-bench`
@@ -1345,16 +1345,16 @@ is resolved when its FAIL_TO_PASS tests pass and its PASS_TO_PASS tests still do
 with the local Python, not in the containers the datasets were made for, so choose a subset this machine can check (`--only`, `--limit`); the layouts are the ones
 the datasets are described as having and were written without a copy of them, so the first real folder is the test. No dataset has been run and no score exists yet.
 
-`python -m harness.eval.alternate` measures what it costs when two conversations take turns on one model (the time to the first token and the share of the
+`python -m tadamoo.eval.alternate` measures what it costs when two conversations take turns on one model (the time to the first token and the share of the
 prompt read from the cache, taking turns against one after the other). It decides whether a queue that groups requests by conversation is worth building.
 
-`python -m harness.eval.cases` runs the case studies E1 to E8, the design questions that reasoning cannot settle (the Target Loop's first message, the verify gate, the error
+`python -m tadamoo.eval.cases` runs the case studies E1 to E8, the design questions that reasoning cannot settle (the Target Loop's first message, the verify gate, the error
 classifier, intake, compaction in a long turn, long answers, prefix-cache survival, Optimize prompt): each has a fixture, a plain-code scorer, an A/A control that measures the noise and a
 decision rule written before the run. See [experiments.md](experiments.md).
 
 ## Replay of a recorded session
 
-`harness/replay.py` runs a recorded conversation again with a model that answers with the recorded answers, one after the other,
+`tadamoo/replay.py` runs a recorded conversation again with a model that answers with the recorded answers, one after the other,
 and reports the first place where the tool calls differ: another tool, other arguments, another decision (executed, denied,
 invalid, blocked, loop), a call missing or added, and with `compare_results` a call that failed or succeeded where the recording
 did the opposite. It tests the harness (loop, permission rules, tools), not the model. `export_trace(messages, turns)` writes the
@@ -1362,7 +1362,7 @@ trace as JSONL (a header line, then one line per message; each tool result carri
 and any extra values you pass masked (`mask_text`; a trace written for sharing is masked by default). `load_trace` also reads a
 conversation's `history.json` and a plain file of messages, where the decision is read from the result's text. `replay(trace)` uses
 stand-ins that return the recorded results (so nothing is run); pass your own registry to run the real tools, preferably in a copy of
-the folder, and `confirm_from_trace(trace)` to answer questions as the person did. `python -m harness.replay trace.jsonl --mode auto`
+the folder, and `confirm_from_trace(trace)` to answer questions as the person did. `python -m tadamoo.replay trace.jsonl --mode auto`
 does the first and prints the divergence. Permissions are decided by the rules you replay under, so a replay under another level is
 the way to see what a change in the rules would have done to a past session.
 
@@ -1374,7 +1374,7 @@ records. The ledger belongs to the folder, not to one conversation.
 
 ## Running code
 
-`run_code` (`harness/tools/execute.py`) runs a snippet in a separate process: Python with the interpreter of Basalt's own
+`run_code` (`tadamoo/tools/execute.py`) runs a snippet in a separate process: Python with the interpreter of Basalt's own
 environment in isolated mode (`-I`), and JavaScript or TypeScript when `deno` is on the PATH (all three languages) or
 JavaScript when only `node` is. Each run gets a new working folder under `.basalt/run/` in the workspace, the workspace's path
 in `BASALT_WORKSPACE`, and the same scrubbed environment as the shell. On Windows it runs in a job object (2 GiB of memory, 64
@@ -1385,7 +1385,7 @@ none leaves nothing behind. Edits the code makes to workspace text files are rec
 It is an irreversible action for the permission layer (it can write anywhere the user can), so it asks at the default level,
 is refused in plan mode, and can be allowed or denied with a rule named `run_code`. **There is no network isolation, and Python can read what
 the user can, except the person's secrets.** Python and every Python program it starts load an audit hook
-(`harness/sandbox/guard/`) that refuses to open, copy, link, rename, delete or hand to sqlite the vault, the payment files, the
+(`tadamoo/sandbox/guard/`) that refuses to open, copy, link, rename, delete or hand to sqlite the vault, the payment files, the
 browser profile, the control-token file, the phone keys, the OAuth tokens and the conversations' records, whatever way the path was built
 at run time, and refuses `ctypes` libraries and any command that names those places. The shell's Python programs get the same hook. It
 does not stop a program in another language that builds the path itself (a PowerShell script started by Python, say), or code written
@@ -1397,7 +1397,7 @@ detector stops identical repeats.
 
 ## Subagents
 
-`spawn_subagent` (`harness/swarm/subagent.py`) hands a task to a second conversation and returns its last message as a
+`spawn_subagent` (`tadamoo/swarm/subagent.py`) hands a task to a second conversation and returns its last message as a
 summary. The subagent has its own messages and the tools named in `tools` (by default all of the caller's, `spawn_subagent` included, so it may
 start another one), for as many turns as `max_turns` says (no limit by default), and the task and the summary are not cut. It shares the parent's model client, permission
 manager, hooks, checkpoints, secrets and cancel flag, so its calls are decided by the same rules and questions as the parent's
@@ -1447,11 +1447,11 @@ address typed). Speech to text and text to speech are the phone's own. A phone m
 
 ## Where the person is
 
-`harness/place.py`, `mobile/lib/src/place.dart`. The Android app can send its position with each message; it is **off** until the person switches it on in the app's Settings, which also asks Android for the permission
+`tadamoo/place.py`, `mobile/lib/src/place.dart`. The Android app can send its position with each message; it is **off** until the person switches it on in the app's Settings, which also asks Android for the permission
 (only while the app is open: there is no background reading). The phone reads a fix (3 s at most, else the last one it knows), turns it into street, number, postcode, city, region and country with the phone's own
 geocoder when it has one (coordinates alone otherwise), and puts it in the body of `POST /api/agent/sessions/<id>/send` as `place`. A message never waits long for it and never fails because of it.
 
-- **Nothing goes into the prompt.** `SessionManager._place_for` cleans the position (`harness.place.clean`: coordinates in range, a few short plain fields, no other key, so the geocoder's place names or any text it
+- **Nothing goes into the prompt.** `SessionManager._place_for` cleans the position (`tadamoo.place.clean`: coordinates in range, a few short plain fields, no other key, so the geocoder's place names or any text it
   returns cannot carry a sentence for the model), keeps the last one **in memory only** and hands it to the conversation's process in the `send` command, once per process unless a newer one comes. A position
   older than a day is not handed over. The process keeps it and offers the tool `where_is_user` from then on (`BuiltAgent.take_place`): a conversation with no position has no such tool and pays no tokens for it.
 - **The tool** (`PURE`, untrusted) returns the address, the coordinates, the accuracy and how long ago the fix was taken, with a note when the position is old, rough, or has no address. Its description tells the model to call
@@ -1465,7 +1465,7 @@ geocoder when it has one (coordinates alone otherwise), and puts it in the body 
 
 ## The person's own memories
 
-`harness/personal_memory.py`, `harness/memory_extract.py`, `serve/memory_worker.py`, `serve/memories_api.py`, `serve/web/memories.js`. Two memories about the person, apart from the per-project
+`tadamoo/personal_memory.py`, `tadamoo/memory_extract.py`, `serve/memory_worker.py`, `serve/memories_api.py`, `serve/web/memories.js`. Two memories about the person, apart from the per-project
 `MemoryStore`: **long-term** (sections identity, place, people, companies, partners, character, tastes, interests, values, thinking, foundations, emotions, card) and **short-term** (facts, searches,
 topics, projects). Each note has a section, a text of any length, an origin (`said`, `inferred` with a confidence, `confirmed`, `manual`), the time it was last seen and how many times.
 
@@ -1480,7 +1480,7 @@ topics, projects). Each note has a section, a text of any length, an origin (`sa
   related notes already kept. `apply` refuses notes that look like a secret (long digit runs, long tokens, password/key words) or an order to an assistant (`ignore previous`, `you must`, tags, vault
   placeholders), cannot change or delete a note the person wrote or confirmed, clamps a guess to confidence 0.3-0.9 and counts a repeated note instead of adding it. A failed call leaves the queue for
   the next free moment; switching learning off drops what waited.
-- **Using.** `Recall.message(goal)` (`harness/personal_memory.py`) is called by `BuiltAgent.retrieved_message` and joins the project notes in the same untrusted-data message at the tail of the
+- **Using.** `Recall.message(goal)` (`tadamoo/personal_memory.py`) is called by `BuiltAgent.retrieved_message` and joins the project notes in the same untrusted-data message at the tail of the
   conversation. Only notes of a memory that is on, in a section that is not `off`, and (for the short memory) seen within `short_days`, are candidates. Words are cut to five letters and matched; a match
   is *strong* with two shared words (or one rare word among ten or more notes). The weight of a section sets how many notes it gives (low 1 and only a strong match, normal 2, high 4, highest 8; high and
   highest also give 2 and 6 core notes at the start of a conversation); a guess always needs a strong match. A note already given in the conversation is not given again unless it changed. At most 1,800
@@ -1494,7 +1494,7 @@ topics, projects). Each note has a section, a text of any length, an origin (`sa
 
 ## Earlier conversations
 
-`harness/past.py`, `serve/agent_sessions.py` (`index_past`, `index_all_past`, `routine_run`), `serve/handler.py` (`/api/past/chat`). One SQLite FTS5 file, `<user data>/memory/past.db`, indexes every conversation the person has had, whatever the tab:
+`tadamoo/past.py`, `serve/agent_sessions.py` (`index_past`, `index_all_past`, `routine_run`), `serve/handler.py` (`/api/past/chat`). One SQLite FTS5 file, `<user data>/memory/past.db`, indexes every conversation the person has had, whatever the tab:
 the Chat in its conversation modes, projects, and the model-only chat. It is cut into pieces of about 500 tokens (paragraph ends), each kept with its conversation, turn, project (the folder's name; none for the Chat), kind (`chat`, `agent`, `routine`), routine name and date. The text is stored, so a hit can be read again as it was said. Tool results and system messages are not indexed.
 
 - **Filling it.** When a turn ends the server adds the whole conversation (`history`, with the originals compaction removed) and replaces what it had of it; at start a background pass adds the conversations saved before the index or changed since. The model-only chat keeps its conversation in the browser and posts its words to `POST /api/past/chat` (this PC only) when the page has been quiet for a moment.
@@ -1504,7 +1504,7 @@ the Chat in its conversation modes, projects, and the model-only chat. It is cut
 
 ## Routines
 
-`harness/scheduler.py` keeps recurring tasks for the agent in the user data folder (`routines.json`, results in
+`tadamoo/scheduler.py` keeps recurring tasks for the agent in the user data folder (`routines.json`, results in
 `routine_runs.json`, the last 200). A routine is a prompt, a folder and a schedule, with optional limits on steps (`max_turns`) and time (`max_minutes`); empty means none. Schedules are
 `every 30s`, `every 30m`, `every 2h`, `every 1d` (seconds, minutes, hours or days, any number) or fixed local times: `daily 08:30`, `weekdays 08:30`, `weekends 10:00`,
 `mon,wed,fri 18:15`; there is no cron syntax. A routine may have a `check`: a command run in its folder before the model is woken, which costs no model time. Exit code 0 goes on and what it printed is given to the agent, 1 ends the run as `skipped` (nothing to do), any other code fails it. The agent ends its answer with `OUTCOME: nothing_new|progress|done|blocked`; the outcome words and first lines of the last three runs go into the next run's prompt (from the second run on). The file `routines.stop` in the data folder is the kill switch: while it exists nothing starts and what runs is stopped (`Scheduler.emergency_stop`). The next due time is fixed when a run is queued, before it starts. A routine is created **enabled** and always runs in Automatic (it has no mode and no allow rules; an old stored one loses them). Different routines run
@@ -1530,7 +1530,7 @@ loaded model (a plain request to `/v1/chat/completions`, no tools): it is given 
 
 ## Other agents: ACP client and A2A
 
-`delegate_to_acp_agent` (`harness/acp_client.py`) lets Basalt drive another Agent Client Protocol agent (version 1, stdio):
+`delegate_to_acp_agent` (`tadamoo/acp_client.py`) lets Basalt drive another Agent Client Protocol agent (version 1, stdio):
 `initialize`, `session/new`, `session/prompt`, the agent's `session/update` notifications (message text and a list of its tool
 calls come back), its `session/request_permission` and `session/cancel` when the run is cancelled. The permission requests
 are put to the person through the same permission manager as Basalt's own tools, as `acp_permission:<agent>:<title>`: the
@@ -1542,7 +1542,7 @@ an agent but never a command. The agent starts with the scrubbed environment plu
 untrusted text. It is tested against a fake agent and against Basalt's own ACP agent over real pipes, not against a third-party
 agent.
 
-`ask_a2a_agent` (`harness/a2a.py`) is a client for Agent2Agent 1.x over the HTTP+JSON binding: it reads the Agent Card from
+`ask_a2a_agent` (`tadamoo/a2a.py`) is a client for Agent2Agent 1.x over the HTTP+JSON binding: it reads the Agent Card from
 `/.well-known/agent-card.json`, takes the first `HTTP+JSON` interface of version 1, sends one text message with `POST
 /message:send` and, if the task is not finished, polls `GET /tasks/{id}` (and cancels it with `POST /tasks/{id}:cancel` on a
 cancel or after the wait). The agents are listed in `a2a_agents.json` (`{"agents": {"name": {"url": "...", "token_env":
@@ -1550,11 +1550,11 @@ cancel or after the wait). The agents are listed in `a2a_agents.json` (`{"agents
 notifications, files and the extended card are not done. It was written from the specification at a2a-protocol.org (version
 1.0.0) and tested against a local fake, never against a real agent; the exact error bodies are read leniently. **Basalt does not
 serve an Agent Card or receive A2A tasks**: a card must list an endpoint that accepts tasks, and receiving a task means running
-the agent for a remote caller, which needs a decision about who may call it. Both tools are irreversible and untrusted. An A2A agent is reached only when its address, and every address its name resolves to, is in the person's own network (`harness/netscope.py`: this PC, 10/8, 172.16/12, 192.168/16, link-local, the shared 100.64/10 space of private overlays); an ACP agent is a local program over stdio. Any listener that takes instructions from agents has to call `netscope.require_private` first.
+the agent for a remote caller, which needs a decision about who may call it. Both tools are irreversible and untrusted. An A2A agent is reached only when its address, and every address its name resolves to, is in the person's own network (`tadamoo/netscope.py`: this PC, 10/8, 172.16/12, 192.168/16, link-local, the shared 100.64/10 space of private overlays); an ACP agent is a local program over stdio. Any listener that takes instructions from agents has to call `netscope.require_private` first.
 
 ## Energy of a task
 
-`harness/energy.py` samples the GPUs' power once a second (from the server's telemetry) while a task runs and reports the power
+`tadamoo/energy.py` samples the GPUs' power once a second (from the server's telemetry) while a task runs and reports the power
 limit, the average and peak power and the energy in watt-hours (the samples added up over time). A routine's result carries it
 as `energy`. It is the energy of the whole board(s) while the task ran, including anything else using the GPU, and the figure
 is an estimate; without readable power it is left out. Runs started from the Agent page and the evaluation reports do not

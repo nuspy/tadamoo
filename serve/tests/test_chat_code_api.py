@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
-from harness import side_uses
+from tadamoo import side_uses
 from serve.tests import test_api_plans as base
 from serve.tests.test_chatcode import MESSAGE
 

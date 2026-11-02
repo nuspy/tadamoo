@@ -9,8 +9,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.llm.credentials import FileCredentials
-from harness.llm.store import Ledger, SecureRegistry
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.llm.store import Ledger, SecureRegistry
 from serve import handler
 from serve.llm_api import LlmApi
 from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)

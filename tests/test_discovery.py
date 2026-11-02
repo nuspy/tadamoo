@@ -9,11 +9,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fake_discovery import FakeServices, SHA  # noqa: E402
-from harness.discovery import sources as src  # noqa: E402
-from harness.discovery.candidates import Candidate, CandidateStore  # noqa: E402
-from harness.discovery.finder import Finder, keywords  # noqa: E402
-from harness.discovery.scoring import DEFAULT_WEIGHTS, Metrics, lookalike, score  # noqa: E402
-from harness.discovery.settings import DiscoverySettings  # noqa: E402
+from tadamoo.discovery import sources as src  # noqa: E402
+from tadamoo.discovery.candidates import Candidate, CandidateStore  # noqa: E402
+from tadamoo.discovery.finder import Finder, keywords  # noqa: E402
+from tadamoo.discovery.scoring import DEFAULT_WEIGHTS, Metrics, lookalike, score  # noqa: E402
+from tadamoo.discovery.settings import DiscoverySettings  # noqa: E402
 
 NOW = datetime(2026, 10, 25, tzinfo=timezone.utc)
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.planner_tools import Confirmer
+from tadamoo.planner_tools import Confirmer
 from test_session import call, say
 from test_session_tasks import Model, gated, last_user, make, said_in
 
@@ -109,7 +109,7 @@ def test_what_was_announced_survives_a_restart(tmp_path):
 
 
 def test_a_steering_message_adds_to_the_constraints_already_found(tmp_path):
-    from harness.pipeline import Pipeline
+    from tadamoo.pipeline import Pipeline
     session, ev, plans = quiet(tmp_path, Model())
     session.agent.pipeline = Pipeline("light")
     session.agent.add_user_message("riassumi in massimo 50 parole")

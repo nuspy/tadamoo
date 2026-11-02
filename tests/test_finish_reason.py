@@ -4,12 +4,12 @@ import json
 
 import pytest
 
-from harness.agent_loop import (AgentLoop, CANCELLED, DEGENERATE, EMPTY, FINAL, LENGTH, MAX_CONTINUATIONS, answer_text)
-from harness.audit import AuditLedger
-from harness.client import BasaltClient, _collect_stream
-from harness.eval.report import generate_eval_report, summarize
-from harness.eval.runner import EvalResult, Trial
-from harness.tools import create_standard_tool_registry
+from tadamoo.agent_loop import (AgentLoop, CANCELLED, DEGENERATE, EMPTY, FINAL, LENGTH, MAX_CONTINUATIONS, answer_text)
+from tadamoo.audit import AuditLedger
+from tadamoo.client import BasaltClient, _collect_stream
+from tadamoo.eval.report import generate_eval_report, summarize
+from tadamoo.eval.runner import EvalResult, Trial
+from tadamoo.tools import create_standard_tool_registry
 
 
 class Client:
@@ -316,7 +316,7 @@ def test_the_client_leaves_temperature_and_max_tokens_out_of_the_request_unless_
         seen.append(json.loads(req.data.decode("utf-8")))
         return Resp()
 
-    monkeypatch.setattr("harness.client.open_url", lambda req, timeout=0: fake_open(req, timeout))
+    monkeypatch.setattr("tadamoo.client.open_url", lambda req, timeout=0: fake_open(req, timeout))
     client = BasaltClient("http://x")
     client.chat_completion([{"role": "user", "content": "hi"}])
     client.chat_completion([{"role": "user", "content": "hi"}], temperature=0.0, max_tokens=5)
@@ -325,7 +325,7 @@ def test_the_client_leaves_temperature_and_max_tokens_out_of_the_request_unless_
 
 
 def test_a_cancelled_stream_is_still_a_cancel(ws):
-    from harness.client import StreamCancelled
+    from tadamoo.client import StreamCancelled
     agent, _ = make(ws, Client(StreamCancelled()))
     agent.run("go")
     assert agent.stop_reason == CANCELLED

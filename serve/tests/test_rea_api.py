@@ -73,7 +73,7 @@ class Base(unittest.TestCase):
         self.addCleanup(patch.stop)
 
     def store(self):
-        from harness.discovery.installed import InstalledStore
+        from tadamoo.discovery.installed import InstalledStore
         return InstalledStore(self.data / "capabilities")
 
 
@@ -98,7 +98,7 @@ class SwitchTests(Base):
         self.assertTrue((skill / "references" / "environments.md").is_file())
 
     def test_the_capability_index_takes_both_as_approved(self):
-        from harness.capabilities import CapabilityIndex
+        from tadamoo.capabilities import CapabilityIndex
         rea_api.enable()
         index = CapabilityIndex(self.data / "capabilities", self.data / "ws", home=self.data / "home", appdata=self.data / "appdata")
         server, skill = index.get("mcp:rea"), index.get("skill:reverse-engineer-anything")

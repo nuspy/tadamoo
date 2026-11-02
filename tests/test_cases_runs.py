@@ -11,13 +11,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import optimize as opt
-from harness import questions as qs
-from harness.eval import cases
-from harness.eval.cases import e1_target, e2_gate, e3_errors, e4_intake, e5_compaction, e6_longform, e7_cache, e8_optimize, e9_context
-from harness.eval.cases.agentrun import FIXED_NOW
-from harness.eval.cases.core import Context, decide, render_report, run_experiment
-from harness.eval.cases.fixtures import context_probes, gate_tasks, long_turn_repo, shop_repo
+from tadamoo import optimize as opt
+from tadamoo import questions as qs
+from tadamoo.eval import cases
+from tadamoo.eval.cases import e1_target, e2_gate, e3_errors, e4_intake, e5_compaction, e6_longform, e7_cache, e8_optimize, e9_context
+from tadamoo.eval.cases.agentrun import FIXED_NOW
+from tadamoo.eval.cases.core import Context, decide, render_report, run_experiment
+from tadamoo.eval.cases.fixtures import context_probes, gate_tasks, long_turn_repo, shop_repo
 from test_cases_core import perfect
 from test_intake import form
 
@@ -26,7 +26,7 @@ USAGE = {"prompt_tokens": 100, "completion_tokens": 10, "prompt_tokens_details":
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)             # these tests read the messages; the clock note has its own tests
+    monkeypatch.setattr("tadamoo.stack.local_now", None)             # these tests read the messages; the clock note has its own tests
 
 
 class Fake:
@@ -220,8 +220,8 @@ def test_the_scripted_server_serves_text_errors_and_streams():
     import urllib.error
     import urllib.request
 
-    from harness.client import BasaltClient, BasaltError
-    from harness.eval.cases.scripted_server import ScriptedServer
+    from tadamoo.client import BasaltClient, BasaltError
+    from tadamoo.eval.cases.scripted_server import ScriptedServer
     with ScriptedServer([{"error": 429, "message": "slow down"}, {"ok": "hello there"}, {"ok": "streamed text"}]) as srv:
         client = BasaltClient(srv.url)
         with pytest.raises(BasaltError) as e:
@@ -423,7 +423,7 @@ def test_e9_a_run_that_stops_early_asks_no_probe_and_the_experiment_is_registere
     variant = {"id": "mini", "modules": 24, "seed": 3}
     trial = e9_context.run_trial(e9_context.ARMS[1], variant, 1, Context(client=Fake(Steps(say("It seems fine."))), power_limit_w=400.0))
     assert trial.metrics["recall"] in (0.0, 1.0) and trial.metrics["probes_right"] <= 10
-    from harness.eval import cases
+    from tadamoo.eval import cases
     exp = cases.load("e9")
     assert [a.name for a in exp.arms] == ["N", "A", "N~aa"] and exp.rule.baseline == "N" and exp.rule.challengers == ("A",)
     assert e9_context.generation_of([{"role": "user", "content": "[Compacted record: generation 2; 3 messages, about 900 tokens, written here in about 90]"}, {"role": "user", "content": "x"}]) == 2
@@ -469,8 +469,8 @@ def test_e9_artifact_reads_count_the_calls_that_go_to_the_saved_copies():
 
 
 def test_e9_the_large_job_is_deterministic_forbids_scripts_and_is_sized_for_a_65536_window():
-    from harness.stack import ANSWER_RESERVE_TOKENS, context_budget
-    from harness.eval.cases.core import selected_tasks
+    from tadamoo.stack import ANSWER_RESERVE_TOKENS, context_budget
+    from tadamoo.eval.cases.core import selected_tasks
     big = e9_context.LARGE
     a, b = long_turn_repo.build(big["modules"], big["seed"]), long_turn_repo.build(big["modules"], big["seed"])
     assert a.files == b.files and len(a.functions) == 200
@@ -586,7 +586,7 @@ def test_e7_a_single_slot_server_loses_the_cache_to_a_side_call_and_two_slots_ke
 # -- the command line ----------------------------------------------------------------------------------------------------
 
 def test_the_command_line_lists_everything_and_needs_the_power_limit_for_a_run_with_the_model(capsys):
-    from harness.eval.cases.__main__ import main
+    from tadamoo.eval.cases.__main__ import main
     assert main(["list"]) == 0
     out = capsys.readouterr().out
     for key in cases.MODULES:
@@ -600,7 +600,7 @@ def test_the_command_line_lists_everything_and_needs_the_power_limit_for_a_run_w
 
 
 def test_the_command_line_runs_e3_without_a_model_and_writes_the_report(tmp_path, capsys):
-    from harness.eval.cases.__main__ import main
+    from tadamoo.eval.cases.__main__ import main
     out, js = tmp_path / "e3.md", tmp_path / "e3.json"
     assert main(["e3", "--k", "1", "--only", "transient_429_500", "--only", "deterministic_401", "--deadline-s", "0.8", "--out", str(out), "--json", str(js)]) == 0
     text = out.read_text(encoding="utf-8")

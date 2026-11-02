@@ -5,10 +5,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import untrusted
-from harness.hooks import HookManager, dangerous_command
-from harness.permissions import PermissionLevel, PermissionManager, PermissionRule
-from harness.tools.registry import EffectClass
+from tadamoo import untrusted
+from tadamoo.hooks import HookManager, dangerous_command
+from tadamoo.permissions import PermissionLevel, PermissionManager, PermissionRule
+from tadamoo.tools.registry import EffectClass
 
 SHELL = ("shell_command", EffectClass.IRREVERSIBLE)
 
@@ -170,8 +170,8 @@ def test_the_rule_of_two_looks_at_the_vault_at_each_call_not_when_the_agent_was_
 
 
 def test_a_built_agent_asks_its_secrets_broker_each_time(tmp_path):
-    from harness.stack import AgentConfig, build_agent
-    from harness.vault import Vault
+    from tadamoo.stack import AgentConfig, build_agent
+    from tadamoo.vault import Vault
     ws = tmp_path / "ws"
     ws.mkdir()
     vault_dir = tmp_path / "vault"
@@ -198,7 +198,7 @@ def test_refusals_are_counted_by_tool():
 def _hooks(tmp_path, entries, **kw):
     """A HookManager with the hooks of a file made from `entries`, working in tmp_path."""
     import json
-    from harness.hooks import load_hook_files
+    from tadamoo.hooks import load_hook_files
     path = tmp_path / "hooks.json"
     path.write_text(json.dumps({"hooks": entries}), encoding="utf-8")
     manager = HookManager(**kw)
@@ -226,7 +226,7 @@ def _script(tmp_path, name, body):
     ({"event": "pre_tool", "command": "x", "match": {"path": 3}}, "'match' must map"),
 ])
 def test_a_hooks_file_with_a_mistake_is_refused_not_half_used(tmp_path, entry, message):
-    from harness.hooks import HookConfigError, load_hook_files
+    from tadamoo.hooks import HookConfigError, load_hook_files
     path = tmp_path / "hooks.json"
     import json
     path.write_text(json.dumps({"hooks": [entry]}), encoding="utf-8")
@@ -235,7 +235,7 @@ def test_a_hooks_file_with_a_mistake_is_refused_not_half_used(tmp_path, entry, m
 
 
 def test_a_missing_hooks_file_is_nothing_and_a_broken_one_is_an_error(tmp_path):
-    from harness.hooks import HookConfigError, load_hook_files, parse_hooks
+    from tadamoo.hooks import HookConfigError, load_hook_files, parse_hooks
     assert load_hook_files([tmp_path / "nope.json"]) == []
     (tmp_path / "bad.json").write_text("{not json", encoding="utf-8")
     with pytest.raises(HookConfigError, match="cannot be read as JSON"):
@@ -300,7 +300,7 @@ def test_what_a_hook_prints_is_fenced_as_data_and_cannot_close_its_own_fence(tmp
 
 
 def test_a_hooks_output_is_masked_and_short(tmp_path):
-    from harness.secrets_broker import SecretsBroker
+    from tadamoo.secrets_broker import SecretsBroker
     leak = _script(tmp_path, "leak.py", "import sys\nprint('token ghp_secretvalue123 ' + 'x' * 5000, file=sys.stderr)\nsys.exit(2)\n")
     manager = _hooks(tmp_path, [{"event": "pre_tool", "command": leak, "name": "leak"}], safety_interceptor=False)
     manager.mask = SecretsBroker({"TOKEN": "ghp_secretvalue123"}).mask_secrets
@@ -333,8 +333,8 @@ def test_post_tool_and_lifecycle_hooks_run_with_their_events_and_cannot_change_t
 
 
 def test_the_agent_loop_runs_the_persons_hooks_and_tells_the_model_why_a_call_was_refused(tmp_path):
-    from harness.agent_loop import AgentLoop
-    from harness.tools import create_standard_tool_registry
+    from tadamoo.agent_loop import AgentLoop
+    from tadamoo.tools import create_standard_tool_registry
     from test_agent_loop import ScriptedClient, call, say
     ws = tmp_path / "ws"
     ws.mkdir()
@@ -348,8 +348,8 @@ def test_the_agent_loop_runs_the_persons_hooks_and_tells_the_model_why_a_call_wa
 
 def test_a_built_agent_loads_the_user_hooks_and_the_workspace_hooks_only_when_allowed(tmp_path):
     import json
-    from harness.hooks import HookConfigError
-    from harness.stack import AgentConfig, build_agent
+    from tadamoo.hooks import HookConfigError
+    from tadamoo.stack import AgentConfig, build_agent
     ws = tmp_path / "ws"
     (ws / ".basalt").mkdir(parents=True)
     user = tmp_path / "user_hooks.json"
@@ -377,7 +377,7 @@ def test_a_built_agent_loads_the_user_hooks_and_the_workspace_hooks_only_when_al
 
 
 def test_the_rules_offered_by_an_always_answer_cover_each_statement_of_the_command():
-    from harness.permissions import PermissionLevel, PermissionManager, suggest_rules
+    from tadamoo.permissions import PermissionLevel, PermissionManager, suggest_rules
     assert suggest_rules("shell_command", {"command": "pytest -q tests"}) == ["shell_command:pytest *"]
     assert suggest_rules("shell_command", {"command": r"C:\Python\python.exe -m pytest"}) == ["shell_command:python.exe *"]
     assert suggest_rules("shell_command", {"command": "pytest && rm -rf x"}) == ["shell_command:pytest *", "shell_command:rm *"]
@@ -388,14 +388,14 @@ def test_the_rules_offered_by_an_always_answer_cover_each_statement_of_the_comma
     pm = PermissionManager(level=PermissionLevel.DEFAULT, confirm_callback=lambda t, a: False)
     for rule in suggest_rules("shell_command", {"command": "pytest -q"}):
         pm.add_rule(rule, "allow")
-    from harness.tools.registry import EffectClass
+    from tadamoo.tools.registry import EffectClass
     assert pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "pytest tests/a.py"})[0]
     assert not pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "pytest && curl x"})[0]
     assert not pm.evaluate("shell_command", EffectClass.IRREVERSIBLE, {"command": "del /s *"})[0]
 
 
 def test_an_ask_action_and_a_command_that_exits_with_3_ask_the_person_instead_of_refusing(tmp_path):
-    from harness.hooks import AskPerson
+    from tadamoo.hooks import AskPerson
     manager = _hooks(tmp_path, [{"event": "pre_tool", "tool": "shell_command", "match": {"command": "git push*"}, "action": "ask", "reason": "pushes go through me", "name": "pushes"}],
                      safety_interceptor=False)
     got = manager.trigger_pre_tool("shell_command", {"command": "git push origin x"})
@@ -409,14 +409,14 @@ def test_an_ask_action_and_a_command_that_exits_with_3_ask_the_person_instead_of
 def test_a_refusal_by_another_hook_wins_over_a_question(tmp_path):
     manager = _hooks(tmp_path, [{"event": "pre_tool", "action": "ask", "reason": "check", "name": "q"},
                                 {"event": "pre_tool", "action": "block", "reason": "never", "name": "no"}], safety_interceptor=False)
-    from harness.hooks import AskPerson
+    from tadamoo.hooks import AskPerson
     got = manager.trigger_pre_tool("write_file", {"path": "a"})
     assert got.startswith("Blocked by hook 'no'") and not isinstance(got, AskPerson)
 
 
 def test_the_loop_runs_a_call_a_hook_asks_about_only_when_the_person_allows_it(tmp_path):
     from test_agent_loop import ScriptedClient, call, make, say
-    from harness.permissions import PermissionLevel, PermissionManager
+    from tadamoo.permissions import PermissionLevel, PermissionManager
     for allow in (True, False):
         ws = tmp_path / f"ws{allow}"
         ws.mkdir()

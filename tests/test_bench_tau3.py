@@ -1,4 +1,4 @@
-"""The tau-bench adapter (harness/bench/adapters/tau3.py) against a fake tau2-bench checkout and a fake `tau2 run`: planning, the command and the environment, reading
+"""The tau-bench adapter (tadamoo/bench/adapters/tau3.py) against a fake tau2-bench checkout and a fake `tau2 run`: planning, the command and the environment, reading
 the simulation, pass^k, and the launcher that keeps every model call on the local engine. No tau2-bench install, no model."""
 import importlib.util
 import json
@@ -10,11 +10,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.bench import analysis
-from harness.bench.adapters import tau3
-from harness.bench.importer import Result
-from harness.bench.runner import BenchRun, TrialContext, TrialResult
-from harness.eval import resume
+from tadamoo.bench import analysis
+from tadamoo.bench.adapters import tau3
+from tadamoo.bench.importer import Result
+from tadamoo.bench.runner import BenchRun, TrialContext, TrialResult
+from tadamoo.eval import resume
 from bench_support import MODEL, make_spec
 
 AIRLINE = [str(i) for i in range(5)]
@@ -296,8 +296,8 @@ def test_the_launcher_wraps_taus_one_completion_function_and_starts_its_cli(monk
 
 
 def test_the_adapter_is_found_by_the_lazy_loader_and_has_the_runners_protocol():
-    from harness.bench import runner
-    from harness.bench.adapters import load
+    from tadamoo.bench import runner
+    from tadamoo.bench.adapters import load
     adapter = runner.get_adapter(tau3.ID, {}, lazy=True)
     assert load(tau3.ID) is tau3.Tau3Adapter and isinstance(adapter, tau3.Tau3Adapter) and adapter.id == "tau3-bench"
     assert all(callable(getattr(adapter, n)) for n in ("plan", "run_trial", "score", "failure_facts"))

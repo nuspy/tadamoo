@@ -1,9 +1,9 @@
 """The watch on the course of a request: a note to the agent when a signal first appears, a card to the person when it comes back."""
 from test_agent_loop import ScriptedClient, call, make, say
 
-from harness import course
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.tools.registry import EffectClass
+from tadamoo import course
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.tools.registry import EffectClass
 
 
 def failed(name, text="Error: no such file 12"):

@@ -13,14 +13,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fake_discovery import FakeServices  # noqa: E402
-from harness.capabilities import CapabilityIndex, register_capability_tools  # noqa: E402
-from harness.discovery.candidates import CandidateStore  # noqa: E402
-from harness.discovery.finder import Finder  # noqa: E402
-from harness.discovery.installer import Installer, Run  # noqa: E402
-from harness.discovery.requests import InstallRequests  # noqa: E402
-from harness.discovery.settings import DiscoverySettings  # noqa: E402
-from harness.discovery.tool import register_discovery_tools  # noqa: E402
-from harness.tools.registry import EffectClass, ToolRegistry  # noqa: E402
+from tadamoo.capabilities import CapabilityIndex, register_capability_tools  # noqa: E402
+from tadamoo.discovery.candidates import CandidateStore  # noqa: E402
+from tadamoo.discovery.finder import Finder  # noqa: E402
+from tadamoo.discovery.installer import Installer, Run  # noqa: E402
+from tadamoo.discovery.requests import InstallRequests  # noqa: E402
+from tadamoo.discovery.settings import DiscoverySettings  # noqa: E402
+from tadamoo.discovery.tool import register_discovery_tools  # noqa: E402
+from tadamoo.tools.registry import EffectClass, ToolRegistry  # noqa: E402
 from test_discovery_install import Runner  # noqa: E402
 
 
@@ -167,7 +167,7 @@ def test_what_the_model_can_pass_is_a_need_and_nothing_that_could_be_a_command(t
     tool = s.registry.get("find_online_capability")
     assert set(tool.parameters["properties"]) == {"need", "look_anyway"} and tool.untrusted is True
     assert tool.effect == EffectClass.REVERSIBLE
-    from harness.tools.registry import ToolArgumentError
+    from tadamoo.tools.registry import ToolArgumentError
     for bad in ({"need": "pdf", "package": "evil"}, {"need": "pdf", "command": "rm -rf /"}, {"need": "pdf", "id": "c1"}):
         with pytest.raises(ToolArgumentError):
             s.registry.execute("find_online_capability", bad)
@@ -252,7 +252,7 @@ class Feed:
 
 
 def run_process(tmp_path, monkeypatch, fake, answers, need="extract tables from pdf"):
-    import harness.session as hs
+    import tadamoo.session as hs
     from test_session import Scripted, call, say
     home = tmp_path / "home"
     (tmp_path / "data" / "capabilities").mkdir(parents=True)
@@ -261,7 +261,7 @@ def run_process(tmp_path, monkeypatch, fake, answers, need="extract tables from 
         monkeypatch.setenv(var, str(value))
     runner = Runner()
     real_which = shutil.which
-    monkeypatch.setattr("harness.discovery.installer.default_runner", runner)
+    monkeypatch.setattr("tadamoo.discovery.installer.default_runner", runner)
     monkeypatch.setattr(shutil, "which", lambda name, *a, **k: "npm" if name == "npm" else real_which(name, *a, **k))
     client = Scripted(call("find_online_capability", need=need), say("Done with the capability."))
     ws = tmp_path / "ws"
@@ -320,10 +320,10 @@ def test_a_sentence_that_is_too_long_is_not_an_answer(tmp_path, monkeypatch, fak
 
 
 def test_a_server_installed_by_basalt_starts_with_the_one_key_it_asks_for_from_the_vault(tmp_path):
-    from harness.capabilities import mcp_spec_sha
-    from harness.discovery.installed import InstalledStore
-    from harness.stack import AgentConfig, build_agent
-    from harness.vault import Vault
+    from tadamoo.capabilities import mcp_spec_sha
+    from tadamoo.discovery.installed import InstalledStore
+    from tadamoo.stack import AgentConfig, build_agent
+    from tadamoo.vault import Vault
     from types import SimpleNamespace
     caps, ws, home = tmp_path / "caps", tmp_path / "ws", tmp_path / "home"
     ws.mkdir()

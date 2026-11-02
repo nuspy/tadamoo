@@ -29,7 +29,7 @@ command per task; cache-friendly append-only staging.
 
 Ceremony or negative: an LLM triage on every message, automatic rewriting that replaces the user's text, spec documents for small
 tasks, parallel sub-tasks on one GPU (the gain is speed), multi-agent splitting of coupled code, asking by default (clarification
-states raised prompt-injection success in one study: build questions from harness data, never from tool or web text). Format
+states raised prompt-injection success in one study: build questions from tadamoo data, never from tool or web text). Format
 restriction can hurt reasoning, so the triage is classification and extraction with short quotes, grounding field first.
 
 ## 3. Design
@@ -135,7 +135,7 @@ S6, S8 without the model call and is the safe default until measured.
 
 ## 4. Where it plugs in
 
-New `harness/intake.py` (about 400 lines: `clean`, `signals`, `gate`, `SCHEMA`, `PROMPT`, `triage`, `validate`, `policy`, `note`);
+New `tadamoo/intake.py` (about 400 lines: `clean`, `signals`, `gate`, `SCHEMA`, `PROMPT`, `triage`, `validate`, `policy`, `note`);
 phase 2 `harness/subtasks.py` (about 500 lines). Hook in `Session._run_task` just before the `agent.run(None)` loop (worker
 thread; not `_begin_main`, which is on the request path, and not `AgentLoop`). Question events reuse the `ask` event and
 `_policy`/`_park`, with `kind: "intake"` in `question_source`. `pipeline.py` accepts up to 3 extra qualitative constraints from
@@ -154,7 +154,7 @@ failure.
 **Measure the cache effect first; it can veto the design.** `docs/running.md` says each slot keeps two checkpoints (end of the
 system prompt, last turn). If a hybrid-state model cannot truncate a checkpoint (inference), a triage call with a different prompt
 may replace the last-turn checkpoint and force the next main turn to re-read the whole history. Probe: main, triage, main against
-main, main, main at 1k, 8k and 30k tokens, comparing `cached_tokens` and time to first token (`harness/eval/alternate.py` as a
+main, main, main at 1k, 8k and 30k tokens, comparing `cached_tokens` and time to first token (`tadamoo/eval/alternate.py` as a
 base). If the loss is large, gate triage to short histories or a cold cache and use `rules` elsewhere.
 
 CPU tests (scripted mock engine): cleaning (protected spans unchanged, original untouched); a labelled corpus of about 60 IT and
@@ -179,6 +179,6 @@ carries the card and `stated_constraints` verbatim, a steer merges into the same
 double cost on one GPU (one triage call, deterministic everything else, no up-front plan below `large`, judge calls capped at 3);
 cache invalidation (separate short triage prompt, no change to the system prompt or tool list between turns, the note at the tail,
 append-only sub-tasks, mind the plan-mode `present_plan` re-registration); prompt injection (intake input is the person's text and
-harness facts only; questions come from harness data); a wrong "large" splitting coupled work (allow "do the rest together");
+harness facts only; questions come from tadamoo data); a wrong "large" splitting coupled work (allow "do the rest together");
 unattended deadlock (never wait; park only named exceptions; blocked dependants visible); an answer treated as a new task (bind
 the reply to the open question).

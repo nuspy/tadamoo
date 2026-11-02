@@ -9,8 +9,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.eval import EvalRunner, collect_environment, generate_eval_report, load_task_set
-from harness.eval.tasks import answer_has, normalize_text, run_checks, Task
+from tadamoo.eval import EvalRunner, collect_environment, generate_eval_report, load_task_set
+from tadamoo.eval.tasks import answer_has, normalize_text, run_checks, Task
 from test_agent_loop import ScriptedClient, say
 
 

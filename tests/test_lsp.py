@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from harness.lsp import LspClient, LspError, LspHub, from_uri, register_lsp_tools, to_uri
-from harness.tools import ToolRegistry
+from tadamoo.lsp import LspClient, LspError, LspHub, from_uri, register_lsp_tools, to_uri
+from tadamoo.tools import ToolRegistry
 
 FAKE = str(Path(__file__).with_name("fake_lsp.py"))
 
@@ -134,7 +134,7 @@ def test_uris_go_both_ways(tmp_path):
 
 
 def test_the_agent_gets_the_tools_only_when_asked_and_a_server_exists(ws, tmp_path, monkeypatch):
-    from harness.stack import AgentConfig, build_agent
+    from tadamoo.stack import AgentConfig, build_agent
     data = tmp_path / "userdata"
     data.mkdir()
     monkeypatch.setenv("BASALT_DATA", str(data))

@@ -1,4 +1,4 @@
-"""The ClawBench adapter (harness/bench/adapters/clawbench.py) against a fake ClawBench checkout and a fake `clawbench-run`: planning, adding our harness to the
+"""The ClawBench adapter (tadamoo/bench/adapters/clawbench.py) against a fake ClawBench checkout and a fake `clawbench-run`: planning, adding our harness to the
 imported tree, the command, reading the results and the score. No Docker, no model."""
 import json
 import re
@@ -9,11 +9,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.bench import analysis
-from harness.bench.adapters import clawbench as cb
-from harness.bench.importer import Result
-from harness.bench.runner import BenchRun, TrialContext, TrialResult, read_trials
-from harness.eval import resume
+from tadamoo.bench import analysis
+from tadamoo.bench.adapters import clawbench as cb
+from tadamoo.bench.importer import Result
+from tadamoo.bench.runner import BenchRun, TrialContext, TrialResult, read_trials
+from tadamoo.eval import resume
 from bench_support import MODEL, make_spec
 
 YAML = """default: openclaw
@@ -190,7 +190,7 @@ def test_the_payload_imports_on_its_own(checkout, repo, tmp_path):
     import shutil
     for name in cb.PAYLOAD:
         shutil.copytree(real / name, dest / name, ignore=cb._ignore)
-    code = "import harness.headless, harness.bench.adapters.containerkit, harness.bench.adapters; print('ok')"
+    code = "import tadamoo.headless, tadamoo.bench.adapters.containerkit, tadamoo.bench.adapters; print('ok')"
     out = subprocess.run([sys.executable, "-I", "-c", f"import sys; sys.path.insert(0, {str(dest)!r}); {code}"], capture_output=True, text=True, cwd=str(tmp_path))
     assert out.returncode == 0 and "ok" in out.stdout, out.stderr[-800:]
 
@@ -377,8 +377,8 @@ def test_the_driver_points_the_harness_at_the_container_browser_and_refuses_the_
     assert argv[argv.index("--endpoint") + 1] == "http://host.docker.internal:7232" and argv[argv.index("--browser-cdp-url") + 1] == "http://127.0.0.1:9222"
     assert "--browser" in argv and argv[argv.index("--timeout-seconds") + 1] == "1755"
     assert [argv[i + 1] for i, a in enumerate(argv) if a == "--deny"] == ["group:shell", "group:web", "group:agents", "group:mcp", "group:phone"]
-    from harness.headless import parse_args
-    from harness.stack import agent_settings
+    from tadamoo.headless import parse_args
+    from tadamoo.stack import agent_settings
     got = agent_settings(parse_args(argv))
     assert got["browser"] is True and got["browser_cdp_url"] == "http://127.0.0.1:9222" and got["permission_mode"] == "auto" and got["rule_of_two"] == "off"
     assert got["deny"] == list(d.DENIED) and got["use_memory"] is False
@@ -386,7 +386,7 @@ def test_the_driver_points_the_harness_at_the_container_browser_and_refuses_the_
 
 def test_the_driver_writes_the_trajectory_the_usage_and_ends_with_a_reason(monkeypatch, tmp_path):
     d = load_driver(monkeypatch, tmp_path)
-    import harness.headless as headless
+    import tadamoo.headless as headless
 
     def fake_run(cfg, prompt, client=None, on_event=None):
         assert cfg.browser_cdp_url == "http://127.0.0.1:9222" and "WEBMAIL" not in prompt and "COMPLETION NOTE" in prompt
@@ -412,7 +412,7 @@ def test_the_driver_writes_the_trajectory_the_usage_and_ends_with_a_reason(monke
 
 def test_the_driver_ends_the_trajectory_when_the_harness_fails_or_is_stopped(monkeypatch, tmp_path):
     d = load_driver(monkeypatch, tmp_path)
-    import harness.headless as headless
+    import tadamoo.headless as headless
     monkeypatch.setenv("INSTRUCTION", "x")
     monkeypatch.setenv("BASE_URL", "http://h:1/v1")
 
@@ -446,8 +446,8 @@ def test_the_webmail_login_is_written_out_for_the_agent(monkeypatch, tmp_path):
 
 
 def test_the_adapter_is_found_by_the_lazy_loader_and_has_the_runners_protocol():
-    from harness.bench import runner
-    from harness.bench.adapters import load
+    from tadamoo.bench import runner
+    from tadamoo.bench.adapters import load
     adapter = runner.get_adapter(cb.ID, {}, lazy=True)
     assert load(cb.ID) is cb.ClawBenchAdapter and isinstance(adapter, cb.ClawBenchAdapter) and adapter.id == "clawbench"
     assert all(callable(getattr(adapter, n)) for n in ("plan", "run_trial", "score", "failure_facts"))

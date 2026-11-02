@@ -1,12 +1,12 @@
-"""Preflight checks (harness/bench/preflight.py) with every probe replaced. CPU only."""
+"""Preflight checks (tadamoo/bench/preflight.py) with every probe replaced. CPU only."""
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.bench import preflight
-from harness.bench.importer import Result
-from harness.bench.registry import Needs
+from tadamoo.bench import preflight
+from tadamoo.bench.importer import Result
+from tadamoo.bench.registry import Needs
 from bench_support import make_spec, ready_probes
 
 DOCKER = make_spec("x", needs=Needs(docker=True, wsl2=True, internet=True), tools=("uv",), python_min=(3, 11), disk_gb=5)

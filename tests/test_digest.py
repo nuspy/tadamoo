@@ -1,9 +1,9 @@
 """A text larger than the technical session is read in parts and the notes are joined, with no model deciding the cuts."""
 import pytest
 
-from harness import digest
-from harness.digest import CHARS_PER_TOKEN, digest as run, fits, part_chars, split
-from harness.stack import _summarizer
+from tadamoo import digest
+from tadamoo.digest import CHARS_PER_TOKEN, digest as run, fits, part_chars, split
+from tadamoo.stack import _summarizer
 
 WINDOW = 6000
 
@@ -120,7 +120,7 @@ def test_empty_notes_are_asked_for_again_with_what_was_wrong_and_the_good_ones_a
 
 def test_notes_that_lose_the_names_of_the_part_are_asked_for_again_then_taken_with_the_names_added():
     path = "src/engine/cache.cu"
-    t = ("see " + path + " and serve/handler.py and harness/stack.py\n\n").join([para(i) for i in range(30)])
+    t = ("see " + path + " and serve/handler.py and tadamoo/stack.py\n\n").join([para(i) for i in range(30)])
     notes = []
 
     def summarize(instructions, text):

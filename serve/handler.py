@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
-from harness import exec_level, nextsteps, persistence, side_uses
+from tadamoo import exec_level, nextsteps, persistence, side_uses
 from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX
@@ -41,35 +41,35 @@ from serve.util.reqlog import export_jsonl, export_text
 from serve import plans as plans_mod, userdata
 from serve import review as review_mod
 from serve.agent_runs import AgentRunner, RunBusy, RunError
-from harness.browser import BrowserPrefs
-from harness.rule_of_two import RuleOfTwoPrefs
+from tadamoo.browser import BrowserPrefs
+from tadamoo.rule_of_two import RuleOfTwoPrefs
 from serve.allow_rules import AllowRules
-from harness.payments_broker import PaymentsBroker
-from harness.waiver.dossier import sntp_offset
-from harness.vault import Vault, VaultError
+from tadamoo.payments_broker import PaymentsBroker
+from tadamoo.waiver.dossier import sntp_offset
+from tadamoo.vault import Vault, VaultError
 from serve.agent_sessions import SessionManager
 from serve.target_api import TargetManager
-from harness.target import TargetError
+from tadamoo.target import TargetError
 from serve.files_api import FilesApi, FilesError
 from serve.projects import ProjectStore
 from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAccess, tailscale_peers, tailscale_status, tailscale_up
 from serve.personal_skills_api import PersonalSkillsApi
-from harness.forget import Forgetter
-from harness.personal_memory import PersonalMemory, PersonalMemoryError
+from tadamoo.forget import Forgetter
+from tadamoo.personal_memory import PersonalMemory, PersonalMemoryError
 from serve.lessons_api import LessonsApi, LessonsError
 from serve.bench_api import ACTIONS as BENCH_ACTIONS, BenchApi, BenchApiError
 from serve.memories_api import MemoriesApi
 from serve import export_api, traces_api
 from serve.exportdoc import ExportError
 from serve.memory_worker import MemoryWorker, gpu_free
-from harness.personal_skills.store import SkillError
+from tadamoo.personal_skills.store import SkillError
 from serve.routines_api import RoutinesApi
-from harness.scheduler import RoutineError
+from tadamoo.scheduler import RoutineError
 from serve.wallet_api import WalletApi, WalletError
-from harness.context_patterns import catalog as context_patterns_catalog
+from tadamoo.context_patterns import catalog as context_patterns_catalog
 from serve.capabilities_api import CapabilityApi, CapabilityError
 from serve.intake_prefs import IntakeError, IntakePrefs
-from harness.roles import CODING_ROLE, ROLE_IDS
+from tadamoo.roles import CODING_ROLE, ROLE_IDS
 from serve.coding_prefs import CodingError, CodingPrefs
 from serve.compaction_prefs import CompactionError, CompactionPrefs
 from serve.gate_prefs import GateError, GatePrefs
@@ -108,7 +108,7 @@ def _plans_service(svc: Service, port: int):
     global _PLANS
     if _PLANS is None:
         _PLANS = plans_mod.PlanService(userdata.path("planner"))
-    from harness.client import BasaltClient
+    from tadamoo.client import BasaltClient
     _PLANS.client_factory = lambda: BasaltClient(base_url=f"http://127.0.0.1:{port}", api_key=svc.api_key or None)
     if _LLM is not None:
         _PLANS.registry = _LLM.registry
@@ -1705,7 +1705,7 @@ def make_handler(svc: Service, remote: bool = False):
             return _RUNNER
 
         def _stores(self):
-            from harness.attachments import AttachmentStore, OutputStore
+            from tadamoo.attachments import AttachmentStore, OutputStore
             return AttachmentStore(userdata.path("attachments")), OutputStore(userdata.path("outputs"))
 
         def _attachments_post(self, path):
@@ -1713,7 +1713,7 @@ def make_handler(svc: Service, remote: bool = False):
             if not self._local_or_device():
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "files can be attached only from the PC the server runs on"}})
-            from harness.attachments import MAX_STORED
+            from tadamoo.attachments import MAX_STORED
             store, _ = self._stores()
             try:
                 if path.rsplit("/", 1)[-1] == "remove":
@@ -2154,8 +2154,8 @@ def make_handler(svc: Service, remote: bool = False):
         def _mcp_auth(self) -> McpAuthApi:
             global _MCP_AUTH
             if _MCP_AUTH is None:
-                from harness.llm.credentials import default_store
-                from harness.mcp_oauth import OAuthStore
+                from tadamoo.llm.credentials import default_store
+                from tadamoo.mcp_oauth import OAuthStore
                 port = self.server.server_address[1]
                 _MCP_AUTH = McpAuthApi(self._caps(), OAuthStore(userdata.path("mcp_oauth.json"), default_store(userdata.user_data_dir())),
                                        lambda: f"http://127.0.0.1:{port}/api/mcp/auth/callback")
@@ -2196,7 +2196,7 @@ def make_handler(svc: Service, remote: bool = False):
             """Learns from what the person wrote, in the background; it also keeps its queue across restarts, so it starts with the conversations."""
             global _MEM_WORKER
             if _MEM_WORKER is None:
-                from harness.client import BasaltClient
+                from tadamoo.client import BasaltClient
                 endpoint = f"http://127.0.0.1:{self.server.server_address[1]}"
                 worker = MemoryWorker(self._personal(), lambda: BasaltClient(base_url=endpoint, api_key=svc.api_key or None),
                                       lambda: gpu_free(svc, mine=worker.extractor.last))
@@ -2207,14 +2207,14 @@ def make_handler(svc: Service, remote: bool = False):
         def _past(self):
             global _PAST
             if _PAST is None:
-                from harness.past import PastIndex
+                from tadamoo.past import PastIndex
                 _PAST = PastIndex(userdata.path("memory") / "past.db")
             return _PAST
 
         def _card_worker(self):
             global _CARDS
             if _CARDS is None:
-                from harness.client import BasaltClient
+                from tadamoo.client import BasaltClient
                 from serve.card_worker import BACKFILL_QUIET_S, CardWorker
                 endpoint = f"http://127.0.0.1:{self.server.server_address[1]}"
                 worker = CardWorker(self._past(), lambda: BasaltClient(base_url=endpoint, api_key=svc.api_key or None),
@@ -2520,7 +2520,7 @@ def make_handler(svc: Service, remote: bool = False):
         def _llm(self) -> LlmApi:
             global _LLM
             if _LLM is None:
-                from harness import llm
+                from tadamoo import llm
                 _LLM = LlmApi(llm.registry())
                 plans_mod_registry = _LLM.registry
                 if _PLANS is not None:
@@ -3033,7 +3033,7 @@ def make_handler(svc: Service, remote: bool = False):
                 if action == "":
                     return self._json(200, service.snapshot(plan_id))
                 if action == "mermaid":
-                    from harness.planner.mermaid import to_mermaid
+                    from tadamoo.planner.mermaid import to_mermaid
                     return self._json(200, {"mermaid": to_mermaid(service.snapshot(plan_id)["plan"])})
                 if action == "alignment":
                     return self._json(200, service.alignment(plan_id))

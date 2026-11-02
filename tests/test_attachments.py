@@ -9,10 +9,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import untrusted
-from harness import attachments as at
-from harness.attachment_tools import register_attachment_tools
-from harness.tools.registry import ToolRegistry
+from tadamoo import untrusted
+from tadamoo import attachments as at
+from tadamoo.attachment_tools import register_attachment_tools
+from tadamoo.tools.registry import ToolRegistry
 
 W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
 S = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'

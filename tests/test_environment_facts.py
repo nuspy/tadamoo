@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from harness import environment
-from harness.attachment_tools import register_attachment_tools
-from harness.attachments import AttachmentStore, OutputStore
-from harness.stack import AgentConfig, build_agent
-from harness.tools import create_standard_tool_registry
-from harness.tools.filesystem import WorkspaceSandbox
-from harness.tools.registry import ToolRegistry
-from harness.visuals import FILES_GUIDANCE
+from tadamoo import environment
+from tadamoo.attachment_tools import register_attachment_tools
+from tadamoo.attachments import AttachmentStore, OutputStore
+from tadamoo.stack import AgentConfig, build_agent
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.filesystem import WorkspaceSandbox
+from tadamoo.tools.registry import ToolRegistry
+from tadamoo.visuals import FILES_GUIDANCE
 
 
 class Model:
@@ -217,13 +217,13 @@ def test_the_tool_registry_hands_these_messages_to_the_model(tmp_path):
 
 @pytest.mark.skipif(sys.platform != "win32", reason="cmd.exe")
 def test_a_shell_command_that_cannot_find_a_file_says_where_it_ran(tmp_path):
-    from harness.tools.shell import execute_shell_command
+    from tadamoo.tools.shell import execute_shell_command
     (tmp_path / "chapter1.txt").write_text("x", encoding="utf-8")
     res = execute_shell_command("type chapter_1.txt", tmp_path)
     assert not res["success"] and str(tmp_path.resolve()) in res["hint"] and "chapter1.txt" in res["hint"]
 
 
 def test_a_blocked_program_message_lists_what_is_blocked():
-    from harness.sandbox import blocked_reason
+    from tadamoo.sandbox import blocked_reason
     why = blocked_reason("echo x && reg add y")
     assert "Command 'reg' is blocked by sandbox security policy" in why and "netsh" in why

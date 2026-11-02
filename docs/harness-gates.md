@@ -1,8 +1,8 @@
 # The gate at the end of a turn, hooks that talk back, and the loop guard
 
-What stands between the model's last message and the end of a turn, and what watches the turn while it runs. Code: `harness/gate.py`
-(the verify gate), `harness/loop_guard.py`, `harness/hooks.py`, `harness/todo.py`, `harness/error_classifier.py`, and the wiring in
-`harness/agent_loop.py` (`_before_end`, `_run_gate`, `_observe`, `_budget_warning`). The settings page is Settings > General > Checks before
+What stands between the model's last message and the end of a turn, and what watches the turn while it runs. Code: `tadamoo/gate.py`
+(the verify gate), `tadamoo/loop_guard.py`, `tadamoo/hooks.py`, `tadamoo/todo.py`, `tadamoo/error_classifier.py`, and the wiring in
+`tadamoo/agent_loop.py` (`_before_end`, `_run_gate`, `_observe`, `_budget_warning`). The settings page is Settings > General > Checks before
 an answer ends (`serve/web/gate.js`, `serve/gate_prefs.py`, kept in `gate.json` in the user data folder). The design comes from
 [harness-study](harness-study/README.md).
 
@@ -10,7 +10,7 @@ an answer ends (`serve/web/gate.js`, `serve/gate_prefs.py`, kept in `gate.json` 
 
 A reply with text and no tool call is not yet the end. In this order:
 
-1. the answer is measured against the request's card (`harness/pipeline.py`), once;
+1. the answer is measured against the request's card (`tadamoo/pipeline.py`), once;
 2. the **verify gate**, if it is on and files changed since it last looked;
 3. the **checklist** (`todo_write`): if items are still open the model is reminded once;
 4. the **stop hooks**: a hook may deny the end.
@@ -82,7 +82,7 @@ may return feedback) and `register_stop_hook`. Workspace hook files still need `
 
 Two layers. `LoopDetector` (as before) refuses the third identical call in a row, and a same error three times in a row; a change to the
 files now clears its history (`progress()`), so the same test run again after an edit is not a repeat. `OutcomeGuard`
-(`harness/loop_guard.py`) looks at each executed call as a pair, the call and a hash of its result with times, durations, process ids and
+(`tadamoo/loop_guard.py`) looks at each executed call as a pair, the call and a hash of its result with times, durations, process ids and
 addresses taken out:
 
 | it sees | note | strike (toward ending the run as a loop; more than 2 end it) |
@@ -111,7 +111,7 @@ off. Subagents get neither, and neither do the evaluation runner and the replay 
 
 ## todo_write
 
-A small checklist for a task of several steps (`harness/todo.py`). The model sends the whole list each time; items are `pending`,
+A small checklist for a task of several steps (`tadamoo/todo.py`). The model sends the whole list each time; items are `pending`,
 `in_progress` or `completed`, at most one in progress, at most 50 items of 200 characters. It touches nothing but the conversation's own
 list, so it is allowed at every permission level, and it is registered in the fixed group at the start of the tool list: using it, or not
 having used it, never changes the cached start of the prompt (`tests/test_prefix_hygiene.py` holds the order). Each change is also an
@@ -121,7 +121,7 @@ list; the answer then stands. The list lives with the tool registry, not in the 
 ## The error classifier (on by default)
 
 Without it every failed model call is retried without end, with growing waits, whatever the error; a request
-the server will always refuse loops for ever. `harness/error_classifier.py` sorts an error by its HTTP status (0: unreachable) and message:
+the server will always refuse loops for ever. `tadamoo/error_classifier.py` sorts an error by its HTTP status (0: unreachable) and message:
 
 - `transient`: unreachable, 408, 409, 425, 429, 5xx, or words like loading, no model, busy, try again. Waited for and retried.
 - `overflow`: the conversation is longer than the context. Retried (compacting before the retry is for the Compaction track).
@@ -134,7 +134,7 @@ error never leaves a turn blocked, and a misclassified transient error would end
 
 ## Cloud route profile (Core addition)
 
-`harness/llm/profile.py` gives each route a profile read from its type and the provider's record: `cache_control` (Anthropic routes mark
+`tadamoo/llm/profile.py` gives each route a profile read from its type and the provider's record: `cache_control` (Anthropic routes mark
 the end of the tools and of the system text as cache points; `"cache_control": false` in the record turns it off), `context_window` and
 `max_output` (Providers > the provider's form; the agent plans its context by the window, and a reply is kept inside the output limit), and
 `stateless` / `accepts_ids`. The Anthropic response's cache reads are counted in `prompt_tokens` and reported as `cached_tokens`. A route to

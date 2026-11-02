@@ -1,5 +1,5 @@
 """Joining a reply the output limit cut with the reply that goes on from it: one table of cases, run through the Python functions
-(harness/continuation.py) and through the Chat page's copy of them (serve/web/cuttext.js, in node)."""
+(tadamoo/continuation.py) and through the Chat page's copy of them (serve/web/cuttext.js, in node)."""
 import json
 import shutil
 import subprocess
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from harness.continuation import cut_point, join_continuation
+from tadamoo.continuation import cut_point, join_continuation
 
 WEB = Path(__file__).resolve().parents[1] / "serve" / "web"
 NODE = shutil.which("node")

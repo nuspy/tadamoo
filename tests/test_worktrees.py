@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from harness.worktrees import WorktreeError, Worktrees, repo_root
+from tadamoo.worktrees import WorktreeError, Worktrees, repo_root
 
 
 def git(cwd, *args):

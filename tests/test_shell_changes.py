@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from harness.tools import create_standard_tool_registry
-from harness.tools import filesystem
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools import filesystem
 
 PY = f'"{sys.executable}"'
 
@@ -104,7 +104,7 @@ def test_a_workspace_too_large_to_compare_is_left_alone_and_the_command_still_ru
 
 
 def test_the_panel_receives_a_shell_edit_with_its_review_texts(tools):
-    from harness.reporting import PanelReporter
+    from tadamoo.reporting import PanelReporter
     registry, sandbox, root = tools
     (root / "n.txt").write_text(lines(5), encoding="utf-8", newline="\n")
     sent = []

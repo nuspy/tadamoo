@@ -15,13 +15,13 @@ segments. Paths are relative to the repository root. Facts marked (measured) com
    cuts to 20-40%. Reproduces at temperature 0 and with speculation off. The Chat flags and drops such a reply
    (`serve/web/chat.js`); the Agent and the API do not. The loaded file is IQ3_XXS with KV q4_0: a plausible contributor,
    not measured. Compare with an IQ4_XS file and KV q8_0.
-3. **The Agent path is greedy and ignores `finish_reason`.** `harness/agent_loop.py` sends temperature 0 on every turn
-   (`harness/client.py` always puts it in the payload), which overrides the model file's 1.0 / 0.95 / 20. The loop never
+3. **The Agent path is greedy and ignores `finish_reason`.** `tadamoo/agent_loop.py` sends temperature 0 on every turn
+   (`tadamoo/client.py` always puts it in the payload), which overrides the model file's 1.0 / 0.95 / 20. The loop never
    reads `finish_reason`: a message without tool calls is FINAL, so a cut reply is delivered as complete. The pipeline retry
-   says "write it again" and hits the same ceiling (`harness/pipeline.py`). On the cloud route `DEFAULT_MAX_TOKENS = 4096`
-   (`harness/llm/client.py`).
+   says "write it again" and hits the same ceiling (`tadamoo/pipeline.py`). On the cloud route `DEFAULT_MAX_TOKENS = 4096`
+   (`tadamoo/llm/client.py`).
 4. **The model sees only part of the source.** Tool results outside `read_file`, `read_attachment`, `load_skill`,
-   `load_capability` are collapsed to the first 15 and last 20 lines above 40 lines (`harness/context.py`); fetched pages
+   `load_capability` are collapsed to the first 15 and last 20 lines above 40 lines (`tadamoo/context.py`); fetched pages
    are cut at 40,000 characters, `read_attachment` shows 12,000 characters per call, local knowledge search returns 4 chunks
    of about 900 characters. A rewrite or translation of what was found is short because the input was short.
 5. **Silent clamps on the server.** No default output cap (unset means the rest of the context), but `fit_max_tokens` is on:

@@ -10,11 +10,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.hooks import HookConfigError, HookManager, parse_hooks
-from harness.integrations.planner_client import PlannerClient
-from harness.planner import sources
-from harness.planner.local_sources import CalendarSource, DeadlineSource, SmsSource, SystemSource
-from harness.planner.sources import SourceError, SourceRunner, build_source, clean_source, clean_sources
+from tadamoo.hooks import HookConfigError, HookManager, parse_hooks
+from tadamoo.integrations.planner_client import PlannerClient
+from tadamoo.planner import sources
+from tadamoo.planner.local_sources import CalendarSource, DeadlineSource, SmsSource, SystemSource
+from tadamoo.planner.sources import SourceError, SourceRunner, build_source, clean_source, clean_sources
 from serve.plans import PlanService
 from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)
 from test_planner import node

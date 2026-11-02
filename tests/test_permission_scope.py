@@ -2,8 +2,8 @@
 when each statement is covered; at the Auto level nothing is asked."""
 import pytest
 
-from harness.permissions import PermissionLevel, PermissionManager, statements, suggest_rules
-from harness.tools.registry import EffectClass
+from tadamoo.permissions import PermissionLevel, PermissionManager, statements, suggest_rules
+from tadamoo.tools.registry import EffectClass
 
 IRREVERSIBLE = EffectClass.IRREVERSIBLE
 

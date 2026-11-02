@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from harness.repodiagram import folders_diagram, import_edges, imports_diagram
-from harness.tools import create_standard_tool_registry
+from tadamoo.repodiagram import folders_diagram, import_edges, imports_diagram
+from tadamoo.tools import create_standard_tool_registry
 
 
 def put(root: Path, files: dict) -> Path:
@@ -96,7 +96,7 @@ def test_folders_come_as_a_tree_with_the_count_of_files_inside_and_are_cut_at_th
 
 
 def test_a_name_that_could_break_the_diagram_is_made_harmless(tmp_path):
-    from harness.repodiagram import _label
+    from tadamoo.repodiagram import _label
     assert _label('we"ird<b>/x#y&z;[1]') == "we_ird_b_/x_y_z__1_"
     root = put(tmp_path, {"d[1]#x&y'z;/x.py": "", "d[1]#x&y'z;/z.py": "import os\n", "ok.py": ""})
     body = folders_diagram(root).split("```mermaid\n")[1]

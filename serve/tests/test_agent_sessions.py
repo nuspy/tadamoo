@@ -509,7 +509,7 @@ def test_a_branch_copies_the_history_up_to_a_request_and_leaves_the_first_alone(
 
 
 def test_snapshots_are_listed_diffed_and_checked_from_the_conversations_folder(make, ws):
-    from harness.context_patterns import Snapshots
+    from tadamoo.context_patterns import Snapshots
     mgr = make()
     sid = mgr.create(ws)["id"]
     snaps = Snapshots(mgr.history_dir(sid) / "snapshots")

@@ -4,7 +4,7 @@ import json
 import pytest
 
 from serve import limits
-from harness.tools.registry import DEFAULT_TOOL_TIMEOUT, ToolRegistry
+from tadamoo.tools.registry import DEFAULT_TOOL_TIMEOUT, ToolRegistry
 
 
 @pytest.fixture(autouse=True)

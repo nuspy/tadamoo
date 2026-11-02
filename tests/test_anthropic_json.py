@@ -16,9 +16,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.llm.client import RoutedClient, json_in, with_json_format
-from harness.llm.credentials import FileCredentials
-from harness.llm.store import Ledger, SecureRegistry
+from tadamoo.llm.client import RoutedClient, json_in, with_json_format
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.llm.store import Ledger, SecureRegistry
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.handler import serve

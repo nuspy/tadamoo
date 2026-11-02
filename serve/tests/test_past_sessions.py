@@ -3,7 +3,7 @@ import json
 import time
 from pathlib import Path
 
-from harness.past import PastIndex
+from tadamoo.past import PastIndex
 
 
 class Stub:

@@ -298,7 +298,7 @@ class TestToolCalls(unittest.TestCase):
         self.assertLessEqual(nw.tool_calls[-1][0], now[0])
 
     def test_harness_hook(self):
-        from harness import outward_calls
+        from tadamoo import outward_calls
         seen = []
         with mock.patch.object(outward_calls, "_observers", []):
             outward_calls.note("web_fetch", {"url": "https://a.example/x"})      # no observer: nothing happens

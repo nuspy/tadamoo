@@ -1,6 +1,6 @@
 """Permission rules that name a group of tools (`group:read`, `group:shell`) and the rule that refuses a tool."""
-from harness.permissions import GROUPS, PermissionLevel, PermissionManager, group_of
-from harness.tools.registry import EffectClass
+from tadamoo.permissions import GROUPS, PermissionLevel, PermissionManager, group_of
+from tadamoo.tools.registry import EffectClass
 
 
 def test_a_group_rule_covers_every_tool_of_the_group_and_no_other():

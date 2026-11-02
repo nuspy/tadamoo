@@ -151,8 +151,8 @@ print(c.getresponse().status)
 
 def test_the_file_with_the_secret_is_refused_to_the_agents_own_code_and_the_route_accepts_the_secret_from_it(tmp_path, monkeypatch, server, agent_is_this_process):
     """The control token sits in a file of the data folder. Code the agent runs can neither read it nor use it if it knew it."""
-    from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
-    from harness.tools.execute import find_runtimes, run_code
+    from tadamoo.secrets_broker import PROTECTED_FILES, SecretsBroker
+    from tadamoo.tools.execute import find_runtimes, run_code
     data = tmp_path / "data"
     data.mkdir(exist_ok=True)
     token_file = data / f"control-{server}.token"

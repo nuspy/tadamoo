@@ -8,11 +8,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.planner import (Assignee, EventBuffer, EventPump, JevTriageGatekeeper, NodeType, PlanCanvasBridge, PlanDAG,
+from tadamoo.planner import (Assignee, EventBuffer, EventPump, JevTriageGatekeeper, NodeType, PlanCanvasBridge, PlanDAG,
                              PlanError, PlanInsightCard, PlanNode, PlanStore, Pseudonymizer, Replanner, TriageResult,
                              classify_diff, safe_eval, share_card)
-from harness.planner.card import CARD_FIELDS, DEFAULT_SHARED_FIELDS, PERSONAL_FIELDS, name_parts, scrub_contacts
-from harness.planner.replan import build_messages, parse_proposal
+from tadamoo.planner.card import CARD_FIELDS, DEFAULT_SHARED_FIELDS, PERSONAL_FIELDS, name_parts, scrub_contacts
+from tadamoo.planner.replan import build_messages, parse_proposal
 
 
 def node(nid, typ=NodeType.ACTION, assignee=Assignee.AGENT, **kw):
@@ -775,7 +775,7 @@ def test_the_title_the_kind_and_the_card_can_be_changed_all_or_nothing(bridge):
 
 
 def test_the_revision_and_the_history_are_saved_and_the_history_is_bounded(tmp_path, bridge):
-    from harness.planner.bridge import HISTORY_SIZE
+    from tadamoo.planner.bridge import HISTORY_SIZE
     for i in range(HISTORY_SIZE + 5):
         bridge.handle({"type": "plan:update_node", "node_id": "meteo", "changes": {"title": f"t{i}"}})
     assert bridge.rev == HISTORY_SIZE + 5 and len(bridge.history) == HISTORY_SIZE

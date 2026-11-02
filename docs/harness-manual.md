@@ -37,8 +37,8 @@ Four ways to use it, all with the same abilities:
 |---|---|
 | **Chat** tab, *With tools* | you want a conversation: ask, correct, go on tomorrow. The main way. |
 | **Agent** tab | you work on a folder of yours over several conversations, with its edits to keep or undo. |
-| `python -m harness` / `basalt-agent` | you want it in a script, with exit codes and JSON. |
-| `python -m harness acp` | you want it as the agent of an editor that speaks the Agent Client Protocol. |
+| `python -m tadamoo` / `basalt-agent` | you want it in a script, with exit codes and JSON. |
+| `python -m tadamoo acp` | you want it as the agent of an editor that speaks the Agent Client Protocol. |
 
 ## 2. Before you start
 
@@ -183,7 +183,7 @@ you it may already have run. After that, or when the server refuses for good, th
 - **Back to here.** Each request of yours has this button (press twice). The conversation returns to just after that request and a
   copy of what came later is kept. The files are not touched: undo them from the Changes panel. Actions that stay done (a command, a
   call, a payment, a browser action) are listed first, and you must press again to go back anyway.
-- **Checkpoints.** Before an action changes files, their previous content is kept outside the project: only the files that change, from any folder, with no size limit. Files a shell command does not name are not covered. *Settings > Checkpoints* (or `/checkpoints on|soft|off|default`) chooses on, on without ever stopping the action, or off, lists them and deletes one or all. `python -m harness.rewind
+- **Checkpoints.** Before an action changes files, their previous content is kept outside the project: only the files that change, from any folder, with no size limit. Files a shell command does not name are not covered. *Settings > Checkpoints* (or `/checkpoints on|soft|off|default`) chooses on, on without ever stopping the action, or off, lists them and deletes one or all. `python -m tadamoo.rewind
   --workspace D:\proj` lists them and `--to ID` restores one; the conversations have `/rewind` and *Back to here*. A rewind takes a safety snapshot first, so it
   can be undone. It does not undo a command the agent ran, and says so.
 - **Branches.** `/branch` copies a conversation at a request; *Branches* shows the tree. *Run both and compare* sends one request down two
@@ -387,7 +387,7 @@ limited to the folder; a sandbox for them is not there yet.
 ## 14. The command line and the editor
 
 ```powershell
-python -m harness -p "fix the failing test in calc.py" --workspace D:\work\proj --json
+python -m tadamoo -p "fix the failing test in calc.py" --workspace D:\work\proj --json
 basalt-agent -p "fix the failing test" --workspace D:\work\proj      # basalt-agent.cmd: from any folder
 basalt-agent acp --workspace D:\work\proj                             # for an editor that speaks ACP over stdio
 ```
@@ -441,10 +441,10 @@ run) blocks too. A file with a mistake stops the agent from starting, with the r
   waits in *Waiting for you* while the rest of the run goes on. They are managed
   through the **Cron Jobs** tab: a list with *Turn on/off*, *Run now* and *Delete*, an editor, the latest results of each job, and a small chat at the right to
   talk a job over. The chat only proposes: *Use in the editor* fills the form, and nothing is saved until you press *Save*.
-- **Evaluation**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` runs each task k times on a fresh
+- **Evaluation**: `python -m tadamoo.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` runs each task k times on a fresh
   folder and reports pass@k, pass^k, cost and cache use (a `--k` below 5 is warned about). These are development comparisons, not headline numbers. Public benchmarks
   (BFCL, subsets of Terminal-Bench and SWE-bench Pro) are read from a folder you downloaded: `--bfcl DIR`, `--terminal-bench DIR`, `--swebench DIR`.
-- **Replay**: `python -m harness.replay trace.jsonl --mode auto` runs a recorded session again with the recorded model answers and
+- **Replay**: `python -m tadamoo.replay trace.jsonl --mode auto` runs a recorded session again with the recorded model answers and
   reports the first place where the tool calls differ. It tests the harness, not the model. The same replay, a masked JSONL export of
   a conversation and the check of the audit ledger are in the LOGS page, section *Session traces*.
 

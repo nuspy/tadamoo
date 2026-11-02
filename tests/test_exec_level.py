@@ -4,12 +4,12 @@ import sys
 
 import pytest
 
-from harness import exec_level
-from harness.sandbox import ProcessSandbox
-from harness.secrets_broker import SecretsBroker
-from harness.tools.execute import find_runtimes, run_code
-from harness.tools.shell import check_timeout, execute_shell_command
-from harness.vault import Vault
+from tadamoo import exec_level
+from tadamoo.sandbox import ProcessSandbox
+from tadamoo.secrets_broker import SecretsBroker
+from tadamoo.tools.execute import find_runtimes, run_code
+from tadamoo.tools.shell import check_timeout, execute_shell_command
+from tadamoo.vault import Vault
 
 RUNTIMES = find_runtimes()
 PRINT_VAR = "import os\nprint(os.environ.get('BASALT_TEST_OUTER', 'absent'))"
@@ -104,8 +104,8 @@ def test_a_free_timeout_that_the_model_sets_is_still_honoured(tmp_path):
 
 
 def test_the_wallet_api_shows_and_changes_the_level(tmp_path):
-    from harness.browser import BrowserPrefs
-    from harness.payments_broker import PaymentsBroker
+    from tadamoo.browser import BrowserPrefs
+    from tadamoo.payments_broker import PaymentsBroker
     from serve.wallet_api import WalletApi, WalletError
     api = WalletApi(lambda: Vault(tmp_path / "vault"), lambda: PaymentsBroker(tmp_path / "payments"), BrowserPrefs(tmp_path / "browser.json"), tmp_path / "profile",
                     exec_prefs=exec_level.Prefs(tmp_path / "exec-level.json"))

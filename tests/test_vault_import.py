@@ -7,8 +7,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness.vault import Vault
-from harness.vault_import import host_of, parse_logins
+from tadamoo.vault import Vault
+from tadamoo.vault_import import host_of, parse_logins
 
 CHROME = """name,url,username,password,note
 Example,https://www.example.com/login,mario@example.com,pw-one-1234,

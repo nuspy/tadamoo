@@ -6,9 +6,9 @@ from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness.secrets_broker import SecretDestinationError, SecretsBroker, command_hosts, url_hosts
-from harness.tools.shell import execute_shell_command
-from harness.vault import Vault
+from tadamoo.secrets_broker import SecretDestinationError, SecretsBroker, command_hosts, url_hosts
+from tadamoo.tools.shell import execute_shell_command
+from tadamoo.vault import Vault
 
 KEY = bytes(range(32))
 

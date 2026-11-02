@@ -1141,7 +1141,7 @@ flowchart LR
 
 - [ ] **Fase 0 — Misura (L)** *(prerequisito di tutto)*
   - Strumentare il motore e il server per `cache_n`/hit-rate, prefill, TTFT, tok/s per richiesta (in parte già nel registro).
-  - `harness/eval/`: runner con **ripetizioni (k ≥ 5) e pass^k**, prove isolate, risorse dichiarate; un set privato di compiti + un sottoinsieme di un benchmark pubblico attuale (**SWE-bench Pro** o **Terminal-Bench**) + **BFCL** per il tool calling.
+  - `tadamoo/eval/`: runner con **ripetizioni (k ≥ 5) e pass^k**, prove isolate, risorse dichiarate; un set privato di compiti + un sottoinsieme di un benchmark pubblico attuale (**SWE-bench Pro** o **Terminal-Bench**) + **BFCL** per il tool calling.
   - **Baseline**: gli altri harness (Claude Code, OpenCode, Goose, Cline…) puntati sull'endpoint di Basalt; verifica caso per caso della compatibilità.
   - *Accettazione*: un report riproducibile con harness, configurazione e hardware dichiarati.
 

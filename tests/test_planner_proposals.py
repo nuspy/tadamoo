@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.planner_tools import describe_diff
+from tadamoo.planner_tools import describe_diff
 from test_planner_tools import Asker, AgentState, create_with_quote, title, world  # noqa: F401  (fixture)
 from test_e2e_mock_server import start_server  # noqa: F401  (fixture)
 

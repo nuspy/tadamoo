@@ -1,10 +1,10 @@
 """Cards of past conversations: the card's format, the card made by code, writing and keeping it in the index, and finding a conversation through it."""
 import json
 
-from harness import cards
-from harness.cards import fallback_card, parse_card, write_card
-from harness.past import CARD_ROLE, PastIndex, register_past_tools
-from harness.tools.registry import ToolRegistry
+from tadamoo import cards
+from tadamoo.cards import fallback_card, parse_card, write_card
+from tadamoo.past import CARD_ROLE, PastIndex, register_past_tools
+from tadamoo.tools.registry import ToolRegistry
 
 
 def convo(*lines):

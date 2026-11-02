@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from harness import client as hc
+from tadamoo import client as hc
 
 
 class Echo(http.server.BaseHTTPRequestHandler):

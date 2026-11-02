@@ -4,9 +4,9 @@ import urllib.error
 
 import pytest
 
-from harness.client import BasaltClient, BasaltError
-from harness.session import Session, SessionStore
-from harness.stack import (ANSWER_RESERVE_TOKENS, FALLBACK_CONTEXT_TOKENS, MIN_BUDGET_TOKENS, AgentConfig, build_agent, context_budget,
+from tadamoo.client import BasaltClient, BasaltError
+from tadamoo.session import Session, SessionStore
+from tadamoo.stack import (ANSWER_RESERVE_TOKENS, FALLBACK_CONTEXT_TOKENS, MIN_BUDGET_TOKENS, AgentConfig, build_agent, context_budget,
                            server_context_window)
 
 
@@ -60,7 +60,7 @@ def test_the_client_says_nothing_for_a_model_that_is_not_loaded_or_a_status_with
 def test_the_client_raises_when_the_server_cannot_be_reached(monkeypatch):
     def refuse(*a, **k):
         raise urllib.error.URLError("refused")
-    monkeypatch.setattr("harness.client.urllib.request.urlopen", refuse)
+    monkeypatch.setattr("tadamoo.client.urllib.request.urlopen", refuse)
     with pytest.raises(BasaltError) as err:
         BasaltClient(base_url="http://127.0.0.1:1").context_window()
     assert err.value.status == 0

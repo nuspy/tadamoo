@@ -1,9 +1,9 @@
 """The limit of failed attempts: a request that has used them all is stopped as failed and the person is told; without a limit nothing changes."""
 from test_agent_loop import ScriptedClient, call, make, say
 
-from harness import agent_loop as al
-from harness.bench import analysis
-from harness.permissions import PermissionLevel, PermissionManager
+from tadamoo import agent_loop as al
+from tadamoo.bench import analysis
+from tadamoo.permissions import PermissionLevel, PermissionManager
 
 
 def agent_for(ws, client, limit):
@@ -61,7 +61,7 @@ def test_a_trial_stopped_for_it_has_its_own_class_in_the_analysis():
 
 
 def test_the_reasoning_level_of_the_config_is_sent_with_every_request(tmp_path):
-    from harness.stack import AgentConfig, build_agent
+    from tadamoo.stack import AgentConfig, build_agent
 
     class Said:
         def __init__(self):

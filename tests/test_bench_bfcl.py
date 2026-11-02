@@ -1,4 +1,4 @@
-"""The BFCL adapter (harness/bench/adapters/bfcl.py) against a fake BFCL checkout and a fake `bfcl generate` / `bfcl evaluate`: planning, the commands and the
+"""The BFCL adapter (tadamoo/bench/adapters/bfcl.py) against a fake BFCL checkout and a fake `bfcl generate` / `bfcl evaluate`: planning, the commands and the
 environment, reading BFCL's result and score files, and the score. No BFCL install, no model."""
 import importlib.util
 import json
@@ -10,11 +10,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.bench import analysis
-from harness.bench.adapters import bfcl
-from harness.bench.importer import Result
-from harness.bench.runner import BenchRun, TrialContext, TrialResult
-from harness.eval import resume
+from tadamoo.bench import analysis
+from tadamoo.bench.adapters import bfcl
+from tadamoo.bench.importer import Result
+from tadamoo.bench.runner import BenchRun, TrialContext, TrialResult
+from tadamoo.eval import resume
 from bench_support import MODEL, make_spec
 
 CATS = {"simple_python": 5, "multiple": 4, "parallel": 3, "irrelevance": 3, "live_simple": 3, "multi_turn_base": 3, "simple_java": 2, "simple_javascript": 1, "parallel_multiple": 2}
@@ -276,8 +276,8 @@ def test_the_launcher_adds_the_served_model_and_starts_bfcls_command_line(monkey
 
 
 def test_the_adapter_is_found_by_the_lazy_loader_and_has_the_runners_protocol():
-    from harness.bench import runner
-    from harness.bench.adapters import load
+    from tadamoo.bench import runner
+    from tadamoo.bench.adapters import load
     adapter = runner.get_adapter(bfcl.ID, {}, lazy=True)
     assert load(bfcl.ID) is bfcl.BfclAdapter and isinstance(adapter, bfcl.BfclAdapter) and adapter.id == "bfcl-v4"
     assert all(callable(getattr(adapter, n)) for n in ("plan", "run_trial", "score", "failure_facts"))

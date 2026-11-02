@@ -4,8 +4,8 @@ from datetime import datetime
 
 import pytest
 
-from harness.personal_skills import distill
-from harness.personal_skills.check import check
+from tadamoo.personal_skills import distill
+from tadamoo.personal_skills.check import check
 from test_session import Scripted, make, say
 
 DAY = datetime(2026, 10, 26, 15, 0).timestamp()
@@ -143,7 +143,7 @@ def test_code_is_taken_from_the_fence_or_from_the_whole_answer():
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 def test_the_model_is_given_the_request_without_the_marks_and_the_history_keeps_what_was_written(tmp_path):

@@ -9,10 +9,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.client import BasaltError
-from harness.llm.client import RoutedClient, from_anthropic, to_anthropic
-from harness.llm.credentials import FileCredentials
-from harness.llm.store import Ledger, SecureRegistry
+from tadamoo.client import BasaltError
+from tadamoo.llm.client import RoutedClient, from_anthropic, to_anthropic
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.llm.store import Ledger, SecureRegistry
 
 
 class Cloud:
@@ -219,7 +219,7 @@ def test_the_anthropic_translation_alone():
 
 
 def test_this_server_takes_every_reasoning_level_llmswitch_offers():
-    from harness.llmswitch import reasoning
+    from tadamoo.llmswitch import reasoning
     from serve.frontend import effort_kwargs
     shown = {level: effort_kwargs(level) for level in reasoning.LEVELS}
     assert shown["none"] == shown["minimal"] == {"enable_thinking": False}

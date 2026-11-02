@@ -10,16 +10,16 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import agent_loop as al
-from harness.router import Router
-from harness.session import Session, SessionStore
-from harness.stack import AgentConfig, build_agent
+from tadamoo import agent_loop as al
+from tadamoo.router import Router
+from tadamoo.session import Session, SessionStore
+from tadamoo.stack import AgentConfig, build_agent
 from test_session import Events, call, say
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
     """These tests count the messages the model is sent; the time note has its own tests (test_clock.py)."""
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 

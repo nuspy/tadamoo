@@ -7,8 +7,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import context_patterns as cp
-from harness.context import ContextManager, TokenJuiceCompactor, wire_messages
+from tadamoo import context_patterns as cp
+from tadamoo.context import ContextManager, TokenJuiceCompactor, wire_messages
 
 
 def ctx(tmp_path, patterns=None, budget=400, summarize=None, snapshots=None):
@@ -182,8 +182,8 @@ def test_versioning_records_each_prepared_context_only_when_on(tmp_path):
 
 
 def test_the_loop_gives_the_model_the_reframed_request_and_keeps_the_persons_words_for_the_checks(tmp_path):
-    from harness.agent_loop import AgentLoop
-    from harness.tools.registry import ToolRegistry
+    from tadamoo.agent_loop import AgentLoop
+    from tadamoo.tools.registry import ToolRegistry
     from test_agent_loop import ScriptedClient, say
     client = ScriptedClient(say("ok"))
     loop = AgentLoop(client, ToolRegistry(), context=ctx(tmp_path, {"rewriting": {"on": True, "strategy": "normalize"}}, budget=100000))
@@ -209,7 +209,7 @@ def test_what_leaves_the_models_view_is_handed_on_for_the_persons_record(tmp_pat
 
 
 def test_injection_off_or_on_request_asks_for_no_retrieval(tmp_path):
-    from harness.stack import AgentConfig, build_agent
+    from tadamoo.stack import AgentConfig, build_agent
     (tmp_path / "w").mkdir()
     for n, (patterns, expected) in enumerate((({}, True), ({"injection": {"on": False}}, False), ({"injection": {"on": True, "strategy": "on_request"}}, False))):
         built = build_agent(AgentConfig(workspace=str(tmp_path / "w"), data_dir=str(tmp_path / f"d{n}"), context_patterns=patterns))

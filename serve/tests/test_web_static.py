@@ -289,7 +289,7 @@ class SearchOnlineTest(unittest.TestCase):
     def test_every_warning_and_fact_the_search_can_give_has_a_text_in_both_languages(self):
         import sys
         sys.path.insert(0, str(ROOT))
-        from harness.discovery.scoring import TEXT
+        from tadamoo.discovery.scoring import TEXT
         if not NODE:
             self.skipTest("node is needed to read the translations")
         strings_ = strings()

@@ -1,12 +1,12 @@
 """What the person chose about summarising the older steps of a long piece of work: on or off, and the share of the prompt budget at which it
-starts (harness/compaction.py). Kept in one small file; the conversations are started with the matching options."""
+starts (tadamoo/compaction.py). Kept in one small file; the conversations are started with the matching options."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-from harness.compaction import DEFAULT_THRESHOLD, MAX_THRESHOLD, MIN_THRESHOLD
+from tadamoo.compaction import DEFAULT_THRESHOLD, MAX_THRESHOLD, MIN_THRESHOLD
 
 
 class CompactionError(ValueError):

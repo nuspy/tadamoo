@@ -279,7 +279,7 @@ def test_the_post_saves_and_a_port_change_restarts(manager, monkeypatch):
 
 
 def test_the_agent_client_asks_only_when_the_server_started_it_for_a_conversation(monkeypatch):
-    from harness.client import BasaltClient
+    from tadamoo.client import BasaltClient
     monkeypatch.delenv("BASALT_COMPRESS", raising=False)
     assert bc.OPT_HEADER not in BasaltClient("http://x")._headers()
     monkeypatch.setenv("BASALT_COMPRESS", "1")

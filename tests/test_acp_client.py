@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from harness.acp_client import AcpClient, AcpError, run_task
+from tadamoo.acp_client import AcpClient, AcpError, run_task
 
 HERE = Path(__file__).resolve().parent
 FAKE = [sys.executable, str(HERE / "fake_acp_agent.py")]

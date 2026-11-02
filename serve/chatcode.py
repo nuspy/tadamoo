@@ -5,7 +5,7 @@ back is replaced by what it does, written in words by the technical session (a f
 by the name of the file where the original is saved, so nothing is lost and the person can send it again. A call of the session reads only the
 block under a prompt of its own: it never touches a conversation.
 
-The Agent does not use this: a session with file and shell tools keeps its code whole (harness/context.py).
+The Agent does not use this: a session with file and shell tools keeps its code whole (tadamoo/context.py).
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from harness import codeblocks, digest, side_uses
+from tadamoo import codeblocks, digest, side_uses
 from serve import chatctx
 from serve.longform import request_language
 from serve.userdata import user_data_dir

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from harness.roles import CODING_ROLE, ROLE_IDS
+from tadamoo.roles import CODING_ROLE, ROLE_IDS
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "serve" / "web"

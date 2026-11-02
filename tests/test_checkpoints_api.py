@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from harness.checkpoints import CheckpointManager
-from harness.stack import data_dir_for
+from tadamoo.checkpoints import CheckpointManager
+from tadamoo.stack import data_dir_for
 from serve import checkpoints_api
 from serve.agent_runs import RunError
 

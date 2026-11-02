@@ -3,9 +3,9 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from harness.tools import create_standard_tool_registry, WorkspaceSandbox
-from harness.agent_loop import AgentLoop, LoopDetector
-from harness.headless import parse_args
+from tadamoo.tools import create_standard_tool_registry, WorkspaceSandbox
+from tadamoo.agent_loop import AgentLoop, LoopDetector
+from tadamoo.headless import parse_args
 
 
 def test_workspace_boundary_enforcement(tmp_path: Path):

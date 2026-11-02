@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-from harness import digest, inject_screen, memory_rank, progress, side_uses, suggestions, tool_extract
-from harness.agent_loop import AgentLoop
-from harness.context import TokenJuiceCompactor
-from harness.tools.registry import EffectClass, ToolRegistry
+from tadamoo import digest, inject_screen, memory_rank, progress, side_uses, suggestions, tool_extract
+from tadamoo.agent_loop import AgentLoop
+from tadamoo.context import TokenJuiceCompactor
+from tadamoo.tools.registry import EffectClass, ToolRegistry
 
 
 @pytest.fixture(autouse=True)
@@ -194,7 +194,7 @@ def test_with_a_session_the_suggestions_read_only_the_last_turns_and_a_long_conv
 # -- the planner and memory learning -----------------------------------------------------------------------------------
 
 def test_the_planner_reads_in_the_session_when_it_fits_and_in_the_ordinary_slot_when_it_does_not():
-    from harness.planner.alignment import client_ask
+    from tadamoo.planner.alignment import client_ask
     client = Session("{}")
     client_ask(client)([{"role": "user", "content": "compare these"}])
     assert client.calls[0]["extra"]["side_use"] == "planner"
@@ -208,8 +208,8 @@ def test_the_planner_reads_in_the_session_when_it_fits_and_in_the_ordinary_slot_
 
 
 def test_memory_learning_in_the_session_does_not_wait_for_the_card_to_be_free(tmp_path):
-    from harness.memory_extract import Extractor
-    from harness.personal_memory import PersonalMemory
+    from tadamoo.memory_extract import Extractor
+    from tadamoo.personal_memory import PersonalMemory
     memory = PersonalMemory(tmp_path / "pm", key_dir=str(tmp_path / "keys"))
     memory.set_settings({"learn_long": True, "learn_short": True})
     memory.enqueue({"text": "I always use two spaces to indent my code in every project", "project": ""})
@@ -224,11 +224,11 @@ def test_memory_learning_in_the_session_does_not_wait_for_the_card_to_be_free(tm
 # -- a route to another provider ---------------------------------------------------------------------------------------
 
 def test_the_quick_jobs_have_a_function_of_their_own_and_no_session_outside_this_pc_until_allowed(tmp_path):
-    from harness import side
-    from harness.llm import functions
-    from harness.llm.client import RoutedClient
-    from harness.llm.credentials import FileCredentials
-    from harness.llm.store import Ledger, SecureRegistry
+    from tadamoo import side
+    from tadamoo.llm import functions
+    from tadamoo.llm.client import RoutedClient
+    from tadamoo.llm.credentials import FileCredentials
+    from tadamoo.llm.store import Ledger, SecureRegistry
     assert functions.spec("technical")["data"] == "personal"
     reg = SecureRegistry(tmp_path / "p.json", credentials=FileCredentials(tmp_path / "c.json"))
     reg.local_hosts = ()

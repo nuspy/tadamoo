@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-from harness import questions as qs
-from harness.questions import AskGuard, QuestionError, auto_answers, check_answer, format_answer, normalise, parse_answer
+from tadamoo import questions as qs
+from tadamoo.questions import AskGuard, QuestionError, auto_answers, check_answer, format_answer, normalise, parse_answer
 
 
 def one(**kw):

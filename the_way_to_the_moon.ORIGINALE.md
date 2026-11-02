@@ -838,7 +838,7 @@ gantt
 ### Dettaglio dei Task di Lavoro:
 
 - [ ] **Fase 1: Fondamenta Agentiche, Gestione Contesto, Code Execution & ACP**
-  - Implementare `serve/harness/agent_loop.py` con intercettazione asincrona dei tag `<tool_call>` di Qwen.
+  - Implementare `serve/tadamoo/agent_loop.py` con intercettazione asincrona dei tag `<tool_call>` di Qwen.
   - Creare `serve/harness/skill_router.py` con pre-pass speculativo per caricare solo le skill necessarie.
   - Implementare `serve/harness/token_juice.py` con messaggi `pinned` e compattazione strutturale degli output dei tool.
   - Sviluppare `serve/harness/code_sandbox.py` con Python in-process REPL, Deno sandbox e loop di auto-riparazione su errori sintattici/runtime.
@@ -850,7 +850,7 @@ gantt
   - Creare `serve/harness/user_profile.py` e `credential_vault.py` con cifratura AES-256 e generatore TOTP RFC 6238.
 
 - [ ] **Fase 3: Sicurezza, Permessi e Servizi di Sistema**
-  - Costruire il wizard di sicurezza a 3 livelli in `serve/harness/sandbox.py`.
+  - Costruire il wizard di sicurezza a 3 livelli in `serve/tadamoo/sandbox.py`.
   - Creare `serve/platform/service_manager.py` con supporto bivalente Windows (`nssm`) e Linux (`systemd`).
   - Aggiornare `tools/windows/desktop/Program.cs` per la richiesta automatica di elevazione con verbo `runas`.
 

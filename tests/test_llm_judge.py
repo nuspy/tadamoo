@@ -9,10 +9,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.llm.credentials import FileCredentials
-from harness.llm.judge import Judge, router_judge
-from harness.llm.store import Ledger, SecureRegistry
-from harness.router import Router
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.llm.judge import Judge, router_judge
+from tadamoo.llm.store import Ledger, SecureRegistry
+from tadamoo.router import Router
 
 
 class Words:
@@ -96,7 +96,7 @@ def test_jev_gets_a_short_excerpt_a_typed_choice_and_the_key_and_is_counted(worl
     pid = add_jev(reg, jev)
     reg.set_consent("router", True)
     reg.assign_checked("router", pid)
-    from harness.llm import judge as judge_mod
+    from tadamoo.llm import judge as judge_mod
     monkeypatch.setattr(judge_mod.Judge, "_jev", _allow_http(judge_mod.Judge._jev))        # the fake listens on http, loopback
     judge = Judge("router", reg, words, ledger)
     assert judge.choose("Where does it belong?", OPTIONS, "A" * 5000) == "queue"
@@ -141,7 +141,7 @@ def test_jev_that_fails_or_is_over_its_cap_hands_over_to_the_loaded_model(world,
     pid = add_jev(reg, jev)
     reg.set_consent("router", True)
     reg.assign_checked("router", pid)
-    from harness.llm import judge as judge_mod
+    from tadamoo.llm import judge as judge_mod
     monkeypatch.setattr(judge_mod.Judge, "_jev", _allow_http(judge_mod.Judge._jev))
     jev.status = 500
     judge = Judge("router", reg, words, ledger)

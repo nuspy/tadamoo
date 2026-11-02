@@ -9,7 +9,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from harness.stack import DEFAULT_MEMORY_BUDGET, DEFAULT_MEMORY_MIN_SCORE, DEFAULT_MEMORY_NOTES
+from tadamoo.stack import DEFAULT_MEMORY_BUDGET, DEFAULT_MEMORY_MIN_SCORE, DEFAULT_MEMORY_NOTES
 
 STRATEGIES = ("auto", "cag", "rag", "none")
 SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,79}$")
@@ -131,7 +131,7 @@ class KnowledgePrefs:
 
 def check_wiki(url: str, client_factory: Optional[Callable[..., Any]] = None) -> Dict[str, Any]:
     """Asks the wikibridge at this address whether it is there: the address tried, how it went and, if it did not, why."""
-    from harness.integrations.wikibridge_client import DEFAULT_URL, WikiBridgeClient
+    from tadamoo.integrations.wikibridge_client import DEFAULT_URL, WikiBridgeClient
     client = (client_factory or WikiBridgeClient.from_environment)(url=url or None)
     status = client.status()
     out: Dict[str, Any] = {"address": client.base_url or DEFAULT_URL, "status": status, "error": client.last_error or ""}

@@ -9,9 +9,9 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
-from harness.forget import Forgetter
-from harness.past import PastIndex
-from harness.personal_memory import PersonalMemory, PersonalMemoryError
+from tadamoo.forget import Forgetter
+from tadamoo.past import PastIndex
+from tadamoo.personal_memory import PersonalMemory, PersonalMemoryError
 from serve import handler
 from serve.agent_sessions import SessionManager
 from serve.engine.mock import MockEngine

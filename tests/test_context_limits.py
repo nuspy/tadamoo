@@ -1,8 +1,8 @@
 """Tool results are bounded by lines and by characters, a masked result can be read again, and skills are found in a stable order."""
 import pytest
 
-from harness.context import ContextManager, TokenJuiceCompactor
-from harness.skills import SkillCatalog
+from tadamoo.context import ContextManager, TokenJuiceCompactor
+from tadamoo.skills import SkillCatalog
 
 
 def compactor(tmp_path, **kw):

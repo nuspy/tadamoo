@@ -11,7 +11,7 @@ from unittest import mock
 
 import pytest
 
-from harness.lessons import LessonStore
+from tadamoo.lessons import LessonStore
 from serve import handler
 from serve.bench_api import BenchApi, BenchApiError
 from serve.engine.mock import MockEngine

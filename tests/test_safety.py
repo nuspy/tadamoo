@@ -1,12 +1,12 @@
 import pytest
 from pathlib import Path
 
-from harness.permissions import PermissionManager, PermissionLevel
-from harness.tools.registry import EffectClass
-from harness.hooks import HookManager
-from harness.checkpoints import CheckpointManager
-from harness.audit import AuditLedger
-from harness.secrets_broker import SecretsBroker
+from tadamoo.permissions import PermissionManager, PermissionLevel
+from tadamoo.tools.registry import EffectClass
+from tadamoo.hooks import HookManager
+from tadamoo.checkpoints import CheckpointManager
+from tadamoo.audit import AuditLedger
+from tadamoo.secrets_broker import SecretsBroker
 
 
 def test_permission_manager_levels():
@@ -118,7 +118,7 @@ def test_secrets_broker_masks_longest_value_first():
 
 
 def test_secret_destinations_by_host():
-    from harness.secrets_broker import SecretDestinationError, url_hosts
+    from tadamoo.secrets_broker import SecretDestinationError, url_hosts
     broker = SecretsBroker({"GH": "ghp_value1234", "LOCAL": "local-value1234"}, allowed_hosts={"GH": ["API.github.com"]})
     assert url_hosts("curl https://a.example:8443/x?y=http://b.example http://c.example") == ["a.example", "c.example"]
 

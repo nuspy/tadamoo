@@ -12,16 +12,16 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from harness import capabilities as cap
-from harness.discovery.candidates import CandidateStore
-from harness.discovery.installed import InstalledStore
-from harness.discovery import sources as src
-from harness.discovery.finder import resolve_bases
-from harness.discovery.installed import github_token
-from harness.discovery.installer import AlreadyInstalled, InstallError, Installer, IntegrityError
-from harness.discovery.requests import InstallRequests, UnknownRequest
-from harness.discovery.scoring import DEFAULT_WEIGHTS
-from harness.discovery.settings import DiscoverySettings, SOURCES
+from tadamoo import capabilities as cap
+from tadamoo.discovery.candidates import CandidateStore
+from tadamoo.discovery.installed import InstalledStore
+from tadamoo.discovery import sources as src
+from tadamoo.discovery.finder import resolve_bases
+from tadamoo.discovery.installed import github_token
+from tadamoo.discovery.installer import AlreadyInstalled, InstallError, Installer, IntegrityError
+from tadamoo.discovery.requests import InstallRequests, UnknownRequest
+from tadamoo.discovery.scoring import DEFAULT_WEIGHTS
+from tadamoo.discovery.settings import DiscoverySettings, SOURCES
 
 
 class CapabilityError(ValueError):

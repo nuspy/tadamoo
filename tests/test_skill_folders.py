@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from harness.capabilities import CapabilityIndex, add_skill_folders
-from harness.skills import SkillCatalog
-from harness.stack import AgentConfig, build_agent
+from tadamoo.capabilities import CapabilityIndex, add_skill_folders
+from tadamoo.skills import SkillCatalog
+from tadamoo.stack import AgentConfig, build_agent
 from serve.capabilities_api import CapabilityApi, CapabilityError
 
 TEXT = "---\nname: deploy\ndescription: Deploys the site\n---\nRun the deploy script, then check the page."

@@ -10,8 +10,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from harness.bench.service import BenchService
-from harness.lessons import LessonStore
+from tadamoo.bench.service import BenchService
+from tadamoo.lessons import LessonStore
 
 ACTIONS = ("install", "update", "remove", "start", "stop", "resume", "ranking", "add_lesson", "prepare_publish", "begin_publish", "finish_publish")
 THREADED = ("install", "update", "start")

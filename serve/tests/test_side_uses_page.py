@@ -3,7 +3,7 @@ import re
 import unittest
 from pathlib import Path
 
-from harness import side_uses
+from tadamoo import side_uses
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 HTML = (WEB / "index.html").read_text(encoding="utf-8")

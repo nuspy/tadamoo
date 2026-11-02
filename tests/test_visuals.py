@@ -10,10 +10,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.attachments import OutputStore
-from harness.tools.registry import ToolRegistry
-from harness.tools.search import PageError
-from harness.visuals import IMAGE_RULES, CHART_RULES, fetch_image, format_images, guidance, page_images, register_visual_tools, sniff
+from tadamoo.attachments import OutputStore
+from tadamoo.tools.registry import ToolRegistry
+from tadamoo.tools.search import PageError
+from tadamoo.visuals import IMAGE_RULES, CHART_RULES, fetch_image, format_images, guidance, page_images, register_visual_tools, sniff
 
 
 def png(width=200, height=120):

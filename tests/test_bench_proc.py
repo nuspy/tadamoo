@@ -1,7 +1,7 @@
 """The outside-program runner: a program that does not start is stopped and reported."""
 import sys
 
-from harness.bench.adapters import proc
+from tadamoo.bench.adapters import proc
 
 
 def test_a_program_with_no_sign_of_life_is_killed_after_the_time_given_and_one_that_shows_it_is_left_alone(tmp_path, monkeypatch):

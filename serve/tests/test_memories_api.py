@@ -12,7 +12,7 @@ from unittest import mock
 
 import pytest
 
-from harness.personal_memory import PersonalMemory, PersonalMemoryError
+from tadamoo.personal_memory import PersonalMemory, PersonalMemoryError
 from serve import handler
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate

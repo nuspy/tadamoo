@@ -10,11 +10,11 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from harness import council, side_uses
-from harness.llm import functions
-from harness.llm.store import Ledger, SecureRegistry, is_local, runs_here
-from harness.llmswitch import reasoning
-from harness.llmswitch.providers import TYPES
+from tadamoo import council, side_uses
+from tadamoo.llm import functions
+from tadamoo.llm.store import Ledger, SecureRegistry, is_local, runs_here
+from tadamoo.llmswitch import reasoning
+from tadamoo.llmswitch.providers import TYPES
 
 TECHNICAL_KINDS = ("lmstudio", "vllm", "llamacpp")          # the servers a second small model for the technical session can come from
 TECHNICAL_ID, TECHNICAL_NAME = "technical-%s", "Technical session: %s"

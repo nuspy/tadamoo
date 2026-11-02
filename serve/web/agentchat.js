@@ -319,7 +319,7 @@
     return current;
   }
   function noteItem(it) { items.push({ kind: "note", ts: stampOf(), ...it }); }
-  /* Optimize prompt (harness/optimize.py): under the person's message, what the model read in its place, or why the rewrite was not used */
+  /* Optimize prompt (tadamoo/optimize.py): under the person's message, what the model read in its place, or why the rewrite was not used */
   const OPT_WHY = ["lost", "ratio", "answer", "leak", "cut", "empty"];
   function optimizedNote(state, reason, detail, text, original, turn) {
     const waiting = (byTurn[turn] ? byTurn[turn].blocks : []).find(b => b.wait && !b.gone);
@@ -328,7 +328,7 @@
     if (state === "sent") addBlock({ t: "opt", text: String(text || ""), original: String(original || "") }, turn);
     else if (state === "rejected") addBlock({ t: "note", s: T("ch.opt.rejected." + (OPT_WHY.includes(reason) ? reason : "empty"), String(detail || "")) }, turn);
   }
-  /* a reply the output limit cut is asked to go on (harness/agent_loop.py): its words join the text already shown, with no doubled space and
+  /* a reply the output limit cut is asked to go on (tadamoo/agent_loop.py): its words join the text already shown, with no doubled space and
      none of the words the model wrote again. They are held back for a moment so the start can be compared with the end of the text. */
   function joinPending(a, force) {
     if (!a.joinTo || (!force && a.joinBuf.length < 160)) return;
@@ -359,7 +359,7 @@
     switch (e.event) {
       case "user": closeQuestions(); clearChips(); userItem(e.text, e.attachments); break;
       case "accepted": clearChips(); assistant(e.turn); started(e.turn); break;
-      case "intake": {                                                         // what the harness assumed or split before the agent began (harness/intake.py)
+      case "intake": {                                                         // what the harness assumed or split before the agent began (tadamoo/intake.py)
         const lines = [];
         if ((e.assumptions || []).length) lines.push(T("ch.intake.assumed", e.assumptions.join("; ")));
         if ((e.subtasks || []).length) lines.push(T("ch.intake.parts", e.subtasks.length, e.subtasks.join("; ")));

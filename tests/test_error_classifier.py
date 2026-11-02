@@ -2,10 +2,10 @@
 is retried."""
 import pytest
 
-from harness import error_classifier as ec
-from harness.client import BasaltError
-from harness.session import parse_args
-from harness.stack import AgentConfig, agent_settings
+from tadamoo import error_classifier as ec
+from tadamoo.client import BasaltError
+from tadamoo.session import parse_args
+from tadamoo.stack import AgentConfig, agent_settings
 from test_session import Scripted, make, say
 
 
