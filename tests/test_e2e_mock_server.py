@@ -66,7 +66,7 @@ def ws(tmp_path):
 
 
 def config(ws, tmp_path, endpoint, **kw):
-    return AgentConfig(workspace=str(ws), endpoint=endpoint, data_dir=str(tmp_path / "data"), **kw)
+    return AgentConfig(final_review=False, workspace=str(ws), endpoint=endpoint, data_dir=str(tmp_path / "data"), **kw)
 
 
 def test_a_task_runs_end_to_end_and_leaves_a_verifiable_audit_trail(start_server, ws, tmp_path):

@@ -623,7 +623,7 @@ def test_grant_safe_still_refuses_notifications_and_location(make, site):
 def test_the_stack_hands_the_policies_the_question_and_the_audit_to_the_browser(tmp_path):
     from harness.stack import AgentConfig, build_agent
     answers = []
-    cfg = AgentConfig(workspace=str(tmp_path / "w"), data_dir=str(tmp_path / "d"), use_checkpoints=False, browser=True, browser_headless=True,
+    cfg = AgentConfig(final_review=False, workspace=str(tmp_path / "w"), data_dir=str(tmp_path / "d"), use_checkpoints=False, browser=True, browser_headless=True,
                       browser_consent="reject", browser_permissions="ask", confirm=lambda tool, args: answers.append((tool, args)) or True)
     (tmp_path / "w").mkdir()
     built = build_agent(cfg, client=None)

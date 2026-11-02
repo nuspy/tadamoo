@@ -487,3 +487,23 @@ def test_a_message_of_only_broken_calls_is_sent_back_not_taken_as_the_final_answ
     turns = agent.run("go")
     assert turns[0].tool_calls and turns[0].tool_calls[0].decision == "invalid" and client.sent[1][-1]["role"] == "tool"
     assert (ws / "a.txt").read_text(encoding="utf-8") == "fixed" and agent.stop_reason == FINAL and len(turns) == 3
+
+
+def test_an_answer_after_tool_work_is_sent_back_once_to_be_compared_with_the_request(ws):
+    client = ScriptedClient(call("write_file", {"path": "a.txt", "content": "A"}, "c1"), say("done"), say("done, with the package you named"))
+    agent, _ = make(ws, client, final_review=True)
+    seen = []
+    agent.on_event = seen.append
+    turns = agent.run("write a using the package named in the task")
+    assert agent.stop_reason == FINAL and len(turns) == 3
+    note = [m for m in client.sent[2] if m["role"] == "user" and "compare the request with what you did" in str(m["content"])]
+    assert len(note) == 1 and [e["type"] for e in seen].count("final_review") == 1
+
+
+def test_an_answer_without_tool_work_or_with_the_review_off_is_not_sent_back(ws):
+    plain = ScriptedClient(say("hello"), say("unused"))
+    agent, _ = make(ws, plain, final_review=True)
+    assert len(agent.run("hi")) == 1
+    off = ScriptedClient(call("write_file", {"path": "a.txt", "content": "A"}, "c1"), say("done"), say("unused"))
+    agent, _ = make(ws, off)
+    assert len(agent.run("write a")) == 2

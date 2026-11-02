@@ -79,7 +79,7 @@ def test_a_headless_run_hands_every_event_to_a_recorder_in_the_format_analysis_r
     ws.mkdir()
     out = tmp_path / "traj.jsonl"
     rec = TrajectoryRecorder(out)
-    cfg = AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False, use_checkpoints=False, report=False, permission_mode="auto")
+    cfg = AgentConfig(final_review=False, workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False, use_checkpoints=False, report=False, permission_mode="auto")
     result = run_headless(cfg, "write a file", client=ScriptedClient(call("write_file", {"path": "a.txt", "content": "ok"}, "w"), say("done")), on_event=rec.on_event)
     rec.stop("final")
     rec.close()
