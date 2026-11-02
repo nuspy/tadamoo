@@ -30,14 +30,17 @@ def test_the_calls_are_listed_short_and_a_long_list_keeps_its_start_and_end():
 def test_a_no_becomes_the_note_a_yes_is_empty_and_no_session_or_a_switch_off_is_none(monkeypatch):
     monkeypatch.setattr(review, "side_extra_for", lambda *a, **k: {"cache_slot": 1})
     side_uses.save("request_review", on=True)
-    note = review.make_review(Judge("no: sentence-transformers was used instead of mteb"))("use mteb", "done", "shell_command: python st.py")
-    assert note.startswith("[harness] Compared with the request: sentence-transformers was used instead of mteb")
+    note = review.make_review(Judge('no: "use mteb" was not followed: sentence-transformers was used instead'))("use mteb", "done", "shell_command: python st.py")
+    assert note.startswith('[harness] Compared with the request: "use mteb" was not followed') and "keep your result" in note
     judge = Judge("yes")
     assert review.make_review(judge)("use mteb", "done", "shell_command: python mteb.py") == ""
     assert "use mteb" in judge.sent[0][1]["content"] and "mteb.py" in judge.sent[0][1]["content"]
+    assert review.make_review(Judge("no: the wrong commit was merged"))("merge my changes into master", "done", "shell_command: git merge x") == ""       # a no that quotes nothing is a judgment of the result
+    assert review.make_review(Judge('no: "use the newest commit" was not followed'))("merge my changes into master", "done", "") == ""         # words the request does not hold
+    assert review.make_review(Judge("no: “MERGE my   changes” was not followed"))("merge my changes into master", "done", "").startswith("[harness] Compared")
     assert review.make_review(None)("x", "y", "") is None
     monkeypatch.setattr(review, "side_extra_for", lambda *a, **k: {})
-    assert review.make_review(Judge("no: x"))("x", "y", "") is None
+    assert review.make_review(Judge('no: "x y z" was not followed'))("x y z", "y", "") is None
     side_uses.save("request_review", on=False)
     monkeypatch.setattr(review, "side_extra_for", lambda *a, **k: {"cache_slot": 1})
-    assert review.make_review(Judge("no: x"))("x", "y", "") is None
+    assert review.make_review(Judge('no: "x y z" was not followed'))("x y z", "y", "") is None
