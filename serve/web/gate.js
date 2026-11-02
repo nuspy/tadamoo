@@ -36,7 +36,7 @@
 
   async function save(values) {
     const r = await call("POST", "api/gate", values);
-    if (r.ok) { state = r.data; note = T("gt.saved"); noteBad = false; } else { note = why(r); noteBad = true; }
+    if (r.ok) { state = r.data; note = T("gt.saved"); noteBad = false; document.dispatchEvent(new CustomEvent("basalt:gate", { detail: state })); } else { note = why(r); noteBad = true; }
     draw();
   }
 
@@ -51,12 +51,14 @@
     rounds.inputMode = "numeric"; rounds.value = String(s.verify_rounds);
     const grace = check("gt-grace", T("gt.grace"), T("gt.grace.help"), s.budget_grace);
     const classifier = check("gt-class", T("gt.class"), T("gt.class.help"), s.error_classifier);
+    const notes = s.chat_note_kinds.map(k => [k, check("gt-note-" + k, T("gt.note." + k), T("gt.note." + k + ".help"), !!s.chat_notes[k])]);
 
     const values = () => ({ verify_commands: commands.value, verify_gate: mode.value, verify_rounds: Number(rounds.value),
-      budget_grace: grace.box.checked, error_classifier: classifier.box.checked });
+      budget_grace: grace.box.checked, error_classifier: classifier.box.checked,
+      chat_notes: Object.fromEntries(notes.map(([k, c]) => [k, c.box.checked])) });
     const saveBtn = h("button", "btn primary", T("gt.save")); saveBtn.type = "button"; saveBtn.onclick = () => save(values());
     const defaults = h("button", "btn ghost", T("gt.defaults")); defaults.type = "button";
-    defaults.onclick = () => save({ verify_gate: s.defaults.verify_gate, verify_rounds: s.defaults.verify_rounds, budget_grace: s.defaults.budget_grace, error_classifier: s.defaults.error_classifier });
+    defaults.onclick = () => save({ verify_gate: s.defaults.verify_gate, verify_rounds: s.defaults.verify_rounds, budget_grace: s.defaults.budget_grace, error_classifier: s.defaults.error_classifier, chat_notes: s.defaults.chat_notes });
     const status = h("p", "setnote kn-status", note); status.setAttribute("role", "status"); status.hidden = !note; status.dataset.bad = noteBad ? "1" : "";
     const idle = s.verify_gate !== "off" && !s.verify_commands.length ? h("p", "setnote warnnote", T("gt.nocommands")) : null;
 
@@ -66,6 +68,7 @@
         field("gt-mode", T("gt.mode"), T("gt.mode.help"), mode),
         field("gt-rounds", T("gt.rounds"), T("gt.rounds.help"), rounds), idle),
       h("fieldset", "csgroup", h("legend", "", T("gt.end.title")), grace.row, classifier.row),
+      h("fieldset", "csgroup", h("legend", "", T("gt.notes.title")), h("p", "setnote kn-help", T("gt.notes.help")), notes.map(([, c]) => c.row)),
       h("div", "kn-actions", saveBtn, defaults), status);
   }
 

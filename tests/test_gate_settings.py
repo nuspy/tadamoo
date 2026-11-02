@@ -21,7 +21,8 @@ from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)
 def test_the_defaults_are_the_gate_off_the_classifier_on_and_a_bad_value_is_refused_whole(tmp_path):
     prefs = GatePrefs(tmp_path / "g.json")
     first = prefs.read()
-    assert first == {"verify_commands": [], "verify_gate": "always", "verify_rounds": 3, "budget_grace": True, "error_classifier": True}
+    off = {"review": False, "completion_check": False, "course": False, "todo_open": False}
+    assert first == {"verify_commands": [], "verify_gate": "always", "verify_rounds": 3, "budget_grace": True, "error_classifier": True, "chat_notes": off}
     saved = prefs.write({"verify_commands": "python -m pytest -x -q\n\nruff check .\n", "verify_gate": "unattended", "verify_rounds": 2, "budget_grace": False,
                          "error_classifier": False})
     assert saved["verify_commands"] == ["python -m pytest -x -q", "ruff check ."] and saved["verify_gate"] == "unattended" and saved["verify_rounds"] == 2
@@ -34,6 +35,14 @@ def test_the_defaults_are_the_gate_off_the_classifier_on_and_a_bad_value_is_refu
             prefs.write(bad)
         assert raised.value.field == field and str(raised.value)
     assert prefs.read() == saved                                                   # a refused value changes nothing
+    shown = prefs.write({"chat_notes": {"review": True}})["chat_notes"]
+    assert shown == {**off, "review": True} and prefs.write({"verify_rounds": 2})["chat_notes"] == shown          # one note on, the others stay as they were
+    for bad in ({"chat_notes": {"review": "yes"}}, {"chat_notes": {"nothing": True}}, {"chat_notes": ["review"]}):
+        with pytest.raises(GateError) as raised:
+            prefs.write(bad)
+        assert raised.value.field == "chat_notes"
+    prefs.write({"chat_notes": off})
+    assert prefs.read() == saved
     (tmp_path / "g.json").write_text("{broken", encoding="utf-8")
     assert prefs.read() == first                                                   # a damaged file is the defaults, not a crash
 

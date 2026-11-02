@@ -19,6 +19,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from harness.audit import AuditLedger
 from harness.checkpoints import CheckpointManager, call_paths
+from harness.review import call_lines as review_lines
 from harness.client import BasaltClient, BasaltError, StreamCancelled, extract_reasoning_and_content
 from harness.context import ContextManager, fence_untrusted, wire_messages
 from harness.continuation import cut_point, join_continuation
@@ -62,9 +63,6 @@ GRACE_NOTE = ("[harness] The budget for this answer is used up. Do not call any 
               "not done, and what the next step is.")
 TODO_NOTE = ("[harness] Your checklist still has unfinished items:\n{items}\nFinish them, or update the list with todo_write if they no longer "
              "apply, then answer again.")
-REVIEW_NOTE = ("[harness] Before you finish, compare the request with what you did, one requirement at a time. For everything it names (tool, package, version, "
-               "date, unit, file, output format) check that you used exactly that. If one was not respected, redo the work or say so plainly in your answer; "
-               "do not call a substitute equivalent unless you checked that it is. Then answer.")
 UNREACHABLE_WAIT_FIRST = 2.0   # seconds before the first new try when the server cannot be reached; it doubles up to the cap
 UNREACHABLE_WAIT_MAX = 60.0
 MAX_CONTINUATIONS = 2          # times a reply cut by the output limit is asked to go on, per request
@@ -272,6 +270,7 @@ class AgentLoop:
         self.on_event = on_event
         self.on_delta = on_delta                  # the model's text as it is written ("content" or "reasoning"), when set
         self.before_inference = before_inference  # looked at before every model call; it may add messages or ask to be put aside
+        self.review: Optional[Callable[[str, str, str], Optional[str]]] = None      # the technical session's look at whether the request was followed as named (harness/review.py)
         self.completion: Optional[Callable[[str, str, str], str]] = None      # "work until done": the note that sends the model back to finish, or "" (harness/completion.py)
         self.lessons_for: Optional[Callable[[str], str]] = None               # the lessons of earlier work that bear on a request, as a note, or "" (harness/lessons.py)
         self.learn: Optional[Callable[[Dict[str, Any], List[Dict[str, Any]]], None]] = None   # told how a request went and what it taught, when its run ends
@@ -324,6 +323,7 @@ class AgentLoop:
         self._todo_nudged = False
         self._reviewed = False                    # the answer was already sent back once to be compared with the request
         self._request_tools = 0                   # tool calls this request has made
+        self._request_first_turn = len(getattr(self, "turns", []))      # the turns of this request start here
         self._completion_rounds = 0
         self._hinted: set = set()                 # failures a lesson was already shown for in this request
         if self.gate is not None:
@@ -1344,11 +1344,15 @@ class AgentLoop:
             self.append({"role": "user", "content": TODO_NOTE.format(items=todo.render(open_only=True)), "note": True})
             self._emit({"type": "todo_open", "count": len(todo.open_items())})
             return True
-        if self.final_review and not self._reviewed and self._request_tools:
+        if self.final_review and self.review is not None and not self._reviewed and self._request_tools:
             self._reviewed = True
-            self.append({"role": "user", "content": REVIEW_NOTE, "note": True})
-            self._emit({"type": "final_review"})
-            return True
+            note = self.review(self.last_user_text, content, self._call_lines())
+            if note is not None:
+                self._emit({"type": "review", "ok": not note, "note": note[:300]})
+                self._audit("review", {"ok": not note, "note": note[:300]})
+            if note:
+                self.append({"role": "user", "content": note, "note": True})
+                return True
         if self.completion is not None and self._completion_rounds < MAX_COMPLETION_ROUNDS:
             note = self.completion(self.last_user_text, content, self._work_line())
             if note:
@@ -1372,6 +1376,10 @@ class AgentLoop:
         self._emit({"type": "stop_denied", "final": False, "n": self._stop_denials, "reason": reason[:300]})
         self._audit("stop_denied", {"final": False, "denials": self._stop_denials})
         return True
+
+    def _call_lines(self) -> str:
+        """The calls this request made that ran, one short line each, for the reader that checks whether the request was followed as named."""
+        return review_lines([c for t in self.turns[self._request_first_turn:] for c in t.tool_calls if c.decision == "executed"])
 
     def _work_line(self) -> str:
         """One line about what this request's work did, from the calls themselves, for the reader that checks whether it is met."""

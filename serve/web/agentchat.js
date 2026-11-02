@@ -18,6 +18,12 @@
     const key = ACTIONS.has(name) ? name : name.startsWith("plan_") ? "plan" : name.startsWith("browser_") ? "browser" : "";
     return key ? T("ch.act." + key) : T("ch.act.generic", name);
   }
+  /* the harness notes the person chose to see in the chat (Settings > Checks before an answer ends); all off until turned on */
+  let chatNotes = {};
+  const readNotes = d => { chatNotes = (d && d.chat_notes) || {}; };
+  fetch("api/gate", { cache: "no-store", headers: authHeaders() }).then(r => (r.ok ? r.json() : null)).then(readNotes).catch(() => { /* no notes shown */ });
+  document.addEventListener("basalt:gate", e => readNotes(e.detail));
+  const noteOn = k => chatNotes[k] === true;
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } };
   const keep = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* this page only */ } };
   const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -415,12 +421,16 @@
         } else if (d.type === "tool_start") {
           if (d.name === "ask_user") break;                                    // its question is shown by the question itself
           addBlock({ t: "tool", id: d.call_id, name: d.name, args: d.arguments || {}, status: "running", output: "", description: explainOf(d.description) }, e.turn);
+        } else if (d.type === "review") {                                         // the technical session's look at whether the request was followed as named
+          if (noteOn("review")) addBlock({ t: "note", s: d.ok ? T("ch.review.ok") : T("ch.review.no", String(d.note || "").replace(/^\[harness\]\s*/, "").slice(0, 240)) }, e.turn);
+        } else if (d.type === "todo_open") {                                       // the agent goes back to a checklist with open items
+          if (noteOn("todo_open")) addBlock({ t: "note", s: T("ch.todo.open", d.count || 0) }, e.turn);
         } else if (d.type === "course_check") {                                   // the watch on the course: a note to the agent, or a card for the person
-          addBlock({ t: "note", s: T("ch.course." + (d.stage === "card" ? "card" : d.kind === "fold" ? "fold" : "note"), String(d.problem || "")) }, e.turn);
+          if (noteOn("course")) addBlock({ t: "note", s: T("ch.course." + (d.stage === "card" ? "card" : d.kind === "fold" ? "fold" : "note"), String(d.problem || "")) }, e.turn);
         } else if (d.type === "script_hint") {                                      // the same long work again and again: a skill could do it
           noteItem({ build: () => scriptHint(d) });
         } else if (d.type === "completion_check") {                                // the request did not look met: the agent was sent back to finish
-          addBlock({ t: "note", s: T("ch.completion", d.round, d.of, String(d.note || "").replace(/^\[harness\]\s*/, "").slice(0, 200)) }, e.turn);
+          if (noteOn("completion_check")) addBlock({ t: "note", s: T("ch.completion", d.round, d.of, String(d.note || "").replace(/^\[harness\]\s*/, "").slice(0, 200)) }, e.turn);
         } else if (d.type === "batch_interrupted") {                               // the person wrote something that changes the work: the rest of the commands was not run
           addBlock({ t: "note", s: T("ch.batch.interrupted", d.skipped || 0) }, e.turn);
         } else if (d.type === "calls_skipped") {                                 // repeats and calls over the limit are not run: said once, not once for each
