@@ -217,16 +217,16 @@ def test_the_harness_agent_acts_in_the_container_and_leaves_a_trajectory(tmp_pat
     assert events[-1] == {"type": "stop", "reason": "final"}
 
 
-def test_a_model_call_may_take_as_long_as_the_task_allows(tmp_path):
+def test_a_model_call_has_no_time_limit_of_its_own(tmp_path):
     root = tmp_path / "container"
     root.mkdir()
-    for seconds, expected in ((600.0, 600.0), (None, ck.MODEL_CALL_S)):
+    for seconds in (600.0, None):
         client = Scripted(say("Done."))
-        traj = TrajectoryRecorder(tmp_path / f"trial{expected}" / "trajectory.jsonl")
-        ck.run_harness_agent("x", local_exec(root), endpoint="http://127.0.0.1:7232", work_dir=tmp_path / f"trial{expected}", trajectory=traj,
+        traj = TrajectoryRecorder(tmp_path / f"trial{seconds}" / "trajectory.jsonl")
+        ck.run_harness_agent("x", local_exec(root), endpoint="http://127.0.0.1:7232", work_dir=tmp_path / f"trial{seconds}", trajectory=traj,
                              environment_note="The system is the task's Linux container.", client=client, max_seconds=seconds, max_turns=2)
         traj.close()
-        assert client.call_timeout == expected
+        assert client.call_timeout is None
 
 
 def test_the_agent_cannot_use_a_tool_that_acts_on_this_pc(tmp_path):

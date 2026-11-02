@@ -24,7 +24,6 @@ from harness import editing
 TIMED_OUT_CODE = 124
 DEFAULT_COMMAND_S = 180.0
 MAX_COMMAND_S = 3600.0
-MODEL_CALL_S = 7200.0                # a model call's limit when the run gives no time limit
 OUTPUT_CHARS = 20_000               # what one command answer may hold; a longer one keeps its start and its end
 READ_CHARS = 40_000
 READ_LIMIT_BYTES = 4_000_000
@@ -437,7 +436,7 @@ def run_harness_agent(instruction: str, exec_fn: ExecFn, *, endpoint: str, work_
                  use_checkpoints=False, unattended=True, report=False, lessons_dir=None)
     cfg = AgentConfig(**fixed, **{"max_seconds": max_seconds, "max_turns": max_turns, **dict(overrides or {})})
     client = client or BasaltClient(base_url=endpoint)
-    client.call_timeout = max_seconds or MODEL_CALL_S           # the task's own limit bounds a call, not the 60 seconds a streamed chat gets between pieces
+    client.call_timeout = None                                  # a model call has no time limit of its own: the loop guards and the number of steps end a task that goes nowhere
     built = build_agent(cfg, client=client)
     finished = threading.Event()
     if cancel is not None:

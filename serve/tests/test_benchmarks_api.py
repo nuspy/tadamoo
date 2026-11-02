@@ -154,8 +154,19 @@ def test_start_passes_only_the_subset_and_the_trials(tmp_path):
     assert api.get("overview", {})["jobs"]["bfcl-v4"]["run_id"] == "r2"
 
 
+def test_the_failed_attempts_allowed_are_passed_when_set_and_left_out_when_unlimited(tmp_path):
+    api, fake = make(tmp_path)
+    api.post("start", {"id": "bfcl-v4", "subset": "smoke", "trials": 1, "max_failed_attempts": 40})
+    api.wait()
+    api.post("start", {"id": "bfcl-v4", "subset": "smoke", "trials": 1, "max_failed_attempts": 0})
+    api.wait()
+    assert [c[2] for c in fake.calls] == [{"subset": "smoke", "trials": 1, "max_failed_attempts": 40}, {"subset": "smoke", "trials": 1}]
+
+
 @pytest.mark.parametrize("req,word", [({"subset": "nope", "trials": 1}, "subset"), ({"subset": "smoke", "trials": 0}, "trials"), ({"subset": "smoke", "trials": 21}, "trials"),
                                        ({"subset": "smoke", "trials": True}, "trials"), ({"subset": "smoke", "trials": "2"}, "trials"),
+                                       ({"subset": "smoke", "trials": 1, "max_failed_attempts": -1}, "attempts"), ({"subset": "smoke", "trials": 1, "max_failed_attempts": 100001}, "attempts"),
+                                       ({"subset": "smoke", "trials": 1, "max_failed_attempts": "9"}, "attempts"), ({"subset": "smoke", "trials": 1, "max_failed_attempts": True}, "attempts"),
                                        ({"subset": "smoke", "trials": 1, "model": "gpt-5"}, "served model"), ({"subset": "smoke", "api_key": "x"}, "served model"),
                                        ({"subset": "smoke", "power_limit_w": 5}, "watts"), ({"subset": "smoke", "power_limit_w": "400"}, "watts")])
 def test_bad_start_requests_never_reach_the_service(tmp_path, req, word):

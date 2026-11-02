@@ -6,14 +6,14 @@
   const host = document.getElementById("bn-root");
   if (!host) return;
 
-  const POLL_MS = 2000, ARM_MS = 4000, RUNS_SHOWN = 8, TRIALS_MAX = 20;
+  const POLL_MS = 2000, ARM_MS = 4000, RUNS_SHOWN = 8, TRIALS_MAX = 20, ATTEMPTS_MAX = 100000;
   const CLASSES = ["environment_problem", "context_overflow", "timeout", "missing_executable", "blocked_by_site", "permission_refused", "tool_format_error", "loop",
     "judge_disagreement", "bad_plan", "wrong_final_state", "unknown"];
   const SCORING = { "verifier": "bn.scoring.verifier", "judge": "bn.scoring.judge", "verifier+judge": "bn.scoring.both" };
   const FIELDS = /^(INPUT|TEXTAREA|SELECT)$/;
   let S = null, note = "", sel = "", pre = {}, pending = "", armed = "", armTimer = 0, timer = 0, visible = false, started = {};
   let runId = "", R = null, rep = null, rank = null, boardText = "", boardAddr = "", lessonNote = {}, pack = null, desk = null, typed = "", deskNote = "", rankNote = "";
-  const form = { subset: {}, trials: {}, power: "" };
+  const form = { subset: {}, trials: {}, attempts: {}, power: "" };
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, disabled) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (disabled) b.disabled = true; return b; };
@@ -162,13 +162,17 @@
     trials.id = "bn-trials-" + b.id; tl.htmlFor = trials.id; trials.type = "number"; trials.min = "1"; trials.max = String(TRIALS_MAX); trials.step = "1"; trials.inputMode = "numeric";
     trials.value = form.trials[b.id] || "1";
     trials.oninput = () => { form.trials[b.id] = trials.value; };
-    const row1 = el("div", "bn-field"), row2 = el("div", "bn-field");
-    row1.append(sl, subset); row2.append(tl, trials);
+    const attempts = el("input"), atl = el("label", "", T("bn.start.attempts"));
+    attempts.id = "bn-attempts-" + b.id; atl.htmlFor = attempts.id; attempts.type = "number"; attempts.min = "0"; attempts.max = String(ATTEMPTS_MAX); attempts.step = "1"; attempts.inputMode = "numeric";
+    attempts.value = form.attempts[b.id] || "0";
+    attempts.oninput = () => { form.attempts[b.id] = attempts.value; };
+    const row1 = el("div", "bn-field"), row2 = el("div", "bn-field"), row3 = el("div", "bn-field");
+    row1.append(sl, subset); row2.append(tl, trials); row3.append(atl, attempts, el("p", "bn-line dim", T("bn.start.attempts.help")));
     const why = startBlock(b);
-    box.append(row1, row2, el("p", "bn-line dim", S.model ? T("bn.start.model", S.model.name, S.model.quantisation || "?") : T("bn.model.none")));
+    box.append(row1, row2, row3, el("p", "bn-line dim", S.model ? T("bn.start.model", S.model.name, S.model.quantisation || "?") : T("bn.model.none")));
     if (why) box.append(el("p", "bn-line bn-warn", why));
     box.append(btn(T("bn.start.go"), "primary", () => {
-      const n = Number(form.trials[b.id] || 1), body = { id: b.id, subset: form.subset[b.id] || b.subsets[0].id, trials: n };
+      const n = Number(form.trials[b.id] || 1), body = { id: b.id, subset: form.subset[b.id] || b.subsets[0].id, trials: n, max_failed_attempts: Number(form.attempts[b.id] || 0) };
       if (S.power_limit_w == null || !S.power_limit_measured) if (form.power) body.power_limit_w = Number(form.power);
       act("start", b.id, body);
     }, !!why));
