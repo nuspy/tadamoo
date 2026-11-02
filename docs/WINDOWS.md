@@ -69,7 +69,7 @@ The Linux code paths are unchanged; the Windows ones sit behind `_WIN32` / `MSVC
   experts at load and, while serving, decides when a request is stopped for low RAM: the guard is the margin plus 3.5 GiB
   of prompt reads when experts are read from the file (the margin alone when none are).  The engine reads the variable
   when it starts, so a changed share applies at the next load.  Read-ahead hints are `PrefetchVirtualMemory`.
-* **The commit of the GPU memory** (`src/platform/vram_backing.cpp`, `--release-vram-commit`, off by default):
+* **The commit of the GPU memory** (`src/platform/vram_backing.cpp`, `--keep-vram-commit` turns it off):
   see the section of that name below.
 * **Pinned arena** (`src/core/pinned.cu`): large pages when the account holds `SeLockMemoryPrivilege` (it is
   enabled in the process token), else 4 KB pages.  Page-locked memory the GPU maps is charged to the GPU's WDDM
@@ -122,7 +122,7 @@ untouched while the allocation stays in VRAM: the charge takes no RAM, but it co
 (RAM + page file) as much as the weights in VRAM weigh.  `D3DKMTTrimProcessCommitment` gives none of it back: it
 acts only on allocations offered with `D3DKMTOfferAllocations`, and CUDA offers none.
 
-`--release-vram-commit` (`"release-vram-commit": true` in the config) decommits those regions: once the model is
+Unless `--keep-vram-commit` (`"keep-vram-commit": true` in the config) is given, the engine decommits those regions: once the model is
 loaded, and after each command for what the last one allocated.  A region is released only when none of its pages
 is in RAM, and judged once, so content an eviction wrote into it is never discarded.  Before the machine sleeps
 (S3, when the VRAM is saved into these regions) the engine commits them again, and they stay committed after the
@@ -131,7 +131,7 @@ resume.  The startup log says how much was given back.
 What it risks: an allocation can only be evicted into its backing.  Programs that keep to their video memory budget
 (Direct3D 12) page themselves and leave the engine alone, but a CUDA allocation from another program while the
 engine idles evicts the engine's memory, and with the backing released the engine can then hang until it is
-stopped.  Use it only when no other program allocates GPU memory with CUDA while Basalt runs.
+stopped.  Pass `--keep-vram-commit` when another program allocates GPU memory with CUDA while Basalt runs.
 
 ## Tests
 
@@ -210,13 +210,13 @@ option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and 
   starting anything.
 * `Ferma-Basalt.ps1 [--port N] [--file FILE]` finds the server from `basalt.pid` (PID and start time) or from the port,
   asks it to unload the model (`POST /api/control/unload`, with the secret the server wrote to `control-<port>.token` in
-  its data folder: the engine gets QUIT and frees RAM and VRAM; no other application can load or unload the model),
+  its data folder when it runs with `--control-secret`: the engine gets QUIT and frees RAM and VRAM),
   ends the process tree,
   checks that no process of this `bin\` is left and prints the RAM available before and after. With `--port` only the
   process tree of the server on that port is ended. Processes are found by PID file, by the listening port's owner and
   its children, or by full path under this `bin\`, never by name alone.
 
-Every change through `/api/*` (settings, profiles, models, plans, tasks, the agent, providers) needs that same secret, not the API key alone: the
+With `--control-secret` (off by default), every change through `/api/*` (settings, profiles, models, plans, tasks, the agent, providers) needs that same secret, not the API key alone: the
 page receives it as an `HttpOnly`, `SameSite=Strict` cookie (`basalt_control_<port>`) when it loads `/`, and a program on this PC sends it in
 `X-Basalt-Control` (the harness reads it from `control-<port>.token`). A page of another site, or a program that only reaches the port, changes
 nothing. Reading stays open, `/v1/*` is as it was and `/v1/vram` stays open for programs that lend VRAM. This keeps out what does not look for the

@@ -211,9 +211,10 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(self.engine.starts, 1)
         for headers in ({"X-Basalt-Control": "wrong"}, {"X-Basalt-Control": ""}):
             self.assertEqual(self.request("/api/control/unload", {}, headers)[0], 403, headers)
-        self.svc.control_token = ""                                  # a server that wrote no secret has the routes off
-        self.assertEqual(self.request("/api/control/unload", {}, {"X-Basalt-Control": "anything"})[0], 403)
         self.assertEqual(self.engine.closes, 0)
+        self.svc.control_token = ""                                  # without --control-secret the routes ask nothing beyond this PC
+        self.assertEqual(self.request("/api/control/unload", {}, {})[0], 200)
+        self.assertEqual(self.engine.closes, 1)
 
     def test_the_old_routes_are_gone_for_clients(self):
         for path in ("/v1/load", "/v1/unload", "/load", "/unload"):

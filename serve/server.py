@@ -267,7 +267,7 @@ def main() -> int:
     svc.reasoning_budget_tokens = a.reasoning_budget_tokens or 0
     svc.gpu_indices = gpus_in_play(cfg, engine_args(cfg) if cfg.get("args") else [])   # the cards /metrics reads
     svc.gpu_index = svc.gpu_indices[0]
-    svc.control_token = write_control_token(a.port)
+    svc.control_token = write_control_token(a.port) if a.control_secret else ""
     httpd = serve(svc, host=a.host, port=a.port)
     from serve import billion_context, chatctx, llamacpp_api
     threading.Thread(target=billion_context.start, args=(httpd.server_address[1], lambda: chatctx._limit(svc)), daemon=True, name="billion-context-start").start()

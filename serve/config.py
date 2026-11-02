@@ -464,6 +464,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--api-key", default="",
                     help="require this key on /v1/* (Authorization: Bearer ... or x-api-key); command line only, "
                          "not allowed in a --config file")
+    ap.add_argument("--control-secret", action="store_true",
+                    help="require a secret, written to the data folder at start, on the changes made through /api/* and on "
+                         "/api/control/*; the page receives it as a cookie (default off: those routes check only that the "
+                         "request comes from this PC)")
     ap.add_argument("--debug", action="store_true",
                     help="log one line per request and the raw model text after each reply")
     ap.add_argument("--request-lines", action="store_true",
