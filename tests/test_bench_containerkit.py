@@ -190,6 +190,8 @@ def test_server_faults_are_told_from_the_agent_failing():
 
 def test_agent_settings_may_not_reach_outside_the_sandbox():
     assert ck.agent_overrides({"agent_config": {"compaction": False, "temperature": 0.2}}) == {"compaction": False, "temperature": 0.2}
+    assert ck.agent_overrides({"reasoning": "low", "max_failed_attempts": 7}) == {"reasoning_effort": "low", "max_failed_attempts": 7}
+    assert ck.agent_overrides({"reasoning": "", "max_failed_attempts": 0}) == {}
     with pytest.raises(ValueError, match="browser.*payments_dir|payments_dir.*browser"):
         ck.agent_overrides({"agent_config": {"browser": True, "payments_dir": "x"}})
     with pytest.raises(ValueError, match="not_a_field"):

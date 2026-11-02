@@ -410,7 +410,8 @@ def watch_stop(should_stop: Optional[Callable[[], bool]], cancel: threading.Even
 
 
 def agent_overrides(settings: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
-    """The AgentConfig fields a run's settings (`settings["agent_config"]`) may change; any field that reaches outside the sandbox is refused by name."""
+    """The AgentConfig fields a run's settings may change: `agent_config`, plus the failed attempts allowed and the reasoning level the person set
+    for the run. Any field that reaches outside the sandbox is refused by name."""
     from dataclasses import fields
     from harness.stack import AgentConfig
     known = {f.name for f in fields(AgentConfig)}
@@ -418,6 +419,11 @@ def agent_overrides(settings: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
     bad = sorted(k for k in asked if k not in known or k in FORBIDDEN_FIELDS)
     if bad:
         raise ValueError(f"these agent settings are not allowed in a benchmark: {', '.join(bad)}")
+    s = settings or {}
+    if s.get("max_failed_attempts"):
+        asked["max_failed_attempts"] = int(s["max_failed_attempts"])
+    if s.get("reasoning"):
+        asked["reasoning_effort"] = str(s["reasoning"])
     return asked
 
 

@@ -30,6 +30,7 @@ SMOKE_TASK = "fix-git"
 DIFFICULTY = {"easy": 0, "medium": 1, "hard": 2}
 SUBSET_SIZE = {"easy5": 5, "dev": 10}
 FULL_TRIALS = 5
+PULL_LIMIT_S = 4 * 3600.0             # a pull that stalls ends here; the registry client retries on its own long before
 EXTRA_WAIT_S = 900.0                 # image pull and build, and Harbor's own start and stop, on top of the task's agent and verifier limits
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CLOUD_KEYS = re.compile(r"(?:OPENAI|ANTHROPIC|GEMINI|GOOGLE_API|OPENROUTER|AZURE_OPENAI|XAI|MISTRAL|COHERE|GROQ|TOGETHER|DEEPSEEK|PERPLEXITY|HF_TOKEN)", re.I)
@@ -60,7 +61,7 @@ def read_task_meta(task_dir: Path) -> Dict[str, Any]:
     meta, agent, verifier, env = (data.get(k) or {} for k in ("metadata", "agent", "verifier", "environment"))
     return {"name": Path(task_dir).name, "difficulty": str(meta.get("difficulty") or "medium"), "expert_min": float(meta.get("expert_time_estimate_min") or 1e9),
             "agent_timeout": float(agent.get("timeout_sec") or 900.0), "verifier_timeout": float(verifier.get("timeout_sec") or 900.0),
-            "build_timeout": float(env.get("build_timeout_sec") or 600.0)}
+            "build_timeout": float(env.get("build_timeout_sec") or 600.0), "docker_image": str(env.get("docker_image") or "")}
 
 
 def _small_toml(text: str) -> Dict[str, Any]:
@@ -214,10 +215,20 @@ class TerminalBenchAdapter:
             argv += ["-a", "oracle"]
         else:
             agent_file = ctx.trial_dir / "agent-settings.json"
-            overrides = {**agent_overrides(settings), **({"max_failed_attempts": int(settings["max_failed_attempts"])} if settings.get("max_failed_attempts") else {})}
-            agent_file.write_text(json.dumps({"endpoint": endpoint, "overrides": overrides, "arm": "harness"}), encoding="utf-8")
+            agent_file.write_text(json.dumps({"endpoint": endpoint, "overrides": agent_overrides(settings), "arm": "harness"}), encoding="utf-8")
             argv += ["-a", AGENT_PATH, "--ak", f"settings_file={agent_file.as_posix()}"]
         return argv, jobs, job
+
+    def fetch_image(self, image: str, ctx: TrialContext) -> None:
+        """Pulls the task's prebuilt image when this PC does not have it yet, before Harbor's start-up timer begins. A failed pull is left to Harbor,
+        which then reports the environment problem itself."""
+        docker = self.which("docker")
+        if not image or not docker or ctx.should_stop():
+            return
+        env = trial_env(self.environ)
+        if self.runner([docker, "image", "inspect", image], cwd=ctx.trial_dir, env=env, timeout=120.0, should_stop=ctx.should_stop).returncode == 0:
+            return
+        self.runner([docker, "pull", image], cwd=ctx.trial_dir, env=env, timeout=PULL_LIMIT_S, should_stop=ctx.should_stop, log_path=ctx.trial_dir / "pull.log")
 
     def run_trial(self, key: Key, ctx: TrialContext) -> TrialResult:
         task = key[0]
@@ -228,6 +239,7 @@ class TerminalBenchAdapter:
         endpoint = local_endpoint(str((record.get("model") or {}).get("endpoint") or ctx.settings.get("endpoint") or ""), record.get("model"))
         ctx.trial_dir.mkdir(parents=True, exist_ok=True)
         meta = read_task_meta(task_dir)
+        self.fetch_image(meta["docker_image"], ctx)
         argv, jobs, job = self.command(key, ctx, task_dir, endpoint)
         limit = meta["agent_timeout"] + meta["verifier_timeout"] + meta["build_timeout"] + EXTRA_WAIT_S
         done = self.runner(argv, cwd=ctx.trial_dir, env=trial_env(self.environ), timeout=limit, should_stop=ctx.should_stop, log_path=ctx.trial_dir / "harbor.log")

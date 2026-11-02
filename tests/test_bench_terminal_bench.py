@@ -130,6 +130,10 @@ def test_the_command_of_a_trial(tmp_path):
     ctx2.trial_dir.mkdir(parents=True)
     argv2 = a.command(("fix-git", 1), ctx2, source / "fix-git", MODEL["endpoint"])[0]
     assert json.loads(Path(argv2[argv2.index("--ak") + 1].split("=", 1)[1]).read_text())["overrides"] == {"max_failed_attempts": 40}
+    ctx3 = ctx_for(tmp_path / "level", {"subset": "dev", "agent_config": {}, "reasoning": "medium"})
+    ctx3.trial_dir.mkdir(parents=True)
+    argv3 = a.command(("fix-git", 1), ctx3, source / "fix-git", MODEL["endpoint"])[0]
+    assert json.loads(Path(argv3[argv3.index("--ak") + 1].split("=", 1)[1]).read_text())["overrides"] == {"reasoning_effort": "medium"}
     smoke = tb.TerminalBenchAdapter(which=lambda n: "/bin/harbor").command(("fix-git", 1), ctx_for(tmp_path, {"subset": "smoke"}), source / "fix-git", MODEL["endpoint"])[0]
     assert smoke[smoke.index("-a") + 1] == "oracle" and "--ak" not in smoke
     with pytest.raises(ValueError, match="'basalt' or 'oracle'"):
@@ -211,6 +215,26 @@ def test_run_trial_runs_harbor_once_and_reads_the_trial(tmp_path):
     call = fake.calls[0]
     assert call["timeout"] == 900 + 600 + 300 + tb.EXTRA_WAIT_S and "OPENAI_API_KEY" not in call["env"] and call["cwd"] == ctx.trial_dir
     assert res.trajectory_path.startswith("trials/t/jobs/job/fix-git__abc/agent")
+
+
+def test_the_image_of_a_task_is_pulled_before_harbor_starts_only_when_it_is_missing(tmp_path):
+    for have, expected in ((False, ["inspect", "pull", "harbor"]), (True, ["inspect", "harbor"])):
+        base = tmp_path / str(have)
+        source = make_source(base)
+        toml = source / "fix-git" / "task.toml"
+        toml.write_text(toml.read_text() + 'docker_image = "alexgshaw/fix-git:1"\n', encoding="utf-8")
+        assert tb.read_task_meta(source / "fix-git")["docker_image"] == "alexgshaw/fix-git:1"
+        seen, harbor = [], FakeHarbor(reward=1.0)
+
+        def runner(args, **kw):
+            if args[0].endswith("docker"):
+                seen.append("inspect" if args[1] == "image" else args[1])
+                return Result(0 if have or args[1] == "pull" else 1, "", "")
+            seen.append("harbor")
+            return harbor(args, **kw)
+        a = tb.TerminalBenchAdapter(runner=runner, which=lambda n: "/bin/docker" if n == "docker" else "/bin/harbor")
+        assert a.run_trial(("fix-git", 1), ctx_for(base, {"subset": "dev"})).passed is True
+        assert seen == expected, (have, seen)
 
 
 def test_a_missing_result_leaves_the_trial_unjudged_and_a_stop_is_not_a_failure(tmp_path):
