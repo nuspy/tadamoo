@@ -468,6 +468,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="require a secret, written to the data folder at start, on the changes made through /api/* and on "
                          "/api/control/*; the page receives it as a cookie (default off: those routes check only that the "
                          "request comes from this PC)")
+    ap.add_argument("--control-secret-value", default="", metavar="TEXT",
+                    help="with --control-secret, use this text as the secret instead of a random one made at each start; it is "
+                         "saved in the --config file by the Loader, and written to the data folder like the random one")
     ap.add_argument("--debug", action="store_true",
                     help="log one line per request and the raw model text after each reply")
     ap.add_argument("--request-lines", action="store_true",

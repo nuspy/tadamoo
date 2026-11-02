@@ -547,7 +547,7 @@ fieldset:disabled input, fieldset:disabled select { opacity: .7; }
 .pfrow.wrap { flex-wrap: wrap; }
 .pfrow label { font: 500 15px/1.4 var(--font-sans); flex: none; }
 .pfrow select { flex: 1; min-width: 0; text-overflow: ellipsis; }
-.pfrow input[type=text] { flex: 1 1 180px; min-width: 0; min-height: 44px; padding: 8px 12px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.pfrow input[type=text], .pfrow input[type=password] { flex: 1 1 180px; min-width: 0; min-height: 44px; padding: 8px 12px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
 .pfrow .btn, .ldprof a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .filebtn { position: relative; cursor: pointer; }
 .filebtn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }

@@ -402,6 +402,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/settings":
                 if self._authorized():
                     self._settings_get()
+            elif path == "/api/control-secret":
+                if self._authorized():
+                    self._control_secret_get()
             elif path == "/api/loader":
                 if self._authorized():
                     self._json(200, loader_api.info(svc))
@@ -688,6 +691,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/settings":
                 self._settings_post()
+                return
+            if path == "/api/control-secret":
+                self._control_secret_post()
                 return
             if path == "/api/tasks":
                 try:
@@ -1166,6 +1172,66 @@ def make_handler(svc: Service, remote: bool = False):
                     else:
                         out["editable"] = True
             self._json(200, out)
+
+        def _control_secret_file(self):
+            """The --config file that holds the secret's switch and text, or None with the reply already sent."""
+            path = (getattr(svc, "settings_info", None) or {}).get("config")
+            if not path:
+                self._json(409, {"error": {"type": "invalid_request_error", "message":
+                                           "the server was started without --config: there is no settings file"}})
+            return path
+
+        def _control_secret_state(self, path):
+            return {**settings.control_secret_state(path), "running": bool(svc.control_token), "note": settings.RESTART_NOTE}
+
+        def _control_secret_get(self):
+            """GET /api/control-secret: whether the secret is asked for, whether one is saved and whether this server runs with it; never the secret."""
+            path = self._control_secret_file()
+            if path:
+                try:
+                    self._json(200, self._control_secret_state(path))
+                except (OSError, ValueError) as e:
+                    self._json(500, {"error": {"type": "server_error", "message": f"cannot read {path}: {getattr(e, 'strerror', None) or e}"}})
+
+        def _control_secret_post(self):
+            """POST /api/control-secret {"enabled": bool, "secret": text | null}: save the switch and the chosen secret in the --config file (null removes the text).
+            Only from this PC; it applies when the server starts again."""
+            try:
+                raw = self._body(settings.BODY_MAX)
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                return
+            if not settings.is_loopback(self.client_address[0]):
+                self._json(403, {"error": {"type": "forbidden", "message": "the secret can be changed only from the PC the server runs on"}})
+                return
+            try:
+                req = json.loads(raw or b"{}")
+            except ValueError:
+                req = None
+            if not isinstance(req, dict) or not ({"enabled", "secret"} & set(req)):
+                self._json(400, {"error": {"type": "invalid_request_error", "message": 'send {"enabled": true|false} and/or {"secret": "text" | null}'}})
+                return
+            path = self._control_secret_file()
+            if not path:
+                return
+            changes = {}
+            if "enabled" in req:
+                if not isinstance(req["enabled"], bool):
+                    self._json(400, {"error": {"type": "invalid_request_error", "message": "enabled is true or false"}})
+                    return
+                changes["server.control-secret"] = req["enabled"]
+            if "secret" in req:
+                changes["server.control-secret-value"] = req["secret"]
+            try:
+                result = settings.save(path, changes, settings.CONTROL_FIELDS)
+            except ValueError as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                return
+            except OSError as e:
+                self._json(500, {"error": {"type": "server_error", "message": f"cannot write {path}: {e.strerror or e}"}})
+                return
+            print(f"[server] control secret settings saved to {path}: {', '.join(result['changed']) or 'nothing changed'}", flush=True)
+            self._json(200, {"saved": True, "changed": result["changed"], **self._control_secret_state(path)})
 
         def _settings_post(self):
             """POST /api/settings {"changes": {"engine.spec": 7, "server.port": null, ...}}: validate and write them to
