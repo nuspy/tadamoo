@@ -75,6 +75,7 @@ USES: Tuple[Use, ...] = (
         prompt="harness.tool_extract:SYSTEM"),
     Use("lessons", needs_session=True, params=(Param("timeout_s", 60, 5, 600, False),), prompt="harness.lessons:POLISH_SYSTEM"),
     Use("completion_check", needs_session=True, params=(Param("timeout_s", 10, 2, 60, False),), prompt="harness.completion:SYSTEM"),
+    Use("request_review", needs_session=True, params=(Param("timeout_s", 20, 2, 120, False),), prompt="harness.review:SYSTEM"),
     Use("auto_approve", needs_session=True, default_on=False, params=(Param("max_chars", 3000, 500, 12000), Param("timeout_s", 8, 2, 60, False)),
         prompt="harness.auto_approve:SYSTEM"),
     Use("inject_screen", needs_session=True, params=(Param("max_chars", 6000, 1000, 30000), Param("timeout_s", 8, 2, 60, False)),

@@ -489,23 +489,40 @@ def test_a_message_of_only_broken_calls_is_sent_back_not_taken_as_the_final_answ
     assert (ws / "a.txt").read_text(encoding="utf-8") == "fixed" and agent.stop_reason == FINAL and len(turns) == 3
 
 
-def test_an_answer_after_tool_work_is_sent_back_once_to_be_compared_with_the_request(ws):
+def test_an_answer_after_tool_work_is_checked_once_and_a_no_sends_it_back_with_the_note(ws):
     client = ScriptedClient(call("write_file", {"path": "a.txt", "content": "A"}, "c1"), say("done"), say("done, with the package you named"))
     agent, _ = make(ws, client, final_review=True)
+    asked = []
+    agent.review = lambda request, answer, calls: asked.append((request, answer, calls)) or "[harness] Compared with the request: the package was not used."
     seen = []
     agent.on_event = seen.append
     turns = agent.run("write a using the package named in the task")
     assert agent.stop_reason == FINAL and len(turns) == 3
-    note = [m for m in client.sent[2] if m["role"] == "user" and "compare the request with what you did" in str(m["content"])]
-    assert len(note) == 1 and [e["type"] for e in seen].count("final_review") == 1
+    assert len(asked) == 1 and asked[0][0].startswith("write a using") and asked[0][1] == "done" and "write_file: a.txt" in asked[0][2]
+    assert [m for m in client.sent[2] if m["role"] == "user" and "the package was not used" in str(m["content"])]
+    assert [(e["ok"]) for e in seen if e.get("type") == "review"] == [False]
 
 
-def test_an_answer_without_tool_work_or_with_the_review_off_is_not_sent_back(ws):
+def test_a_yes_or_a_skipped_check_leaves_the_answer_as_it_is_and_no_check_runs_without_tool_work_or_with_the_review_off(ws):
+    yes = ScriptedClient(call("write_file", {"path": "a.txt", "content": "A"}, "c1"), say("done"), say("unused"))
+    agent, _ = make(ws, yes, final_review=True)
+    seen = []
+    agent.on_event = seen.append
+    agent.review = lambda *a: ""
+    assert len(agent.run("write a")) == 2 and [e["ok"] for e in seen if e.get("type") == "review"] == [True]
+    skipped = ScriptedClient(call("write_file", {"path": "a.txt", "content": "A"}, "c1"), say("done"), say("unused"))
+    agent, _ = make(ws, skipped, final_review=True)
+    seen = []
+    agent.on_event = seen.append
+    agent.review = lambda *a: None
+    assert len(agent.run("write a")) == 2 and not [e for e in seen if e.get("type") == "review"]
     plain = ScriptedClient(say("hello"), say("unused"))
     agent, _ = make(ws, plain, final_review=True)
+    agent.review = lambda *a: "[harness] no"
     assert len(agent.run("hi")) == 1
     off = ScriptedClient(call("write_file", {"path": "a.txt", "content": "A"}, "c1"), say("done"), say("unused"))
     agent, _ = make(ws, off)
+    agent.review = lambda *a: "[harness] no"
     assert len(agent.run("write a")) == 2
 
 

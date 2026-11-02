@@ -10,6 +10,9 @@ from typing import Any, Dict, List
 from harness.gate import COMMAND_CHARS, DEFAULT_ROUNDS, MAX_COMMANDS, MAX_ROUNDS, MODES, clean_commands
 
 
+CHAT_NOTES = ("review", "completion_check", "course", "todo_open")       # the notes of the harness the chat can show; each is off until the person turns it on
+
+
 class GateError(ValueError):
     """What is wrong with a value, in words for the person; `field` names it."""
 
@@ -36,7 +39,8 @@ class GatePrefs:
                 "verify_gate": data.get("verify_gate") if data.get("verify_gate") in MODES else "always",
                 "verify_rounds": rounds if isinstance(rounds, int) and not isinstance(rounds, bool) and 1 <= rounds <= MAX_ROUNDS else DEFAULT_ROUNDS,
                 "budget_grace": data.get("budget_grace") is not False,
-                "error_classifier": data.get("error_classifier") is not False}
+                "error_classifier": data.get("error_classifier") is not False,
+                "chat_notes": {k: (data.get("chat_notes") or {}).get(k) is True if isinstance(data.get("chat_notes"), dict) else False for k in CHAT_NOTES}}
 
     def write(self, changes: Dict[str, Any]) -> Dict[str, Any]:
         """Saves the values given and keeps the others; a wrong value is refused whole, with the reason."""
@@ -66,6 +70,11 @@ class GatePrefs:
                 if not isinstance(changes[key], bool):
                     raise GateError("This is on or off.", key)
                 now[key] = changes[key]
+        if "chat_notes" in changes:
+            asked = changes["chat_notes"]
+            if not isinstance(asked, dict) or any(k not in CHAT_NOTES or not isinstance(v, bool) for k, v in asked.items()):
+                raise GateError("Choose on or off for each note.", "chat_notes")
+            now["chat_notes"] = {**now["chat_notes"], **asked}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(self.path.name + ".tmp")
         tmp.write_text(json.dumps(now, indent=2, sort_keys=True), encoding="utf-8")
@@ -75,7 +84,8 @@ class GatePrefs:
     def view(self) -> Dict[str, Any]:
         """The values and the facts the page shows beside them."""
         return {**self.read(), "modes": list(MODES), "limits": {"verify_rounds": [1, MAX_ROUNDS], "commands": MAX_COMMANDS, "command_chars": COMMAND_CHARS},
-                "defaults": {"verify_gate": "always", "verify_rounds": DEFAULT_ROUNDS, "budget_grace": True, "error_classifier": True}}
+                "chat_note_kinds": list(CHAT_NOTES),
+                "defaults": {"verify_gate": "always", "verify_rounds": DEFAULT_ROUNDS, "budget_grace": True, "error_classifier": True, "chat_notes": {k: False for k in CHAT_NOTES}}}
 
     def flags(self) -> List[str]:
         """The options a conversation's process is started with."""

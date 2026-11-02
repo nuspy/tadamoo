@@ -30,7 +30,7 @@ from harness.rule_of_two import LEVELS
 from harness.syntax_check import DEFAULT_GUARD as DEFAULT_EDIT_GUARD, GUARD_LEVELS as EDIT_GUARD_LEVELS
 from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
 from harness import digest
-from harness import auto_approve, awareness, completion, course, inject_screen, lessons, nextsteps, persistence, memory_rank, repeats, side_uses, tool_extract
+from harness import auto_approve, awareness, completion, course, inject_screen, lessons, nextsteps, persistence, memory_rank, repeats, review, side_uses, tool_extract
 from harness.side import side_context, side_extra, side_extra_for, use as side_use
 from harness.prompt_blocks import instruction_blocks
 from harness.project_profile import clean_list
@@ -920,6 +920,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
 
         agent.lessons_for = lambda request: lessons.block_for(request, lessons_store)
         agent.learn = keep_lessons
+    agent.review = review.make_review(technical if technical is not None else client)
     agent.completion = completion.make_completion(persistence.enabled, technical if technical is not None else client)
     if cfg.course_watch:
         agent.course = course.Watcher(getattr(agent, "lessons_for", None))
