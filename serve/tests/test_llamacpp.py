@@ -38,7 +38,7 @@ class FakeHost:
         self.version_text = "version: 6000 (abc1234)\nbuilt with clang"
         self.runs, self.procs, self.killed = [], [], []
         self.busy_ports, self.health = set(), {}
-        self.release, self.fetches = None, 0
+        self.release, self.fetches, self.release_list = None, 0, None
         self.contents, self.downloads = {}, []
 
     def environ(self):
@@ -81,6 +81,8 @@ class FakeHost:
 
     def fetch_json(self, url):
         self.fetches += 1
+        if url.endswith("per_page=20") and self.release_list is not None:
+            return self.release_list
         if isinstance(self.release, Exception):
             raise self.release
         return self.release
@@ -270,6 +272,13 @@ class Updating(Base):
         self.assertTrue(plan["needs_confirmation"])
         self.assertEqual((self.host.fetches, self.host.downloads), (1, []))
         self.assertEqual(self.mgr.status()["plan"]["token"], plan["token"])
+
+    def test_when_the_latest_tag_carries_no_binaries_the_newest_release_that_has_one_is_offered(self):
+        self.host.release = {"tag_name": "v0.8.0", "assets": [{"name": "nightly-tag.txt", "size": 4, "browser_download_url": "https://github.com/x/nightly-tag.txt"}]}
+        self.host.release_list = [{"tag_name": "v0.8.0", "assets": []}, release(win_main=self.main, win_rt=self.rt)]
+        plan = self.mgr.update_check()
+        self.assertEqual(plan["release"], "b6100")
+        self.assertEqual(self.host.downloads, [])
 
     def test_linux_and_mac_take_their_own_build_and_no_build_is_said(self):
         self.host.platform = "linux"

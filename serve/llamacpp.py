@@ -34,6 +34,7 @@ from serve import ROOT
 EXE = "llama-server" + (".exe" if os.name == "nt" else "")
 ENV_PATH = "BASALT_LLAMA_SERVER"
 RELEASES_URL = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
+RELEASE_LIST_URL = "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=20"
 DOWNLOAD_HOSTS = ("github.com", "githubusercontent.com")        # a release file may come only from these hosts
 SETTINGS_KEY = "llamacpp"
 DEFAULTS = {"port": 8080, "ctx": 8192, "ngl": 99, "parallel": 1, "alias": "", "autostart": False}
@@ -395,6 +396,17 @@ class LlamaCpp:
             raise LlamaError(502, "release_unreadable", "The release list is not in the form expected.")
         tag = str(release["tag_name"])
         files = self._assets_for(release.get("assets") or [])
+        if not files:                                             # the latest tag may carry no binaries: the newest release that has a build for this system is used
+            try:
+                listed = self.host.fetch_json(RELEASE_LIST_URL)
+            except Exception:
+                listed = []
+            for candidate in listed if isinstance(listed, list) else []:
+                if isinstance(candidate, dict) and candidate.get("tag_name") and not candidate.get("draft") and not candidate.get("prerelease"):
+                    found = self._assets_for(candidate.get("assets") or [])
+                    if found:
+                        release, tag, files = candidate, str(candidate["tag_name"]), found
+                        break
         if not files:
             raise LlamaError(404, "no_asset", f"Release {tag} has no build for this system.")
         for f in files:
