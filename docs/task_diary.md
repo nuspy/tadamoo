@@ -63,6 +63,12 @@ Stato (1 novembre, sera): committati il blocco «cosa sei» con `self_status` (`
 
 ## In coda, senza GPU
 
+- Regole per l'harness dai fallimenti di Terminal-Bench (da costruire dopo la corsa in corso, perché ogni compito importa
+  l'harness dal repository): (1) se il prompt o l'utente indica uno strumento, si usa quello; se non riesce, si avvisa, si
+  chiedono indicazioni e al massimo si propone un altro strumento, mai cambiarlo da soli (tua decisione del 2 novembre);
+  correggere i parametri di una chiamata resta ammesso; (2) prima di dire «fatto» confrontare la richiesta con ciò che è
+  stato fatto e dichiarare ciò che non è stato verificato; (3) controllo di plausibilità sui valori trovati; (4) strategia
+  mista: livello medio sui compiti semplici, alto sui complessi.
 - Unire le rifiniture della casella «Ottimizza il prompt» (commit `e6708707`): sempre spegnibile, riga «Sto riscrivendo il
   prompt…», esperimento E8 esteso a richieste vaghe e lunghe.
 - Rifare la suite completa su una macchina ferma (oggi i timeout verso 127.0.0.1 fanno fallire test diversi a ogni giro).
