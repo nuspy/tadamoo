@@ -63,7 +63,7 @@ Stato (1 novembre, sera): committati il blocco «cosa sei» con `self_status` (`
 
 ## In coda, senza GPU
 
-- Livello di ragionamento automatico: discussione scritta in `docs/auto-reasoning-level.md` (livello e tetto di pensiero sono due manopole diverse,
+- Livello di ragionamento automatico: discussione scritta in `docs/auto-reasoning-level.md` (nessun tetto al pensiero, tua decisione del 2 novembre: solo il livello;
   la cache, calibrazione per politiche, decisione per passo). Niente costruito: attende la fine della corsa e le tue risposte.
 - Regole per l'harness dai fallimenti di Terminal-Bench (da costruire dopo la corsa in corso, perché ogni compito importa
   l'harness dal repository): (1) se il prompt o l'utente indica uno strumento, si usa quello; se non riesce, si avvisa, si
