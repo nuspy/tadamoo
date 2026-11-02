@@ -65,7 +65,7 @@
     const shown = state.master === false ? T("su.state.master_off") : text;           // the chat's own switch is off: every use is off, whatever is set below
     document.getElementById("su-state").textContent = shown;
     document.getElementById("su-dlg-state").textContent = shown;
-    dlg.dataset.off = state.session.available ? "" : "1";
+    dlg.dataset.off = state.session.available && state.master !== false ? "" : "1";
     paintRoute();
   }
 

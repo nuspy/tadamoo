@@ -33,10 +33,17 @@ class CodePage(unittest.TestCase):
         self.assertIn("m.codeOf === len", ask)                                                       # asked once for a message that did not change
         self.assertNotIn("m.text =", ask)                                                            # what the person sees is not touched
         wire = CHAT[CHAT.index("function apiMessages"):CHAT.index("/* ---- the context")]
-        self.assertIn("!agent() && m.codeAbstract && m.codeOf === (m.text || \"\").length && messages.length - 1 - i >= prefs.codeKeep", wire)
+        self.assertIn("!agent() && m.codeAbstract && m.codeOf === (m.text || \"\").length && sentCount() - 1 - i >= prefs.codeKeep", wire)
         self.assertEqual(wire.count("codeSaid(m, i,"), 3)                                            # the user's text, the same with images, the reply
         self.assertIn("await codeAbstracts();", CHAT)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_the_chat_counts_the_messages_sent_without_the_reply_being_written_and_indexes_the_words_of_each_message():
+    from pathlib import Path
+    js = (Path(__file__).resolve().parent.parent / "web" / "chat.js").read_text(encoding="utf-8")
+    assert "const sentCount = " in js and "sentCount() - 1 - i >= prefs.codeKeep" in js and "i < sentCount() - keep" in js
+    assert "wordsOf(m.text != null ? m.text : m.content)" in js                          # the words of a chat message are kept in `text`

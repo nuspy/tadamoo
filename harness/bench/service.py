@@ -102,7 +102,7 @@ class BenchService:
             return _fail(exc.args[0])
         checks = preflight.run_checks(spec, self.base_dir, self.probes)
         installed = importer.status(spec, self.base_dir)["installed"]
-        checks.insert(0, preflight.check("installed", installed, "the benchmark is imported" if installed else "the benchmark has not been imported yet", "Press Install for this benchmark first."))
+        checks.insert(0, preflight.check("installed", installed, "the benchmark is imported" if installed else "the benchmark has not been imported yet", "Press Import for this benchmark first."))
         checks.append(preflight.check("adapter", self._adapter_state(spec_id)["available"], "the adapter is written" if self._adapter_state(spec_id)["available"] else self._adapter_state(spec_id)["reason"],
                                       "Not possible yet: the adapter for this benchmark has to be written first."))
         return {"ok": True, "id": spec_id, "ready": preflight.ready(checks), "checks": checks}

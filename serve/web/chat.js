@@ -278,7 +278,7 @@
     if (isPrivate()) return;
     indexTimer = setTimeout(() => {
       if (busy) return indexSoon();
-      const turns = messages.filter(m => m && (m.role === "user" || m.role === "assistant")).map(m => ({ role: m.role, content: wordsOf(m.content) })).filter(m => m.content);
+      const turns = messages.filter(m => m && (m.role === "user" || m.role === "assistant")).map(m => ({ role: m.role, content: wordsOf(m.text != null ? m.text : m.content) })).filter(m => m.content);
       if (!turns.length) return;
       const first = turns.find(m => m.role === "user");
       fetch("/api/past/chat", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -341,10 +341,11 @@
      screen and in the saved copy is not touched. Chat only; the Agent keeps its code whole. */
   const CODE_KEEP = 4;
   const codeLike = t => /```/.test(t) || (t.split("\n").length >= 6 && (t.match(/^\s*(def |class |import |from \S+ import |function[ (]|const |let |var |#include|public |private |return\b)|;\s*$|^\s*[{}]\s*$/gm) || []).length >= 0.4 * t.split("\n").length);
+  const sentCount = () => { const l = messages[messages.length - 1]; return messages.length - (l && l.role === "assistant" && !(l.text || "") ? 1 : 0); };      // the reply being written is not a message of the request
   async function codeAbstracts() {
     if (agent()) return;
     const keep = absPrefs().codeKeep;
-    for (let i = 0; i < messages.length - keep; i++) {
+    for (let i = 0; i < sentCount() - keep; i++) {
       const m = messages[i], len = (m.text || "").length;
       if ((m.role !== "user" && m.role !== "assistant") || m.error || !len || m.codeOf === len || m.codeNone === len || !codeLike(m.text)) continue;
       try {
@@ -370,7 +371,7 @@
   function apiMessages(full) {
     const out = [], at = [];
     const usersAfter = [], prefs = absPrefs();
-    const codeSaid = (m, i, text) => !agent() && m.codeAbstract && m.codeOf === (m.text || "").length && messages.length - 1 - i >= prefs.codeKeep ? m.codeAbstract : text;      // old code as its description
+    const codeSaid = (m, i, text) => !agent() && m.codeAbstract && m.codeOf === (m.text || "").length && sentCount() - 1 - i >= prefs.codeKeep ? m.codeAbstract : text;      // old code as its description
     for (let k = messages.length - 1, u = 0; k >= 0; k--) { usersAfter[k] = u; if (messages[k].role === "user") u++; }
     const sys = chatSettings.system();
     if (sys) { out.push({ role: "system", content: sys }); at.push(-1); }
