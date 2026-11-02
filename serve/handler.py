@@ -1040,10 +1040,9 @@ def make_handler(svc: Service, remote: bool = False):
             return False
 
         def _control_secret(self) -> bool:
-            """The control routes need the secret the server wrote to its data folder at start; the API key is not enough."""
+            """With --control-secret the control routes need the secret the server wrote to its data folder at start; the API key is not enough."""
             if not svc.control_token:
-                self._json(403, {"error": {"type": "forbidden", "message": "this server has no control secret"}})
-                return False
+                return True
             if not key_matches(self.headers.get(CONTROL_HEADER, ""), svc.control_token):
                 self._json(403, {"error": {"type": "forbidden", "message": f"the {CONTROL_HEADER} header is missing or wrong"}})
                 return False

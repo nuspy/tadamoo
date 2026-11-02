@@ -223,10 +223,11 @@ static class Native
         {
             string data = Environment.GetEnvironmentVariable("BASALT_DATA");
             string dir = string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello") : data;
-            string secret = File.ReadAllText(Path.Combine(dir, $"control-{port}.token")).Trim();
+            string file = Path.Combine(dir, $"control-{port}.token");
+            string secret = File.Exists(file) ? File.ReadAllText(file).Trim() : "";
             using var c = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(90) };
             using var req = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{port}/api/control/unload") { Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json") };
-            req.Headers.Add("X-Basalt-Control", secret);
+            if (secret.Length > 0) req.Headers.Add("X-Basalt-Control", secret);
             using var r = c.SendAsync(req).GetAwaiter().GetResult();
             return r.IsSuccessStatusCode;
         }
