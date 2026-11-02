@@ -65,6 +65,8 @@ TODO_NOTE = ("[harness] Your checklist still has unfinished items:\n{items}\nFin
 REVIEW_NOTE = ("[harness] Before you finish, compare the request with what you did, one requirement at a time. For everything it names (tool, package, version, "
                "date, unit, file, output format) check that you used exactly that. If one was not respected, redo the work or say so plainly in your answer; "
                "do not call a substitute equivalent unless you checked that it is. Then answer.")
+UNREACHABLE_WAIT_FIRST = 2.0   # seconds before the first new try when the server cannot be reached; it doubles up to the cap
+UNREACHABLE_WAIT_MAX = 60.0
 MAX_CONTINUATIONS = 2          # times a reply cut by the output limit is asked to go on, per request
 MAX_CUT_RETRIES = 3            # times a tool call cut by the output limit is asked for again, each with twice the room
 RETRY_TOKENS = 8192            # the room a cut tool call is asked again with when neither the setting nor the answer says how much it had
@@ -265,6 +267,7 @@ class AgentLoop:
         self.max_failed_attempts = max_failed_attempts       # failed calls and failed checks one request may use up; 0 is no limit
         self.final_review = final_review                     # an answer that follows tool work is sent back once to be compared with the request
         self._failed_attempts = 0
+        self._reached = False                                # the server has answered at least once: a lost connection after that is waited out
         self.context = context
         self.on_event = on_event
         self.on_delta = on_delta                  # the model's text as it is written ("content" or "reasoning"), when set
@@ -865,7 +868,7 @@ class AgentLoop:
             try:
                 if self.context:
                     self._prepare_context()
-                done = self._complete()
+                done = self._complete_waiting(started)
                 self._note_usage(done)
             except StreamCancelled:                     # the person stopped the answer while it was being written
                 self.stop_reason = CANCELLED
@@ -1092,6 +1095,24 @@ class AgentLoop:
         if note:
             messages.append({"role": "user", "content": note})          # the role's note ends the request and is not kept, so the start of the prompt never changes
         return self.client.chat_completion(messages=messages, tools=self.tools.schemas(), **kwargs)
+
+    def _complete_waiting(self, started: float) -> "_Completion":
+        """`_complete`, asked again while the server cannot be reached after it has answered once: the wait grows between tries, with no limit on
+        the tries. Only the request's own budget or a cancel ends it (a cancel as the person stopping the answer; the budget as the unreachable error)."""
+        waits = 0
+        while True:
+            try:
+                done = self._complete()
+                self._reached = True
+                return done
+            except BasaltError as exc:
+                if exc.status != 0 or not self._reached or self._out_of_budget(started):
+                    raise
+                wait = min(UNREACHABLE_WAIT_MAX, UNREACHABLE_WAIT_FIRST * 2 ** waits)
+                waits += 1
+                self._emit({"type": "server_unreachable", "attempt": waits, "wait_s": wait})
+                if self.cancel.wait(wait):
+                    raise StreamCancelled() from None
 
     def _complete(self) -> "_Completion":
         """The model's reply for the conversation as it stands. Two failures are put right without touching the conversation: a stream

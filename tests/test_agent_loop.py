@@ -507,3 +507,47 @@ def test_an_answer_without_tool_work_or_with_the_review_off_is_not_sent_back(ws)
     off = ScriptedClient(call("write_file", {"path": "a.txt", "content": "A"}, "c1"), say("done"), say("unused"))
     agent, _ = make(ws, off)
     assert len(agent.run("write a")) == 2
+
+
+class _Flaky(ScriptedClient):
+    """Cannot be reached for the first `down` calls after it has answered once."""
+
+    def __init__(self, *steps, down=2):
+        super().__init__(*steps)
+        self.down, self.calls = down, 0
+
+    def chat_completion(self, *a, **kw):
+        self.calls += 1
+        if self.calls > 1 and self.down > 0:
+            self.down -= 1
+            raise BasaltError(0, "cannot reach the Basalt server")
+        return super().chat_completion(*a, **kw)
+
+
+def test_a_lost_connection_is_waited_out_and_the_run_goes_on(ws, monkeypatch):
+    import harness.agent_loop as al
+    monkeypatch.setattr(al, "UNREACHABLE_WAIT_FIRST", 0.01)
+    client = _Flaky(call("write_file", {"path": "a.txt", "content": "A"}, "c1"), say("done"), down=3)
+    agent, _ = make(ws, client)
+    seen = []
+    agent.on_event = seen.append
+    turns = agent.run("write a")
+    assert agent.stop_reason == FINAL and len(turns) == 2
+    assert [e["attempt"] for e in seen if e.get("type") == "server_unreachable"] == [1, 2, 3]
+
+
+def test_a_server_that_never_answered_is_reported_at_once(ws):
+    class Down:
+        def chat_completion(self, *a, **kw):
+            raise BasaltError(0, "cannot reach the Basalt server")
+    agent, _ = make(ws, Down())
+    agent.run("hi")
+    assert agent.error_status == 0
+
+
+def test_a_cancel_ends_the_wait_for_a_lost_connection(ws):
+    client = _Flaky(call("write_file", {"path": "a.txt", "content": "A"}, "c1"), say("done"), down=99)
+    agent, _ = make(ws, client)
+    threading.Timer(0.3, agent.cancel.set).start()
+    agent.run("write a")
+    assert agent.stop_reason == "cancelled"
