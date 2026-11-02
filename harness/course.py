@@ -14,10 +14,18 @@ COOLDOWN_STEPS = 2                  # steps between two actions of the watcher
 STREAK = 3                         # failed calls in a row, with no file written or edited between, whatever they were: a note; this many again: a card
 REPEAT_ERRORS = 2                   # the same failure this many times: a note; this many again after it: a card
 GATE_RETRIES = 2
+VARIANTS = 6                        # commands of nearly the same shape among the last ones, whatever their result: a note (no card: it is a way of working, not a failure)
+VARIANT_WINDOW = 14
+SIMILAR = 0.6                       # the share of words two commands must have in common to be variants of one another
+MIN_WORDS = 6                       # a shorter command (a listing, a read) is not an analysis that can be varied
+SCRIPT_TOOLS = frozenset(("shell_command", "run_code"))
+VARIANT_ADVICE = ("Change the question, not the parameters: write down in one sentence what you believe the data or the situation is (units, scale, origin, "
+                  "values to expect), test that belief with a different kind of check, or ask the person.")
 FOLD_NEAR = 0.9                     # the share of the masking threshold at which the agent is told a fold is near
 HALF, THREE_QUARTERS = 0.5, 0.75    # the share of the steps used with the checklist not moving
 WRITES = frozenset(("write_file", "edit_file", "write_output_file"))     # a successful one of these is progress: it ends a run of failures
 _DIGITS = re.compile(r"\d+")
+_WORDS = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 _EXIT = re.compile(r'^\{"exit_code":\s*(-?\d+)')
 _STDERR = re.compile(r'"stderr":\s*"((?:[^"\\]|\\.){0,120})')
 
@@ -65,6 +73,8 @@ class Watcher:
         self.noted: Dict[str, int] = {}                 # signal -> its count when the agent was last told
         self.carded: set = set()
         self.fold_told = False
+        self.recent: List[frozenset] = []              # the words of the last commands that can be varied
+        self.variants = 0                              # the most commands of one shape seen among the last ones
         self.last_step = -10
 
     def observe(self, event: Dict[str, Any]) -> None:
@@ -78,6 +88,13 @@ class Watcher:
                 self.streak = 0
         elif kind == "gate" and event.get("decision") == "retry":
             self.gate_retries += 1
+        elif kind == "tool_start" and not event.get("gate") and event.get("name") in SCRIPT_TOOLS:
+            args = event.get("arguments") or {}
+            words = frozenset(_WORDS.findall(str(args.get("command") or args.get("code") or "")))
+            if len(words) >= MIN_WORDS:
+                like = 1 + sum(1 for w in self.recent if len(w & words) / len(w | words) >= SIMILAR)
+                self.variants = max(self.variants, like)
+                self.recent = (self.recent + [words])[-VARIANT_WINDOW:]
 
     def _stage(self, key: str, count: int, note_at: int, card_at: int) -> str:
         """"note" the first time a signal reaches `note_at`, "card" once it has grown by `card_at` after that, else ""."""
@@ -111,6 +128,9 @@ class Watcher:
         stage = "" if any(k.startswith("error:") for k in self.noted) else self._stage("streak", self.streak, STREAK, STREAK)       # the same failure was already told
         if stage:
             return self._action("streak", stage, f"{self.streak} calls in a row failed and nothing was written or fixed in between", "repeated failures")
+        stage = self._stage("variants", self.variants, VARIANTS, 1 << 30)
+        if stage:
+            return self._action("variants", stage, f"{self.variants} of my last commands are variations of the same one", "same road repeated", VARIANT_ADVICE)
         stage = self._stage("gate", self.gate_retries, GATE_RETRIES, 1)
         if stage:
             return self._action("gate", stage, f"the project's checks failed {self.gate_retries} times", "checks failed")
@@ -135,7 +155,7 @@ class Watcher:
                                               "file names, what is done and what is left) in your plan or notes now, and keep working. The originals stay on disk.")
         return None
 
-    def _action(self, kind: str, stage: str, problem: str, query: str) -> Action:
+    def _action(self, kind: str, stage: str, problem: str, query: str, advice: str = "") -> Action:
         lesson = ""
         if self.lessons_for is not None:
             try:
@@ -147,6 +167,6 @@ class Watcher:
             if line.startswith("- ") and "fix" in line.lower():
                 fix = line.split("fix", 1)[1].lstrip(": ").strip()[:200]
                 break
-        text = (f"[harness] Course check: {problem}. Change what you are doing: a different tool, other arguments, a smaller step, or ask the person if the "
-                f"decision is theirs." + (f"\n{lesson}" if lesson else ""))
+        advice = advice or "Change what you are doing: a different tool, other arguments, a smaller step, or ask the person if the decision is theirs."
+        text = f"[harness] Course check: {problem}. {advice}" + (f"\n{lesson}" if lesson else "")
         return Action(kind, stage, text, problem, fix)

@@ -421,6 +421,8 @@
         } else if (d.type === "tool_start") {
           if (d.name === "ask_user") break;                                    // its question is shown by the question itself
           addBlock({ t: "tool", id: d.call_id, name: d.name, args: d.arguments || {}, status: "running", output: "", description: explainOf(d.description) }, e.turn);
+        } else if (d.type === "server_unreachable") {                              // the model server cannot be reached: the agent waits and asks again, and says so
+          addBlock({ t: "note", s: T("ch.retrying", d.attempt, Math.round(d.wait_s || 0)) }, e.turn);
         } else if (d.type === "review") {                                         // the technical session's look at whether the request was followed as named
           if (noteOn("review")) addBlock({ t: "note", s: d.ok ? T("ch.review.ok") : T("ch.review.no", String(d.note || "").replace(/^\[harness\]\s*/, "").slice(0, 240)) }, e.turn);
         } else if (d.type === "todo_open") {                                       // the agent goes back to a checklist with open items

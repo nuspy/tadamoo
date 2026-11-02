@@ -568,3 +568,19 @@ def test_a_cancel_ends_the_wait_for_a_lost_connection(ws):
     threading.Timer(0.3, agent.cancel.set).start()
     agent.run("write a")
     assert agent.stop_reason == "cancelled"
+
+
+def test_a_request_with_a_time_budget_gets_the_clock_as_an_unkept_last_note_and_a_slow_call_says_how_long_it_took(ws, monkeypatch):
+    import harness.agent_loop as al
+    monkeypatch.setattr(al, "TOOL_TIME_NOTE_S", 0.0)
+    client = ScriptedClient(call("write_file", {"path": "a.txt", "content": "A"}, "c1"), say("done"))
+    agent, _ = make(ws, client, max_seconds=900.0)
+    agent.run("write a")
+    last = [m for m in client.sent[1] if m["role"] == "user"][-1]["content"]
+    assert last.startswith("[harness] Time used: ") and "of 15 min 0 s" in last and "left)." in last
+    assert "[harness] Time used" not in json.dumps(agent.messages)                    # the clock is not kept in the conversation
+    assert "[harness] This call took " in [m for m in client.sent[1] if m["role"] == "tool"][-1]["content"]
+    plain = ScriptedClient(say("hi"))
+    agent, _ = make(ws, plain)
+    agent.run("hi")
+    assert not any("Time used" in str(m.get("content")) for m in plain.sent[0])

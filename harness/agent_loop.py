@@ -55,8 +55,9 @@ CORRECTION = re.compile(r"^\W*(no\b|non è (?:così|quello|giusto|corretto)|non 
 MAX_COMPLETION_ROUNDS = 2      # times the completion check may send the model back to finish, per request
 MAX_STOP_DENIALS = 2           # times a stop hook may send the model back to work, per request
 BUDGET_WARN_AT = 0.9           # the share of a budget used at which the model is told it is nearly spent
-BUDGET_WARNING = ("[harness] The budget for this answer is nearly used up. Finish what matters most now, and let your last message say what "
-                  "is done and what is not.")
+BUDGET_WARNING = ("[harness] The budget for this answer is nearly used up. Save now the result that was asked for, even if it is not complete, finish "
+                  "what matters most, and let your last message say what is done and what is not.")
+TOOL_TIME_NOTE_S = 10.0        # a call that took at least this long says so in its result, because the model has no sense of time
 CODE_MASKED_NOTE = ("[harness] The code kept whole in this session passed its share of the room, so the oldest code results were replaced by a note with the "
                     "path of the saved full text ({paths}). Read them again with read_file when you need their lines.")
 GRACE_NOTE = ("[harness] The budget for this answer is used up. Do not call any tool. Write your final report now: what is done, what is "
@@ -265,7 +266,8 @@ class AgentLoop:
         self.max_failed_attempts = max_failed_attempts       # failed calls and failed checks one request may use up; 0 is no limit
         self.final_review = final_review                     # an answer that follows tool work is sent back once to be compared with the request
         self._failed_attempts = 0
-        self._reached = False                                # the server has answered at least once: a lost connection after that is waited out
+        self._run_started = time.monotonic()
+        self._reached = False                               # the server has answered at least once: a lost connection after that is waited out
         self.context = context
         self.on_event = on_event
         self.on_delta = on_delta                  # the model's text as it is written ("content" or "reasoning"), when set
@@ -819,7 +821,7 @@ class AgentLoop:
 
         The conversation continues across calls; `stop_reason` and `error` tell why this call ended. With no goal
         nothing is added to the conversation: it goes on from where it stands, as after a failed model call."""
-        started = time.monotonic()
+        started = self._run_started = time.monotonic()
         self.stop_reason, self.error, self.error_status, self._loop_strikes = "", "", None, 0
         self._failed_attempts = 0
         self.length_stops, self.cut, self._invalid_strike = 0, False, False
@@ -980,6 +982,7 @@ class AgentLoop:
                 self._emit({"type": "tool_start", "call_id": call.call_id, "name": call.name,
                             "arguments": shown_args if isinstance(shown_args, dict) else {},
                             "effect": tool.effect.value if tool else None, **({"description": description} if description else {})})
+                t_call = time.monotonic()
                 result = self._execute(call, checkpointed)
                 turn.tool_calls.append(result)
                 text = result_text = self._stringify(call.name, result.output)
@@ -995,6 +998,8 @@ class AgentLoop:
                     text += "\n" + seen_by_guard.note
                 if result.feedback:
                     text += "\n[harness] " + result.feedback
+                if result.decision == "executed" and time.monotonic() - t_call >= TOOL_TIME_NOTE_S:
+                    text += f"\n[harness] This call took {int(time.monotonic() - t_call)} s."
                 self._emit({"type": "tool_end", "call_id": call.call_id, "name": call.name,
                             "status": "completed" if result.decision == "executed" and not result.is_error else "failed",
                             "decision": result.decision, "output": text})
@@ -1091,10 +1096,18 @@ class AgentLoop:
                     raise RepetitionAbort(guard.kind)
             kwargs["on_delta"] = on_delta
         messages = wire_messages(self.messages)
-        note = self.role.note() if self.role is not None else ""
+        note = "\n".join(x for x in (self.role.note() if self.role is not None else "", self._clock_note()) if x)
         if note:
-            messages.append({"role": "user", "content": note})          # the role's note ends the request and is not kept, so the start of the prompt never changes
+            messages.append({"role": "user", "content": note})          # the role's note and the clock end the request and are not kept, so the start of the prompt never changes
         return self.client.chat_completion(messages=messages, tools=self.tools.schemas(), **kwargs)
+
+    def _clock_note(self) -> str:
+        """The time of the request as the harness measured it, for a model that has no sense of it; empty when the request has no time budget."""
+        if not self.max_seconds or self.subagent:
+            return ""
+        used = time.monotonic() - self._run_started
+        minutes = lambda seconds: f"{int(seconds // 60)} min {int(seconds % 60)} s" if seconds >= 60 else f"{int(seconds)} s"
+        return f"[harness] Time used: {minutes(used)} of {minutes(self.max_seconds)} ({minutes(max(0.0, self.max_seconds - used))} left)."
 
     def _complete_waiting(self, started: float) -> "_Completion":
         """`_complete`, asked again while the server cannot be reached after it has answered once: the wait grows between tries, with no limit on
