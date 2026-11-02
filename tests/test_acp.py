@@ -60,7 +60,7 @@ class Editor:
         self.ws.mkdir(exist_ok=True)
         self.pipe, self.out, self.client, self.answer = Pipe(), Out(), client, answer
         self.server = ACPAgentServer(workspace_dir=str(self.ws), client=client, in_stream=self.pipe, out_stream=self.out,
-                                     data_dir=str(tmp_path / "data"), settings=settings, **server_args)
+                                     data_dir=str(tmp_path / "data"), settings={"final_review": False, **(settings or {})}, **server_args)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self._id = 0
@@ -325,7 +325,7 @@ def test_the_agent_runs_as_a_subprocess_over_stdio_against_the_real_server(tmp_p
 
     ROOT = Path(__file__).resolve().parents[1]
     tok = ByteTokenizer()
-    svc = Service(MockEngine(tok, [tool_call("write_file", path="é.txt", content="ciao è"), answer("Fatto: è scritto")], max_context=32768),
+    svc = Service(MockEngine(tok, [tool_call("write_file", path="é.txt", content="ciao è"), answer("Fatto: è scritto"), answer("Controllato: è scritto")], max_context=32768),
                   tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
     svc.telemetry = type("T", (), {"snapshot": lambda self: {"now": {"gpus": []}, "history": {}, "static": {"gpus": []}}})()
     httpd = serve(svc, port=0)
@@ -359,7 +359,7 @@ def test_the_agent_runs_as_a_subprocess_over_stdio_against_the_real_server(tmp_p
         assert read_until(3)["result"]["stopReason"] == "end_turn"
         texts = [m["params"]["update"]["content"]["text"] for m in seen
                  if m.get("method") == "session/update" and m["params"]["update"]["sessionUpdate"] == "agent_message_chunk"]
-        assert texts == ["Fatto: è scritto"]
+        assert texts == ["Fatto: è scritto", "Controllato: è scritto"]       # the answer, then the one after the comparison with the request
         assert (ws / "é.txt").read_text(encoding="utf-8") == "ciao è"
         diffs = [c for m in seen if m.get("method") == "session/update"
                  for c in m["params"]["update"].get("content", []) if isinstance(c, dict) and c.get("type") == "diff"]

@@ -62,6 +62,9 @@ GRACE_NOTE = ("[harness] The budget for this answer is used up. Do not call any 
               "not done, and what the next step is.")
 TODO_NOTE = ("[harness] Your checklist still has unfinished items:\n{items}\nFinish them, or update the list with todo_write if they no longer "
              "apply, then answer again.")
+REVIEW_NOTE = ("[harness] Before you finish, compare the request with what you did, one requirement at a time. For everything it names (tool, package, version, "
+               "date, unit, file, output format) check that you used exactly that. If one was not respected, redo the work or say so plainly in your answer; "
+               "do not call a substitute equivalent unless you checked that it is. Then answer.")
 MAX_CONTINUATIONS = 2          # times a reply cut by the output limit is asked to go on, per request
 MAX_CUT_RETRIES = 3            # times a tool call cut by the output limit is asked for again, each with twice the room
 RETRY_TOKENS = 8192            # the room a cut tool call is asked again with when neither the setting nor the answer says how much it had
@@ -228,6 +231,7 @@ class AgentLoop:
         cancel: Optional[threading.Event] = None,
         max_loop_strikes: int = 2,
         max_failed_attempts: int = 0,
+        final_review: bool = False,
         context: Optional[ContextManager] = None,
         on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
         sampling: Optional[Dict[str, Any]] = None,
@@ -259,6 +263,7 @@ class AgentLoop:
         self.cancel = cancel or threading.Event()
         self.max_loop_strikes = max_loop_strikes
         self.max_failed_attempts = max_failed_attempts       # failed calls and failed checks one request may use up; 0 is no limit
+        self.final_review = final_review                     # an answer that follows tool work is sent back once to be compared with the request
         self._failed_attempts = 0
         self.context = context
         self.on_event = on_event
@@ -314,6 +319,8 @@ class AgentLoop:
         self._invalid_strike = False
         self._stop_denials = 0                        # times a stop hook sent the model back to work
         self._todo_nudged = False
+        self._reviewed = False                    # the answer was already sent back once to be compared with the request
+        self._request_tools = 0                   # tool calls this request has made
         self._completion_rounds = 0
         self._hinted: set = set()                 # failures a lesson was already shown for in this request
         if self.gate is not None:
@@ -326,7 +333,7 @@ class AgentLoop:
             client=self.client, tool_registry=self.tools, max_turns=self.max_turns, system_prompt=self.system_prompt,
             on_turn_end=self.on_turn_end, permissions=self.permissions, hooks=self.hooks, audit=self.audit, checkpoints=self.checkpoints,
             secrets=self.secrets, output_filter=self.output_filter, max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds,
-            cancel=threading.Event(), max_loop_strikes=self.max_loop_strikes, max_failed_attempts=self.max_failed_attempts, context=self.context, on_event=self.on_event,
+            cancel=threading.Event(), max_loop_strikes=self.max_loop_strikes, max_failed_attempts=self.max_failed_attempts, final_review=self.final_review, context=self.context, on_event=self.on_event,
             sampling=self.sampling, on_delta=self.on_delta, pipeline=self.pipeline, clock=self.clock, max_tokens=self.max_tokens,
             gate=self.gate.clone() if self.gate is not None else None, changes=self.changes, budget_grace=self.budget_grace,
             role=self.role)
@@ -481,6 +488,7 @@ class AgentLoop:
         """A failed tool call, a command that ended with an error code, or a failed check of the project is one failed attempt."""
         from harness.course import failure_of
         if event.get("type") == "tool_end" and not event.get("gate"):
+            self._request_tools += 1
             if failure_of(event) is not None:
                 self._failed_attempts += 1
         elif event.get("type") == "gate" and event.get("decision") == "retry":
@@ -1314,6 +1322,11 @@ class AgentLoop:
             self._todo_nudged = True
             self.append({"role": "user", "content": TODO_NOTE.format(items=todo.render(open_only=True)), "note": True})
             self._emit({"type": "todo_open", "count": len(todo.open_items())})
+            return True
+        if self.final_review and not self._reviewed and self._request_tools:
+            self._reviewed = True
+            self.append({"role": "user", "content": REVIEW_NOTE, "note": True})
+            self._emit({"type": "final_review"})
             return True
         if self.completion is not None and self._completion_rounds < MAX_COMPLETION_ROUNDS:
             note = self.completion(self.last_user_text, content, self._work_line())

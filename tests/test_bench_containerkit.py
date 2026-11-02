@@ -207,7 +207,8 @@ def test_the_harness_agent_acts_in_the_container_and_leaves_a_trajectory(tmp_pat
     client = Scripted(call("write_file", path="hello.txt", content="hi from the agent"), call("shell_command", command="cat hello.txt && frobnicate"), say("Done."))
     traj = TrajectoryRecorder(tmp_path / "trial" / "trajectory.jsonl")
     out = ck.run_harness_agent("make hello.txt", local_exec(root, commands), endpoint="http://127.0.0.1:7232", work_dir=tmp_path / "trial", trajectory=traj,
-                               environment_note="The system is the task's Linux container.", client=client, max_turns=8)
+                               environment_note="The system is the task's Linux container.", client=client, max_turns=8,
+                               overrides={"final_review": False})
     traj.close()
     assert out.stop_reason == "final" and out.final == "Done." and out.turns == 3 and out.tool_calls == 2
     assert (root / "hello.txt").read_text() == "hi from the agent" and not (tmp_path / "trial" / "host-workspace" / "hello.txt").exists()
@@ -236,7 +237,8 @@ def test_the_agent_cannot_use_a_tool_that_acts_on_this_pc(tmp_path):
     root.mkdir()
     client = Scripted(call("browse_url", url="http://example.com"), say("ok"))
     traj = TrajectoryRecorder(tmp_path / "trial" / "trajectory.jsonl")
-    out = ck.run_harness_agent("x", local_exec(root), endpoint="http://127.0.0.1:7232", work_dir=tmp_path / "trial", trajectory=traj, environment_note="n", client=client, max_turns=4)
+    out = ck.run_harness_agent("x", local_exec(root), endpoint="http://127.0.0.1:7232", work_dir=tmp_path / "trial", trajectory=traj, environment_note="n", client=client, max_turns=4,
+                               overrides={"final_review": False})
     traj.close()
     tool_text = json.dumps(client.sent[1][-1])
     assert out.stop_reason == "final" and "browse_url" in tool_text and "tool" in tool_text.lower()

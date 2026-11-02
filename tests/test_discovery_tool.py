@@ -334,7 +334,7 @@ def test_a_server_installed_by_basalt_starts_with_the_one_key_it_asks_for_from_t
     vault = Vault(tmp_path / "vault")
 
     def build():
-        return build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False, capabilities=True,
+        return build_agent(AgentConfig(final_review=False, workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False, capabilities=True,
                                        capabilities_dir=str(caps), capabilities_home=str(home), vault_dir=str(tmp_path / "vault")), client=object())
     built = build()
     assert built.agent.tools.get("find_online_capability") is not None and getattr(built.agent.tools, "capability_ask", None) is not None
