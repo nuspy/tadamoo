@@ -125,6 +125,11 @@ def test_the_command_of_a_trial(tmp_path):
     assert not any("timeout" in x for x in argv)                  # the task's own limits are never changed
     settings_file = Path(argv[argv.index("--ak") + 1].split("=", 1)[1])
     assert json.loads(settings_file.read_text())["endpoint"] == MODEL["endpoint"]
+    assert json.loads(settings_file.read_text())["overrides"] == {}
+    ctx2 = ctx_for(tmp_path / "steps", {"subset": "dev", "agent_config": {}, "max_failed_attempts": 40})
+    ctx2.trial_dir.mkdir(parents=True)
+    argv2 = a.command(("fix-git", 1), ctx2, source / "fix-git", MODEL["endpoint"])[0]
+    assert json.loads(Path(argv2[argv2.index("--ak") + 1].split("=", 1)[1]).read_text())["overrides"] == {"max_failed_attempts": 40}
     smoke = tb.TerminalBenchAdapter(which=lambda n: "/bin/harbor").command(("fix-git", 1), ctx_for(tmp_path, {"subset": "smoke"}), source / "fix-git", MODEL["endpoint"])[0]
     assert smoke[smoke.index("-a") + 1] == "oracle" and "--ak" not in smoke
     with pytest.raises(ValueError, match="'basalt' or 'oracle'"):

@@ -46,6 +46,8 @@ CLASSES: Dict[str, Tuple[str, str, str, bool]] = {
                           "Make the tool schemas simpler, repair the malformed call and show the exact error to the model so it can correct it.", True),
     "loop": ("Loop", "the loop and repeat guards (harness/loop_guard.py, harness/repeat_guard.py)",
              "Stop the repeated call earlier and tell the model what it already tried, so it changes approach.", True),
+    "gave_up": ("Too many failed attempts", "the limit of failed attempts (harness/agent_loop.py, set in the Benchmarks tab)",
+                "Read what the agent kept trying: if the task is within reach, raise the limit; if not, change what it tries first.", True),
     "judge_disagreement": ("Judge disagreement", "the judge (the local model standing in for the official judge)",
                            "Read the judge's reason for these trials: if the judge is wrong, the score is not comparable; if it is right, treat them as wrong final states.", False),
     "bad_plan": ("Bad plan", "the planner (harness/planner/, harness/todo.py)",
@@ -160,8 +162,10 @@ def classify(result: TrialResult, events: Sequence[Mapping[str, Any]], verifier:
         return "loop", "the same call was repeated", [looped] if looped else []
     if facts.get("judge_disagrees") or _JUDGE.search(evidence):
         return "judge_disagreement", "the judge did not accept what the check accepted", []
+    if "gave_up" in stops:
+        return "gave_up", "the agent reached the limit of failed attempts and was stopped", []
     revisions = sum(1 for e in events if e.get("type") == "plan")
-    if "gave_up" in stops or revisions >= PLAN_REVISIONS or (events and not calls):
+    if revisions >= PLAN_REVISIONS or (events and not calls):
         return "bad_plan", "the agent gave up, replanned over and over, or never acted", []
     if result.passed is False and (verifier.strip() or (not err.strip() and events)):
         return "wrong_final_state", "the run ended normally and the check did not accept the final state", []

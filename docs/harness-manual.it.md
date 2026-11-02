@@ -421,6 +421,7 @@ Opzioni comuni (tutte sono in [harness.md](harness.md#running-the-agent)):
 | `--interactive` o `--ask-server` | chiede sul terminale, o sulle pagine del server, prima di azioni rischiose, pagamenti e piani |
 | `--timeout-seconds`, `--max-tokens-budget` | si ferma dopo tanto |
 | `--max-turns` | più giri del modello in una risposta; non indicato o sotto 1: nessun limite |
+| `--max-failed-attempts` | chiamate, comandi e controlli del progetto falliti che una richiesta può usare prima di essere fermata come fallita (la risposta lo dice); non indicato o sotto 1: nessun limite |
 | `--tool-timeout [NOME=]SECONDI` | limite di tempo per strumento; 0 per nessuno |
 | `--secret-env NOME[=host,host]` | lascia che l'agente scriva `{{secret:NOME}}` |
 | `--capabilities`, `--lsp`, `--browser`, `--phone`, `--wiki`, `--council` | accendono quei gruppi di strumenti |

@@ -122,6 +122,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--endpoint", default="http://127.0.0.1:7232", help="Basalt server address")
     parser.add_argument("--api-key", default=os.environ.get("BASALT_API_KEY"), help="server API key (or BASALT_API_KEY)")
     parser.add_argument("--max-turns", type=int, default=max_turns, help="most model turns in one answer (default and below 1: no limit)")
+    parser.add_argument("--max-failed-attempts", type=int, default=0, metavar="N", help="failed calls and failed checks one request may use up before it is stopped as failed (default and below 1: no limit)")
     parser.add_argument("--permission-mode", choices=["plan", "read_only", "default", "auto"], default=permission_mode)
     parser.add_argument("--allow", action="append", default=[], metavar="PATTERN", help='allow rule, e.g. "shell_command:pytest*"')
     parser.add_argument("--deny", action="append", default=[], metavar="PATTERN", help="deny rule")
@@ -220,7 +221,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
     secret_names, secret_hosts = split_secret_specs(args.secret_env)
     tool_timeout, tool_timeouts = _tool_timeouts(args.tool_timeout)
     return dict(
-        workspace=args.workspace, endpoint=args.endpoint, api_key=args.api_key, max_turns=args.max_turns, permission_mode=args.permission_mode,
+        workspace=args.workspace, endpoint=args.endpoint, api_key=args.api_key, max_turns=args.max_turns, max_failed_attempts=max(0, args.max_failed_attempts), permission_mode=args.permission_mode,
         allow=args.allow, deny=args.deny, secret_names=secret_names, secret_hosts=secret_hosts, skill_paths=args.skills,
         payments_dir=args.payments_dir, browser=args.browser, browser_headless=args.browser_headless, browser_cdp_url=args.browser_cdp_url, browser_private=args.browser_private,
         browser_profile=args.browser_profile, browser_consent=args.browser_consent, browser_permissions=args.browser_permissions, vault_dir=args.vault_dir, rule_of_two=args.rule_of_two, edit_guard=args.edit_guard, capabilities=args.capabilities, lsp=args.lsp, council=args.council,
@@ -266,6 +267,7 @@ class AgentConfig:
     endpoint: str = "http://127.0.0.1:7232"
     api_key: Optional[str] = None
     max_turns: int = -1                 # below 1: no limit on the steps of an answer
+    max_failed_attempts: int = 0        # failed calls and failed checks of one request before it is stopped as failed; 0: no limit
     permission_mode: str = "default"
     allow: List[str] = field(default_factory=list)
     deny: List[str] = field(default_factory=list)
@@ -865,6 +867,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         changes=edits,
         budget_grace=cfg.budget_grace,
         max_turns=cfg.max_turns,
+        max_failed_attempts=cfg.max_failed_attempts,
         system_prompt=builder.assemble_system_message(),
         permissions=permissions,
         hooks=hooks,

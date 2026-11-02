@@ -18,11 +18,12 @@ THREADED = ("install", "update", "start")
 RUN_ID = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
 BENCH_ID = re.compile(r"^[a-z0-9][a-z0-9.-]{0,60}$")
 TRIALS_MAX = 20
+ATTEMPTS_MAX = 100000                 # the most failed attempts a task may use when the person sets a limit; 0 is no limit
 POWER_RANGE = (50.0, 1500.0)
 POWER_CACHE_S = 60.0
 CSV_MAX = 1 << 20
 PHRASE_MAX = 200
-SETTINGS_KEYS = ("subset", "trials")
+SETTINGS_KEYS = ("subset", "trials", "max_failed_attempts")
 ERROR_TYPES = {"BadConfirmation": "confirmation", "NotConfigured": "not_configured", "PackageChanged": "package_changed", "NotOffered": "not_offered"}
 
 
@@ -184,6 +185,9 @@ class BenchApi:
             raise BenchApiError("choose one of the subsets of this benchmark")
         if not isinstance(trials, int) or isinstance(trials, bool) or not 1 <= trials <= TRIALS_MAX:
             raise BenchApiError(f"the number of trials is a whole number from 1 to {TRIALS_MAX}")
+        attempts = req.get("max_failed_attempts", 0)
+        if not isinstance(attempts, int) or isinstance(attempts, bool) or not 0 <= attempts <= ATTEMPTS_MAX:
+            raise BenchApiError(f"the failed attempts allowed per task are a whole number from 0 (no limit) to {ATTEMPTS_MAX}")
         typed = req.get("power_limit_w")
         if typed is not None:
             if isinstance(typed, bool) or not isinstance(typed, (int, float)) or not POWER_RANGE[0] <= typed <= POWER_RANGE[1]:
@@ -193,8 +197,8 @@ class BenchApi:
             raise BenchApiError("The GPU power limit could not be read. Type it (in watts): every result is labelled with it.", "power_limit_unknown", 409)
         extra = {k: v for k, v in req.items() if k not in ("id", "power_limit_w", *SETTINGS_KEYS)}
         if extra:
-            raise BenchApiError("only the subset, the number of trials and the power limit can be set: a benchmark runs only with the served model")
-        return {"subset": subset, "trials": trials}
+            raise BenchApiError("only the subset, the number of trials, the failed attempts allowed and the power limit can be set: a benchmark runs only with the served model")
+        return {"subset": subset, "trials": trials, **({"max_failed_attempts": attempts} if attempts else {})}
 
     def _job(self, action: str, bench: str, settings: Dict[str, Any]) -> None:
         try:

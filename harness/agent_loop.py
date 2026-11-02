@@ -45,6 +45,8 @@ EMPTY = "empty"            # the model's thinking used the whole output and no a
 DEGENERATE = "degenerate"  # the model's output fell into a repetition loop, also after a second try
 SUSPENDED = "suspended"   # put aside at a safe point for something more urgent; it can go on from where it stands
 ASKED = "asked"       # the turn ended on a question for the person; their answer is the next message
+GAVE_UP = "gave_up"   # the failed attempts reached the limit the person set: the request ends as failed and the person is told
+GAVE_UP_NOTICE = "Stopped after {attempts} failed attempts (the limit is {limit}). What was done so far is kept; look at it before trying again."
 VERIFY_FAILED = "verify_failed"   # the project's checks still failed after the fixes allowed, or could not be run
 MAX_CALLS_PER_MESSAGE = 16     # tool calls run from one model message; the rest are answered "not run"
 # the first words of a message that tells the agent its last answer was wrong (Italian and English)
@@ -225,6 +227,7 @@ class AgentLoop:
         max_seconds: Optional[float] = None,
         cancel: Optional[threading.Event] = None,
         max_loop_strikes: int = 2,
+        max_failed_attempts: int = 0,
         context: Optional[ContextManager] = None,
         on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
         sampling: Optional[Dict[str, Any]] = None,
@@ -255,6 +258,8 @@ class AgentLoop:
         self.max_seconds = max_seconds
         self.cancel = cancel or threading.Event()
         self.max_loop_strikes = max_loop_strikes
+        self.max_failed_attempts = max_failed_attempts       # failed calls and failed checks one request may use up; 0 is no limit
+        self._failed_attempts = 0
         self.context = context
         self.on_event = on_event
         self.on_delta = on_delta                  # the model's text as it is written ("content" or "reasoning"), when set
@@ -321,7 +326,7 @@ class AgentLoop:
             client=self.client, tool_registry=self.tools, max_turns=self.max_turns, system_prompt=self.system_prompt,
             on_turn_end=self.on_turn_end, permissions=self.permissions, hooks=self.hooks, audit=self.audit, checkpoints=self.checkpoints,
             secrets=self.secrets, output_filter=self.output_filter, max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds,
-            cancel=threading.Event(), max_loop_strikes=self.max_loop_strikes, context=self.context, on_event=self.on_event,
+            cancel=threading.Event(), max_loop_strikes=self.max_loop_strikes, max_failed_attempts=self.max_failed_attempts, context=self.context, on_event=self.on_event,
             sampling=self.sampling, on_delta=self.on_delta, pipeline=self.pipeline, clock=self.clock, max_tokens=self.max_tokens,
             gate=self.gate.clone() if self.gate is not None else None, changes=self.changes, budget_grace=self.budget_grace,
             role=self.role)
@@ -472,12 +477,22 @@ class AgentLoop:
         """For a tool: end this run when the tools of the current model turn are done (a question was put to the person)."""
         self._end_turn = True
 
+    def _count_attempt(self, event: Dict[str, Any]) -> None:
+        """A failed tool call, a command that ended with an error code, or a failed check of the project is one failed attempt."""
+        from harness.course import failure_of
+        if event.get("type") == "tool_end" and not event.get("gate"):
+            if failure_of(event) is not None:
+                self._failed_attempts += 1
+        elif event.get("type") == "gate" and event.get("decision") == "retry":
+            self._failed_attempts += 1
+
     def _emit(self, event: Dict[str, Any]) -> None:
         """Tells an observer what is happening (assistant text, tool start and end); it can never affect the run."""
         if self._recorder is not None:
             self._recorder.observe(event)
         if self.course is not None:
             self.course.observe(event)
+        self._count_attempt(event)
         if self.on_event:
             try:
                 self.on_event(event)
@@ -795,6 +810,7 @@ class AgentLoop:
         nothing is added to the conversation: it goes on from where it stands, as after a failed model call."""
         started = time.monotonic()
         self.stop_reason, self.error, self.error_status, self._loop_strikes = "", "", None, 0
+        self._failed_attempts = 0
         self.length_stops, self.cut, self._invalid_strike = 0, False, False
         warned = False
         if not self._started:
@@ -1003,6 +1019,11 @@ class AgentLoop:
                 break
             if self._loop_strikes > self.max_loop_strikes:
                 self.stop_reason = LOOP
+                break
+            if self.max_failed_attempts and self._failed_attempts >= self.max_failed_attempts:
+                self.stop_reason, self.error = GAVE_UP, GAVE_UP_NOTICE.format(attempts=self._failed_attempts, limit=self.max_failed_attempts)
+                self._emit({"type": "gave_up", "attempts": self._failed_attempts, "limit": self.max_failed_attempts})
+                self._audit("gave_up", {"attempts": self._failed_attempts, "limit": self.max_failed_attempts})
                 break
         self._answered = self.stop_reason == FINAL
         self._end_learning()

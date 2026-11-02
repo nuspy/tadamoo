@@ -401,6 +401,7 @@ Common options (all of them are in [harness.md](harness.md#running-the-agent)):
 | `--interactive` or `--ask-server` | ask on the terminal, or on the server's pages, before risky actions, payments and plans |
 | `--timeout-seconds`, `--max-tokens-budget` | stop after this much |
 | `--max-turns` | most model turns in one answer; not given or below 1: no limit |
+| `--max-failed-attempts` | failed calls, commands and project checks one request may use up before it is stopped as failed (the answer says so); not given or below 1: no limit |
 | `--tool-timeout [NAME=]SECONDS` | per-tool time limit; 0 for none |
 | `--secret-env NAME[=host,host]` | lets the agent write `{{secret:NAME}}` |
 | `--capabilities`, `--lsp`, `--browser`, `--phone`, `--wiki`, `--council` | switch on those tool groups |

@@ -56,6 +56,7 @@ the Chat can reach, the others can reach:
 | `--interactive`, `--ask-server` | (headless) ask on the terminal, or on the server's pages, before risky actions, payments and plans |
 | `--max-tokens-budget`, `--timeout-seconds` | (headless) stop after this much |
 | `--max-turns` | the model turns one answer may take; below 1 or not given: no limit |
+| `--max-failed-attempts` | the failed calls, commands and project checks one request may use up before it is stopped as failed and the person is told; below 1 or not given: no limit |
 | `--temperature T` | the sampling temperature of every model call; not given, none is sent and the model file's own sampling applies (see "How a reply ends") |
 | `--max-tokens N` | the most one reply may write; not given, the server's own limit applies |
 | `--instruction-blocks` | six short working rules in the system prompt (see "Working rules"); off unless asked for |

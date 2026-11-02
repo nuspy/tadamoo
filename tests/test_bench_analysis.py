@@ -43,7 +43,7 @@ def cls(error="", events=(), verifier="", passed=False, facts=None):
     (dict(events=[call("bash", "make")] * 4), "loop"),
     (dict(events=[call("bash", str(i % 2)) for i in range(20)]), "loop"),
     (dict(facts={"judge_disagrees": True}, events=[call("a", "1"), call("b", "2")]), "judge_disagreement"),
-    (dict(events=[call("a", "1"), call("b", "2"), {"type": "stop", "reason": "gave_up"}]), "bad_plan"),
+    (dict(events=[call("a", "1"), call("b", "2"), {"type": "stop", "reason": "gave_up"}]), "gave_up"),
     (dict(events=[{"type": "plan", "revision": i} for i in range(3)] + [call()]), "bad_plan"),
     (dict(events=[{"type": "message"}]), "bad_plan"),
     (dict(events=[call(), call("cat", "x")], verifier="AssertionError: expected 3"), "wrong_final_state"),
@@ -63,7 +63,7 @@ def test_the_classes_are_all_described():
     for c in analysis.CLASS_ORDER:
         title, component, change, fixable = analysis.CLASSES[c]
         assert title and component and change.endswith(".")
-    assert len(analysis.CLASS_ORDER) == 12
+    assert len(analysis.CLASS_ORDER) == 13
 
 
 def make_run(tmp_path, outcomes, trials=3, spec=None):

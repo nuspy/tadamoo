@@ -214,7 +214,8 @@ class TerminalBenchAdapter:
             argv += ["-a", "oracle"]
         else:
             agent_file = ctx.trial_dir / "agent-settings.json"
-            agent_file.write_text(json.dumps({"endpoint": endpoint, "overrides": agent_overrides(settings), "arm": "harness"}), encoding="utf-8")
+            overrides = {**agent_overrides(settings), **({"max_failed_attempts": int(settings["max_failed_attempts"])} if settings.get("max_failed_attempts") else {})}
+            agent_file.write_text(json.dumps({"endpoint": endpoint, "overrides": overrides, "arm": "harness"}), encoding="utf-8")
             argv += ["-a", AGENT_PATH, "--ak", f"settings_file={agent_file.as_posix()}"]
         return argv, jobs, job
 
