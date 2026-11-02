@@ -8,12 +8,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fake_mcp_http import FakeMcpHttp
-from harness import untrusted
-from harness.agent_loop import AgentLoop
-from harness.mcp_client import MCPClient, MCPError, MCPHttpClient, MCPHub, clean_description
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.tools.registry import EffectClass, ToolRegistry
-from harness.tools import create_standard_tool_registry
+from tadamoo import untrusted
+from tadamoo.agent_loop import AgentLoop
+from tadamoo.mcp_client import MCPClient, MCPError, MCPHttpClient, MCPHub, clean_description
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.tools.registry import EffectClass, ToolRegistry
+from tadamoo.tools import create_standard_tool_registry
 from test_agent_loop import ScriptedClient, call, say
 
 FAKE = str(Path(__file__).resolve().parent / "fake_mcp_server.py")

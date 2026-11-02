@@ -1,9 +1,9 @@
 import pytest
 from pathlib import Path
 
-from harness.tools.search import (ProviderUnavailable, clear_backends, load_providers,
+from tadamoo.tools.search import (ProviderUnavailable, clear_backends, load_providers,
                                   register_backend, search_web)
-from harness.sandbox import ProcessSandbox
+from tadamoo.sandbox import ProcessSandbox
 
 
 def test_search_providers_config():

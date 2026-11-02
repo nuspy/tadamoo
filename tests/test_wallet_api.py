@@ -9,10 +9,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.browser import BrowserPrefs
-from harness.payments_broker import PaymentsBroker
-from harness.vault import Vault
-from harness.waiver import required_phrase
+from tadamoo.browser import BrowserPrefs
+from tadamoo.payments_broker import PaymentsBroker
+from tadamoo.vault import Vault
+from tadamoo.waiver import required_phrase
 from serve import handler
 from serve.wallet_api import WalletApi
 from serve.engine.mock import MockEngine
@@ -206,7 +206,7 @@ def test_the_kept_browser_choice_and_the_window_to_sign_in_and_forgetting(setup,
 
 
 def test_the_window_to_sign_in_says_when_the_profile_is_in_use(setup):
-    from harness.browser import ProfileLock
+    from tadamoo.browser import ProfileLock
     base, tmp = setup
     held = ProfileLock(tmp / "profile")
     assert held.acquire()

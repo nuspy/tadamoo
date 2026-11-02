@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-from harness import lessons
-from harness.lessons import (HEADER, LessonStore, OutcomeLog, Recorder, apply_polish, block_for, parse, polish_all, polish_prompt, render_file,
+from tadamoo import lessons
+from tadamoo.lessons import (HEADER, LessonStore, OutcomeLog, Recorder, apply_polish, block_for, parse, polish_all, polish_prompt, render_file,
                              result_for)
 
 

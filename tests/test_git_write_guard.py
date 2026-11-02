@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from harness.agent_loop import AgentLoop
-from harness.checkpoints import CheckpointManager
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.tools import create_standard_tool_registry
-from harness.tools.filesystem import touches_git
+from tadamoo.agent_loop import AgentLoop
+from tadamoo.checkpoints import CheckpointManager
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.filesystem import touches_git
 
 
 class Asker:

@@ -14,15 +14,15 @@ from test_agent_loop import ScriptedClient, call, say  # noqa: E402
 from test_planner import CARD, FakeJev, jev_answer  # noqa: E402
 from test_planner_service import PLAN, FakeModel, wait_for  # noqa: E402
 
-from harness.agent_loop import AgentLoop  # noqa: E402
-from harness.integrations import CallAPICallClient, WikiBridgeClient  # noqa: E402
-from harness.integrations._http import ServiceError  # noqa: E402
-from harness.integrations.telephony_tools import register_phone_tools  # noqa: E402
-from harness.integrations.wiki_tools import register_wiki_tools  # noqa: E402
-from harness.permissions import PermissionLevel, PermissionManager  # noqa: E402
-from harness.planner.card import CARD_FIELDS  # noqa: E402
-from harness.planner_tools import Confirmer, register_planner_tools  # noqa: E402
-from harness.tools.registry import ToolRegistry  # noqa: E402
+from tadamoo.agent_loop import AgentLoop  # noqa: E402
+from tadamoo.integrations import CallAPICallClient, WikiBridgeClient  # noqa: E402
+from tadamoo.integrations._http import ServiceError  # noqa: E402
+from tadamoo.integrations.telephony_tools import register_phone_tools  # noqa: E402
+from tadamoo.integrations.wiki_tools import register_wiki_tools  # noqa: E402
+from tadamoo.permissions import PermissionLevel, PermissionManager  # noqa: E402
+from tadamoo.planner.card import CARD_FIELDS  # noqa: E402
+from tadamoo.planner_tools import Confirmer, register_planner_tools  # noqa: E402
+from tadamoo.tools.registry import ToolRegistry  # noqa: E402
 from serve.plans import PlanService  # noqa: E402
 
 CALL = {"number": "+39 0166 949136", "reason": "Verificare che l'hotel abbia camere per il 24", "text": "Chiedere una doppia e una singola"}

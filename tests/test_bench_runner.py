@@ -1,4 +1,4 @@
-"""A benchmark run (harness/bench/runner.py): its folder, journal, resume, stop flag and adapters, with the fake adapter. CPU only."""
+"""A benchmark run (tadamoo/bench/runner.py): its folder, journal, resume, stop flag and adapters, with the fake adapter. CPU only."""
 import json
 import sys
 from pathlib import Path
@@ -7,9 +7,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.bench import runner
-from harness.bench.runner import AdapterNotWritten, BenchRun, FakeAdapter, TrialResult, get_adapter, read_trials
-from harness.eval import resume
+from tadamoo.bench import runner
+from tadamoo.bench.runner import AdapterNotWritten, BenchRun, FakeAdapter, TrialResult, get_adapter, read_trials
+from tadamoo.eval import resume
 from bench_support import MODEL, make_spec
 
 

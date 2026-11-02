@@ -1,7 +1,7 @@
 import pytest
 
-from harness import netscope
-from harness.a2a import A2AClient, A2AError
+from tadamoo import netscope
+from tadamoo.a2a import A2AClient, A2AError
 
 
 @pytest.mark.parametrize("address", ["127.0.0.1", "::1", "10.1.2.3", "172.20.0.5", "192.168.1.58", "100.84.254.116", "169.254.1.1", "fd00::1", "::ffff:192.168.1.5"])

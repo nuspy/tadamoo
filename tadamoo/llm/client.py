@@ -1,0 +1,381 @@
+"""A client for each function: it asks the provider the function is pointed at, and falls back only to a route as local or more.
+
+`RoutedClient` has the same `chat_completion` as `BasaltClient`, so the agent's loop, the summaries and the judges use it
+without knowing where the words come from. With nothing assigned it IS the loaded model of this Basalt. With a provider
+assigned it speaks that provider's dialect (OpenAI-compatible, Anthropic, a command-line agent for text), translates the
+reasoning level, counts the tokens against the provider's daily cap and refuses, with the reason, what the registry's rules
+do not allow. Errors are the same `BasaltError`s the loop already knows how to retry.
+"""
+from __future__ import annotations
+
+import json
+import re
+from typing import Any, Callable, Dict, List, Optional
+
+import requests
+
+from tadamoo.client import BasaltError, _collect_stream
+from tadamoo import side_uses
+from tadamoo.llm import functions
+from tadamoo.llm.profile import RouteProfile, route_profile
+from tadamoo.llm.store import Ledger, SecureRegistry, is_local, runs_here
+from tadamoo.llmswitch import reasoning
+from tadamoo.llmswitch.providers import TYPES
+
+ANTHROPIC_VERSION = "2023-06-01"
+DEFAULT_MAX_TOKENS = 4096
+THIS_SERVER_ONLY = ("end_turn_bias", "repetition_penalty", "cache_slot", "side_use")      # options only the loaded model's server understands (a sampling option, the slot a call runs in)
+
+
+class NotAllowed(BasaltError):
+    """The route is not allowed (consent, a daily cap, a provider that cannot do the work): not worth trying again."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(400, message)
+
+
+def _lines(resp: "requests.Response"):
+    for raw in resp.iter_lines():
+        yield raw + b"\n"
+
+
+def _http_error(prov: Dict[str, Any], resp: "requests.Response") -> BasaltError:
+    try:
+        detail = resp.json().get("error", {})
+        detail = detail.get("message") if isinstance(detail, dict) else str(detail)
+    except ValueError:
+        detail = ""
+    return BasaltError(resp.status_code, f"{prov.get('name') or prov.get('id')}: {detail or 'HTTP ' + str(resp.status_code)}")
+
+
+# -- Anthropic: the messages and the tools in its own shape ----------------------------------------------------
+
+def to_anthropic(messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]], cache: bool = False) -> Dict[str, Any]:
+    """Anthropic's shape of a request. With `cache`, the end of the tool list and the end of the system text are marked as cache points:
+    the stable start of the prompt, which is read from the provider's cache on the next call instead of being paid for again."""
+    system = "\n\n".join(m["content"] for m in messages if m["role"] == "system" and isinstance(m.get("content"), str))
+    out: List[Dict[str, Any]] = []
+    for m in messages:
+        role = m["role"]
+        if role == "system":
+            continue
+        if role == "assistant":
+            blocks: List[Dict[str, Any]] = []
+            if m.get("content"):
+                blocks.append({"type": "text", "text": m["content"]})
+            for tc in m.get("tool_calls") or []:
+                fn = tc["function"]
+                try:
+                    args = json.loads(fn.get("arguments") or "{}")
+                except ValueError:
+                    args = {}
+                blocks.append({"type": "tool_use", "id": tc.get("id") or "call", "name": fn["name"], "input": args})
+            out.append({"role": "assistant", "content": blocks or [{"type": "text", "text": ""}]})
+        elif role == "tool":
+            block = {"type": "tool_result", "tool_use_id": m.get("tool_call_id"), "content": str(m.get("content") or "")}
+            if out and out[-1]["role"] == "user" and isinstance(out[-1]["content"], list) and out[-1]["content"][0].get("type") == "tool_result":
+                out[-1]["content"].append(block)
+            else:
+                out.append({"role": "user", "content": [block]})
+        else:
+            text = m.get("content")
+            if out and out[-1]["role"] == "user" and isinstance(out[-1]["content"], str):
+                out[-1]["content"] += "\n\n" + str(text)
+            else:
+                out.append({"role": "user", "content": text if isinstance(text, (str, list)) else str(text)})
+    body: Dict[str, Any] = {"messages": out}
+    mark = {"cache_control": {"type": "ephemeral"}}
+    if system:
+        body["system"] = [{"type": "text", "text": system, **mark}] if cache else system
+    if tools:
+        body["tools"] = [{"name": t["function"]["name"], "description": t["function"].get("description", ""),
+                          "input_schema": t["function"].get("parameters") or {"type": "object", "properties": {}}} for t in tools]
+        if cache:
+            body["tools"][-1].update(mark)
+    return body
+
+
+def from_anthropic(data: Dict[str, Any]) -> Dict[str, Any]:
+    text, calls = [], []
+    for block in data.get("content") or []:
+        if block.get("type") == "text":
+            text.append(block.get("text", ""))
+        elif block.get("type") == "tool_use":
+            calls.append({"id": block.get("id"), "type": "function", "function": {"name": block.get("name"), "arguments": json.dumps(block.get("input") or {})}})
+    message: Dict[str, Any] = {"role": "assistant", "content": "".join(text) or None}
+    if calls:
+        message["tool_calls"] = calls
+    stop = data.get("stop_reason")
+    usage = data.get("usage") or {}
+    finish = "tool_calls" if calls else {"end_turn": "stop", "max_tokens": "length", "stop_sequence": "stop"}.get(stop, "stop")
+    read, written = int(usage.get("cache_read_input_tokens") or 0), int(usage.get("cache_creation_input_tokens") or 0)
+    prompt = usage.get("input_tokens", 0) + read + written                  # input_tokens leaves out what the cache served or stored
+    result = {"choices": [{"index": 0, "message": message, "finish_reason": finish}],
+              "usage": {"prompt_tokens": prompt, "completion_tokens": usage.get("output_tokens", 0),
+                        "total_tokens": prompt + usage.get("output_tokens", 0)}}
+    if read:
+        result["usage"]["prompt_tokens_details"] = {"cached_tokens": read}
+    return result
+
+
+# -- Anthropic: a JSON answer ------------------------------------------------------------------------------------
+
+JSON_DIRECTIVE = "Answer with one JSON value only: no text before or after it and no code fence."
+
+
+def json_format(response_format: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """{"schema": dict or None} for an OpenAI-style `response_format` that asks for JSON, else None."""
+    if not isinstance(response_format, dict) or response_format.get("type") not in ("json_schema", "json_object"):
+        return None
+    schema = (response_format.get("json_schema") or {}).get("schema") if response_format["type"] == "json_schema" else None
+    return {"schema": schema if isinstance(schema, dict) else None}
+
+
+def with_json_directive(body: Dict[str, Any]) -> Dict[str, Any]:
+    """The request with the one-line instruction to answer in JSON added to its system text."""
+    system = body.get("system")
+    if isinstance(system, list):
+        system = [*system, {"type": "text", "text": JSON_DIRECTIVE}]
+    else:
+        system = (system + "\n\n" if system else "") + JSON_DIRECTIVE
+    return {**body, "system": system}
+
+
+def with_json_format(body: Dict[str, Any], asked: Dict[str, Any]) -> Dict[str, Any]:
+    """The request asking for JSON in Anthropic's words: a schema goes in `output_config.format`, and a bare JSON object (which has no
+    form there) becomes the instruction."""
+    out = dict(body)
+    if asked["schema"] is not None:
+        config = dict(out.get("output_config") or {})
+        config["format"] = {"type": "json_schema", "schema": asked["schema"]}
+        out["output_config"] = config
+        return out
+    return with_json_directive(out)
+
+
+def json_in(text: str) -> Optional[str]:
+    """The JSON value inside `text` (the whole of it, a fenced block, or the first object or array in the prose) as compact text, else None."""
+    decoder = json.JSONDecoder()
+    text = text.strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.S | re.I)
+    for candidate in ([text] if not fence else [text, fence.group(1).strip()]):
+        try:
+            json.loads(candidate)
+            return candidate
+        except ValueError:
+            pass
+    for at in (m.start() for m in re.finditer(r"[\[{]", text)):
+        try:
+            value, end = decoder.raw_decode(text, at)
+        except ValueError:
+            continue
+        if isinstance(value, (dict, list)):
+            return text[at:end]
+    return None
+
+
+def keep_the_json(result: Dict[str, Any]) -> None:
+    """Make the answer of a call that asked for JSON the JSON alone: prose around it or a fence is taken off. Left as it is when none is found."""
+    message = result["choices"][0]["message"]
+    content = message.get("content")
+    if isinstance(content, str):
+        found = json_in(content)
+        if found is not None:
+            message["content"] = found
+
+
+class RoutedClient:
+    def __init__(self, function: str, registry: SecureRegistry, local: Any, ledger: Optional[Ledger] = None,
+                 level: str = reasoning.INHERIT, session: Optional[requests.Session] = None, loader: Any = None) -> None:
+        functions.spec(function)
+        self.loader = loader                                 # QwenLoader: makes sure the model is there before this server is used
+        self.function, self.registry, self.local = function, registry, local
+        self.ledger = ledger or Ledger()
+        self.level = level
+        self.http = session or requests.Session()
+        self.last_provider: Optional[str] = None            # who answered the last call, for the page and the audit
+
+    # the loaded model's own client carries these; the loop reads them
+    @property
+    def base_url(self) -> str:
+        return getattr(self.local, "base_url", "")
+
+    def metrics(self, *a: Any, **k: Any) -> Any:
+        return self.local.metrics(*a, **k)
+
+    def side_context(self) -> int:
+        """The tokens the technical session holds for this function: the loaded model's own session on this PC (0: it has none). On a route
+        to another provider there is no session: the function `technical` there gives the window the person set for it (at most 30000),
+        and only while the master switch for outside providers is on (tadamoo/side_uses.py); any other function gets 0."""
+        if not self.stays_local():
+            if self.function != "technical" or not (side_uses.external_on() or self.stays_on_pc()):
+                return 0
+            window = int(self.profile().context_window or 0) or side_uses.EXTERNAL_WINDOW
+            return min(window, side_uses.EXTERNAL_WINDOW)
+        ask = getattr(self.local, "side_context", None)
+        return int(ask()) if callable(ask) else 0
+
+    def context_window(self, *a: Any, **k: Any) -> Any:
+        """The window the agent plans by: the one the person gave the assigned cloud route, else the loaded model's own."""
+        return self.profile().context_window or self.local.context_window(*a, **k)
+
+    def profile(self, pid: Optional[str] = None) -> RouteProfile:
+        """What the route this function is pointed at (or the provider `pid`) can do. The loaded model has the plain profile."""
+        data = self.registry.load()
+        pid = pid or (data.get("assignments") or {}).get(self.function) or ""
+        prov = self.registry._find(data, pid) if pid else None
+        return route_profile(prov, TYPES.get((prov or {}).get("type") or "", {}))
+
+    def stays_on_pc(self) -> bool:
+        """Whether every route this function may take runs on this PC: the loaded model, or a provider on this PC's own address. What is
+        sent to such a route does not leave the PC, so the master switch for outside providers does not apply to it."""
+        data = self.registry.load()
+        return all(not pid or runs_here(self.registry._find(data, pid), self.registry.local_hosts) for pid in self.registry.fallback_chain(self.function))
+
+    def stays_local(self) -> bool:
+        """Whether every route this function may take is the model loaded in this Basalt (nothing goes to another provider)."""
+        data = self.registry.load()
+        for pid in self.registry.fallback_chain(self.function):
+            if pid and not TYPES.get((self.registry._find(data, pid) or {}).get("type") or "", {}).get("this_server"):
+                return False
+        return True
+
+    # -- the call ---------------------------------------------------------------------------------------------
+
+    def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None,
+                        tool_choice: Any = None, temperature: Optional[float] = None, max_tokens: Optional[int] = None, timeout: float = 60.0,
+                        response_format: Optional[Dict[str, Any]] = None, extra: Optional[Dict[str, Any]] = None,
+                        on_delta: Optional[Callable[[str, str], None]] = None) -> Dict[str, Any]:
+        chain = self.registry.fallback_chain(self.function)
+        spoken = [False]
+
+        def tell(kind: str, text: str) -> None:
+            spoken[0] = True
+            on_delta(kind, text)
+        stream = tell if on_delta is not None else None
+        failure: Optional[BasaltError] = None
+        for n, pid in enumerate(chain):
+            if pid and TYPES.get((self.registry._find(self.registry.load(), pid) or {}).get("type") or "", {}).get("this_server"):
+                pid = None                                   # "Basalt (this server)" is the loaded model, whatever the way it is named
+            ok, why = self.registry.check(self.function, pid)
+            if not ok:
+                failure = NotAllowed(why)
+                continue
+            try:
+                if pid is None:
+                    self.last_provider = None
+                    if self.loader is not None:
+                        self.loader.ensure(self._route_here())
+                    return self.local.chat_completion(messages=messages, tools=tools, tool_choice=tool_choice, temperature=temperature,
+                                                      max_tokens=max_tokens, timeout=timeout, response_format=response_format,
+                                                      extra=extra, **({"on_delta": stream} if stream else {}))
+                self.last_provider = pid
+                return self._call_provider(pid, messages, tools, tool_choice, temperature, max_tokens, timeout, response_format, extra, stream)
+            except BasaltError as exc:
+                failure = exc
+                if spoken[0] or n == len(chain) - 1:        # what was written cannot be taken back; and the last route has no other
+                    raise
+        raise failure or NotAllowed(f"{self.function} has no route")
+
+    def _route_here(self) -> Optional[Dict[str, Any]]:
+        """The provider record this function is pointed at when it is this server (it may carry a load profile)."""
+        data = self.registry.load()
+        prov = self.registry._find(data, (data.get("assignments") or {}).get(self.function) or "")
+        return prov if prov and TYPES.get(prov.get("type") or "", {}).get("this_server") else None
+
+    def _call_provider(self, pid: str, messages, tools, tool_choice, temperature, max_tokens, timeout, response_format, extra, on_delta) -> Dict[str, Any]:
+        data = self.registry.load()
+        prov = self.registry._find(data, pid)
+        spec = TYPES.get(prov.get("type") or "", {})
+        capped = self.ledger.over_cap(prov)
+        if capped:
+            raise NotAllowed(capped)
+        api = spec.get("api", "")
+        if api == "cli":
+            return self._cli(prov, messages)
+        resolved = self.registry.endpoint_for(self.function, carica=False)
+        if resolved is None:
+            raise NotAllowed(f"{self.function} has no provider")
+        base, key, model = resolved
+        if not base:
+            raise NotAllowed(f"{prov.get('name') or pid} has no address: set it first")
+        headers = dict(self.registry.headers_for(self.function))
+        profile = route_profile(prov, spec)
+        if api == "anthropic":
+            return self._anthropic(prov, base, key, model, messages, tools, temperature, max_tokens, timeout, on_delta, profile, response_format)
+        body: Dict[str, Any] = {"model": model, "messages": messages}
+        if temperature is not None:
+            body["temperature"] = temperature
+        if tools:
+            body["tools"] = tools
+        if tool_choice is not None:
+            body["tool_choice"] = tool_choice
+        if response_format is not None:
+            body["response_format"] = response_format
+        if extra:
+            body.update({k: v for k, v in extra.items() if k not in reasoning._REASONING_KEYS and k not in THIS_SERVER_ONLY})
+        shaped = self.registry.reasoning_for(self.function, self.level, base=body, max_tokens=max_tokens)
+        body = dict(shaped["params"])                          # the request with the reasoning said in this provider's own words
+        if shaped["max_tokens"]:
+            body["max_tokens"] = min(shaped["max_tokens"], profile.max_output) if profile.max_output else shaped["max_tokens"]
+        if on_delta is not None:
+            body["stream"] = True
+            body["stream_options"] = {"include_usage": True}
+        headers.setdefault("Authorization", f"Bearer {key}")
+        headers["Content-Type"] = "application/json"
+        try:
+            resp = self.http.post(base.rstrip("/") + "/chat/completions", data=json.dumps(body), headers=headers, timeout=timeout, stream=on_delta is not None)
+        except requests.RequestException as exc:
+            raise BasaltError(0, f"cannot reach {prov.get('name') or pid}: {exc}") from None
+        if resp.status_code >= 400:
+            raise _http_error(prov, resp)
+        result = _collect_stream(_lines(resp), on_delta) if on_delta is not None else resp.json()
+        self.ledger.record(pid, int((result.get("usage") or {}).get("total_tokens") or 0))
+        return result
+
+    def _anthropic(self, prov, base, key, model, messages, tools, temperature, max_tokens, timeout, on_delta,
+                   profile: Optional[RouteProfile] = None, response_format: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        profile = profile or RouteProfile()
+        body = to_anthropic(messages, tools, cache=profile.cache_control)
+        wanted = max_tokens or min(DEFAULT_MAX_TOKENS, profile.max_output or DEFAULT_MAX_TOKENS)
+        body.update({"model": model, "max_tokens": min(wanted, profile.max_output) if profile.max_output else wanted})
+        if temperature is not None:
+            body["temperature"] = temperature
+        shaped = self.registry.reasoning_for(self.function, self.level, base={}, max_tokens=body["max_tokens"])
+        for k, v in shaped["params"].items():
+            body[k] = v
+        if shaped.get("max_tokens"):
+            body["max_tokens"] = min(shaped["max_tokens"], profile.max_output) if profile.max_output else shaped["max_tokens"]
+        headers = {"x-api-key": key, "anthropic-version": ANTHROPIC_VERSION, "Content-Type": "application/json"}
+        asked = json_format(response_format) if not tools else None          # a JSON form and tools do not go together on this route
+        if asked is not None:
+            body = with_json_format(body, asked)
+        resp = self._post_messages(prov, base, body, headers, timeout)
+        if resp.status_code == 400 and asked is not None and "output_config" in body:
+            body.pop("output_config")                                       # a provider that does not know the form: the directive and the extraction carry it
+            resp = self._post_messages(prov, base, with_json_directive(body), headers, timeout)
+        if resp.status_code >= 400:
+            raise _http_error(prov, resp)
+        result = from_anthropic(resp.json())
+        if asked is not None:
+            keep_the_json(result)
+        if on_delta is not None and result["choices"][0]["message"].get("content"):
+            on_delta("content", result["choices"][0]["message"]["content"])          # whole, not in pieces: this route does not stream
+        self.ledger.record(prov["id"], int(result["usage"]["total_tokens"]))
+        return result
+
+    def _post_messages(self, prov, base, body, headers, timeout) -> "requests.Response":
+        try:
+            return self.http.post(base.rstrip("/") + "/messages", data=json.dumps(body), headers=headers, timeout=timeout)
+        except requests.RequestException as exc:
+            raise BasaltError(0, f"cannot reach {prov.get('name') or prov.get('id')}: {exc}") from None
+
+    def _cli(self, prov: Dict[str, Any], messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """A command-line agent writes text only: no tools, nothing streams."""
+        from tadamoo.llmswitch.agents import AgentError, genera
+        prompt = "\n\n".join(f"{m['role'].upper()}: {m['content']}" for m in messages if isinstance(m.get("content"), str))
+        try:
+            text = genera(TYPES[prov["type"]].get("agent") or prov["type"].replace("_cli", ""), prompt, model=prov.get("model", ""))
+        except AgentError as exc:
+            raise BasaltError(503, str(exc)) from None
+        return {"choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}], "usage": {}}

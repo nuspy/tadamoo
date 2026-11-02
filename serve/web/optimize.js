@@ -1,5 +1,5 @@
 "use strict";
-/* The Optimize prompt option: before a message reaches the model, the technical session rewrites it as a clearer instruction (harness/optimize.py).
+/* The Optimize prompt option: before a message reaches the model, the technical session rewrites it as a clearer instruction (tadamoo/optimize.py).
    There is one value; every place that hosts the box (the Chat toolbar, Settings > Inference) shows it, and it is saved through api/intake. The box
    can be ticked only while the server reports a technical session (v1/status, concurrency.side_slot): otherwise it is disabled, says why next to
    it, and its tooltip says how to turn the session on. A value saved while the session was there is kept when it goes, and the box then stays

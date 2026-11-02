@@ -38,7 +38,7 @@ STOP_WAIT_S = 4.0
 # nudge to compress starts above that: it is the safety net for conversations that reach it, the agent's among them.
 CONFIG = {"compress": {"maxContextLimit": "90%", "emergencyThresholdPercent": "97%"}}
 # Without "compress" the proxy keeps only what does not rewrite the conversation (large outputs kept aside behind a pointer, the emergency
-# cut): the model is not given the tools that fold old turns, so the only summaries are the ones Basalt writes (harness/compacted.py).
+# cut): the model is not given the tools that fold old turns, so the only summaries are the ones Basalt writes (tadamoo/compacted.py).
 ARCHIVE_ONLY = {"injectTool": False, "injectNudge": False}
 
 

@@ -2,7 +2,7 @@
 
 What our agent harness (`harness/`) can learn from other open-source harnesses (Hermes, OpenClaw, Harness², Goose, Roo Code), and two designs that follow from it. The
 studies read the sources and compared them with `harness/` and `docs/harness.md`; nothing was run. Everything is a proposal
-until built and measured with `python -m harness.eval`, with every number labelled with the GPU power limit.
+until built and measured with `python -m tadamoo.eval`, with every number labelled with the GPU power limit.
 
 - [long-answers.md](long-answers.md): why final texts come out shorter than asked, cheap fixes, and a segmented long-answer mode.
 - [hermes.md](hermes.md): Hermes Agent (MIT).

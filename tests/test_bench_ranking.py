@@ -1,4 +1,4 @@
-"""Leaderboard entries, the place among them and the interval (harness/bench/ranking.py). CPU only."""
+"""Leaderboard entries, the place among them and the interval (tadamoo/bench/ranking.py). CPU only."""
 import sys
 from pathlib import Path
 
@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.bench import ranking
+from tadamoo.bench import ranking
 
 CSV = """Model,Harness,Interception Rate,Reward Rate,Date
 alpha,Hermes,45.0%,30.5,2026-01-01

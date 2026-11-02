@@ -10,9 +10,9 @@ import threading
 import time
 from typing import Any, Callable, Dict, Optional
 
-from harness import transcript
-from harness.memory_extract import Extractor
-from harness.personal_memory import PersonalMemory
+from tadamoo import transcript
+from tadamoo.memory_extract import Extractor
+from tadamoo.personal_memory import PersonalMemory
 
 QUIET_S = 4.0                   # no request for this long: the GPU is free
 BUSY_UTIL = 50                  # a card this busy (percent) is doing something else

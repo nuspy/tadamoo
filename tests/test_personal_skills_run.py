@@ -2,8 +2,8 @@
 import threading
 import time
 
-from harness.personal_skills.runner import Handlers, run
-from harness.personal_skills.values import resolve
+from tadamoo.personal_skills.runner import Handlers, run
+from tadamoo.personal_skills.values import resolve
 
 
 def handlers(**over):

@@ -1,8 +1,8 @@
 """The person's position, as their phone sends it: what is kept, what the tool says, and that it is offered only to a conversation that has one."""
 import time
 
-from harness.place import Place, clean, describe
-from harness.stack import AgentConfig, build_agent
+from tadamoo.place import Place, clean, describe
+from tadamoo.stack import AgentConfig, build_agent
 
 HOME = {"lat": 45.46427, "lon": 9.18951, "accuracy_m": 18, "fix_age_s": 4,
         "address": {"street": "Via Roma", "number": "12", "postcode": "20121", "city": "Milano", "region": "Lombardia", "country": "Italia", "country_code": "it"}}

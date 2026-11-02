@@ -9,7 +9,7 @@ from unittest import mock
 
 import pytest
 
-from harness.lessons import LessonStore, OutcomeLog
+from tadamoo.lessons import LessonStore, OutcomeLog
 from serve import handler
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate

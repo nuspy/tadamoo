@@ -1,6 +1,6 @@
 """The Chat's conversations with the agent: one long-lived process each, watched and started again when needed.
 
-Each conversation is `python -m harness session`, spoken to in lines of JSON (see harness/session.py). This keeps the
+Each conversation is `python -m tadamoo session`, spoken to in lines of JSON (see tadamoo/session.py). This keeps the
 list of conversations, starts and stops the processes, buffers their events for the page, and supervises them:
 
 * a process that dies or stops giving signs of life is started again from its saved history, and the turn it was in goes
@@ -32,14 +32,14 @@ from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 from datetime import datetime
 
-from harness import context_patterns as context_patterns_mod
-from harness import questions as qs
-from harness.personal_skills.store import PersonalSkills, SkillError
-from harness.personal_skills.values import resolve as resolve_values
-from harness.vault import valid_code
+from tadamoo import context_patterns as context_patterns_mod
+from tadamoo import questions as qs
+from tadamoo.personal_skills.store import PersonalSkills, SkillError
+from tadamoo.personal_skills.values import resolve as resolve_values
+from tadamoo.vault import valid_code
 from serve.coding_prefs import project_key
-from harness.roles import GENERAL as GENERAL_ROLE, ROLE_IDS, valid as valid_role
-from harness.worktrees import WorktreeError, Worktrees
+from tadamoo.roles import GENERAL as GENERAL_ROLE, ROLE_IDS, valid as valid_role
+from tadamoo.worktrees import WorktreeError, Worktrees
 from serve import ROOT
 from serve.api import logit_bias
 from serve.agent_runs import MODES, RunBusy, RunError
@@ -69,7 +69,7 @@ EFFECTS_FILE = "tool_effects.json"                                          # th
 SNIPPET_CHARS = 80
 LEVELS = ("", "very_low", "low", "normal", "high", "very_high", "highest")     # how much of pictures or diagrams the person wants; empty is none
 EFFORTS = ("", "none", "low", "medium", "high")                             # how long the model thinks; empty is its own default
-SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact", "audit")     # harness/commands.py
+SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact", "audit")     # tadamoo/commands.py
 FILE_DIFF_BYTES = 200_000
 UNLIMITED_STEPS = -1                                                        # `max_turns` for no limit on the steps of an answer
 
@@ -135,9 +135,9 @@ class SessionManager:
         self.lessons_dir = lessons_dir                          # the global lessons: one folder; the project's own are in its .basalt folder
         self.persistence_file = persistence_file                # the choice for "work until done": one file, read again by each conversation when it changes
         self.exec_level_file = exec_level_file                  # how freely the code the model writes runs: one file, read again by each conversation when it changes
-        self.past = past                                        # the index of earlier conversations (harness/past.py); each conversation is added to it when a turn ends
+        self.past = past                                        # the index of earlier conversations (tadamoo/past.py); each conversation is added to it when a turn ends
         self.cards = cards                                      # told when a conversation's turn ended, to write its card once it is quiet (serve/card_worker.py)
-        self.forgetter = forgetter                              # takes a conversation back out of the index and the memories (harness/forget.py)
+        self.forgetter = forgetter                              # takes a conversation back out of the index and the memories (tadamoo/forget.py)
         self._routine_runs: Dict[str, str] = {}                 # a routine's conversation -> the routine's name, when the person switched its indexing on
         self._place: Optional[Dict[str, Any]] = None            # where the person's phone last said they were: held in memory only
         self._place_sent: Dict[str, float] = {}                 # per conversation process: the receipt time of the position it was given
@@ -150,7 +150,7 @@ class SessionManager:
         self.gate_flags = gate_flags                            # the options for the verify gate, the budget's last report and the model-error proposal (Settings, Gate)
         self.allow_rules = allow_rules                          # the rules the person allowed for every conversation (serve/allow_rules.py)
         self.rule_of_two_prefs = rule_of_two_prefs              # where "always" is written when the person stops the Rule of Two's question for good
-        self.rule_of_two = rule_of_two                          # how strict the Rule of Two is for a conversation that starts now (harness/rule_of_two.py)
+        self.rule_of_two = rule_of_two                          # how strict the Rule of Two is for a conversation that starts now (tadamoo/rule_of_two.py)
         self.payments_dir = payments_dir                        # the person's payment systems and limits, for the agent's request_payment
         self.vault_dir = vault_dir                              # the person's vault: the conversation's process fills placeholders from it
         self.pipeline = pipeline                                # the check of an answer against its request: "off", "light" or "full"
@@ -320,7 +320,7 @@ class SessionManager:
             if m.get("role") == "user" and isinstance(text, str) and text.startswith("<request>\n") and "\n</request>" in text:
                 m = {**m, "content": text[len("<request>\n"):text.index("\n</request>")]}
             if m.get("role") == "user" and isinstance(text, str) and text.startswith("<documents>\n"):
-                from harness.attachments import split_documents
+                from tadamoo.attachments import split_documents
                 words, names = split_documents(text)
                 m = {**m, "content": words, "attachments": names}
             out.append(m)
@@ -418,7 +418,7 @@ class SessionManager:
         """What going back to the end of request `turn` would take off the conversation, and which of the actions in it stay done: files
         changed in the conversation's copy can be put back from the Changes panel; a command, a call, a payment, a message sent, a tool
         of unknown effect or a file outside the copy cannot."""
-        from harness.rewind import session_impact
+        from tadamoo.rewind import session_impact
         self._check_turn(turn)
         with self._lock:
             rec = self._record(sid)
@@ -579,7 +579,7 @@ class SessionManager:
     def merge(self, sid_a: Any, sid_b: Any, instruction: Any = "") -> Dict[str, Any]:
         """A new conversation that continues the first and ends with a synthesis the model writes, at the person's request, of what the two
         branches did after the point where they parted. Both are read, neither is changed."""
-        from harness.client import BasaltError, extract_reasoning_and_content
+        from tadamoo.client import BasaltError, extract_reasoning_and_content
         if not isinstance(sid_a, str) or not isinstance(sid_b, str) or sid_a == sid_b:
             raise RunError("Choose two different conversations to merge.", "bad_merge")
         text = str(instruction or "").strip()
@@ -884,7 +884,7 @@ class SessionManager:
                 if step == (args.get("plan_id"), args.get("node_id")) and args.get("status") in ("completed", "failed", "skipped", "timed_out"):
                     self._step.pop(sid, None)
             elif step and effect in ("reversible", "irreversible") and not tool.startswith("plan_") and self.plan_effect is not None:
-                from harness.rewind import describe_call
+                from tadamoo.rewind import describe_call
                 try:
                     self.plan_effect(step[0], step[1], tool, effect, describe_call(tool, args))
                 except Exception:
@@ -1254,7 +1254,7 @@ class SessionManager:
             return []
         if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids) or self.attachments_dir is None:
             raise RunError("Attach files that were uploaded to this conversation.", "bad_attachments")
-        from harness.attachments import AttachmentStore
+        from tadamoo.attachments import AttachmentStore
         store = AttachmentStore(self.attachments_dir)
         try:
             return [store.get(sid, i) for i in ids]
@@ -1269,7 +1269,7 @@ class SessionManager:
     def _place_for(self, sid: str, raw: Any) -> Optional[Dict[str, Any]]:
         """The position to hand to the conversation's process with this message: the one the phone just sent, or the last one it sent when the
         process does not hold it yet; None when there is nothing new to hand over. A position older than a day is not handed over."""
-        from harness.place import clean
+        from tadamoo.place import clean
         held = clean(raw)
         with self._lock:
             if held is not None:
@@ -1389,7 +1389,7 @@ class SessionManager:
 
     def _skill_source(self, sid: str, turns: Any) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """The requests the person chose (by number, as the page counts them) and the steps taken to answer them."""
-        from harness.personal_skills import distill
+        from tadamoo.personal_skills import distill
         if not isinstance(turns, list) or not turns or len(turns) > distill.MAX_REQUESTS or any(not isinstance(t, int) or isinstance(t, bool) or t < 1 for t in turns):
             raise RunError(f"Choose the requests to make the skill from: from 1 to {distill.MAX_REQUESTS}.", "bad_turns")
         with self._lock:
@@ -1408,13 +1408,13 @@ class SessionManager:
         return chosen, steps
 
     def _skill_client(self) -> Any:
-        from harness.client import BasaltClient
+        from tadamoo.client import BasaltClient
         return BasaltClient(base_url=self.endpoint, api_key=self.api_key or None)
 
     def skill_propose(self, sid: str, turns: Any) -> Dict[str, Any]:
         """The first step of making a skill from requests: the values that probably change, named and explained."""
-        from harness.client import BasaltError
-        from harness.personal_skills import distill
+        from tadamoo.client import BasaltError
+        from tadamoo.personal_skills import distill
         chosen, steps = self._skill_source(sid, turns)
         try:
             proposal = distill.propose(self._skill_client(), chosen, steps)
@@ -1426,8 +1426,8 @@ class SessionManager:
     def routine_skill(self, sid: str, name: str) -> Dict[str, Any]:
         """A script that repeats what a routine's run did, written from its recorded steps with every value the model proposed kept as a
         parameter. The person reads it before anything changes; `ai_calls` counts the places left to the language model."""
-        from harness.client import BasaltError
-        from harness.personal_skills import distill
+        from tadamoo.client import BasaltError
+        from tadamoo.personal_skills import distill
         chosen, steps = self._skill_source(sid, [1])
         try:
             proposal = distill.propose(self._skill_client(), chosen, steps)
@@ -1442,9 +1442,9 @@ class SessionManager:
 
     def skill_script(self, sid: str, turns: Any, name: Any, description: Any, params: Any) -> Dict[str, Any]:
         """The second step: the Python script, written from the requests, the recorded steps and the parameters the person kept."""
-        from harness.client import BasaltError
-        from harness.personal_skills import distill
-        from harness.personal_skills.values import check_spec
+        from tadamoo.client import BasaltError
+        from tadamoo.personal_skills import distill
+        from tadamoo.personal_skills.values import check_spec
         if not isinstance(params, list) or len(params) > 20 or any(not isinstance(p, dict) for p in params):
             raise RunError("Send the parameters you kept.", "bad_params")
         for p in params:
@@ -1782,7 +1782,7 @@ class SessionManager:
         return {"deleted": sid}
 
     def slash(self, sid: str, name: Any, args: Any = "") -> Dict[str, Any]:
-        """A slash command that needs the conversation's process (harness/commands.py); its answer comes as a `command` event."""
+        """A slash command that needs the conversation's process (tadamoo/commands.py); its answer comes as a `command` event."""
         if name not in SLASH_COMMANDS:
             raise RunError("That is not a command of the conversation.", "bad_command")
         text = str(args or "")[:2000]

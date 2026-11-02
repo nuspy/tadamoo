@@ -1,5 +1,5 @@
 """The master switch of the technical session: on until the person turns it off in the chat, then every use is off; reset keeps it."""
-from harness import side_uses
+from tadamoo import side_uses
 
 
 def test_it_is_on_by_default_and_turning_it_off_turns_every_use_off(tmp_path, monkeypatch):

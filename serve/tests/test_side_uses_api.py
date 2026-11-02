@@ -5,7 +5,7 @@ import tempfile
 import threading
 from unittest import mock
 
-from harness import side_uses
+from tadamoo import side_uses
 from serve.tests import test_api_plans as base
 
 

@@ -9,10 +9,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-from harness import side, side_uses
-from harness.llm.client import RoutedClient
-from harness.llm.credentials import FileCredentials
-from harness.llm.store import Ledger, SecureRegistry
+from tadamoo import side, side_uses
+from tadamoo.llm.client import RoutedClient
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.llm.store import Ledger, SecureRegistry
 from serve import handler
 from serve.llm_api import LlmApi
 from serve.tests import test_api_plans as base

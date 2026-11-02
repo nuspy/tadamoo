@@ -1,4 +1,4 @@
-"""Failure classes, the report and candidate lessons (harness/bench/analysis.py). CPU only."""
+"""Failure classes, the report and candidate lessons (tadamoo/bench/analysis.py). CPU only."""
 import sys
 from pathlib import Path
 
@@ -6,10 +6,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.bench import analysis
-from harness.bench.runner import BenchRun, FakeAdapter, TrialResult
-from harness.eval import resume
-from harness.lessons import LessonStore
+from tadamoo.bench import analysis
+from tadamoo.bench.runner import BenchRun, FakeAdapter, TrialResult
+from tadamoo.eval import resume
+from tadamoo.lessons import LessonStore
 from bench_support import MODEL, make_spec
 
 

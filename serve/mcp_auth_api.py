@@ -11,7 +11,7 @@ import json
 import threading
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from harness.mcp_oauth import Http, McpOAuth, OAuthError, OAuthStore, default_http
+from tadamoo.mcp_oauth import Http, McpOAuth, OAuthError, OAuthStore, default_http
 from serve.capabilities_api import CapabilityApi
 
 

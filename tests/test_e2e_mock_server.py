@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from harness import untrusted
-from harness.client import BasaltClient
-from harness.headless import EXIT_CODES, main, parse_args, run_headless
-from harness.stack import AgentConfig, build_agent
+from tadamoo import untrusted
+from tadamoo.client import BasaltClient
+from tadamoo.headless import EXIT_CODES, main, parse_args, run_headless
+from tadamoo.stack import AgentConfig, build_agent
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.handler import serve
@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
     """These tests count the messages the model is sent; the time note has its own tests (test_clock.py)."""
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 
@@ -77,7 +77,7 @@ def test_a_task_runs_end_to_end_and_leaves_a_verifiable_audit_trail(start_server
     assert result["final_output"] == "File written." and result["turns_count"] == 2
     assert result["tokens"]["prompt"] > 0 and result["changes"][0]["kind"] == "added"
 
-    from harness.audit import AuditLedger
+    from tadamoo.audit import AuditLedger
     ledger = AuditLedger(result["audit_log"])
     assert ledger.verify_integrity() == (True, None)
     actions = [r["action"] for r in ledger.records]

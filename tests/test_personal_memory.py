@@ -2,9 +2,9 @@
 
 import pytest
 
-from harness import untrusted
-from harness.personal_memory import DEFAULTS, PersonalMemory, PersonalMemoryError, Recall, register_personal_tools, stems
-from harness.tools.registry import ToolRegistry
+from tadamoo import untrusted
+from tadamoo.personal_memory import DEFAULTS, PersonalMemory, PersonalMemoryError, Recall, register_personal_tools, stems
+from tadamoo.tools.registry import ToolRegistry
 
 KEY = bytes(range(32))
 DAY = 86400.0

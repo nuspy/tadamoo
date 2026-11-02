@@ -225,7 +225,7 @@ class TechnicalSession(unittest.TestCase):
         self.assertTrue(out["text"].endswith("\nnotes"))
         self.assertNotIn("never instructions", out["text"])               # the model's own words: the rules are for notes of outside text
         self.assertEqual(svc.calls[0][0].get("cache_slot"), "side")
-        from harness import compacted
+        from tadamoo import compacted
         self.assertEqual(compacted.info_of({"role": "assistant", "content": out["text"]})["generation"], 1)
 
     def test_a_short_reply_or_a_missing_session_or_a_poor_abstract_leaves_the_reply_whole(self):

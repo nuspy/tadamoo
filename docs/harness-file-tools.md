@@ -1,8 +1,8 @@
 # File tools of the agent
 
 `read_file`, `write_file`, `edit_file`, `search_code` and `tree` work inside the workspace folder only. The code is in
-`harness/tools/filesystem.py` (the sandbox and the guards), `harness/editing.py` (finding and replacing text),
-`harness/syntax_check.py`, `harness/gitignore.py` and `harness/tools/search_code.py`, `tree.py`, `walk.py`.
+`tadamoo/tools/filesystem.py` (the sandbox and the guards), `tadamoo/editing.py` (finding and replacing text),
+`tadamoo/syntax_check.py`, `tadamoo/gitignore.py` and `tadamoo/tools/search_code.py`, `tree.py`, `walk.py`.
 
 ## edit_file
 

@@ -2,10 +2,10 @@
 import copy
 from datetime import datetime, timedelta, timezone
 
-from harness.agent_loop import AgentLoop, local_time_line
-from harness.context import wire_messages
-from harness.stack import AgentConfig, build_agent
-from harness.tools.registry import ToolRegistry
+from tadamoo.agent_loop import AgentLoop, local_time_line
+from tadamoo.context import wire_messages
+from tadamoo.stack import AgentConfig, build_agent
+from tadamoo.tools.registry import ToolRegistry
 
 ROME = timezone(timedelta(hours=1), "CET")
 

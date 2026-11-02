@@ -1,4 +1,4 @@
-"""The BenchService facade (harness/bench/service.py) from install to publishing, with fakes only. CPU only."""
+"""The BenchService facade (tadamoo/bench/service.py) from install to publishing, with fakes only. CPU only."""
 import json
 import sys
 from pathlib import Path
@@ -7,11 +7,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.bench import importer, registry
-from harness.bench.importer import Result
-from harness.bench.runner import FakeAdapter
-from harness.bench.service import BenchService
-from harness.eval import resume
+from tadamoo.bench import importer, registry
+from tadamoo.bench.importer import Result
+from tadamoo.bench.runner import FakeAdapter
+from tadamoo.bench.service import BenchService
+from tadamoo.eval import resume
 from bench_support import MODEL, make_remote, make_spec, ready_probes
 
 
@@ -132,7 +132,7 @@ def test_a_benchmark_without_an_adapter_cannot_start(env):
 
 def test_the_real_registry_lists_an_adapter_exactly_where_its_module_exists(tmp_path):
     import importlib.util
-    from harness.bench import adapters
+    from tadamoo.bench import adapters
     svc = BenchService(tmp_path / "b", lambda: 400.0, lambda: dict(MODEL), probes=ready_probes())
     listed = {b["id"]: b["adapter"]["available"] for b in svc.list_benchmarks()}
     assert len(listed) == len(registry.SPECS)

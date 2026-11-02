@@ -1,4 +1,4 @@
-"""Preparing and publishing a result (harness/bench/publish.py): two separate calls, an exact phrase, nothing sent by itself. CPU only."""
+"""Preparing and publishing a result (tadamoo/bench/publish.py): two separate calls, an exact phrase, nothing sent by itself. CPU only."""
 import hashlib
 import json
 import sys
@@ -8,10 +8,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.bench import publish
-from harness.bench.publish import BadConfirmation, NotConfigured, NotOffered, PackageChanged, PublishDesk, PublishError
-from harness.bench.runner import BenchRun, FakeAdapter
-from harness.eval import resume
+from tadamoo.bench import publish
+from tadamoo.bench.publish import BadConfirmation, NotConfigured, NotOffered, PackageChanged, PublishDesk, PublishError
+from tadamoo.bench.runner import BenchRun, FakeAdapter
+from tadamoo.eval import resume
 from bench_support import MODEL, make_spec
 
 

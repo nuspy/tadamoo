@@ -9,15 +9,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import side
-from harness.client import BasaltClient
-from harness.intake import Context, Intake
-from harness.llm.client import THIS_SERVER_ONLY, RoutedClient
-from harness.llm.credentials import FileCredentials
-from harness.llm.store import Ledger, SecureRegistry
-from harness.router import judge_with_model
-from harness.stack import _summarizer
-from harness.suggestions import Suggester
+from tadamoo import side
+from tadamoo.client import BasaltClient
+from tadamoo.intake import Context, Intake
+from tadamoo.llm.client import THIS_SERVER_ONLY, RoutedClient
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.llm.store import Ledger, SecureRegistry
+from tadamoo.router import judge_with_model
+from tadamoo.stack import _summarizer
+from tadamoo.suggestions import Suggester
 from test_llm_client import Cloud, Local, MSG
 
 

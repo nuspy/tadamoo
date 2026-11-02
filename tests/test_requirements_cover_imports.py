@@ -74,7 +74,7 @@ def test_every_third_party_import_is_in_a_requirements_file():
 
 
 def test_the_installer_reads_the_file_that_has_the_vault_package():
-    # setup installs only the top requirements.txt: a package the Wallet needs must be in it, not only in harness/requirements.txt
+    # setup installs only the top requirements.txt: a package the Wallet needs must be in it, not only in tadamoo/requirements.txt
     top = {re.match(r"\s*([A-Za-z0-9_.-]+)", line).group(1).lower() for line in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
            if line.strip() and not line.lstrip().startswith("#")}
     assert "cryptography" in top

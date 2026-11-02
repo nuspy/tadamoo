@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import threading
 
-from harness import compacted, digest, side_uses
+from tadamoo import compacted, digest, side_uses
 from serve.frontend import images_of, openai_to_messages
 from serve.service import CTX_SLACK
 
@@ -114,7 +114,7 @@ def _generate(svc, prompt: list[dict], room: int, limit: int, count, side: bool,
 
 def summarize(svc, middle: list[dict], limit: int, count) -> tuple[str, int]:
     """(summary, messages left out because even the transcript did not fit). With a technical session the text is written there, in parts
-    when it is larger than the session (harness/digest.py); else, or if that fails, in one call of an ordinary slot."""
+    when it is larger than the session (tadamoo/digest.py); else, or if that fails, in one call of an ordinary slot."""
     info = svc.side_slot_info() if hasattr(svc, "side_slot_info") and side_uses.enabled("chat_summary") else None
     prompt_text = side_uses.system("chat_summary", SUMMARY_PROMPT)
     answer = int(side_uses.param("chat_summary", "answer_tokens"))

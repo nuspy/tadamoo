@@ -3,11 +3,11 @@ import json
 import time
 from pathlib import Path
 
-from harness.forget import Forgetter
-from harness.memory_export import export_markdown, file_name, render
-from harness.memory_extract import Extractor, apply
-from harness.past import PastIndex
-from harness.personal_memory import PersonalMemory
+from tadamoo.forget import Forgetter
+from tadamoo.memory_export import export_markdown, file_name, render
+from tadamoo.memory_extract import Extractor, apply
+from tadamoo.past import PastIndex
+from tadamoo.personal_memory import PersonalMemory
 
 KEY = bytes(range(32))
 

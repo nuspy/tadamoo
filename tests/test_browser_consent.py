@@ -13,9 +13,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import harness.browser_consent as bc
-from harness.browser import Browser, BrowserPrefs, find_browser, register_browser_tools
-from harness.tools.registry import ToolRegistry
+import tadamoo.browser_consent as bc
+from tadamoo.browser import Browser, BrowserPrefs, find_browser, register_browser_tools
+from tadamoo.tools.registry import ToolRegistry
 
 needs_browser = pytest.mark.skipif(find_browser() is None, reason="needs Edge or Chrome on this PC")
 
@@ -306,7 +306,7 @@ def test_the_policies_are_kept_with_the_browser_preferences_and_a_missing_one_ke
 
 def test_the_options_of_the_agent_and_their_defaults():
     import argparse
-    from harness.stack import add_agent_arguments, agent_settings
+    from tadamoo.stack import add_agent_arguments, agent_settings
     parser = argparse.ArgumentParser()
     add_agent_arguments(parser)
     args = parser.parse_args([])
@@ -621,7 +621,7 @@ def test_grant_safe_still_refuses_notifications_and_location(make, site):
 
 @needs_browser
 def test_the_stack_hands_the_policies_the_question_and_the_audit_to_the_browser(tmp_path):
-    from harness.stack import AgentConfig, build_agent
+    from tadamoo.stack import AgentConfig, build_agent
     answers = []
     cfg = AgentConfig(final_review=False, workspace=str(tmp_path / "w"), data_dir=str(tmp_path / "d"), use_checkpoints=False, browser=True, browser_headless=True,
                       browser_consent="reject", browser_permissions="ask", confirm=lambda tool, args: answers.append((tool, args)) or True)

@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.client import BasaltClient, BasaltError
+from tadamoo.client import BasaltClient, BasaltError
 from test_e2e_mock_server import answer, start_server, tool_call  # noqa: F401  (fixtures)
 
 MESSAGES = [{"role": "user", "content": "ciao"}]
@@ -44,7 +44,7 @@ def test_a_stream_that_stops_half_way_is_an_error_to_retry_not_an_answer():
             yield b'data: {"choices":[{"delta":{"content":"Ciao"}}]}\n'
             yield b"\n"
 
-    from harness.client import _collect_stream
+    from tadamoo.client import _collect_stream
     with pytest.raises(BasaltError) as err:
         _collect_stream(Cut(), lambda k, t: None)
     assert err.value.status == 0
@@ -55,6 +55,6 @@ def test_an_error_inside_the_stream_is_an_error():
         def __iter__(self):
             yield b'data: {"error":{"message":"the engine stopped"}}\n'
 
-    from harness.client import _collect_stream
+    from tadamoo.client import _collect_stream
     with pytest.raises(BasaltError, match="the engine stopped"):
         _collect_stream(Bad(), lambda k, t: None)

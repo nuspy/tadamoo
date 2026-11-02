@@ -10,11 +10,11 @@ from pathlib import Path
 
 import pytest
 
-import harness.browser as browser
-from harness.mcp_client import MCPClient, MCPHub
-from harness.tools import create_standard_tool_registry
-from harness.tools import search
-from harness.tools.search import PageError, browse_url, clear_backends, register_backend
+import tadamoo.browser as browser
+from tadamoo.mcp_client import MCPClient, MCPHub
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools import search
+from tadamoo.tools.search import PageError, browse_url, clear_backends, register_backend
 
 PAGE = """<!doctype html><html><head><title>Basalt &amp; friends</title><style>.x{}</style></head>
 <body><script>alert('x')</script><h1>Heading</h1><p>Hello <a href="https://example.org/a">link</a></p>

@@ -100,7 +100,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   impostazioni stanno nella cartella dati dell'utente, separate dalle cache.
 
 **7. Un harness per agenti, un planner e un guscio dell'interfaccia rivisto** (`harness/`, [docs/harness.md](docs/harness.md))
-- Un processo separato (`python -m harness -p "compito"`, oppure come agente di un editor via ACP) che parla con l'API
+- Un processo separato (`python -m tadamoo -p "compito"`, oppure come agente di un editor via ACP) che parla con l'API
   pubblica del server: un ciclo di strumenti con livelli di permesso, modalità piano, hook, checkpoint dei file, registro
   di audit a catena di hash, sandbox dei comandi, broker dei segreti, contenuti non fidati recintati, mascheramento del
   contesto, memoria, skill con approvazione per hash, MCP e documenti di riferimento (blocco fisso o ricerca). Un **vault**
@@ -109,7 +109,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   una domanda oltre); il secondo fattore di un accesso lo scegli tu. Le telefonate vere sono protette e spente di default.
 - Un **planner** proattivo: piani come grafi con decisioni, riunioni e compiti passati a te, un filtro veloce degli eventi
   (nel cloud solo con il tuo consenso, nomi sostituiti) e nuova pianificazione col modello locale, in una vista **Piani**.
-- Una **valutazione** (`python -m harness.eval`) che riporta pass^k, costo e uso della cache, e il guscio delle pagine:
+- Una **valutazione** (`python -m tadamoo.eval`) che riporta pass^k, costo e uso della cache, e il guscio delle pagine:
   zoom dell'interfaccia per schermi molto larghi, una tavolozza dei comandi (Ctrl+K), viste con Alt+numero e un indice
   delle impostazioni.
 - Nella Chat: **Maiusc+Tab** cambia la modalità, mostrata in un'etichetta accanto a *Nuova conversazione*; un messaggio che inizia
@@ -222,14 +222,14 @@ Il riferimento è [docs/harness.md](docs/harness.md) (in inglese); una guida pas
 
 ### Quattro modi di usarlo
 
-Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): ciò che uno raggiunge, lo raggiungono anche gli altri.
+Tutti e quattro costruiscono l'agente nello stesso punto (`tadamoo/stack.py`): ciò che uno raggiunge, lo raggiungono anche gli altri.
 
 | Modo | Cos'è |
 |---|---|
 | Scheda **Chat** | Conversazioni con l'agente. Ognuna è un processo che resta vivo, con la sua cronologia salvata, quindi un messaggio non paga l'avvio. È il modo principale. |
 | Scheda **Agente** | La pagina delle conversazioni, che lavora nelle cartelle che aggiungi: ogni cartella ha le sue conversazioni e un registro `.basalt`, e le modifiche dell'agente si tengono o si annullano blocco per blocco. |
-| `python -m harness -p "compito"` o `basalt-agent` | La riga di comando, per gli script: codici di uscita, `--json`, limiti. `basalt-agent.cmd` funziona da qualunque cartella. |
-| `python -m harness acp` | L'agente di un editor che parla l'Agent Client Protocol, su stdio. |
+| `python -m tadamoo -p "compito"` o `basalt-agent` | La riga di comando, per gli script: codici di uscita, `--json`, limiti. `basalt-agent.cmd` funziona da qualunque cartella. |
+| `python -m tadamoo acp` | L'agente di un editor che parla l'Agent Client Protocol, su stdio. |
 
 ### Cosa sa fare
 
@@ -257,7 +257,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
   tuo sì. Ogni piano ha una scheda rispetto a cui si giudicano gli eventi in arrivo; la Chat ti chiede solo ciò che alla scheda manca. Una
   decisione senza uscita valida passa a te invece di saltare in silenzio. Il filtro degli eventi (locale; quello nel cloud solo con il tuo
   consenso) parte con il server, e la ripianificazione col modello locale è facoltativa.
-- **Lavorare con orari propri**: routine (un prompt, una cartella, un orario; sempre in Automatica), valutazione (`python -m harness.eval`,
+- **Lavorare con orari propri**: routine (un prompt, una cartella, un orario; sempre in Automatica), valutazione (`python -m tadamoo.eval`,
   pass^k, costo e uso della cache), riesecuzione di una sessione registrata e l'energia usata da un compito.
 
 ### Le conversazioni della Chat
@@ -309,7 +309,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 - **Hook scritti da te** (`hooks.json`): comandi o blocchi fissi su chiamate di strumenti, turni e sessione; un hook che non riesce a
   decidere blocca.
 - **Checkpoint e ritorno**: l'area di lavoro viene salvata prima della prima modifica di un turno, fuori dal progetto e con limiti di
-  dimensione; `python -m harness.rewind`, `/rewind` e *Torna qui* su un messaggio la ripristinano. Tornare indietro non disfa un comando che ha
+  dimensione; `python -m tadamoo.rewind`, `/rewind` e *Torna qui* su un messaggio la ripristinano. Tornare indietro non disfa un comando che ha
   eseguito, e lo dice.
 - **Un registro di audit**: una riga per ogni chiamata di strumento (argomenti con hash e mascherati, la decisione, l'esito), in una
   catena di hash verificabile.

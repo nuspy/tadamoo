@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-from harness.intake import DEFAULT_MODE, DEFAULT_SIDE_CALL_TOKENS, MODES
+from tadamoo.intake import DEFAULT_MODE, DEFAULT_SIDE_CALL_TOKENS, MODES
 
 LIMITS = {"side_call_tokens": (500, 200_000)}
 

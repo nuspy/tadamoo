@@ -20,7 +20,7 @@ hook discipline and evaluation layer.
    code: `agent_loop.py` never reads it, so a cut answer is FINAL and a reasoning-exhausted reply ends as an empty FINAL. Fix in
    `AgentLoop.run`: on `length` with content and no calls, append the partial answer plus a `[harness]` note, at most 2
    continuations, then deliver flagged "cut"; on empty content with reasoning, retry once at lower effort; audit record
-   `answer_truncated`; `length_stops` in `harness/eval/report.py`. Decide the output ceiling explicitly (the loop passes no
+   `answer_truncated`; `length_stops` in `tadamoo/eval/report.py`. Decide the output ceiling explicitly (the loop passes no
    `max_tokens`).
 2. **Hooks that talk back (M).** The Codex hook schema has PostToolUse feedback (`{"decision":"block","reason":...}` goes back to
    the model), a Stop hook, PreCompact/PostCompact and subagent events. Ours: `hooks.py` post-tool and turn-end hooks return
@@ -32,14 +32,14 @@ hook discipline and evaluation layer.
    the trial "contaminated".
 4. **Skill and script lint (S).** All errors at once, verbatim feedback, one retry, then discard: description present (or the
    skill is dropped silently at load), name equals folder, referenced scripts exist and compile, body size.
-   `SkillCatalog.lint()` in `harness/skills.py`; run on agent-written skills before the approval diff.
+   `SkillCatalog.lint()` in `tadamoo/skills.py`; run on agent-written skills before the approval diff.
 5. **Always-on budget (S).** Their prompts rank instruction forms by cost: skill, script, subagent, hook, always-on text last,
    with a hard cap on always-on text. Ours: `find_project_guidelines` cuts AGENTS.md at 32 KiB silently. Report the cut in the
    pinned block, show block sizes in `/context`, "cut something to add something" rule in `/init`.
 6. **A/A noise-floor run, computed report warnings, accounting identity (S).** Run the identical configuration twice and print
    the gap as the noise floor (replacing the guessed 3 points); assert trials equal tasks x k with unique (task, rep).
 7. **Divergent-task report (M).** Tasks with pass@k above 0 and pass^k equal 0, with the first diverging call between a passing
-   and a failing trial, built on `harness/replay.py`.
+   and a failing trial, built on `tadamoo/replay.py`.
 8. **Eval resume and judge cache (M).** One result per (task, rep) with a completion marker holding a fingerprint of harness
    commit, model, sampling, task and flags; atomic write; a "why not" sentence; judge verdicts cached by hash.
 9. **Component-use telemetry (S)** (skills loaded, subagents spawned, hooks fired, memory recalls per trial) and a subagent

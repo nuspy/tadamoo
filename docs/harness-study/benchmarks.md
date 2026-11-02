@@ -26,7 +26,7 @@ read again from the source before it is quoted. Nothing was run. Headline number
 - The public CSV (leaderboard results of every entry) lets a new result be ranked locally. Every entry uses the same harness (Hermes); small free models sit at 2 to 5%
   interception, the best cloud models around 45 to 60%.
 - A custom harness is a registry entry (Dockerfile, setup and run scripts, usage emitter) that receives the instruction and a browser URL to drive; there is no written
-  spec, so the Hermes entry is the model to copy. Needs `harness/browser.py` to attach to an external browser: to check. Effort M, or L if it cannot.
+  spec, so the Hermes entry is the model to copy. Needs `tadamoo/browser.py` to attach to an external browser: to check. Effort M, or L if it cannot.
 - Per run it keeps video, actions, messages, HTTP requests and the judge's short reason: enough to tell a login wall or a CAPTCHA from a wrong page.
 - Risks: live sites change and block bots; paywalled tasks can never pass; a local 30B model with 32-65k context will probably sit at the floor; the official judge is a cloud
   model, so a local judge would make the number not comparable.
@@ -82,17 +82,17 @@ estimate for the others; the tab must say which one it is.
 Outside the commit: the benchmarks themselves (their code, datasets, Docker images, results) are never in the repository. They are fetched on demand, at a pinned version, into a
 folder of the user data folder (`benchmarks/<id>/`), with their licence kept beside them; the repository holds only our adapters and manifests, which are small.
 
-- **Registry** (`harness/bench/registry.py`): one entry per benchmark: source address, pinned commit or version, licence, what it needs (Docker, WSL2, a judge key, internet),
+- **Registry** (`tadamoo/bench/registry.py`): one entry per benchmark: source address, pinned commit or version, licence, what it needs (Docker, WSL2, a judge key, internet),
   how to install, how to run a subset or all, how to read its results, how to score them locally, what the board accepts and how.
 - **Preflight**: the tab checks what is missing before anything is started (the Docker daemon, WSL2, disk, a free GPU, the key for a judge) and says how to fix it.
-- **Runner** (`harness/bench/runner.py`): a background job with its own folder (`benchmarks/runs/<id>/`): settings, one line per finished trial (the same journal and fingerprint
+- **Runner** (`tadamoo/bench/runner.py`): a background job with its own folder (`benchmarks/runs/<id>/`): settings, one line per finished trial (the same journal and fingerprint
   as the experiments, so an interrupted run resumes), the logs and the trajectories. Cost is recorded: tokens, seconds, power limit, model file, commit.
 - **Adapters**: one per benchmark, written against its own agent interface (Harbor `BaseAgent`, ClawBench harness entry, the Claw-Eval loop), running our harness headless.
-- **Analysis** (`harness/bench/analysis.py`): reads the trajectories and the verifier output and classes every failure (wrong final state, timeout, context overflow, tool
+- **Analysis** (`tadamoo/bench/analysis.py`): reads the trajectories and the verifier output and classes every failure (wrong final state, timeout, context overflow, tool
   format error, missing executable, refusal by our own permission layer, loop, bad plan, environment problem, a site that blocked us), then maps each class to a part of the
   harness and writes the "what failed and what to change" report. Repeated classes become candidate lessons (never the task text), and the report lists the tasks that passed
   only sometimes.
-- **Ranking** (`harness/bench/ranking.py`): the benchmark's own scorer on our results; the published entries when the benchmark allows them to be downloaded; our simulated rank among
+- **Ranking** (`tadamoo/bench/ranking.py`): the benchmark's own scorer on our results; the published entries when the benchmark allows them to be downloaded; our simulated rank among
   them, with the confidence interval and a plain note when the score was made without the official judge (then the rank is marked provisional).
 - **Tab** (Settings > Benchmarks, `serve/web/bench.js`, `serve/bench_api.py`): the list with status, preflight, a start form (subset, trials, which model), live progress, results
   with the failure report and the rank preview, and the publish step.

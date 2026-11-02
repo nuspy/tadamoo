@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any, Callable, Iterable, List, Optional
 
-from harness.rule_of_two import _TOKEN_SHAPES
+from tadamoo.rule_of_two import _TOKEN_SHAPES
 
 HIDDEN = "[HIDDEN]"
 MAX_WORDS = 20

@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import target as tg
+from tadamoo import target as tg
 from serve import handler
 from serve.agent_sessions import SessionManager
 from serve.approvals import ApprovalBoard

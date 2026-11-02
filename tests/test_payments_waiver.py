@@ -7,13 +7,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.audit import AuditLedger
-from harness.payments_broker import PaymentsBroker, register_payment_tool, to_cents
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.tools.registry import ToolRegistry
-from harness.waiver import PaymentSystem, parse_amount, required_phrase, verify_phrase
-from harness.waiver.dossier import DossierStore, DossierUnavailable
-from harness.waiver.keystore import load_or_create_key
+from tadamoo.audit import AuditLedger
+from tadamoo.payments_broker import PaymentsBroker, register_payment_tool, to_cents
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.tools.registry import ToolRegistry
+from tadamoo.waiver import PaymentSystem, parse_amount, required_phrase, verify_phrase
+from tadamoo.waiver.dossier import DossierStore, DossierUnavailable
+from tadamoo.waiver.keystore import load_or_create_key
 
 NAME = "Mario Rossi"
 
@@ -156,7 +156,7 @@ def test_a_tampered_dossier_or_another_device_key_cannot_be_opened(broker, tmp_p
 
 
 def test_without_the_crypto_package_no_waiver_is_given(broker, monkeypatch):
-    import harness.waiver.dossier as d
+    import tadamoo.waiver.dossier as d
     monkeypatch.setattr(d, "_aead", lambda: (_ for _ in ()).throw(DossierUnavailable("needs cryptography")))
     with pytest.raises(DossierUnavailable):
         grant(broker)

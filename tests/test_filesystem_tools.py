@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from harness.tools.filesystem import MAX_LISTED, WorkspaceSandbox
+from tadamoo.tools.filesystem import MAX_LISTED, WorkspaceSandbox
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def test_binary_and_large_files_are_handled(sb):
 
 def test_a_failed_write_leaves_the_old_file_and_no_temp_files(sb, monkeypatch):
     sb.write_file("keep.txt", "original")
-    import harness.tools.filesystem as fsmod
+    import tadamoo.tools.filesystem as fsmod
     monkeypatch.setattr(fsmod.os, "replace", lambda *a: (_ for _ in ()).throw(OSError("disk full")))
     with pytest.raises(OSError):
         sb.write_file("keep.txt", "new")

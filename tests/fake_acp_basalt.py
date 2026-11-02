@@ -5,7 +5,7 @@ from pathlib import Path
 here = Path(__file__).resolve().parent
 sys.path[:0] = [str(here), str(here.parent)]
 
-from harness.acp_agent import ACPAgentServer  # noqa: E402
+from tadamoo.acp_agent import ACPAgentServer  # noqa: E402
 from test_agent_loop import ScriptedClient, call, say  # noqa: E402
 
 workspace, data = sys.argv[1], sys.argv[2]

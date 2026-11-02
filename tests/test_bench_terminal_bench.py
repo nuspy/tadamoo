@@ -1,4 +1,4 @@
-"""The Terminal-Bench adapter (harness/bench/adapters/terminal_bench.py) and its Harbor agent, with a fake Harbor: no Docker, no GPU, no model."""
+"""The Terminal-Bench adapter (tadamoo/bench/adapters/terminal_bench.py) and its Harbor agent, with a fake Harbor: no Docker, no GPU, no model."""
 import asyncio
 import json
 import shutil
@@ -13,10 +13,10 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from bench_support import MODEL, make_spec
-from harness.bench import analysis, registry
-from harness.bench.adapters import terminal_bench as tb
-from harness.bench.importer import Result
-from harness.bench.runner import BenchRun, TrialContext, TrialResult, get_adapter
+from tadamoo.bench import analysis, registry
+from tadamoo.bench.adapters import terminal_bench as tb
+from tadamoo.bench.importer import Result
+from tadamoo.bench.runner import BenchRun, TrialContext, TrialResult, get_adapter
 
 TASK_TOML = """schema_version = "1.1"
 [metadata]
@@ -309,7 +309,7 @@ def harbor_stub(monkeypatch):
     for name in list(sys.modules):
         if name.startswith("harbor"):
             monkeypatch.delitem(sys.modules, name)
-    monkeypatch.delitem(sys.modules, "harness.bench.adapters.terminal_bench_agent", raising=False)
+    monkeypatch.delitem(sys.modules, "tadamoo.bench.adapters.terminal_bench_agent", raising=False)
     pkgs = {n: types.ModuleType(n) for n in ("harbor", "harbor.agents", "harbor.agents.base", "harbor.environments", "harbor.environments.base", "harbor.models",
                                              "harbor.models.agent", "harbor.models.agent.context")}
 
@@ -329,7 +329,7 @@ def harbor_stub(monkeypatch):
     for n, m in pkgs.items():
         monkeypatch.setitem(sys.modules, n, m)
     import importlib
-    return importlib.import_module("harness.bench.adapters.terminal_bench_agent"), AgentContext
+    return importlib.import_module("tadamoo.bench.adapters.terminal_bench_agent"), AgentContext
 
 
 BASH = shutil.which("bash")
@@ -360,7 +360,7 @@ def agent_settings_file(tmp_path):
 
 @pytest.mark.skipif(BASH is None, reason="needs bash to stand in for the container")
 def test_the_harbor_agent_runs_our_agent_through_environment_exec(harbor_stub, tmp_path, monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
     module, Context = harbor_stub
     from test_session import Scripted, call, say
     root = tmp_path / "container"
@@ -380,7 +380,7 @@ def test_the_harbor_agent_runs_our_agent_through_environment_exec(harbor_stub, t
 
 @pytest.mark.skipif(BASH is None, reason="needs bash to stand in for the container")
 def test_when_harbor_cancels_the_agent_stops_and_late_commands_are_refused(harbor_stub, tmp_path, monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
     module, Context = harbor_stub
     from test_session import Scripted, call, say
 
@@ -404,7 +404,7 @@ def test_when_harbor_cancels_the_agent_stops_and_late_commands_are_refused(harbo
 
 @pytest.mark.skipif(BASH is None, reason="needs bash to stand in for the container")
 def test_a_dead_model_server_is_not_graded_as_the_agent_failing(harbor_stub, tmp_path, monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
     module, Context = harbor_stub
     from test_session import Scripted
     root = tmp_path / "container"

@@ -91,7 +91,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   the user data folder, apart from the caches.
 
 **7. An agent harness, a planner and a revised interface shell** (`harness/`, [docs/harness.md](docs/harness.md))
-- A separate process (`python -m harness -p "task"`, or as an editor's agent over ACP) that talks to the server's public
+- A separate process (`python -m tadamoo -p "task"`, or as an editor's agent over ACP) that talks to the server's public
   API: a tool loop with permission levels, a plan mode, hooks, file checkpoints, a hash-chained audit log, a command
   sandbox, a secrets broker, fenced untrusted content, context masking, memory, skills, MCP and
   reference documents (fixed block or search). A **vault** keeps cards, personal data and logins encrypted and the model only writes placeholders that are filled in at the last step (the agent runs as your own user, so what that does and does not protect is in `docs/harness.md`);
@@ -99,7 +99,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   caps you choose, a question above them); the second factor of a login is your choice. Real phone calls are gated and off by default.
 - A proactive **planner**: plans as graphs with decisions, merges and tasks handed to you, a fast event filter (cloud only
   with your consent, names replaced) and re-planning by the local model, shown in a **Plans** view.
-- An **evaluation** (`python -m harness.eval`) that reports pass^k, cost and cache use, and the pages' shell: interface zoom
+- An **evaluation** (`python -m tadamoo.eval`) that reports pass^k, cost and cache use, and the pages' shell: interface zoom
   for very wide screens, a command palette (Ctrl+K), Alt+number views and a settings index.
 - **Questions and suggestions**: the agent asks with a card (choices, a row of your own, a recommended option first), looks at each request before it works, and offers next-message chips that only fill the box; unattended runs never wait ([docs/intake.md](docs/intake.md)).
 - A request for a text too long for one reply (a chapter, a report, a long translation) is written in checked parts: the Agent tab estimates the length, plans the parts, writes them and checks and corrects the whole by itself, after a card offers it; the **Long answer** button in the Chat and the Agent tab asks for it by hand. Images, links and code are kept exactly; a reply cut by the output limit shows a Continue button ([docs/longform.md](docs/longform.md)).
@@ -215,14 +215,14 @@ An optional **reverse engineering** switch in the Agent tab adds the shipped REA
 
 ### Four ways in
 
-All four build the agent in the same place (`harness/stack.py`), so what one can reach the others can reach.
+All four build the agent in the same place (`tadamoo/stack.py`), so what one can reach the others can reach.
 
 | Way in | What it is |
 |---|---|
 | **Chat** tab | Conversations with the agent. Each is a long-lived process with its own saved history, so a message does not pay for the start. This is the main way. |
 | **Agent** tab | The conversation page, working in folders you add: each folder has its own conversations and a `.basalt` registry, and the agent's edits can be kept or undone block by block. |
-| `python -m harness -p "task"` or `basalt-agent` | The command line, for scripts: exit codes, `--json`, budgets. `basalt-agent.cmd` works from any folder. |
-| `python -m harness acp` | The agent of an editor that speaks the Agent Client Protocol, over stdio. |
+| `python -m tadamoo -p "task"` or `basalt-agent` | The command line, for scripts: exit codes, `--json`, budgets. `basalt-agent.cmd` works from any folder. |
+| `python -m tadamoo acp` | The agent of an editor that speaks the Agent Client Protocol, over stdio. |
 
 ### What it can do
 
@@ -248,7 +248,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   plan has a card the incoming events are judged against; the Chat asks you only what the card lacks. A decision with no exit that holds
   passes to you instead of skipping in silence. The event filter (local; the cloud one only with your consent) runs from the start of the
   server, and re-planning by the local model is optional.
-- **Run on its own schedule**: routines (a prompt, a folder, a schedule; always Automatic), evaluation (`python -m harness.eval`, pass^k, cost
+- **Run on its own schedule**: routines (a prompt, a folder, a schedule; always Automatic), evaluation (`python -m tadamoo.eval`, pass^k, cost
   and cache use), replay of a recorded session, and the energy a task used.
 
 ### The Chat's conversations
@@ -294,7 +294,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   once the conversation has read outside content and can reach a secret or a vault entry (the Rule of Two). The web is read freely for news; a web address, a search or a form asks only when the conversation has read outside content, touched private data (a stored credential, a file that holds keys, an attachment, your memories) and the action reaches the outside. Settings > Wallet sets how strict that is. A stored secret is never let into an address or a query, at any setting.
 - **Hooks you write** (`hooks.json`): commands or fixed blocks on tool calls, turns and the session; a hook that cannot decide blocks.
 - **Checkpoints and rewind**: before an action changes files, their previous content is kept outside the project (only the changed files, any folder, no size limit; off, on, or on without ever stopping the action);
-  `python -m harness.rewind`, `/rewind` and *Back to here* on a message restore it. Rewinding does not undo a command it ran, and says so.
+  `python -m tadamoo.rewind`, `/rewind` and *Back to here* on a message restore it. Rewinding does not undo a command it ran, and says so.
 - **An audit log**: one record per tool call (arguments hashed and masked, the decision, the outcome), in a hash chain you can verify.
 - **Time limits and Stop**: every tool has a time limit (one hour unless set in `limits.json`); silent work is not killed unless you set a limit; Stop ends a running command and everything it started.
 - **What it is not**: an operating-system sandbox. A command runs with your rights, with a scrubbed environment, no stdin, a time limit,

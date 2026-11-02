@@ -1,4 +1,4 @@
-"""Writes the card of each conversation (harness/cards.py), in the background.
+"""Writes the card of each conversation (tadamoo/cards.py), in the background.
 
 Two kinds of work, one card at a time. A conversation that has been quiet for `idle_s` seconds gets its card (or a new one if it grew). The
 conversations already in the index without a card are back-filled: newest first, at most one every `gap_s` seconds, and only while the
@@ -12,8 +12,8 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from harness import cards, digest, side_uses
-from harness.side import side_context, side_extra
+from tadamoo import cards, digest, side_uses
+from tadamoo.side import side_context, side_extra
 
 USE = "conversation_card"
 POLL_S = 3.0

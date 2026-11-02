@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.scheduler import RoutineError, Scheduler, SessionRoutineRunner
+from tadamoo.scheduler import RoutineError, Scheduler, SessionRoutineRunner
 from serve import handler
 from serve.agent_sessions import SessionManager
 from serve.approvals import ApprovalBoard
@@ -141,8 +141,8 @@ def test_a_skill_routine_with_a_wrong_value_or_a_missing_skill_is_refused_when_s
 
 
 def test_a_routine_can_be_improved_into_a_skill_and_the_kill_switch_is_set(tmp_path):
-    from harness.personal_skills.store import PersonalSkills
-    from harness.scheduler import Scheduler
+    from tadamoo.personal_skills.store import PersonalSkills
+    from tadamoo.scheduler import Scheduler
     from serve.routines_api import RoutinesApi
 
     class Sessions:

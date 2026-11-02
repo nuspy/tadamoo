@@ -124,7 +124,7 @@ class TextsTest(unittest.TestCase):
     def test_every_state_phase_flag_reason_and_note_the_server_can_send_has_a_text(self):
         import sys
         sys.path.insert(0, str(ROOT))
-        from harness import target as tg
+        from tadamoo import target as tg
         wanted = {f"tg.state.{x}" for x in tg.TARGET_STATES} | {f"tg.crit.{x}" for x in tg.CRITERION_STATES} | {f"tg.task.{x}" for x in tg.TASK_STATES}
         wanted |= {f"tg.stop.{x}" for x in tg.STOP_REASONS} | {f"tg.report.{x}" for x in tg.STOP_REASONS}
         wanted |= {f"tg.phase.{x}" for x in set(re.findall(r'phase="(\w+)"', HARNESS))}

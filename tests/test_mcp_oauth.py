@@ -8,8 +8,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from harness.llm.credentials import FileCredentials
-from harness.mcp_oauth import AuthRequired, McpOAuth, OAuthError, OAuthStore, canonical, parse_challenge
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.mcp_oauth import AuthRequired, McpOAuth, OAuthError, OAuthStore, canonical, parse_challenge
 
 REDIRECT = "http://127.0.0.1:7232/api/mcp/auth/callback"
 
@@ -300,7 +300,7 @@ def test_a_server_that_does_not_register_clients_says_so(tmp_path):
 
 
 def test_the_http_client_sends_the_token_asks_to_sign_in_without_one_and_renews_a_token_that_ran_out(parts, world):
-    from harness.mcp_client import MCPAuthRequired, MCPHttpClient
+    from tadamoo.mcp_client import MCPAuthRequired, MCPHttpClient
     oauth, store, clock, creds, tmp = parts
     client = MCPHttpClient(world.url, auth=oauth)
     with pytest.raises(MCPAuthRequired) as e:
@@ -317,7 +317,7 @@ def test_the_http_client_sends_the_token_asks_to_sign_in_without_one_and_renews_
 
 
 def test_a_static_token_and_no_auth_still_work_as_before(world):
-    from harness.mcp_client import MCPAuthRequired, MCPHttpClient
+    from tadamoo.mcp_client import MCPAuthRequired, MCPHttpClient
     world.tokens = {"fixed": "x"}
     MCPHttpClient(world.url, token="fixed").notify("ping")
     with pytest.raises(MCPAuthRequired):

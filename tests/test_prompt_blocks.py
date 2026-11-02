@@ -1,8 +1,8 @@
 """The optional working rules (`--instruction-blocks`): off unless asked for, and worded for the tools the conversation has."""
 import pytest
 
-from harness.prompt_blocks import RULES, instruction_blocks
-from harness.stack import AgentConfig, build_agent
+from tadamoo.prompt_blocks import RULES, instruction_blocks
+from tadamoo.stack import AgentConfig, build_agent
 
 ALL = ["read_file", "list_directory", "shell_command", "browse_url", "search_web", "write_file"]
 

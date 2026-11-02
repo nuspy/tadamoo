@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from harness.integrations.call_api_client import CallAPICallClient, build_greeting, has_ai_disclosure
+from tadamoo.integrations.call_api_client import CallAPICallClient, build_greeting, has_ai_disclosure
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("BASALT_LIVE_CALLS") != "1",

@@ -1,6 +1,6 @@
 # Guidance texts: experiments
 
-To run when the GPU is free, in the style of `harness/eval/cases`. Common rules: arms are applied by patching module constants or the registry's tool descriptions inside the experiment process, then restoring
+To run when the GPU is free, in the style of `tadamoo/eval/cases`. Common rules: arms are applied by patching module constants or the registry's tool descriptions inside the experiment process, then restoring
 them; no production prompt changes until something wins. Each experiment has an A/A control (`with_control`, arm `N~aa`). Tasks come from `core.json` (10), `toolcalls.json` (8), `planner_chat.json` (6) and
 the fixtures `derail_tasks` (6), `lesson_tasks`, `gate_tasks`, `error_scenarios`. Checks are scripts; no model judges. k is at least 5 for task runs and 20 for single-request probes. Report cached and uncached
 prompt tokens and the GPU power limit with every number. Win rule: the challenger must beat the baseline by more than the A/A gap and the stated minimum effect, with no guard broken.

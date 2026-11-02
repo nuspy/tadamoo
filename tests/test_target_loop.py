@@ -1,12 +1,12 @@
-"""The Target Loop (harness/target.py): the split into criteria and tasks, the passes, the judge, the stall rule, parking, stopping."""
+"""The Target Loop (tadamoo/target.py): the split into criteria and tasks, the passes, the judge, the stall rule, parking, stopping."""
 import json
 import threading
 import time
 
 import pytest
 
-from harness import target as tg
-from harness.client import BasaltError
+from tadamoo import target as tg
+from tadamoo.client import BasaltError
 from serve.tasks import TaskJournal
 
 

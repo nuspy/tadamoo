@@ -1,8 +1,8 @@
 """Skills that need a program or a variable the PC lacks, the check of a skill a model wrote, and instruction files that speak like an attack."""
 import sys
 
-from harness import inject_screen
-from harness.skills import SkillCatalog, check_skill_text
+from tadamoo import inject_screen
+from tadamoo.skills import SkillCatalog, check_skill_text
 
 
 def write(root, name, header, body="# When to use\nalways\n# Steps\n1. go\n"):

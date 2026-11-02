@@ -1,4 +1,4 @@
-"""The shared part of the container adapters (harness/bench/adapters/containerkit.py): the container tools, the trajectory, our agent and the bash baseline
+"""The shared part of the container adapters (tadamoo/bench/adapters/containerkit.py): the container tools, the trajectory, our agent and the bash baseline
 with their commands run in a local bash standing in for the container. No Docker, no model."""
 import json
 import shutil
@@ -11,12 +11,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import editing
-from harness.bench import analysis
-from harness.bench.adapters import containerkit as ck
-from harness.bench.adapters.containerkit import AgentOutcome, ContainerTools, ExecOut, TrajectoryRecorder
-from harness.bench.runner import TrialResult
-from harness.tools import create_standard_tool_registry
+from tadamoo import editing
+from tadamoo.bench import analysis
+from tadamoo.bench.adapters import containerkit as ck
+from tadamoo.bench.adapters.containerkit import AgentOutcome, ContainerTools, ExecOut, TrajectoryRecorder
+from tadamoo.bench.runner import TrialResult
+from tadamoo.tools import create_standard_tool_registry
 from test_session import Scripted, call, say
 
 BASH = shutil.which("bash")
@@ -27,7 +27,7 @@ pytestmark = pytest.mark.skipif(BASH is None, reason="needs bash to stand in for
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 def local_exec(cwd: Path, log=None):

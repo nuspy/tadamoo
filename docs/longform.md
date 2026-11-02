@@ -3,7 +3,7 @@
 A model asked for a long final text ends its turn early, well short of the length asked, however large the output limit is. This page describes what Basalt does about it. The reasons and the design are in
 [harness-study/long-answers.md](harness-study/long-answers.md). Code: `serve/longform.py` (the engine of the mode: pure functions and
 `LongAnswer`), `serve/longflow.py` (the flow the harness drives: estimate, plan, parts, check), `serve/api/longform.py` (the `long_answer`
-field), `serve/web/longform.js` and `longform.css` (the control), `harness/session.py` (`_long_step`, `_long_run`), and the guards in
+field), `serve/web/longform.js` and `longform.css` (the control), `tadamoo/session.py` (`_long_step`, `_long_run`), and the guards in
 `serve/service.py` and `serve/util/ngram.py`.
 
 ## A reply that is cut is shown as cut
@@ -19,7 +19,7 @@ field), `serve/web/longform.js` and `longform.css` (the control), `harness/sessi
   answer ("asked to go on (1 of 2)") and joins the pieces into the same text. An answer that is still cut after that shows the line "The
   output limit ended this answer" and a **Continue** button that sends one more message.
 - **How a continuation joins.** The cut text goes back to the model only up to its last whitespace, so the model writes the unfinished
-  word again; the join (`harness/continuation.py`, the same in `serve/web/cuttext.js`) leaves no doubled or missing space, no second
+  word again; the join (`tadamoo/continuation.py`, the same in `serve/web/cuttext.js`) leaves no doubled or missing space, no second
   paragraph break and none of the words the model repeated at its start. The segmented mode joins its parts' continuations the same way.
 - **What tells a cut reply from a finished one.** Only `finish_reason`: `length` is the output limit (or the answer cap, or a loop, which carry
   their own flag), `stop` is the end-of-sequence code, which the model also writes when it simply ends early. An early end with `stop` cannot
@@ -116,7 +116,7 @@ For a translation or rewrite the source blocks are the plan: a Markdown-aware sp
 boundaries into parts of about `segment_words`; a heading stays with the text after it, and a part's expected length comes from its source
 (English to Italian about 1.15 times the words). A table or a code block left in the source (`protect: false`) is one unit; one longer than
 1.4 parts is the only thing cut inside: at rows or lines, the table header repeated and the code block closed and reopened in each piece
-(`harness/markdown_chunks.py`).
+(`tadamoo/markdown_chunks.py`).
 
 ### Content that must not change
 

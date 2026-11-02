@@ -9,9 +9,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.discovery.candidates import Candidate, CandidateStore
-from harness.discovery.installer import Installer
-from harness.discovery.scoring import Metrics
+from tadamoo.discovery.candidates import Candidate, CandidateStore
+from tadamoo.discovery.installer import Installer
+from tadamoo.discovery.scoring import Metrics
 from serve import handler
 from serve.capabilities_api import CapabilityApi
 from test_discovery_install import Runner

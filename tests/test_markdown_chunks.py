@@ -1,10 +1,10 @@
-"""The Markdown chunker (harness/markdown_chunks.py): pieces within the limit, no cut inside a code block, table or list item when avoidable."""
+"""The Markdown chunker (tadamoo/markdown_chunks.py): pieces within the limit, no cut inside a code block, table or list item when avoidable."""
 import random
 import re
 
 import pytest
 
-from harness.markdown_chunks import split_markdown
+from tadamoo.markdown_chunks import split_markdown
 
 FENCE_LINE = re.compile(r"^[ \t]*(`{3,}|~{3,})[^\n]*$", re.M)
 

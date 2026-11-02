@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
-from harness.past import PastIndex
+from tadamoo.past import PastIndex
 from serve import handler
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate

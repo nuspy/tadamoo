@@ -4,11 +4,11 @@ import json
 
 import pytest
 
-from harness.agent_loop import AgentLoop, FINAL, LOOP
-from harness.audit import AuditLedger
-from harness.tools import create_standard_tool_registry
-from harness.tools.registry import EffectClass, ToolRegistry
-from harness.tools.repair import coerce_arguments, coerce_value, repair_json, resolve_tool_name
+from tadamoo.agent_loop import AgentLoop, FINAL, LOOP
+from tadamoo.audit import AuditLedger
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.registry import EffectClass, ToolRegistry
+from tadamoo.tools.repair import coerce_arguments, coerce_value, repair_json, resolve_tool_name
 
 NAMES = ["read_file", "write_file", "edit_file", "shell_command", "list_directory", "browse_url", "search_web"]
 

@@ -3,18 +3,18 @@
 Some design questions of the harness cannot be settled by reasoning. Seven of them are set up here as experiments (E1 to E7), each with a
 fixture, a scorer that is plain code, an A/A control and a decision rule written before the run. Nothing in this page has been run on the
 model yet except E3, whose numbers are a check of the code (see its section). The real runs wait for the GPU and are rows 70 to 76 of
-`tests/QUEUE_daytime.md`. Code: `harness/eval/cases/`. Tests: `tests/test_cases_core.py` and `tests/test_cases_runs.py`.
+`tests/QUEUE_daytime.md`. Code: `tadamoo/eval/cases/`. Tests: `tests/test_cases_core.py` and `tests/test_cases_runs.py`.
 
 ## How it works
 
 ```
-python -m harness.eval.cases list                 # every experiment, its arms (with the flag that selects each) and its rule
-python -m harness.eval.cases e2 --endpoint http://127.0.0.1:7232 --k 5 --gpu-power-limit-w 400 --out e2.md --json e2.json --keep D:\eval-e2
+python -m tadamoo.eval.cases list                 # every experiment, its arms (with the flag that selects each) and its rule
+python -m tadamoo.eval.cases e2 --endpoint http://127.0.0.1:7232 --k 5 --gpu-power-limit-w 400 --out e2.md --json e2.json --keep D:\eval-e2
 ```
 
 | Option | Meaning |
 |---|---|
-| `--k N` | repetitions of every task under every arm (the experiment's own default, 5 or 3; below 5 the run warns, as `harness.eval` does) |
+| `--k N` | repetitions of every task under every arm (the experiment's own default, 5 or 3; below 5 the run warns, as `tadamoo.eval` does) |
 | `--gpu-power-limit-w W` | **required** when the experiment uses the model: it labels every number in the report and the JSON |
 | `--arms A,B` | only these arms; the baseline and its A/A control always run |
 | `--only TASK_ID` | only these tasks (repeatable); a pilot is `--k 2 --only <one task>` |
@@ -30,7 +30,7 @@ alternates them (for every repetition and task the arms run in a rotating order,
 ### A/A control, noise and the decision
 
 Every experiment has a baseline arm `A` and its copy `A~aa`: the same settings under another name. The gap between the two on the primary metric
-is **the noise of this setup**, measured instead of guessed (the older "about 3 points" in `harness.eval` is a guess). A challenger beats the
+is **the noise of this setup**, measured instead of guessed (the older "about 3 points" in `tadamoo.eval` is a guess). A challenger beats the
 baseline when, on the primary metric,
 
 1. it is better than the pooled `A` and `A~aa` mean by more than the A/A gap, **and**
@@ -48,8 +48,8 @@ bigger `k` is the cure. One A/A gap is itself an estimate: it is small by luck s
   the 95% interval of the success rate (Wilson), `pass^k` (tasks that succeeded in every repetition), and the **divergent tasks**: those that
   succeed sometimes and fail sometimes. A divergent task is where the arms' behaviour differs from run to run; read its kept workspaces first.
 - **Divergent tasks** (section): for each arm, the divergent tasks with the first tool call (0-based index) at which a passing and a failing trial
-  differ, from the traces of E1, E2, E5 and E9 (`harness/eval/traces.py`). **Components used**: per arm, counts of skills loaded, sub-agents,
-  memory recalls, hook blocks and feedback, stop-hook denials, compactions and technical-session calls by use. Both also close the `harness.eval` report.
+  differ, from the traces of E1, E2, E5 and E9 (`tadamoo/eval/traces.py`). **Components used**: per arm, counts of skills loaded, sub-agents,
+  memory recalls, hook blocks and feedback, stop-hook denials, compactions and technical-session calls by use. Both also close the `tadamoo.eval` report.
 - **Decision**: the rule as written before the run, then one line per challenger with the A/A figures, the effect (better is positive), the
   threshold and each guard.
 - **Metrics common to the experiments**: `success`; `passes` (rounds of the thing under test: Target Loop passes, gate fix rounds);
@@ -75,7 +75,7 @@ the text and task 1 in one message (today)?
 | `A~aa` | `joined` again | |
 
 The option is new: *First message* in the dialog's Options (EN and IT, explained), `first_message` in the target's options
-(`harness/target.py`, `docs/target-loop.md`). With `separate` the model gets the whole target as an ordinary message and answers it, which may
+(`tadamoo/target.py`, `docs/target-loop.md`). With `separate` the model gets the whole target as an ordinary message and answers it, which may
 already do part of the work; each task then follows as a focused message. The answer to the text alone is evidence for the judge like any task.
 
 **Fixture** (`fixtures/shop_repo.py`): a tiny Python repository (`shop/`, `tests/`, `docs/api.md`, `README.md`) and eight goals of three or four
@@ -302,10 +302,10 @@ name files, four with numbers that must not change, three with a quotation, two 
 environment script given as a code block with ports and counts that must not change; a request in Italian with quotations, a date and an address; and a rambling
 email in English with one quotation to copy and a sum to make. Two mix Italian and English. Each has checks that
 decide the task; the reference solutions pass them and the untouched workspaces fail. What a rewrite must keep is read from the text by
-`harness.optimize.protected`, the same function the harness uses, so the fixture and the guard cannot disagree.
+`tadamoo.optimize.protected`, the same function the harness uses, so the fixture and the guard cannot disagree.
 
 **Scorer.** The checks decide `success`. `protected_kept` is 1 when the message the model read still holds every protected item of the request
-(`harness.optimize.lost` finds none), whatever the arm; `good` is `success` and `protected_kept`. `optimized` is a rewrite that was used, `rejected` one
+(`tadamoo.optimize.lost` finds none), whatever the arm; `good` is `success` and `protected_kept`. `optimized` is a rewrite that was used, `rejected` one
 the harness threw away, `lost` one thrown away for losing content. `optimize_seconds` is the time of the call, `seconds` the whole trial. **Metrics**: good,
 success, protected_kept, optimized, rejected, lost, optimize_seconds, seconds, tokens (the helper call included), model calls. **k = 5**, 29 requests, 3 arms: 435 trials.
 
@@ -423,7 +423,7 @@ These are guesses until the first run. E3 and E7 are short. E2, E4 and E8 are ma
 a whole Target Loop; each long E6 text takes several minutes), and E5 is the slowest (tens of minutes per trial). Start each with a pilot
 (`--k 2` and one task, `--only`) to see it run, then run it with the `k` in its section. A pilot is not a result: below `k = 5` pass^k and the A/A gap say little.
 
-An interrupted run continues with `--resume DIR` (also on `python -m harness.eval`): each finished trial is written to `DIR/trials.jsonl` as it ends, and a run started again
+An interrupted run continues with `--resume DIR` (also on `python -m tadamoo.eval`): each finished trial is written to `DIR/trials.jsonl` as it ends, and a run started again
 with the same folder reuses the valid ones and redoes the invalid ones. It reuses them only if the fingerprint is identical (git commit and uncommitted changes in `harness/`, `serve/`,
 `src/`; the model file from `--model-file`; sampling and server settings; arms; tasks; `k`); otherwise it stops and names the parts that differ. Keep `DIR` outside those three folders.
 
@@ -431,12 +431,12 @@ with the same folder reuses the valid ones and redoes the invalid ones. It reuse
 
 | Path | What |
 |---|---|
-| `harness/eval/cases/core.py` | arms, trials, the A/A control, the decision rule, the report |
-| `harness/eval/cases/agentrun.py` | a counting client, an in-process Target Loop conversation, the session helper, the transcript measures |
-| `harness/eval/cases/e1_target.py` ... `e13_old_chats.py` | one experiment each |
-| `harness/eval/cases/scripted_server.py` | the scripted server of E3 |
-| `harness/eval/cases/fixtures/` | the task material: `shop_repo.py` (E1), `gate_tasks.py` (E2), `error_scenarios.py` (E3), `intake_prompts.py` (E4), `long_turn_repo.py` (E5), `longform_texts.py` (E6), `optimize_prompts.py` (E8), `lesson_tasks.py` (E10), `derail_tasks.py` (E12), `old_chats.py` (E13) |
-| `harness/eval/cases/__main__.py` | the command line |
+| `tadamoo/eval/cases/core.py` | arms, trials, the A/A control, the decision rule, the report |
+| `tadamoo/eval/cases/agentrun.py` | a counting client, an in-process Target Loop conversation, the session helper, the transcript measures |
+| `tadamoo/eval/cases/e1_target.py` ... `e13_old_chats.py` | one experiment each |
+| `tadamoo/eval/cases/scripted_server.py` | the scripted server of E3 |
+| `tadamoo/eval/cases/fixtures/` | the task material: `shop_repo.py` (E1), `gate_tasks.py` (E2), `error_scenarios.py` (E3), `intake_prompts.py` (E4), `long_turn_repo.py` (E5), `longform_texts.py` (E6), `optimize_prompts.py` (E8), `lesson_tasks.py` (E10), `derail_tasks.py` (E12), `old_chats.py` (E13) |
+| `tadamoo/eval/cases/__main__.py` | the command line |
 | `tests/test_cases_core.py`, `tests/test_cases_runs.py`, `tests/test_cases_awareness.py` | the tests, CPU only |
 
 ## What the tests show

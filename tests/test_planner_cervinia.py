@@ -15,9 +15,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.integrations.planner_client import PlannerClient
-from harness.planner_tools import Confirmer, register_planner_tools
-from harness.tools.registry import ToolRegistry
+from tadamoo.integrations.planner_client import PlannerClient
+from tadamoo.planner_tools import Confirmer, register_planner_tools
+from tadamoo.tools.registry import ToolRegistry
 from test_e2e_mock_server import start_server  # noqa: F401  (fixture)
 from test_planner_tools import AgentState
 

@@ -1,9 +1,9 @@
 """The model's own memory of a project: remember, recall and forget, and the way the notes come back."""
 import pytest
 
-from harness.memory import MemoryStore, default_db_path, register_memory_tools
-from harness.stack import AgentConfig, build_agent
-from harness.tools.registry import EffectClass, ToolRegistry
+from tadamoo.memory import MemoryStore, default_db_path, register_memory_tools
+from tadamoo.stack import AgentConfig, build_agent
+from tadamoo.tools.registry import EffectClass, ToolRegistry
 
 
 def registry_with(tmp_path):

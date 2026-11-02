@@ -2,9 +2,9 @@
 import copy
 import json
 
-from harness.agent_loop import LOOP, AgentLoop, LoopDetector
-from harness.loop_guard import CHURN_STOP, CYCLE_ROUNDS, FAILURE_STOP, STUB_MIN_CHARS, OutcomeGuard, outcome_hash
-from harness.tools.registry import EffectClass, ToolRegistry
+from tadamoo.agent_loop import LOOP, AgentLoop, LoopDetector
+from tadamoo.loop_guard import CHURN_STOP, CYCLE_ROUNDS, FAILURE_STOP, STUB_MIN_CHARS, OutcomeGuard, outcome_hash
+from tadamoo.tools.registry import EffectClass, ToolRegistry
 
 
 def feed(guard, calls, **kw):

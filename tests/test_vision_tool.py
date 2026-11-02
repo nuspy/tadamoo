@@ -9,11 +9,11 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import capabilities as cap
-from harness.stack import AgentConfig, build_agent
-from harness.tools.filesystem import WorkspaceSandbox
-from harness.tools.registry import ToolRegistry
-from harness.vision_tool import MAX_BYTES, prepare_image, register_vision_tool
+from tadamoo import capabilities as cap
+from tadamoo.stack import AgentConfig, build_agent
+from tadamoo.tools.filesystem import WorkspaceSandbox
+from tadamoo.tools.registry import ToolRegistry
+from tadamoo.vision_tool import MAX_BYTES, prepare_image, register_vision_tool
 from test_capabilities import skill
 
 

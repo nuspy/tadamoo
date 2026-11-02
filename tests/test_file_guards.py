@@ -3,10 +3,10 @@ import json
 
 import pytest
 
-from harness.agent_loop import AgentLoop, FINAL
-from harness.editing import EditError
-from harness.tools import create_standard_tool_registry
-from harness.tools.filesystem import WorkspaceSandbox
+from tadamoo.agent_loop import AgentLoop, FINAL
+from tadamoo.editing import EditError
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.filesystem import WorkspaceSandbox
 from tests.test_agent_loop import ScriptedClient, call, say
 
 
@@ -276,7 +276,7 @@ def test_yaml_custom_tags_are_not_syntax_errors(sb):
 
 
 def test_javascript_is_checked_only_when_node_is_found(sb, monkeypatch):
-    from harness import syntax_check
+    from tadamoo import syntax_check
     monkeypatch.setattr(syntax_check.shutil, "which", lambda name: None)
     assert syntax_check.check("a.js", "function (") is None                         # no node: not checked, not an error
     monkeypatch.undo()

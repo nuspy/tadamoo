@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.tools import create_standard_tool_registry
-from harness.tools.execute import RUN_DIR, build_command, find_runtimes, register_run_code, run_code
-from harness.tools.registry import EffectClass
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.execute import RUN_DIR, build_command, find_runtimes, register_run_code, run_code
+from tadamoo.tools.registry import EffectClass
 
 RUNTIMES = find_runtimes()
 

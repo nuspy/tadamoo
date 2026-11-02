@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from harness import replay as rp
-from harness.agent_loop import AgentLoop
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.tools import create_standard_tool_registry
+from tadamoo import replay as rp
+from tadamoo.agent_loop import AgentLoop
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.tools import create_standard_tool_registry
 
 
 class Scripted:

@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
-from harness.tools import create_standard_tool_registry
-from harness.tools.execute import find_runtimes, run_code
+from tadamoo.secrets_broker import PROTECTED_FILES, SecretsBroker
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.execute import find_runtimes, run_code
 
 CANARY = "CANARY-vault-content-do-not-leak"
 

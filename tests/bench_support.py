@@ -3,9 +3,9 @@ import os
 import subprocess
 from pathlib import Path
 
-from harness.bench import preflight
-from harness.bench.importer import Result
-from harness.bench.registry import BenchSpec, Needs, Subset
+from tadamoo.bench import preflight
+from tadamoo.bench.importer import Result
+from tadamoo.bench.registry import BenchSpec, Needs, Subset
 
 GIT_ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.org", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.org"}
 

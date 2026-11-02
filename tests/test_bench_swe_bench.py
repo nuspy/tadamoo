@@ -1,4 +1,4 @@
-"""The SWE-bench Verified adapter (harness/bench/adapters/swe_bench.py): the dataset in the imported folder, the subsets, the container, the two arms and the
+"""The SWE-bench Verified adapter (tadamoo/bench/adapters/swe_bench.py): the dataset in the imported folder, the subsets, the container, the two arms and the
 reading of the official harness's report, with a fake Docker and a fake `swebench eval`. No Docker, no GPU, no model."""
 import json
 import shutil
@@ -12,11 +12,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from bench_support import GIT_ENV, MODEL, make_spec
-from harness.bench import analysis
-from harness.bench.adapters import swe_bench as sb
-from harness.bench.adapters.containerkit import ExecOut
-from harness.bench.importer import Result
-from harness.bench.runner import BenchRun, TrialContext, TrialResult, get_adapter
+from tadamoo.bench import analysis
+from tadamoo.bench.adapters import swe_bench as sb
+from tadamoo.bench.adapters.containerkit import ExecOut
+from tadamoo.bench.importer import Result
+from tadamoo.bench.runner import BenchRun, TrialContext, TrialResult, get_adapter
 from test_session import Scripted, call, say
 
 BASH = shutil.which("bash")
@@ -102,7 +102,7 @@ def test_the_arm_comes_from_the_setting_or_the_subset():
 
 
 def test_the_registry_offers_both_arms_as_subsets():
-    from harness.bench import registry
+    from tadamoo.bench import registry
     ids = {s.id for s in registry.get("swe-bench-verified").subsets}
     assert {"smoke", "dev", "random100", "full", "smoke-baseline", "dev-baseline", "random100-baseline", "full-baseline"} <= ids
     assert set(sb.SweBenchAdapter.SETTINGS["subset"]) == ids
@@ -268,7 +268,7 @@ def test_the_baseline_arm_edits_in_the_container_and_the_official_harness_grades
 
 @needs_bash
 def test_the_harness_arm_uses_our_agent_with_container_tools(tmp_path, monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
     repo = make_repo(tmp_path)
     client = Scripted(call("edit_file", path="a.py", target="return 1", replacement="return 2"), say("Fixed it."))
     ev = FakeEval("unresolved")
@@ -358,8 +358,8 @@ def test_score_failure_facts_and_the_endpoint_guard(tmp_path):
 @needs_bash
 def test_a_whole_run_of_both_arms_is_comparable(tmp_path, monkeypatch):
     """The adapter inside BenchRun twice (harness arm, baseline arm) and the comparison of the two runs."""
-    monkeypatch.setattr("harness.stack.local_now", None)
-    from harness.bench import ranking
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
+    from tadamoo.bench import ranking
     spec = make_spec("unused", id="swe-bench-verified", primary_metric="resolution_rate")
     summaries = []
     for arm, resolved in (("harness", "resolved"), ("baseline", "unresolved")):

@@ -198,7 +198,7 @@ def tools_view() -> List[Dict[str, Any]]:
 
 
 def _env_for_record(views: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    from harness.discovery.installed import env_spec
+    from tadamoo.discovery.installed import env_spec
     return env_spec([{"name": v["env"], "value": v["path"]} for v in views if v["detected"]])
 
 
@@ -239,7 +239,7 @@ def _addon() -> Dict[str, Any]:
 
 
 def _record_ours() -> Optional[Dict[str, Any]]:
-    from harness.discovery.installed import InstalledStore
+    from tadamoo.discovery.installed import InstalledStore
     rec = InstalledStore(_capdir()).get(MCP_ID)
     return rec if rec and rec.get("source") == SOURCE else None
 
@@ -250,7 +250,7 @@ def _skill_ours() -> bool:
 
 def register(views: Optional[List[Dict[str, Any]]] = None) -> None:
     """Puts REA's server and skill in the capability store (or brings them up to date). Raises ReaError when it cannot."""
-    from harness.discovery.installed import InstalledStore
+    from tadamoo.discovery.installed import InstalledStore
     add = _addon()
     if not (add["node"] and add["rea"]):
         raise ReaError("The REA add-on is not installed with this copy of Basalt.", "no_addon", 404)
@@ -275,7 +275,7 @@ def register(views: Optional[List[Dict[str, Any]]] = None) -> None:
 
 def unregister() -> None:
     """Removes the server and the skill that `register` added, and nothing else."""
-    from harness.discovery.installed import InstalledStore
+    from tadamoo.discovery.installed import InstalledStore
     if _record_ours() is not None:
         InstalledStore(_capdir()).delete(MCP_ID)
     if _skill_ours():

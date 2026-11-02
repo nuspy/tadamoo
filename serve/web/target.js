@@ -1,7 +1,7 @@
 "use strict";
 /* Target Loop: the button next to Send (in the Chat and in the Agent tab, which share one page) and its dialog. The person describes a target in a
    large text box (with the list tools of listtools.js); the server splits it into items to check and tasks, works through them in this conversation,
-   reviews the result against the evidence and goes on with what is not met (serve/target_api.py, harness/target.py). The dialog shows the target
+   reviews the result against the evidence and goes on with what is not met (serve/target_api.py, tadamoo/target.py). The dialog shows the target
    with what is achieved struck through in red, the items with notes the person can edit, the tasks and sub-tasks, the passes, and every earlier
    target of the conversation, which can be opened, resumed or run again. Everything the server or the model wrote enters the page as text nodes. */
 (() => {

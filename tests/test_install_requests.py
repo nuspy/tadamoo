@@ -7,8 +7,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.discovery.installer import InstallError, Installer, IntegrityError  # noqa: E402
-from harness.discovery.requests import FILE, InstallRequests, UnknownRequest  # noqa: E402
+from tadamoo.discovery.installer import InstallError, Installer, IntegrityError  # noqa: E402
+from tadamoo.discovery.requests import FILE, InstallRequests, UnknownRequest  # noqa: E402
 from serve import handler  # noqa: E402
 from serve.capabilities_api import CapabilityApi  # noqa: E402
 from test_discovery_api import Api  # noqa: E402

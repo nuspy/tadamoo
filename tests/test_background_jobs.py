@@ -2,7 +2,7 @@
 import sys
 import time
 
-from harness.tools import create_standard_tool_registry
+from tadamoo.tools import create_standard_tool_registry
 
 
 def make(tmp_path):

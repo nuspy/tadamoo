@@ -8,8 +8,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.headless import main, run_headless
-from harness.reporting import PanelReporter
+from tadamoo.headless import main, run_headless
+from tadamoo.reporting import PanelReporter
 from serve import handler
 from serve.tasks import ChangeJournal, TaskJournal
 from test_e2e_mock_server import answer, config, start_server, tool_call, ws  # noqa: F401  (fixtures)

@@ -1,7 +1,7 @@
 """How long a model call may take: 60 seconds unless the caller or the client says otherwise; the client can have no limit."""
 import json
 
-from harness.client import BasaltClient
+from tadamoo.client import BasaltClient
 
 
 class Reply:
@@ -17,7 +17,7 @@ class Reply:
 
 def seen_timeouts(monkeypatch, client, **kwargs):
     seen = []
-    monkeypatch.setattr("harness.client.open_url", lambda req, timeout=0: seen.append(timeout) or Reply())
+    monkeypatch.setattr("tadamoo.client.open_url", lambda req, timeout=0: seen.append(timeout) or Reply())
     client.chat_completion([{"role": "user", "content": "hi"}], **kwargs)
     return seen
 

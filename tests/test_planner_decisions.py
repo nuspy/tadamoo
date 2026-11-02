@@ -8,10 +8,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.planner import Assignee, NodeType, PlanCanvasBridge, PlanDAG, PlanError, PlanStore
-from harness.planner.dag import MAX_OUTPUTS, MAX_STATE_BYTES, clean_outputs
-from harness.planner.replan import parse_proposal
-from harness.planner_tools import render_plan
+from tadamoo.planner import Assignee, NodeType, PlanCanvasBridge, PlanDAG, PlanError, PlanStore
+from tadamoo.planner.dag import MAX_OUTPUTS, MAX_STATE_BYTES, clean_outputs
+from tadamoo.planner.replan import parse_proposal
+from tadamoo.planner_tools import render_plan
 from test_planner import cervinia, chain, node
 from test_planner_tools import Asker, AgentState, world  # noqa: F401  (fixture)
 from test_e2e_mock_server import start_server  # noqa: F401  (fixture)

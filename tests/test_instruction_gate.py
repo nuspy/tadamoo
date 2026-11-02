@@ -1,9 +1,9 @@
 """Orders found in text from outside (a page, a document, a file) and the Rule of Two at the Auto level.
 
 The structure around the model asks the person; no filter decides what is evil."""
-from harness import inject_screen
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.tools.registry import EffectClass
+from tadamoo import inject_screen
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.tools.registry import EffectClass
 
 
 def manager(answers, level=PermissionLevel.AUTO):
@@ -76,6 +76,6 @@ def test_the_rule_of_two_leaves_the_auto_level_alone_without_private_data():
 
 
 def test_where_nobody_watches_the_authorization_is_parked_for_the_person():
-    from harness.session import question_source
+    from tadamoo.session import question_source
     assert question_source({"kind": "permission", "tool": "write_file", "instructions": "browse_url"})["named"] == "instructions"
     assert question_source({"kind": "permission", "tool": "write_file"})["named"] is None

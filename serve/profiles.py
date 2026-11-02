@@ -146,7 +146,7 @@ def check_inference(values) -> dict:
         raise ValueError("settings: an object of chat settings")
     out = {k: v for k, v in values.items() if k in INFERENCE_KEYS}
     if "context_patterns" in out:
-        from harness.context_patterns import check_config
+        from tadamoo.context_patterns import check_config
         out["context_patterns"] = check_config(out["context_patterns"])
     if out.get("end_turn_bias") not in (None, ""):
         from serve.api.logit_bias import add_end_turn

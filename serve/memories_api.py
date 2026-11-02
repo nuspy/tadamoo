@@ -7,8 +7,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from harness.memory_export import export_markdown
-from harness.personal_memory import INFERRED_SECTIONS, LONG_SECTIONS, ORIGINS, SHORT_SECTIONS, WEIGHTS, PersonalMemory, PersonalMemoryError
+from tadamoo.memory_export import export_markdown
+from tadamoo.personal_memory import INFERRED_SECTIONS, LONG_SECTIONS, ORIGINS, SHORT_SECTIONS, WEIGHTS, PersonalMemory, PersonalMemoryError
 
 SHOWN = 500                     # notes one answer lists; the page narrows them with a section or a search
 

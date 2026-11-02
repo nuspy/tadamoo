@@ -6,14 +6,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fake_services import FakeWikibridge
-from harness import untrusted
-from harness.eval import EvalRunner, expand_strategies, generate_eval_report, load_task_set
-from harness.integrations.wiki_tools import register_wiki_tools
-from harness.integrations.wikibridge_client import WikiBridgeClient
-from harness.knowledge import (CAG_MAX_FRACTION, LocalKnowledge, cag_prefix, choose_strategy, estimate_tokens, fingerprint,
+from tadamoo import untrusted
+from tadamoo.eval import EvalRunner, expand_strategies, generate_eval_report, load_task_set
+from tadamoo.integrations.wiki_tools import register_wiki_tools
+from tadamoo.integrations.wikibridge_client import WikiBridgeClient
+from tadamoo.knowledge import (CAG_MAX_FRACTION, LocalKnowledge, cag_prefix, choose_strategy, estimate_tokens, fingerprint,
                                register_local_search)
-from harness.stack import AgentConfig, build_agent
-from harness.tools.registry import ToolRegistry
+from tadamoo.stack import AgentConfig, build_agent
+from tadamoo.tools.registry import ToolRegistry
 from test_agent_loop import ScriptedClient, call, say
 
 DOCS = {"b.md": "Second document about ports: the gateway uses 9314.", "a.md": "First document about people: Marta Ruzzi is on call."}

@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-from harness.agent_loop import AgentLoop, FINAL
-from harness.context import TokenJuiceCompactor
-from harness.tools import create_standard_tool_registry
-from harness.tools.filesystem import WorkspaceSandbox
+from tadamoo.agent_loop import AgentLoop, FINAL
+from tadamoo.context import TokenJuiceCompactor
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.filesystem import WorkspaceSandbox
 from tests.test_agent_loop import ScriptedClient, call, say
 
 

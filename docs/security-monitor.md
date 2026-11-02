@@ -168,7 +168,7 @@ marker appears where it should not. It works with any model on any engine and ca
 ### Tool-call reports
 
 Agents run in their own process. Each outward tool call (a tool flagged `outward`, such as fetching a URL) is
-reported by `harness/outward_calls.py` to `POST /api/netwatch/tool-calls` with `{ts, tool, target}`, and NetWatch
+reported by `tadamoo/outward_calls.py` to `POST /api/netwatch/tool-calls` with `{ts, tool, target}`, and NetWatch
 keeps them for `NetWatch.note_tool_calls`. After the first report, an `engine` connection with no call covering its
 address or host in the last 30 s gets `no_agent_call`.
 

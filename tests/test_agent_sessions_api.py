@@ -93,7 +93,7 @@ def test_what_the_api_refuses(setup, ws):
 
 
 def test_a_confirmation_in_the_conversation_is_answered_through_the_api(setup, ws):
-    from harness.session import SessionStore  # noqa: F401  (the real process is used below)
+    from tadamoo.session import SessionStore  # noqa: F401  (the real process is used below)
     plan = {"plan_id": "viaggio", "title": "Viaggio a Cervinia", "nodes": {"s1": {"id": "s1", "type": "action", "title": "Prenota", "description": "", "assignee": "agent",
                                                                                      "dependencies": [], "outputs": [], "status": "pending"}}}
     s = setup([tool_call("plan_archive", plan_id="viaggio"), answer("Archiviato."), answer("x")])

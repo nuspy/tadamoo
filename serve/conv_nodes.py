@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
-CHARS_PER_TOKEN = 3.5            # the harness's own estimate (harness/context.py)
+CHARS_PER_TOKEN = 3.5            # the harness's own estimate (tadamoo/context.py)
 
 
 def node_id(parents: List[str], message: Dict[str, Any]) -> str:

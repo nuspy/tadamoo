@@ -8,11 +8,11 @@ import time
 
 import pytest
 
-from harness import agent_loop as al
-from harness import questions as qs
-from harness.session import Session, SessionStore
-from harness.stack import AgentConfig, build_agent
-from harness.tools import create_standard_tool_registry
+from tadamoo import agent_loop as al
+from tadamoo import questions as qs
+from tadamoo.session import Session, SessionStore
+from tadamoo.stack import AgentConfig, build_agent
+from tadamoo.tools import create_standard_tool_registry
 from serve import longform as lf
 from tests.test_longform_flow import Script, filler, fix, reviewing
 
@@ -77,7 +77,7 @@ class Events:
 
 @pytest.fixture(autouse=True)
 def _quiet(monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
     monkeypatch.setattr(lf, "_side", lambda: {"session": "tech"})
 
 

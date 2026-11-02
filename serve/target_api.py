@@ -1,7 +1,7 @@
 """The Target Loop on the server: each conversation's targets, the thread that runs one, and the routes the page uses.
 
 A target belongs to a conversation and is kept with it (`targets.json` in the conversation's own folder), so the dialog can list every earlier
-one. The loop itself is harness/target.py; this connects it to a conversation of the Chat or the Agent tab (the tasks are sent to it as ordinary
+one. The loop itself is tadamoo/target.py; this connects it to a conversation of the Chat or the Agent tab (the tasks are sent to it as ordinary
 messages, so queue, steering, questions, the Stop button and the permission gate are the conversation's own), to the model for the structured
 calls, and to the task registry of serve/tasks.py.
 """
@@ -14,8 +14,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from harness import target as tg
-from harness.client import BasaltClient
+from tadamoo import target as tg
+from tadamoo.client import BasaltClient
 from serve.agent_runs import RunError
 from serve.tasks import TaskJournal, _write_json
 

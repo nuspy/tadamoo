@@ -10,11 +10,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.client import extract_reasoning_and_content
-from harness.eval import (EvalRunner, Task, collect_environment, generate_eval_report, load_task_set, results_to_json,
+from tadamoo.client import extract_reasoning_and_content
+from tadamoo.eval import (EvalRunner, Task, collect_environment, generate_eval_report, load_task_set, results_to_json,
                           summarize)
-from harness.eval.__main__ import main as eval_main
-from harness.eval.tasks import make_workspace, run_checks
+from tadamoo.eval.__main__ import main as eval_main
+from tadamoo.eval.tasks import make_workspace, run_checks
 from test_agent_loop import ScriptedClient, call, say
 
 
@@ -209,7 +209,7 @@ def test_the_run_can_send_no_temperature_and_can_add_the_working_rules():
 
 
 def test_the_command_line_takes_model_as_a_temperature():
-    from harness.eval.__main__ import _temperature
+    from tadamoo.eval.__main__ import _temperature
     assert _temperature("model") is None and _temperature("0") == 0.0 and _temperature("0.6") == 0.6
     with pytest.raises(argparse.ArgumentTypeError):
         _temperature("warm")
@@ -257,7 +257,7 @@ def test_a_crashing_or_failing_trial_is_a_failed_trial_and_the_evaluation_goes_o
     def factory(t, rep):
         if rep == 1:
             raise RuntimeError("the client could not be made")
-        from harness.client import BasaltError
+        from tadamoo.client import BasaltError
         return ScriptedClient(BasaltError(503, "model is loading")) if rep == 2 else ScriptedClient(*CORE_SOLUTIONS["read_and_answer"])
 
     res = EvalRunner(client_factory=factory).evaluate_task(task, 3)
@@ -314,7 +314,7 @@ def test_the_report_states_where_it_came_from_and_what_it_cost():
 def test_crashes_and_server_errors_are_counted_apart_from_wrong_answers():
     _, tasks = load_task_set("core")
     task = next(t for t in tasks if t.id == "read_and_answer")
-    from harness.client import BasaltError
+    from tadamoo.client import BasaltError
     res = EvalRunner(client_factory=lambda t, r: ScriptedClient(BasaltError(500, "boom"))).evaluate_task(task, 2)
     s = summarize([res])
     assert s["server_errors"] == 2 and s["trial_success"] == 0.0
@@ -370,8 +370,8 @@ def test_the_command_line_runs_a_task_against_the_real_server(tmp_path, monkeypa
 
 
 def test_a_task_the_server_failed_on_is_inconclusive_not_a_failure_of_the_model():
-    from harness.eval.report import inconclusive
-    from harness.eval.runner import EvalResult, Trial
+    from tadamoo.eval.report import inconclusive
+    from tadamoo.eval.runner import EvalResult, Trial
     broken = EvalResult("a", "editing", 2, 0.0, False, [Trial(1, False, ["x"], stop_reason="error"), Trial(2, False, ["x"], stop_reason="error")])
     weak = EvalResult("b", "coding", 2, 0.0, False, [Trial(1, False, ["x"], stop_reason="max_turns"), Trial(2, False, ["x"], stop_reason="error")])
     good = EvalResult("c", "coding", 2, 1.0, True, [Trial(1, True, stop_reason="final"), Trial(2, True, stop_reason="final")])

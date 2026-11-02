@@ -1,4 +1,4 @@
-"""The benchmark registry and the local-model rule (harness/bench/registry.py, localmodel.py). CPU only."""
+"""The benchmark registry and the local-model rule (tadamoo/bench/registry.py, localmodel.py). CPU only."""
 import json
 import sys
 from pathlib import Path
@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.bench import localmodel, registry
+from tadamoo.bench import localmodel, registry
 from bench_support import MODEL
 
 

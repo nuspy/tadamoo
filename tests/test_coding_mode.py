@@ -12,12 +12,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import roles
-from harness.permissions import READ_ONLY_COMMANDS, PermissionLevel, PermissionManager, squash
-from harness.project_profile import clean_list, detect, is_empty
-from harness.roles import ASK, CODING_ROLE, DEBUG, GENERAL, ORCHESTRATE, PLAN, ROLE_IDS, ROLES, RolePolicy
-from harness.stack import AgentConfig, add_agent_arguments, agent_settings, build_agent
-from harness.tools.registry import EffectClass
+from tadamoo import roles
+from tadamoo.permissions import READ_ONLY_COMMANDS, PermissionLevel, PermissionManager, squash
+from tadamoo.project_profile import clean_list, detect, is_empty
+from tadamoo.roles import ASK, CODING_ROLE, DEBUG, GENERAL, ORCHESTRATE, PLAN, ROLE_IDS, ROLES, RolePolicy
+from tadamoo.stack import AgentConfig, add_agent_arguments, agent_settings, build_agent
+from tadamoo.tools.registry import EffectClass
 from serve.agent_sessions import SessionManager
 from serve.coding_prefs import CodingError, CodingPrefs, project_key
 from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)
@@ -26,7 +26,7 @@ from test_session import Scripted, call, say
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 def policy(tmp_path, role, names=None, checks=None):
@@ -198,7 +198,7 @@ def test_a_bad_role_is_an_error_and_the_options_and_defaults_are_there(tmp_path)
 
 
 def test_a_fork_keeps_the_role_and_the_tools_slash_command_shows_what_it_allows(tmp_path):
-    from harness import commands
+    from tadamoo import commands
     from test_commands import make
     session, ev, built = make(tmp_path, Scripted(say("ok")))
     built.set_role(ASK)
@@ -473,7 +473,7 @@ def test_the_running_process_takes_a_role_and_new_checks_and_says_so(tmp_path, m
     import io
     import threading
     import time
-    import harness.session as hs
+    import tadamoo.session as hs
     from test_commands import Feed
     ws = tmp_path / "ws"
     ws.mkdir()

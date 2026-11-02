@@ -1,8 +1,8 @@
 # Coding mode
 
 What the Agent tab adds for working on code in a folder: a **role** for each conversation, the **project checks** a folder seems to have,
-and a **safe verification** class of permissions. Code: `harness/roles.py`, `harness/project_profile.py`, `harness/permissions.py`
-(`safe_verification`), `serve/coding_prefs.py`, the wiring in `harness/stack.py`, `harness/agent_loop.py`, `harness/session.py` and
+and a **safe verification** class of permissions. Code: `tadamoo/roles.py`, `tadamoo/project_profile.py`, `tadamoo/permissions.py`
+(`safe_verification`), `serve/coding_prefs.py`, the wiring in `tadamoo/stack.py`, `tadamoo/agent_loop.py`, `tadamoo/session.py` and
 `serve/agent_sessions.py`, and the page in `serve/web/coding.js` and `coding.css`. The design comes from
 [harness-study/vibe-coding.md](harness-study/vibe-coding.md). The file tools (`edit_file`, `search_code`, `tree`) and the verify gate are
 described in [harness-file-tools.md](harness-file-tools.md) and [harness-gates.md](harness-gates.md).
@@ -24,7 +24,7 @@ conversation (the selector in the Agent tab, `--role`, the `role` field when a c
 The read tools are `read_file`, `list_directory`, `tree`, `search_code`, `repo_map`, `repo_diagram`, `diagnostics`, `go_to_definition`,
 `find_references`, `recall` and `load_skill`. `ask_user`, `todo_write` and `present_plan` are allowed in every role, so the checklist and
 the way out of the Plan only permission mode always work. The browser, the web tools, the planner, the phone, the vault and MCP tools are
-not in a coding role; `general` has them. The coding role has one name, the constant `CODING_ROLE` in `harness/roles.py` (its id is `build`; the page shows it as
+not in a coding role; `general` has them. The coding role has one name, the constant `CODING_ROLE` in `tadamoo/roles.py` (its id is `build`; the page shows it as
 "Developer" in both languages, the string `cd.role.build`, and it is the Agent tab's default role).
 
 ### How a role is applied, and the cache
@@ -46,7 +46,7 @@ The tool list therefore still holds every tool, so the model may try one that th
 
 ## The project checks
 
-`harness/project_profile.py` reads a folder's files (it runs nothing) and suggests commands by kind:
+`tadamoo/project_profile.py` reads a folder's files (it runs nothing) and suggests commands by kind:
 
 | files | suggested |
 |---|---|
@@ -75,7 +75,7 @@ The person can also type their own checks, one command per line (up to 24, 500 c
 
 ## Safe verification
 
-`PermissionManager.safe_verification` (`harness/permissions.py`) lets a `shell_command` run without a question when:
+`PermissionManager.safe_verification` (`tadamoo/permissions.py`) lets a `shell_command` run without a question when:
 
 - the whole command equals one the person listed or accepted (spaces outside quotes do not matter), or
 - every statement of it does (statements are split on `;`, `&`, `|`, `&&`, `||` and line ends outside quotes), or
@@ -134,4 +134,4 @@ in `tests/QUEUE_daytime.md` (rows 54 to 56).
   the detection of a language server's diagnostics as a check.
 - The status chip per turn ("Edited 3 files, tests passed"), "Back to last passing state", the whole-folder snapshot and "Undo this request".
 - The SEARCH/REPLACE fallback, subfolder `AGENTS.md`, skill arguments, named subagents (phase 2 of the study).
-- An evaluation of the roles with `harness.eval --set vibe`; the numbers wait for the real model (queue row 54).
+- An evaluation of the roles with `tadamoo.eval --set vibe`; the numbers wait for the real model (queue row 54).

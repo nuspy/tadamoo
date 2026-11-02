@@ -8,16 +8,16 @@ import time
 
 import pytest
 
-from harness import agent_loop as al
-from harness.client import BasaltError
-from harness.session import UNAVAILABLE_NOTE, Session, SessionStore, approving_value, main, question_source, unattended_confirm
-from harness.stack import AgentConfig, build_agent
-from harness.tools.registry import EffectClass
+from tadamoo import agent_loop as al
+from tadamoo.client import BasaltError
+from tadamoo.session import UNAVAILABLE_NOTE, Session, SessionStore, approving_value, main, question_source, unattended_confirm
+from tadamoo.stack import AgentConfig, build_agent
+from tadamoo.tools.registry import EffectClass
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
     """These tests count the messages the model is sent; the time note has its own tests (test_clock.py)."""
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 
@@ -283,7 +283,7 @@ def test_retries_never_run_out_and_the_last_wait_is_repeated(tmp_path):
 
 
 def test_the_waits_grow_up_to_a_few_minutes_and_stay_there():
-    from harness.session import BACKOFF_S
+    from tadamoo.session import BACKOFF_S
     assert list(BACKOFF_S) == sorted(BACKOFF_S) and 120 <= BACKOFF_S[-1] <= 600 and BACKOFF_S[0] <= 5
 
 
@@ -374,7 +374,7 @@ class Feed:
 
 
 def test_the_process_speaks_lines_of_json_and_closes_on_command(tmp_path, monkeypatch):
-    import harness.session as hs
+    import tadamoo.session as hs
     client = Scripted(say("Ciao dal processo."))
     ws = tmp_path / "ws"
     ws.mkdir()
@@ -401,7 +401,7 @@ def test_the_process_speaks_lines_of_json_and_closes_on_command(tmp_path, monkey
 
 
 def test_a_position_sent_with_a_message_brings_the_tool_for_that_turn(tmp_path, monkeypatch):
-    import harness.session as hs
+    import tadamoo.session as hs
     offered = []
 
     class Spy(Scripted):
@@ -568,7 +568,7 @@ def test_a_turn_waiting_for_the_person_is_never_reported_as_stuck(tmp_path):
 
 
 def with_vault(tmp_path, client, entries):
-    from harness.vault import Vault
+    from tadamoo.vault import Vault
     vault = Vault(tmp_path / "vault")
     for entry_id, kw in entries.items():
         vault.put(entry_id, **kw)
@@ -711,7 +711,7 @@ def test_plan_mode_is_not_left_by_a_model_that_only_says_it_was_approved(tmp_pat
 
 
 def test_refused_calls_are_counted_in_the_conversation_state_and_in_its_closing_report(tmp_path, monkeypatch):
-    import harness.session as hs
+    import tadamoo.session as hs
     client = Scripted(call("shell_command", command="echo hi"), call("shell_command", command="echo again"), say("I could not run them."))
     ws = tmp_path / "ws"
     ws.mkdir()
@@ -735,11 +735,11 @@ def test_refused_calls_are_counted_in_the_conversation_state_and_in_its_closing_
 
 
 def test_the_session_end_hook_and_the_headless_result_carry_the_count(tmp_path):
-    from harness.headless import run_headless
-    from harness.hooks import HookManager
-    from harness.agent_loop import AgentLoop
-    from harness.permissions import PermissionLevel, PermissionManager
-    from harness.tools import create_standard_tool_registry
+    from tadamoo.headless import run_headless
+    from tadamoo.hooks import HookManager
+    from tadamoo.agent_loop import AgentLoop
+    from tadamoo.permissions import PermissionLevel, PermissionManager
+    from tadamoo.tools import create_standard_tool_registry
     ws = tmp_path / "ws"
     ws.mkdir()
     seen = []

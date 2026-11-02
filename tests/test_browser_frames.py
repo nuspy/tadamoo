@@ -9,10 +9,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.browser import Browser, BrowserError, ProfileLock, find_browser, forget_signins, open_signin_window, register_browser_tools
-from harness.secrets_broker import SecretsBroker
-from harness.tools.registry import ToolRegistry
-from harness.vault import Vault
+from tadamoo.browser import Browser, BrowserError, ProfileLock, find_browser, forget_signins, open_signin_window, register_browser_tools
+from tadamoo.secrets_broker import SecretsBroker
+from tadamoo.tools.registry import ToolRegistry
+from tadamoo.vault import Vault
 
 needs_browser = pytest.mark.skipif(find_browser() is None, reason="needs Edge or Chrome on this PC")
 

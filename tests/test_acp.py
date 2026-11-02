@@ -9,15 +9,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.acp_agent import ACPAgentServer
-from harness.client import BasaltError
-from harness.tools.registry import EffectClass
+from tadamoo.acp_agent import ACPAgentServer
+from tadamoo.client import BasaltError
+from tadamoo.tools.registry import EffectClass
 from test_agent_loop import ScriptedClient, call, say
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
     """These tests count the messages the model is sent; the time note has its own tests (test_clock.py)."""
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 
@@ -332,7 +332,7 @@ def test_the_agent_runs_as_a_subprocess_over_stdio_against_the_real_server(tmp_p
     ws = tmp_path / "ws"
     ws.mkdir()
     env = {**__import__("os").environ, "BASALT_DATA": str(tmp_path / "data"), "PYTHONPATH": str(ROOT)}
-    proc = subprocess.Popen([sys.executable, "-m", "harness.acp_agent", "--workspace", str(ws), "--endpoint",
+    proc = subprocess.Popen([sys.executable, "-m", "tadamoo.acp_agent", "--workspace", str(ws), "--endpoint",
                              f"http://127.0.0.1:{httpd.server_address[1]}"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, env=env, cwd=str(ROOT))
     try:
@@ -410,7 +410,7 @@ def test_a_server_that_cannot_be_used_is_reported_and_the_session_still_opens(ed
 
 
 def test_the_options_of_the_command_line_reach_every_session(tmp_path):
-    from harness.acp_agent import server_from_args
+    from tadamoo.acp_agent import server_from_args
     ws = tmp_path / "ws"
     ws.mkdir()
     hooks = tmp_path / "hooks.json"

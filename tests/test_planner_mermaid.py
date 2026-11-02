@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.planner.mermaid import to_mermaid
+from tadamoo.planner.mermaid import to_mermaid
 
 
 def plan(**nodes):

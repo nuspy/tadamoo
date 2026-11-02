@@ -12,13 +12,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.eval import EvalRunner, generate_eval_report
-from harness.eval.__main__ import main as eval_main
-from harness.eval import benchmarks
-from harness.eval.report import k_warning, strategy_rows, summarize
-from harness.eval.runner import EvalResult, Trial
-from harness.eval.serverlog import ServerTimings, summarize_requests
-from harness.eval.tasks import Task, make_workspace
+from tadamoo.eval import EvalRunner, generate_eval_report
+from tadamoo.eval.__main__ import main as eval_main
+from tadamoo.eval import benchmarks
+from tadamoo.eval.report import k_warning, strategy_rows, summarize
+from tadamoo.eval.runner import EvalResult, Trial
+from tadamoo.eval.serverlog import ServerTimings, summarize_requests
+from tadamoo.eval.tasks import Task, make_workspace
 from test_agent_loop import ScriptedClient, call, say
 
 
@@ -127,8 +127,8 @@ def test_the_report_compares_the_three_strategies_side_by_side():
 
 
 def test_compare_strategies_names_the_knowledge_set_once_per_strategy(server):
-    from harness.eval import load_task_set
-    from harness.eval.tasks import expand_strategies
+    from tadamoo.eval import load_task_set
+    from tadamoo.eval.tasks import expand_strategies
     _, tasks = load_task_set("knowledge")
     ids = {t.id for t in expand_strategies(tasks, ["none", "rag", "cag"])}
     first = next(t.id for t in tasks if t.knowledge)

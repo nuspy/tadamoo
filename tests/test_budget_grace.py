@@ -2,8 +2,8 @@
 import copy
 import json
 
-from harness.agent_loop import BUDGET, FINAL, MAX_TURNS, AgentLoop
-from harness.tools.registry import EffectClass, ToolRegistry
+from tadamoo.agent_loop import BUDGET, FINAL, MAX_TURNS, AgentLoop
+from tadamoo.tools.registry import EffectClass, ToolRegistry
 
 
 def registry():

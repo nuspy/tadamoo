@@ -1,9 +1,9 @@
 """Work that comes back: the signature of a request, the groups in the outcome log, and the one-time hint to make a skill of it."""
 import json
 
-from harness import repeats
-from harness.lessons import OutcomeLog
-from harness.stack import AgentConfig, build_agent
+from tadamoo import repeats
+from tadamoo.lessons import OutcomeLog
+from tadamoo.stack import AgentConfig, build_agent
 
 
 def record(request="Update the weekly sales report for the north region", steps=10, result="done", **kw):

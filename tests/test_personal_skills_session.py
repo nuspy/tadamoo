@@ -5,13 +5,13 @@ import time
 
 import pytest
 
-from harness import agent_loop as al
+from tadamoo import agent_loop as al
 from test_session import Events, Scripted, make, say
 
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 def skill(script, **over):
@@ -87,7 +87,7 @@ def test_the_model_is_asked_once_and_the_answer_is_kept_for_the_same_prompt(tmp_
 
 
 def test_a_model_that_does_not_answer_is_waited_for_with_the_sessions_growing_waits_for_as_long_as_it_takes(tmp_path):
-    from harness.client import BasaltError
+    from tadamoo.client import BasaltError
     slept = []
     errors = [BasaltError(500, "down") for _ in range(7)]                         # more tries than the old three, and a hard error among them
     errors[2] = BasaltError(400, "refused")

@@ -4,12 +4,12 @@ import json
 
 import pytest
 
-from harness.agent_loop import FINAL, AgentLoop
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.stack import AgentConfig, build_agent
-from harness.todo import TodoList
-from harness.tools import create_standard_tool_registry
-from harness.tools.registry import STABLE
+from tadamoo.agent_loop import FINAL, AgentLoop
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.stack import AgentConfig, build_agent
+from tadamoo.todo import TodoList
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.registry import STABLE
 
 
 class Scripted:

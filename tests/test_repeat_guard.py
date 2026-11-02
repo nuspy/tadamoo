@@ -2,13 +2,13 @@
 import copy
 import json
 
-from harness import untrusted
-from harness.agent_loop import AgentLoop, FINAL
-from harness.audit import AuditLedger
-from harness.context import ContextManager, TokenJuiceCompactor
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.repeat_guard import WEB_READ_TOOLS, RepeatGuard
-from harness.tools.registry import EffectClass, ToolRegistry
+from tadamoo import untrusted
+from tadamoo.agent_loop import AgentLoop, FINAL
+from tadamoo.audit import AuditLedger
+from tadamoo.context import ContextManager, TokenJuiceCompactor
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.repeat_guard import WEB_READ_TOOLS, RepeatGuard
+from tadamoo.tools.registry import EffectClass, ToolRegistry
 
 
 class Scripted:

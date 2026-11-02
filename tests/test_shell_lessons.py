@@ -1,8 +1,8 @@
 """Lessons from shell failures: only a change that made a command of the same intent work counts; plain red test runs and failed looks around do not."""
 import json
 
-from harness import shell_lessons
-from harness.lessons import Recorder, apply_polish
+from tadamoo import shell_lessons
+from tadamoo.lessons import Recorder, apply_polish
 
 
 def feed(rec, *steps):
