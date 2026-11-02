@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 from harness.bench.runner import SETTINGS, Key, TrialContext, TrialResult, read_json
 
 from .containerkit import agent_overrides, local_endpoint
-from .proc import LongRunner, long_runner
+from .proc import STALLED, LongRunner, dump_stacks, long_runner
 
 ID = "terminal-bench-2"
 AGENT_PATH = "harness.bench.adapters.terminal_bench_agent:BasaltAgent"
@@ -31,6 +31,9 @@ DIFFICULTY = {"easy": 0, "medium": 1, "hard": 2}
 SUBSET_SIZE = {"easy5": 5, "dev": 10}
 FULL_TRIALS = 5
 PULL_LIMIT_S = 4 * 3600.0             # a pull that stalls ends here; the registry client retries on its own long before
+START_STALL_S = 30.0                # Harbor has written nothing and made no job folder this long after its start (a healthy one does it within two seconds): it did not start, and is started again
+START_TRIES = 2
+REPORT_MARGIN_S = 60.0              # the agent is told its time less this, so that its last report is written before the task's limit ends it
 EXTRA_WAIT_S = 900.0                 # image pull and build, and Harbor's own start and stop, on top of the task's agent and verifier limits
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CLOUD_KEYS = re.compile(r"(?:OPENAI|ANTHROPIC|GEMINI|GOOGLE_API|OPENROUTER|AZURE_OPENAI|XAI|MISTRAL|COHERE|GROQ|TOGETHER|DEEPSEEK|PERPLEXITY|HF_TOKEN)", re.I)
@@ -215,7 +218,8 @@ class TerminalBenchAdapter:
             argv += ["-a", "oracle"]
         else:
             agent_file = ctx.trial_dir / "agent-settings.json"
-            agent_file.write_text(json.dumps({"endpoint": endpoint, "overrides": agent_overrides(settings), "arm": "harness"}), encoding="utf-8")
+            budget = max(REPORT_MARGIN_S, read_task_meta(task_dir)["agent_timeout"] - REPORT_MARGIN_S)
+            agent_file.write_text(json.dumps({"endpoint": endpoint, "overrides": agent_overrides(settings), "arm": "harness", "max_seconds": budget}), encoding="utf-8")
             argv += ["-a", AGENT_PATH, "--ak", f"settings_file={agent_file.as_posix()}"]
         return argv, jobs, job
 
@@ -242,7 +246,15 @@ class TerminalBenchAdapter:
         self.fetch_image(meta["docker_image"], ctx)
         argv, jobs, job = self.command(key, ctx, task_dir, endpoint)
         limit = meta["agent_timeout"] + meta["verifier_timeout"] + meta["build_timeout"] + EXTRA_WAIT_S
-        done = self.runner(argv, cwd=ctx.trial_dir, env=trial_env(self.environ), timeout=limit, should_stop=ctx.should_stop, log_path=ctx.trial_dir / "harbor.log")
+        log = ctx.trial_dir / "harbor.log"
+        started = lambda: jobs.exists() or (log.exists() and log.stat().st_size > 0)
+        for attempt in range(START_TRIES):
+            done = self.runner(argv, cwd=ctx.trial_dir, env=trial_env(self.environ), timeout=limit, should_stop=ctx.should_stop, log_path=log, stall_after=START_STALL_S,
+                               alive=started, on_stall=lambda pid, n=attempt + 1: dump_stacks(pid, ctx.trial_dir / f"stall-{n}.txt"))
+            if done.returncode != STALLED:
+                break
+        if done.returncode == STALLED:
+            return TrialResult(error=f"harbor did not start in {START_TRIES} tries (where it stood is in stall-1.txt and stall-2.txt)", facts={"class": "environment_problem", "stalled": START_TRIES})
         if ctx.should_stop():
             return TrialResult(error="stopped on request before the trial finished", facts={"class": "environment_problem"})
         trial_dir = find_trial_dir(jobs, job)

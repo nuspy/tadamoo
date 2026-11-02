@@ -195,7 +195,7 @@ class FakeHarbor:
     def __init__(self, **trial):
         self.trial, self.calls, self.stop_seen = trial, [], []
 
-    def __call__(self, args, cwd=None, env=None, timeout=None, should_stop=None, log_path=None):
+    def __call__(self, args, cwd=None, env=None, timeout=None, should_stop=None, log_path=None, **_):
         self.calls.append({"args": list(args), "cwd": cwd, "env": env, "timeout": timeout})
         self.stop_seen.append(should_stop() if should_stop else None)
         jobs = Path(args[args.index("-o") + 1])
@@ -419,3 +419,35 @@ def test_the_agent_options_are_checked(harbor_stub, tmp_path):
     module, _ = harbor_stub
     with pytest.raises(ValueError, match="no model address"):
         module.BasaltAgent(logs_dir=tmp_path)
+
+
+def test_a_harbor_that_does_not_start_is_started_again_once_and_then_reported_with_where_it_stood(tmp_path):
+    seen = []
+
+    def runner(args, **kw):
+        seen.append(kw)
+        assert kw["stall_after"] == tb.START_STALL_S and kw["alive"]() is False
+        kw["on_stall"](4242)
+        return Result(tb.STALLED, "", "no sign of life")
+
+    make_source(tmp_path)
+    a = tb.TerminalBenchAdapter(runner=runner, which=lambda n: "/bin/harbor")
+    got = a.run_trial(("fix-git", 1), ctx_for(tmp_path, {"subset": "dev"}))
+    assert len(seen) == tb.START_TRIES and got.passed is None and got.facts["stalled"] == tb.START_TRIES and "did not start" in got.error
+    assert list(tmp_path.rglob("stall-1.txt"))
+
+
+def test_a_harbor_that_starts_late_the_second_time_gives_its_result(tmp_path):
+    calls = []
+    good = FakeHarbor(reward=1.0)
+
+    def runner(args, **kw):
+        calls.append(1)
+        if len(calls) == 1:
+            return Result(tb.STALLED, "", "no sign of life")
+        return good(args, **kw)
+
+    make_source(tmp_path)
+    a = tb.TerminalBenchAdapter(runner=runner, which=lambda n: "/bin/harbor")
+    got = a.run_trial(("fix-git", 1), ctx_for(tmp_path, {"subset": "dev"}))
+    assert len(calls) == 2 and got.passed is True
