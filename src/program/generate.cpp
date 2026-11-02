@@ -480,9 +480,9 @@ void usage() {
                  "  --vram-elastic       --serve (opt-in): the expert cache in segments (--vram-segment-mib,\n"
                  "                       default 512), so the command `VRAM <reserve_mib>` (the server's POST /v1/vram) can\n"
                  "                       give VRAM back to other programs between requests and take it back later\n"
-                 "  --release-vram-commit  --serve, Windows (opt-in): give back the system commit WDDM charges for\n"
-                 "                       every GPU allocation (its eviction backing).  If another program then pushes\n"
-                 "                       the engine's VRAM out, the engine can hang\n"
+                 "  --keep-vram-commit   --serve, Windows: keep the system commit WDDM charges for every GPU allocation\n"
+                 "                       (its eviction backing); by default it is given back, and if another program\n"
+                 "                       then pushes the engine's VRAM out, the engine can hang\n"
                  "  --batch N / --slots N  --serve (opt-in): up to N requests decode together in batch slots (2..8),\n"
                  "                       each slot with its own session (VRAM like the main one)\n"
                  "  --prompt-cache-every N  --serve: also checkpoint every N fresh prompt tokens (default 16384, 0 = off)\n"
@@ -1252,7 +1252,7 @@ int main(int argc, char** argv) {
             o.prefill_chunk = o.prefill_auto ? o.prefill_auto_max : std::atoll(v.c_str());
         }
         else if (a == "--vram-elastic") o.vram_elastic = true;
-        else if (a == "--release-vram-commit") o.release_vram_commit = true;
+        else if (a == "--keep-vram-commit") o.release_vram_commit = false;
         else if (a == "--vram-segment-mib") o.vram_segment_mib = std::atoll(next("--vram-segment-mib"));
         else if (a == "--prefill-until") o.prefill_until = std::atoll(next("--prefill-until"));
         else if (a == "--dump-final-r") o.dump_final_r = next("--dump-final-r");
@@ -6895,19 +6895,15 @@ int main(int argc, char** argv) {
             basalt::log::error("basalt serve", "capturing the draft graphs failed: %s", err.c_str());
             return 1;
         }
-        if (o.release_vram_commit) {
-            if (!basalt::platform::vram_backing_supported()) {
-                std::fprintf(stderr, "basalt serve: --release-vram-commit does nothing here (no WDDM backing)\n");
-            } else {
-                std::string why;
-                if (!basalt::platform::restore_vram_backing_on_suspend(why))
-                    std::fprintf(stderr, "basalt warning: %s; a sleep may lose the VRAM\n", why.c_str());
-                const basalt::platform::BackingSweep bs = basalt::platform::release_vram_backing();
-                std::fprintf(stderr, "basalt serve: --release-vram-commit: %.2f GiB of VRAM backing given back to the "
-                                     "commit (%llu regions; %.2f GiB kept, it holds pages)\n",
-                             (double) bs.released_bytes / 1073741824.0, (unsigned long long) bs.released_regions,
-                             (double) bs.kept_bytes / 1073741824.0);
-            }
+        if (o.release_vram_commit && basalt::platform::vram_backing_supported()) {
+            std::string why;
+            if (!basalt::platform::restore_vram_backing_on_suspend(why))
+                std::fprintf(stderr, "basalt warning: %s; a sleep may lose the VRAM\n", why.c_str());
+            const basalt::platform::BackingSweep bs = basalt::platform::release_vram_backing();
+            std::fprintf(stderr, "basalt serve: VRAM commit: %.2f GiB of VRAM backing given back to the "
+                                 "commit (%llu regions; %.2f GiB kept, it holds pages)\n",
+                         (double) bs.released_bytes / 1073741824.0, (unsigned long long) bs.released_regions,
+                         (double) bs.kept_bytes / 1073741824.0);
         }
         ple_table.rearm_keepalive();   // a long load must not lapse the SSD keep-alive window before the first request
         std::printf("INFO file_experts_bytes=%llu\n", (unsigned long long) tier_file_bytes);   // experts only the file holds
@@ -8150,7 +8146,7 @@ int main(int argc, char** argv) {
                 if (o.release_vram_commit && basalt::platform::vram_backing_supported()) {
                     const basalt::platform::BackingSweep bs = basalt::platform::release_vram_backing();
                     if (bs.released_bytes >= (64ull << 20))
-                        std::fprintf(stderr, "basalt serve: --release-vram-commit: %.2f GiB more given back (%.2f GiB "
+                        std::fprintf(stderr, "basalt serve: VRAM commit: %.2f GiB more given back (%.2f GiB "
                                              "in all)\n", (double) bs.released_bytes / 1073741824.0,
                                      (double) bs.total_released / 1073741824.0);
                 }

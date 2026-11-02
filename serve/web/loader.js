@@ -28,7 +28,7 @@
     { group: "memory", name: "engine.resident-budget-gib", kind: "num", min: 0.1, max: 65536, step: "any" },
     { group: "memory", name: "engine.mmap-experts", kind: "bool" },
     { group: "memory", name: "engine.vram-elastic", kind: "bool" },
-    { group: "memory", name: "engine.release-vram-commit", kind: "bool", windows: true },
+    { group: "memory", name: "engine.keep-vram-commit", kind: "bool", windows: true },
     { group: "memory", name: "engine.ple-io", kind: "choice", options: ["direct", "mmap", "ram"] },
     { group: "memory", name: "engine.pool-workers", kind: "int", min: 1, max: 256, step: 1 },
     { group: "cache", name: "engine.prompt-cache", kind: "int", min: 0, max: 1024, step: 1 },

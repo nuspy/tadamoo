@@ -35,7 +35,7 @@ LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-fu
                  # memory and cache
                  ("engine", "kv-resident"), ("engine", "resident-budget-gib"), ("engine", "mmap-experts"),
                  ("engine", "adapt-swaps"), ("engine", "prefill-cpu-share"), ("engine", "vram-elastic"),
-                 ("engine", "release-vram-commit"), ("engine", "expert-profile-save"),
+                 ("engine", "keep-vram-commit"), ("engine", "expert-profile-save"),
                  ("engine", "expert-profile-save-every"),
                  # the conversation cache in RAM
                  ("engine", "prompt-cache"), ("engine", "prompt-cache-every"), ("engine", "prompt-cache-root"),
@@ -173,7 +173,7 @@ def check_value(section: str, key: str, value):
         except ValueError:
             raise ValueError(f"{what}: auto, auto:8192, auto:16384, auto:32768 or a chunk size in tokens, "
                              f"not {value!r}") from None
-    if key in ("resident-experts", "slot-full-context", "mmap-experts", "vram-elastic", "release-vram-commit", "grammar"):
+    if key in ("resident-experts", "slot-full-context", "mmap-experts", "vram-elastic", "keep-vram-commit", "grammar"):
         if not isinstance(value, bool):
             raise ValueError(f"{what}: true or false, not {value!r}")
         return value
