@@ -93,7 +93,7 @@ Unlike llama.cpp, Basalt does not quantize the activations of the hc read to Q8_
 | Residual stream and hc buffers | fp32 | verify.hpp:491; hc_fused.hpp:28-40 |
 | RMSNorm | fp32, eps 1e-6 | verify.cpp:143 |
 | fp16/BF16 accumulators | None; hc up uses fp16 mma inputs with fp32 accumulate | hc_fused.cu:635-698 |
-| KV cache (`--kv`) | fp16, int8, q4_0 (alias q4), k8v4 (int8 K, rotated Q4_0 V). Engine default fp16; the sample config in the README uses int8 | generate.cpp (`--kv` parse; qsa_set_kv_int8, qsa_set_kv_q4); docs/configuration/ |
+| KV cache (`--kv`) | fp16, int8, q4_0 (alias q4), k8v4 (int8 K, rotated Q4_0 V). Engine default fp16; the sample config in the README uses int8, and every quality row in these pages was measured with int8. The server asks for int8 when the technical session is on (batch mode needs it) and says so at start | generate.cpp (`--kv` parse; qsa_set_kv_int8, qsa_set_kv_q4); docs/configuration/ |
 | int8 KV layout | int8 codes with an fp16 scale per 64 values (4 per 256-wide head, separate for K and V), scale = f16(amax/127) | kv_q8.hpp:3-5, 21-23; kv_q8.cu:46-52 |
 | Attention | K/V dequantized to fp32; scores in fp32; online softmax per 64-cell chunk in fp32 (`__expf`), fp32 merge; output gate sigmoid, then q8_1 for the o-projection | qsa_dec_attn.cu:138, 255-427 |
 | Draft-only attention | fp16 mma kernel; it changes drafts only, never accepted tokens | qsa_dec_attn.cu:429-431 |

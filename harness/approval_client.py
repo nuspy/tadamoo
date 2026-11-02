@@ -1,6 +1,7 @@
 """Asks the person through the server's pages: posts an approval request and waits for the answer.
 
-Whatever goes wrong (the server is gone, the answer never comes, the run is cancelled) is a refusal.
+The answer is waited for as long as it takes: a server that does not answer for a while is tried again, and only the run's own
+cancellation ends the wait (as a refusal).
 """
 from __future__ import annotations
 
@@ -14,18 +15,15 @@ from typing import Any, Dict, Optional
 from harness import control_secret
 
 POLL_SECONDS = 1.0
-WAIT_SECONDS = 900.0
-FAILURES_BEFORE_REFUSING = 3
 
 
 class ServerApprover:
     def __init__(self, base_url: str, api_key: Optional[str], run_id: str, cancel: Optional[threading.Event] = None,
-                 wait: float = WAIT_SECONDS, poll: float = POLL_SECONDS, effect_of=None) -> None:
+                 poll: float = POLL_SECONDS, effect_of=None) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.run_id = run_id
         self.cancel = cancel
-        self.wait = wait
         self.poll = poll
         self.effect_of = effect_of
 
@@ -39,29 +37,34 @@ class ServerApprover:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
-    def __call__(self, tool: str, arguments: Dict[str, Any]) -> bool:
+    def available(self) -> bool:
+        """Whether the server answers now, so a question put to its board will be seen (a run that has no one at a terminal)."""
         try:
-            made = self._call("POST", "/api/agent/approvals", {"run": self.run_id, "tool": tool, "arguments": arguments,
-                                                                "effect": self.effect_of(tool) if self.effect_of else ""})
-            approval_id = made["id"]
-        except (urllib.error.URLError, OSError, ValueError, KeyError):
+            self._call("GET", "/v1/status")
+            return True
+        except (urllib.error.URLError, OSError, ValueError):
             return False
-        deadline = time.monotonic() + self.wait
-        failures = 0
-        while time.monotonic() < deadline:
+
+    def __call__(self, tool: str, arguments: Dict[str, Any]) -> bool:
+        approval_id = None
+        while approval_id is None:
+            if self.cancel is not None and self.cancel.is_set():
+                return False
+            try:
+                made = self._call("POST", "/api/agent/approvals", {"run": self.run_id, "tool": tool, "arguments": arguments,
+                                                                    "effect": self.effect_of(tool) if self.effect_of else ""})
+                approval_id = made["id"]
+            except (urllib.error.URLError, OSError, ValueError, KeyError):
+                time.sleep(self.poll)
+        while True:
             if self.cancel is not None and self.cancel.is_set():
                 return False
             try:
                 status = self._call("GET", f"/api/agent/approvals/{approval_id}").get("status")
-                failures = 0
             except (urllib.error.URLError, OSError, ValueError):
-                failures += 1
-                if failures >= FAILURES_BEFORE_REFUSING:
-                    return False
                 status = "pending"
             if status == "approved":
                 return True
             if status != "pending":
                 return False
             time.sleep(self.poll)
-        return False

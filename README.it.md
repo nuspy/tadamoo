@@ -57,7 +57,9 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   migliori per questo PC, salvati come profilo.
 - **LOGS**: ogni richiesta come l'ha vista il modello (cosa è arrivato, il ragionamento e la risposta come scritti,
   ogni tentativo strutturato, i tempi, perché è finita) più le righe del server e del motore, tenute in memoria ed
-  esportabili.
+  esportabili. Una seconda sezione, **Tracce delle sessioni**, riproduce una conversazione di Chat o Agente con le sue
+  risposte registrate (non esegue nulla), la salva in JSONL con i segreti mascherati e verifica il registro di audit
+  a catena di impronte della sua cartella.
 - **Scarica modelli**: un catalogo di 23 file scaricabili di Qwen3.8-Flash-Next (`.basalt` pronti, GGUF da convertire,
   versioni uncensored; altri 6 sono mostrati come non compatibili), con ciò che li distingue dalla base, quanto sono vicini al modello pieno e la fonte di quella misura),
   scaricati con ripresa e controllo SHA-256.
@@ -232,7 +234,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 ### Cosa sa fare
 
 - **Lavorare su un progetto**: leggere, elencare, cercare, modificare e scrivere file; eseguire comandi di shell; `repo_map` (le
-  definizioni di ogni file sorgente, i più rilevanti per primi); diagnostica e «vai alla definizione» dei language server quando ce n'è
+  definizioni di ogni file sorgente, i più rilevanti per primi) e `repo_diagram` (diagrammi degli import e delle cartelle calcolati dai file, senza modello); diagnostica e «vai alla definizione» dei language server quando ce n'è
   uno installato; eseguire frammenti di Python, JavaScript o TypeScript; affidare un compito a un sotto-agente. I file che alleghi
   (testo, codice, CSV, JSON, Word, Excel, PowerPoint, PDF, immagini; audio e video tramite il servizio callAPIcall) sono letti a
   pezzi, e i file che l'agente produce sono controllati prima di esserti offerti.
@@ -244,16 +246,18 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 - **Raggiungere altri strumenti**: skill, plugin e server MCP trovati su questo PC (ognuno *da approvare* finché non lo leggi e lo
   approvi, legato a un hash di ciò che hai letto); la ricerca online di quello che manca, con i candidati migliori proposti a te e
   un'installazione che non esegue mai gli script di un pacchetto; server MCP remoti con accesso OAuth; altri agenti tramite un client
-  ACP e un client A2A; un consiglio di consiglieri per le domande difficili; un modello diverso per ogni funzione (quello caricato,
+  ACP e un client A2A; un consiglio di consiglieri con ruoli modificabili che discutono una domanda difficile per un numero di giri scelto, con il costo mostrato prima; un modello diverso per ogni funzione (quello caricato,
   un altro su questo PC, un servizio cloud).
 - **Gestire denaro e identità**: il vault del **Portafoglio** tiene cifrati carte, dati personali e accessi; il modello scrive
   segnaposto e il valore viene inserito all'ultimo passo, solo verso i siti che la voce indica. I pagamenti seguono un limite che
   imposti tu (nessuno finché non lo imposti), una rinuncia facoltativa con massimali e una domanda oltre questi. Il secondo fattore di
   ogni accesso lo scegli tu. Le telefonate vere chiedono ogni volta e sono spente di default.
 - **Pianificare**: piani come grafi (azioni, sensori, decisioni, riunioni, compiti passati a te) mostrati nella vista **Piani**; la
-  Chat può leggerli e proporre modifiche, e ogni modifica ha il tuo sì. Un filtro degli eventi e la ripianificazione col modello locale
-  sono facoltativi.
-- **Lavorare con orari propri**: routine (un prompt, una cartella, un orario, una modalità), valutazione (`python -m harness.eval`,
+  Chat può leggerli e proporre modifiche, leggere cosa farebbero le proposte del planner e approvarle o rifiutarle, e ogni modifica ha il
+  tuo sì. Ogni piano ha una scheda rispetto a cui si giudicano gli eventi in arrivo; la Chat ti chiede solo ciò che alla scheda manca. Una
+  decisione senza uscita valida passa a te invece di saltare in silenzio. Il filtro degli eventi (locale; quello nel cloud solo con il tuo
+  consenso) parte con il server, e la ripianificazione col modello locale è facoltativa.
+- **Lavorare con orari propri**: routine (un prompt, una cartella, un orario; sempre in Automatica), valutazione (`python -m harness.eval`,
   pass^k, costo e uso della cache), riesecuzione di una sessione registrata e l'energia usata da un compito.
 
 ### Le conversazioni della Chat
@@ -266,9 +270,9 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
   Claude Code); **Maiusc+Tab** nel campo del messaggio passa alla successiva, con una conversazione aperta cambia solo quella, e
   *Automatico* chiede le due conferme della finestra di rischio solo la prima volta, finché non chiudi l'app.
 - **Livello di ragionamento** per conversazione (l'elenco *Ragionamento*, oppure `/effort`).
-- **Comandi con la barra**: scrivendo `/` si apre un menu di 30: sulla pagina (`/clear`, `/mode`, `/plan`, `/copy`, `/export`,
+- **Comandi con la barra**: scrivendo `/` si apre un menu di 31: sulla pagina (`/clear`, `/mode`, `/plan`, `/copy`, `/export`,
   `/branch`, `/rewind`, `/stop`, `/diff`…), risposti dal processo della conversazione (`/status`, `/context`, `/compact`, `/tools`,
-  `/hooks`, `/mcp`, `/memory`, `/permissions`), richieste scritte per il modello (`/init`, `/review`, `/security-review`,
+  `/hooks`, `/mcp`, `/memory`, `/permissions`, `/audit`), richieste scritte per il modello (`/init`, `/review`, `/security-review`,
   `/research`) e ogni skill trovata sul PC come `/nome testo`.
 - **Sa sempre che ora è.** Prima di ogni richiesta l'agente riceve da solo, dall'harness, data, ora e fuso orario locali della
   persona, quindi non deve mai chiamare uno strumento per chiederli, e l'inizio del prompt non viene toccato (il server tiene la sua
@@ -284,7 +288,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
   [manuale](docs/harness-manual.it.md#17-skill-personali).
 - **Un messaggio mentre lavora** viene indirizzato nel compito, messo in coda o trattato come urgente; **Ferma** vuol dire ferma.
 - **Rami, tornare indietro, confrontare**: un albero di conversazioni, *Torna qui* su ogni richiesta (le azioni che restano avvenute
-  sono elencate prima) e due continuazioni della stessa richiesta affiancate.
+  sono elencate prima) e due continuazioni della stessa richiesta affiancate. I messaggi sono nodi immutabili condivisi, quindi un ramo non copia nulla; la vista dei nodi mostra, prima di cambiare ramo, quanto costa al modello, e *Unisci e sintetizza* fa scrivere al modello una sintesi di due rami in una nuova conversazione.
 - **Una copia tutta sua** (non offerta dalla pagina Chat, che non ha una cartella di progetto da copiare): in una cartella git una conversazione può lavorare in un suo worktree, e le modifiche che scegli le
   applichi come modifiche in staging, mai come commit.
 - **I guasti si gestiscono, non si nascondono**: un server occupato o irraggiungibile si riprova; un processo che muore riparte dalla
@@ -294,9 +298,14 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 ### Cosa controlli tu
 
 - **Cosa può fare senza chiedere**: le quattro modalità; regole per i comandi (`shell_command:pytest*`, un divieto vince sempre, e una
-  regola non copre mai un comando che ne concatena altri o reindirizza); il pulsante *Permetti sempre* in una domanda. In
+  regola non copre mai un comando che ne concatena altri o reindirizza); il pulsante *Permetti sempre* in una domanda. Una risposta vale per
+  quella chiamata (lo stesso strumento con gli stessi argomenti), non per lo strumento intero, e *Permetti sempre* non propone mai una regola
+  larga per `python`, `powershell`, `curl` e simili (solo per quel comando preciso) né per `run_code`: una regola per questi la scrivi tu. In
   *Automatico*, un'azione irreversibile chiede comunque quando la conversazione ha letto contenuti esterni e può raggiungere un segreto
-  o una voce del vault (la regola dei due).
+  o una voce del vault (la regola dei due). Il web si legge liberamente per le notizie; un indirizzo web, una ricerca o un modulo chiede
+  solo quando la conversazione ha letto contenuti esterni, ha toccato dati privati (una credenziale salvata, un file con chiavi, un
+  allegato, le tue memorie) e l'azione arriva all'esterno. Impostazioni > Portafoglio regola quanto è rigida. Un segreto salvato non entra
+  mai in un indirizzo o in una ricerca, con nessuna impostazione.
 - **Hook scritti da te** (`hooks.json`): comandi o blocchi fissi su chiamate di strumenti, turni e sessione; un hook che non riesce a
   decidere blocca.
 - **Checkpoint e ritorno**: l'area di lavoro viene salvata prima della prima modifica di un turno, fuori dal progetto e con limiti di
@@ -359,15 +368,15 @@ nell'appunto.
   password o una chiave.
 - **Un appunto sbagliato o ostile resta.** L'agente può essere indotto a tenere un appunto da una pagina che ha letto, e `remember` è
   un'azione reversibile che non chiede a nessuno in *Chiedi prima* o *Automatico*. Torna poi come dato che il modello ha l'ordine di
-  non eseguire: il rischio si abbassa, non scompare. Gli appunti aggiunti in coda dal recupero non alzano il segnale della regola dei
+  non eseguire: il rischio si abbassa, non scompare. Gli appunti aggiunti in coda dal recupero alzano il segnale della regola dei
   due come fa `recall`.
 - **Nessuna pagina per sfogliare o modificare gli appunti.** `/memory` li legge (ciascuno tagliato a 300 caratteri); per toglierne uno
   chiedi all'agente di dimenticarlo, oppure cancella il file. Nulla è condiviso tra cartelle, utenti o PC, e non c'è esportazione.
 
 ### Cosa non è fatto
 
-Isolamento di file e rete per i comandi (il job object limita solo le risorse); `fs/*` e `session/load` in ACP; Basalt come server A2A
-(è solo un client); i conti bancari tramite un aggregatore; una prova di Google Pay o di un modulo Stripe incorporato su un sito vero;
+Isolamento di file e rete per i comandi (il job object limita solo le risorse); una prova dell'agente ACP in un editor vero (Zed, JetBrains)
+e `terminal/*`; Basalt come server A2A (è solo un client); i conti bancari tramite un aggregatore; una prova di Google Pay o di un modulo Stripe incorporato su un sito vero;
 e una misura di quale strategia di contesto funzioni meglio (serve il modello vero). Nessuna telefonata vera è stata fatta in un test,
 e Stripe e Google Pay non sono stati provati sui servizi reali. L'elenco con i motivi è in fondo a
 [docs/harness.md](docs/harness.md).
@@ -843,7 +852,7 @@ si scrivono nelle sezioni `server` / `engine` di `basalt_config.json`. Valgono q
 | **Budget di RAM per gli esperti** (`engine.resident-budget-gib`, GiB) | al massimo questi GiB di esperti copiati in RAM, i più usati per primi | vuoto = automatico; la cifra di RAM del piano ne è limitata; il motore rifiuta un budget che lascia libera meno RAM del suo margine |
 | **Esperti nella mappatura del file** (`engine.mmap-experts`) | nessuna copia residente in RAM: gli esperti si leggono da una mappatura del file; prevale su esperti residenti e budget di RAM | di solito più lento (dipende dalla cache di pagine del sistema); spento di default |
 | **Cache esperti elastica** (`engine.vram-elastic`) | la cache degli esperti a segmenti, così `POST /v1/vram` può prestare VRAM ad altri programmi tra una richiesta e l'altra | spenta salvo che un altro programma abbia bisogno ogni tanto di VRAM |
-| **Restituisci il commit della memoria GPU** (`engine.release-vram-commit`, Windows) | restituisce il commit di sistema che WDDM addebita per la memoria della GPU | spento; il motore può bloccarsi se un altro programma ne spinge fuori la VRAM |
+| **Mantieni il commit della memoria GPU** (`engine.keep-vram-commit`, Windows) | tiene il commit di sistema che WDDM addebita per la memoria della GPU invece di restituirlo | spento (il commit si restituisce); attivalo se un altro programma alloca memoria GPU mentre il motore è fermo, perché il motore può bloccarsi se quel programma ne spinge fuori la VRAM |
 | **File del profilo esperti** (`engine.expert-profile-save`, avanzata) | il file in cui il motore salva ciò che la cache adattiva ha imparato, all'uscita e a intervalli | vuoto = non si salva; lo legge `tools/convert/convert.py --profile` |
 | **Intervallo di salvataggio del profilo** (`engine.expert-profile-save-every`, minuti, avanzata) | ogni quanto si salva il profilo; 0 = solo all'uscita | 10 predefinito |
 | **Checkpoint del prompt** (`engine.prompt-cache`) | checkpoint di conversazione tenuti tra una richiesta e l'altra, circa 118 MB di RAM ciascuno per slot; 0 rilegge ogni prompt dall'inizio | 6 predefinito; il piano li conta |

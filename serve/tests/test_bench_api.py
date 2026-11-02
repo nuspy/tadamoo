@@ -103,16 +103,13 @@ class Bench(Base):
         self.assertTrue(err["problems"])
         self.assertEqual(self.req("GET", "/api/bench/job")[1]["phase"], "idle")
 
-    def test_the_routes_are_for_this_pc_and_its_own_page(self):
+    def test_the_routes_are_for_this_pc(self):
         body = {"path": str(self.model)}
-        self.assertEqual(self.req("POST", "/api/bench/run", body, {})[0], 415)
-        self.assertEqual(self.req("POST", "/api/bench/run", body, {**JS, "Origin": "http://evil.example.com"})[0], 403)
         with mock.patch("serve.settings.is_loopback", return_value=False):
             self.assertEqual(self.req("POST", "/api/bench/run", body)[0], 403)
         self.assertEqual(self.req("POST", "/api/bench/explode", {})[0], 404)
         self.assertEqual(self.req("POST", "/api/bench/run", {"path": str(self.models / "missing.basalt")})[0], 404)
         self.assertEqual(self.req("POST", "/api/bench/cancel", {})[1]["cancelled"], False)
-        self.assertEqual(self.req("POST", "/api/bench/unload", {}, {**JS, "Origin": "http://evil.example.com"})[0], 403)
 
     def test_unloading_and_loading_again_go_through_the_service(self):
         with mock.patch.object(self.svc, "unload", return_value="unloaded") as unload:

@@ -41,6 +41,22 @@ class PhonesPageTest(unittest.TestCase):
         for key in keys:
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
 
+    def test_keys_have_an_end_that_can_be_chosen_and_renewed_and_the_limits_for_phones_are_set_with_an_explanation(self):
+        for route in ("api/remote/keys/renew", "api/remote/limits"):
+            self.assertIn(route, JS)
+        self.assertNotIn("window.confirm", JS)                                       # a key with no end is made without a question; its risk is written under the box
+        self.assertIn("mb.keys.neverwarn", JS)
+        dynamic = [f"mb.mode.{m}" for m in ("plan", "read_only", "default", "auto")] + [f"mb.lim.mode.help.{m}" for m in ("plan", "read_only", "default", "auto")]
+        for key in dynamic + ["mb.keys.ends", "mb.keys.expired", "mb.keys.noend", "mb.keys.renew", "mb.keys.forever", "mb.lim.rules.help", "mb.lim.mode"]:
+            self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+
+    def test_where_to_listen_is_chosen_from_three_ways_each_explained_in_both_languages(self):
+        self.assertIn("api/remote/listen", JS)
+        for value in ('"tailscale"', '"0.0.0.0"', '"custom"'):
+            self.assertIn(value, JS)
+        for key in ("label", "tailscale", "all", "custom", "ip", "help.tailscale", "help.all", "help.custom", "save", "save.tip", "saved"):
+            self.assertEqual(I18N.count(f'"mb.listen.{key}":'), 2, key)
+
 
 if __name__ == "__main__":
     unittest.main()

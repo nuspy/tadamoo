@@ -16,8 +16,8 @@ from serve.frontend import ChatTemplate, Event, OutputParser, images_of, literal
 from serve.util.logbuf import LogBuffer
 from serve.util.reqlog import RequestLog
 from serve.util.reqtrace import GpuTicker
-from serve.security import LOOPBACK_NAMES
 from serve.prompt import CTX_SLACK, PromptText, overflow_error, room_error
+from serve.util.ngram import NgramLoop
 from serve.util.text import Detokenizer, IM_END, StopMatcher, control_literals, stop_strings
 from serve.engine.vision import Vision
 from serve.api.grammar import grammar_spec, unenforced
@@ -34,6 +34,9 @@ EFFORT_TEXT = {"low": "Reasoning effort is set to low. Keep your thinking brief 
 VISION_START = "<|vision_start|>"
 # a reply repeating one token this many times in a row is ended ("length"); Service.repeat_stop_tokens, 0: off
 REPEAT_STOP_TOKENS = 256
+# a passage of this many tokens written this many times within this many tokens is a loop, and ends the reply ("length");
+# Service.repeat_ngram, None: off. Code fences are not watched.
+REPEAT_NGRAM = (12, 4, 2000)
 # closes the thinking at reasoning_budget_tokens
 REASONING_WRAP_UP = "\n\nI have thought about this long enough; time to give my answer.\n</think>\n\n"
 # closes the thinking when the model ends its turn inside it
@@ -67,7 +70,7 @@ class Service:
 
     def __init__(self, engine: Engine, tokenizer, template: ChatTemplate, model_name: str = "qwen3.8-flash-next",
                  vision: Vision | None = None, sampling_defaults: dict | None = None,
-                 fit_max_tokens: bool = False, grammar: bool = GRAMMAR_DEFAULT, grammar_engine: bool = True):
+                 fit_max_tokens: bool = True, grammar: bool = GRAMMAR_DEFAULT, grammar_engine: bool = True):
         self.engine, self.tok, self.template, self.model, self.vision = engine, tokenizer, template, model_name, vision
         self.literals = literal_tags(control_literals(tokenizer))   # control texts that stay text inside a message
         self.fit_max_tokens = fit_max_tokens          # clamp the output cap instead of a 400
@@ -78,19 +81,12 @@ class Service:
         self.stopping = threading.Event()               # set at shutdown: nothing starts the engine again
         self.embeddings = threading.local()           # this request's image embeddings file
         self.api_key = ""                              # when set, /v1/* requires it
-        self.control_token = ""                        # the secret of /api/control/*; empty: those routes are off
+        self.control_token = ""                        # the secret of the changes through /api/*; empty: not required (--control-secret sets it)
         # put a non-default reasoning effort in a system turn before the answer so the cached prefix survives
         self.effort_end = False
         self.reqlog = RequestLog()                      # what each request sent, the model wrote and the server did
         self.gpu_ticker = GpuTicker(self)               # hardware figures into reqlog while requests run
         self.logs = LogBuffer()                         # server and engine output
-        # origins allowed to call /v1/* (CORS; "*" = any); empty: no CORS headers
-        self.cors_origins: list[str] = []
-        # origins treated as the server's own page for the load/unload/VRAM controls (no wildcard)
-        self.trusted_origins: list[str] = []
-        # DNS-rebinding guard: extra Host names ("*" = any) and all names answered, set by serve()
-        self.allowed_hosts: list[str] = []
-        self.host_names: set[str] = set(LOOPBACK_NAMES)
         self.status = {"busy": False, "queued": 0}      # what the model is doing now
         self.rate = collections.deque(maxlen=RATE_SAMPLES)   # (time, generated) samples
         # parallel mode: each running request's own status and rate window; self.status shows the newest
@@ -108,6 +104,7 @@ class Service:
         self.standby = False                             # --standby: no engine until the Loader's Load
         self.exit_request = threading.Event()            # --relaunch-on-model-change: end so the owner starts again
         self.status_lock = threading.Lock()
+        self.side_stats: dict[str, dict] = {}          # the technical session's work, by the use the harness named in the call
         self.live_lock = threading.Lock()               # one combined live line per LIVE_EVERY_S, whichever request is first
         self.live_at = 0.0
         # GPU sharing, all off by default: idle unload seconds, min free VRAM to load, a command run before loading
@@ -117,6 +114,8 @@ class Service:
         self.vram_reserve = None                         # last POST /v1/vram reserve (None: the start's)
         self.reasoning_budget_tokens = 0                 # default thinking budget (0: none)
         self.repeat_stop_tokens = REPEAT_STOP_TOKENS     # see REPEAT_STOP_TOKENS
+        self.repeat_ngram = REPEAT_NGRAM                 # see REPEAT_NGRAM
+        self.max_answer_tokens = 0                       # default cap on the answer text, apart from the thinking (0: none)
         self.anthropic_think_unasked = True               # "anthropic_thinking": "on_request" -> False
         self.stop_ids = set(tokenizer.encode(IM_END, parse_special=True) +
                             tokenizer.encode("<|endoftext|>", parse_special=True))
@@ -182,6 +181,18 @@ class Service:
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError(f"reasoning_budget_tokens: expected a whole number (0 = none), not {value!r}")
         return value if value > 0 else None
+
+    def answer_cap(self, req) -> int:
+        """The request's `max_answer_tokens`: the most the answer text may take, not counting the thinking (0: none); ValueError for a
+        value that is not a whole number of 0 or more. The reply ends as "length" when it is reached."""
+        value = (req if isinstance(req, dict) else {}).get("max_answer_tokens")
+        if value is None:
+            return self.max_answer_tokens
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"max_answer_tokens: a whole number of tokens, 0 or more (0 = none), not {value!r}")
+        return value
 
     def _vision_down(self) -> bool:
         return self.vision is not None and hasattr(self.vision, "alive") and not self.vision.alive()
@@ -411,8 +422,58 @@ class Service:
             queued = int(self.status.get("queued") or 0)
         depth = getattr(self.engine, "queue_depth", None)
         waiting = depth() if total and depth else 0
+        side = self._side_slot()
         return {"total": max(1, total), "active": max(0, min(max(1, total), running - waiting)),
-                "queue_depth": queued + waiting}
+                "queue_depth": queued + waiting, "side_slot": side,
+                "conversations": max(1, total - (1 if side is not None else 0))}
+
+    def _side_slot(self) -> int | None:
+        """The technical session's slot among the engine's batch slots; None when it has none."""
+        side = getattr(self.engine, "side_slot", None)
+        return side if isinstance(side, int) and not isinstance(side, bool) else None
+
+    def _slot_context(self, slot: int) -> int:
+        """The context `slot` holds."""
+        of = getattr(self.engine, "slot_context", None)
+        return int(of(slot)) if callable(of) else int(self.engine.max_context)
+
+    def _free_slot(self, taken: set, total: int) -> int | None:
+        """The lowest slot no request holds, apart from the technical session's (only its own calls run there)."""
+        side = self._side_slot()
+        return next((i for i in range(total) if i not in taken and i != side), None)
+
+    def _claim_side(self, st: dict) -> None:
+        """A request the engine runs in the technical session holds that slot in the table."""
+        served, side = getattr(self.engine, "served_slot", None), self._side_slot()
+        if side is None or not callable(served):
+            return
+        with self.status_lock:
+            if served() == "side":
+                st["slot"] = side
+            elif st.get("slot") == side:
+                st["slot"] = None
+
+    def _count_side(self, sampling: dict, done: dict, seconds: float) -> None:
+        """One call that asked for the technical session, counted under the use it named: whether the session served it or an ordinary
+        slot did, whether it ended cut off or was cancelled, and the time it took."""
+        if sampling.get("cache_slot") not in ("side", "side_only") or not isinstance(sampling.get("side_use"), str):
+            return
+        with self.status_lock:
+            row = self.side_stats.setdefault(sampling["side_use"], {"calls": 0, "main": 0, "cut": 0, "cancelled": 0, "seconds": 0.0})
+            row["calls"] += 1
+            row["main"] += done.get("cache_slot") != "side"
+            row["cut"] += done.get("finish") == "length"
+            row["cancelled"] += done.get("finish") == "cancel"
+            row["seconds"] = round(row["seconds"] + seconds, 3)
+
+    def side_stats_view(self) -> dict:
+        with self.status_lock:
+            return {k: dict(v) for k, v in self.side_stats.items()}
+
+    def side_slot_info(self) -> dict | None:
+        """The technical session as the status routes show it: {"slot": index, "context": tokens}, or None."""
+        side = self._side_slot()
+        return None if side is None else {"slot": side, "context": self._slot_context(side)}
 
     def slot_table(self) -> tuple[list[dict], list[dict]]:
         """Per-slot rows and the waiting requests. The oldest running requests take the slots, each keeping its
@@ -432,7 +493,7 @@ class Service:
             taken = {st["slot"] for st in running if st.get("slot") is not None and st["slot"] < total}
             for st in running:
                 if st.get("slot") is None or st["slot"] >= total:
-                    st["slot"] = next((i for i in range(total) if i not in taken), None)
+                    st["slot"] = self._free_slot(taken, total)
                     taken.add(st["slot"])
             by_slot = {st["slot"]: (dict(st), rates.get(id(st), [])) for st in running}
             queue = [{"api": st.get("api"), "model": st.get("model"), "prompt_tokens": st.get("prompt_tokens"),
@@ -447,7 +508,8 @@ class Service:
             bd = (getattr(self.engine, "slot_drafts", None) or {}).get(i)
             if bd and bd[2] >= held.get("at", 0):      # a batch slot's own counts, when newer than a solo request's
                 held.update(accepted=bd[0], offered=bd[1])
-            row = {"id": i, "n_ctx": self.engine.max_context, "is_processing": i in by_slot, "state": "idle",
+            row = {"id": i, "n_ctx": self._slot_context(i), "side": i == base["side_slot"],
+                   "is_processing": i in by_slot, "state": "idle",
                    "api": None, "model": None, "tok_s": 0.0, "generated": 0, "max_tokens": None, "prompt_tokens": 0,
                    "prefill_done": 0, "reused": None, "ttft_s": None, "draft_len": None,
                    "ctx_used": held.get("ctx", 0), "drafts_offered": held.get("offered"),
@@ -543,8 +605,9 @@ class Service:
             "started": int(self.started_at), "uptime_s": int(time.time() - self.started_at),
             "cache_max_tokens": ctx,
             "context": {"native": ctx, "max_positions": ctx},
-            "concurrency": {"serving": max(1, int(getattr(self.engine, "batch", 0) or 0)),
-                            "requested": max(1, int(getattr(self.engine, "batch", 0) or 0))},
+            "concurrency": {"serving": self.slot_stats()["conversations"],
+                            "requested": self.slot_stats()["conversations"],
+                            "side_slot": self.side_slot_info()},
             "dialects": ["/v1/chat/completions", "/v1/messages", "/v1/responses"],
             "vision": {"enabled": images, "available": images, "error": None},
             "activity": {"requests": self.requests_done + int(busy), "in_flight": int(busy) + int(s.get("queued") or 0),
@@ -710,11 +773,17 @@ class Service:
         if st.get("slot") is None or st["slot"] >= total:
             taken = {o["slot"] for o, _ in self.live_reqs.values()
                      if o is not st and o.get("slot") is not None and o["slot"] < total}
-            st["slot"] = next((i for i in range(total) if i not in taken), None)
+            st["slot"] = self._free_slot(taken, total)
         return st["slot"]
     def run(self, ids, thinking, tools, max_new, sampling, cancel, force=None) -> Iterator[tuple[str, object]]:
         """Yield ("event", Event) as text arrives, ("ping", None) as heartbeat, then ("done", {...}).
         `force`: the opening of the call the reply must make (see prepare)."""
+        t_run = time.time()
+        if (sampling or {}).get("cache_slot") == "side_only":
+            side = self._side_slot()
+            if side is None or len(ids) + max_new + 16 > self._slot_context(side):
+                raise ValueError("this request does not fit the technical session (it has none, or the prompt and the answer are larger than its context)")
+            sampling = {**sampling, "cache_slot": "side"}          # from here it is an ordinary request for the session
         budget = self.reasoning_budget(sampling) if thinking else None   # opt-in
         if self.sampling_defaults:     # the request's own fields win
             req_values = {k: v for k, v in (sampling or {}).items() if v is not None}
@@ -723,6 +792,12 @@ class Service:
         detok, n, finish = Detokenizer(self.tok), 0, "length"
         run_tok, run_len, repeated = None, 0, False     # current run of one repeated token
         thinking_n = 0                                  # tokens written while thinking
+        answer_cap, answer_n = self.answer_cap(sampling), 0     # the answer text's own cap, and the tokens written so far
+        capped = looped = False
+        rf = (sampling or {}).get("response_format")
+        structured = isinstance(rf, dict) and rf.get("type") in ("json_object", "json_schema")     # JSON repeats its own keys: not a loop
+        loop_guard = NgramLoop(*self.repeat_ngram) if self.repeat_ngram and not structured else None
+        in_fence, fence_tail = False, ""                # inside a code fence (the passage guard does not look there), and the last 2 characters
         stop_list = stop_strings(sampling)
         stops = StopMatcher(stop_list) if stop_list else None
         trace = getattr(self.request_ctx, "trace", None)    # the request log's entries for this request, if any
@@ -819,6 +894,9 @@ class Service:
                         if par:
                             self.live_reqs[id(st)] = (st, rate)
                             self.status.update(st)
+                        if par and (sampling or {}).get("cache_slot") == "side" and self._side_slot() is not None \
+                                and len(ids) + 8 < self._slot_context(self._side_slot()):
+                            st["slot"] = self._side_slot()      # the engine confirms or releases it once it has routed the request
                         self.last_request_at = time.time()
                         rate.clear()                    # drop the previous request's samples
                     before = getattr(self.engine, "last", None)
@@ -840,6 +918,8 @@ class Service:
                             # a held-back tool argument can leave the stream silent for long: ping after a quiet spell
                             last_out = time.monotonic()
                             for t in gen:
+                                if par and (sampling or {}).get("cache_slot") == "side":
+                                    self._claim_side(st)
                                 if t is None:               # heartbeat
                                     if isinstance(ids, PromptText) and ids.n is not None and st.get("prompt_tokens") != ids.n:
                                         with self.status_lock:  # the engine has counted the prompt
@@ -860,6 +940,8 @@ class Service:
                                 raw_ids.append(t)
                                 seg.append(t)
                                 thinking_n += parser.state == "reasoning"
+                                writing = parser.state == "content"     # this token is answer text
+                                answer_n += writing
                                 run_len = run_len + 1 if t == run_tok else 1
                                 run_tok = t
                                 if self.repeat_stop_tokens and run_len >= self.repeat_stop_tokens:
@@ -885,6 +967,16 @@ class Service:
                                 if stops is not None and stops.hit is not None:
                                     finish = "stop"         # gen.close() below STOPs the engine
                                     break
+                                if writing:
+                                    seen = fence_tail + piece
+                                    in_fence ^= seen.count("```") % 2 == 1
+                                    fence_tail = seen[-2:]
+                                    if loop_guard is not None and not in_fence and loop_guard.push(t):
+                                        looped = True
+                                        break
+                                    if answer_cap and answer_n >= answer_cap:
+                                        capped = True
+                                        break
                                 if budget and parser.state == "reasoning":
                                     thought += 1
                                     # only at a clean point: no held tag or split character
@@ -965,6 +1057,12 @@ class Service:
                     elif repeated:
                         print(f"[server] warning: the reply repeated one token ({self.tok.decode([run_tok])!r}) "
                               f"{run_len} times, stopped as length (repeat_stop_tokens, 0 = off)", flush=True)
+                    elif looped:
+                        repeated = True
+                        print(f"[server] warning: the reply repeated a passage of {loop_guard.n} tokens {loop_guard.times} times "
+                              f"within {loop_guard.window} tokens, stopped as length (repeat_ngram, None = off)", flush=True)
+                    elif capped:
+                        print(f"[server] answer cap of {answer_cap} tokens reached, stopped as length (max_answer_tokens)", flush=True)
                 except GeneratorExit:                   # client disconnected
                     finish = "disconnect"
                     raise
@@ -1043,6 +1141,14 @@ class Service:
                 "timings": timings, "reasoning_tokens": thinking_n}
         if stops is not None and stops.hit is not None:
             done["stop_sequence"] = stops.hit
+        if repeated:
+            done["repeated"] = True                     # the reply was a loop: going on would only write it again
+        if capped:
+            done["answer_capped"] = True
+        if (sampling or {}).get("cache_slot") is not None:      # the request chose a slot: say which kind served it
+            served = getattr(self.engine, "served_slot", None)
+            done["cache_slot"] = (served() if callable(served) else None) or "main"
+            self._count_side(sampling, done, time.time() - t_run)
         if trace is not None:
             trace.run_done(done)
         yield "done", done

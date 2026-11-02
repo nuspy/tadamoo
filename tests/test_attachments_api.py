@@ -81,7 +81,6 @@ def test_a_file_is_uploaded_recognized_listed_and_shown_back_safely(world):
 def test_what_is_refused_at_upload(world):
     api, mgr, sid, tmp = world
     assert api.upload("ghost", "a.txt", b"x")[0] == 404                                         # no such conversation
-    assert api.upload(sid, "a.txt", b"x", headers={"Origin": "http://evil.example"})[0] == 403
     assert api.raw("POST", f"/api/attachments?session={sid}&name=a.txt", b"", {"Content-Type": "application/octet-stream"})[0] == 400
     assert api.raw("POST", f"/api/attachments?session={sid}&name=a.txt", b"x", {"Transfer-Encoding": "chunked"})[0] in (400, 411)
     assert api.json("GET", f"/api/attachments?session={sid}")[1]["items"] == []
@@ -147,3 +146,12 @@ def test_the_levels_of_pictures_and_charts_reach_the_conversation_process_and_a_
     assert "--images" not in mgr._command(plain["id"], mgr.get(plain["id"]), tmp_path)
     bad = api.json("POST", "/api/agent/sessions", {"workspace": str(tmp_path), "images": "enormous"})
     assert bad[0] == 400 and bad[1]["error"]["code"] == "bad_visuals"
+
+
+def test_a_message_may_name_more_than_twenty_files_and_a_long_text(world):
+    api, mgr, sid, tmp = world
+    ids = [json.loads(api.upload(sid, f"f{i}.txt", b"x")[2])["attachment"]["id"] for i in range(25)]
+    code, body = api.json("POST", f"/api/agent/sessions/{sid}/send", {"text": "parola " * 10_000, "attachments": ids})
+    assert code == 200
+    ev = next(e for e in mgr.events(sid)["events"] if e["event"] == "user")
+    assert len(ev["attachments"]) == 25 and len(ev["text"]) == len("parola ") * 10_000

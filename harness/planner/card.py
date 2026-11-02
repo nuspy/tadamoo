@@ -2,21 +2,22 @@
 
 It holds what an event could threaten (bookings, constraints of the people involved), not the plan's
 whole history. Before anything leaves this machine it goes through Pseudonymizer and an allow-list of
-fields; the user decides both. By default the fields about the participants' health, allergies and
-personal constraints do not leave; the user can include them.
+fields; the user decides both. By default the whole card goes, as the validated experiment sent it, because
+the fields about the participants' health, allergies and personal constraints are what lets an event that matters only through them be
+recognised; the user can take any field out.
 """
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
 CARD_FIELDS = ("titolo", "date", "destinazione", "partecipanti", "logistica_e_prenotazioni",
                "profilo_e_vincoli_partecipanti")
-PERSONAL_FIELDS = ("profilo_e_vincoli_partecipanti",)                       # health, allergies, personal constraints: not sent unless chosen
-DEFAULT_SHARED_FIELDS = tuple(f for f in CARD_FIELDS if f not in PERSONAL_FIELDS)
-MAX_CARD_BYTES = 12_000
+PERSONAL_FIELDS = ("profilo_e_vincoli_partecipanti",)                       # health, allergies, personal constraints: the settings say so where they are chosen
+DEFAULT_SHARED_FIELDS = tuple(f for f in CARD_FIELDS if f not in PERSONAL_FIELDS)   # what goes when the user has not chosen: no health, allergies or personal constraints
+DERIVED_FIELDS = ("titolo", "date", "logistica_e_prenotazioni")      # what a plan's own data gives a card, and what follows the plan while the person has not written it
+INTERVIEW_FIELDS = {"occasional": ("date", "destinazione", "partecipanti"), "constant": ()}      # what a card needs to judge events against a plan
 PRONOUNS = {"io", "me", "noi", "tu", "lui", "lei", "voi", "loro", "i", "we"}
 MIN_NAME_PART = 3
 # words that appear in a participant's entry without being a name ("il mio amico Gianni"): never replaced on their own
@@ -51,8 +52,6 @@ class PlanInsightCard:
             logistica_e_prenotazioni={str(k): str(v) for k, v in dict(data.get("logistica_e_prenotazioni", {})).items()},
             profilo_e_vincoli_partecipanti={str(k): str(v) for k, v in dict(data.get("profilo_e_vincoli_partecipanti", {})).items()},
         )
-        if len(json.dumps(card.to_dict(), ensure_ascii=False).encode("utf-8")) > MAX_CARD_BYTES:
-            raise ValueError(f"the card is larger than {MAX_CARD_BYTES} bytes; summarize it")
         return card
 
     def people(self) -> List[str]:
@@ -60,6 +59,25 @@ class PlanInsightCard:
         names = list(self.partecipanti) + list(self.profilo_e_vincoli_partecipanti)
         cleaned = [re.sub(r"\s*\(.*?\)\s*", "", n).strip() for n in names]
         return list(dict.fromkeys(n for n in cleaned if len(n) >= 3 and n.lower() not in PRONOUNS))
+
+
+def derive_card(dag: Any, profile: Any = None) -> PlanInsightCard:
+    """The card a plan's own data gives: its title, its dates (from the profile) and its steps with their state. The destination, the
+    participants and what limits them are not in a plan's data: they stay empty until the person says them."""
+    steps: Dict[str, str] = {}
+    for node in dag.nodes.values():
+        base = " ".join(str(node.title).split())[:120] or node.id
+        key, n = base, 2
+        while key in steps:
+            key, n = f"{base} ({n})", n + 1
+        steps[key] = str(node.status) + ("" if str(getattr(node.assignee, "value", node.assignee)) == "agent" else f", for {getattr(node.assignee, 'value', node.assignee)}")
+    starts, ends = getattr(profile, "starts_on", ""), getattr(profile, "ends_on", "")
+    return PlanInsightCard(titolo=dag.title, date=(f"{starts} - {ends}" if starts and ends else starts or ends), logistica_e_prenotazioni=steps)
+
+
+def card_gaps(card: PlanInsightCard, target_type: str) -> List[str]:
+    """The fields of a card that are empty and that events cannot be judged without (a trip needs its dates, its place and who goes)."""
+    return [f for f in INTERVIEW_FIELDS.get(target_type, ()) if not getattr(card, f)]
 
 
 def name_parts(name: str) -> List[str]:
@@ -74,6 +92,28 @@ _EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A
 _PHONE = re.compile(r"(?<![\w+])\+?\(?\d[\d ().\-]{5,}\d(?!\w)")
 _DATE = re.compile(r"\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}")
 PHONE_DIGITS = (8, 15)
+
+
+_SENDER = re.compile(r"\A(Email|Telegram) from ([^:\n]{2,80}): ")
+
+
+def sender_names(events: Iterable[str]) -> List[str]:
+    """The people who sent the events, from the line the planner's own sources write ("Email from <name>: ...", "Telegram from <name>: ..."):
+    a Telegram first name, or an e-mail display name of two or more words. A one-word e-mail sender may be a company, and is left as it is.
+    A name written inside a message is not recognised: no rule finds those reliably."""
+    out: List[str] = []
+    for event in events:
+        m = _SENDER.match(event)
+        if not m:
+            continue
+        who = re.sub(r"\s+", " ", m.group(2)).strip()
+        words = who.split(" ")
+        if "@" in who or not all(w.replace("'", "").replace("-", "").isalpha() for w in words) or len(who) < 3:
+            continue
+        if who.lower() in PRONOUNS or who.lower() in COMMON_WORDS or who.lower() in ("someone", "unknown sender") or (m.group(1) == "Email" and len(words) < 2):
+            continue
+        out.append(who)
+    return list(dict.fromkeys(out))
 
 
 def scrub_contacts(text: str) -> str:

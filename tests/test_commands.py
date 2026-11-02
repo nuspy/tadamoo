@@ -59,7 +59,10 @@ def test_the_thinking_level_reaches_the_model_calls_of_every_task(tmp_path):
 def test_the_lists_are_data_and_an_unknown_name_is_an_error(tmp_path):
     session, ev, built = make(tmp_path, Scripted(), mode="plan", memory=True)
     session.built.permissions.add_rule("shell_command:pytest *", "allow")
-    assert commands.run("permissions", "", session)["data"] == {"mode": "plan", "rules": [{"pattern": "shell_command:pytest *", "action": "allow"}], "denied": 0, "untrusted_input": False}
+    got = commands.run("permissions", "", session)["data"]
+    assert got["mode"] == "plan" and got["rules"] == [{"pattern": "shell_command:pytest *", "action": "allow"}] and got["denied"] == 0 and got["refused_by"] == {}
+    session.built.permissions.add_rule("group:write", "deny")
+    assert commands.run("permissions", "", session)["data"]["refused_by"]["write_file"] == "group:write"
     names = [t["name"] for t in commands.run("tools", "", session)["data"]["tools"]]
     assert "read_file" in names and names == sorted(names)
     assert commands.run("hooks", "", session)["data"]["pre_tool"] >= 1
@@ -73,10 +76,10 @@ def test_the_lists_are_data_and_an_unknown_name_is_an_error(tmp_path):
 
 
 def test_compact_shortens_the_conversation_when_nothing_is_under_way(tmp_path):
-    turns = [say(f"answer {i} " + "word " * 120) for i in range(6)]
+    turns = [say(f"answer {i} " + "word " * 120) for i in range(9)]
     session, ev, built = make(tmp_path, Scripted(*turns))
     assert commands.run("compact", "", session)["data"] == {"done": False, "reason": "short", "tokens": built.agent.context.estimate_tokens(built.agent.messages)}
-    for i in range(6):
+    for i in range(9):
         n = len(ev.items)
         session.send(f"m{i}", f"question {i} " + "text " * 100)
         ev.wait("done", after=n)
@@ -110,7 +113,7 @@ def test_the_process_takes_a_mode_a_level_and_a_command_while_it_lives(tmp_path,
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent
-    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=Scripted(): real_build(cfg, client=_c))
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=Scripted(): real_build(cfg, client=_c))
     feed, out = Feed(), io.StringIO()
     t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "p1", "--no-memory", "--no-checkpoints",
                                               "--effort", "low", "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)
@@ -119,6 +122,8 @@ def test_the_process_takes_a_mode_a_level_and_a_command_while_it_lives(tmp_path,
     feed.put({"cmd": "mode", "mode": "everything"})                  # refused: not one of the modes
     feed.put({"cmd": "effort", "level": "high"})
     feed.put({"cmd": "effort", "level": "maximum"})                  # refused
+    feed.put({"cmd": "intake", "mode": "full"})
+    feed.put({"cmd": "intake", "mode": "always"})                    # refused
     feed.put({"cmd": "command", "id": "k1", "name": "status", "args": ""})
     feed.put({"cmd": "command", "id": "k2", "name": "nothing", "args": ""})
 
@@ -131,7 +136,46 @@ def test_the_process_takes_a_mode_a_level_and_a_command_while_it_lives(tmp_path,
     t.join(10)
     assert seen(lambda e: e["event"] == "mode") == [{"event": "mode", "mode": "plan"}]
     assert seen(lambda e: e["event"] == "effort") == [{"event": "effort", "level": "high"}]
+    assert seen(lambda e: e["event"] == "intake_mode") == [{"event": "intake_mode", "mode": "full"}]
     status = seen(lambda e: e["event"] == "command" and e["id"] == "k1")[0]
     assert status["ok"] and status["data"]["mode"] == "plan" and status["data"]["effort"] == "high"
     assert seen(lambda e: e["event"] == "command" and e["id"] == "k2")[0]["ok"] is False
-    assert len(seen(lambda e: e.get("code") == "bad_command")) == 2
+    assert len(seen(lambda e: e.get("code") == "bad_command")) == 3
+
+
+def test_the_process_takes_the_steps_and_the_end_of_turn_bias_while_it_lives(tmp_path, monkeypatch):
+    import harness.session as hs
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    real_build = hs.build_agent
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=Scripted(): real_build(cfg, client=_c))
+    feed, out = Feed(), io.StringIO()
+    t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "p2", "--no-memory", "--no-checkpoints",
+                                              "--max-turns", "15", "--end-turn-bias", "-5", "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)
+    t.start()
+
+    def seen(pred):
+        return [e for e in (json.loads(l) for l in out.getvalue().splitlines()) if pred(e)]
+
+    def status(cid):
+        feed.put({"cmd": "command", "id": cid, "name": "status", "args": ""})
+        deadline = time.monotonic() + 10
+        while not seen(lambda e: e["event"] == "command" and e["id"] == cid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        return seen(lambda e: e["event"] == "command" and e["id"] == cid)[0]["data"]
+    first = status("k1")
+    assert first["max_turns"] == 15 and first["end_turn_bias"] == -5
+    feed.put({"cmd": "settings", "max_turns": -1, "end_turn_bias": -20})
+    feed.put({"cmd": "settings", "max_turns": 0})                                  # refused
+    feed.put({"cmd": "settings", "end_turn_bias": 3})                              # refused
+    feed.put({"cmd": "settings", "max_turns": True})                               # refused
+    feed.put({"cmd": "settings"})                                                  # refused: nothing to change
+    second = status("k2")
+    assert second["max_turns"] == -1 and second["end_turn_bias"] == -20
+    feed.put({"cmd": "settings", "end_turn_bias": 0})
+    assert status("k3")["end_turn_bias"] == 0
+    feed.put({"cmd": "close"})
+    t.join(10)
+    assert seen(lambda e: e["event"] == "settings") == [{"event": "settings", "max_turns": -1, "end_turn_bias": -20.0},
+                                                        {"event": "settings", "end_turn_bias": 0.0}]
+    assert len(seen(lambda e: e.get("code") == "bad_command")) == 4

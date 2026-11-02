@@ -37,7 +37,7 @@ def cli(*argv):
 
 def test_the_checkpoints_are_listed_with_what_ran_after_each(work):
     ws, data = work
-    run_agent(ws, data, [call("write_file", {"path": "a.txt", "content": "two\n"}),
+    run_agent(ws, data, [call("write_file", {"path": "a.txt", "content": "two\n", "overwrite": True}),
                          call("shell_command", {"command": "python -c \"print(1)\""}, "c2"), say("done")])
     cp, later = checkpoint_report(data, ws)                                   # one checkpoint for each turn that changes something
     assert cp["description"] == "before write_file" and cp["files"] == 1 and later["description"] == "before shell_command"
@@ -48,7 +48,7 @@ def test_the_checkpoints_are_listed_with_what_ran_after_each(work):
 
 def test_going_back_restores_files_and_removes_new_ones_and_says_how_to_undo_it(work):
     ws, data = work
-    run_agent(ws, data, [call("write_file", {"path": "a.txt", "content": "two\n"}), call("write_file", {"path": "new.txt", "content": "x"}, "c2"), say("ok")])
+    run_agent(ws, data, [call("write_file", {"path": "a.txt", "content": "two\n", "overwrite": True}), call("write_file", {"path": "new.txt", "content": "x"}, "c2"), say("ok")])
     cp = checkpoint_report(data, ws)[0]
     code, out, _ = cli("--workspace", str(ws), "--data-dir", str(data), "--to", cp["id"])
     assert code == 0 and "To undo this rewind" in out
@@ -60,7 +60,7 @@ def test_going_back_restores_files_and_removes_new_ones_and_says_how_to_undo_it(
 
 def test_a_rewind_over_actions_that_stay_done_asks_for_yes(work):
     ws, data = work
-    run_agent(ws, data, [call("write_file", {"path": "a.txt", "content": "two\n"}),
+    run_agent(ws, data, [call("write_file", {"path": "a.txt", "content": "two\n", "overwrite": True}),
                          call("shell_command", {"command": "python -c \"print(1)\""}, "c2"), say("done")])
     cp = checkpoint_report(data, ws)[0]
     code, _, err = cli("--workspace", str(ws), "--data-dir", str(data), "--to", cp["id"])
@@ -72,7 +72,7 @@ def test_a_rewind_over_actions_that_stay_done_asks_for_yes(work):
 
 def test_keep_new_leaves_files_created_since(work):
     ws, data = work
-    run_agent(ws, data, [call("write_file", {"path": "a.txt", "content": "two\n"}), call("write_file", {"path": "new.txt", "content": "x"}, "c2"), say("ok")])
+    run_agent(ws, data, [call("write_file", {"path": "a.txt", "content": "two\n", "overwrite": True}), call("write_file", {"path": "new.txt", "content": "x"}, "c2"), say("ok")])
     cp = checkpoint_report(data, ws)[0]
     assert cli("--workspace", str(ws), "--data-dir", str(data), "--to", cp["id"], "--keep-new")[0] == 0
     assert (ws / "new.txt").exists() and (ws / "a.txt").read_text(encoding="utf-8") == "one\n"
@@ -80,7 +80,7 @@ def test_keep_new_leaves_files_created_since(work):
 
 def test_a_rewind_is_written_in_the_audit_log_and_the_chain_still_verifies(work):
     ws, data = work
-    run_agent(ws, data, [call("write_file", {"path": "a.txt", "content": "two\n"}), say("ok")])
+    run_agent(ws, data, [call("write_file", {"path": "a.txt", "content": "two\n", "overwrite": True}), say("ok")])
     cp = checkpoint_report(data, ws)[0]
     result = rewind(data, ws, cp["id"])
     ledger = AuditLedger(data / "audit.jsonl")
@@ -183,3 +183,14 @@ def test_the_plan_events_note_an_effect_preview_the_rewind_and_ask_for_the_yes()
     done = bridge.handle({"type": "plan:rewind", "node_id": "book", "accept_irreversible": True})
     assert done["ok"] and done["rewound"] == ["book", "call", "pay"] and [e["tool"] for e in done["not_undone"]] == ["phone_call"]
     assert not bridge.handle({"type": "plan:note_effect", "node_id": "ghost", "tool": "x", "effect": "irreversible"})["ok"]
+
+
+def test_the_checkpoints_are_deleted_one_or_all_from_the_command_line(work):
+    ws, data = work
+    run_agent(ws, data, [call("write_file", {"path": "a.txt", "content": "two\n", "overwrite": True}),
+                         call("shell_command", {"command": "python -c \"print(1)\""}, "c2"), say("done")])
+    first, second = [c["id"] for c in checkpoint_report(data, ws)]
+    assert cli("--workspace", str(ws), "--data-dir", str(data), "--delete", first)[0] == 0
+    assert [c["id"] for c in checkpoint_report(data, ws)] == [second]
+    assert cli("--workspace", str(ws), "--data-dir", str(data), "--delete", "cp_1_1")[0] == 2
+    assert cli("--workspace", str(ws), "--data-dir", str(data), "--delete", "all")[0] == 0 and checkpoint_report(data, ws) == []

@@ -292,6 +292,100 @@ try {
     Copy-Item (Join-Path $wheelCache '*.whl') $wheelDir
     Info ("{0} wheels, {1:N0} MB" -f $wheels.Count, (($wheels | Measure-Object Length -Sum).Sum / 1MB))
 
+    # ------------------------------------------------------------------ add-ons (dependencies shipped with the app)
+    Step 'Add-ons: Node.js, Billion Context, REA and Openweight Canary'
+    $addDir = Join-Path $Stage 'addons'
+    New-Item -ItemType Directory -Force $addDir | Out-Null
+    $addCache = Join-Path $Cache 'addons'
+    New-Item -ItemType Directory -Force $addCache | Out-Null
+    $licAdd = Join-Path $lic 'addons'
+    New-Item -ItemType Directory -Force $licAdd | Out-Null
+    $NodeVersion = '24.22.1'
+    $NpmAddons = @(
+        @{ name = 'billion-context'; version = '0.1.208'; integrity = 'sha512-UxsXmDoXRFZJ5D/hyhq33QGd0dOWqA5uo/ssJLd79NH54yU7wFlb1Bf9h+b9+nzKcrfCxEo9iIibKMUzeedwDA==' },
+        @{ name = 'rea-agents'; version = '6.8.0'; integrity = 'sha512-9QDeRnGqEDzABZyr04eLnBXBv/c6I9/TWu/6M0MD4pEfkySI/BIgwTODIbAReX3C1x6hjw9+Jlx4A2yUSPZ9ww==' }
+    )
+    function Get-Cached([string]$Url, [string]$File) {
+        if (-not (Test-Path $File)) {
+            if ($SkipDownloads) { throw "$File is not in the cache (run without -SkipDownloads once)" }
+            Info "downloading $Url"
+            Invoke-WebRequest -UseBasicParsing $Url -OutFile $File
+        }
+    }
+    function Get-Sha512Sri([string]$File) {
+        $sha = [Security.Cryptography.SHA512]::Create()
+        try { $fs = [IO.File]::OpenRead($File); try { 'sha512-' + [Convert]::ToBase64String($sha.ComputeHash($fs)) } finally { $fs.Dispose() } } finally { $sha.Dispose() }
+    }
+    $addInfo = [ordered]@{}
+
+    # Node.js, portable (node.exe only), checked against the SHASUMS256.txt of nodejs.org
+    $nodeZip = Join-Path $addCache "node-v$NodeVersion-win-x64.zip"
+    Get-Cached "https://nodejs.org/dist/v$NodeVersion/node-v$NodeVersion-win-x64.zip" $nodeZip
+    $sums = Join-Path $addCache "node-v$NodeVersion-SHASUMS256.txt"
+    Get-Cached "https://nodejs.org/dist/v$NodeVersion/SHASUMS256.txt" $sums
+    $want = ((Get-Content $sums | Where-Object { $_ -match "node-v$([regex]::Escape($NodeVersion))-win-x64\.zip$" }) -split '\s+')[0]
+    $have = (Get-FileHash $nodeZip -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (-not $want -or $want -ne $have) { throw "Node.js ${NodeVersion}: the sha256 of the zip does not match nodejs.org's SHASUMS256.txt" }
+    $nodeTmp = Join-Path $addCache "node-extract-$NodeVersion"
+    if (Test-Path $nodeTmp) { Remove-Item -Recurse -Force $nodeTmp }
+    Expand-Archive -LiteralPath $nodeZip -DestinationPath $nodeTmp
+    $nodeSrc = Join-Path $nodeTmp "node-v$NodeVersion-win-x64"
+    $nodeDst = Join-Path $addDir 'node'
+    New-Item -ItemType Directory -Force $nodeDst | Out-Null
+    Copy-Item (Join-Path $nodeSrc 'node.exe') $nodeDst
+    Copy-Item (Join-Path $nodeSrc 'LICENSE') (Join-Path $licAdd 'Node.js-LICENSE.txt')
+    $addInfo['node'] = [ordered]@{ version = $NodeVersion; license = 'MIT and others (see licenses\addons\Node.js-LICENSE.txt)'; sha256 = $have; source = 'https://nodejs.org' }
+    Info "Node.js $NodeVersion, sha256 matches nodejs.org"
+
+    # npm packages: the tarball is checked against the pinned integrity, then installed with its dependencies and no install scripts
+    $npm = (Get-Command npm -ErrorAction Stop).Source
+    foreach ($a in $NpmAddons) {
+        $tgz = Join-Path $addCache ("{0}-{1}.tgz" -f $a.name, $a.version)
+        Get-Cached ("https://registry.npmjs.org/{0}/-/{0}-{1}.tgz" -f $a.name, $a.version) $tgz
+        if ((Get-Sha512Sri $tgz) -ne $a.integrity) { throw "$($a.name)@$($a.version): the tarball does not match the pinned integrity" }
+        $dst = Join-Path $addDir $a.name
+        $work = Join-Path $addCache ("build-{0}-{1}" -f $a.name, $a.version)
+        if (Test-Path $work) { Remove-Item -Recurse -Force $work }
+        New-Item -ItemType Directory -Force $work | Out-Null
+        '{"private":true}' | Set-Content -Encoding ASCII (Join-Path $work 'package.json')
+        Run $npm @('install', '--prefix', $work, '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel', 'error', $tgz)
+        New-Item -ItemType Directory -Force $dst | Out-Null
+        Copy-Item (Join-Path $work 'node_modules') (Join-Path $dst 'node_modules') -Recurse
+        if (-not (Test-Path (Join-Path $dst "node_modules\$($a.name)\package.json"))) { throw "$($a.name) was not installed" }
+        Copy-Item (Join-Path $work 'package-lock.json') $dst -ErrorAction SilentlyContinue
+        $pkgJson = Get-Content -Raw (Join-Path $dst "node_modules\$($a.name)\package.json") | ConvertFrom-Json
+        $licFile = Get-ChildItem (Join-Path $dst "node_modules\$($a.name)") -Filter 'LICENSE*' | Select-Object -First 1
+        if ($licFile) { Copy-Item $licFile.FullName (Join-Path $licAdd ("{0}-{1}.txt" -f $a.name, $licFile.BaseName)) }
+        $addInfo[$a.name] = [ordered]@{ version = $a.version; license = "$($pkgJson.license)"; integrity = $a.integrity; engines = $pkgJson.engines; entry = "node_modules\$($a.name)" }
+        Info ("{0}@{1}: {2:N0} MB, license {3}" -f $a.name, $a.version, ((Get-ChildItem $dst -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), $pkgJson.license)
+    }
+
+    # Openweight Canary (the owner's own repository): the committed tree, without tests
+    $CanaryRepo = Join-Path (Split-Path $Root -Parent) 'openweight-canary'
+    $canaryDst = Join-Path $addDir 'openweight-canary'
+    if (Test-Path (Join-Path $CanaryRepo '.git')) {
+        $cc = (& git -C $CanaryRepo rev-parse HEAD).Trim()
+        $cz = Join-Path $addCache "openweight-canary-$cc.zip"
+        if (-not (Test-Path $cz)) { Run git @('-C', $CanaryRepo, 'archive', '--format=zip', '-o', $cz, 'HEAD') }
+    } else {
+        $cc = 'main'
+        $cz = Join-Path $addCache 'openweight-canary-main.zip'
+        if (Test-Path $cz) { Remove-Item -Force $cz }
+        Get-Cached 'https://github.com/nuspy/Openweight-Canary/archive/refs/heads/main.zip' $cz
+    }
+    $canTmp = Join-Path $addCache 'canary-extract'
+    if (Test-Path $canTmp) { Remove-Item -Recurse -Force $canTmp }
+    Expand-Archive -LiteralPath $cz -DestinationPath $canTmp
+    $canRoot = if (Test-Path (Join-Path $canTmp 'canary')) { $canTmp } else { (Get-ChildItem $canTmp -Directory | Select-Object -First 1).FullName }
+    New-Item -ItemType Directory -Force $canaryDst | Out-Null
+    Copy-Item (Join-Path $canRoot '*') $canaryDst -Recurse -Force
+    if (Test-Path (Join-Path $canaryDst 'tests')) { Remove-Item -Recurse -Force (Join-Path $canaryDst 'tests') }
+    if (-not (Test-Path (Join-Path $canaryDst 'canary\__init__.py'))) { throw 'Openweight Canary: canary\__init__.py is missing from the archive' }
+    $addInfo['openweight-canary'] = [ordered]@{ commit = $cc; license = 'to be chosen by the owner'; source = 'https://github.com/nuspy/Openweight-Canary'; run = 'python -m canary (PYTHONPATH = addons\openweight-canary)' }
+    Info "Openweight Canary $cc"
+
+    [ordered]@{ node = 'addons\node\node.exe'; addons = $addInfo } | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 (Join-Path $addDir 'addons.json')
+
     # ------------------------------------------------------------------ notes in the package
     @"
 Basalt Win+GUI $ReleaseLabel
@@ -302,6 +396,10 @@ Bundled third-party files that are not part of the repository:
   bin\msvcp140.dll, vcruntime140.dll, vcruntime140_1.dll   Microsoft Visual C++ runtime
   setup\python\python-$pyVersion-amd64.exe     Python $pyVersion (PSF license), installed only on a PC that has no suitable Python
   setup\wheels\                                the Python packages of requirements.txt (their own licenses)
+  addons\node\node.exe                        Node.js $NodeVersion (MIT), runs Billion Context and REA
+  addons\billion-context, addons\rea-agents   npm packages with their dependencies (MIT; licenses\addons), installed without install scripts
+  addons\openweight-canary                      the exfiltration test (python -m canary), from github.com/nuspy/Openweight-Canary
+  addons\addons.json                            versions, hashes and licenses of the add-ons
 The setup\ folder is removed by the installer once everything is in place. The Qwen model has its own license.
 "@ | Set-Content -Encoding UTF8 (Join-Path $lic 'BUNDLED-FILES.txt')
 

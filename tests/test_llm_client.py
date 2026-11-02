@@ -143,7 +143,8 @@ def test_anthropic_gets_its_own_shape_and_answers_come_back_in_the_openai_one(wo
     out = RoutedClient("eval", reg, local, ledger).chat_completion(history, tools=tools, max_tokens=100)
     req = cloud.requests[0]
     assert req["path"] == "/v1/messages" and req["headers"]["x-api-key"] == "sk-ant-abcdef" and "anthropic-version" in req["headers"]
-    assert req["body"]["system"] == "Sei Basalt." and req["body"]["tools"][0]["input_schema"] == {"type": "object", "properties": {}}
+    assert req["body"]["system"] == [{"type": "text", "text": "Sei Basalt.", "cache_control": {"type": "ephemeral"}}]       # the stable start is marked for the cache
+    assert req["body"]["tools"][0]["input_schema"] == {"type": "object", "properties": {}} and req["body"]["tools"][-1]["cache_control"] == {"type": "ephemeral"}
     assert req["body"]["messages"][-1] == {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c0", "content": "nessun piano"}]}
     assert req["body"]["messages"][1]["content"][0]["type"] == "tool_use"
     msg = out["choices"][0]["message"]

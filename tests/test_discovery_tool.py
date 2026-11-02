@@ -17,6 +17,7 @@ from harness.capabilities import CapabilityIndex, register_capability_tools  # n
 from harness.discovery.candidates import CandidateStore  # noqa: E402
 from harness.discovery.finder import Finder  # noqa: E402
 from harness.discovery.installer import Installer, Run  # noqa: E402
+from harness.discovery.requests import InstallRequests  # noqa: E402
 from harness.discovery.settings import DiscoverySettings  # noqa: E402
 from harness.discovery.tool import register_discovery_tools  # noqa: E402
 from harness.tools.registry import EffectClass, ToolRegistry  # noqa: E402
@@ -53,6 +54,7 @@ class Set:
         self.finder = Finder(self.settings, CandidateStore(), bases=fake.bases)
         self.runner = Runner()
         self.installer = Installer(self.caps, self.finder.store, index=self.index, runner=self.runner, which=lambda n: "npm" if (npm and n == "npm") else None)
+        self.requests = InstallRequests(self.caps)
         self.asked, self.answers = [], list(answers)
         self.asker = register_discovery_tools(self.registry, self.index, finder=self.finder, installer=self.installer, bases=fake.bases)
         self.asker.ask = self._ask
@@ -77,7 +79,8 @@ def test_the_choice_is_put_to_the_person_with_everything_they_need_to_decide(tmp
     assert top["score"] >= 70 and "60,000 downloads a week" in top["reasons"] and top["facts"][0]["code"] and top["command"].startswith("pdf-mcp")
     assert any(w["code"] == "runs_program" for w in top["warnings"]) and top["keys"] == []
     values = [o["value"] for o in q["options"]]
-    assert values == [f"install:{i}" for i in range(1, len(cands) + 1)] + ["other", "cancel"]
+    assert values == ([f"install:{i}" for i in range(1, len(cands) + 1)] + [f"install:{i}:scripts" for i, c in enumerate(cands, 1) if c["route"] in ("npm", "pypi")]
+                      + ["other", "cancel"])
     assert "popularity and upkeep, not safety" in q["question"]
     assert "chose not to install" in out and s.runner.calls == [] and not (s.caps / "mcp").exists()
 
@@ -104,8 +107,8 @@ def test_other_returns_what_the_person_said_in_their_own_words(tmp_path, fake):
 
 
 def test_an_answer_that_was_cancelled_installs_nothing(tmp_path, fake):
-    s = Set(tmp_path, fake, [""])
-    assert "chose not to install" in s.run() and s.runner.calls == []
+    s = Set(tmp_path, fake, ["cancel"])
+    assert "chose not to install" in s.run() and s.runner.calls == [] and s.requests.pending() == []
     s2 = Set(tmp_path / "b", fake, ["install:99"])
     assert "not one of the options" in s2.run() and s2.runner.calls == []
 
@@ -129,6 +132,34 @@ def test_without_a_way_to_ask_nothing_is_installed_and_the_options_come_back_as_
     s.asker.ask = None
     out = s.run()
     assert "nothing was installed" in out and "pdf-mcp" in out and "score" in out and s.runner.calls == []
+    queued = s.requests.pending()
+    assert len(queued) == 1 and queued[0]["need"] == "extract tables from pdf" and queued[0]["id"] in out and "explain_install_request" in out
+    assert queued[0]["candidates"][0]["card"]["name"] == "pdf-mcp" and queued[0]["candidates"][0]["spec"]["package"] == "@acme/pdf-mcp"
+
+
+def test_an_ask_that_nobody_answers_parks_the_request_instead_of_refusing_the_install(tmp_path, fake):
+    s = Set(tmp_path, fake, [""])                                                 # an unattended run: the question comes back empty
+    out = s.run()
+    assert "nothing was installed" in out and "chose not to" not in out and s.runner.calls == []
+    assert len(s.requests.pending()) == 1 and s.requests.pending()[0]["id"] in out
+
+
+def test_the_model_adds_its_comparison_and_the_person_chats_the_choice_later(tmp_path, fake):
+    s = Set(tmp_path, fake, ["install:1"])
+    s.asker.ask = None
+    s.run()
+    rid = s.requests.pending()[0]["id"]
+    out = s.registry.execute("explain_install_request", {"request_id": rid, "comparison": [
+        {"n": 1, "summary": "Reads tables out of PDFs", "pros": "popular", "cons": "starts a program"}, {"n": 99, "summary": "ignored"}]})
+    assert "1 of" in out and s.requests.get(rid)["candidates"][0]["pros"] == "popular"
+    assert "No such" in s.registry.execute("explain_install_request", {"request_id": "r000", "comparison": []})
+    assert "no way to ask" in s.registry.execute("ask_install_request", {"request_id": rid})
+    s.asker.ask = s._ask
+    out = s.registry.execute("ask_install_request", {"request_id": rid})
+    q = s.asked[0]
+    assert q["kind"] == "capability_choice" and q["facts"]["comparison"][0]["cons"] == "starts a program" and "popular" in q["question"]
+    assert "Installed mcp:pdf-mcp" in out and s.requests.get(rid)["status"] == "installed" and s.index.get("mcp:pdf-mcp")["state"] == "approved"
+    assert "already installed" in s.registry.execute("ask_install_request", {"request_id": rid})
 
 
 def test_what_the_model_can_pass_is_a_need_and_nothing_that_could_be_a_command(tmp_path, fake):
@@ -151,7 +182,7 @@ def test_what_is_already_here_is_offered_before_going_online(tmp_path, fake):
     (skill_dir / "SKILL.md").write_text("---\nname: pdf-tables\ndescription: Extract tables from a PDF file\n---\nDo it.\n", encoding="utf-8")
     s.index.refresh()
     out = s.run()
-    assert "skill:pdf-tables" in out and "pending" in out and "approves it in Settings" in out and fake.world.requests == []
+    assert "skill:pdf-tables" in out and "load_capability" in out and "pending" not in out and fake.world.requests == []
     s.run(look_anyway=True)
     assert s.asked and fake.world.requests                                    # asked for it again: it looks online
 
@@ -236,7 +267,7 @@ def run_process(tmp_path, monkeypatch, fake, answers, need="extract tables from 
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent
-    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, _c=client: real_build(cfg, client=_c))
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=client: real_build(cfg, client=_c))
     feed, out = Feed(), io.StringIO()
     t = threading.Thread(target=lambda: hs.main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "p1", "--capabilities",
                                                  "--permission-mode", "auto", "--no-memory", "--no-checkpoints", "--no-planner", "--heartbeat", "0.05"],
@@ -300,11 +331,10 @@ def test_a_server_installed_by_basalt_starts_with_the_one_key_it_asks_for_from_t
     sha = mcp_spec_sha(command[0], command[1:])
     InstalledStore(caps).put({"id": "mcp:search", "name": "search", "kind": "mcp", "command": command, "sha": sha, "description": "fake search",
                               "env": [{"name": "FAKE_SEARCH_KEY", "required": True, "secret": True, "entry": "FAKE_SEARCH_KEY", "value": ""}]})
-    CapabilityIndex(caps, ws, home=home, appdata=tmp_path / "none").approvals.approve(SimpleNamespace(name="mcp:search", sha256=sha))
     vault = Vault(tmp_path / "vault")
 
     def build():
-        return build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False, capabilities=True,
+        return build_agent(AgentConfig(final_review=False, workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False, capabilities=True,
                                        capabilities_dir=str(caps), capabilities_home=str(home), vault_dir=str(tmp_path / "vault")), client=object())
     built = build()
     assert built.agent.tools.get("find_online_capability") is not None and getattr(built.agent.tools, "capability_ask", None) is not None
@@ -316,3 +346,34 @@ def test_a_server_installed_by_basalt_starts_with_the_one_key_it_asks_for_from_t
     assert "sekret-abc-123456" not in built.agent.secrets.mask_secrets(out)    # and what goes on to the model does not carry it
     assert "sekret-abc-123456" not in "".join(f.read_text(encoding="utf-8", errors="ignore") for f in caps.rglob("*") if f.is_file())
     built.close()
+
+
+def test_allow_scripts_runs_the_install_without_ignoring_them(tmp_path, fake):
+    s = Set(tmp_path, fake, ["install:1:scripts"])
+    out = s.run()
+    assert "Installed mcp:pdf-mcp" in out and "--ignore-scripts" not in s.runner.calls[0]
+
+
+def test_a_hash_that_differs_is_shown_and_the_person_can_install_anyway(tmp_path, fake):
+    s = Set(tmp_path, fake, ["install:1", "anyway"])
+    s.runner.integrity = "sha512-OTHER"
+    out = s.run()
+    q = s.asked[1]
+    assert "Installed mcp:pdf-mcp" in out and "not the release the registry described" in q["question"]
+    assert [o["value"] for o in q["options"]] == ["anyway", "cancel"]
+    assert "integrity_differs" in s.installer.records.get("mcp:pdf-mcp")
+
+
+def test_a_hash_that_differs_stays_refused_when_the_person_says_no(tmp_path, fake):
+    s = Set(tmp_path, fake, ["install:1", "cancel"])
+    s.runner.integrity = "sha512-OTHER"
+    out = s.run()
+    assert "could not be installed" in out and not (s.caps / "mcp" / "pdf-mcp").exists()
+
+
+def test_an_installed_package_is_updated_when_the_person_agrees(tmp_path, fake):
+    s = Set(tmp_path, fake, ["install:1", "install:1", "update"])
+    assert "Installed mcp:pdf-mcp" in s.run()
+    out = s.run(look_anyway=True)
+    assert "Installed mcp:pdf-mcp" in out and s.asked[-1]["options"][0]["value"] == "update"
+    assert not (s.caps / "mcp" / "pdf-mcp.previous").exists() and (s.caps / "mcp" / "pdf-mcp").exists()

@@ -353,7 +353,7 @@ class OverHttp(Isolated):
 
     def test_guards(self):
         with mock.patch("serve.settings.is_loopback", return_value=False):
-            self.assertEqual(self.req("POST", "/api/wizard/save", {"values": {}})[0], 403)
+            self.assertNotEqual(self.req("POST", "/api/wizard/save", {"values": {}})[0], 403)
             self.assertEqual(self.req("POST", "/api/wizard/plan", {})[0], 200)
         self.assertEqual(self.req("POST", "/api/wizard/nope", {})[0], 404)
 

@@ -23,6 +23,9 @@ from serve.config import (  # noqa: E402
     load_config_file,
     parallel_count,
     parse_settings,
+    SIDE_SLOT_DEFAULT,
+    SIDE_SLOT_MIN,
+    side_slot_tokens,
     sampling_defaults_from_config,
     sampling_line,
     server_options,
@@ -48,7 +51,10 @@ def conf(obj) -> str:
     return write(json.dumps(obj))
 
 
-def parse(cli: list[str], cfg=None):
+def parse(cli: list[str], cfg=None, side=False):
+    """The settings of a command line; without `side` the technical session is switched off (`--side-slot 0`), so a test sees only the words it is about."""
+    if not side and "--side-slot" not in cli and "side-slot" not in ((cfg or {}).get("server") or {}):
+        cli = [*cli, "--side-slot", "0"]
     return parse_settings(build_parser(), (["--config", conf(cfg)] if cfg is not None else []) + cli)
 
 
@@ -69,10 +75,10 @@ class ConfigFile(unittest.TestCase):
     def test_server_and_engine_sections(self):
         ap = build_parser()
         argv, engine = load_config_file(conf({"server": {"port": 9000, "vision": 2, "lazy": False,
-                                                         "allowed-host": ["a", "b"], "--gpu": "0,1"},
+                                                         "script": ["a", "b"], "--gpu": "0,1"},
                                               "engine": {"max-context": 32768, "--kv": "int8",
                                                          "resident-experts": True}}), ap)
-        self.assertEqual(argv, ["--port", "9000", "--vision", "2", "--allowed-host", "a", "--allowed-host", "b",
+        self.assertEqual(argv, ["--port", "9000", "--vision", "2", "--script", "a", "--script", "b",
                                 "--gpu", "0,1"])
         self.assertEqual(engine, ["--max-context", "32768", "--kv", "int8", "--resident-experts"])
 
@@ -139,10 +145,10 @@ class Precedence(unittest.TestCase):
         self.assertEqual(a.port, 7232)
 
     def test_repeatable_options_replace(self):
-        a, *_ = parse([], {"server": {"cors-origin": ["http://a"]}})
-        self.assertEqual(a.cors_origin, ["http://a"])
-        a, *_ = parse(["--cors-origin", "http://b"], {"server": {"cors-origin": ["http://a"]}})
-        self.assertEqual(a.cors_origin, ["http://b"])
+        a, *_ = parse([], {"server": {"script": ["x"]}})
+        self.assertEqual(a.script, ["x"])
+        a, *_ = parse(["--script", "y"], {"server": {"script": ["x"]}})
+        self.assertEqual(a.script, ["y"])
 
     def test_switch_true_and_false(self):
         self.assertTrue(parse([], {"server": {"lazy": True}})[0].lazy)
@@ -316,6 +322,114 @@ class SlotContext(unittest.TestCase):
                                       {"server": {"slot-full-context": True}}), 262144)
 
 
+class BatchNeedsInt8(unittest.TestCase):
+    """The engine's batch windows need resident INT8 K/V: the server adds --kv int8, and refuses another format."""
+
+    def kv(self, cli, cfg=None):
+        a, _, file_words, cli_words = parse(cli, cfg)
+        words = file_words + cli_words
+        return a, flag_value(words, "--kv"), words.count("--kv")
+
+    def test_parallel_and_the_side_slot_add_int8_when_no_format_is_given(self):
+        for cli in (["--parallel", "2"], ["--side-slot", "30000"], ["--parallel", "3", "--side-slot"]):
+            a, kv, n = self.kv(cli)
+            self.assertEqual((kv, n, a.kv_added), ("int8", 1, True))
+
+    def test_a_given_int8_is_kept_once_and_not_reported_as_added(self):
+        a, kv, n = self.kv(["--parallel", "2", "--kv", "int8"])
+        self.assertEqual((kv, n, a.kv_added), ("int8", 1, False))
+        a, kv, n = self.kv(["--side-slot", "30000"], {"engine": {"kv": "int8"}})
+        self.assertEqual((kv, n, a.kv_added), ("int8", 1, False))
+
+    def test_another_format_with_slots_is_refused_with_the_reason(self):
+        with self.assertRaisesRegex(ValueError, "need --kv int8, not --kv q4_0"):
+            parse(["--parallel", "2", "--kv", "q4_0"])
+        with self.assertRaisesRegex(ValueError, "need --kv int8, not --kv fp16"):
+            parse(["--side-slot", "30000"], {"engine": {"kv": "fp16"}})
+
+    def test_a_solo_server_gets_no_format_added(self):
+        a, kv, n = self.kv(["--max-context", "65536"])
+        self.assertEqual((kv, n, a.kv_added), (None, 0, False))
+
+
+class SideSlot(unittest.TestCase):
+    """--side-slot: one more engine slot for the harness's short calls, with a context of its own."""
+
+    def words(self, cli, cfg=None):
+        a, _, file_words, cli_words = parse(cli, cfg)
+        return a, file_words + cli_words
+
+    def test_it_adds_a_slot_and_a_context_to_the_engine(self):
+        a, words = self.words(["--parallel", "3", "--side-slot", "30000", "--max-context", "196608"])
+        self.assertEqual(flag_value(words, "--batch"), "4")
+        self.assertEqual(flag_value(words, "--side-context"), "30000")
+        self.assertEqual(flag_value(words, "--max-context"), "65536")           # the conversations' slots: max / 3
+        self.assertEqual(a.shared_context, 196608)
+
+    def test_one_conversation_and_the_side_slot_make_a_batch_of_two(self):
+        a, words = self.words(["--side-slot", "30000", "--max-context", "65536"])
+        self.assertEqual(flag_value(words, "--batch"), "2")
+        self.assertEqual(flag_value(words, "--side-context"), "30000")
+        self.assertEqual(flag_value(words, "--max-context"), "65536")           # nothing to divide
+        self.assertFalse(getattr(a, "shared_context", None))
+        a, words = self.words(["--parallel", "1", "--side-slot"], {"engine": {"max-context": 32768}})   # bare: the default size
+        self.assertEqual(flag_value(words, "--side-context"), str(SIDE_SLOT_DEFAULT))
+        self.assertEqual(flag_value(words, "--max-context"), "32768")
+
+    def test_without_it_nothing_changes(self):
+        _, words = self.words(["--parallel", "3", "--max-context", "196608"])
+        self.assertEqual(flag_value(words, "--batch"), "3")
+        self.assertNotIn("--side-context", words)
+        _, words = self.words(["--max-context", "65536"])
+        self.assertNotIn("--batch", words)
+        _, words = self.words(["--side-slot", "0", "--parallel", "2"])
+        self.assertEqual(flag_value(words, "--batch"), "2")
+        self.assertNotIn("--side-context", words)
+
+    def test_eight_conversations_and_the_side_slot_are_nine_slots_and_the_engine_has_eight(self):
+        a, words = self.words(["--parallel", "8", "--side-slot", "30000", "--max-context", "262144"])
+        self.assertEqual(flag_value(words, "--batch"), "8")                    # 7 conversations and the side slot
+        self.assertEqual(a.parallel, 7)
+        self.assertEqual(a.side_clamp, (8, 7))
+        self.assertEqual(flag_value(words, "--max-context"), str(262144 // 7))
+        a, words = self.words(["--parallel", "7", "--side-slot", "30000"])
+        self.assertEqual(flag_value(words, "--batch"), "8")
+        self.assertIsNone(a.side_clamp)
+
+    def test_an_explicit_engine_batch_or_side_context_is_a_conflict(self):
+        for flag, val in (("--batch", "3"), ("--slots", "3")):
+            with self.assertRaisesRegex(ValueError, f"parallel and engine {flag} both set"):
+                parse(["--side-slot", "30000", flag, val])
+            with self.assertRaisesRegex(ValueError, f"parallel and engine {flag} both set"):
+                parse(["--side-slot", "30000"], {"engine": {flag: 3}})
+        with self.assertRaisesRegex(ValueError, "side-slot and engine --side-context both set"):
+            parse(["--side-slot", "30000", "--side-context", "20000"])
+        with self.assertRaisesRegex(ValueError, "side-slot and engine --side-context both set"):
+            parse(["--side-slot", "30000"], {"engine": {"side-context": 20000}})
+
+    def test_the_config_file_takes_a_number_or_a_switch(self):
+        _, words = self.words([], {"server": {"side-slot": 20000, "parallel": 2}})
+        self.assertEqual(flag_value(words, "--side-context"), "20000")
+        self.assertEqual(flag_value(words, "--batch"), "3")
+        _, words = self.words([], {"server": {"side-slot": True}})
+        self.assertEqual(flag_value(words, "--side-context"), str(SIDE_SLOT_DEFAULT))
+        _, words = self.words([], {"server": {"side-slot": False, "parallel": 2}})
+        self.assertNotIn("--side-context", words)
+        # the command line wins over the file
+        _, words = self.words(["--side-slot", "0"], {"server": {"side-slot": 20000}})
+        self.assertNotIn("--side-context", words)
+
+    def test_the_size_is_checked(self):
+        self.assertEqual(side_slot_tokens("0"), 0)
+        self.assertEqual(side_slot_tokens("off"), 0)
+        self.assertEqual(side_slot_tokens(str(SIDE_SLOT_MIN)), SIDE_SLOT_MIN)
+        for bad in ("100", "x", "-5", "1.5"):
+            with self.subTest(value=bad), self.assertRaises(argparse.ArgumentTypeError):
+                side_slot_tokens(bad)
+        with self.assertRaises(SystemExit):
+            parse(["--side-slot", "100"])
+
+
 class EveryOption(unittest.TestCase):
     def sample(self, act):
         if act.nargs == 0:
@@ -326,6 +440,8 @@ class EveryOption(unittest.TestCase):
             return 7
         if act.type is vision_setting:                      # --vision: a GPU number is a valid sample
             return "1"
+        if act.type is side_slot_tokens:
+            return 30000
         if act.type is float:
             return 0.25
         if act.dest in SAMPLING_KEYS:                      # the model file's checks apply
@@ -337,7 +453,7 @@ class EveryOption(unittest.TestCase):
     def test_every_server_option_by_both_paths(self):
         ap = build_parser()
         for name, act in server_options(ap).items():
-            if name in ("api-key", "engine-bin", "grammar"):   # grammar is on by default: no-grammar differs, see test_grammar
+            if name in ("api-key", "engine-bin", "grammar", "fit-max-tokens"):   # grammar is on by default: no-grammar differs, see test_grammar
                 continue
             v = "localhost" if name == "host" else self.sample(act)
             if isinstance(act, argparse._AppendAction):

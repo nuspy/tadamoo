@@ -35,15 +35,15 @@ CONFIG = {"server": {"port": 7232, "vision": "dynamic"},
 class Plan(unittest.TestCase):
     def test_kv_follows_the_engine_s_bytes_per_token(self):
         for kv, per in loader.KV_TOKEN_BYTES.items():
-            p = loader.plan({"engine.kv": kv, "engine.max-context": 100000}, F, ROOMY)
+            p = loader.plan({"engine.kv": kv, "engine.max-context": 100000, "server.side-slot": 0}, F, ROOMY)
             kv_item = next(i for i in p["vram"]["items"] if i["key"] == "kv")
             self.assertEqual(kv_item["bytes"], per * 100000 + loader.SESSION_FIXED, kv)
         self.assertLess(loader.KV_TOKEN_BYTES["q4_0"], loader.KV_TOKEN_BYTES["k8v4"] < loader.KV_TOKEN_BYTES["int8"]
                         and loader.KV_TOKEN_BYTES["int8"])
 
     def test_slots_share_the_context_unless_full(self):
-        shared = loader.plan({"engine.max-context": 65536, "server.parallel": 4}, F, ROOMY)
-        full = loader.plan({"engine.max-context": 65536, "server.parallel": 4, "server.slot-full-context": True},
+        shared = loader.plan({"engine.max-context": 65536, "server.parallel": 4, "server.side-slot": 0}, F, ROOMY)
+        full = loader.plan({"engine.max-context": 65536, "server.parallel": 4, "server.slot-full-context": True, "server.side-slot": 0},
                            F, ROOMY)
         self.assertEqual(shared["slot_context"], 16384)
         self.assertEqual(full["slot_context"], 65536)
@@ -285,14 +285,14 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), CONFIG)
 
     def test_load_writes_the_file_and_reloads(self):
-        code, body = self.post("load", {"values": {"engine.kv": "q4_0", "engine.max-context": 65536,
+        code, body = self.post("load", {"values": {"engine.kv": "int8", "engine.max-context": 65536,
                                                    "server.parallel": 2, "server.slot-full-context": True}},
                                Origin=f"http://127.0.0.1:{self.port}")
         self.assertEqual(code, 202, body)
-        self.assertEqual(sorted(body["changed"]), ["engine.kv", "engine.max-context", "server.parallel",
+        self.assertEqual(sorted(body["changed"]), ["engine.max-context", "server.parallel",
                                                    "server.slot-full-context"])
         new = json.loads(Path(self.path).read_text(encoding="utf-8"))
-        self.assertEqual((new["engine"]["kv"], new["engine"]["max-context"]), ("q4_0", 65536))
+        self.assertEqual((new["engine"]["kv"], new["engine"]["max-context"]), ("int8", 65536))
         self.assertEqual(new["server"]["slot-full-context"], True)
         self.assertEqual(new["engine"]["resident-experts"], True)            # other keys kept
         self.assertEqual(json.loads(Path(self.path + ".bak").read_text(encoding="utf-8")), CONFIG)
@@ -300,7 +300,7 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(st["phase"], "ready", st)
         self.assertEqual(self.svc.engine.max_context, 65536)                # each slot holds the whole context
         self.assertEqual(self.svc.engine.batch, 2)
-        self.assertEqual(self.svc.settings_info["running"]["engine.kv"], "q4_0")
+        self.assertEqual(self.svc.settings_info["running"]["engine.kv"], "int8")
 
     def test_a_plan_that_does_not_fit_is_refused(self):
         with mock.patch.object(loader, "system_now", return_value=dict(TIGHT)):
@@ -312,6 +312,14 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), CONFIG)
         self.assertEqual(self.sup.status()["phase"], "idle")
 
+    def test_a_plan_that_does_not_fit_loads_when_the_person_says_so(self):
+        with mock.patch.object(loader, "system_now", return_value=dict(TIGHT)):
+            code, body = self.post("load", {"values": {"engine.max-context": 262144}, "force": True})
+        self.assertIn(code, (200, 202), body)
+        self.assertFalse(body["plan"]["fits"])                                       # the plan still says so
+        self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8"))["engine"]["max-context"], 262144)
+        self.wait_ready()
+
     def test_bad_values_are_400(self):
         for values in ({"engine.kv": "fp8"}, {"engine.ple-io": "disk"}, {"engine.pool-workers": 0},
                        {"engine.resident-experts": "yes"}, {"server.model": "x"}):
@@ -319,13 +327,12 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), CONFIG)
 
     def test_guards(self):
-        self.assertEqual(self.post("load", {"values": {}}, Origin="http://evil.example.com")[0], 403)
-        self.assertEqual(self.req("POST", "/api/loader/load", {"values": {}}, {"Content-Type": "text/plain"})[0], 415)
         with mock.patch("serve.settings.is_loopback", return_value=False):
-            self.assertEqual(self.post("load", {"values": {}})[0], 403)
-            self.assertEqual(self.post("calibrate", {})[0], 403)
-            self.assertFalse(self.req("GET", "/api/loader")[1]["editable"])
-            self.assertEqual(self.post("plan", {"values": {}})[0], 200)      # a plan changes nothing
+            self.assertIn(self.post("load", {"values": {}})[0], (200, 202))              # from another device too: the server loads from its own disks
+            self.assertNotEqual(self.post("calibrate", {})[0], 403)
+            body = self.req("GET", "/api/loader")[1]
+            self.assertTrue(body["editable"] and body["reason"] == "", body["reason"])
+            self.assertEqual(self.post("plan", {"values": {}})[0], 200)
         self.svc.api_key = "k"
         self.assertEqual(self.req("GET", "/api/loader")[0], 401)
         self.assertEqual(self.post("load", {"values": {}})[0], 401)

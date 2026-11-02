@@ -87,9 +87,7 @@ def test_the_installed_one_shows_in_the_tree_as_installed_by_basalt_and_approved
     assert entry["origin"] == "basalt" and entry["state"] == "approved"
 
 
-def test_only_the_pages_own_origin_can_change_the_search_settings_or_remove(setup):
+def test_the_search_settings_and_removal_do_not_look_at_the_origin(setup):
     api, _ = setup
-    assert api("POST", "/api/capabilities/online", {"auto_install": True}, headers={"Origin": "http://evil.example"})[0] == 403
-    assert api("POST", "/api/capabilities/remove", {"id": "mcp:search-mcp"}, headers={"Origin": "http://evil.example"})[0] == 403
-    view = api("GET", "/api/capabilities/online")[1]
-    assert view["settings"]["auto_install"] is False and view["installed"]
+    assert api("POST", "/api/capabilities/online", {"auto_install": True}, headers={"Origin": "http://evil.example"})[0] == 200
+    assert api("GET", "/api/capabilities/online")[1]["settings"]["auto_install"] is True

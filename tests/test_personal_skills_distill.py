@@ -122,13 +122,13 @@ def test_the_script_is_asked_with_the_calls_and_the_parameters_wired_in():
 
 
 def test_a_script_that_breaks_the_rules_is_sent_back_with_what_is_wrong():
-    bad = "```python\nimport os\n\ndef main(params):\n    return os.getcwd()\n```"
+    bad = "```python\nimport os\n\ndef run(params):\n    return os.getcwd()\n```"
     fixed = "```python\ndef main(params):\n    return params.topic\n```"
     model = Model(bad, fixed)
     reqs = distill.requests_of(MESSAGES)
     got = distill.write_script(model, "x", "", [{"name": "topic", "type": "text"}, {"name": "unused", "type": "text"}], reqs, distill.steps_of(MESSAGES, reqs, [1]))
     assert got["problems"] == [] and got["unused"] == ["unused"] and "def main" in got["script"]
-    assert "import os" in model.sent[1][-1]["content"] and "line 1" in model.sent[1][-1]["content"]
+    assert "function main" in model.sent[1][-1]["content"] and "line 1" in model.sent[1][-1]["content"]
     giving_up = Model(bad, bad, bad)
     got = distill.write_script(giving_up, "x", "", [], reqs, distill.steps_of(MESSAGES, reqs, [1]))
     assert got["problems"] and len(giving_up.sent) == 3                                  # two tries to repair, then what is left is shown to the person

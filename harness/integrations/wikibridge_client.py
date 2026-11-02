@@ -14,6 +14,8 @@ Page text can come from imported web sources, so callers must treat it as untrus
 from __future__ import annotations
 
 import os
+import posixpath
+import re
 import urllib.parse
 from typing import Any, Dict, List, Optional
 
@@ -30,9 +32,10 @@ class WikiBridgeClient:
         self.last_error: Optional[str] = None
 
     @classmethod
-    def from_environment(cls, **kwargs: Any) -> "WikiBridgeClient":
+    def from_environment(cls, url: Optional[str] = None, **kwargs: Any) -> "WikiBridgeClient":
+        """The address is `url` when given, else BASALT_WIKIBRIDGE_URL, else the usual local one; the key is BASALT_WIKIBRIDGE_KEY."""
         return cls(
-            base_url=os.environ.get("BASALT_WIKIBRIDGE_URL", DEFAULT_URL),
+            base_url=url or os.environ.get("BASALT_WIKIBRIDGE_URL", DEFAULT_URL),
             api_key=os.environ.get("BASALT_WIKIBRIDGE_KEY") or None,
             **kwargs,
         )
@@ -42,7 +45,8 @@ class WikiBridgeClient:
         try:
             data = request_json(method, self.base_url + path, payload, headers, self.timeout)
         except ServiceError as e:
-            self.last_error = f"wikibridge {e.kind} at {self.base_url}"
+            reason = str(e).partition(": ")[2] or str(e)
+            self.last_error = f"wikibridge {e.kind} at {self.base_url}: {reason}"
             raise
         self.last_error = None
         return data
@@ -79,11 +83,11 @@ class WikiBridgeClient:
 
     def get_page(self, project_slug: str, doc_path: str) -> Optional[str]:
         """Markdown body of a wiki page; None when absent, hidden or unreachable."""
-        parts = doc_path.replace("\\", "/").split("/")
-        if doc_path.startswith("/") or ".." in parts or not doc_path:
+        path = posixpath.normpath(doc_path.replace("\\", "/")) if doc_path.strip() else ""
+        if not path or path == "." or path.startswith("/") or path == ".." or path.startswith("../") or re.match(r"^[A-Za-z]:", path):
             self.last_error = "wikibridge page path must be relative and inside the wiki"
             return None
-        qs = urllib.parse.urlencode({"project": project_slug, "path": doc_path})
+        qs = urllib.parse.urlencode({"project": project_slug, "path": path})
         try:
             data = self._call("GET", f"/wiki/page?{qs}")
         except ServiceError:

@@ -57,11 +57,11 @@ class SlashCommandsTest(unittest.TestCase):
     def test_copy_takes_the_nth_answer_from_the_end(self):
         self.assertEqual(self.r["copied"], "first answer")
 
-    def test_skills_found_on_the_pc_are_commands_and_an_unapproved_one_is_not_run(self):
+    def test_skills_found_on_the_pc_are_commands_and_run_without_any_approval(self):
         r = self.r
-        self.assertEqual(r["skillMenu"], [["deploy", False], ["draft", True]])         # a skill that is off is not offered
-        self.assertEqual(r["skillRun"][2], ["Load the skill skill:deploy with load_capability and follow it. What I need: to staging"])
-        self.assertIn("The skill draft is not approved yet", r["skillRun"][3][-1])
+        self.assertEqual(r["skillMenu"], [["deploy", False], ["draft", False]])         # a skill that is off is not offered
+        self.assertEqual(r["skillRun"][2], ["Load the skill skill:deploy with load_capability and follow it. What I need: to staging",
+                                            "Load the skill skill:draft with load_capability and follow it. Ask me what I need if the skill requires input."])
         self.assertIn("deploy", r["candidates"])
 
     def test_the_menu_puts_the_names_that_start_with_the_letters_first(self):
@@ -72,7 +72,7 @@ class SlashCommandsTest(unittest.TestCase):
 
     def test_what_the_process_answers_is_drawn_as_text_in_the_language_of_the_page(self):
         r = self.r
-        self.assertEqual(r["status"], ["StatusMode: Plan onlyThinking: LowTurns: 3Context: 1200 of 32768 tokens (4%)Messages: 7Tools: 30Memories: 2MCP servers: 1Tokens used by the model: 9000"])
+        self.assertEqual(r["status"], ["StatusMode: Plan onlyThinking: LowTurns: 3Steps per answer: No limitEnd-of-turn bias: 0Context: 1200 of 32768 tokens (4%)Messages: 7Tools: 30Memories: 2MCP servers: 1Tokens used by the model: 9000"])
         self.assertEqual(r["compact"], [["The conversation was shortened: 9000 → 3000 tokens."], ["Wait until the work in hand is done."], ["There is nothing to shorten yet (55 tokens)."]])
         self.assertEqual(r["mcp"][1], ["MCP serversa · 3 toolsb · did not start: no start"])
         self.assertEqual(r["memory"][1], ["Memory (1)project · uses python"])
@@ -88,7 +88,7 @@ class ModeLabelWiringTest(unittest.TestCase):
     slash = (WEB / "slash.js").read_text(encoding="utf-8")
 
     def test_the_label_sits_by_the_new_conversation_button_and_says_what_it_does(self):
-        self.assertRegex(self.html, r'id="new-chat"[^\n]*\n\s*<button[^>]*id="branches-open"[^\n]*\n\s*<button[^>]*id="pskills-open"[^\n]*\n\s*<button[^>]*id="chg-open"[^\n]*\n\s*<span[^>]*id="folder-chip"[^\n]*\n\s*<button[^>]*id="branch-chat"[^\n]*\n\s*<button[^>]*id="mode-chip"[^>]*aria-keyshortcuts="Shift\+Tab"')
+        self.assertRegex(re.sub(r'\n\s*<button[^>]*id="(?:wud-toggle|tech-toggle|priv-toggle|forget-open)"[^\n]*', '', self.html), r'id="new-chat"[^\n]*\n\s*<button[^>]*id="branches-open"[^\n]*\n\s*<button[^>]*id="export-open"[^\n]*\n\s*<button[^>]*id="pskills-open"[^\n]*\n\s*<button[^>]*id="chg-open"[^\n]*\n\s*<span[^>]*id="folder-chip"[^\n]*\n\s*<button[^>]*id="branch-chat"[^\n]*\n\s*<button[^>]*id="mode-chip"[^>]*aria-keyshortcuts="Shift\+Tab"')
         self.assertIn('"ch.chip"', (WEB / "i18n.js").read_text(encoding="utf-8"))
         i18n = (WEB / "i18n.js").read_text(encoding="utf-8")
         self.assertIn('"ch.chip": "Shift + TAB to change mode: {0}", "ch.chip.hint": "Shift + TAB to change mode:"', i18n)
@@ -102,18 +102,17 @@ class ModeLabelWiringTest(unittest.TestCase):
         self.assertIn("prompt.addEventListener(\"keydown\"", self.slash)
         self.assertNotIn("document.addEventListener(\"keydown\"", self.slash)          # the rest of the page keeps its keyboard
 
-    def test_going_to_automatic_asks_twice_and_a_refusal_is_passed_over(self):
-        self.assertIn('m === "auto" && !(await confirmAuto())', self.chat)
-        self.assertIn('r.value === "auto" && !(await confirmAuto())', self.chat)
-        self.assertIn("confirm_auto: m === \"auto\"", self.chat)
-        self.assertIn("passed over", self.chat)
+    def test_going_to_automatic_asks_nothing_and_sends_no_confirmation(self):
+        for gone in ("confirmAuto", "confirm_auto", "AUTO_OK", "autook", "riskConfirm"):
+            self.assertNotIn(gone, self.chat)
 
-    def test_the_two_questions_of_automatic_are_asked_the_first_time_only(self):
-        confirm = re.search(r"async function confirmAuto\(\) \{(.*?)\n  \}", self.chat, re.S).group(1)
-        self.assertEqual(self.chat.count('riskConfirm([T("ag.auto.risk")])'), 1)                 # one place asks
-        self.assertIn('sessionStorage.getItem(AUTO_OK) === "1"', confirm)                          # and does not ask again in the same session
-        self.assertIn("if (said) return true;", confirm)
-        self.assertLess(confirm.index("if (said) return true;"), confirm.index("riskConfirm"))
+    def test_the_other_risk_questions_are_answered_yes_by_themselves_while_the_mode_is_automatic(self):
+        risk = (WEB / "risk.js").read_text(encoding="utf-8")
+        self.assertIn('window.basaltAutoMode = () => permNow() === "auto";', self.chat)
+        body = risk[risk.index("window.riskConfirm"):]
+        before_dialog = body[:body.index("showModal")]
+        self.assertIn("window.basaltAutoMode()", before_dialog)
+        self.assertIn("resolve(true); return;", before_dialog)
 
     def test_the_menu_is_a_listbox_the_message_box_controls_and_the_script_is_loaded_after_the_chat(self):
         self.assertIn('id="slash-menu" role="listbox"', self.html)
@@ -123,7 +122,7 @@ class ModeLabelWiringTest(unittest.TestCase):
 
     def test_the_chat_hands_a_typed_command_over_before_it_sends(self):
         js = (WEB / "chat.js").read_text(encoding="utf-8")
-        self.assertRegex(js, r'async function send\(\) \{\s*if \(prompt\.value\.startsWith\("/"\) && window\.slash\)')
+        self.assertRegex(js, r'async function send\(cont, auto\) \{[^}]*\}\s*else \{\s*if \(prompt\.value\.startsWith\("/"\) && window\.slash\)')
 
     def test_the_thinking_list_follows_the_conversation(self):
         self.assertIn("effort: effortSel.value", self.chat)

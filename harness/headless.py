@@ -2,7 +2,7 @@
 
 Exit codes: 0 finished, 1 error (server, setup or crash), 2 bad usage, 3 turn limit, 4 token or time
 budget, 5 stuck in a loop, 6 ended on a question for the person, 7 put aside before it was done,
-130 cancelled.
+8 the project's checks still failed (or could not be run), 130 cancelled.
 """
 from __future__ import annotations
 
@@ -11,33 +11,34 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from harness import agent_loop as al
 from harness.plan_mode import gate_from_confirm
 from harness.stack import AgentConfig, add_agent_arguments, agent_settings, build_agent, split_secret_specs     # noqa: F401 (the last is used by `harness session`)
 from harness.tools.registry import clock_paused
 
-EXIT_CODES = {al.FINAL: 0, al.ERROR: 1, al.MAX_TURNS: 3, al.BUDGET: 4, al.LOOP: 5, al.ASKED: 6, al.SUSPENDED: 7, al.CANCELLED: 130}
+EXIT_CODES = {al.FINAL: 0, al.ERROR: 1, al.MAX_TURNS: 3, al.BUDGET: 4, al.LOOP: 5, al.ASKED: 6, al.SUSPENDED: 7, al.VERIFY_FAILED: 8, al.CANCELLED: 130}
 
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m harness", description="Basalt autonomous agent, headless")
     parser.add_argument("-p", "--prompt", required=True, help="goal for the agent")
-    add_agent_arguments(parser, max_turns=10)
+    add_agent_arguments(parser, permission_mode="")
     parser.add_argument("--max-tokens-budget", type=int, default=None, help="stop after this many prompt+completion tokens")
     parser.add_argument("--timeout-seconds", type=float, default=None, help="stop after this much time")
-    parser.add_argument("--interactive", action="store_true", help="ask on the terminal before risky actions")
+    parser.add_argument("--interactive", action="store_true", help="ask on the terminal before risky actions (and start in the default permission mode, not auto)")
     parser.add_argument("--progress", action="store_true", help="print one line for each tool the agent uses and how it went")
     parser.add_argument("--result-file", default=None, metavar="PATH", help="write the result as JSON here, without the edited texts")
+    parser.add_argument("--pid-file", default=None, metavar="PATH", help="write this process's id here, so the server knows which process is the agent")
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of the terminal")
     parser.add_argument("--run-id", default="", help="the name of this run in the server's Agent tab")
-    parser.add_argument("--reference", default=None, metavar="DIR", help="folder of .md and .txt reference documents")
-    parser.add_argument("--reference-strategy", choices=["auto", "cag", "rag", "none"], default="auto",
-                        help="cag: a fixed block at the start of the context; rag: searched passages; auto: by size")
     parser.add_argument("--no-report", action="store_true", help="do not show the run and its edits in the server's Agent tab")
     parser.add_argument("--json", action="store_true", help="print the result as JSON")
-    return parser.parse_args(args)
+    parsed = parser.parse_args(args)
+    if not parsed.permission_mode:                        # nobody is there to confirm unless the person asked to be asked
+        parsed.permission_mode = "default" if parsed.interactive else "auto"
+    return parsed
 
 
 SHOWN_ARGS = ("command", "path", "query", "url", "number", "name")
@@ -72,14 +73,24 @@ def _on_event(cfg: AgentConfig, reporter: Any):
 
 def _confirmer(args: argparse.Namespace):
     if args.ask_server:
+        from harness import outward_calls
         from harness.approval_client import ServerApprover
+        outward_calls.report_to(args.endpoint, args.api_key)
         return ServerApprover(args.endpoint, args.api_key, args.run_id or "cli")
-    return _ask_on_terminal if args.interactive else None
+    if not args.interactive:
+        return None
+    if _has_terminal():
+        return _ask_on_terminal
+    from harness.approval_client import ServerApprover
+    board = ServerApprover(args.endpoint, args.api_key, args.run_id or "cli")
+    return board if board.available() else None      # no terminal and no board: nobody can confirm, and the permission layer says so to the model
+
+
+def _has_terminal() -> bool:
+    return bool(sys.stdin) and sys.stdin.isatty()
 
 
 def _ask_on_terminal(tool: str, arguments: Dict[str, Any]) -> bool:
-    if not sys.stdin or not sys.stdin.isatty():
-        return False
     if tool == "present_plan":
         print(f"\nThe agent presents this plan:\n\n{arguments.get('plan', '')}\n", file=sys.stderr)
         print(f"Approve it and go on in '{arguments.get('mode')}' mode? [y/N] ", end="", file=sys.stderr, flush=True)
@@ -90,27 +101,16 @@ def _ask_on_terminal(tool: str, arguments: Dict[str, Any]) -> bool:
         return sys.stdin.readline().strip().lower() in ("y", "yes")
 
 
-def read_reference(folder: Optional[str]) -> Dict[str, str]:
-    """The .md and .txt files of a folder, by relative path; a missing folder is an error, not an empty set."""
-    if not folder:
-        return {}
-    root = Path(folder)
-    if not root.is_dir():
-        raise FileNotFoundError(f"reference folder not found: {root}")
-    return {p.relative_to(root).as_posix(): p.read_text(encoding="utf-8", errors="replace")
-            for p in sorted(root.rglob("*")) if p.is_file() and p.suffix.lower() in (".md", ".txt")}
-
-
 def config_from_args(args: argparse.Namespace) -> AgentConfig:
     return AgentConfig(
         **agent_settings(args),
-        max_total_tokens=args.max_tokens_budget, max_seconds=args.timeout_seconds, reference_docs=read_reference(args.reference),
-        report=not args.no_report, reference_strategy=args.reference_strategy,
+        max_total_tokens=args.max_tokens_budget, max_seconds=args.timeout_seconds,
+        report=not args.no_report, unattended=not args.interactive,
         confirm=_confirmer(args), run_id=args.run_id, progress=args.progress,
     )
 
 
-def run_headless(cfg: AgentConfig, prompt: str, client: Any = None) -> Dict[str, Any]:
+def run_headless(cfg: AgentConfig, prompt: str, client: Any = None, on_event: Optional[Callable[[Dict[str, Any]], None]] = None) -> Dict[str, Any]:
     built = build_agent(cfg, client=client)
     try:
         if cfg.confirm is not None:                       # a payment and a plan are put to the person the way any risky action is
@@ -122,7 +122,8 @@ def run_headless(cfg: AgentConfig, prompt: str, client: Any = None) -> Dict[str,
             from harness.reporting import PanelReporter
             built.reporter = PanelReporter(cfg.endpoint, cfg.api_key, built.sandbox, prompt, session=cfg.run_id or None)
             built.reporter.start()
-        built.agent.on_event = _on_event(cfg, built.reporter)
+        shown = _on_event(cfg, built.reporter)
+        built.agent.on_event = shown if on_event is None else (lambda event: (shown(event), on_event(event)))     # `on_event` also sees every event (a benchmark's trajectory)
         try:
             turns = built.agent.run(prompt, retrieved=built.retrieved_message(prompt))
         except BaseException as exc:
@@ -130,7 +131,7 @@ def run_headless(cfg: AgentConfig, prompt: str, client: Any = None) -> Dict[str,
                 built.reporter.finish("error", error=f"{type(exc).__name__}: {exc}")
             raise
         agent = built.agent
-        final = next((t.assistant_content for t in reversed(turns) if not t.tool_calls), "")
+        final = al.answer_text(turns)
         if built.reporter:
             built.reporter.finish(agent.stop_reason, final, agent.error)
         return {
@@ -159,6 +160,8 @@ def _write_result(path: str, result: Dict[str, Any]) -> None:
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
+    if args.pid_file:
+        Path(args.pid_file).write_text(str(os.getpid()), encoding="ascii")
     try:
         result = run_headless(config_from_args(args), args.prompt)
         if args.result_file:

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from harness.client import BasaltClient, BasaltError, extract_reasoning_and_content
+from harness.side import side_extra_for
 
 from .card import PlanInsightCard
 from .dag import PlanDAG, PlanError, node_to_dict
@@ -145,9 +146,11 @@ class Replanner:
 
     def propose(self, dag: PlanDAG, card: PlanInsightCard, triage: TriageResult, events: List[str]) -> ReplanProposal:
         """Wakes the local model once. Raises BasaltError (server) or ValueError (an answer that cannot be used)."""
+        messages = build_messages(dag, card, triage, events)
+        side = side_extra_for(self.client, "planner", sum(len(str(m.get("content"))) for m in messages), self.max_tokens)     # in the session when it fits
         resp = self.client.chat_completion(
-            messages=build_messages(dag, card, triage, events), temperature=0.2, max_tokens=self.max_tokens,
-            timeout=self.timeout, response_format=RESPONSE_FORMAT)
+            messages=messages, temperature=0.2, max_tokens=self.max_tokens,
+            timeout=self.timeout, response_format=RESPONSE_FORMAT, **({"extra": side} if side else {}))
         try:
             message = resp["choices"][0]["message"]
         except (KeyError, IndexError, TypeError):

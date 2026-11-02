@@ -38,8 +38,8 @@ def test_binary_and_large_files_are_handled(sb):
     with pytest.raises(ValueError, match="binary"):
         sb.read_file("bin.dat")
     (sb.root / "big.txt").write_text("é" * 5000, encoding="utf-8")
-    out = sb.read_file("big.txt", max_bytes=1001)
-    assert out.startswith("é") and "only the first 1001 bytes" in out and "�" not in out
+    out = sb.read_file("big.txt", max_chars=1000)
+    assert out.startswith("é" * 1000) and "only the first 1000 are shown" in out and "�" not in out
 
 
 def test_a_failed_write_leaves_the_old_file_and_no_temp_files(sb, monkeypatch):

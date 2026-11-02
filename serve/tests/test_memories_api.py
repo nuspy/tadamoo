@@ -38,7 +38,7 @@ def test_the_page_can_read_edit_confirm_and_delete(tmp_path):
     assert first["origin"] == "manual"
     api.memory.add("long", "character", "Seems patient", origin="inferred", confidence=0.4)
     view = api.overview()
-    assert view["counts"] == {"long": 2, "short": 0} and view["settings"]["use_long"] is False
+    assert view["counts"] == {"long": 2, "short": 0} and view["settings"]["use_long"] is True
     assert "character" in view["inferred"] and view["sections"]["short"] == ["facts", "searches", "topics", "projects"]
     guess = next(i for i in view["items"] if i["section"] == "character")
     assert api.post("confirm", {"id": guess["id"]})["item"]["origin"] == "confirmed"
@@ -81,7 +81,7 @@ class Plain(unittest.TestCase):
         cls.mem = PersonalMemory(base / "pm", key=KEY)
         cls.patches = [mock.patch.object(handler, "_TASKS", TaskJournal(base / "j")), mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
                        mock.patch.object(handler, "_PLANS", PlanService(base / "planner")), mock.patch.object(handler, "_PERSONAL", cls.mem),
-                       mock.patch.object(handler, "_MEMORIES", MemoriesApi(cls.mem)), mock.patch.object(handler, "in_tailscale", lambda address: True)]
+                       mock.patch.object(handler, "_MEMORIES", MemoriesApi(cls.mem))]
         for p in cls.patches:
             p.start()
         cls.httpd = serve(cls.svc, port=0)
@@ -121,20 +121,15 @@ class Plain(unittest.TestCase):
         status, body = self.call("POST", "/api/memories/item", {"kind": "short", "section": "nothing", "text": "x y z"})
         self.assertEqual(status, 400)
         self.assertIn("sections", body["error"]["message"])
-        request = urllib.request.Request(self.base + "/api/memories/settings", data=b"{}", headers={"Content-Type": "text/plain"}, method="POST")
-        with self.assertRaises(urllib.error.HTTPError) as cm:
-            urllib.request.urlopen(request, timeout=10)
-        self.assertEqual(cm.exception.code, 415)
-        status, _ = self.call("POST", "/api/memories/settings", {"use_long": True}, headers={"Origin": "http://evil.example"})
-        self.assertEqual(status, 403)                                                    # another site's page cannot change them
 
-    def test_a_phone_cannot_reach_them_even_with_its_key(self):
+    def test_a_phone_from_away_cannot_reach_them_even_with_its_key(self):
         auth = {"Authorization": "Bearer " + self.key}
         self.svc.remote._httpd = object()
-        for method, path in (("GET", "/api/memories"), ("POST", "/api/memories/settings"), ("POST", "/api/memories/item")):
-            status, _ = self.call(method, path, {} if method == "POST" else None, headers=auth, base=self.phone_base)
-            self.assertIn(status, (401, 403, 404), path)
-        self.assertEqual(self.call("GET", "/api/agent/sessions", headers=auth, base=self.phone_base)[0], 200)       # what a phone may use still works
+        with mock.patch.object(handler.settings, "is_loopback", lambda address: False):                    # the test's own connection is on this PC
+            for method, path in (("GET", "/api/memories"), ("POST", "/api/memories/settings"), ("POST", "/api/memories/item")):
+                status, _ = self.call(method, path, {} if method == "POST" else None, headers=auth, base=self.phone_base)
+                self.assertEqual(status, 403, path)
+            self.assertEqual(self.call("GET", "/api/agent/sessions", headers=auth, base=self.phone_base)[0], 200)
 
 
 class FakeService:
@@ -179,6 +174,7 @@ def test_the_worker_keeps_a_message_only_when_a_memory_learns_and_learns_when_fr
             asked.append(messages)
             return {"choices": [{"message": {"content": replies[0]}}]}
 
+    notes.set_settings({"learn_long": False, "learn_short": False})                                        # the person switched learning off
     free = [False]
     worker = MemoryWorker(notes, lambda: Model(), lambda: free[0], poll_s=0.05, retry_s=0.05)
     assert worker.offer({"text": "I moved to Verona last week"}) is False and notes.queue_len() == 0      # nothing learns yet
@@ -227,7 +223,7 @@ def test_a_turn_that_ends_hands_over_what_the_person_wrote(tmp_path):
         sid = s.mgr.create(str(tmp_path / "proj"), title="")["id"]
         s.mgr.send(sid, "primo messaggio")
         s.until(lambda: s.jobs)
-        assert s.jobs == [{"text": "primo messaggio", "project": "proj", "searches": []}]               # a folder's name is the project
+        assert s.jobs == [{"text": "primo messaggio", "project": "proj", "conversation": sid, "searches": []}]      # a folder's name is the project
         chat = s.mgr.create(None, title="")["id"]
         s.mgr.send(chat, "just a chat message")
         s.until(lambda: len(s.jobs) == 2)

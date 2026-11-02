@@ -26,7 +26,6 @@ class Download {
 class Api {
   Api(this.settings);
   final AppSettings settings;
-  static const _timeout = Duration(seconds: 25);
 
   Uri uri(String path, [Map<String, String>? query]) {
     final base = settings.base;
@@ -53,9 +52,7 @@ class Api {
 
   Future<http.Response> _send(Future<http.Response> Function() call) async {
     try {
-      return await call().timeout(_timeout);
-    } on TimeoutException {
-      throw ApiError(0, Texts.t('err.network'));
+      return await call();
     } on SocketException {
       throw ApiError(0, Texts.t('err.network'));
     } on http.ClientException {

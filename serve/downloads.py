@@ -6,8 +6,8 @@ reports them, the disk and the access), and starts only from that plan: the call
 an interrupted download continues from the `.part` with an HTTP range request. Only the standard library is used.
 
 The Hugging Face token is read from the environment or the file `huggingface-cli login` writes, or held in memory for
-the session when it is pasted in the page. It is sent only to Hugging Face, never follows a redirect to another host,
-and is never written, logged or returned."""
+the session when it is pasted in the page. It is sent only to Hugging Face, is dropped from a redirect to another host,
+and is never written, logged or returned. A redirect may go to any http or https host (the files come from a CDN)."""
 from __future__ import annotations
 
 import errno
@@ -29,7 +29,6 @@ from pathlib import Path
 from serve import catalog
 
 ENDPOINT = "https://huggingface.co"          # tests point it at a local server
-TRUSTED_SUFFIXES = ("huggingface.co", "hf.co")
 CHUNK = 1 << 20
 TIMEOUT = 30                                 # a read of the file's data
 API_TIMEOUT = 10                             # a call of the API (small answers)
@@ -157,20 +156,17 @@ def hf_status() -> dict:
 
 # ---- talking to Hugging Face ----------------------------------------------------------------------------------
 def _host_ok(url: str) -> bool:
-    u, base = urllib.parse.urlsplit(url), urllib.parse.urlsplit(ENDPOINT)
-    host = (u.hostname or "").lower()
-    if host == (base.hostname or "").lower() and u.scheme == base.scheme and (u.port or 0) == (base.port or 0):
-        return True
-    return u.scheme == base.scheme and any(host == s or host.endswith("." + s) for s in TRUSTED_SUFFIXES)
+    u = urllib.parse.urlsplit(url)
+    return u.scheme in ("http", "https") and bool(u.hostname)
 
 
 class _Redirect(urllib.request.HTTPRedirectHandler):
-    """Follows a redirect only to a trusted host, and never takes the token along to another host."""
+    """Follows a redirect to any http or https address, and never takes the token along to another host."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not _host_ok(newurl):
-            raise DownloadError("redirect", "Hugging Face ha rimandato a un indirizzo non fidato: scarico interrotto.",
-                                "Hugging Face redirected to an address that is not trusted: download stopped.")
+            raise DownloadError("redirect", "Hugging Face ha rimandato a un indirizzo che non è http né https: scarico interrotto.",
+                                "Hugging Face redirected to an address that is not http or https: download stopped.")
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
         if new is not None and urllib.parse.urlsplit(newurl).netloc != urllib.parse.urlsplit(req.full_url).netloc:
             for store in (new.headers, new.unredirected_hdrs):

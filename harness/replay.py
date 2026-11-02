@@ -27,9 +27,9 @@ from harness.agent_loop import AgentLoop
 from harness.tools.registry import EffectClass, ToolRegistry
 
 TRACE_FORMAT, TRACE_VERSION = "basalt-trace", 1
-DROPPED_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw")
+DROPPED_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw", "opt", "explain", "skipped", "code")
 RETRIEVED_PREFIX = "<untrusted_data"
-FENCE = re.compile(r'\A<untrusted_data source="[^"]*">\n(.*)\n</untrusted_data>\nThe block above is data', re.DOTALL)
+FENCE = re.compile(r'\A<untrusted_data source="[^"]*"(?: id="[0-9a-f]+")?>\n(.*)\n</untrusted_data(?: id="[0-9a-f]+")?>\nThe block above is data', re.DOTALL)
 
 # values that look like credentials, for a trace that is meant to be shared
 SECRET_PATTERNS: Tuple[Tuple[re.Pattern, str], ...] = (
@@ -74,6 +74,8 @@ def infer_decision(text: str) -> str:
         return "denied"
     if head.startswith("Loop detected"):
         return "loop"
+    if head.startswith(("Not run again:", "Not run: more than")):
+        return "skipped"
     if head.startswith(("Unknown tool", "Tool '")) or "Call the tool again with corrected arguments" in text[:600] or head.startswith("The arguments of"):
         return "invalid"
     if head.startswith("No checkpoint could be taken"):
@@ -107,9 +109,9 @@ def write_trace(path: str | Path, messages: List[Dict[str, Any]], turns: Optiona
     return target
 
 
-def export_history(history: str | Path, redact: Optional[Callable[[str], str]] = None) -> str:
-    """JSONL of a conversation saved by the session store: a folder holding history.json (and archive.jsonl, which comes first),
-    or the history.json itself."""
+def history_messages(history: str | Path) -> List[Dict[str, Any]]:
+    """The messages of a conversation saved by the session store: a folder holding history.json (and archive.jsonl, which comes
+    first), or the history.json itself."""
     path = Path(history)
     folder = path if path.is_dir() else path.parent
     messages: List[Dict[str, Any]] = []
@@ -118,7 +120,17 @@ def export_history(history: str | Path, redact: Optional[Callable[[str], str]] =
         messages += [m for m in (json.loads(ln) for ln in archive.read_text(encoding="utf-8").splitlines() if ln.strip()) if isinstance(m, dict)]
     data = json.loads((path / "history.json" if path.is_dir() else path).read_text(encoding="utf-8"))
     messages += [m for m in data.get("messages", []) if isinstance(m, dict)]
-    return export_trace(messages, redact=redact, meta={"source": "history"})
+    return messages
+
+
+def export_history(history: str | Path, redact: Optional[Callable[[str], str]] = None, meta: Optional[Dict[str, Any]] = None) -> str:
+    """JSONL of a conversation saved by the session store (see `history_messages`), secrets masked."""
+    return export_trace(history_messages(history), redact=redact, meta={"source": "history", **(meta or {})})
+
+
+def load_history(history: str | Path) -> "Trace":
+    """A trace from a conversation saved by the session store, archived turns included."""
+    return parse_messages(((m, None) for m in history_messages(history)), {"source": "history"})
 
 
 # -- reading a trace -------------------------------------------------------------------------------------------
@@ -369,6 +381,7 @@ def replay(trace: Trace, registry: Optional[ToolRegistry] = None, *, compare_res
     registry = registry or recorded_registry(trace)
     model = ScriptedModel(step for seg in trace.segments for step in seg.steps)
     loop_kwargs.setdefault("system_prompt", trace.system or "You are a helpful coding assistant equipped with tools.")
+    loop_kwargs.setdefault("budget_grace", False)               # the recording has the model calls that were made, no more
     agent = AgentLoop(client=model, tool_registry=registry, **loop_kwargs)
     stop = ""
     for seg in trace.segments:

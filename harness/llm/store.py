@@ -62,6 +62,20 @@ def is_local(prov: Optional[Dict[str, Any]], local_hosts: tuple = LOOPBACK) -> b
     return host in local_hosts
 
 
+def runs_here(prov: Optional[Dict[str, Any]], local_hosts: tuple = LOOPBACK) -> bool:
+    """Whether the provider is this server or a program on this PC's own address (a second small model in LM Studio, vLLM or llama-server):
+    stricter than `is_local`, which takes every local kind of provider at its word whatever address it was given."""
+    if not prov:
+        return True
+    spec = TYPES.get(prov.get("type") or "", {})
+    if spec.get("this_server"):
+        return True
+    if spec.get("api") == "cli":
+        return False
+    host = urlparse((prov.get("base_url") or spec.get("base_url") or "")).hostname or ""
+    return host in local_hosts if host else bool(spec.get("local"))
+
+
 class SecureRegistry(Registry):
     """llmswitch's registry with the keys moved to a credential store, and the extra data Basalt keeps next to it."""
 
@@ -150,6 +164,22 @@ class SecureRegistry(Registry):
                 prov["daily_token_cap"] = int(tokens)
             else:
                 prov.pop("daily_token_cap", None)
+            self.save(data)
+            return prov
+
+    def set_limits(self, pid: str, context_window: int = 0, max_output: int = 0) -> Dict[str, Any]:
+        """The context window and the most output of a provider's model, in tokens (0: not stated). The agent plans its context by the first
+        and the client keeps a reply inside the second (see harness/llm/profile.py)."""
+        with self._lock:
+            data = self.load()
+            prov = self._find(data, pid)
+            if prov is None:
+                raise KeyError(pid)
+            for key, value in (("context_window", context_window), ("max_output", max_output)):
+                if int(value) > 0:
+                    prov[key] = int(value)
+                else:
+                    prov.pop(key, None)
             self.save(data)
             return prov
 

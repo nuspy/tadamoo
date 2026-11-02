@@ -18,6 +18,11 @@ def stub_command(die_times=1):
     return lambda sid, rec, history: [sys.executable, STUB, "--session-id", sid, "--history-dir", str(history), "--die-times", str(die_times)]
 
 
+@pytest.fixture(autouse=True)
+def own_data_folder(tmp_path, monkeypatch):
+    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))          # the person's limits.json is not read
+
+
 @pytest.fixture
 def make(tmp_path):
     made = []
@@ -108,16 +113,54 @@ def test_a_message_the_process_never_confirmed_is_sent_again(make, ws):
     assert [m["content"] for m in mgr.history(sid)["messages"]] == ["ciao", "echo: ciao"]
 
 
-def test_too_many_restarts_block_the_conversation_and_wait_for_the_person(make, ws):
-    mgr = make(command=stub_command(die_times=99), restart_cap=2)
+def test_restarts_wait_longer_each_time_and_never_block_the_conversation(make, ws):
+    mgr = make(command=stub_command(die_times=5), restart_waits=(0.0, 0.05, 0.1))
     sid = mgr.create(ws)["id"]
     mgr.send(sid, "die")
-    blocked = until(lambda: next((e for e in mgr.events(sid)["events"] if e["event"] == "blocked"), None))
-    assert blocked["reason"] == "process_unstable" and blocked["options"] == ["resume", "close"]
-    assert kinds(mgr, sid).count("restarting") == 2
-    assert mgr.get(sid)["state"] == "blocked"
-    time.sleep(0.5)
-    assert kinds(mgr, sid).count("ready") == 3                                  # no restart beyond the cap
+    until(lambda: "done" in kinds(mgr, sid))
+    restarting = [e for e in mgr.events(sid)["events"] if e["event"] == "restarting"]
+    assert [e["attempt"] for e in restarting] == [1, 2, 3, 4, 5]
+    assert [e["wait_s"] for e in restarting] == [0.0, 0.05, 0.1, 0.1, 0.1]       # the last wait is repeated
+    assert "blocked" not in kinds(mgr, sid)
+    assert mgr.get(sid)["state"] == "idle"
+
+
+def test_the_person_can_stop_a_conversation_that_keeps_being_started_again(make, ws):
+    mgr = make(command=stub_command(die_times=999), restart_waits=(0.0, 30.0))
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "die")
+    until(lambda: kinds(mgr, sid).count("restarting") == 2)                     # the second start waits 30 s
+    mgr.cancel(sid)
+    assert mgr.get(sid)["state"] == "dormant" and "restart_stopped" in kinds(mgr, sid)
+    time.sleep(0.3)
+    assert kinds(mgr, sid).count("ready") == 2
+
+
+def test_a_question_left_for_the_person_is_listed_answered_and_survives_the_process(make, ws):
+    mgr = make(idle_s=0.4)
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "pending")
+    until(lambda: "done" in kinds(mgr, sid))
+    item = mgr.get(sid)["pending"][0]
+    assert item["id"] == "p1" and item["source"]["named"] == "people" and item["tool"] == "phone_call"
+    assert mgr.get(sid)["state"] == "idle"                                      # the conversation went on
+    until(lambda: mgr.get(sid)["state"] == "dormant")
+    assert mgr.get(sid)["pending"][0]["id"] == "p1"                             # it is still there, after the process left
+    with pytest.raises(RunError) as e:
+        mgr.answer(sid, "p1", "maybe")
+    assert e.value.code == "bad_answer"
+    mgr.answer(sid, "p1", "confirm")
+    until(lambda: "pending_done" in kinds(mgr, sid))
+    assert mgr.get(sid)["pending"] == []
+    assert any(m["content"] == "[harness] answered p1: confirm" for m in mgr.history(sid)["messages"])
+
+
+def test_an_unattended_conversation_starts_its_process_with_the_flag(make, ws):
+    mgr = make()
+    rec = mgr.create(ws, unattended=True)
+    assert "--unattended" in mgr._command(rec["id"], rec, mgr.history_dir(rec["id"]))
+    rec = mgr.create(ws)
+    assert "--unattended" not in mgr._command(rec["id"], rec, mgr.history_dir(rec["id"]))
 
 
 def test_a_process_that_stops_giving_signs_of_life_is_ended_and_started_again(make, ws):
@@ -145,16 +188,13 @@ def test_a_block_from_the_process_waits_for_the_person_and_resume_goes_on(make, 
         mgr.resume(sid)
 
 
-def test_an_action_that_cannot_be_undone_is_never_resumed_by_the_manager(make, ws):
+def test_an_action_that_cannot_be_undone_does_not_block_the_restart(make, ws):
     mgr = make(command=stub_command(die_times=0))
     sid = mgr.create(ws)["id"]
     mgr.send(sid, "irreversible")
     until(lambda: kinds(mgr, sid).count("ready") == 2)
-    until(lambda: mgr.get(sid)["state"] == "blocked")
-    assert mgr.get(sid)["blocked"]["reason"] == "interrupted_irreversible"
-    time.sleep(0.6)
-    assert "done" not in kinds(mgr, sid)                                        # nothing was given on by itself
-    assert not any(m["content"].startswith("resumed") for m in mgr.history(sid)["messages"])
+    until(lambda: "done" in kinds(mgr, sid))                                    # the process tells the model itself and goes on
+    assert mgr.get(sid)["state"] == "idle" and "blocked" not in kinds(mgr, sid)
 
 
 def test_an_idle_conversation_goes_dormant_and_the_next_message_wakes_it_with_its_history(make, ws):
@@ -204,9 +244,7 @@ def test_what_the_page_can_ask_is_checked(make, ws, tmp_path):
         mgr.create("relativo/cartella")
     with pytest.raises(RunError):
         mgr.create(ws, mode="root")
-    with pytest.raises(RunError, match="Automatic"):
-        mgr.create(ws, mode="auto")
-    sid = mgr.create(ws, mode="auto", confirm_auto=True)["id"]
+    sid = mgr.create(ws, mode="auto")["id"]
     for bad in ("", "   ", None, 5):
         with pytest.raises(RunError):
             mgr.send(sid, bad)
@@ -246,6 +284,74 @@ def test_a_question_that_ends_the_turn_stays_until_the_next_message(make, ws):
     until(lambda: kinds(mgr, sid).count("done") == 2)
     assert mgr.get(sid)["question"] is None
     assert [m["content"] for m in mgr.history(sid)["messages"]][-2:] == ["Saturday", "echo: Saturday"]
+
+
+def ask_json(**per):
+    return "ask:" + json.dumps({"v": 1, "status": per.pop("status", "submitted"), "answers": per})
+
+
+def test_the_answer_to_a_card_is_checked_against_the_stored_card_and_sent_as_the_next_message_in_words(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "card")
+    until(lambda: "done" in kinds(mgr, sid))
+    card = mgr.get(sid)["question"]
+    assert card["id"] == "k2" and card["questions"][0]["options"][0]["recommended"] is True
+    for bad in ("hello", ask_json(q1={"picked": ["o9"]}), ask_json(q1={"picked": []}), ask_json(q1={"picked": ["o1"]}, q7={"picked": []}),
+                ask_json(q1={"picked": ["o1", "o2"]}), "ask:" + "x" * 5000):
+        with pytest.raises(RunError) as raised:
+            mgr.answer(sid, "k2", bad)
+        assert raised.value.code == "bad_answer"
+    assert mgr.get(sid)["question"] is not None                                  # a refused answer changes nothing
+    with pytest.raises(RunError, match="not waiting"):
+        mgr.answer(sid, "nope", ask_json(q1={"picked": ["o1"]}))
+    mgr.answer(sid, "k2", ask_json(q1={"picked": ["o1"]}))
+    until(lambda: kinds(mgr, sid).count("done") == 2)
+    sent = [m["content"] for m in mgr.history(sid)["messages"] if m["role"] == "user"][-1]
+    assert sent == "The user answered your questions:\n1. Which database? -> PostgreSQL (your recommended option)\nGo on with these answers. Do not ask them again."
+    assert mgr.get(sid)["question"] is None
+    assert [e for e in mgr.events(sid)["events"] if e["event"] == "answered"][-1]["ask"] == "k2"
+
+
+def test_skip_sends_the_skip_text_and_answering_in_the_chat_sends_nothing(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "card")
+    until(lambda: "done" in kinds(mgr, sid))
+    mgr.answer(sid, "k2", ask_json(status="chat"))
+    assert mgr.get(sid)["question"] is None and kinds(mgr, sid).count("accepted") == 1
+    mgr.send(sid, "card")
+    until(lambda: kinds(mgr, sid).count("done") == 2)
+    mgr.answer(sid, "k2", ask_json(status="skipped"))
+    until(lambda: kinds(mgr, sid).count("done") == 3)
+    assert [m["content"] for m in mgr.history(sid)["messages"] if m["role"] == "user"][-1].startswith("The user skipped the questions")
+
+
+def test_suggestions_are_kept_for_a_reload_and_dropped_at_the_next_message(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "chips")
+    until(lambda: "suggestions" in kinds(mgr, sid))
+    assert mgr.get(sid)["suggestions"] == [{"prompt": "Tell me more"}]
+    mgr.send(sid, "next")
+    assert mgr.get(sid)["suggestions"] is None
+
+
+def test_the_process_is_started_with_the_intake_and_suggestion_options(tmp_path):
+    from serve.intake_prefs import IntakePrefs
+    prefs = IntakePrefs(tmp_path / "i.json")
+    mgr = SessionManager(tmp_path / "j", "http://127.0.0.1:1", intake_flags=prefs.flags)
+    rec = {"id": "x", "mode": "default", "workspace": str(tmp_path)}
+    cmd = mgr._command("x", rec, tmp_path / "h")
+    assert cmd[cmd.index("--intake") + 1] == "off" and cmd[cmd.index("--suggestions") + 1] == "on" and "--side-call-tokens" in cmd
+    prefs.write({"intake": "full", "suggestions": False, "side_call_tokens": 3000})
+    cmd = mgr._command("x", rec, tmp_path / "h")
+    assert cmd[cmd.index("--intake") + 1] == "full" and cmd[cmd.index("--suggestions") + 1] == "off" and cmd[cmd.index("--side-call-tokens") + 1] == "3000"
+    assert cmd[cmd.index("--optimize-prompt") + 1] == "off"
+    prefs.write({"optimize_prompt": True})
+    cmd = mgr._command("x", rec, tmp_path / "h")
+    assert cmd[cmd.index("--optimize-prompt") + 1] == "on"
+    mgr.shutdown()
 
 
 def test_a_process_that_dies_while_it_waits_for_an_answer_is_started_again_and_the_question_is_gone(make, ws):
@@ -460,14 +566,13 @@ def test_going_back_takes_off_what_came_after_keeps_a_copy_and_wakes_from_there(
     assert [m["content"] for m in mgr.history(sid)["messages"]][-2:] == ["quattro", "echo: quattro"] and "tre" not in json.dumps(mgr.history(sid)["messages"])
 
 
-def test_going_back_is_refused_while_the_agent_works(make, ws):
+def test_going_back_while_the_agent_works_stops_it(make, ws):
     mgr = make()
     sid = mgr.create(ws)["id"]
     mgr.send(sid, "hang")                                   # the stand-in goes on working
-    until(lambda: mgr.get(sid)["state"] == "busy")
-    with pytest.raises(RunError) as err:
-        mgr.go_back(sid, 1)
-    assert err.value.code == "busy"
+    until(lambda: mgr.get(sid)["state"] == "busy" and mgr._read_history(sid))
+    back = mgr.go_back(sid, 1)
+    assert back["state"] == "dormant" and back["turns"] == 1
 
 
 # -- a conversation's own copy of a git folder -------------------------------------------------------------------------------
@@ -514,15 +619,13 @@ def test_a_copy_can_be_asked_for_and_a_folder_that_cannot_be_copied_says_so(make
     assert "worktree" not in mgr.create(ws)                                       # auto, and not a git folder: in place
 
 
-def test_two_conversations_do_not_work_in_one_folder_at_once_when_it_cannot_be_copied(make, ws):
+def test_two_conversations_work_in_one_folder_at_once_when_it_cannot_be_copied(make, ws):
     mgr = make()
     a, b = mgr.create(ws)["id"], mgr.create(ws)["id"]
     mgr.send(a, "hang")
     until(lambda: mgr.get(a)["state"] == "busy")
-    with pytest.raises(RunError) as e:
-        mgr.send(b, "ciao")
-    assert e.value.code == "folder_busy" and "own copy" in str(e.value)
-    assert mgr.send(a, "ancora")["turn"]                                          # the one that works may be told more
+    assert mgr.send(b, "ciao")["turn"]
+    assert mgr.send(a, "ancora")["turn"]
 
 
 def test_what_a_conversation_changed_in_its_copy_waits_until_the_person_applies_it(make, repo):
@@ -649,7 +752,7 @@ def _said(mgr, sid, text, n):
     until(lambda: kinds(mgr, sid).count("done") == n)
 
 
-def test_going_back_names_the_actions_that_stay_done_and_asks_for_a_yes(make, ws):
+def test_going_back_names_the_actions_that_stay_done_and_goes_back_without_a_yes(make, ws):
     mgr = make()
     sid = mgr.create(ws)["id"]
     _said(mgr, sid, "uno", 1)
@@ -659,11 +762,8 @@ def test_going_back_names_the_actions_that_stay_done_and_asks_for_a_yes(make, ws
     seen = mgr.back_impact(sid, 1)
     assert [a["tool"] for a in seen["reversible"]] == ["write_file"] and [a["tool"] for a in seen["not_undone"]] == ["shell_command", "phone_call"]
     assert seen["needs_yes"] and seen["removes"]["requests"] == 3 and "rm -rf x" in seen["not_undone"][0]["what"]
-    with pytest.raises(RunError) as err:
-        mgr.go_back(sid, 1)
-    assert err.value.code == "needs_yes" and mgr.get(sid)["turns"] == 4                      # nothing was touched
     assert len(mgr.back_impact(sid, 3)["not_undone"]) == 1 and mgr.back_impact(sid, 4)["not_undone"] == []
-    back = mgr.go_back(sid, 1, accept_irreversible=True)
+    back = mgr.go_back(sid, 1)
     assert back["turns"] == 1 and back["rewinds"][0]["turn"] == 1 and back["rewinds"][0]["was"] == 4
     assert [a["tool"] for a in back["rewinds"][0]["still_done"]] == ["shell_command", "phone_call"]           # it says they stayed done
     assert any(e["event"] == "went_back" and len(e["still_done"]) == 2 for e in mgr.events(sid)["events"])
@@ -769,7 +869,7 @@ def test_a_comparison_without_copies_has_no_file_diff_and_bad_requests_are_refus
     mgr = make()
     sid = mgr.create(ws)["id"]
     _said(mgr, sid, "uno", 1)
-    for bad in (None, [], [{"text": "a"}], [{"text": "a"}, {"text": ""}], [{"text": "a"}, {"text": "b", "mode": "auto"}], [{"text": "a"}, {"text": "b", "max_turns": 99}],
+    for bad in (None, [], [{"text": "a"}], [{"text": "a"}, {"text": ""}], [{"text": "a"}, {"text": "b", "mode": "everything"}], [{"text": "a"}, {"text": "b", "max_turns": 0}],
                 [{"text": "a"}, "b"], [{"text": "a"}, {"text": "b", "end_turn_bias": 99}]):
         with pytest.raises(RunError):
             mgr.compare_start(sid, 1, bad)
@@ -781,6 +881,34 @@ def test_a_comparison_without_copies_has_no_file_diff_and_bad_requests_are_refus
     assert mgr.compare_result(out["id"])["files"] is None
     with pytest.raises(RunError):
         mgr.compare_result("ghost")
+
+
+def test_a_comparison_runs_in_automatic_mode(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    _said(mgr, sid, "uno", 1)
+    out = mgr.compare_start(sid, 1, [{"text": "uno bis", "mode": "auto"}, {"text": "uno ter", "mode": "auto"}])
+    until(lambda: mgr.compare_result(out["id"])["state"] == "done", seconds=60)
+    a, b = mgr.compare_result(out["id"])["sides"]
+    assert mgr.get(a["session"])["mode"] == "auto" and mgr.get(b["session"])["mode"] == "auto"
+
+
+def test_the_silence_and_idle_limits_come_from_the_persons_file_and_are_off_by_default(make):
+    from serve import limits
+    mgr = make()
+    assert (mgr.beat_timeout_s, mgr.idle_s, mgr.compare_wait_s) == (None, None, None)
+    limits.save({"beat_timeout_s": 300, "idle_s": 60, "compare_wait_s": 90})
+    assert (mgr.beat_timeout_s, mgr.idle_s, mgr.compare_wait_s) == (300, 60, 90)
+    assert make(idle_s=0.4).idle_s == 0.4                                    # a value given to the manager wins
+
+
+def test_a_long_silent_call_is_not_stopped_when_no_limit_is_set(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "hang")
+    until(lambda: mgr.get(sid)["state"] == "busy")
+    mgr.check(now=time.monotonic() + 100000)                                 # a very long silence
+    assert mgr.get(sid)["state"] == "busy" and "stalled" not in kinds(mgr, sid)
 
 
 def test_a_step_of_a_plan_collects_the_actions_done_while_it_was_worked_on(make, ws):
@@ -805,17 +933,40 @@ def test_a_rule_the_person_chose_in_a_question_is_kept_for_the_next_starts(make,
     assert mgr.get(sid)["allow"] == ["shell_command:git status*", "shell_command:pytest *"]          # once, however many times it is said
 
 
-def test_the_mode_is_changed_while_the_conversation_lives_and_automatic_needs_the_confirmation(make, ws):
+def test_a_rule_allowed_for_good_reaches_every_conversation_and_one_for_the_chat_only_its_own(make, ws, tmp_path):
+    from serve.allow_rules import AllowRules
+    rules = AllowRules(tmp_path / "allow.json")
+    seen = []
+    mgr = make(allow_rules=rules, command=lambda sid, rec, history: (seen.append(rec), stub_command()(sid, rec, history))[1])
+    first = mgr.create(ws)["id"]
+    mgr.send(first, "rule-global")
+    until(lambda: rules.read() == ["shell_command:python *"])
+    assert mgr.get(first).get("allow", []) == []                                    # kept for every conversation, not just this one
+    assert "shell_command:python *" in mgr._command("x", {**mgr.get(first)}, tmp_path)           # a conversation starting now gets it
+    mgr.send(first, "two-off")
+    until(lambda: mgr.get(first).get("rule_of_two") == "off")
+
+
+def test_the_allowed_rules_are_kept_added_and_taken_away(tmp_path):
+    from serve.allow_rules import AllowRules
+    rules = AllowRules(tmp_path / "allow.json")
+    assert rules.add("browser_click") == ["browser_click"] and rules.add(" browser_click ") == ["browser_click"]
+    assert rules.add("shell_command:pytest *") == ["browser_click", "shell_command:pytest *"]
+    assert AllowRules(tmp_path / "allow.json").read() == ["browser_click", "shell_command:pytest *"]
+    assert rules.remove("browser_click") == ["shell_command:pytest *"]
+    for bad in ("", "a" + chr(10) + "b", "x" * 201, 5):
+        with pytest.raises(ValueError):
+            rules.add(bad)
+
+
+def test_the_mode_is_changed_while_the_conversation_lives_and_automatic_needs_no_confirmation(make, ws):
     mgr = make()
     sid = mgr.create(ws)["id"]
     mgr.send(sid, "primo")
     until(lambda: "done" in kinds(mgr, sid))
     assert mgr.set_mode(sid, "plan")["mode"] == "plan"
     until(lambda: any(e["event"] == "mode" and e["mode"] == "plan" for e in mgr.events(sid)["events"]))      # the process was told
-    with pytest.raises(RunError) as e:
-        mgr.set_mode(sid, "auto")
-    assert e.value.code == "auto_confirm" and mgr.get(sid)["mode"] == "plan"
-    assert mgr.set_mode(sid, "auto", confirm_auto=True)["mode"] == "auto"
+    assert mgr.set_mode(sid, "auto")["mode"] == "auto"
     with pytest.raises(RunError) as e:
         mgr.set_mode(sid, "everything")
     assert e.value.code == "bad_mode"
@@ -833,6 +984,78 @@ def test_a_mode_set_before_the_process_exists_is_what_it_starts_with_and_is_told
     assert seen == [("read_only", "low")]
 
 
+def test_the_role_is_changed_while_the_conversation_lives_and_a_new_process_starts_with_it(make, ws):
+    seen = []
+    mgr = make(command=lambda sid, rec, history: (seen.append(rec.get("role")), stub_command()(sid, rec, history))[1])
+    sid = mgr.create(ws, role="build")["id"]
+    assert mgr.get(sid)["role"] == "build"
+    mgr.set_role(sid, "plan")
+    assert [e["event"] for e in mgr.events(sid)["events"]] == ["role"]                 # no process yet: the page is told
+    mgr.send(sid, "primo")
+    until(lambda: "done" in kinds(mgr, sid))
+    assert seen == ["plan"]
+    assert mgr.set_role(sid, "ask")["role"] == "ask"
+    until(lambda: sum(1 for e in mgr.events(sid)["events"] if e["event"] == "role" and e["role"] == "ask") == 1)       # the process was told
+    for bad in ("king", "", None):
+        with pytest.raises(RunError) as e:
+            mgr.set_role(sid, bad)
+        assert e.value.code == "bad_role"
+    with pytest.raises(RunError):
+        mgr.create(ws, role="king")
+    only = mgr.create(ws, ask_only=True)["id"]
+    with pytest.raises(RunError):
+        mgr.set_role(only, "ask")
+
+
+def test_checks_the_person_accepts_are_told_to_the_running_conversations_of_that_folder_only(make, ws, tmp_path):
+    import json as _json
+    from serve.coding_prefs import CodingPrefs
+    folder = Path(ws)
+    (folder / "package.json").write_text(_json.dumps({"scripts": {"test": "jest"}}), encoding="utf-8")
+    other = tmp_path / "other"
+    other.mkdir()
+    prefs = CodingPrefs(tmp_path / "coding.json")
+    mgr = make(coding=prefs)
+    here, there = mgr.create(ws)["id"], mgr.create(str(other))["id"]
+    for sid in (here, there):
+        mgr.send(sid, "primo")
+        until(lambda sid=sid: "done" in kinds(mgr, sid))
+    prefs.accept(folder, [{"command": "npm test"}])
+    assert mgr.update_checks(folder) == 1
+    until(lambda: any(e["event"] == "checks" and e["safe"] == 1 and e["checks"] == 1 for e in mgr.events(here)["events"]))
+    assert "checks" not in kinds(mgr, there)
+    assert SessionManager(tmp_path / "j2", "http://127.0.0.1:1").update_checks(folder) == 0
+
+
+def test_the_look_at_a_request_is_told_to_the_running_conversations_and_to_no_closed_one(make, ws, tmp_path):
+    mgr = make()
+    live, idle = mgr.create(ws)["id"], mgr.create(ws)["id"]
+    mgr.send(live, "primo")
+    until(lambda: "done" in kinds(mgr, live))
+    assert mgr.update_intake("full") == 1                                         # the one with a process; the other takes the saved choice when it starts
+    until(lambda: any(e["event"] == "intake_mode" and e["mode"] == "full" for e in mgr.events(live)["events"]))
+    assert "intake_mode" not in kinds(mgr, idle)
+    assert SessionManager(tmp_path / "j2", "http://127.0.0.1:1").update_intake("off") == 0
+
+
+def test_optimize_prompt_is_told_to_the_running_conversations_and_a_send_can_refuse_it_once(make, ws, tmp_path):
+    mgr = make()
+    live, idle = mgr.create(ws)["id"], mgr.create(ws)["id"]
+    mgr.send(live, "primo")
+    until(lambda: "done" in kinds(mgr, live))
+    assert mgr.update_optimize(True) == 1                                         # the one with a process; the other takes the saved choice when it starts
+    until(lambda: any(e["event"] == "optimize_prompt" and e["on"] is True for e in mgr.events(live)["events"]))
+    assert "optimize_prompt" not in kinds(mgr, idle)
+    assert SessionManager(tmp_path / "j2", "http://127.0.0.1:1").update_optimize(False) == 0
+    n = len(mgr.events(live)["events"])
+    mgr.send(live, "the text I typed", optimize=False)                            # "Send my original instead"
+    until(lambda: any(e["event"] == "optimize_prompt" and e.get("turn") for e in mgr.events(live, n)["events"]))
+    n = len(mgr.events(live)["events"])
+    mgr.send(live, "an ordinary one")
+    until(lambda: "done" in kinds(mgr, live, n))
+    assert not any(e.get("turn") for e in mgr.events(live, n)["events"] if e["event"] == "optimize_prompt")
+
+
 def test_the_thinking_level_is_kept_and_checked(make, ws):
     mgr = make()
     sid = mgr.create(ws, effort="medium")["id"]
@@ -844,6 +1067,42 @@ def test_the_thinking_level_is_kept_and_checked(make, ws):
     assert e.value.code == "bad_effort"
     with pytest.raises(RunError):
         mgr.create(ws, effort="maximum")
+
+
+def test_the_steps_of_an_answer_default_to_no_limit_and_are_checked(make, ws):
+    mgr = make()
+    rec = mgr.create(ws)
+    assert rec["max_turns"] == -1
+    assert mgr.create(ws, max_turns=40)["max_turns"] == 40                       # no upper cap
+    cmd = mgr._command(rec["id"], rec, mgr.history_dir(rec["id"]))
+    assert cmd[cmd.index("--max-turns") + 1] == "-1"
+    old = {**rec}
+    old.pop("max_turns")
+    old_cmd = mgr._command(rec["id"], old, mgr.history_dir(rec["id"]))
+    assert old_cmd[old_cmd.index("--max-turns") + 1] == "-1"                     # a record without the field has no limit either
+    for bad in (0, -2, "5", 1.5, True, None):
+        with pytest.raises(RunError) as e:
+            mgr.create(ws, max_turns=bad)
+        assert e.value.code == "bad_steps"
+
+
+def test_the_steps_and_the_end_of_turn_bias_of_a_running_conversation_can_be_changed(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    out = mgr.set_settings(sid, max_turns=7, end_turn_bias=-3)                     # no process yet: the record is what it will start with
+    assert out["max_turns"] == 7 and out["end_turn_bias"] == -3.0
+    assert [e["event"] for e in mgr.events(sid)["events"]] == ["settings"]
+    cmd = mgr._command(sid, mgr.get(sid), mgr.history_dir(sid))
+    assert cmd[cmd.index("--max-turns") + 1] == "7" and cmd[cmd.index("--end-turn-bias") + 1] == "-3.0"
+    mgr.send(sid, "uno")
+    until(lambda: "done" in kinds(mgr, sid))
+    assert mgr.set_settings(sid, max_turns=-1)["max_turns"] == -1
+    assert mgr.set_settings(sid, end_turn_bias=0)["end_turn_bias"] == 0.0
+    until(lambda: kinds(mgr, sid).count("settings") == 3)                         # the process was told, and said so
+    for bad in ({"max_turns": 0}, {"max_turns": "3"}, {"end_turn_bias": 5}, {"end_turn_bias": "low"}, {}):
+        with pytest.raises(RunError):
+            mgr.set_settings(sid, **bad)
+    assert mgr.get(sid)["max_turns"] == -1
 
 
 def test_a_conversation_is_renamed_and_a_command_is_answered_by_its_process(make, ws):
@@ -913,3 +1172,15 @@ def test_a_position_older_than_a_day_is_not_handed_over(make, ws):
     sid = mgr.create(ws)["id"]
     assert mgr._place_for(sid, {**HOME, "fix_age_s": 90_000}) is None
     assert mgr._place_for(sid, HOME) is not None
+
+
+def test_nothing_caps_the_length_of_a_message_the_allow_rules_or_the_attachments_of_a_conversation(make, ws):
+    mgr = make()
+    rules = [f"shell_command:cmd{i}*" for i in range(30)]
+    sid = mgr.create(ws, allow=rules)["id"]
+    assert len(mgr.get(sid)["allow"]) == 30
+    long_text = "parola " * 10_000
+    assert mgr.send(sid, long_text)["turn"]
+    until(lambda: "done" in kinds(mgr, sid))
+    shown = [m for m in mgr.history(sid)["messages"] if m.get("role") == "user"]
+    assert any(len(m["content"]) >= len(long_text) for m in shown)

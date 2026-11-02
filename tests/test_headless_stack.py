@@ -11,7 +11,7 @@ from harness import agent_loop as al
 from harness.headless import config_from_args, parse_args, run_headless
 from harness.session import parse_args as session_args
 from harness.stack import AgentConfig, agent_settings, build_agent
-from harness.tools.registry import ToolRegistry
+from harness.tools.registry import ToolRegistry, configured_tool_timeout
 from test_agent_loop import ScriptedClient, call, say
 
 SHARED = ["--workspace", "W", "--permission-mode", "auto", "--allow", "shell_command:pytest*", "--deny", "shell_command:rm*",
@@ -19,7 +19,8 @@ SHARED = ["--workspace", "W", "--permission-mode", "auto", "--allow", "shell_com
           "--browser-profile", "B", "--vault-dir", "V", "--capabilities", "--lsp", "--wiki", "--wiki-project", "proj", "--phone",
           "--on-behalf-of", "Mario", "--context-patterns", '{"summary": {"on": false}}', "--context-threshold", "0.5", "--end-turn-bias", "0.2",
           "--attachments-dir", "A", "--outputs-dir", "O", "--hooks", "H.json", "--workspace-hooks", "--after-plan", "auto",
-          "--tool-timeout", "40", "--tool-timeout", "shell_command=0", "--no-memory", "--no-checkpoints", "--max-turns", "7"]
+          "--tool-timeout", "40", "--tool-timeout", "shell_command=0", "--no-memory", "--no-checkpoints", "--max-turns", "7",
+          "--temperature", "0.3", "--max-tokens", "2048", "--instruction-blocks"]
 
 
 def test_headless_and_the_chat_process_set_the_same_agent_from_the_same_options():
@@ -29,14 +30,47 @@ def test_headless_and_the_chat_process_set_the_same_agent_from_the_same_options(
     for key, value in [("browser", True), ("vault_dir", "V"), ("payments_dir", "P"), ("capabilities", True), ("lsp", True), ("wiki", True),
                        ("phone", True), ("council", False), ("hooks_file", "H.json"), ("workspace_hooks", True), ("after_plan", "auto"),
                        ("tool_timeout", 40.0), ("tool_timeouts", {"shell_command": 0.0}), ("use_memory", False), ("max_turns", 7),
-                       ("secret_hosts", {"TOKEN": ["example.com"]}), ("browser_profile", "B")]:
+                       ("secret_hosts", {"TOKEN": ["example.com"]}), ("browser_profile", "B"), ("temperature", 0.3), ("max_tokens", 2048), ("instruction_blocks", True)]:
         assert from_cli[key] == value, key
     cfg = config_from_args(parse_args(["-p", "task", *SHARED]))
     assert isinstance(cfg, AgentConfig) and cfg.vault_dir == "V" and cfg.lsp and cfg.capabilities and cfg.browser
 
 
-def test_the_default_number_of_turns_stays_as_each_way_had_it():
-    assert parse_args(["-p", "x"]).max_turns == 10 and session_args([]).max_turns == 15
+def test_the_default_number_of_turns_is_no_limit_in_every_way():
+    assert parse_args(["-p", "x"]).max_turns == -1 and session_args([]).max_turns == -1
+    assert agent_settings(parse_args(["-p", "x"]))["max_turns"] == -1
+    assert parse_args(["-p", "x", "--max-turns", "7"]).max_turns == 7
+
+
+def test_headless_acts_without_asking_unless_it_is_interactive():
+    assert parse_args(["-p", "x"]).permission_mode == "auto"
+    assert parse_args(["-p", "x", "--interactive"]).permission_mode == "default"
+    assert parse_args(["-p", "x", "--permission-mode", "plan"]).permission_mode == "plan"
+
+
+def test_interactive_without_a_terminal_asks_the_approvals_board_when_it_answers_else_nobody_can_confirm(monkeypatch):
+    from harness import headless
+    from harness.approval_client import ServerApprover
+    args = parse_args(["-p", "x", "--interactive"])
+    monkeypatch.setattr(headless, "_has_terminal", lambda: False)
+    monkeypatch.setattr(ServerApprover, "available", lambda self: True)
+    assert isinstance(headless._confirmer(args), ServerApprover)           # the question goes to the board, not to an automatic no
+    monkeypatch.setattr(ServerApprover, "available", lambda self: False)
+    assert headless._confirmer(args) is None                               # no way to ask: the permission layer tells the model so
+    monkeypatch.setattr(headless, "_has_terminal", lambda: True)
+    assert headless._confirmer(args) is headless._ask_on_terminal
+    assert headless._confirmer(parse_args(["-p", "x"])) is None
+
+
+def test_with_no_way_to_ask_the_model_is_told_nobody_can_confirm():
+    from harness.permissions import PermissionLevel, PermissionManager
+    from harness.tools.registry import EffectClass
+    ok, reason = PermissionManager(level=PermissionLevel.DEFAULT, confirm_callback=None).evaluate("pay", EffectClass.IRREVERSIBLE, {})
+    assert not ok and "Nobody can confirm in this run" in reason
+
+
+def test_a_session_can_be_flagged_unattended():
+    assert session_args([]).unattended is False and session_args(["--unattended"]).unattended is True
 
 
 def test_a_bad_tool_timeout_is_a_usage_error():
@@ -63,7 +97,7 @@ def test_tools_that_wait_with_a_limit_of_their_own_are_not_cut_by_the_default(tm
     ws.mkdir()
     built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False), client=object())
     try:
-        assert built.agent.tools.default_timeout == 900.0 and "spawn_subagent" in OWN_TIME_LIMIT
+        assert built.agent.tools.default_timeout == configured_tool_timeout() and "spawn_subagent" in OWN_TIME_LIMIT
         assert all(built.agent.tools.timeout_for(name) is None for name in OWN_TIME_LIMIT)
     finally:
         built.close()
@@ -132,7 +166,7 @@ def test_mcp_tools_are_offered_one_by_one_while_few_and_behind_a_search_when_man
         one = ToolRegistry()
         assert hub.register(one) == "eager" and {"fake__echo", "fake__weather"} <= set(one.names()) and "mcp_call" not in one.names()
         many = ToolRegistry()
-        assert hub.register(many, eager_limit=2) == "deferred" and many.names() == ["mcp_call", "mcp_search"]
+        assert hub.register(many, eager_limit=2) == "deferred" and many.names() == ["mcp_call", "mcp_read", "mcp_search"]
         found = many.execute("mcp_search", {"query": "weather forecast"})
         assert found[0]["tool"] == "weather"
         assert many.execute("mcp_call", {"server": "fake", "tool": "echo", "arguments": {"text": "x"}}) == "echo: x"

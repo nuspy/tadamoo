@@ -57,6 +57,7 @@
     { name: "status", run: rest => server("status", rest) },
     { name: "context", run: rest => server("context", rest) },
     { name: "compact", run: rest => server("compact", rest) },
+    { name: "audit", run: rest => server("audit", rest) },
     { name: "tools", run: rest => server("tools", rest) },
     { name: "hooks", run: rest => server("hooks", rest) },
     { name: "mcp", run: rest => server("mcp", rest) },
@@ -95,6 +96,15 @@
       const backs = [...document.querySelectorAll("#amsgs .aback")];
       if (!backs.length) { note(T("sl.rewind.none")); return; }
       backs[backs.length - 1].focus(); note(T("sl.rewind", T("ch.back")));
+    } },
+    { name: "checkpoints", args: "[on|soft|off|default]", run: async rest => {
+      const C = window.checkpointsUi, want = rest.toLowerCase();
+      if (!C) return;
+      if (want && await C.setMode(want)) { note(T("sl.ck.now", C.label(C.mode()))); return; }
+      if (!$("#cs-open")) return;
+      if ($("#chatset").hidden) $("#cs-open").click();
+      $("#cs-cp").scrollIntoView({ block: "nearest" });
+      note(T("sl.ck.usage", C.label(C.mode())));
     } },
     { name: "stop", run: () => { if (A() && A().active()) A().stop(); } },
     { name: "diff", alias: ["changes"], run: () => { if (A() && A().hasCopy()) A().toggleCopy(); else note(T("sl.diff.none")); } },
@@ -145,7 +155,6 @@
     const s = skillOf(p.word);
     if (s) {
       if (!chat) { note(T("sl.need.conv")); return "keep"; }
-      if (s.state !== "approved") { note(T("sl.skill.pending", s.name)); return true; }
       A().send(`Load the skill ${s.id} with load_capability and follow it. ` + (p.rest ? "What I need: " + p.rest : "Ask me what I need if the skill requires input."));
       return true;
     }
@@ -158,7 +167,7 @@
   function candidates(query) {
     const q = query.toLowerCase();
     const all = [...COMMANDS.map(c => ({ name: c.name, alias: c.alias, args: c.args, text: T("sl.d." + c.name), kind: "" })),
-      ...skills.filter(s => !byName(s.name.toLowerCase())).map(s => ({ name: s.name, alias: [], args: "", text: s.description, kind: "skill", pending: s.state !== "approved" }))];
+      ...skills.filter(s => !byName(s.name.toLowerCase())).map(s => ({ name: s.name, alias: [], args: "", text: s.description, kind: "skill" }))];
     const names = c => [c.name.toLowerCase(), ...c.alias];
     const rank = c => names(c).some(n => n.startsWith(q)) ? 0 : names(c).some(n => n.includes(q)) ? 1 : c.text.toLowerCase().includes(q) ? 2 : 3;
     return all.map((c, i) => [q ? rank(c) : 0, i, c]).filter(([r]) => r < 3).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, , c]) => c);      // no letters yet: the order of the list
@@ -168,7 +177,7 @@
     menu.replaceChildren(...shown.map((c, i) => {
       const o = mk("div", "slashitem" + (i === at ? " on" : ""));
       o.id = "slash-o" + i; o.setAttribute("role", "option"); o.setAttribute("aria-selected", String(i === at));
-      o.append(mk("b", "", "/" + c.name), mk("span", "slashargs", c.args), mk("span", "slashd", (c.pending ? T("sl.skill.pending.short") + " " : "") + c.text));
+      o.append(mk("b", "", "/" + c.name), mk("span", "slashargs", c.args), mk("span", "slashd", c.text));
       if (c.kind) o.append(mk("span", "slashkind", T("sl.skill")));
       o.onmousedown = e => { e.preventDefault(); at = i; choose(true); };
       return o;
@@ -223,7 +232,7 @@
     if (skills.length) {
       box.append(mk("b", "", T("sl.help.skills")));
       const us = mk("ul"); box.append(us);
-      skills.forEach(s => { const li = mk("li"); li.append(mk("code", "", "/" + s.name), mk("span", "", " — " + (s.state !== "approved" ? T("sl.skill.pending.short") + " " : "") + s.description)); us.append(li); });
+      skills.forEach(s => { const li = mk("li"); li.append(mk("code", "", "/" + s.name), mk("span", "", " — " + s.description)); us.append(li); });
     }
     return box;
   }
@@ -236,18 +245,33 @@
     return box;
   };
   const pct = x => Math.round((x || 0) * 100);
+  /* the summaries of older steps: the setting, the latest one, what stayed as it was and what the server reads again */
+  const compaction = c => {
+    if (!c) return [];
+    if (!c.enabled && !c.count) return [T("sl.r.cx.off")];
+    const rows = [T("sl.r.cx.on", pct(c.threshold), c.count)], last = c.reports[c.reports.length - 1];
+    if (last) {
+      rows.push(T("sl.r.cx.last", last.tokens_before, last.tokens_after, last.replaced, T("sl.r.cx.by." + last.summary_by)),
+        T("sl.r.cx.prefix", last.prefix.stable_tokens, last.prefix.reread_tokens));
+      if (last.observed) rows.push(T("sl.r.cx.observed", last.observed.cached_tokens, last.observed.prompt_tokens));
+      if (last.audit.missing.length) rows.push(T("sl.r.cx.reread", last.audit.missing.join(", ")));
+    }
+    return rows;
+  };
   const SHOW = {
-    status: d => list(T("sl.r.status"), [[T("sl.r.mode"), T("ag.mode." + d.mode)], [T("sl.r.effort"), d.effort ? effortName(d.effort) : effortName("")], [T("sl.r.turns"), d.turns],
+    status: d => list(T("sl.r.status"), [[T("sl.r.mode"), T("ag.mode." + d.mode)], ...(d.role && d.role !== "general" ? [[T("sl.r.role"), T("cd.role." + d.role)]] : []), [T("sl.r.effort"), d.effort ? effortName(d.effort) : effortName("")], [T("sl.r.turns"), d.turns],
+      [T("sl.r.steps"), d.max_turns > 0 ? d.max_turns : T("sl.r.steps.none")], [T("sl.r.bias"), d.end_turn_bias || 0],
       [T("sl.r.context"), T("sl.r.ctx", d.tokens, d.window, pct(d.share))], [T("sl.r.messages"), d.messages], [T("sl.r.tools"), d.tools], [T("sl.r.memories"), d.memories],
       [T("sl.r.mcp"), d.mcp_servers], [T("sl.r.spent"), d.model_tokens]]),
-    context: d => list(T("sl.r.context"), [T("sl.r.ctx", d.tokens, d.window, pct(d.share)), [T("sl.r.messages"), d.messages], ...(d.summarised ? [T("sl.r.ctx.summary")] : [])]),
-    tools: d => list(T("sl.r.tools.title", d.tools.length), d.tools.map(t => t.name + " · " + t.effect)),
+    context: d => list(T("sl.r.context"), [T("sl.r.ctx", d.tokens, d.window, pct(d.share)), [T("sl.r.messages"), d.messages], ...(d.summarised ? [T("sl.r.ctx.summary")] : []), ...compaction(d.compaction)]),
+    tools: d => list(T("sl.r.tools.title", d.tools.length), d.tools.map(t => t.name + " · " + t.effect + (t.role_allowed === false ? " · " + T("sl.r.tools.out", T("cd.role." + d.role)) : ""))),
     hooks: d => list(T("sl.r.hooks"), [d.sources.length ? T("sl.r.hooks.files", d.sources.join(", ")) : T("sl.r.hooks.none"), T("sl.r.hooks.counts", d.pre_tool, d.post_tool),
       ...Object.entries(d.events).map(([k, n]) => k + ": " + n), ...(d.errors.length ? [T("sl.r.hooks.errors", d.errors.join(" | "))] : [])]),
     mcp: d => list(T("sl.r.mcp.title"), d.servers.length ? d.servers.map(s => s.error ? T("sl.r.mcp.err", s.name, s.error) : T("sl.r.mcp.line", s.name, s.tools)) : [T("sl.r.mcp.none")]),
     memory: d => list(T("sl.r.mem.title", d.count), d.items.length ? d.items.map(m => m.category + " · " + m.content) : [d.query ? T("sl.r.mem.nomatch", d.query) : T("sl.r.mem.empty")]),
     permissions: d => list(T("sl.r.perm"), [[T("sl.r.mode"), T("ag.mode." + d.mode)], ...(d.rules.length ? d.rules.map(r => r.action + " " + r.pattern) : [T("sl.r.perm.none")]),
       T("sl.r.perm.denied", d.denied), T("sl.r.perm.edit")]),
+    audit: d => d.valid ? T("sl.r.audit.ok", d.records) : T("sl.r.audit.bad", d.records, d.problem),
     compact: d => d.done ? T("sl.r.compact.done", d.before, d.after) : T("sl.r.compact." + d.reason, d.tokens),
   };
   const effortName = level => { const o = [...sel.options].find(x => x.value === (level || "")); return o ? o.text : String(level); };

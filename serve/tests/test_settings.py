@@ -195,12 +195,6 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/settings", b"{nope", {"Content-Type": "application/json"})[0], 400)
         self.assertEqual(Path(self.path).read_bytes(), before)
 
-    def test_another_site_s_page_or_a_form_cannot_save(self):
-        self.assertEqual(self.post({"engine.spec": 2}, Origin="http://evil.example.com")[0], 403)
-        self.assertEqual(self.req("POST", "/api/settings", {"changes": {"engine.spec": 2}},
-                                  {"Content-Type": "text/plain"})[0], 415)
-        self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8"))["engine"]["spec"], 7)
-
     def test_only_from_this_pc(self):
         with mock.patch("serve.settings.is_loopback", return_value=False):
             code, body, _ = self.req("GET", "/api/settings")
@@ -315,7 +309,7 @@ class Tabs(unittest.TestCase):
     def test_the_controls_that_had_no_explanation_now_have_one_in_both_languages(self):
         i18n = self.text("i18n.js")
         en, it = i18n.index("  en: {"), i18n.index("  it: {")
-        keys = ("st.lang.help", "cp.rescan.tip", "cp.actions.help", "cp.turnoff.tip", "cp.turnon.tip", "cp.revoke.tip", "cp.signin.tip",
+        keys = ("st.lang.help", "cp.rescan.tip", "cp.actions.help", "cp.turnoff.tip", "cp.turnon.tip", "cp.signin.tip",
                 "cp.signout.tip", "cp.move.tip", "cp.on.min.tip", "cp.w.tip", "pl.set.cloud.help", "pl.set.pseudo.help",
                 "pl.set.fields.help", "mb.allow.needts", "mb.fresh.copy.tip", "me.sec.field", "me.sec.tip", "me.kind.field", "me.kind.tip")
         for key in keys:

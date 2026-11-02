@@ -61,8 +61,8 @@ Four ways to use it, all with the same abilities:
 3. Write in the box and press **Enter** (**Shift+Enter** adds a line). The agent works in the background and the page shows, in order,
    what it wrote, what it thought and each tool it used, with the result. **Stop** ends the turn.
 4. When it needs you, it asks: a command to run, a plan to approve, a choice. The answer is a button; you can also write instead.
-5. Come back later: the column at the left lists your conversations (below). A conversation idle for 30 minutes lets go of its process
-   and wakes from its saved history when you write again.
+5. Come back later: the column at the left lists your conversations (below). A conversation can let go of its process after an idle time you set
+   (`idle_s` in `limits.json`; none by default) and wakes from its saved history when you write again.
 
 **The column of conversations.** At the left of the Chat, newest first: click one to open it. The star beside it makes it a **favorite**:
 favorites are listed apart, above the others. The cross deletes it: press it once and it asks *Delete?*, press again (within a few seconds)
@@ -101,16 +101,21 @@ Four modes, from the most careful to the freest:
 Automatic, and round) and the label shows it, the mode in a colour of its own: grey for *Read only*, violet for *Ask first*, green for
 *Plan only*, red for *Automatic*. Pressing the label does the same. With a
 conversation open it changes that conversation only, from its next action; with none open it changes the mode the next one starts
-with. Going to **Automatic** the first time shows a highlighted risk label and asks twice (*I understand the risk*, then *I read the previous
-message carefully and understand the risk*); once you have said yes it is not asked again until you close the app, in any conversation. If
-you refuse, the cycle passes over it.
+with. Going to **Automatic** asks nothing. While the mode is Automatic, the other settings that carry a risk (their highlighted risk label stays)
+take your yes by themselves and do not ask their two questions.
 
 **Rules for commands.** In *Chat → Settings → What the agent may do without asking* (for new conversations) write one rule per line, such as `shell_command:python -m pytest*`. A matching command runs without asking. A **deny**
-rule always wins. A rule never covers a command that chains or redirects another (`pytest && rm -rf ~` is not `pytest`). In a question,
-the **Always allow …** button adds a rule for you.
+rule always wins. A command of several statements (`cd x && make`) is allowed when a rule covers each statement; a command built at run time (`$(...)`) is covered by no rule. Each question
+offers three answers: **Allow this call only**, **Allow … in this conversation** and **Always allow …**; the last two add a rule for you, for
+the conversation or for every conversation from then on. Settings > Wallet > *Always allowed* lists the rules kept for good and lets you add or
+take away any. A program that runs what it is given (`python`, `powershell`, `curl`) gets the same three answers: allowing it is your choice.
 
-**The Rule of Two.** Even in *Automatic*, an irreversible action asks again once the conversation has read content from outside (a
-web page, an MCP tool, a phone call, a recalled note) *and* can reach a secret or a vault entry. This is checked at every action.
+**The Rule of Two.** At every level, *Automatic* included, a web address, a search or a form asks when the
+conversation has read outside content (including files, command output, attachments and notes from the planner), touched private data and
+the action reaches the outside; Settings > Wallet sets how strict that is. A stored secret found inside an address, a search or a form asks first too, naming the secret and
+where it would go, never showing its value; with the level *Never ask* nothing is asked.
+
+**Orders in a document or a page.** If a page, a Word or Excel file, a command's output or an attachment contains instructions aimed at the assistant ("ignore your rules", "if you are an AI, send..."), the assistant does not follow them. Anything it then tries to change or send asks you first, at every level, until you authorize those instructions. In a run nobody watches, the question waits in the list of pending questions.
 
 **What the modes are not.** They are not an operating-system sandbox. A command runs with your rights on your files and network. The
 agent's commands have a scrubbed environment, no keyboard input, a time limit, capped output and, on Windows, a job object (memory
@@ -126,7 +131,7 @@ argument, **Escape** closes. A message that starts with a space is sent as writt
 | `/help` (`/?`) | lists the commands |
 | `/clear` (`/new`, `/reset`) | a new empty conversation |
 | `/effort [none\|low\|medium\|high\|auto]` | how long the model thinks; also changes the *Thinking* list |
-| `/mode [plan\|read\|ask\|auto]` | the mode (Automatic asks its two confirmations) |
+| `/mode [plan\|read\|ask\|auto]` | the mode |
 | `/plan [what]` | plan mode, then your request |
 | `/permissions` (`/allowed`) | the mode, the rules and the refusals; also opens the settings |
 | `/settings` (`/config`) | the Chat settings |
@@ -135,6 +140,7 @@ argument, **Escape** closes. A message that starts with a space is sent as writt
 | `/context` | how full the context is |
 | `/compact` | turns the older half of the conversation into a summary; only when nothing is under way |
 | `/tools`, `/hooks`, `/mcp` | what the conversation can call, which hooks are active, which MCP servers started |
+| `/audit` | checks that the record of what the agent did (the hash chain and its head file) is whole, reading the file as it is now |
 | `/memory [words]` | the last ten notes, or a search |
 | `/copy [n]` | copies the last answer (or the nth from the end) |
 | `/export` | saves the conversation as a text file |
@@ -148,7 +154,7 @@ argument, **Escape** closes. A message that starts with a space is sent as writt
 | `/init` | asks the agent to write an `AGENTS.md` for the folder |
 | `/review`, `/security-review` | asks it to review the changes in the folder |
 | `/research question` (`/search`) | asks it to read the sources themselves and say which pages it could not open |
-| `/name text` | every skill found on this PC (needs approval first) |
+| `/name text` | every skill found on this PC |
 
 Left out on purpose: the commands of Claude Code's account, terminal or cloud (`/login`, `/usage`, `/theme`, `/vim`, `/ide`…).
 
@@ -177,11 +183,13 @@ you it may already have run. After that, or when the server refuses for good, th
 - **Back to here.** Each request of yours has this button (press twice). The conversation returns to just after that request and a
   copy of what came later is kept. The files are not touched: undo them from the Changes panel. Actions that stay done (a command, a
   call, a payment, a browser action) are listed first, and you must press again to go back anyway.
-- **Checkpoints.** Before the first change of each turn the folder is saved outside the project. `python -m harness.rewind
+- **Checkpoints.** Before an action changes files, their previous content is kept outside the project: only the files that change, from any folder, with no size limit. Files a shell command does not name are not covered. *Settings > Checkpoints* (or `/checkpoints on|soft|off|default`) chooses on, on without ever stopping the action, or off, lists them and deletes one or all. `python -m harness.rewind
   --workspace D:\proj` lists them and `--to ID` restores one; the conversations have `/rewind` and *Back to here*. A rewind takes a safety snapshot first, so it
   can be undone. It does not undo a command the agent ran, and says so.
 - **Branches.** `/branch` copies a conversation at a request; *Branches* shows the tree. *Run both and compare* sends one request down two
-  continuations, one after the other, and shows the two answers and the files each changed, side by side.
+  continuations, one after the other, and shows the two answers and the files each changed, side by side. *Messages as nodes* lists the
+  runs of messages between forks, shows the tokens a switch to another conversation would make the model read again (cold and warm
+  cache) before it switches, and *Merge and summarize* writes, at your request, one synthesis of two branches into a new conversation.
 - **A copy of its own.** In a git folder, a conversation can work in its own worktree. The Chat page does not offer it (it has no project folder to copy); it exists for conversations on a git folder, such as a branch of one that has a copy. What it changes
   waits there; you look at each file's diff and apply the ones you choose, as **staged** changes, never a commit. Throwing the copy away
   removes it and its branch.
@@ -194,17 +202,20 @@ The agent can keep short notes about a project and read them in later conversati
 
 - **Tell it what to keep.** It writes a note only when it decides to, so ask: *"remember that the build uses --arch=native"*. It keeps
   a note of at most 2,000 characters with a category; the same text is kept once; there is room for 5,000 notes per project.
-- **What comes back by itself.** At each message you write, up to four notes that match your words are added after your message, as
-  data. The setting is *Injection → Retrieval at the end* in the Chat settings (the default); with the other two choices nothing is
+- **What comes back by itself.** At each message you write, the notes that share enough with your words are added after your message, as
+  data: a shared word scores up to 1 point (less the more notes have it), a specific one such as `sm_120` or `e-mail` up to 2, common words
+  (the, and, il, di) never count, and a note needs 1.5 points (or all the words of a request of three or fewer). At most four notes and 600
+  tokens are added. *Settings → Memories → Project notes* changes the points, the number and the token limit, each with its explanation.
+  The setting is *Injection → Retrieval at the end* in the Chat settings (the default); with the other two choices nothing is
   added and the agent calls `recall` when it wants to.
 - **See and search.** `/memory` shows the last ten notes (each cut at 300 characters), `/memory words` searches, `/status` counts them.
 - **Remove one.** Ask the agent to forget it (it uses the note's id), or, with no conversation open, delete the file `memory\<16 hex digits>.db` in the user data
   folder (and the `-wal` and `-shm` files beside it, if any) to forget the whole project.
-- **Which notes belong together.** One file per folder path (case ignored). All **Chat** conversations work in the same folder, so they
-  share one memory; each folder of the Agent tab or the command line has its own; a conversation working in a git copy of its own has
-  another one again. There is no export and nothing is shared between PCs.
-- **What it is not.** The search is by words, not by meaning: "built" does not find "build", and a note that shares one word with your
-  message can come back although it is not about it. Notes are kept as written, in plain text, unencrypted; do not ask it to remember
+- **Which notes belong together.** One file per project folder (case ignored). All **Chat** conversations work in the same folder, so they
+  share one memory; each folder of the Agent tab or the command line has its own. A conversation working in a git copy of its own
+  (a work tree) uses the memory of the repository it was made from. There is no export and nothing is shared between PCs.
+- **What it is not.** The search is by words, not by meaning: "build" finds "builds" and "building" but "built" does not, and a note that shares
+  specific words with your message can come back although it is not about it. Notes are kept as written, in plain text, unencrypted; do not ask it to remember
   a password or a key. A note it was talked into keeping by a page it read will come back, as data it is told not to obey; read
   `/memory` now and then.
 - **Permissions.** In *Ask first* and *Automatic* it writes and deletes notes without asking; in *Read only* it asks before writing;
@@ -249,11 +260,20 @@ you the address and the number to call.
 - **Long conversations.** Old tool results are replaced by a short placeholder only when the context nears its budget, oldest first,
   with the full text saved and named; errors are never cut. `/context` shows the use; `/compact` summarises the older half on demand.
   The Chat settings choose the policy for a full context: *Stop at the limit*, *Sliding window* or *Compact*.
+- **Reading files and long output.** `read_file` returns what is asked: the whole file, or lines `offset` to `offset + limit - 1`; a file
+  that does not fit in one answer ends with a line giving the lines shown, the total and the offset to go on with. Noisy results (a
+  command's output, searches) are shortened to their first and last lines and every error line, with the number of hidden lines and the
+  saved full text named; a very long line is cut in the middle with the number of characters hidden. A file read on purpose, a skill
+  and a saved result read again are never shortened.
 - **Context patterns.** The Chat settings have six switches (injection, rewriting, pruning, summary, branches, versioning), each with a
   description of what it does, its advantages, drawbacks and what it does to the server's cache of the start. Leave them as they are
   until you have a reason.
-- **Reference documents.** On the command line, `--reference DIR` offers documents as a fixed block (fast after the first turn, but it
-  fills the context) or searched (small context, passages arrive as untrusted data); `auto` picks by size.
+- **Reference documents.** *Settings → Memories → Reference documents* (or `--reference DIR` on the command line) offers the .md and .txt
+  files of a folder as a fixed block (fast after the first turn, but it fills the context) or searched (small context, passages arrive as
+  untrusted data); `auto` picks by size. They apply to the conversations that start after you save.
+- **The wiki.** *Settings → Memories → Wiki (wikibridge)* turns on `wiki_search`, `wiki_page` and `wiki_context` in the Chat and the Agent,
+  with the address of the service (default `http://127.0.0.1:8775`) and a project; a plan step that asks the wiki uses them. *Check the
+  connection* tells the address tried and, if it did not answer, why. A key, if the service asks for one, is `BASALT_WIKIBRIDGE_KEY`.
 - **Cache.** The start of the prompt is kept byte-identical from turn to turn so the server reuses its cache. That is why notes and
   plan summaries come after your message, never in the system block.
 
@@ -261,14 +281,21 @@ you the address and the number to call.
 
 - **Where they come from.** Basalt reads, and never runs, the skills, plugins and MCP servers installed for other tools on this PC
   (`~/.claude/skills`, the project's `.claude/skills`, plugins, `.mcp.json` and the like).
-- **Nothing is active until you approve it.** In *Settings → Capabilities* open an entry, read its text (a skill) or its command (a
-  server) and approve. The approval is tied to what you read; if the file changes, it is *to approve* again.
-- **Using them.** The agent searches (`find_capability`), loads an approved skill (`load_capability`) or calls an approved server's tool
-  (`call_capability`, which asks like any action that cannot be undone). From the Chat you can call a skill with `/name text`.
+- **What is found is usable.** There is no approval step: an entry on this PC works unless you turn it off in *Settings → Capabilities*,
+  where *View text* shows what the agent reads (a skill) or runs (a server). Editing a file never withdraws anything.
+- **Your own skill folders.** In *Settings → Capabilities → Skill folders* (and with `--skills DIR` on the command line) you name folders
+  of `SKILL.md` skills. Their skills are listed there and `load_skill` loads them as they are now.
+- **Using them.** The agent searches (`find_capability`), loads a skill (`load_capability`) or calls a server's tool: a tool the server declares read-only goes
+  through `read_capability` (no question, allowed in plan mode), any other through `call_capability`, which asks like any action that cannot be
+  undone; the agent can read a tool's arguments before it calls it). If a
+  server stops to ask you for some values, the question appears in the conversation with the server's name: it comes from the server, so
+  do not type passwords or keys. From the Chat you can call a skill with `/name text`.
 - **Missing something?** The agent can look online for an MCP server or a skill (`find_online_capability`), show you the best five
   with a score, their warnings and the command that would run, and install the one you choose. Nothing runs at install; the score
   measures popularity and upkeep, **not safety**. The settings are in *Settings → Capabilities → Search online*. Turning on "install the
-  best one by itself" shows a risk label and asks twice.
+  best one by itself" shows a risk label and asks twice. When nobody is there to ask (an unattended run), the finds wait in
+  *Settings → Capabilities → Install requests*, with their source, what each does and its advantages and disadvantages, and nothing is
+  installed until you press *Install* on one (or answer the same question in the Chat); *Reject* closes the request.
 - **Remote MCP servers** that need a sign-in show a **Sign in** button (OAuth); the token stays in the Windows credential manager.
 
 ## 11. The web, the browser, the Wallet and the phone
@@ -280,17 +307,20 @@ you the address and the number to call.
   sites it used in the same way.
 - **The browser.** With the browser tools the agent drives Edge or Chrome to fill in forms, book and buy. Whether conversations have a
   browser, whether it shows a window, whether it may open pages of this PC and whether it keeps sign-ins is set in the **Wallet** view;
-  each risky choice has a highlighted label and two questions.
+  each risky choice has a highlighted label and two questions. At *Automatic* the browser asks nothing: pages of this PC or network, a page's
+  permissions (camera, location, notifications), its confirm and prompt dialogs, downloads and a screenshot after a vault value was typed are all
+  allowed. Below it each of those asks you (this call, this conversation or always; an allow rule can name a site). Long pages are read in pages
+  of elements and words, never cut off.
 - **Secrets.** The agent writes `{{secret:NAME}}` where a credential is needed and never sees it; the value is filled in at the last
   moment and masked in what comes back. **The vault** (Wallet) holds cards, personal data and logins encrypted; the agent writes
   `{{vault:ENTRY.FIELD}}`, and the value goes only toward the sites the entry names.
 - **The second factor** of each login is your choice: none, a code you type each time (the conversation stops and asks), or the TOTP
   secret so Basalt makes the code itself. The last lets anyone who can use Basalt on this PC sign in; you are told once.
 - **Payments.** The limit is yours to set, to any amount; until you set it, every payment asks you. A **waiver** lets the agent pay by
-  itself up to a cap per payment and a cumulative cap until it expires, after a dictated declaration and two dialogs with your name
+  itself up to a cap per payment and, if you set one, a cumulative cap, until it ends (no end date unless you set one), after a dictated declaration and two dialogs with your name
   typed again; above the caps it asks again. A payment can be stopped from the Wallet at any moment, and then the card's fields are no
   longer released. Whatever a merchant's form then charges is bounded by the card's own limit, not by Basalt.
-- **Phone calls** are off by default and, once on, ask you **every time**, even in *Automatic*. The call opens by saying an AI
+- **Phone calls** are off by default and, once on, ask you below *Automatic* (this call, this conversation or always); in *Automatic* nothing is asked. The call opens by saying an AI
   assistant is calling on your behalf. No real call has been placed in a test.
 - **What this does not protect from.** The agent runs as your own user. A program running as you can reach more than the vault can
   hide; the commands the agent runs cannot name the vault, the payment files or the browser's sign-ins, but that is a fence for a
@@ -313,11 +343,11 @@ has *Waits for* boxes to set from the keyboard what it waits for.
 - In the Chat the agent can read plans and, **with your yes**, create and change them. The yes is either a quotation of your own words
   in your last message, or a question made from the real change (the real title, steps and diff) that you answer with a button. A plan
   must be read before it is changed, and a plan that moved on meanwhile is refused until it is read again.
-- `ask_user` ends a turn with a question and buttons; what you press or write is your next message.
+- `ask_user` ends a turn with a card of questions (choices, a row of your own, free text or yes/no, the recommended option first); your answer, or a skip, or an answer in the chat, is your next message. Unattended, it takes the recommended options and says so.
 - **Events from the world** can be fed to plans (`POST /api/plans/events`) or read from RSS feeds, a mailbox (headers only) or a Telegram
-  bot. The event pump and the cloud filter are **off** until you turn them on in *Settings*; the cloud filter also needs your consent and
-  a key, replaces names, and does not send health data unless you tick it.
-- Nothing in a plan changes behind your back: the planner only prepares proposals, which you approve.
+  bot. The event pump is **on**: it starts with the server and sleeps while nothing arrives (turn it off in *Settings*). The cloud filter is **off** until you turn it on; it needs your consent and
+  a key and replaces names, and does not send health data unless you tick it.
+- The planner prepares proposals and, by default (*Settings > Planner*, *Apply changes automatically unless they involve people, bookings or resources I do not control*), applies them at once and writes them in the history. A step that involves other people, a call, a booking or a payment already made waits in *Proposed changes* for you while the rest of the plan goes on. Turn the setting off to approve everything yourself.
 
 ## 12a. Files in answers
 
@@ -335,11 +365,11 @@ interactions as diagrams that the page draws; *Source of the diagram* shows the 
 ## 12c. Phones
 
 *Settings > Phones* sets up the Basalt app for a phone. 1) **Tailscale** on this PC: the page installs it (with winget) and connects it, and shows the address this PC has on your private network. 2) **Let phones connect**:
-the server then also listens on that address, only for Tailscale, never on the internet. 3) **A key for each phone**: give the phone a name, press *Make a key*, and scan the QR code with the app
-(or copy the key). The key stays on this PC, encrypted, so *Show code* in the list shows its QR code again (for example after reinstalling the app); the phone also keeps its settings through an update, and Android's backup restores them after an uninstall and reinstall when the phone's backup is on. To stop a phone, take its key away. On the phone, install Tailscale from the Play Store and sign in with the same account. A phone can use the model, the
-conversations, files and routines; it cannot reach the wallet, the vault, the settings or the loading of models.
+the server then also listens for them, by default only on the Tailscale address, never on the internet; *Listen on* changes that to every network interface (0.0.0.0) or to one IPv4 address you type, for a phone that reaches this PC on your home network without Tailscale (the link is plain HTTP, so use it only on a network you trust). 3) **A key for each phone**: give the phone a name, press *Make a key*, and scan the QR code with the app
+(or copy the key). The key stays on this PC, encrypted, so *Show code* in the list shows its QR code again (for example after reinstalling the app); the phone also keeps its settings through an update, and Android's backup restores them after an uninstall and reinstall when the phone's backup is on. To stop a phone, take its key away. On the phone, install Tailscale from the Play Store and sign in with the same account. A phone with its key can use the model, the
+conversations, any file or folder of this PC, the routines and the plans, and the rest that answers to a client with a key; what answers only to this PC itself (the wallet, the vault, the settings, the loading of models) stays on this PC, and a phone works in any folder.
 
-The Android app (`mobile/`, see its README) then needs only the address and the key: scan the QR code in its Settings. Its **+** button offers *Image*, *Photo* and *Documents/Files* (*Local*, *Server*: the folders added on the PC, and
+The Android app (`mobile/`, see its README) then needs only the address and the key: scan the QR code in its Settings. Its **+** button offers *Image*, *Photo* and *Documents/Files* (*Local*, *Server*: the folders added on the PC first, then the drives, and
 *Network*: other devices, over SMB); the microphone writes what you say and answers can be read aloud, with the phone's own speech.
 
 ## 13. The Agent tab
@@ -366,10 +396,12 @@ Common options (all of them are in [harness.md](harness.md#running-the-agent)):
 
 | Option | Meaning |
 |---|---|
-| `--permission-mode plan\|read_only\|default\|auto` | as the modes in section 4 |
+| `--permission-mode plan\|read_only\|default\|auto` | as the modes in section 4; a headless run uses `auto` unless `--interactive` is given |
 | `--allow PATTERN`, `--deny PATTERN` | command rules; a deny wins |
 | `--interactive` or `--ask-server` | ask on the terminal, or on the server's pages, before risky actions, payments and plans |
-| `--max-turns`, `--timeout-seconds`, `--max-tokens-budget` | stop after this much |
+| `--timeout-seconds`, `--max-tokens-budget` | stop after this much |
+| `--max-turns` | most model turns in one answer; not given or below 1: no limit |
+| `--max-failed-attempts` | failed calls, commands and project checks one request may use up before it is stopped as failed (the answer says so); not given or below 1: no limit |
 | `--tool-timeout [NAME=]SECONDS` | per-tool time limit; 0 for none |
 | `--secret-env NAME[=host,host]` | lets the agent write `{{secret:NAME}}` |
 | `--capabilities`, `--lsp`, `--browser`, `--phone`, `--wiki`, `--council` | switch on those tool groups |
@@ -403,14 +435,18 @@ run) blocks too. A file with a mistake stops the agent from starting, with the r
 
 ## 16. Routines, evaluation and replay
 
-- **Routines** run a prompt on a schedule (`every 30m`, `daily 08:30`, `weekdays 08:30`, `mon,wed,fri 18:15`) in a folder and a mode.
-  A routine is created **disabled** and read-only; only one runs at a time and only while no conversation is busy. They are managed
+- **Routines** run a prompt on a schedule (`every 30m`, `daily 08:30`, `weekdays 08:30`, `mon,wed,fri 18:15`) in a folder.
+  A routine is created **enabled** and always runs in Automatic, whether or not you are at the PC; different routines run together, the same one never twice at once, and a conversation of yours does not hold one back
+  (unless you set a time to give way). Steps and time per run are optional limits, empty for none. A fixed time missed while the PC was off runs once, late, at start. A request that only you can settle
+  waits in *Waiting for you* while the rest of the run goes on. They are managed
   through the **Cron Jobs** tab: a list with *Turn on/off*, *Run now* and *Delete*, an editor, the latest results of each job, and a small chat at the right to
-  talk a job over. The chat only proposes: *Use in the editor* fills the form, and nothing is saved or turned on until you press *Save* and *Turn on*.
+  talk a job over. The chat only proposes: *Use in the editor* fills the form, and nothing is saved until you press *Save*.
 - **Evaluation**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` runs each task k times on a fresh
-  folder and reports pass@k, pass^k, cost and cache use. These are development comparisons, not headline numbers.
+  folder and reports pass@k, pass^k, cost and cache use (a `--k` below 5 is warned about). These are development comparisons, not headline numbers. Public benchmarks
+  (BFCL, subsets of Terminal-Bench and SWE-bench Pro) are read from a folder you downloaded: `--bfcl DIR`, `--terminal-bench DIR`, `--swebench DIR`.
 - **Replay**: `python -m harness.replay trace.jsonl --mode auto` runs a recorded session again with the recorded model answers and
-  reports the first place where the tool calls differ. It tests the harness, not the model.
+  reports the first place where the tool calls differ. It tests the harness, not the model. The same replay, a masked JSONL export of
+  a conversation and the check of the audit ledger are in the LOGS page, section *Session traces*.
 
 ## 17. Personal skills
 
@@ -437,13 +473,12 @@ The form asks each value with its explanation and type: a date has a picker and 
 appear like the agent's, follow the same permissions and questions, and stay in the history; **Stop** ends it.
 
 **The list.** *Run*, *Edit* (the definition, the parameters, the script, and the earlier versions), *Export* (one `.pskill` file, to keep or to
-copy to another PC by pen drive or e-mail), *Delete* (press twice) and *Import personal skills…*. A skill that arrives from a file, or whose
-files were changed by hand, is **to approve**: read its script and approve it before it can run. One you made yourself is approved.
+copy to another PC by pen drive or e-mail), *Delete* (press twice) and *Import personal skills…*. A skill you made, edited or imported is yours and runs at once;
+nothing needs approving and an edit never withdraws anything.
 
-**Access.** *Restricted* (the usual): the script uses only `tool(...)`, `ai(...)`, `ask(...)`, `say(...)` and plain Python (text, JSON, dates, lists…),
-never files, programs or the network directly, so everything it does goes through the agent's permissions, hooks and audit log. *Free*: the script
-may use anything Python can, with your rights, without those controls; it is saved only after the risk label and its two questions. The check
-on a restricted script is a fence against mistakes, not a wall against someone who means harm: read the script of a skill that comes from others.
+**Access.** The script runs as a program of yours: it may use anything Python can (files, programs, the network), with your rights. What it asks through
+`tool(...)` goes through the agent's permissions, hooks and audit log; the rest of the script does not. There is no limit on its memory, its output or
+its time unless you set a *time limit* in seconds in the editor. Read the script of a skill that comes from others before you run it.
 
 **On a schedule:** in the **Cron Jobs** tab a job can run one of your skills instead of a task you write. Fill in its values once; a date in words such as *today* or
 *tomorrow* is worked out again each time the job runs. The job's mode and rules decide what the skill may do without asking.
@@ -455,13 +490,13 @@ on a restricted script is a fence against mistakes, not a wall against someone w
 | What you see | Why | What to do |
 |---|---|---|
 | A notice that no model is loaded | the server has nothing loaded | *Models*, choose one, *Load* |
-| The conversation is *blocked* | the server refused for good, or the process kept failing | read the note, then *Try again* or close it |
-| "Nobody can confirm in this run" | a headless run met something that needs a question | add `--interactive`, or an `--allow` rule |
-| A command was refused although a rule allows it | the command chains or redirects another | one plain command per call |
-| A tool was stopped after 15 minutes | the default time limit | `--tool-timeout NAME=SECONDS` |
+| The conversation is *blocked* | the server refused for good | read the note, then *Try again* or close it |
+| *New try N in S s* / *being started again* | the model is unreachable or the process stopped; it tries again with longer waits and never gives up by itself | wait, or stop the conversation |
+| "Nobody can confirm in this run" | a run in `plan`, `read_only` or `default` mode, with no one to ask, met something that needs a question | use `auto` (the headless default), `--interactive`, or an `--allow` rule |
+| A command still asks although a rule allows it | a statement of it is not covered by a rule, or it is built at run time (`$(...)`) | allow each program it uses |
+| A tool was stopped after one hour | the default time limit | `tool_timeout_s` in `limits.json`, or `--tool-timeout NAME=SECONDS` |
 | The search says it needs a check | DuckDuckGo limits automatic searches | wait, set another engine, or `BASALT_WEB_SEARCH=off` |
 | A slash command stays in the box | the name is unknown | `/help`; start with a space to send it as text |
-| "The skill … is not approved yet" | the skill is *to approve* | *Settings → Capabilities* |
 | A page was refused | it is on this PC or your network | allow it in the browser settings, if you mean to |
 | Every payment asks you | the limit is 0 until you set it | the Wallet view |
 | `/compact` says to wait | the agent is working | wait for the turn to end, or Stop |
@@ -471,7 +506,7 @@ on a restricted script is a fence against mistakes, not a wall against someone w
 ## 19. What it does not do
 
 - It does not isolate files and network for commands: *Automatic* belongs in a folder you can lose.
-- Basalt is an A2A **client** only; it does not receive tasks from other agents. ACP has no `fs/*` and no `session/load`.
+- Basalt is an A2A **client** only; it does not receive tasks from other agents. The ACP agent has no `terminal/*` and was not tried in a real editor; it does have `session/load`, `authenticate` and `fs/*`.
 - It does not read bank accounts through an aggregator, and Stripe and Google Pay checkouts were not tried on live services.
 - Audio and video need the callAPIcall service; without it the file is kept and the agent says so.
 - Nothing here measures which context strategy is best; that needs the real model.

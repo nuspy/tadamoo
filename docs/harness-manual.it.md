@@ -62,8 +62,8 @@ Quattro modi di usarlo, tutti con le stesse capacità:
 3. Scrivi nel campo e premi **Invio** (**Maiusc+Invio** va a capo). L'agente lavora in sottofondo e la pagina mostra, in ordine, ciò che
    ha scritto, ciò che ha pensato e ogni strumento usato, col risultato. **Ferma** interrompe il turno.
 4. Quando gli servi, chiede: un comando da eseguire, un piano da approvare, una scelta. La risposta è un pulsante; puoi anche scrivere.
-5. Torna più tardi: la colonna a sinistra elenca le tue conversazioni (sotto). Una conversazione inattiva da 30 minuti lascia andare il
-   suo processo e si risveglia dalla cronologia salvata quando scrivi di nuovo.
+5. Torna più tardi: la colonna a sinistra elenca le tue conversazioni (sotto). Una conversazione può lasciare andare il suo processo
+   dopo un tempo di inattività che imposti (`idle_s` in `limits.json`; nessuno di default) e si risveglia dalla cronologia salvata quando scrivi di nuovo.
 
 **La colonna delle conversazioni.** A sinistra della Chat, dalla più recente: clicca su una per aprirla. La stella accanto la rende una
 **preferita**: le preferite sono elencate a parte, sopra le altre. La croce la elimina: premila una volta e chiede *Elimina?*, premi ancora
@@ -104,9 +104,8 @@ Quattro modalità, dalla più prudente alla più libera:
 **Cambiarla mentre lavori.** Premi **Maiusc+Tab** nel campo del messaggio: la modalità passa alla successiva (Chiedi prima, Solo un
 piano, Sola lettura, Automatico, e di nuovo) e l'etichetta la mostra, con il modo di un colore suo: grigio per *Sola lettura*, viola per *Chiedi prima*, verde per *Solo un
 piano*, rosso per *Automatico*. Premere l'etichetta fa lo stesso. Con una conversazione aperta cambia solo quella, dalla sua prossima azione; senza conversazione cambia la
-modalità con cui partirà la prossima. Passare ad **Automatico** la prima volta mostra un'etichetta di rischio evidenziata e chiede due volte (*Ho
-capito il rischio*, poi *Ho letto con attenzione il messaggio precedente e ho capito il rischio*); una volta detto sì non lo chiede più
-finché non chiudi l'app, in nessuna conversazione. Se rifiuti, il giro lo salta.
+modalità con cui partirà la prossima. Passare ad **Automatico** non chiede nulla. Finché la modalità è Automatico, le altre impostazioni che comportano un rischio (la loro
+etichetta evidenziata resta) prendono il tuo sì da sole e non fanno le loro due domande.
 
 **Regole per i comandi.** In *Chat → Impostazioni → Cosa può fare l'agente senza chiedere* (per le nuove conversazioni) scrivi una regola per riga, come `shell_command:python -m pytest*`. Un comando che corrisponde si
 esegue senza chiedere. Una regola di **divieto** vince sempre. Una regola non copre mai un comando che ne concatena o reindirizza un
@@ -114,7 +113,9 @@ altro (`pytest && rm -rf ~` non è `pytest`). In una domanda, il pulsante **Perm
 
 **La regola dei due.** Anche in *Automatico*, un'azione irreversibile chiede di nuovo quando la conversazione ha letto contenuti
 esterni (una pagina web, uno strumento MCP, una telefonata, un appunto richiamato) *e* può raggiungere un segreto o una voce del vault.
-Si controlla a ogni azione.
+Si controlla a ogni azione. Un indirizzo web, una ricerca o un modulo chiede quando la conversazione ha letto contenuti esterni (anche file,
+output di comandi, allegati e note del pianificatore), ha toccato dati privati e l'azione arriva all'esterno; Impostazioni > Portafoglio
+regola quanto è rigida, e un segreto salvato non entra mai in un indirizzo, con nessuna impostazione.
 
 **Cosa le modalità non sono.** Non sono una sandbox del sistema operativo. Un comando gira con i tuoi diritti sui tuoi file e sulla tua
 rete. I comandi dell'agente hanno un ambiente ripulito, nessun input da tastiera, un limite di tempo, output limitato e, su Windows, un
@@ -132,7 +133,7 @@ una nota.
 | `/help` (`/?`) | elenca i comandi |
 | `/clear` (`/new`, `/reset`) | una conversazione nuova e vuota |
 | `/effort [none\|low\|medium\|high\|auto]` | per quanto ragiona il modello; cambia anche l'elenco *Ragionamento* |
-| `/mode [plan\|read\|ask\|auto]` | la modalità (Automatico chiede le sue due conferme) |
+| `/mode [plan\|read\|ask\|auto]` | la modalità |
 | `/plan [cosa]` | modalità piano, poi la tua richiesta |
 | `/permissions` (`/allowed`) | la modalità, le regole e i rifiuti; apre anche le impostazioni |
 | `/settings` (`/config`) | le impostazioni della Chat |
@@ -141,6 +142,7 @@ una nota.
 | `/context` | quanto è pieno il contesto |
 | `/compact` | trasforma la metà più vecchia della conversazione in un riassunto; solo quando nulla è in corso |
 | `/tools`, `/hooks`, `/mcp` | cosa può chiamare la conversazione, quali hook sono attivi, quali server MCP sono partiti |
+| `/audit` | controlla che il registro di ciò che l'agente ha fatto (catena di hash e file di testa) sia integro, leggendo il file com'è ora |
 | `/memory [parole]` | gli ultimi dieci appunti, oppure una ricerca |
 | `/copy [n]` | copia l'ultima risposta (o l'ennesima dalla fine) |
 | `/export` | salva la conversazione come file di testo |
@@ -154,7 +156,7 @@ una nota.
 | `/init` | chiede all'agente di scrivere un `AGENTS.md` per la cartella |
 | `/review`, `/security-review` | gli chiede di rivedere le modifiche nella cartella |
 | `/research domanda` (`/search`) | gli chiede di leggere le fonti vere e di dire quali pagine non ha potuto aprire |
-| `/nome testo` | ogni skill trovata su questo PC (prima serve l'approvazione) |
+| `/nome testo` | ogni skill trovata su questo PC |
 
 Lasciati fuori di proposito: i comandi dell'account, del terminale o del cloud di Claude Code (`/login`, `/usage`, `/theme`, `/vim`,
 `/ide`…).
@@ -187,11 +189,13 @@ conversazione ti dice che potrebbe essere già partito. Dopo di che, o quando il
   copia di ciò che veniva dopo viene conservata. I file non si toccano: annullali dal pannello delle modifiche. Le azioni che restano
   avvenute (un comando, una telefonata, un pagamento, un'azione del browser) sono elencate prima, e devi premere ancora per tornare
   indietro lo stesso.
-- **Checkpoint.** Prima della prima modifica di ogni turno la cartella viene salvata fuori dal progetto. `python -m harness.rewind
+- **Checkpoint.** Prima che un'azione cambi dei file, il loro contenuto precedente viene conservato fuori dal progetto: solo i file che cambiano, di qualunque cartella, senza limite di dimensione. I file che un comando di shell non nomina non sono coperti. *Impostazioni > Checkpoint* (o `/checkpoints on|soft|off|default`) sceglie attivo, attivo senza mai fermare l'azione, o spento, li elenca e ne elimina uno o tutti. `python -m harness.rewind
   --workspace D:\proj` li elenca e `--to ID` ne ripristina uno; le conversazioni hanno `/rewind` e *Torna qui*. Il ritorno fa prima uno
   snapshot di sicurezza, quindi si può a sua volta annullare. Non disfa un comando che l'agente ha eseguito, e lo dice.
 - **Rami.** `/branch` copia una conversazione a una richiesta; *Rami* mostra l'albero. *Esegui entrambi e confronta* manda una richiesta lungo due
-  continuazioni, una dopo l'altra, e mostra le due risposte e i file cambiati da ciascuna, affiancati.
+  continuazioni, una dopo l'altra, e mostra le due risposte e i file cambiati da ciascuna, affiancati. *Messaggi come nodi* elenca i tratti di
+  messaggi tra una biforcazione e l'altra, mostra prima di cambiare quanti token il modello dovrebbe rileggere (cache fredda e calda) e
+  *Unisci e sintetizza* scrive, a richiesta, una sola sintesi di due rami in una nuova conversazione.
 - **Una copia tutta sua.** In una cartella git una conversazione può lavorare in un suo worktree. La pagina Chat non lo offre (non ha una cartella di progetto da copiare); esiste per le conversazioni su una cartella git,
   come un ramo di una che ha già una copia. Ciò che cambia resta lì; guardi il diff di ogni file e applichi quelli che scegli, come modifiche **in staging**, mai
   come commit. Scartare la copia toglie la copia e il suo ramo.
@@ -205,19 +209,23 @@ L'agente può tenere appunti brevi su un progetto e rileggerli nelle conversazio
 - **Digli cosa tenere.** Scrive un appunto solo quando decide di farlo, quindi chiedilo: *«ricorda che la build usa --arch=native»*.
   Tiene un appunto di al massimo 2.000 caratteri con una categoria; lo stesso testo si tiene una volta sola; c'è posto per 5.000
   appunti per progetto.
-- **Cosa torna da solo.** A ogni messaggio che scrivi, fino a quattro appunti che corrispondono alle tue parole vengono aggiunti dopo
-  il tuo messaggio, come dati. L'impostazione è *Iniezione → Recupero in coda* nelle impostazioni della Chat (la predefinita); con le
+- **Cosa torna da solo.** A ogni messaggio che scrivi, gli appunti che hanno abbastanza in comune con le tue parole vengono aggiunti
+  dopo il tuo messaggio, come dati: una parola condivisa vale fino a 1 punto (meno se molti appunti la hanno), una specifica come
+  `sm_120` o `e-mail` fino a 2, le parole comuni (il, di, the, and) non contano mai, e un appunto ha bisogno di 1,5 punti (o di tutte le
+  parole di una richiesta di tre o meno). Si aggiungono al più quattro appunti e 600 token. *Impostazioni → Memorie → Note di progetto*
+  cambia i punti, il numero e il limite di token, ciascuno con la sua spiegazione. L'impostazione è *Iniezione → Recupero in coda* nelle impostazioni della Chat (la predefinita); con le
   altre due scelte non si aggiunge nulla e l'agente chiama `recall` quando vuole.
 - **Vedere e cercare.** `/memory` mostra gli ultimi dieci appunti (ciascuno tagliato a 300 caratteri), `/memory parole` cerca, `/status`
   li conta.
 - **Toglierne uno.** Chiedi all'agente di dimenticarlo (usa l'id dell'appunto) oppure, senza conversazioni aperte, cancella il file
   `memory\<16 cifre esadecimali>.db` nella cartella dati dell'utente (e i file `-wal` e `-shm` accanto, se ci sono) per dimenticare
   tutto il progetto.
-- **Quali appunti stanno insieme.** Un file per percorso di cartella (maiuscole ignorate). Tutte le conversazioni della **Chat**
+- **Quali appunti stanno insieme.** Un file per cartella di progetto (maiuscole ignorate). Tutte le conversazioni della **Chat**
   lavorano nella stessa cartella, quindi condividono una sola memoria; ogni cartella della scheda Agente o della riga di comando ha la
-  sua; una conversazione che lavora in una copia git tutta sua ne ha ancora un'altra. Non c'è esportazione e nulla è condiviso tra PC.
-- **Cosa non è.** La ricerca è per parole, non per significato: «costruito» non trova «costruire», e un appunto che condivide una sola
-  parola con il tuo messaggio può tornare anche se non c'entra. Gli appunti sono conservati come scritti, in chiaro, non cifrati; non
+  sua. Una conversazione che lavora in una copia git tutta sua (un work tree) usa la memoria del repository da cui è nata. Non c'è
+  esportazione e nulla è condiviso tra PC.
+- **Cosa non è.** La ricerca è per parole, non per significato: «costruire» trova «costruiremo» ma «costruito» no, e un appunto che condivide
+  parole specifiche con il tuo messaggio può tornare anche se non c'entra. Gli appunti sono conservati come scritti, in chiaro, non cifrati; non
   chiedergli di ricordare una password o una chiave. Un appunto che è stato indotto a tenere da una pagina letta tornerà, come dato che
   ha l'ordine di non eseguire; leggi `/memory` ogni tanto.
 - **Permessi.** In *Chiedi prima* e *Automatico* scrive e cancella appunti senza chiedere; in *Sola lettura* chiede prima di
@@ -264,12 +272,20 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
   avvicina al suo limite, dal più vecchio, con il testo completo salvato e nominato; gli errori non si tagliano mai. `/context` mostra
   l'uso; `/compact` riassume su richiesta la metà più vecchia. Le impostazioni della Chat scelgono la politica per un contesto pieno:
   *Ferma al limite*, *Finestra scorrevole* o *Compatta*.
+- **Lettura dei file e output lunghi.** `read_file` restituisce ciò che si chiede: il file intero, oppure le righe da `offset` a
+  `offset + limit - 1`; un file che non sta in una risposta finisce con una riga che dice le righe mostrate, il totale e l'offset con cui
+  proseguire. I risultati rumorosi (output di comandi, ricerche) sono ridotti alle prime e ultime righe e a tutte le righe di errore,
+  con il numero di righe nascoste e il testo completo salvato e nominato; una riga lunghissima è tagliata nel mezzo con il numero di
+  caratteri nascosti. Un file letto apposta, una skill e un risultato salvato riletto non sono mai accorciati.
 - **Schemi di contesto.** Le impostazioni della Chat hanno sei interruttori (iniezione, riscrittura, potatura, riassunto, rami,
   versioni), ognuno con la descrizione di cosa fa, vantaggi, svantaggi e cosa fa alla cache dell'inizio del server. Lasciali come
   sono finché non hai un motivo.
-- **Documenti di riferimento.** Sulla riga di comando `--reference DIR` offre i documenti come blocco fisso (veloce dopo il primo
-  turno, ma riempie il contesto) o cercati (contesto piccolo, i passaggi arrivano come dati non fidati); `auto` sceglie in base alla
-  dimensione.
+- **Documenti di riferimento.** *Impostazioni → Memorie → Documenti di riferimento* (o `--reference DIR` sulla riga di comando) offre i
+  file .md e .txt di una cartella come blocco fisso (veloce dopo il primo turno, ma riempie il contesto) o cercati (contesto piccolo, i
+  passaggi arrivano come dati non fidati); `auto` sceglie in base alla dimensione. Valgono per le conversazioni che iniziano dopo il salvataggio.
+- **La wiki.** *Impostazioni → Memorie → Wiki (wikibridge)* attiva `wiki_search`, `wiki_page` e `wiki_context` nella Chat e nell'Agente, con
+  l'indirizzo del servizio (predefinito `http://127.0.0.1:8775`) e un progetto; un passo di piano che interroga la wiki li usa.
+  *Verifica la connessione* dice l'indirizzo provato e, se non ha risposto, perché. Una chiave, se il servizio la chiede, è `BASALT_WIKIBRIDGE_KEY`.
 - **Cache.** L'inizio del prompt resta identico byte per byte da un turno all'altro, così il server riusa la sua cache. Per questo gli
   appunti e i riassunti dei piani stanno dopo il tuo messaggio, mai nel blocco di sistema.
 
@@ -277,14 +293,22 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
 
 - **Da dove vengono.** Basalt legge, e non esegue mai, le skill, i plugin e i server MCP installati per altri strumenti su questo PC
   (`~/.claude/skills`, il `.claude/skills` del progetto, i plugin, `.mcp.json` e simili).
-- **Niente è attivo finché non lo approvi.** In *Impostazioni → Capacità* apri una voce, leggi il suo testo (una skill) o il suo
-  comando (un server) e approva. L'approvazione è legata a ciò che hai letto; se il file cambia, torna *da approvare*.
-- **Usarle.** L'agente cerca (`find_capability`), carica una skill approvata (`load_capability`) o chiama uno strumento di un server
-  approvato (`call_capability`, che chiede come ogni azione irreversibile). Dalla Chat puoi chiamare una skill con `/nome testo`.
+- **Ciò che si trova è utilizzabile.** Non c'è un passaggio di approvazione: una voce su questo PC funziona a meno che tu non la spenga in
+  *Impostazioni → Capacità*, dove *Vedi il testo* mostra ciò che l'agente legge (una skill) o esegue (un server). Modificare un file non
+  ritira nulla.
+- **Le tue cartelle di skill.** In *Impostazioni → Capacità → Cartelle di skill* (e con `--skills DIR` da riga di comando) indichi
+  cartelle di skill `SKILL.md`. Le loro skill compaiono lì e `load_skill` le carica così come sono ora.
+- **Usarle.** L'agente cerca (`find_capability`), carica una skill (`load_capability`) o chiama uno strumento di un server: uno strumento che il server
+  dichiara di sola lettura passa da `read_capability` (nessuna domanda, ammesso in modalità piano), ogni altro da `call_capability`, che
+  chiede come ogni azione irreversibile; l'agente può leggere gli argomenti di uno strumento prima di chiamarlo). Se un server si ferma per chiederti dei valori, la domanda compare nella conversazione con il nome del server: viene dal
+  server, quindi non scrivere password o chiavi. Dalla Chat puoi chiamare una skill con `/nome testo`.
 - **Manca qualcosa?** L'agente può cercare online un server MCP o una skill (`find_online_capability`), mostrarti i cinque migliori con
   un punteggio, le avvertenze e il comando che verrebbe eseguito, e installare quello che scegli. All'installazione non si esegue
   nulla; il punteggio misura popolarità e manutenzione, **non la sicurezza**. Le impostazioni sono in *Impostazioni → Capacità →
-  Cerca online*. Attivare «installa da solo il migliore» mostra un'etichetta di rischio e chiede due volte.
+  Cerca online*. Attivare «installa da solo il migliore» mostra un'etichetta di rischio e chiede due volte. Quando non c'è nessuno a cui chiedere (un lavoro senza
+  supervisione), ciò che trova aspetta in *Impostazioni → Capacità → Richieste di installazione*, con la fonte, che cosa fa ciascuno,
+  vantaggi e svantaggi, e non viene installato nulla finché non premi *Installa* su uno (o rispondi alla stessa domanda nella Chat);
+  *Rifiuta* chiude la richiesta.
 - **Server MCP remoti** che richiedono un accesso mostrano un pulsante **Accedi** (OAuth); il token resta nel gestore credenziali di
   Windows.
 
@@ -297,7 +321,10 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
   del sistema; un passo di ricerca o di lettura di una pagina elenca allo stesso modo i siti che ha usato.
 - **Il browser.** Con gli strumenti del browser l'agente guida Edge o Chrome per compilare moduli, prenotare e comprare. Se le
   conversazioni hanno un browser, se mostra una finestra, se può aprire pagine di questo PC e se conserva gli accessi si decide nella
-  vista **Portafoglio**; ogni scelta rischiosa ha un'etichetta evidenziata e due domande.
+  vista **Portafoglio**; ogni scelta rischiosa ha un'etichetta evidenziata e due domande. In *Automatico* il browser non chiede nulla: pagine di
+  questo PC o della rete, permessi delle pagine (fotocamera, posizione, notifiche), finestre di conferma e richiesta, download e screenshot dopo un
+  valore del vault sono tutti consentiti. Sotto quel livello ognuno te lo chiede (questa volta, questa conversazione o sempre; una regola può
+  nominare un sito). Le pagine lunghe si leggono a pezzi di elementi e di parole, mai tagliate.
 - **Segreti.** L'agente scrive `{{secret:NOME}}` dove serve una credenziale e non la vede mai; il valore viene inserito all'ultimo
   momento e mascherato in ciò che torna. **Il vault** (Portafoglio) tiene cifrati carte, dati personali e accessi; l'agente scrive
   `{{vault:VOCE.CAMPO}}`, e il valore va solo verso i siti che la voce indica.
@@ -305,11 +332,11 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
   oppure il segreto TOTP, così Basalt fa il codice da sé. L'ultimo permette l'accesso a chiunque possa usare Basalt su questo PC; te
   lo dice una volta.
 - **Pagamenti.** Il limite lo imposti tu, a qualunque importo; finché non lo imposti, ogni pagamento ti chiede. Una **rinuncia** lascia
-  che l'agente paghi da solo fino a un massimale per pagamento e a uno cumulativo finché non scade, dopo una dichiarazione dettata e due
+  che l'agente paghi da solo fino a un massimale per pagamento e, se lo imposti, a uno cumulativo, finché non finisce (nessuna scadenza se non la imposti), dopo una dichiarazione dettata e due
   finestre con il tuo nome riscritto; oltre i massimali chiede di nuovo. Un pagamento si può fermare dal Portafoglio in ogni momento, e
   da allora i campi della carta non vengono più rilasciati. Ciò che poi addebita il modulo di un commerciante è limitato dal limite
   della carta stessa, non da Basalt.
-- **Telefonate.** Sono spente di default e, una volta accese, ti chiedono **ogni volta**, anche in *Automatico*. La chiamata si apre
+- **Telefonate.** Sono spente di default e, una volta accese, ti chiedono conferma sotto *Automatico* (questa volta, in questa conversazione o sempre); in *Automatico* non si chiede nulla. La chiamata si apre
   dicendo che un assistente IA telefona per tuo conto. Nessuna telefonata vera è stata fatta in un test.
 - **Da cosa non protegge.** L'agente gira come il tuo stesso utente. Un programma che gira come te può raggiungere più di quanto il
   vault possa nascondere; i comandi dell'agente non possono nominare il vault, i file dei pagamenti o gli accessi del browser, ma è
@@ -334,12 +361,12 @@ aspetta.
 - Nella Chat l'agente può leggere i piani e, **col tuo sì**, crearli e cambiarli. Il sì è o una citazione delle tue parole nel tuo
   ultimo messaggio, o una domanda fatta con la modifica vera (il titolo, i passi e il diff reali) a cui rispondi con un pulsante. Un
   piano va letto prima di essere cambiato, e un piano andato avanti nel frattempo viene rifiutato finché non lo si rilegge.
-- `ask_user` chiude un turno con una domanda e dei pulsanti; ciò che premi o scrivi è il tuo messaggio successivo.
+- `ask_user` chiude un turno con una scheda di domande (scelte, una riga tua, testo libero o sì/no, la risposta consigliata per prima); la tua risposta, o un salto, o una risposta nella chat, è il tuo messaggio successivo. Senza nessuno davanti sceglie le risposte consigliate e lo dice.
 - **Eventi dal mondo** si possono dare ai piani (`POST /api/plans/events`) o leggere da feed RSS, da una casella di posta (solo le
-  intestazioni) o da un bot Telegram. La pompa degli eventi e il filtro nel cloud sono **spenti** finché non li accendi in
-  *Impostazioni*; il filtro nel cloud richiede anche il tuo consenso e una chiave, sostituisce i nomi e non manda dati sanitari se
-  non li spunti.
-- Nulla in un piano cambia alle tue spalle: il planner prepara solo proposte, che approvi tu.
+  intestazioni) o da un bot Telegram. La pompa degli eventi è **accesa**: parte con il server e dorme finché non arriva nulla (si spegne in *Impostazioni*). Il filtro nel cloud è **spento** finché non lo accendi;
+  richiede il tuo consenso e una chiave, sostituisce i nomi e manda tutta la scheda del piano, salute e allergie dei
+  partecipanti comprese, a meno che togli una spunta.
+- Il planner prepara proposte e, di default (*Impostazioni > Planner*, *Applica le modifiche in automatico, tranne se coinvolgono persone, prenotazioni o risorse che non controllo*), le applica subito e le scrive nella cronologia. Un passo che coinvolge altre persone, una telefonata, una prenotazione o un pagamento già fatti aspetta te in *Modifiche proposte* mentre il resto del piano prosegue. Spegni l'impostazione per approvare tutto da te.
 
 ## 12a. File nelle risposte
 
@@ -357,12 +384,12 @@ deployment e interazioni come diagrammi che la pagina disegna; *Sorgente del dia
 ## 12c. Telefoni
 
 *Impostazioni > Telefoni* prepara l'app Basalt per un telefono. 1) **Tailscale** su questo PC: la pagina lo installa (con winget), lo collega e mostra l'indirizzo che questo PC ha nella tua rete privata. 2) **Lascia
-collegare i telefoni**: il server ascolta anche su quell'indirizzo, solo per Tailscale, mai su internet. 3) **Una chiave per ogni telefono**: dai un nome al telefono, premi *Crea una chiave* e inquadra il
-codice QR con l'app (o copia la chiave). La chiave resta su questo PC, cifrata, quindi *Mostra il codice* nell'elenco ne rimostra il QR (per esempio dopo aver reinstallato l'app); il telefono tiene le sue impostazioni negli aggiornamenti, e il backup di Android le ripristina dopo una disinstallazione e una reinstallazione se il backup del telefono è attivo. Per fermare un telefono, togli la sua chiave. Sul telefono installa Tailscale dal Play Store e accedi con lo stesso account. Un telefono può
-usare il modello, le conversazioni, i file e le routine; non raggiunge il portafoglio, la cassaforte, le impostazioni né il caricamento dei modelli.
+collegare i telefoni**: il server ascolta anche per loro, di norma solo sull'indirizzo Tailscale, mai su internet; *Ascolta su* lo cambia in tutte le interfacce di rete (0.0.0.0) o in un solo indirizzo IPv4 che scrivi, per un telefono che raggiunge questo PC sulla rete di casa senza Tailscale (il collegamento è HTTP semplice: usalo solo su una rete di cui ti fidi). 3) **Una chiave per ogni telefono**: dai un nome al telefono, premi *Crea una chiave* e inquadra il
+codice QR con l'app (o copia la chiave). La chiave resta su questo PC, cifrata, quindi *Mostra il codice* nell'elenco ne rimostra il QR (per esempio dopo aver reinstallato l'app); il telefono tiene le sue impostazioni negli aggiornamenti, e il backup di Android le ripristina dopo una disinstallazione e una reinstallazione se il backup del telefono è attivo. Per fermare un telefono, togli la sua chiave. Sul telefono installa Tailscale dal Play Store e accedi con lo stesso account. Un telefono con la sua chiave può
+usare il modello, le conversazioni, qualunque file o cartella di questo PC, le routine e i piani, e il resto che risponde a un client con una chiave; ciò che risponde solo a questo PC stesso (portafoglio, cassaforte, impostazioni, caricamento dei modelli) resta su questo PC, e un telefono lavora in qualunque cartella.
 
-L'app Android (`mobile/`, vedi il suo README) richiede poi solo l'indirizzo e la chiave: inquadra il codice QR nelle sue Impostazioni. Il suo pulsante **+** offre *Immagine*, *Foto* e *Documenti/File* (*Locale*, *Server*: le cartelle aggiunte
-sul PC, e *Rete*: altri dispositivi, via SMB); il microfono scrive ciò che dici e le risposte si possono far leggere ad alta voce, con la voce e il riconoscimento del telefono.
+L'app Android (`mobile/`, vedi il suo README) richiede poi solo l'indirizzo e la chiave: inquadra il codice QR nelle sue Impostazioni. Il suo pulsante **+** offre *Immagine*, *Foto* e *Documenti/File* (*Locale*, *Server*: prima le cartelle aggiunte
+sul PC, poi i dischi, e *Rete*: altri dispositivi, via SMB); il microfono scrive ciò che dici e le risposte si possono far leggere ad alta voce, con la voce e il riconoscimento del telefono.
 
 ## 13. La scheda Agente
 
@@ -389,10 +416,12 @@ Opzioni comuni (tutte sono in [harness.md](harness.md#running-the-agent)):
 
 | Opzione | Significato |
 |---|---|
-| `--permission-mode plan\|read_only\|default\|auto` | come le modalità della sezione 4 |
+| `--permission-mode plan\|read_only\|default\|auto` | come le modalità della sezione 4; un'esecuzione senza interfaccia usa `auto` salvo `--interactive` |
 | `--allow PATTERN`, `--deny PATTERN` | regole per i comandi; un divieto vince |
 | `--interactive` o `--ask-server` | chiede sul terminale, o sulle pagine del server, prima di azioni rischiose, pagamenti e piani |
-| `--max-turns`, `--timeout-seconds`, `--max-tokens-budget` | si ferma dopo tanto |
+| `--timeout-seconds`, `--max-tokens-budget` | si ferma dopo tanto |
+| `--max-turns` | più giri del modello in una risposta; non indicato o sotto 1: nessun limite |
+| `--max-failed-attempts` | chiamate, comandi e controlli del progetto falliti che una richiesta può usare prima di essere fermata come fallita (la risposta lo dice); non indicato o sotto 1: nessun limite |
 | `--tool-timeout [NOME=]SECONDI` | limite di tempo per strumento; 0 per nessuno |
 | `--secret-env NOME[=host,host]` | lascia che l'agente scriva `{{secret:NOME}}` |
 | `--capabilities`, `--lsp`, `--browser`, `--phone`, `--wiki`, `--council` | accendono quei gruppi di strumenti |
@@ -430,14 +459,17 @@ scaduto, non autorizzato a girare) blocca anch'esso. Un file con un errore imped
 
 ## 16. Routine, valutazione e riesecuzione
 
-- Le **routine** eseguono un prompt secondo un orario (`every 30m`, `daily 08:30`, `weekdays 08:30`, `mon,wed,fri 18:15`) in una cartella
-  e in una modalità. Una routine nasce **disattivata** e in sola lettura; ne gira una alla volta e solo quando nessuna conversazione è
-  occupata. Si gestiscono dalla scheda **Cron Jobs**: un elenco con *Accendi/Spegni*, *Esegui ora* ed *Elimina*, un editor, gli ultimi risultati di ogni job e una
-  piccola chat a destra per discuterne uno. La chat propone soltanto: *Usa nell'editor* riempie il modulo, e nulla è salvato o acceso finché non premi *Salva* e *Accendi*.
+- Le **routine** eseguono un prompt secondo un orario (`every 30m`, `daily 08:30`, `weekdays 08:30`, `mon,wed,fri 18:15`) in una cartella.
+  Una routine nasce **accesa** e gira sempre in Automatica, che tu sia al PC o no; routine diverse girano insieme, la stessa mai due volte insieme, e una tua conversazione non ne trattiene nessuna
+  (a meno che tu imposti un tempo per cedere il passo). Passi e tempo per esecuzione sono limiti facoltativi, vuoti per nessuno. Un orario fisso perso a PC spento viene eseguito una volta, in ritardo, all'avvio.
+  Una richiesta che solo tu puoi risolvere resta in *Ti aspettano* mentre il resto dell'esecuzione va avanti. Si gestiscono dalla scheda **Cron Jobs**: un elenco con *Accendi/Spegni*, *Esegui ora* ed *Elimina*, un editor, gli ultimi risultati di ogni job e una
+  piccola chat a destra per discuterne uno. La chat propone soltanto: *Usa nell'editor* riempie il modulo, e nulla è salvato finché non premi *Salva*.
 - **Valutazione**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` esegue ogni compito k volte su una
-  cartella nuova e riporta pass@k, pass^k, costo e uso della cache. Sono confronti di sviluppo, non numeri da titolo.
+  cartella nuova e riporta pass@k, pass^k, costo e uso della cache (un `--k` sotto 5 viene segnalato). Sono confronti di sviluppo, non numeri da titolo. I benchmark pubblici
+  (BFCL, sottoinsiemi di Terminal-Bench e SWE-bench Pro) si leggono da una cartella che hai scaricato tu: `--bfcl DIR`, `--terminal-bench DIR`, `--swebench DIR`.
 - **Riesecuzione**: `python -m harness.replay trace.jsonl --mode auto` rifà una sessione registrata con le risposte registrate del modello
-  e riporta il primo punto in cui le chiamate agli strumenti divergono. Prova l'harness, non il modello.
+  e riporta il primo punto in cui le chiamate agli strumenti divergono. Prova l'harness, non il modello. La stessa riesecuzione,
+  l'esportazione JSONL mascherata di una conversazione e il controllo del registro di audit sono nella pagina LOGS, sezione *Tracce delle sessioni*.
 
 ## 17. Skill personali
 
@@ -466,15 +498,12 @@ sue chiamate agli strumenti compaiono come quelle dell'agente, seguono gli stess
 **Ferma** la interrompe.
 
 **L'elenco.** *Esegui*, *Modifica* (la definizione, i parametri, lo script e le versioni precedenti), *Esporta* (un solo file `.pskill`, da tenere o
-da copiare su un altro PC con una chiavetta o per e-mail), *Elimina* (premi due volte) e *Importa skill personali…*. Una skill che arriva da un
-file, o i cui file sono stati cambiati a mano, è **da approvare**: leggi lo script e approvalo prima che possa girare. Una che hai fatto tu è
-approvata.
+da copiare su un altro PC con una chiavetta o per e-mail), *Elimina* (premi due volte) e *Importa skill personali…*. Una skill che hai fatto,
+modificato o importato è tua e gira subito; nulla va approvato e una modifica non ritira nulla.
 
-**Accesso.** *Ristretto* (il solito): lo script usa solo `tool(...)`, `ai(...)`, `ask(...)`, `say(...)` e Python semplice (testo, JSON, date,
-liste…), mai file, programmi o rete direttamente, quindi tutto ciò che fa passa dai permessi, dagli hook e dal registro di audit dell'agente.
-*Libero*: lo script può usare tutto ciò che Python sa fare, con i tuoi diritti, senza quei controlli; si salva solo dopo l'etichetta di rischio e
-le sue due domande. Il controllo su uno script ristretto è una staccionata contro gli errori, non un muro contro chi vuole fare danno: leggi lo
-script di una skill che viene da altri.
+**Accesso.** Lo script gira come un tuo programma: può usare tutto ciò che Python sa fare (file, programmi, rete), con i tuoi diritti. Ciò che chiede
+con `tool(...)` passa dai permessi, dagli hook e dal registro di audit dell'agente; il resto dello script no. Non ci sono limiti di memoria, di output
+o di tempo, a meno che tu non imposti un *limite di tempo* in secondi nell'editor. Leggi lo script di una skill che viene da altri prima di eseguirla.
 
 **A un orario:** nella scheda **Cron Jobs** un job può eseguire una delle tue skill invece di un compito scritto da te. Compili i valori una volta; una data in parole come *oggi*
 o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job decidono cosa la skill può fare senza chiedere.
@@ -486,13 +515,13 @@ o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job
 | Cosa vedi | Perché | Cosa fare |
 |---|---|---|
 | Un avviso che non c'è un modello caricato | il server non ha nulla in memoria | *Modelli*, scegline uno, *Carica* |
-| La conversazione è *bloccata* | il server ha rifiutato definitivamente, o il processo continuava a fallire | leggi la nota, poi *Riprova* o chiudila |
-| «Nobody can confirm in this run» | un'esecuzione senza interfaccia ha incontrato qualcosa che richiede una domanda | aggiungi `--interactive`, o una regola `--allow` |
+| La conversazione è *bloccata* | il server ha rifiutato definitivamente | leggi la nota, poi *Riprova* o chiudila |
+| *Nuovo tentativo N tra S s* / *viene riavviato* | il modello non risponde o il processo si è fermato; riprova con attese sempre più lunghe e non si arrende da solo | aspetta, oppure ferma la conversazione |
+| «Nobody can confirm in this run» | un'esecuzione in modalità `plan`, `read_only` o `default`, senza nessuno a cui chiedere, ha incontrato qualcosa che richiede una domanda | usa `auto` (il default senza interfaccia), `--interactive`, o una regola `--allow` |
 | Un comando è stato rifiutato anche se una regola lo permette | il comando ne concatena o reindirizza un altro | un solo comando semplice per chiamata |
-| Uno strumento si è fermato dopo 15 minuti | il limite di tempo predefinito | `--tool-timeout NOME=SECONDI` |
+| Uno strumento si è fermato dopo un'ora | il limite di tempo predefinito | `tool_timeout_s` in `limits.json`, o `--tool-timeout NOME=SECONDI` |
 | La ricerca dice che serve un controllo | DuckDuckGo limita le ricerche automatiche | aspetta, imposta un altro motore, o `BASALT_WEB_SEARCH=off` |
 | Un comando con la barra resta nel campo | il nome è sconosciuto | `/help`; inizia con uno spazio per inviarlo come testo |
-| «La skill … non è ancora approvata» | la skill è *da approvare* | *Impostazioni → Capacità* |
 | Una pagina è stata rifiutata | è su questo PC o sulla tua rete | permettila nelle impostazioni del browser, se vuoi |
 | Ogni pagamento ti chiede | il limite è 0 finché non lo imposti | la vista Portafoglio |
 | `/compact` dice di aspettare | l'agente sta lavorando | aspetta la fine del turno, o Ferma |
@@ -502,7 +531,7 @@ o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job
 ## 19. Cosa non fa
 
 - Non isola file e rete per i comandi: *Automatico* va in una cartella che puoi perdere.
-- Basalt è solo un **client** A2A; non riceve compiti da altri agenti. ACP non ha `fs/*` né `session/load`.
+- Basalt è solo un **client** A2A; non riceve compiti da altri agenti. L'agente ACP non ha `terminal/*` e non è stato provato in un editor vero; ha invece `session/load`, `authenticate` e `fs/*`.
 - Non legge i conti bancari tramite un aggregatore, e i pagamenti con Stripe e Google Pay non sono stati provati su servizi reali.
 - Audio e video richiedono il servizio callAPIcall; senza, il file viene conservato e l'agente lo dice.
 - Nulla qui misura quale strategia di contesto sia la migliore; serve il modello vero.

@@ -10,7 +10,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from serve.config import PARALLEL_MAX, REMOVED_ENGINE_KEYS, build_parser, parse_settings
+from serve.config import PARALLEL_MAX, REMOVED_ENGINE_KEYS, SIDE_SLOT_DEFAULT, SIDE_SLOT_MIN, build_parser, parse_settings
 from serve.engine.vision import VISION_MODES, vision_mode
 
 KV_MODES = ("fp16", "int8", "q4_0", "k8v4")          # the engine's --kv (q4 is read as q4_0)
@@ -27,7 +27,7 @@ FIELDS = (("server", "port"), ("server", "parallel"), ("server", "vision"),
           ("engine", "expert-cache"), ("engine", "prefill"))
 READ_ONLY = (("server", "model"),)
 # the Loader's fields: the settings page's engine fields and the memory and slot switches
-LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-full-context"), ("server", "vision"),
+LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-full-context"), ("server", "side-slot"), ("server", "vision"),
                  ("server", "vision-projector"), ("server", "vision-hold"),
                  ("engine", "max-context"), ("engine", "kv"), ("engine", "prefill"), ("engine", "spec"),
                  ("engine", "relaxed-drafting"), ("engine", "expert-cache"), ("engine", "resident-experts"),
@@ -35,7 +35,7 @@ LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-fu
                  # memory and cache
                  ("engine", "kv-resident"), ("engine", "resident-budget-gib"), ("engine", "mmap-experts"),
                  ("engine", "adapt-swaps"), ("engine", "prefill-cpu-share"), ("engine", "vram-elastic"),
-                 ("engine", "release-vram-commit"), ("engine", "expert-profile-save"),
+                 ("engine", "keep-vram-commit"), ("engine", "expert-profile-save"),
                  ("engine", "expert-profile-save-every"),
                  # the conversation cache in RAM
                  ("engine", "prompt-cache"), ("engine", "prompt-cache-every"), ("engine", "prompt-cache-root"),
@@ -44,6 +44,9 @@ LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-fu
                  # context extension, fixed for the run
                  ("engine", "rope-scaling"), ("engine", "rope-scale"), ("engine", "rope-freq-base"),
                  ("server", "grammar"), ("server", "reasoning-budget-tokens"))
+# the secret of the changes through /api/*: its own route, never part of the values the pages read back
+CONTROL_FIELDS = (("server", "control-secret"), ("server", "control-secret-value"))
+CONTROL_SECRET_MAX = 200
 # the model a load profile or the Loader writes (with the API name, when the file sets one)
 MODEL_FIELDS = (("server", "model"), ("server", "alias"))
 PLE_IO_MODES = ("direct", "mmap", "ram")             # the engine's --ple-io
@@ -113,6 +116,13 @@ def check_value(section: str, key: str, value):
         return _whole(value, what, 1, 65535)
     if key == "parallel":
         return _whole(value, what, 1, PARALLEL_MAX)
+    if key == "side-slot":                               # the technical session: 0 (off) or its context in tokens
+        if isinstance(value, bool):
+            return SIDE_SLOT_DEFAULT if value else 0
+        n = _whole(value, what, 0, CONTEXT_MAX)
+        if 0 < n < SIDE_SLOT_MIN:
+            raise ValueError(f"{what}: 0 (off) or a number of tokens from {SIDE_SLOT_MIN}, not {value!r}")
+        return n
     if key == "vision":
         value = {"on": "0", "peer": "1"}.get(str(value).strip().lower(), value)   # the old names of a card-numbered encoder
         try:
@@ -166,7 +176,12 @@ def check_value(section: str, key: str, value):
         except ValueError:
             raise ValueError(f"{what}: auto, auto:8192, auto:16384, auto:32768 or a chunk size in tokens, "
                              f"not {value!r}") from None
-    if key in ("resident-experts", "slot-full-context", "mmap-experts", "vram-elastic", "release-vram-commit", "grammar"):
+    if key == "control-secret-value":
+        text = value if isinstance(value, str) else ""
+        if not text.strip() or len(text) > CONTROL_SECRET_MAX or any(not 32 <= ord(c) <= 126 for c in text):
+            raise ValueError(f"{what}: one line of letters, digits and signs without accents, up to {CONTROL_SECRET_MAX} characters")
+        return text
+    if key in ("resident-experts", "slot-full-context", "mmap-experts", "vram-elastic", "keep-vram-commit", "grammar", "control-secret"):
         if not isinstance(value, bool):
             raise ValueError(f"{what}: true or false, not {value!r}")
         return value
@@ -346,6 +361,12 @@ def save(path: str, changes: dict, fields=FIELDS) -> dict:
     """Validate and write the changes; {"changed": [...], "values": {...}}. The old file is kept as FILE.bak."""
     with _write_lock:
         return _save(path, changes, fields)
+
+
+def control_secret_state(path: str) -> dict:
+    """Whether the file asks for the secret and whether it holds one; the secret itself is never returned."""
+    values = values_of(read_file(path), CONTROL_FIELDS)
+    return {"enabled": values.get("server.control-secret") is True, "set": bool(values.get("server.control-secret-value"))}
 
 
 def model_of(path: str) -> str | None:

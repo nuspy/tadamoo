@@ -134,9 +134,11 @@ def meaning_conflicts(subject: Dict[str, Any], views: List[Dict[str, Any]], ask:
 def client_ask(client: Any, timeout: float = 120.0) -> Callable[[List[Dict[str, str]]], str]:
     """The local model as the comparison's reader."""
     from harness.client import extract_reasoning_and_content
+    from harness.side import side_extra_for
 
     def ask(messages: List[Dict[str, str]]) -> str:
-        resp = client.chat_completion(messages=messages, temperature=0.0, max_tokens=700, timeout=timeout, extra={"reasoning_effort": "none"})
+        side = side_extra_for(client, "planner", sum(len(str(m.get("content"))) for m in messages), 700)       # in the session when it fits
+        resp = client.chat_completion(messages=messages, temperature=0.0, max_tokens=700, timeout=timeout, extra={"reasoning_effort": "none", **side})
         _, content = extract_reasoning_and_content(resp["choices"][0]["message"])
         return content
     return ask

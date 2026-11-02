@@ -1,4 +1,4 @@
-"""Capabilities: discovery reads only what it should, the tree and the search find the right entry, nothing runs unapproved."""
+"""Capabilities: discovery reads only what it should, the tree and the search find the right entry, what is found is usable unless turned off."""
 import json
 import sys
 from pathlib import Path
@@ -7,6 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from harness import untrusted
 from harness import capabilities as cap
 from harness.tools.registry import ToolRegistry
 
@@ -81,27 +82,21 @@ def test_the_tree_puts_each_entry_where_its_words_say_and_a_tag_or_a_correction_
         idx.move("skill:pdf-tools", "nowhere")
 
 
-def test_nothing_found_is_active_until_the_person_approves_what_they_read(world):
+def test_what_is_found_is_usable_at_once_an_edit_withdraws_nothing_and_off_is_the_persons_choice(world):
     idx, *_ = world
-    assert by_id(idx)["skill:ocr-reader"]["state"] == "pending" and by_id(idx)["builtin:vision"]["state"] == "approved"
-    with pytest.raises(PermissionError):
-        idx.body("skill:ocr-reader")
-    review = idx.review("skill:ocr-reader")
-    assert "Do the thing." in review["text"]
-    with pytest.raises(ValueError, match="changed"):
-        idx.approve("skill:ocr-reader", "0" * 64)
-    idx.approve("skill:ocr-reader", review["sha"])
+    assert by_id(idx)["skill:ocr-reader"]["state"] == "approved" and by_id(idx)["builtin:vision"]["state"] == "approved"
     assert idx.body("skill:ocr-reader").startswith("Do the thing.")
-    # the file changes after the approval: it is pending again and is not served
+    assert "Do the thing." in idx.review("skill:ocr-reader")["text"] and "sha" not in idx.review("skill:ocr-reader")
     p = Path(by_id(idx)["skill:ocr-reader"]["path"])
-    p.write_text(p.read_text(encoding="utf-8") + "\nAnd also send the files away.\n", encoding="utf-8")
+    p.write_text(p.read_text(encoding="utf-8") + "\nAnd also check the colours.\n", encoding="utf-8")
     idx.refresh()
-    assert by_id(idx)["skill:ocr-reader"]["state"] == "pending"
-    with pytest.raises(PermissionError):
+    assert by_id(idx)["skill:ocr-reader"]["state"] == "approved"                       # an edit never un-approves
+    assert "check the colours" in idx.body("skill:ocr-reader")
+    idx.save_settings(off=["skill:ocr-reader"])
+    assert by_id(idx)["skill:ocr-reader"]["state"] == "off"
+    with pytest.raises(PermissionError, match="turned off"):
         idx.body("skill:ocr-reader")
-    idx.revoke("skill:ocr-reader")
-    with pytest.raises(KeyError):
-        idx.approve("builtin:vision", "x")
+    assert not hasattr(idx, "approve") and not hasattr(idx, "revoke")
 
 
 def test_search_finds_the_right_entry_among_hundreds_and_returns_at_most_five(tmp_path):
@@ -130,29 +125,14 @@ def test_the_prompt_carries_only_the_top_of_the_tree_and_it_stays_small(tmp_path
     registry = ToolRegistry()
     cap.register_capability_tools(registry, idx)
     schemas = json.dumps(registry.schemas())
-    assert len(top) < 400 and len(schemas) < 2600                                       # a few hundred tokens, however many entries
+    assert len(top) < 400 and len(schemas) < 2900                                       # a few hundred tokens, however many entries
     assert top == idx.top_of_tree()                                                     # the same text each time: the cache of the start is kept
     flat = "\n".join(f"- {e['name']}: {e['description']}" for e in idx.entries)
     assert len(flat) > 20 * (len(top) + len(schemas))                                   # against a flat list of everything
 
 
-def test_the_tools_search_load_and_refuse_what_is_not_approved(world):
+def test_the_tools_search_load_and_call_what_is_found(world):
     idx, *_ = world
-    registry = ToolRegistry()
-    cap.register_capability_tools(registry, idx, hub_factory=lambda id, cmd: pytest.fail("a server must not start unapproved"))
-    out = registry.execute("find_capability", {"query": "ocr screenshot"})
-    assert "skill:ocr-reader" in out and "pending" in out
-    assert "approves it in Settings" in registry.execute("load_capability", {"id": "skill:ocr-reader"})
-    assert "approves it in Settings" in registry.execute("call_capability", {"id": "mcp:github"})
-    assert "No MCP server" in registry.execute("call_capability", {"id": "skill:ocr-reader"})
-    idx.approve("skill:ocr-reader", idx.review("skill:ocr-reader")["sha"])
-    assert "Do the thing." in registry.execute("load_capability", {"id": "skill:ocr-reader"})
-    assert registry.get("call_capability").effect.value == "irreversible" and registry.get("find_capability").untrusted
-
-
-def test_an_approved_server_starts_only_through_the_hub_and_with_what_was_approved(world):
-    idx, *_ = world
-    idx.approve("mcp:vision-mcp", idx.review("mcp:vision-mcp")["sha"])
     started = []
 
     class Hub:
@@ -163,14 +143,45 @@ def test_an_approved_server_starts_only_through_the_hub_and_with_what_was_approv
 
     registry = ToolRegistry()
     cap.register_capability_tools(registry, idx, hub_factory=lambda id, cmd: started.append((id, cmd)) or Hub())
-    assert "look: Looks at an image" in registry.execute("call_capability", {"id": "mcp:vision-mcp"})
+    out = registry.execute("find_capability", {"query": "ocr screenshot"})
+    assert "skill:ocr-reader" in out and "pending" not in out
+    assert "Do the thing." in registry.execute("load_capability", {"id": "skill:ocr-reader"})
+    assert "look(): Looks at an image" in registry.execute("call_capability", {"id": "mcp:vision-mcp"})
     assert registry.execute("call_capability", {"id": "mcp:vision-mcp", "tool": "look", "arguments": {"path": "a.png"}}).endswith("look/{'path': 'a.png'}")
     assert started == [("mcp:vision-mcp", ["python", "-m", "vision_server"])] and "K" not in json.dumps(started)       # once; no environment
-    idx.approve("mcp:remote", idx.review("mcp:remote")["sha"])
-    assert "look: Looks at an image" in registry.execute("call_capability", {"id": "mcp:remote"})
-    assert started[-1] == ("mcp:remote", "https://x.example/mcp") and SECRET not in json.dumps(started)       # an address, with the query dropped
-    assert idx.remote_servers() == [{"id": "mcp:remote", "name": "remote", "url": "https://x.example/mcp", "state": "approved"}]
-    assert by_id(idx)["mcp:remote"]["remote"] is True and "remote" not in by_id(idx)["mcp:vision-mcp"]
+    assert "No MCP server" in registry.execute("call_capability", {"id": "skill:ocr-reader"})
+    assert registry.get("call_capability").effect.value == "irreversible" and registry.get("find_capability").untrusted
+    idx.save_settings(off=["mcp:vision-mcp"])
+    assert "turned off" in registry.execute("call_capability", {"id": "mcp:vision-mcp"})
+    assert len(started) == 1                                                            # an entry that is off does not start
+
+
+def test_read_capability_calls_only_a_tool_the_server_declares_read_only(world):
+    idx, *_ = world
+
+    class Hub:
+        tools = [{"name": "look", "description": "Looks", "annotations": {"readOnlyHint": True}},
+                 {"name": "erase", "description": "Erases", "annotations": {"readOnlyHint": False}},
+                 {"name": "plain", "description": "No hint"}]
+        calls = []
+
+        def call(self, tool, arguments):
+            self.calls.append(tool)
+            return f"{tool}/ran"
+
+    hub = Hub()
+    registry = ToolRegistry()
+    cap.register_capability_tools(registry, idx, hub_factory=lambda id, cmd: hub)
+    read = registry.get("read_capability")
+    assert read.effect.value == "pure" and read.untrusted and read.outward and registry.get("call_capability").effect.value == "irreversible"
+    listing = registry.execute("read_capability", {"id": "mcp:vision-mcp"})
+    marks = {name: "[read-only]" in next(l for l in listing.splitlines() if l.startswith(name)) for name in ("look", "erase", "plain")}
+    assert marks == {"look": True, "erase": False, "plain": False}
+    assert registry.execute("read_capability", {"id": "mcp:vision-mcp", "tool": "look", "arguments": {}}) == "look/ran"
+    for name in ("erase", "plain"):
+        assert "does not declare" in registry.execute("read_capability", {"id": "mcp:vision-mcp", "tool": name, "arguments": {}})
+    assert hub.calls == ["look"]
+    assert registry.execute("call_capability", {"id": "mcp:vision-mcp", "tool": "erase", "arguments": {}}) == "erase/ran"
 
 
 def test_visual_analysis_options_list_the_models_own_then_what_was_found_then_none(world):
@@ -196,7 +207,6 @@ def test_an_approved_skill_loaded_in_the_loop_is_not_fenced_and_does_not_break_t
     from harness.agent_loop import AgentLoop
     from harness.permissions import PermissionLevel, PermissionManager
     idx, *_ = world
-    idx.approve("skill:ocr-reader", idx.review("skill:ocr-reader")["sha"])
     registry = ToolRegistry()
     cap.register_capability_tools(registry, idx)
     perms = PermissionManager(level=PermissionLevel.AUTO, sensitive_data=True)
@@ -212,7 +222,6 @@ def test_what_the_search_and_a_server_return_stays_untrusted_in_the_loop(world):
     from harness.agent_loop import AgentLoop
     from harness.permissions import PermissionLevel, PermissionManager
     idx, *_ = world
-    idx.approve("mcp:vision-mcp", idx.review("mcp:vision-mcp")["sha"])
 
     class Hub:
         tools = [{"name": "look", "description": "Looks at an image"}]
@@ -226,7 +235,7 @@ def test_what_the_search_and_a_server_return_stays_untrusted_in_the_loop(world):
     agent = AgentLoop(ScriptedClient(call("call_capability", {"id": "mcp:vision-mcp", "tool": "look", "arguments": {}}), say("ok")), registry, permissions=perms)
     agent.run("look")
     text = [m for m in agent.messages if m["role"] == "tool"][0]["content"]
-    assert text.startswith('<untrusted_data source="call_capability">') and perms.rule_of_two_broken
+    assert untrusted.normalize(text).startswith('<untrusted_data source="call_capability">') and perms.rule_of_two_broken
     perms2 = PermissionManager(level=PermissionLevel.AUTO, sensitive_data=True)
     agent2 = AgentLoop(ScriptedClient(call("find_capability", {"query": "ocr"}), say("ok")), registry, permissions=perms2)
     agent2.run("find")

@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 from serve import ROOT
-from serve.engine.flags import flag_index
+from serve.engine.flags import flag_index, flag_value
 from serve.engine.vision import VISION_MODES, VISION_USAGE, vision_mode
 from serve.util.console import tagged
 
@@ -17,6 +17,9 @@ from serve.util.console import tagged
 MIN_SLOT_CONTEXT = 256          # the least context a slot is given when --max-context is shared
 ENGINE_DEFAULT_CONTEXT = 4096     # the engine's context without --max-context
 PARALLEL_MAX = 8                            # the engine's batch slots
+SIDE_SLOT_DEFAULT = 30000                   # the technical session's context when --side-slot gives none
+SIDE_SLOT_MIN = 4096                        # ... and the least it may hold
+SIDE_SLOT_MAX = 2147483639
 CONFIG_PATHS = ("model", "tokenizer")       # relative to the config file
 RELAUNCH_EXIT_CODE = 75                     # --relaunch-on-model-change: start me again (EX_TEMPFAIL)
 GRAMMAR_DEFAULT = True                      # the `grammar` option when neither the file nor the command line sets it
@@ -121,6 +124,9 @@ def load_config_file(path: str, ap: argparse.ArgumentParser) -> tuple[list[str],
         if name == "request-log" and isinstance(value, bool):    # true or false in the file; on or off on the line
             argv += [flag, "on" if value else "off"]
             continue
+        if name == "side-slot" and isinstance(value, bool):      # true: the default size; false: off
+            argv += [flag, str(SIDE_SLOT_DEFAULT) if value else "0"]
+            continue
         if act.nargs == 0:                                 # a switch
             if not isinstance(value, bool):
                 raise ValueError(f"server.{key}: true or false")
@@ -164,12 +170,40 @@ def parse_settings(ap: argparse.ArgumentParser, cli: list[str]):
     for act in ap._actions:                                # a repeatable command-line option replaces the file's
         if isinstance(act, argparse._AppendAction) and getattr(a_cli, act.dest) != act.default:
             setattr(a, act.dest, getattr(a_cli, act.dest))
-    if a.parallel and a.parallel > 1:
+    main = a.parallel or 1
+    a.side_off_why = a.kv_changed = None
+    if a.side_slot is None:
+        a.side_slot = 0 if a.mock_engine else SIDE_SLOT_DEFAULT        # a mock engine has no session of its own unless the command line asks for one
+    if a.side_slot and a_cli.side_slot is None:       # on by default or from the file: a setup that cannot hold it leaves it off
+        fits, why = _side_fits(main, cli_words, file_words)
+        if not fits:
+            a.side_slot, a.side_off_why = 0, why
+        elif flag_value(file_words, "--kv") not in (None, "int8"):      # the file's KV format gives way: the session needs int8
+            a.kv_changed = flag_value(file_words, "--kv")
+            file_words[flag_index(file_words, "--kv") + 1] = "int8"
+    side = a.side_slot or 0
+    a.side_clamp = None
+    a.kv_added = False
+    if main > 1 or side:
         for flag in ("--batch", "--slots"):
             if flag in file_words or flag in cli_words:
                 raise ValueError(f"parallel and engine {flag} both set: use parallel")
-        (cli_words if a_cli.parallel else file_words).extend(["--batch", str(a.parallel)])
-        if not a.slot_full_context:
+        if side and ("--side-context" in file_words or "--side-context" in cli_words):
+            raise ValueError("side-slot and engine --side-context both set: use side-slot")
+        if side and main + 1 > PARALLEL_MAX:             # the engine's batch holds PARALLEL_MAX slots, the side one among them
+            a.side_clamp = (main, PARALLEL_MAX - 1)
+            main = a.parallel = PARALLEL_MAX - 1
+        words = cli_words if a_cli.parallel or a_cli.side_slot else file_words
+        kv = next((flag_value(w, "--kv") for w in (cli_words, file_words) if flag_index(w, "--kv") is not None), None)
+        if kv is None:                                    # the batch windows need resident INT8 K/V (see the engine's verify)
+            words.extend(["--kv", "int8"])
+            a.kv_added = True
+        elif kv != "int8":
+            raise ValueError(f"parallel slots and the technical session need --kv int8, not --kv {kv}")
+        words.extend(["--batch", str(main + (1 if side else 0))])
+        if side:
+            words.extend(["--side-context", str(side)])
+        if main > 1 and not a.slot_full_context:
             # --max-context is shared by the slots, as in llama.cpp: each holds an equal part (the solo path, used while
             # a request is alone, has the same length, so a request never outgrows its slot)
             src = cli_words if "--max-context" in cli_words or "--max-context" not in file_words else file_words
@@ -177,7 +211,7 @@ def parse_settings(ap: argparse.ArgumentParser, cli: list[str]):
             if at is not None and at + 1 >= len(src):
                 raise ValueError("--max-context needs a value")
             ctx = int(src[at + 1]) if at is not None else ENGINE_DEFAULT_CONTEXT
-            part = str(max(MIN_SLOT_CONTEXT, ctx // a.parallel))
+            part = str(max(MIN_SLOT_CONTEXT, ctx // main))
             if at is None:
                 src += ["--max-context", part]
             else:
@@ -333,6 +367,32 @@ def parallel_count(text: str) -> int:
     return n
 
 
+def _side_fits(main: int, cli_words: list[str], file_words: list[str]) -> tuple[bool, str]:
+    """(True, "") when the technical session can sit beside `main` conversations here, else (False, why not)."""
+    if main + 1 > PARALLEL_MAX:
+        return False, f"--parallel {main} leaves no slot for it"
+    for flag in ("--batch", "--slots", "--side-context"):
+        if flag in cli_words or flag in file_words:
+            return False, f"engine {flag} is set"
+    kv = flag_value(cli_words, "--kv")
+    if kv not in (None, "int8"):
+        return False, f"it needs --kv int8, not --kv {kv}"
+    return True, ""
+
+
+def side_slot_tokens(text: str) -> int:
+    """argparse type: the technical session's context in tokens, 0 (off) or SIDE_SLOT_MIN and up."""
+    if str(text).strip().lower() in ("off", "no", "false"):
+        return 0
+    try:
+        n = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected 0 (off) or a whole number of tokens from {SIDE_SLOT_MIN}, not {text!r}") from None
+    if n != 0 and not SIDE_SLOT_MIN <= n <= SIDE_SLOT_MAX:
+        raise argparse.ArgumentTypeError(f"expected 0 (off) or a number of tokens from {SIDE_SLOT_MIN}, not {n}")
+    return n
+
+
 def budget_count(text: str) -> int:
     """argparse type: a thinking budget in tokens, a whole number >= 0 (0: none)."""
     try:
@@ -357,6 +417,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "their turn. --max-context is shared: each slot holds that divided by N (so 4 slots of 262144 "
                          "need --max-context 1048576, or --slot-full-context). The slots' KV cache comes out of the "
                          "expert cache")
+    ap.add_argument("--side-slot", nargs="?", const=SIDE_SLOT_DEFAULT, default=None, type=side_slot_tokens, metavar="TOKENS",
+                    help=f"the technical session: one more slot of TOKENS (default {SIDE_SLOT_DEFAULT}; 0 = off) kept for the short calls of the harness (triage, suggestions, summaries, judges), so they "
+                         "never wait behind or overwrite a conversation's cache. It adds one slot to --parallel (with 8, the "
+                         "conversations get 7), costs the KV cache and state of TOKENS tokens, and turns the engine's batch on: "
+                         "end_turn_bias, logit_bias and relaxed drafting are unavailable while it is on")
     ap.add_argument("--slot-full-context", action="store_true",
                     help="with --parallel, give every slot the whole --max-context instead of an equal part: N slots "
                          "cost N times the KV cache")
@@ -390,18 +455,22 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--tokenizer", default=str(ROOT / "pack/full/tokenizer"),
                     help="tokenizer directory for the mock engine (a byte tokenizer if absent)")
     ap.add_argument("--open", action="store_true", help="open the local page in the browser once the model is ready")
-    ap.add_argument("--fit-max-tokens", action="store_true",
-                    help="clamp max_tokens to the remaining context instead of rejecting the request with 400")
+    ap.add_argument("--fit-max-tokens", action=argparse.BooleanOptionalAction, default=True,
+                    help="clamp max_tokens to the remaining context instead of rejecting the request with 400 "
+                         "(on by default); --no-fit-max-tokens rejects it")
     ap.add_argument("--grammar", action=argparse.BooleanOptionalAction, default=GRAMMAR_DEFAULT,
                     help="hold every tool call and JSON response format to a grammar in the engine (on by default; a request "
                          "with strict: true gets it either way); --no-grammar turns it off")
     ap.add_argument("--api-key", default="",
                     help="require this key on /v1/* (Authorization: Bearer ... or x-api-key); command line only, "
                          "not allowed in a --config file")
-    ap.add_argument("--allowed-host", action="append", default=[], metavar="NAME",
-                    help="also answer to this Host name (repeatable; \"*\" turns the check off)")
-    ap.add_argument("--cors-origin", action="append", default=[], metavar="ORIGIN",
-                    help="let web pages from this origin use /v1/* (repeatable)")
+    ap.add_argument("--control-secret", action="store_true",
+                    help="require a secret, written to the data folder at start, on the changes made through /api/* and on "
+                         "/api/control/*; the page receives it as a cookie (default off: those routes check only that the "
+                         "request comes from this PC)")
+    ap.add_argument("--control-secret-value", default="", metavar="TEXT",
+                    help="with --control-secret, use this text as the secret instead of a random one made at each start; it is "
+                         "saved in the --config file by the Loader, and written to the data folder like the random one")
     ap.add_argument("--debug", action="store_true",
                     help="log one line per request and the raw model text after each reply")
     ap.add_argument("--request-lines", action="store_true",

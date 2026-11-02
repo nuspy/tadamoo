@@ -9,6 +9,7 @@ decision to run a command belongs to the permission layer in front of it.
 from __future__ import annotations
 
 import contextlib
+import math
 import os
 import re
 import signal
@@ -16,7 +17,9 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
+
+from harness import exec_level
 
 from .jobs import CREATE_SUSPENDED, CommandJob
 
@@ -38,16 +41,18 @@ _scope = threading.local()
 class CancelScope:
     """What a block of `cancel_scope` tells afterwards: whether a command in it was ended by the event."""
 
-    def __init__(self, event: Optional[threading.Event]) -> None:
+    def __init__(self, event: Optional[threading.Event], tap: Optional[Callable[[str, bytes], None]] = None) -> None:
         self.event = event
+        self.tap = tap
         self.cancelled = False
 
 
 @contextlib.contextmanager
-def cancel_scope(event: Optional[threading.Event]) -> Iterator[CancelScope]:
-    """Commands started by this thread inside the block end, with everything they started, soon after `event` is set."""
+def cancel_scope(event: Optional[threading.Event], tap: Optional[Callable[[str, bytes], None]] = None) -> Iterator[CancelScope]:
+    """Commands started by this thread inside the block end, with everything they started, soon after `event` is set. `tap(stream, bytes)`
+    sees the output ("out" or "err") as it is written."""
     before = getattr(_scope, "state", None)
-    state = _scope.state = CancelScope(event)
+    state = _scope.state = CancelScope(event, tap)
     try:
         yield state
     finally:
@@ -79,7 +84,8 @@ def command_words(command: str) -> List[str]:
 def blocked_reason(command: str) -> Optional[str]:
     for word in command_words(command):
         if word in DEFAULT_DENY_COMMANDS:
-            return f"Command '{word}' is blocked by sandbox security policy"
+            return (f"Command '{word}' is blocked by sandbox security policy. The programs it blocks, wherever they appear in a command: "
+                    f"{', '.join(sorted(DEFAULT_DENY_COMMANDS))}.")
     return None
 
 
@@ -101,14 +107,16 @@ def kill_tree(proc: "subprocess.Popen[bytes]") -> None:
 class _Capped(threading.Thread):
     """Drains a pipe, keeping at most `limit` bytes so a noisy command cannot fill memory."""
 
-    def __init__(self, stream: Any, limit: int) -> None:
+    def __init__(self, stream: Any, limit: int, tap: Optional[Callable[[bytes], None]] = None) -> None:
         super().__init__(daemon=True)
-        self.stream, self.limit = stream, limit
+        self.stream, self.limit, self.tap = stream, limit, tap
         self.data = bytearray()
         self.truncated = False
 
     def run(self) -> None:
-        for chunk in iter(lambda: self.stream.read(8192), b""):
+        for chunk in iter(lambda: self.stream.read1(8192) if hasattr(self.stream, "read1") else self.stream.read(8192), b""):
+            if self.tap is not None:
+                self.tap(chunk)
             room = self.limit - len(self.data)
             if room > 0:
                 self.data += chunk[:room]
@@ -128,7 +136,7 @@ def _feed(proc: "subprocess.Popen[bytes]", text: str) -> None:
 
 
 class ProcessSandbox:
-    def __init__(self, workspace_root: str | Path, timeout: float = 30.0, max_output_bytes: int = 50_000,
+    def __init__(self, workspace_root: str | Path, timeout: Optional[float] = 30.0, max_output_bytes: int = 50_000,
                  max_memory_bytes: Optional[int] = DEFAULT_MAX_MEMORY, max_processes: Optional[int] = DEFAULT_MAX_PROCESSES) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.timeout = timeout
@@ -142,18 +150,24 @@ class ProcessSandbox:
         extra_env: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
         stdin_text: Optional[str] = None,
+        argv: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
+        """Runs `command` through the shell. With `argv`, that program runs instead (no shell), while the deny list still judges `command`."""
         result: Dict[str, Any] = {"exit_code": 0, "stdout": "", "stderr": "", "success": True, "blocked": False,
                                   "timed_out": False, "truncated": False}
         if not command.strip():
             return result
-        reason = blocked_reason(command)
+        free = not exec_level.contained()
+        reason = None if free else blocked_reason(command)
         if reason:
             return {**result, "exit_code": -1, "stderr": reason, "success": False, "blocked": True}
 
-        limit = min(max(float(timeout if timeout is not None else self.timeout), 1.0), MAX_TIMEOUT)
+        wanted = timeout if timeout is not None else self.timeout
+        if wanted is None and not free:
+            wanted = 30.0
+        limit = math.inf if free and wanted is None else min(max(float(wanted), 1.0), MAX_TIMEOUT) if not free else max(float(wanted), 1.0)
         popen_args: Dict[str, Any] = {}
-        job = CommandJob(self.max_memory_bytes, self.max_processes)
+        job = CommandJob(None, None) if free else CommandJob(self.max_memory_bytes, self.max_processes)
         if os.name == "nt":
             popen_args["creationflags"] = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
                                            | (CREATE_SUSPENDED if job.active else 0))
@@ -161,7 +175,7 @@ class ProcessSandbox:
             popen_args["start_new_session"] = True
         try:
             proc = subprocess.Popen(
-                command, shell=True, cwd=str(self.workspace_root), env=safe_environment(extra_env),
+                argv if argv is not None else command, shell=argv is None, cwd=str(self.workspace_root), env=({**os.environ, **(extra_env or {})} if free else safe_environment(extra_env)),
                 stdin=subprocess.DEVNULL if stdin_text is None else subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, **popen_args,
             )
@@ -170,13 +184,14 @@ class ProcessSandbox:
             return {**result, "exit_code": -1, "stderr": str(exc), "success": False}
         if job.active:
             job.attach(proc)
-        out = _Capped(proc.stdout, self.max_output_bytes)
-        err = _Capped(proc.stderr, self.max_output_bytes)
+        scope = getattr(_scope, "state", None)
+        tap = getattr(scope, "tap", None)
+        out = _Capped(proc.stdout, self.max_output_bytes, (lambda data: tap("out", data)) if tap else None)
+        err = _Capped(proc.stderr, self.max_output_bytes, (lambda data: tap("err", data)) if tap else None)
         out.start()
         err.start()
         if stdin_text is not None:
             _feed(proc, stdin_text)
-        scope = getattr(_scope, "state", None)
         cancel = scope.event if scope is not None else None
         end = time.monotonic() + limit
         while True:

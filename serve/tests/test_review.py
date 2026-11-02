@@ -236,11 +236,9 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.call("POST", "/api/changes/review", {"id": edit["id"], "action": "explode"})[0], 400)
         self.assertEqual(self.call("POST", "/api/changes/review", {"action": "keep_all"})[0], 400)
 
-    def test_review_needs_the_key_and_this_pages_origin(self):
+    def test_review_needs_the_key(self):
         self.assertEqual(self.call("POST", "/api/changes/review", {"id": "x", "action": "keep_all"}, key="")[0], 401)
         self.assertEqual(self.call("POST", "/api/changes/review", {"id": "x", "action": "keep_all"}, key="wrong")[0], 401)
-        foreign = self.call("POST", "/api/changes/review", {"id": "x", "action": "keep_all"}, headers={"Origin": "http://evil.example"})
-        self.assertEqual(foreign[0], 403)
 
 
 if __name__ == "__main__":

@@ -7,10 +7,14 @@ profile is thrown away with it, unless the person chose to keep sign-ins: then o
 
 Reaches: the page, the frames of its own site, the frames of other sites it holds (a card field in a payment provider's frame is a session of its
 own, and a value typed there goes only to a site the vault entry names), and the windows the page opens (a payment sheet).
+
+Cookie and consent banners, permission prompts and JavaScript dialogs are dealt with here by fixed rules (harness/browser_consent.py), by the
+person's policy, and reported to the model with the page; nothing a page says about itself is read as an instruction.
 """
 from __future__ import annotations
 
 import base64
+import fnmatch
 import re
 import hashlib
 import ipaddress
@@ -28,9 +32,14 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-PAGE_TEXT_CHARS = 5000
-MAX_ELEMENTS = 120
+from harness import browser_consent as bc
+
+ELEMENTS_PER_READ = 150       # how many elements one reading lists; the rest is read with offset, or found with text and role
+TEXT_WORDS = 1000             # how many words of the page's text one reading gives; the rest is read with words_from
 NAVIGATION_SECONDS = 20.0
+SHOT_MAX_WIDTH = 2400
+SHOT_MAX_HEIGHT = 8000
+SHOT_MAX_BYTES = 8_000_000
 CANDIDATES = (
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
@@ -43,6 +52,14 @@ CANDIDATES = (
 
 class BrowserError(RuntimeError):
     """The browser cannot do what was asked; the message says why, for the model to read."""
+
+
+class PrivateAddress(BrowserError):
+    """A page inside this PC or its network, which the person's level or answer did not allow."""
+
+    def __init__(self, host: str) -> None:
+        super().__init__(f"{host} is an address inside this PC or its network, not a site on the internet, and the person did not allow opening it")
+        self.host = host
 
 
 def find_browser(explicit: str = "") -> Optional[str]:
@@ -147,6 +164,12 @@ class Cdp:
         self.closed = False                                    # the page went away (a window that closed itself)
         self.frames: Dict[str, Dict[str, Any]] = {}          # session id -> the frame of another site: {"target", "url"}
         self.request_guard: Optional[Callable[[str], bool]] = None   # says whether a request may go out; none means all may
+        self.leaving = False                                   # the agent asked to leave this page (a warning about leaving is then accepted)
+        self.dialog_decider: Optional[Callable[[str, str, bool], bool]] = None   # (kind, message, leaving) -> accept; none: only alerts are accepted
+        self.dialogs: List[str] = []                           # what the page's JavaScript dialogs were answered with, until the model is told
+        self.permission_asks: List[str] = []                   # what the page asked a permission for, until it is dealt with
+        self.download_decider: Optional[Callable[[str, str], bool]] = None   # (url, file name) -> keep; none: no download is kept
+        self.downloads: List[Tuple[str, bool]] = []            # (file name, whether it was kept) of the downloads the page started, until the model is told
 
     def call(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 30.0, session: Optional[str] = None) -> Dict[str, Any]:
         with self._lock:
@@ -180,7 +203,25 @@ class Cdp:
         del self.events[:-200]
         method, params = message.get("method"), message.get("params") or {}
         if method == "Page.javascriptDialogOpening":            # an alert or a question would stop the page: answer it
-            self.ws.send_text(json.dumps({"id": self._next(), "method": "Page.handleJavaScriptDialog", "params": {"accept": params.get("type") == "alert"}}))
+            kind = str(params.get("type", ""))
+            text = str(params.get("message", ""))
+            accept = bool(self.dialog_decider(kind, text, self.leaving)) if self.dialog_decider else bc.dialog_accepts(kind, self.leaving)
+            answer: Dict[str, Any] = {"accept": accept}
+            if accept and kind == "prompt":
+                answer["promptText"] = str(params.get("defaultPrompt", ""))
+            self.ws.send_text(json.dumps({"id": self._next(), "method": "Page.handleJavaScriptDialog", "params": answer}))
+            self.dialogs.append(bc.dialog_note(kind, str(params.get("message", "")), accept))
+            del self.dialogs[:-20]
+        elif method == "Browser.downloadWillBegin":
+            name = str(params.get("suggestedFilename", ""))
+            keep = bool(self.download_decider(str(params.get("url", "")), name)) if self.download_decider else False
+            if not keep:
+                self._raw("Browser.cancelDownload", {"guid": params.get("guid")})
+            self.downloads.append((name, keep))
+            del self.downloads[:-20]
+        elif method == "Runtime.bindingCalled" and params.get("name") == bc.WATCH_BINDING:
+            self.permission_asks.append(str(params.get("payload", ""))[:40])
+            del self.permission_asks[:-50]
         elif method == "Fetch.requestPaused" and self.request_guard is not None:
             ok = self.request_guard(str((params.get("request") or {}).get("url", "")))
             self._raw("Fetch.continueRequest" if ok else "Fetch.failRequest",
@@ -243,22 +284,22 @@ SNAPSHOT_JS = r"""
   const roots = [document];
   document.querySelectorAll('iframe').forEach(f => { try { if (f.contentDocument) roots.push(f.contentDocument); } catch (x) { /* another site: its own session */ } });
   const found = roots.flatMap(d => [...d.querySelectorAll(sel)]).filter(e => e.type !== 'hidden' && visible(e));
-  window.__bref = found.slice(0, MAX);
+  window.__bref = found;
   const items = window.__bref.map((e, i) => {
     const tag = e.tagName.toLowerCase(), type = (e.type || '').toLowerCase();
     const o = { ref: i + 1, tag, type, name: label(e).replace(/\s+/g, ' ').slice(0, 90) };
     if (tag === 'a') { try { o.href = new URL(e.href).host + new URL(e.href).pathname.slice(0, 40); } catch (x) {} }
     if (tag === 'input' || tag === 'textarea') { o.value = (type === 'password' || e.__bsecret) ? (e.value ? '(set)' : '') : String(e.value || '').slice(0, 60); }
     if (type === 'checkbox' || type === 'radio') o.checked = !!e.checked;
-    if (tag === 'select') { o.value = e.value; o.options = [...e.options].slice(0, 30).map(x => x.value + '=' + x.text.trim().slice(0, 30)); }
+    if (tag === 'select') { o.value = e.value; o.options = [...e.options].map(x => x.value + '=' + x.text.trim().slice(0, 30)); }
     if (e.disabled) o.disabled = true;
     if (e.required) o.required = true;
     return o;
   });
-  const text = roots.map(d => (d.body ? d.body.innerText : '')).join('\n').replace(/\n{3,}/g, '\n\n').slice(0, TEXT);
-  return JSON.stringify({ url: location.href, host: location.hostname, title: document.title, items, more: Math.max(0, found.length - MAX), text });
+  const text = roots.map(d => (d.body ? d.body.innerText : '')).join('\n').replace(/\n{3,}/g, '\n\n');
+  return JSON.stringify({ url: location.href, host: location.hostname, title: document.title, items, text });
 })()
-""".replace("MAX", str(MAX_ELEMENTS)).replace("TEXT", str(PAGE_TEXT_CHARS))
+"""
 
 # where to click an element: the middle of it in the page's own viewport, counting the frames of the same site it sits in
 CENTER_JS = r"""
@@ -310,7 +351,7 @@ def blocked_host(host: str, port: int = 443) -> Optional[bool]:
 
 
 def check_url(url: str, allow_private: bool = False) -> str:
-    """Only web pages, and not this PC's or its network's own unless the person allowed them (a page there can be an admin panel, not a shop)."""
+    """Only web pages, and not this PC's or its network's own unless allowed (the level, or the person's answer: see Browser._private_ok)."""
     parsed = urlparse(url.strip())
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise BrowserError("only web addresses (http or https) can be opened")
@@ -320,28 +361,35 @@ def check_url(url: str, allow_private: bool = False) -> str:
     if verdict is None:
         raise BrowserError(f"the site {parsed.hostname} could not be found")
     if verdict:
-        raise BrowserError(f"{parsed.hostname} is an address inside this PC or its network, not a site on the internet: the person has not allowed such pages")
+        raise PrivateAddress(parsed.hostname)
     return parsed.geturl()
 
 
 class BrowserPrefs:
     """What the person chose about the agent's browser: whether it has one, whether it shows a window, whether it may open pages on this PC and
-    its network, and whether it keeps its sign-ins between conversations."""
+    its network, whether it keeps its sign-ins between conversations, and what it does about cookie banners (`consent`) and permission requests
+    (`permissions`)."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
 
-    def read(self) -> Dict[str, bool]:
+    def read(self) -> Dict[str, Any]:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             data = {}
         return {"enabled": data.get("enabled") is not False, "headless": data.get("headless") is True, "private": data.get("private") is True,
-                "persistent": data.get("persistent") is True}
+                "persistent": data.get("persistent") is True, "consent": bc.clean_consent(data.get("consent")),
+                "permissions": bc.clean_permissions(data.get("permissions"))}
 
-    def write(self, enabled: bool, headless: bool, private: bool = False, persistent: bool = False) -> Dict[str, bool]:
+    def write(self, enabled: bool, headless: bool, private: bool = False, persistent: bool = False, consent: Optional[str] = None,
+              permissions: Optional[str] = None) -> Dict[str, Any]:
+        """A policy left out keeps what was chosen before."""
+        now = self.read()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({"enabled": bool(enabled), "headless": bool(headless), "private": bool(private), "persistent": bool(persistent)}), encoding="utf-8")
+        self.path.write_text(json.dumps({"enabled": bool(enabled), "headless": bool(headless), "private": bool(private), "persistent": bool(persistent),
+                                         "consent": bc.clean_consent(consent if consent is not None else now["consent"]),
+                                         "permissions": bc.clean_permissions(permissions if permissions is not None else now["permissions"])}), encoding="utf-8")
         return self.read()
 
 
@@ -404,6 +452,18 @@ def open_signin_window(profile_dir: str | Path, url: str, executable: str = "") 
     threading.Thread(target=lambda: (proc.wait(), lock.release()), daemon=True, name="signin-window").start()
 
 
+def external_endpoint(url: str) -> Tuple[str, int]:
+    """(host, port) of a browser that is already running and offers the DevTools protocol over http (`http://host:9222`)."""
+    p = urlparse(url if "//" in url else "//" + url)
+    if p.scheme not in ("", "http", "https") or not p.hostname:
+        raise BrowserError(f"{url!r} is not the http address of a browser's debugging port (for example http://127.0.0.1:9222)")
+    try:
+        port = p.port or (443 if p.scheme == "https" else 9222)
+    except ValueError:
+        raise BrowserError(f"{url!r} has no valid port") from None
+    return p.hostname, port
+
+
 def forget_signins(profile_dir: str | Path) -> None:
     """Throws the kept profile away: every sign-in in it is gone."""
     lock = ProfileLock(profile_dir)
@@ -420,11 +480,17 @@ def forget_signins(profile_dir: str | Path) -> None:
 
 class Browser:
     def __init__(self, profile_dir: str | Path = "", headless: bool = False, executable: str = "", allow_private: bool = False,
-                 mask: Optional[Callable[[str], str]] = None, persistent: bool = False) -> None:
+                 mask: Optional[Callable[[str], str]] = None, persistent: bool = False, consent: str = bc.DEFAULT_CONSENT,
+                 permissions: str = bc.DEFAULT_PERMISSIONS, confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None,
+                 audit: Optional[Callable[[str, Dict[str, Any]], None]] = None, auto: Optional[Callable[[], bool]] = None,
+                 rules: Optional[Callable[[], List[str]]] = None, cdp_url: str = "") -> None:
+        self.cdp_url = (cdp_url or "").strip()                         # a browser somebody else started: this one drives it and never starts or ends it
+        self.cdp_host, self.port = ("127.0.0.1", 0) if not self.cdp_url else external_endpoint(self.cdp_url)
+        persistent = persistent and not self.cdp_url
         self.persistent = bool(persistent and profile_dir)             # the profile is kept, and its sign-ins with it
-        self.profile_dir = Path(profile_dir) if profile_dir else Path(tempfile.mkdtemp(prefix="basalt-browser-"))
+        self.profile_dir = Path(profile_dir) if profile_dir and not self.cdp_url else Path(tempfile.mkdtemp(prefix="basalt-browser-"))
         self.keep_profile = self.persistent
-        self.headless, self.executable, self.allow_private = headless, executable, allow_private
+        self.headless, self.executable, self.allow_private = headless, executable, allow_private or bool(self.cdp_url)
         self.mask = mask or (lambda t: t)
         self.proc: Optional[subprocess.Popen] = None
         self.job: Any = None
@@ -437,6 +503,15 @@ class Browser:
         self.hidden: set = set()                      # what was typed from the vault: a field that holds it is listed as set, not as its value
         self.page_url = ""                                              # the page the agent works on, as last read
         self.blocked: List[str] = []                                    # the hosts a request was refused for, until the model is told
+        self.consent, self.permissions = bc.clean_consent(consent), bc.clean_permissions(permissions)   # the person's policies (browser_consent.py)
+        self.confirm, self.audit = confirm, audit                       # how the person is asked about a permission; where an action is recorded
+        self._control_cdp: Optional[Cdp] = None                         # the browser's own connection, for the permission calls
+        self._consent_sites: set = set()                                # sites where a banner was dealt with
+        self._consenting = False
+        self._asked: set = set()                                        # (site, permission) already dealt with
+        self.auto, self.rules = auto, rules                             # whether the conversation is at the Auto level now; the allow rules the person keeps
+        self._private_hosts: set = set()                                # hosts inside this PC or network the person allowed
+        self._policy_applied = ""                                       # the permission policy the browser's permissions were last set by
 
     @property
     def cdp(self) -> Optional[Cdp]:
@@ -446,6 +521,9 @@ class Browser:
 
     def start(self) -> None:
         if self.pages:
+            return
+        if self.cdp_url:
+            self._start_external()
             return
         exe = find_browser(self.executable)
         if not exe:
@@ -461,11 +539,8 @@ class Browser:
             s.bind(("127.0.0.1", 0))
             self.port = s.getsockname()[1]
         self.profile_dir.mkdir(parents=True, exist_ok=True)
-        args = [exe, f"--remote-debugging-port={self.port}", f"--user-data-dir={self.profile_dir}", "--no-first-run", "--no-default-browser-check",
-                "--disable-extensions", "--window-size=1280,900", "--disable-background-networking"]
-        if self.headless:
-            args.append("--headless=new")
-        args.append("about:blank")
+        bc.write_permission_prefs(self.profile_dir)
+        args = self.launch_args(exe, self.port)
         from harness.sandbox.jobs import CREATE_SUSPENDED, CommandJob
         self.job = CommandJob()                                   # the browser ends with the conversation, however that ends
         self.proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
@@ -490,21 +565,173 @@ class Browser:
         self.seen = {target["id"]}
         self._attach(target)
         try:
-            self.cdp.call("Browser.setDownloadBehavior", {"behavior": "deny"})
+            self.cdp.call("Browser.setDownloadBehavior", {"behavior": "allow", "downloadPath": str(self.profile_dir / "downloads"), "eventsEnabled": True})
         except BrowserError:
             pass
+        self._apply_permissions()
+
+    def _start_external(self) -> None:
+        """Drives the first page of a browser that is already running. Its requests are not held back here (the browser's owner sets its network
+        scope, and a second request interceptor would compete with the owner's), and it is left running when this ends."""
+        target = None
+        for _ in range(120):
+            try:
+                pages = self._targets()
+                if pages:
+                    target = pages[0]
+                    break
+            except Exception:
+                pass
+            time.sleep(0.25)
+        if target is None:
+            raise BrowserError(f"no browser page answered at {self.cdp_url}")
+        self.seen = {target["id"]}
+        self._attach(target)
+        self._apply_permissions()
+
+    def launch_args(self, exe: str, port: int) -> List[str]:
+        """The browser's command line. No flag that answers a prompt for the person (camera, microphone, location, screen) is ever among them."""
+        args = [exe, f"--remote-debugging-port={port}", f"--user-data-dir={self.profile_dir}", "--no-first-run", "--no-default-browser-check",
+                "--disable-extensions", "--window-size=1280,900", "--disable-background-networking", *bc.LAUNCH_FLAGS]
+        if self.headless:
+            args.append("--headless=new")
+        args.append("about:blank")
+        return args
+
+    def _control(self) -> Optional[Cdp]:
+        """The browser's own protocol connection (not a page's), for the calls that are about the whole browser."""
+        if self._control_cdp is None and self.pages:
+            try:
+                with urllib.request.urlopen(f"http://{self.cdp_host}:{self.port}/json/version", timeout=2) as r:
+                    path = urlparse(json.loads(r.read())["webSocketDebuggerUrl"]).path
+                self._control_cdp = Cdp(WebSocket(self.cdp_host, self.port, path))
+            except Exception:
+                self._control_cdp = None
+        return self._control_cdp
+
+    def set_permission(self, name: str, setting: str, origin: str = "") -> bool:
+        """Sets what the browser answers when a page asks for a permission: granted, denied or prompt; for every site, or for one origin."""
+        params: Dict[str, Any] = {"permission": {"name": "midi", "sysex": True} if name == "midiSysex" else {"name": name}, "setting": setting}
+        if origin:
+            params["origin"] = origin
+        for target in (self._control(), self.cdp):
+            if target is None:
+                continue
+            try:
+                target.call("Browser.setPermission", params, timeout=5)
+                return True
+            except BrowserError:
+                continue
+        return False
+
+    # -- what the level, the allow rules and the person decide -------------------------------------------------
+
+    def _auto(self) -> bool:
+        try:
+            return bool(self.auto and self.auto())
+        except Exception:
+            return False
+
+    def _rule_allows(self, tool: str, details: Dict[str, Any]) -> bool:
+        """Whether an allow rule of the person covers this question: the tool's name (every site), or `tool:site` or `tool:site:permission` with * and ?."""
+        if self.rules is None:
+            return False
+        site, kind = str(details.get("site") or ""), str(details.get("permission") or "")
+        targets = [tool] + ([f"{tool}:{site}"] + ([f"{tool}:{site}:{kind}"] if kind else []) if site else [])
+        try:
+            patterns = [str(p).lower() for p in self.rules()]
+        except Exception:
+            return False
+        return any(fnmatch.fnmatchcase(t.lower(), p) for t in targets for p in patterns)
+
+    def _approve(self, tool: str, details: Dict[str, Any]) -> Optional[bool]:
+        """Whether something the browser would otherwise refuse is allowed: at the Auto level always; otherwise by an allow rule, or by the person's
+        answer to the question. None when nobody can be asked."""
+        if self._auto():
+            return True
+        if self._rule_allows(tool, details):
+            return True
+        if self.confirm is None:
+            return None
+        try:
+            return bool(self.confirm(tool, details))
+        except Exception:
+            return False
+
+    def _origin(self) -> str:
+        parsed = urlparse(self.page_url)
+        return f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme in ("http", "https") and parsed.netloc else self.page_url[:100]
+
+    def _permission_policy(self) -> str:
+        """The policy for what a page asks (camera, location...): `follow` is grant at the Auto level and ask otherwise."""
+        return self.permissions if self.permissions != "follow" else ("grant" if self._auto() else "ask")
+
+    def _consent_policy(self) -> str:
+        """The policy for a consent banner: `follow` is accept at the Auto level and the necessary cookies only otherwise."""
+        return self.consent if self.consent != "follow" else ("accept" if self._auto() else "necessary")
+
+    def _private_free(self) -> bool:
+        return bool(self.allow_private or self._auto())
+
+    def _private_ok(self, host: str) -> bool:
+        """Whether a page inside this PC or its network may be opened: allowed by the setting or the Auto level, or by the person's answer
+        (kept for the host while this browser lives)."""
+        if self._private_free() or host in self._private_hosts:
+            return True
+        allowed = self._approve("browser_private_page", {"site": host})
+        if allowed:
+            self._private_hosts.add(host)
+            self._record("browser_private_page", {"site": host, "outcome": "allowed"})
+        return bool(allowed)
+
+    def _dialog_ok(self, kind: str, message: str, leaving: bool) -> bool:
+        """A page's question (confirm or prompt) is accepted when allowed (see `_approve`); an alert is read; a warning about leaving is accepted
+        when the agent asked to go or at the Auto level."""
+        if kind in ("alert", "beforeunload"):
+            return bc.dialog_accepts(kind, leaving, self._auto())
+        return bool(self._approve("browser_dialog", {"site": self._origin(), "kind": kind, "message": bc.safe_label(message, 80)}))
+
+    def _download_ok(self, url: str, name: str) -> bool:
+        return bool(self._approve("browser_download", {"site": self._origin(), "file": name[:100]}))
+
+    def insecure_ok(self, host: str) -> bool:
+        """Whether a value from the vault may be typed on a plain http page of the internet (it crosses the network in the clear)."""
+        return bool(self._approve("browser_insecure_typing", {"site": host}))
+
+    def _apply_permissions(self) -> None:
+        """Before any page can ask: every permission that reveals the person or reaches a device is set by the policy: granted by `grant`, only what is
+        in browser_consent.SAFE_GRANTS by `grant-safe`, refused otherwise; `ask` leaves the answer to the person, site by site, when a page asks (see
+        `_permission_requests`). The policy is looked at again when the level changes."""
+        policy = self._policy_applied = self._permission_policy()
+        for name in bc.DENIED_PERMISSIONS:
+            granted = policy == "grant" or (policy == "grant-safe" and name in bc.SAFE_GRANTS)
+            self.set_permission(name, "granted" if granted else "denied")
+
+    def _say(self, text: str) -> None:
+        """Something to tell the model with the next page it reads."""
+        self.notice = (self.notice + "\n" + text) if self.notice else text
+
+    def _record(self, kind: str, details: Dict[str, Any]) -> None:
+        if self.audit is not None:
+            try:
+                self.audit(kind, details)
+            except Exception:
+                pass
 
     def _targets(self) -> List[Dict[str, Any]]:
-        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json/list", timeout=2) as r:
+        with urllib.request.urlopen(f"http://{self.cdp_host}:{self.port}/json/list", timeout=2) as r:
             return [t for t in json.loads(r.read()) if t.get("type") == "page" and str(t.get("url", "")).startswith(("http://", "https://", "about:blank"))]   # not the browser's own dialogs
 
     def _attach(self, target: Dict[str, Any]) -> None:
         """Speaks to a page: its own protocol connection, with the frames of other sites it holds followed as sessions."""
-        cdp = Cdp(WebSocket("127.0.0.1", self.port, urlparse(target["webSocketDebuggerUrl"]).path), target["id"])
+        cdp = Cdp(WebSocket(self.cdp_host, self.port, urlparse(target["webSocketDebuggerUrl"]).path), target["id"])
+        cdp.dialog_decider, cdp.download_decider = self._dialog_ok, self._download_ok
         if not self.allow_private:
             cdp.request_guard = self._request_ok                        # every request, of the page and of its frames, is looked at before it goes out
         for method, params in (("Page.enable", None), ("Runtime.enable", None), ("DOM.enable", None),
                                ("Target.setAutoAttach", {"autoAttach": True, "waitForDebuggerOnStart": cdp.request_guard is not None, "flatten": True}),
+                               ("Runtime.addBinding", {"name": bc.WATCH_BINDING}),
+                               ("Page.addScriptToEvaluateOnNewDocument", {"source": bc.PERMISSION_WATCH_JS}),
                                ("Page.addScriptToEvaluateOnNewDocument", {"source": INIT_JS})):
             cdp.call(method, params)
         if cdp.request_guard is not None:
@@ -512,14 +739,16 @@ class Browser:
         self.pages.append(cdp)
 
     def _request_ok(self, url: str) -> bool:
-        """A page on the internet reaches the internet only: not this PC or its network, and no local file. Redirects, links, scripts and
-        images are all requests, so all go through here."""
+        """Unless private pages are allowed, a page on the internet reaches the internet only: not this PC or its network, and no local file.
+        Redirects, links, scripts and images are all requests, so all go through here."""
+        if self._private_free():
+            return True
         p = urlparse(url)
         if p.scheme in ("data", "blob", "about"):
             return True
         if p.scheme not in ("http", "https", "ws", "wss") or not p.hostname:
             return False
-        if blocked_host(p.hostname, p.port or (443 if p.scheme in ("https", "wss") else 80)) is True:
+        if p.hostname not in self._private_hosts and blocked_host(p.hostname, p.port or (443 if p.scheme in ("https", "wss") else 80)) is True:
             if p.hostname not in self.blocked:
                 self.blocked.append(p.hostname)
             return False
@@ -552,13 +781,17 @@ class Browser:
         try:
             if self.pages:
                 try:
-                    self.pages[0].call("Browser.close", timeout=3)
+                    if not self.cdp_url:                              # a browser somebody else started stays
+                        self.pages[0].call("Browser.close", timeout=3)
                 except Exception:
                     pass
                 for p in self.pages:
                     p.ws.close()
         finally:
             self.pages = []
+            if self._control_cdp is not None:
+                self._control_cdp.ws.close()
+                self._control_cdp = None
             if self.proc is not None:
                 try:
                     self.proc.wait(timeout=5)
@@ -592,24 +825,39 @@ class Browser:
         if self.cdp.saw("Page.navigatedWithinDocument", since) and not self.cdp.saw("Page.frameStartedLoading", since):
             self._sync_pages()
             return
+        loaded = False
         if self.cdp.saw("Page.frameStartedLoading", since) or self.cdp.saw("Page.frameNavigated", since):
             end = time.monotonic() + 12.0
             while time.monotonic() < end and not self.cdp.saw("Page.loadEventFired", since):
                 self.cdp.pump(0.25)
             self.cdp.pump(0.3)
+            loaded = True
         self._sync_pages()
+        if loaded:
+            self._consent_pass()
 
     def open(self, url: str) -> Dict[str, Any]:
-        url = check_url(url, self.allow_private)
+        try:
+            url = check_url(url, self._private_free())
+        except PrivateAddress as e:
+            if not self._private_ok(e.host):
+                raise
+            url = check_url(url, True)
         self.start()
         since = len(self.cdp.events)
-        result = self.cdp.call("Page.navigate", {"url": url})
-        if result.get("errorText"):
-            raise BrowserError(f"the page could not be opened: {result['errorText']}")
-        deadline = time.monotonic() + NAVIGATION_SECONDS
-        while time.monotonic() < deadline and not self.cdp.saw("Page.loadEventFired", since):
-            self.cdp.pump(0.25)
-        self.cdp.pump(0.3)
+        page = self.cdp
+        page.leaving = True                                             # a warning about leaving the page is accepted: the agent asked to go
+        try:
+            result = page.call("Page.navigate", {"url": url})
+            if result.get("errorText"):
+                raise BrowserError(f"the page could not be opened: {result['errorText']}")
+            deadline = time.monotonic() + NAVIGATION_SECONDS
+            while time.monotonic() < deadline and not page.saw("Page.loadEventFired", since):
+                page.pump(0.25)
+            page.pump(0.3)
+        finally:
+            page.leaving = False
+        self._consent_pass()
         return self.snapshot()
 
     def snapshot(self) -> Dict[str, Any]:
@@ -619,14 +867,23 @@ class Browser:
         self.cdp.pump(0.05)
         page = json.loads(self._js(SNAPSHOT_JS))
         self.page_url = page["url"]
-        if not self.allow_private:
+        self._flush_events()
+        if not self._private_free():
             if self.page_url.startswith("chrome-error:") and self.blocked:
                 host = self.blocked.pop()
                 self.blocked.clear()
-                raise BrowserError(f"{host} is an address inside this PC or its network, not a site on the internet: the person has not allowed such pages")
+                if self._private_ok(host):
+                    raise BrowserError(f"{host} is inside this PC or its network; the person allowed it just now: open the address again")
+                raise PrivateAddress(host)
             if self.page_url.startswith(("http://", "https://")):
                 try:
                     check_url(self.page_url, False)
+                except PrivateAddress as e:
+                    if self._private_ok(e.host):
+                        pass
+                    else:
+                        self.cdp.call("Page.navigate", {"url": "about:blank"})
+                        raise
                 except BrowserError:
                     self.cdp.call("Page.navigate", {"url": "about:blank"})
                     raise
@@ -648,7 +905,7 @@ class Browser:
         for n, it in enumerate(items, 1):
             it["ref"] = n
         self.refs, self.host = refs, page["host"]
-        return {**page, "items": items, "text": "\n".join(texts)[:2 * PAGE_TEXT_CHARS]}
+        return {**page, "items": items, "text": "\n".join(texts)}
 
     def _where(self, ref: int) -> Tuple[Optional[str], int, str]:
         """Which frame an element is in and its place there, refused when the page has changed since it was read."""
@@ -680,6 +937,12 @@ class Browser:
             dx, dy = self._frame_origin(session)
             x, y = x + dx, y + dy
         since = len(self.cdp.events)
+        self._press_at(x, y)
+        self.settle(since)
+        return self.snapshot()
+
+    def _press_at(self, x: float, y: float) -> None:
+        """A real mouse click at a point of the page."""
         page = self.cdp
         try:
             for kind in ("mouseMoved", "mousePressed", "mouseReleased"):
@@ -687,8 +950,113 @@ class Browser:
         except BrowserError:
             if not page.closed:
                 raise                                                   # the click closed the window it was made in: that is a result, not a failure
+
+    # -- banners, permission requests, dialogs ----------------------------------------------------
+
+    def _detect_consent(self) -> Dict[str, Any]:
+        """The consent banners on the page now, and in the frames of other sites it holds (a consent manager is often one)."""
+        banners: List[Dict[str, Any]] = []
+        hint = False
+        for session in [None, *list(self.cdp.frames)]:
+            try:
+                state = json.loads(self._js(bc.detect_script(frame=session is not None), session=session))
+            except (BrowserError, ValueError, TypeError):
+                continue
+            for banner in state.get("banners", []):
+                banners.append({**banner, "session": session})
+            hint = hint or bool(state.get("hint"))
+        return {"banners": banners, "hint": hint}
+
+    def _click_consent(self, pick: "bc.Pick") -> bool:
+        """The click on a control the detection found: a real click, at the middle of it, only if nothing else lies over it."""
+        session = pick.banner.get("session")
+        point = self._js(bc.CLICK_POINT_JS.replace("%I%", str(int(pick.button["i"]))), session=session)
+        if not point:
+            return False
+        x, y = point
+        if session is not None:
+            dx, dy = self._frame_origin(session)
+            x, y = x + dx, y + dy
+        since = len(self.cdp.events)
+        self._press_at(x, y)
         self.settle(since)
-        return self.snapshot()
+        return True
+
+    def _consent_pass(self) -> None:
+        """After a page has loaded: deals with a consent banner by the policy, and tells the model what was done."""
+        policy = self._consent_policy()
+        if policy == "off" or self._consenting or not self.pages or self.cdp.closed:
+            return
+        self._consenting = True
+        try:
+            site = str(self._js("location.protocol + '//' + location.host") or "")
+            if not site.startswith(("http://", "https://")):
+                return
+            result = bc.run_consent(policy, self._detect_consent, self._click_consent,
+                                    bc.KNOWN_SITE_SECONDS if site in self._consent_sites else bc.LATE_SECONDS)
+        except BrowserError:
+            return
+        finally:
+            self._consenting = False
+        if result.clicks:
+            self._consent_sites.add(site)
+        for note in bc.consent_notes(result, policy):
+            self._say(note)
+        for click in result.clicks:
+            self._record("browser_consent_click", {"site": site, "label": click["label"], "role": click["role"], "banner": click["banner"], "policy": policy})
+
+    def _flush_events(self) -> None:
+        """Tells the model what the page's dialogs were answered with, what it downloaded, and what it asked permissions for."""
+        if self._policy_applied and self._policy_applied != self._permission_policy():
+            self._apply_permissions()                                     # the level changed since the permissions were set
+        for page in list(self.pages):
+            dialogs, page.dialogs = page.dialogs, []
+            asks, page.permission_asks = page.permission_asks, []
+            downloads, page.downloads = page.downloads, []
+            for name, kept in downloads:
+                where = f" (in {self.profile_dir / 'downloads'})" if kept else ""
+                self._say(f'The page started a download of "{name}": ' + (f"it was kept{where}." if kept else "it was not allowed."))
+                self._record("browser_download", {"site": self._origin(), "file": name[:100], "outcome": "kept" if kept else "refused"})
+            for note in dialogs:
+                self._say(note)
+                self._record("browser_dialog", {"site": self.page_url[:100], "note": note})
+            self._permission_requests(asks)
+
+    def _permission_requests(self, kinds: List[str]) -> None:
+        """The page asked for permissions. By the policy they are granted for that site (`grant`: already granted before the page could ask), refused,
+        or the person is asked, for this site and this permission, through the conversation's own confirmation (`ask`): if they allow it, it is granted
+        for that site, and the page has to be made to ask again. A device chooser (USB, serial, HID) cannot be answered from here and is never granted."""
+        parsed = urlparse(self.page_url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        policy = self._permission_policy()
+        for kind in dict.fromkeys(kinds):
+            if kind not in bc.KIND_TO_PERMISSIONS or (origin, kind) in self._asked:
+                continue
+            self._asked.add((origin, kind))
+            names = bc.KIND_TO_PERMISSIONS[kind]
+            if not names:
+                outcome = "refused (a device chooser cannot be answered)"
+            elif policy == "grant":
+                for name in names:
+                    self.set_permission(name, "granted", origin)
+                outcome = "allowed" if self._policy_applied == "grant" else "allowed for this site; the page must ask again, so do the action again"
+                self._record("browser_permission", {"site": origin, "permission": kind, "outcome": "granted by the policy"})
+            elif policy == "ask":
+                allowed = self._approve("browser_permission", {"site": origin, "permission": kind})
+                if allowed:
+                    for name in names:
+                        self.set_permission(name, "granted", origin)
+                    self._say(bc.permission_note(kind, origin, "the person allowed it for this site; the page must ask again, so do the action again"))
+                    self._record("browser_permission", {"site": origin, "permission": kind, "outcome": "granted by the person"})
+                    continue
+                outcome = "refused (nobody can be asked here)" if allowed is None else "the person did not allow it"
+            else:
+                outcome = f"refused (policy {policy})"
+            self._say(bc.permission_note(kind, origin, outcome))
+            if not outcome.startswith("allowed"):
+                self._record("browser_permission", {"site": origin, "permission": kind, "outcome": outcome})
 
     def type(self, ref: int, text: str, submit: bool = False, clear: bool = True, secret: bool = False) -> Dict[str, Any]:
         session, local, _ = self._where(ref)
@@ -735,6 +1103,23 @@ class Browser:
         self.settle(since)
         return self.snapshot()
 
+    def screenshot(self, full_page: bool = False) -> bytes:
+        """A PNG of the page as it is now. Once a value from the vault has been typed in this browser the picture could show it, and a picture cannot
+        be masked the way the text of a page is: at the Auto level it is taken, otherwise the person is asked."""
+        self.start()
+        if self.hidden and not self._approve("browser_screenshot", {"site": self._origin(), "reason": "a value from the vault was typed in this browser and the picture could show it"}):
+            raise BrowserError("no screenshot was taken: a value from the vault was typed in this browser, the picture could show it, and the person did not allow it. Read the page as text")
+        params: Dict[str, Any] = {"format": "png"}
+        if full_page:
+            size = self.cdp.call("Page.getLayoutMetrics").get("cssContentSize") or {}
+            width, height = int(size.get("width") or 0), int(size.get("height") or 0)
+            if width > 0 and height > 0:
+                params.update(captureBeyondViewport=True, clip={"x": 0, "y": 0, "width": min(width, SHOT_MAX_WIDTH), "height": min(height, SHOT_MAX_HEIGHT), "scale": 1})
+        data = base64.b64decode(self.cdp.call("Page.captureScreenshot", params, timeout=60.0)["data"])
+        if len(data) > SHOT_MAX_BYTES:
+            raise BrowserError("the screenshot is too large to keep: take it without full_page")
+        return data
+
     def back(self) -> Dict[str, Any]:
         self.start()
         since = len(self.cdp.events)
@@ -742,7 +1127,12 @@ class Browser:
         index = history.get("currentIndex", 0)
         if index <= 0:
             raise BrowserError("there is no earlier page")
-        self.cdp.call("Page.navigateToHistoryEntry", {"entryId": history["entries"][index - 1]["id"]})
+        page = self.cdp
+        page.leaving = True
+        try:
+            page.call("Page.navigateToHistoryEntry", {"entryId": history["entries"][index - 1]["id"]})
+        finally:
+            page.leaving = False
         self.settle(since)
         return self.snapshot()
 
@@ -752,13 +1142,34 @@ def _squeeze(value: str) -> str:
     return re.sub(r"[\s\-.]", "", value).lower()
 
 
-def describe(page: Dict[str, Any], hidden: Optional[set] = None) -> str:
+def _kind(it: Dict[str, Any]) -> str:
+    return "link" if it["tag"] == "a" else (it["tag"] if it["tag"] not in ("input", "button") else (f"{it['tag']}[{it['type']}]" if it["type"] else it["tag"]))
+
+
+def _matches(it: Dict[str, Any], contains: str, role: str) -> bool:
+    """An element that has `contains` in its name, value or address, and is of the `role` (link, button, input, select, checkbox, text, password...)."""
+    if role and role.lower() not in {_kind(it).lower(), it["tag"], it.get("type") or it["tag"], "field" if it["tag"] in ("input", "textarea", "select") else ""}:
+        return False
+    if contains:
+        return contains.lower() in " ".join(str(it.get(k) or "") for k in ("name", "value", "href")).lower()
+    return True
+
+
+def describe(page: Dict[str, Any], hidden: Optional[set] = None, offset: int = 0, limit: Optional[int] = None, contains: str = "", role: str = "",
+             words_from: int = 0, words: Optional[int] = None) -> str:
     """The page as the model reads it: numbered elements, then the text. A password field, or one holding what came from the vault, says only
-    that it is set (a short value, like a card's security code, could not be masked in text without damaging it)."""
-    lines = [f"URL: {page['url']}", f"Title: {page['title']}", "Elements:"]
-    for it in page["items"]:
-        kind = "link" if it["tag"] == "a" else (it["tag"] if it["tag"] not in ("input", "button") else (f"{it['tag']}[{it['type']}]" if it["type"] else it["tag"]))
-        bits = [f"[{it['ref']}] {kind}", f"\"{it['name']}\""] + ([f"(in {it['frame']})"] if it.get("frame") else [])
+    that it is set (a short value, like a card's security code, could not be masked in text without damaging it). The list is read in pages
+    (`offset`, `limit`) or only the elements that match `contains` and `role`; the numbers stay those of the whole page. The text is read in
+    words (`words_from`, `words`)."""
+    items = [it for it in page["items"] if _matches(it, contains, role)]
+    start, count = max(0, int(offset or 0)), max(1, int(limit or ELEMENTS_PER_READ))
+    shown_items = items[start:start + count]
+    end = start + len(shown_items)
+    filtered = bool(contains or role)
+    heading = "Elements:" if not (start or end < len(items) or filtered) else f"Elements ({start + 1 if shown_items else 0} to {end} of {len(items)}" + (f", of {len(page['items'])} on the page" if filtered else "") + "):"
+    lines = [f"URL: {page['url']}", f"Title: {page['title']}", heading]
+    for it in shown_items:
+        bits = [f"[{it['ref']}] {_kind(it)}", f"\"{it['name']}\""] + ([f"(in {it['frame']})"] if it.get("frame") else [])
         for key in ("value", "href"):
             if it.get(key):
                 bits.append(f"{key}={'(set)' if key == 'value' and hidden and _squeeze(it[key]) in hidden else it[key]}")
@@ -770,23 +1181,42 @@ def describe(page: Dict[str, Any], hidden: Optional[set] = None) -> str:
             if it.get(flag):
                 bits.append(flag)
         lines.append(" ".join(bits))
-    if page["more"]:
-        lines.append(f"... and {page['more']} more elements not listed")
-    lines += ["Text:", page["text"]]
+    if end < len(items):
+        lines.append(f"... {len(items) - end} more elements not listed: read them with browser_read(offset={end}"
+                     + (f", contains={contains!r}" if contains else "") + (f", role={role!r}" if role else "") + "), or find one with contains and role")
+    if not (start or filtered) or words_from or words:
+        lines += ["Text:", _words(page["text"], words_from, words)]
     return "\n".join(lines)
 
 
+def _words(text: str, first: int = 0, count: Optional[int] = None) -> str:
+    """`count` words of the text from the word `first`, with its own line breaks, and how to read on."""
+    spans = list(re.finditer(r"\S+", text))
+    first, count = max(0, int(first or 0)), max(1, int(count or TEXT_WORDS))
+    last = min(len(spans), first + count)
+    if first == 0 and last >= len(spans):
+        return text
+    body = text[spans[first].start():spans[last - 1].end()] if first < len(spans) else ""
+    more = f"\n... the text goes on: {len(spans) - last} more words; read them with browser_read(words_from={last})" if last < len(spans) else ""
+    return body + more
+
+
 def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path = "", headless: bool = False, executable: str = "",
-                           allow_private: bool = False, browser: Optional[Browser] = None, persistent: bool = False) -> Browser:
-    """Adds the browser tools. The browser starts at the first use and is closed with the conversation."""
+                           allow_private: bool = False, browser: Optional[Browser] = None, persistent: bool = False, consent: str = bc.DEFAULT_CONSENT,
+                           permissions: str = bc.DEFAULT_PERMISSIONS, confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None,
+                           audit: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+                           screenshots: Optional[Callable[[bytes, str], Dict[str, Any]]] = None, auto: Optional[Callable[[], bool]] = None,
+                           rules: Optional[Callable[[], List[str]]] = None, cdp_url: str = "") -> Browser:
+    """Adds the browser tools. The browser starts at the first use and is closed with the conversation. With `screenshots` (it keeps a picture as a file of the
+    conversation and returns its card) the model can take a picture of the page: on its own, or after an action that changes the page."""
     from harness.tools.registry import EffectClass
 
     mask = secrets.mask_secrets if secrets is not None else (lambda t: t)
-    b = browser or Browser(profile_dir, headless, executable, allow_private, mask, persistent)
+    b = browser or Browser(profile_dir, headless, executable, allow_private, mask, persistent, consent, permissions, confirm, audit, auto, rules, cdp_url)
     b.mask = mask
 
-    def shown(page: Dict[str, Any]) -> str:
-        text = mask(describe(page, b.hidden))
+    def shown(page: Dict[str, Any], **view: Any) -> str:
+        text = mask(describe(page, b.hidden, **view))
         if b.notice:
             text, b.notice = b.notice + "\n" + text, ""
         return text
@@ -799,21 +1229,58 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
                 return {"error": str(e)}
         return run
 
+    def take(full_page: bool = False) -> str:
+        """The picture of the page kept as a file, and how to use it; or why there is none."""
+        try:
+            data = b.screenshot(full_page)
+        except BrowserError as e:
+            return f"Screenshot not taken: {e}"
+        name = re.sub(r"[^A-Za-z0-9_-]+", "_", urlparse(b.page_url).hostname or "page").strip("_")[:30] or "page"
+        card = screenshots(data, f"screenshot_{name}_{time.strftime('%H%M%S')}.png")
+        b._record("browser_screenshot", {"site": b.page_url[:100], "file": card.get("name", ""), "bytes": len(data), "full_page": bool(full_page)})
+        where = f" Path: {card['path']}." if card.get("path") else ""
+        return (f"Screenshot of {b.page_url[:100]} kept as [file:{card['id']}:{card['name']}] ({len(data) // 1000} kB).{where} Look at it with analyze_image "
+                f"(path output:{card['id']}); show it in your answer with ![caption](basalt-file:{card['id']}).")
+
+    def with_shot(fn: Callable[..., Any]) -> Callable[..., Any]:
+        """The action, and when `screenshot` is true the picture of the page it led to."""
+        def run(screenshot: bool = False, **kw: Any) -> Any:
+            out = fn(**kw)
+            return out + "\n" + take(False) if screenshot and isinstance(out, str) else out
+        return run
+
+    def shot_prop(props: Dict[str, Any]) -> Dict[str, Any]:
+        if screenshots is None:
+            return props
+        return {**props, "screenshot": {"type": "boolean", "description": "also keep a picture of the page this leads to (a file of the conversation, its path is returned)"}}
+
     ref_prop = {"ref": {"type": "integer", "description": "the number of the element, from the last reading of the page"}}
     registry.register("browser_open", "Opens a web page in the browser and reads it: numbered elements (links, buttons, fields) and the text.",
-                      {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}, EffectClass.PURE,
-                      guard(lambda url: shown(b.open(url))), untrusted=True)
-    registry.register("browser_read", "Reads the page that is open again, with its numbered elements.", {"type": "object", "properties": {}},
-                      EffectClass.PURE, guard(lambda: shown(b.snapshot())), untrusted=True)
+                      {"type": "object", "properties": shot_prop({"url": {"type": "string"}}), "required": ["url"]}, EffectClass.PURE,
+                      with_shot(guard(lambda url: shown(b.open(url)))), untrusted=True, outward=True)
+    if screenshots is not None:
+        registry.register("browser_screenshot", "Takes a picture of the page that is open and keeps it as a file of the conversation; returns its path and how to look at it. In a "
+                          "browser where a value from the vault was typed the person is asked first (the picture could show it).",
+                          {"type": "object", "properties": {"full_page": {"type": "boolean", "description": "the whole page, not only what the window shows (default false)"}}},
+                          EffectClass.REVERSIBLE, guard(lambda full_page=False: take(bool(full_page))), untrusted=True)
+    read_props = {"offset": {"type": "integer", "description": "the first element to list (default 0); the list is read in pages and says how to read on"},
+                  "limit": {"type": "integer", "description": f"how many elements to list (default {ELEMENTS_PER_READ})"},
+                  "contains": {"type": "string", "description": "list only the elements with this text in their name, value or address"},
+                  "role": {"type": "string", "description": "list only this kind of element: link, button, input, select, checkbox, textarea..."},
+                  "words_from": {"type": "integer", "description": "read the page text from this word (default: the start)"},
+                  "words": {"type": "integer", "description": f"how many words of the text to read (default {TEXT_WORDS})"}}
+    registry.register("browser_read", "Reads the page that is open again: its numbered elements, in pages or filtered with contains and role, and its text in words. "
+                      "The numbers are those of the whole page, so an element found by a filter can be clicked at once.", {"type": "object", "properties": read_props},
+                      EffectClass.PURE, guard(lambda **view: shown(b.snapshot(), **view)), untrusted=True)
     registry.register("browser_click", "Clicks an element of the page (a link, a button, a box to tick) and reads the page that follows.",
-                      {"type": "object", "properties": ref_prop, "required": ["ref"]}, EffectClass.IRREVERSIBLE, guard(lambda ref: shown(b.click(ref))), untrusted=True)
+                      {"type": "object", "properties": shot_prop(ref_prop), "required": ["ref"]}, EffectClass.IRREVERSIBLE, with_shot(guard(lambda ref: shown(b.click(ref)))), untrusted=True, outward=True)
 
     def type_into(ref: int, text: str, submit: bool = False, clear: bool = True) -> Any:
         from_vault = secrets is not None and secrets.has_references(text)
         if from_vault:
             host = b.host_for(ref)                                          # the site that would receive it: the frame's own, when the field is in one
-            if b.insecure_public(host):
-                return {"error": f"this page is not encrypted (http) and {host} is on the internet: a value from the vault is not typed where it would cross the network in the clear"}
+            if b.insecure_public(host) and not b.insecure_ok(host):
+                return {"error": f"this page is not encrypted (http) and {host} is on the internet: a value from the vault would cross the network in the clear, and the person did not allow it"}
             try:
                 text = secrets.resolve_tokens(text, destinations=[host])
                 b.hidden.add(_squeeze(text[:60]))                            # the page lists a field's value cut to 60 characters
@@ -826,7 +1293,7 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
                       "it is filled in only on a site its entry names, and you never see it.",
                       {"type": "object", "properties": {**ref_prop, "text": {"type": "string"}, "submit": {"type": "boolean", "description": "press Enter after"},
                                                         "clear": {"type": "boolean", "description": "replace what is in the field (default true)"}},
-                       "required": ["ref", "text"]}, EffectClass.IRREVERSIBLE, guard(type_into), untrusted=True)
+                       "required": ["ref", "text"]}, EffectClass.IRREVERSIBLE, guard(type_into), untrusted=True, outward=True)
     def sign_in(entry: str, submit: bool = False) -> Any:
         """Fills the sign-in fields of the page from a login in the vault: the user name in the field before the password, the password in
         the password field. Only on a site the entry names. A page that asks for the user name first shows just that field: it is filled and
@@ -871,13 +1338,13 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
                       "Only on a site the entry names. If the page asks for a code, write {{vault:ENTRY.totp}} in the field with browser_type.",
                       {"type": "object", "properties": {"entry": {"type": "string", "description": "the name of the login in the vault"},
                                                         "submit": {"type": "boolean", "description": "press Enter after the password"}}, "required": ["entry"]},
-                      EffectClass.IRREVERSIBLE, guard(sign_in), untrusted=True)
+                      EffectClass.IRREVERSIBLE, guard(sign_in), untrusted=True, outward=True)
     registry.register("browser_select", "Chooses an option in a list of the page, by its value or its visible text.",
-                      {"type": "object", "properties": {**ref_prop, "value": {"type": "string"}}, "required": ["ref", "value"]}, EffectClass.IRREVERSIBLE,
-                      guard(lambda ref, value: shown(b.select(ref, value))), untrusted=True)
+                      {"type": "object", "properties": shot_prop({**ref_prop, "value": {"type": "string"}}), "required": ["ref", "value"]}, EffectClass.IRREVERSIBLE,
+                      with_shot(guard(lambda ref, value: shown(b.select(ref, value)))), untrusted=True, outward=True)
     registry.register("browser_press", "Presses a key: Enter, Tab, Escape, Backspace, the arrows or Space.",
-                      {"type": "object", "properties": {"key": {"type": "string", "enum": list(KEYS)}}, "required": ["key"]}, EffectClass.IRREVERSIBLE,
-                      guard(lambda key: shown(b.press(key))), untrusted=True)
-    registry.register("browser_back", "Goes back to the page before.", {"type": "object", "properties": {}}, EffectClass.IRREVERSIBLE,
-                      guard(lambda: shown(b.back())), untrusted=True)
+                      {"type": "object", "properties": shot_prop({"key": {"type": "string", "enum": list(KEYS)}}), "required": ["key"]}, EffectClass.IRREVERSIBLE,
+                      with_shot(guard(lambda key: shown(b.press(key)))), untrusted=True, outward=True)
+    registry.register("browser_back", "Goes back to the page before.", {"type": "object", "properties": shot_prop({})}, EffectClass.IRREVERSIBLE,
+                      with_shot(guard(lambda: shown(b.back()))), untrusted=True)
     return b

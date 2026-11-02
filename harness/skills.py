@@ -1,25 +1,20 @@
 """Skill discovery (agentskills.io SKILL.md) and project instruction loading (AGENTS.md).
 
-A skill written or changed by anyone but the user is code the model will follow, so a catalog can
-require approval: the approval is stored with the hash of the text the user read, and any change to
-the file withdraws it.
+A skill in the search paths is the person's own: the model may load any of them.
 """
 from __future__ import annotations
 
 import hashlib
-import json
+import os
+import shutil
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 FRONTMATTER_REGEX = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
 GUIDELINE_FILES = ("AGENTS.md", "CLAUDE.md", "GEMINI.md")
 MAX_GUIDELINE_BYTES = 32 * 1024
-
-
-class SkillNotApproved(PermissionError):
-    """The skill has not been approved in its current form."""
 
 
 @dataclass
@@ -29,6 +24,41 @@ class SkillMeta:
     path: Path
     content: str
     sha256: str = ""
+    requires: List[str] = field(default_factory=list)     # programs the skill runs, from the `requires:` header
+    env: List[str] = field(default_factory=list)          # environment variables it reads, from the `env:` header
+
+    def missing(self) -> List[str]:
+        """What the skill needs that this PC does not have: programs not on the path and variables not set."""
+        return [*(b for b in self.requires if not shutil.which(b)), *(f"${v}" for v in self.env if not os.environ.get(v))]
+
+
+def _names(value: str) -> List[str]:
+    return [x.strip() for x in re.split(r"[,\s]+", value or "") if x.strip()]
+
+
+def _not_ready(skill: SkillMeta) -> str:
+    missing = skill.missing()
+    return f" [not ready: missing {', '.join(missing)}]" if missing else ""
+
+
+SKILL_DESCRIPTION_MAX = 60
+SKILL_SECTIONS = ("when to use", "steps")
+
+
+def check_skill_text(text: str) -> List[str]:
+    """Everything wrong with the text of a skill a model wrote, all at once: name, short description, the fixed sections."""
+    meta, body = parse_frontmatter(text)
+    problems = []
+    if not meta.get("name"):
+        problems.append("the header needs a name")
+    description = meta.get("description", "")
+    if not description:
+        problems.append("the header needs a description")
+    elif len(description) > SKILL_DESCRIPTION_MAX:
+        problems.append(f"the description is {len(description)} characters; the most is {SKILL_DESCRIPTION_MAX}")
+    headings = {m.group(1).strip().lower() for m in re.finditer(r"^#+\s*(.+)$", body, re.M)}
+    problems += [f"the section '{s}' is missing" for s in SKILL_SECTIONS if s not in headings]
+    return problems
 
 
 def parse_frontmatter(text: str) -> Tuple[Dict[str, str], str]:
@@ -49,49 +79,12 @@ def parse_frontmatter(text: str) -> Tuple[Dict[str, str], str]:
     return meta, text[match.end():]
 
 
-class ApprovalStore:
-    """Skill name -> hash of the text the user approved, kept in a JSON file."""
-
-    def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
-
-    def _load(self) -> Dict[str, str]:
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-            return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
-        except (OSError, json.JSONDecodeError):
-            return {}
-
-    def _save(self, data: Dict[str, str]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
-        tmp.replace(self.path)
-
-    def is_approved(self, skill: SkillMeta) -> bool:
-        return self._load().get(skill.name) == skill.sha256
-
-    def approve(self, skill: SkillMeta) -> None:
-        data = self._load()
-        data[skill.name] = skill.sha256
-        self._save(data)
-
-    def revoke(self, name: str) -> None:
-        data = self._load()
-        if data.pop(name, None) is not None:
-            self._save(data)
-
-
 class SkillCatalog:
     def __init__(
         self,
         search_paths: Optional[List[str | Path]] = None,
-        approvals: Optional[ApprovalStore] = None,
-        require_approval: bool = False,
     ) -> None:
         self.search_paths = [Path(p) for p in (search_paths or [])]
-        self.approvals = approvals
-        self.require_approval = require_approval
         self.skills: Dict[str, SkillMeta] = {}
         self.warnings: List[str] = []
 
@@ -119,32 +112,21 @@ class SkillCatalog:
                     path=skill_file,
                     content=body.strip(),
                     sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                    requires=_names(meta.get("requires", "")),
+                    env=_names(meta.get("env", "")),
                 )
         return self.skills
 
     def format_catalog_prompt(self) -> str:
         """Name and one line per skill, sorted so the prompt prefix never changes order."""
-        return "\n".join(f"- **{self.skills[n].name}**: {self.skills[n].description}" for n in sorted(self.skills))
-
-    def review(self, name: str) -> Dict[str, Any]:
-        """What the user must read before approving a skill."""
-        skill = self.skills[name]
-        return {"name": name, "path": str(skill.path), "sha256": skill.sha256, "content": skill.content,
-                "approved": bool(self.approvals and self.approvals.is_approved(skill))}
-
-    def approve(self, name: str) -> None:
-        if not self.approvals:
-            raise RuntimeError("this catalog has no approval store")
-        self.approvals.approve(self.skills[name])
+        return "\n".join(f"- **{self.skills[n].name}**: {self.skills[n].description}{_not_ready(self.skills[n])}" for n in sorted(self.skills))
 
     def body(self, name: str) -> str:
-        """The full instructions of a skill; refused when approval is required and missing or stale."""
+        """The full instructions of a skill."""
         skill = self.skills.get(name)
         if skill is None:
             raise KeyError(f"Unknown skill '{name}'. Available: {', '.join(sorted(self.skills)) or 'none'}")
-        if self.require_approval and not (self.approvals and self.approvals.is_approved(skill)):
-            raise SkillNotApproved(f"Skill '{name}' has not been approved in its current form")
-        return skill.content
+        return skill.content if not skill.missing() else f"[this skill is not ready here: missing {', '.join(skill.missing())}]" + chr(10) + skill.content
 
 
 def register_skill_tool(registry: Any, catalog: SkillCatalog) -> None:
@@ -161,18 +143,30 @@ def register_skill_tool(registry: Any, catalog: SkillCatalog) -> None:
     )
 
 
-def find_project_guidelines(workspace_dir: str | Path) -> Tuple[Optional[Path], str]:
-    """AGENTS.md, else CLAUDE.md, else GEMINI.md: from the workspace upward to the repository root."""
+def read_project_guidelines(workspace_dir: str | Path) -> Tuple[Optional[Path], str, int]:
+    """(file, text, bytes cut off): AGENTS.md, else CLAUDE.md, else GEMINI.md, from the workspace upward to the repository root; the text
+    is the first MAX_GUIDELINE_BYTES of the file."""
     here = Path(workspace_dir).resolve()
     for folder in [here, *here.parents]:
         for filename in GUIDELINE_FILES:
             target = folder / filename
             if target.is_file():
-                data = target.read_bytes()[:MAX_GUIDELINE_BYTES]
-                return target, data.decode("utf-8", errors="replace")
+                data = target.read_bytes()
+                return target, data[:MAX_GUIDELINE_BYTES].decode("utf-8", errors="replace"), max(0, len(data) - MAX_GUIDELINE_BYTES)
         if (folder / ".git").exists():
             break
-    return None, ""
+    return None, "", 0
+
+
+def guidelines_cut_notice(name: str, cut: int) -> str:
+    """The line that tells the model a project file was read only in part."""
+    return f"[{name} was cut at {MAX_GUIDELINE_BYTES // 1024} KiB; {cut} bytes ignored; read the file directly]"
+
+
+def find_project_guidelines(workspace_dir: str | Path) -> Tuple[Optional[Path], str]:
+    """The project's instruction file and its text, as far as it is read (see `read_project_guidelines`)."""
+    path, text, _ = read_project_guidelines(workspace_dir)
+    return path, text
 
 
 def load_project_guidelines(workspace_dir: str | Path) -> str:

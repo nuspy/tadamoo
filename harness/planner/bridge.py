@@ -2,7 +2,9 @@
 
 Events in (the user edits a node, the model proposes a diff, the user approves, rejects or answers a
 human-fallback offer), results out, and a numbered stream of what changed so a view can follow by
-polling or by an event stream. Nothing a model proposes touches the plan until the user approves it.
+polling or by an event stream. A proposal waits for the user's approval, except the part of it that touches no
+step involving other people, a call, a booking, a payment or a resource out of control: that part may be applied on its own
+(`plan:approve` with `safe_only`), and the rest stays pending.
 """
 from __future__ import annotations
 
@@ -17,9 +19,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional
 
-from .card import PlanInsightCard
+from .card import CARD_FIELDS, DERIVED_FIELDS, PlanInsightCard, card_gaps, derive_card
 from .dag import Assignee, PlanDAG, PlanError, node_to_dict
 from .horizon import PlanProfile
+from .involvement import EXCEPTION_KINDS, split_diff
 from .replan import ReplanProposal, Replanner
 from .triage import TriageResult
 
@@ -31,7 +34,7 @@ HISTORY_SHOWN = 30
 # who made a change: the person at the page, the Chat for the person, the planner's own re-planning, the system
 ACTORS = ("user", "chat", "planner", "system")
 # events that write straight into the plan; they may carry `base_rev`, the revision the sender last read
-DIRECT = ("plan:update_node", "plan:move", "plan:mark", "plan:rewind", "plan:update_meta", "plan:fallback_response")
+DIRECT = ("plan:update_node", "plan:move", "plan:mark", "plan:timeout", "plan:rewind", "plan:update_meta", "plan:fallback_response")
 TARGET_TYPES = ("constant", "occasional")
 TITLE_CHARS = 200
 
@@ -55,19 +58,23 @@ class Proposal:
     source: str = "model"
     status: str = "pending"          # pending, applied, rejected, stale
     created_at: float = field(default_factory=time.time)
+    involves: List[str] = field(default_factory=list)    # the steps that make it wait for the person (people, a call, bookings, payments, resources out of control)
+    auto: bool = False                                   # applied without the person's approval
 
     def to_dict(self) -> Dict[str, Any]:
         return {"proposal_id": self.proposal_id, "title": self.title, "rationale": self.rationale, "diff": self.diff,
                 "source": self.source, "status": self.status, "created_at": self.created_at,
-                "changes": classify_diff(self.diff)}
+                "changes": classify_diff(self.diff), "involves": self.involves, "auto": self.auto}
 
 
 class PlanCanvasBridge:
     def __init__(self, dag: PlanDAG, card: Optional[PlanInsightCard] = None, replanner: Optional[Replanner] = None,
                  profile: Optional[PlanProfile] = None) -> None:
         self.dag = dag
-        self.card = card
         self.profile = profile or PlanProfile()                # the plan's aims, budget, dates and cost: what it is compared on
+        # every plan has a card: one that is not given is drawn from the plan, and those fields follow the plan until the person writes them
+        self.card = card if card is not None else derive_card(dag, self.profile)
+        self.card_auto: List[str] = list(DERIVED_FIELDS) if card is None else []
         self.alignment: Dict[str, Any] = {}                    # the last reading of the model on how this plan sits with the long-term ones
         self.replanner = replanner
         self.proposals: Dict[str, Proposal] = {}
@@ -108,8 +115,21 @@ class PlanCanvasBridge:
     def _bump(self, kind: str, summary: str) -> None:
         """A change to the plan: a new revision, and a line in the history naming who made it."""
         self.rev += 1
+        self._refresh_card()
         self.history.append({"rev": self.rev, "t": time.time(), "actor": self._actor, "type": kind,
                              "summary": " ".join(str(summary).split())[:TITLE_CHARS]})
+
+    def _refresh_card(self) -> None:
+        """The card's fields that still follow the plan are drawn again from it."""
+        if not self.card_auto:
+            return
+        fresh = derive_card(self.dag, self.profile).to_dict()
+        data = self.card.to_dict()
+        data.update({f: fresh[f] for f in self.card_auto})
+        try:
+            self.card = PlanInsightCard.from_dict(data)
+        except ValueError:
+            pass                                          # too large to keep: the card stays as it was
 
     def record(self, actor: str, kind: str, summary: str) -> None:
         """For what the store does around the plan (creating, restoring)."""
@@ -133,7 +153,8 @@ class PlanCanvasBridge:
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
             return {"plan": self.dag.to_dict(), "seq": self.seq, "rev": self.rev, "layers": self.dag.layers(), "order": self.dag.list_order(),
-                    "card": self.card.to_dict() if self.card else None, "profile": self.profile.to_dict(),
+                    "card": self.card.to_dict(), "card_auto": list(self.card_auto),
+                    "card_missing": card_gaps(self.card, self.dag.target_type), "profile": self.profile.to_dict(),
                     "review_due": self.dag.target_type == "constant" and self.profile.review_due(), "alignment": self.alignment,
                     "history": list(self.history)[-HISTORY_SHOWN:],
                     "proposals": [p.to_dict() for p in self.proposals.values() if p.status == "pending"],
@@ -146,7 +167,7 @@ class PlanCanvasBridge:
         """Applies one event. Returns {"ok": True, ...} or {"ok": False, "error": ...}; never raises for bad input."""
         kind = event.get("type") if isinstance(event, dict) else None
         handlers = {
-            "plan:get": self._get, "plan:update_node": self._update_node, "plan:move": self._move, "plan:mark": self._mark,
+            "plan:get": self._get, "plan:update_node": self._update_node, "plan:move": self._move, "plan:mark": self._mark, "plan:timeout": self._timeout,
             "plan:rewind": self._rewind, "plan:rewind_impact": self._rewind_impact, "plan:note_effect": self._note_effect, "plan:propose_diff": self._propose, "plan:approve": self._approve,
             "plan:reject": self._reject, "plan:human_fallback": self._offer_fallback,
             "plan:fallback_response": self._answer_fallback, "plan:update_meta": self._update_meta, "plan:event": self._feed,
@@ -184,6 +205,12 @@ class PlanCanvasBridge:
                     "error": f"the plan changed since you read it (now at revision {self.rev}, yours was {base}); read it again"}
         return None
 
+    def active(self) -> bool:
+        """Whether something in the plan can still be threatened by an event: a long-term plan always, a short one until its steps are all finished."""
+        with self._lock:
+            return (self.dag.target_type == "constant" or not self.dag.nodes
+                    or any(n.status not in ("completed", "skipped") for n in self.dag.nodes.values()))
+
     def _get(self, e: Dict[str, Any]) -> Dict[str, Any]:
         return self.snapshot()
 
@@ -200,12 +227,42 @@ class PlanCanvasBridge:
         self._emit("plan:graph", {"seq_graph": True})
         return {"order": self.dag.list_order(), "ready": self.dag.ready_nodes()}
 
+    def _parked(self) -> Dict[str, List[str]]:
+        return {n.id: list(n.state_variables["parked_by"]) for n in self.dag.nodes.values() if n.state_variables.get("parked_by")}
+
+    def _parking(self, before: Dict[str, List[str]], source: str) -> Dict[str, Any]:
+        """The steps parked since `before` because `source` stopped: told to the viewers, and to the caller so the planner re-plans the branch."""
+        now = self._parked()
+        fresh = [nid for nid in now if nid not in before]
+        if not fresh:
+            return {}
+        self._emit("plan:branch_parked", {"node_id": source, "parked": fresh})
+        return {"parked": fresh}
+
+    def _timeout(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        """A step or routine ran out of time: a warning, and the steps below it wait; independent branches go on."""
+        before = self._parked()
+        self.dag.timed_out(e["node_id"])
+        node = self.dag.nodes[e["node_id"]]
+        self._bump("timeout", f"{node.title}: timed out")
+        self._emit("plan:warning", {"node_id": node.id, "kind": "timeout", "message": f"{node.title}: timed out; the steps after it wait"})
+        parking = self._parking(before, node.id)
+        self._emit("plan:graph", {"seq_graph": True})
+        return {"ready": self.dag.ready_nodes(), "status": node.status, "timed_out": True, **parking}
+
     def _mark(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        before = self._parked()
         retry = self.dag.mark(e["node_id"], e["status"], e.get("outputs"))
         node = self.dag.nodes[e["node_id"]]
+        if retry and "no_route" in retry:                  # a decision with no exit that holds: not taken, the person decides
+            self._bump("no_route", f"{node.title}: no exit holds, passed to the user")
+            self._emit("plan:graph", {"seq_graph": True, "no_route": {"node_id": node.id, **retry["no_route"]}})
+            return {"ready": self.dag.ready_nodes(), "shared_state": self.dag.shared_state, "status": node.status, "completed": False,
+                    "no_route": retry["no_route"], "message": retry["message"]}
         self._bump("mark", f"{node.title}: {node.status}" + (f", try {retry['attempt']} of {retry['of']} failed, tries again" if retry else ""))
+        parking = self._parking(before, node.id)
         self._emit("plan:graph", {"seq_graph": True, **({"retry": {"node_id": node.id, **retry}} if retry else {})})
-        return {"ready": self.dag.ready_nodes(), "shared_state": self.dag.shared_state, "status": node.status, **({"retry": retry} if retry else {})}
+        return {"ready": self.dag.ready_nodes(), "shared_state": self.dag.shared_state, "status": node.status, **({"retry": retry} if retry else {}), **parking}
 
     def _feed(self, e: Dict[str, Any]) -> Dict[str, Any]:
         """An event from the world ({"text", "source", "at"}) offered to the plan's sensors; the ones it satisfies resolve."""
@@ -233,6 +290,8 @@ class PlanCanvasBridge:
         from harness.rewind import note_plan_effect
         entry = note_plan_effect(self.dag, e["node_id"], e.get("tool", ""), e.get("effect", ""), e.get("what", ""))
         if entry:
+            if e.get("kind") in EXCEPTION_KINDS:                 # a booking, payment or uncontrolled resource keeps the step out of automatic changes
+                entry["kind"] = e["kind"]
             self._bump("update_node", f"{self.dag.nodes[e['node_id']].title}: {entry['what']}")
             self._emit("plan:node_updated", {"node": node_to_dict(self.dag.nodes[e["node_id"]])})
         return {"effect": entry}
@@ -244,6 +303,7 @@ class PlanCanvasBridge:
         self.dag.preview_diff(diff)                      # refuse at once what could never apply
         proposal = Proposal(f"pr_{secrets.token_hex(4)}", str(e.get("title") or "Proposed change"),
                             str(e.get("rationale", "")), diff, source=str(e.get("source", "model")))
+        proposal.involves = split_diff(self._nodes(), diff).reasons
         self.proposals[proposal.proposal_id] = proposal
         self._emit("plan:diff_proposed", {"proposal": proposal.to_dict()})
         return {"proposal_id": proposal.proposal_id, "changes": classify_diff(diff)}
@@ -256,8 +316,36 @@ class PlanCanvasBridge:
             raise ValueError(f"proposal {proposal.proposal_id} is already {proposal.status}")
         return proposal
 
+    def _nodes(self) -> Dict[str, Dict[str, Any]]:
+        return {nid: node_to_dict(n) for nid, n in self.dag.nodes.items()}
+
+    def _approve_safe(self, proposal: Proposal) -> Dict[str, Any]:
+        """Applies the part of a proposal that touches no step involving other people, a call, a booking, a payment or a resource out of control. What
+        touches one stays pending as the same proposal, with the steps that hold it back."""
+        split = split_diff(self._nodes(), proposal.diff)
+        if not split.safe:
+            proposal.involves = split.reasons
+            return {"applied": False, "changed": [], "parked": split.reasons, "remaining": proposal.proposal_id}
+        try:
+            changed = self.dag.apply_diff(split.safe)
+        except PlanError as exc:
+            return {"applied": False, "changed": [], "parked": split.reasons, "remaining": proposal.proposal_id, "failed": str(exc)}
+        if split.parked:
+            done = Proposal(f"pr_{secrets.token_hex(4)}", proposal.title, proposal.rationale, split.safe, proposal.source, "applied",
+                            proposal.created_at, [], True)
+            self.proposals[done.proposal_id] = done
+            proposal.diff, proposal.involves = split.parked, split.reasons
+            self._emit("plan:diff_proposed", {"proposal": proposal.to_dict()})
+        else:
+            done, proposal.status, proposal.auto = proposal, "applied", True
+        self._bump("apply", f"{proposal.title} ({proposal.source}): applied without waiting" + (", the rest waits for the user" if split.parked else ""))
+        self._emit("plan:diff_applied", {"proposal_id": done.proposal_id, "changed": changed, "changes": classify_diff(done.diff)})
+        return {"applied": True, "changed": changed, "parked": split.reasons, "remaining": proposal.proposal_id if split.parked else None}
+
     def _approve(self, e: Dict[str, Any]) -> Dict[str, Any]:
         proposal = self._pending(e)
+        if e.get("safe_only") is True:
+            return self._approve_safe(proposal)
         try:
             changed = self.dag.apply_diff(proposal.diff)
         except PlanError as exc:
@@ -293,15 +381,18 @@ class PlanCanvasBridge:
             target = changes["target_type"]
             if target not in TARGET_TYPES:
                 raise ValueError("target_type must be 'constant' or 'occasional'")
+        auto = list(self.card_auto)
         if "card" in changes:
             card = PlanInsightCard.from_dict(changes["card"])
+            before = self.card.to_dict()
+            auto = [f for f in auto if card.to_dict()[f] == before[f]]        # a field the person wrote no longer follows the plan
         if "profile" in changes:
             profile = PlanProfile.from_dict(changes["profile"])
-        self.dag.title, self.dag.target_type, self.card, self.profile = title, target, card, profile
+        self.dag.title, self.dag.target_type, self.card, self.profile, self.card_auto = title, target, card, profile, auto
         self.dag._touch()
         self._bump("update_meta", ", ".join(sorted(changes)))
         self._emit("plan:meta_updated", {"title": title, "target_type": target})
-        return {"title": title, "target_type": target, "card": card.to_dict() if card else None, "profile": profile.to_dict()}
+        return {"title": title, "target_type": target, "card": self.card.to_dict(), "profile": profile.to_dict()}
 
     # -- tasks the software cannot do ------------------------------------------------------------
 
@@ -331,30 +422,43 @@ class PlanCanvasBridge:
 
     # -- System 2 --------------------------------------------------------------------------------
 
-    def replan(self, triage: TriageResult, events: List[str]) -> Dict[str, Any]:
+    def replan(self, triage: TriageResult, events: List[str], auto_apply: bool = False) -> Dict[str, Any]:
         """Wakes the local model about a flagged batch. Its alternatives become proposals; human-fallback
-        offers wait for the user. Raises if no replanner or card is set."""
+        offers wait for the user. With `auto_apply` the recommended alternative is applied at once, except for what touches a step
+        involving other people, a call, a booking, a payment or a resource out of control, which stays pending; when it applies whole, the other
+        alternatives are closed. Raises if no replanner or card is set."""
         if self.replanner is None or self.card is None:
             raise ValueError("re-planning needs a model client and the plan card")
         result: ReplanProposal = self.replanner.propose(self.dag, self.card, triage, events)
         ids = []
+        applied: Dict[str, Any] = {}
         with self._lock:
+            chosen = None
             for i, alt in enumerate(result.alternatives):
                 reply = self.handle({"type": "plan:propose_diff", "title": alt.title, "diff": alt.diff, "actor": "planner",
                                      "rationale": alt.description + (" (recommended)" if i == result.recommended else "")})
                 if reply["ok"]:
                     ids.append(reply["proposal_id"])
+                    if chosen is None or i == result.recommended:
+                        chosen = reply["proposal_id"]
+            if auto_apply and chosen is not None:
+                reply = self.handle({"type": "plan:approve", "proposal_id": chosen, "safe_only": True, "actor": "planner"})
+                applied = {"proposal_id": chosen, **{k: v for k, v in reply.items() if k != "ok"}} if reply.get("ok") else {}
+                if applied.get("applied") and not applied.get("remaining"):
+                    for other in ids:
+                        if other != chosen and self.proposals[other].status == "pending":
+                            self.handle({"type": "plan:reject", "proposal_id": other, "actor": "planner"})
             for fb in result.human_fallbacks:
                 self.handle({"type": "plan:human_fallback", "actor": "planner", **fb})
             self._emit("plan:replan_ready", {"diagnosis": result.diagnosis, "affected_nodes": result.affected_nodes,
-                                             "proposals": ids, "rejected": result.rejected})
+                                             "proposals": ids, "rejected": result.rejected, "applied": applied})
         return {"diagnosis": result.diagnosis, "proposals": ids, "rejected": result.rejected,
-                "human_fallbacks": result.human_fallbacks}
+                "human_fallbacks": result.human_fallbacks, "applied": applied}
 
     # -- saving ----------------------------------------------------------------------------------
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"plan": self.dag.to_dict(), "card": self.card.to_dict() if self.card else None, "profile": self.profile.to_dict(), "alignment": self.alignment,
+        return {"plan": self.dag.to_dict(), "card": self.card.to_dict(), "card_auto": list(self.card_auto), "profile": self.profile.to_dict(), "alignment": self.alignment,
                 "proposals": {k: {**v.to_dict()} for k, v in self.proposals.items()}, "offers": self.offers, "seq": self.seq,
                 "rev": self.rev, "history": list(self.history)}
 
@@ -363,9 +467,12 @@ class PlanCanvasBridge:
         bridge = cls(PlanDAG.from_dict(data["plan"]), PlanInsightCard.from_dict(data["card"]) if data.get("card") else None,
                      replanner, PlanProfile.from_dict(data.get("profile")))
         bridge.alignment = data.get("alignment") if isinstance(data.get("alignment"), dict) else {}
+        if data.get("card"):
+            bridge.card_auto = [f for f in (data.get("card_auto") or []) if f in CARD_FIELDS]
         for k, v in (data.get("proposals") or {}).items():
             bridge.proposals[k] = Proposal(k, v["title"], v.get("rationale", ""), v["diff"], v.get("source", "model"),
-                                           v.get("status", "pending"), v.get("created_at", time.time()))
+                                           v.get("status", "pending"), v.get("created_at", time.time()),
+                                           [str(x) for x in v.get("involves") or []], v.get("auto") is True)
         bridge.offers = data.get("offers") or {}
         bridge.seq = int(data.get("seq", 0))
         bridge.rev = int(data.get("rev", 0))
@@ -401,6 +508,7 @@ class PlanStore:
             if self._archived_path(dag.plan_id).exists():
                 raise ValueError(f"plan '{dag.plan_id}' is in the archive; restore it or choose another id")
             dag.validate_acyclic()
+            dag.enforce_decisions()
             bridge = PlanCanvasBridge(dag, card, replanner, profile)
             self._bridges[dag.plan_id] = bridge
             self.save(dag.plan_id)

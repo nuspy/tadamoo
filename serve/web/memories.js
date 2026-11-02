@@ -7,7 +7,7 @@
   if (!host) return;
 
   const POLL_MS = 5000, ARM_MS = 4000;
-  let S = null, note = "", fKind = "", fSection = "", query = "", editing = "", armed = "", cloud = 0, timer = 0, armTimer = 0, finding = 0, seen = "";
+  let S = null, note = "", exported = null, fKind = "", fSection = "", query = "", editing = "", armed = "", cloud = 0, timer = 0, armTimer = 0, finding = 0, seen = "";
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, tip) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (tip) b.title = tip; return b; };
   const errText = r => (r.data && r.data.error && r.data.error.message) || `HTTP ${r.status}`;
@@ -28,7 +28,7 @@
     const r = await api("GET", "api/memories?" + q);
     if (!r.ok) { note = errText(r); paint(); return; }
     S = r.data;
-    const sig = JSON.stringify([S.items.map(i => i.id + i.updated + i.seen), S.log.length && S.log[0].at, S.worker, S.counts]);
+    const sig = JSON.stringify([S.items.map(i => i.id + i.updated + i.seen), S.log.length && S.log[0].at, S.worker, S.counts, S.cards]);
     if (full || sig !== seen) { seen = sig; paint(); }
   }
   function poll() {
@@ -198,6 +198,35 @@
     box.append(S.log.length ? list : el("p", "dim", T("me.log.empty")));
     return box;
   }
+  /* ---- the cards of the past conversations: how many are written, and the back-fill of the old ones ---- */
+  function cardsBlock() {
+    const c = S.cards;
+    if (!c) return null;
+    const box = el("div", "me-block");
+    box.append(el("h3", "", T("me.cards.title")), el("p", "help", T("me.cards.help")));
+    box.append(el("p", "me-cards", T("me.cards.progress", c.current, c.total) + (c.fallback ? " " + T("me.cards.bycode", c.fallback) : "")));
+    box.append(el("p", "help", T(c.backfill ? (c.current >= c.total ? "me.cards.done" : "me.cards.on") : "me.cards.off")));
+    if (c.error) box.append(el("p", "mb-bad", T("me.log.error", c.error)));
+    box.append(btn(T(c.backfill ? "me.cards.stop" : "me.cards.start"), "ghost", async () => {
+      const r = await api("POST", "api/memories/cards", { backfill: !c.backfill });
+      note = r.ok ? "" : errText(r);
+      await refresh(true);
+    }));
+    return box;
+  }
+  /* ---- a copy of the notes as Markdown files, to read or edit outside; the encrypted store stays the master ---- */
+  function exportBlock() {
+    const box = el("div", "me-block");
+    box.append(el("h3", "", T("me.export.title")), el("p", "help", T("me.export.help")));
+    box.append(btn(T("me.export.go"), "", async () => {
+      const r = await api("POST", "api/memories/export", {});
+      exported = r.ok ? r.data : null;
+      note = r.ok ? "" : errText(r);
+      paint();
+    }));
+    if (exported) box.append(el("p", "me-exported", T("me.export.done", exported.notes, exported.folder)));
+    return box;
+  }
   function dangerBlock() {
     const box = el("div", "me-block me-danger");
     box.append(el("h3", "", T("me.clear.title")), el("p", "help", T("me.clear.help")));
@@ -220,7 +249,7 @@
     const focus = document.activeElement && document.activeElement.id;
     const cols = el("div", "me-cols");
     cols.append(memoryBlock("long"), memoryBlock("short"));
-    host.replaceChildren(el("p", "me-intro", T("me.intro")), ...(note ? [el("p", "mb-bad", note)] : []), cols, cloudBlock(), notesBlock(), logBlock(), dangerBlock());
+    host.replaceChildren(el("p", "me-intro", T("me.intro")), ...(note ? [el("p", "mb-bad", note)] : []), cols, cloudBlock(), notesBlock(), logBlock(), ...(S.cards ? [cardsBlock()] : []), exportBlock(), dangerBlock());
     const again = focus && document.getElementById(focus);
     if (again && again !== document.activeElement) again.focus();
   }

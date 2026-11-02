@@ -132,9 +132,9 @@ struct Options {
     /// Opt-in: the expert cache in physical segments (CUDA virtual memory management), so the serve loop's
     /// `VRAM <reserve_mib>` command can give part of it back to other programs and take it again.  Off: one cudaMalloc.
     bool vram_elastic = false;
-    /// Opt-in, Windows: decommit the eviction backing WDDM charges to the commit for every GPU allocation, once
-    /// loaded and after each command (platform/vram_backing.hpp says what it risks).
-    bool release_vram_commit = false;
+    /// Windows: decommit the eviction backing WDDM charges to the commit for every GPU allocation, once loaded and
+    /// after each command (platform/vram_backing.hpp says what it risks).  `--keep-vram-commit` turns it off.
+    bool release_vram_commit = true;
     int64_t vram_segment_mib = 512;
     /// Batched prompt processing in chunks of this many tokens (0 = the token path).
     int64_t prefill_chunk = 0;
@@ -173,6 +173,9 @@ struct Options {
     /// sent as `BGEN <slot> <max_new> ...` reads its prompt and its first token through the usual path, then
     /// continues in slot <slot> of the batch windows (`BT <slot> <id> [<id> ...]` lines, then `BDONE <slot> ...`).
     int batch = 0;
+    /// --side-context N: the last --batch slot is the side slot and holds N cells (at most --max-context), for short
+    /// calls beside the conversations in the other slots.  0 = off.  It keeps no conversation checkpoints.
+    int64_t side_context = 0;
     /// The --batch slots in this many groups pipelined through the stages of a layer split (stage k
     /// runs one group while stage k+1 runs another).  1 = every slot in one window, stage after stage.
     int batch_groups = 1;

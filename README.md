@@ -49,7 +49,9 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   free now), a **speed prediction**, calibration, load profiles, and loading or reloading the engine inside the running
   server. **Configuration wizard** and **Machine Default**: the best values for this PC, saved as a profile.
 - **LOGS**: every request as the model saw it (what came in, the reasoning and the answer as written, each structured
-  try, times, why it ended) plus the server's and the engine's lines, kept in memory, exportable.
+  try, times, why it ended) plus the server's and the engine's lines, kept in memory, exportable. A second section,
+  **Session traces**, replays a Chat or Agent conversation with its recorded answers (nothing runs), saves it as JSONL with
+  secrets masked, and verifies the hash-chained audit ledger of its folder.
 - **Download models**: a catalog of 23 downloadable Qwen3.8-Flash-Next files (ready `.basalt`, GGUF to convert, uncensored
   versions; 6 more are shown as not compatible), with what differs from the base and how close each is to the full model, and the source of that figure), downloaded
   with resume and SHA-256 checks.
@@ -70,6 +72,10 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   with the reason; **conversion and verification** in the background (disk and commit checked first).
 - A `.basalt` can be given a real **expert profile without converting again**, and the Loader says when it has only the
   plain fill order. `/v1/models` lists the folders' ready files.
+- **A second engine, Strata**, for what Basalt does not run: other GPU families and the Qwen3.6 and DeepSeek models. The Loader
+  shows one Models tab per engine this PC can run, installs it from a local folder or archive (no download yet), and runs
+  Strata's own server as a managed child, relaying `/v1/*` to it. One engine is active at a time. Details and limits:
+  [docs/engines-protocol.md](docs/engines-protocol.md). Windows and Linux; AMD, Intel and Apple builds are untested here.
 
 **5. Server and API**
 - Default port **7232** (the base's examples disagreed with its code); `/api/settings` reads and writes the config file;
@@ -87,7 +93,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
 **7. An agent harness, a planner and a revised interface shell** (`harness/`, [docs/harness.md](docs/harness.md))
 - A separate process (`python -m harness -p "task"`, or as an editor's agent over ACP) that talks to the server's public
   API: a tool loop with permission levels, a plan mode, hooks, file checkpoints, a hash-chained audit log, a command
-  sandbox, a secrets broker, fenced untrusted content, context masking, memory, skills with approval by hash, MCP and
+  sandbox, a secrets broker, fenced untrusted content, context masking, memory, skills, MCP and
   reference documents (fixed block or search). A **vault** keeps cards, personal data and logins encrypted and the model only writes placeholders that are filled in at the last step (the agent runs as your own user, so what that does and does not protect is in `docs/harness.md`);
   the agent can drive a browser to fill in forms and book, and can pay within limits you set in the **Wallet** view (automatic up to the
   caps you choose, a question above them); the second factor of a login is your choice. Real phone calls are gated and off by default.
@@ -95,6 +101,9 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   with your consent, names replaced) and re-planning by the local model, shown in a **Plans** view.
 - An **evaluation** (`python -m harness.eval`) that reports pass^k, cost and cache use, and the pages' shell: interface zoom
   for very wide screens, a command palette (Ctrl+K), Alt+number views and a settings index.
+- **Questions and suggestions**: the agent asks with a card (choices, a row of your own, a recommended option first), looks at each request before it works, and offers next-message chips that only fill the box; unattended runs never wait ([docs/intake.md](docs/intake.md)).
+- A request for a text too long for one reply (a chapter, a report, a long translation) is written in checked parts: the Agent tab estimates the length, plans the parts, writes them and checks and corrects the whole by itself, after a card offers it; the **Long answer** button in the Chat and the Agent tab asks for it by hand. Images, links and code are kept exactly; a reply cut by the output limit shows a Continue button ([docs/longform.md](docs/longform.md)).
+- A **Target Loop** button in the Chat and the Agent tab: describe a target (long texts, numbered and bulleted lists in every prompt box), and the agent works through tasks, has the result judged against evidence, and goes on with what is not met until it is, it stalls, or you stop it ([docs/target-loop.md](docs/target-loop.md)).
 - In the Chat: **Shift+Tab** changes the mode, shown in a label by *New conversation*; a message that starts with `/` is a command
   (30 of them, skills included); the thinking level belongs to the conversation; and the **memory** now really keeps notes between
   conversations, with its effects and limits written out. All of it is in [The agent harness](#the-agent-harness) and in the
@@ -198,6 +207,12 @@ had to shorten.
 
 The reference is [docs/harness.md](docs/harness.md); a step-by-step guide is [docs/harness-manual.md](docs/harness-manual.md).
 
+**Billion Context** (Chat settings, on by default) is a local add-on proxy that compresses long chat and agent conversations before they reach the model, with a silent fallback to direct calls; see [docs/billion-context.md](docs/billion-context.md).
+
+An optional **security monitor** (Monitor > Security) watches the network connections and disk writes of the model processes and flags suspicious cases without blocking anything; see [docs/security-monitor.md](docs/security-monitor.md). The same page starts, stops and shows the Openweight Canary exfiltration test (add-on).
+
+An optional **reverse engineering** switch in the Agent tab adds the shipped REA toolkit (MCP server and skill) to the agent and lists the programs it can use, each installed only on a click; Windows support is experimental; see [docs/rea.md](docs/rea.md).
+
 ### Four ways in
 
 All four build the agent in the same place (`harness/stack.py`), so what one can reach the others can reach.
@@ -212,7 +227,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
 ### What it can do
 
 - **Work on a project**: read, list, search, edit and write files; run shell commands; `repo_map` (the definitions of each source file,
-  most relevant first); language-server diagnostics and go-to-definition when a server is installed; run Python, JavaScript or
+  most relevant first) and `repo_diagram` (import and folder diagrams worked out from the files, with no model); language-server diagnostics and go-to-definition when a server is installed; run Python, JavaScript or
   TypeScript snippets; hand a task to a subagent. Files you attach (text, code, CSV, JSON, Word, Excel, PowerPoint, PDF, images; audio
   and video through the callAPIcall service) are read in pieces, and files the agent makes are checked before they are offered to you.
 - **Use the web**: `search_web` (DuckDuckGo unless you set another engine; no key, and the words of each search go to DuckDuckGo) and
@@ -220,17 +235,20 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   bookings and purchases.
 - **Keep what it learns**: a memory of notes per project (below), `AGENTS.md` rules read from the folder up, skills, and reference
   documents offered as a fixed block or searched.
-- **Reach other tools**: skills, plugins and MCP servers found on this PC (each one *to approve* until you read and approve it, tied to
-  a hash of what you read); a search for a missing one online, with the best candidates put to you and an install that never runs a
+- **Reach other tools**: skills, plugins and MCP servers found on this PC (usable at once unless you turn them off; a read-only tool of an MCP
+  server needs no question); a search for a missing one online, with the best candidates put to you (queued with a comparison when nobody is there, and installed only when you authorise one) and an install that never runs a
   package's scripts; remote MCP servers with OAuth sign-in; other agents through an ACP client and an A2A client; a council of
-  advisers for hard questions; a different model for each function (the loaded one, another on this PC, a cloud service).
+  advisers with editable roles that debate a hard question for a set number of rounds, with the cost shown first; a different model for each function (the loaded one, another on this PC, a cloud service).
 - **Handle money and identity**: the **Wallet** vault keeps cards, personal data and logins encrypted; the model writes placeholders and
   the value is put in at the last step, only toward the sites the entry names. Payments follow a limit you set (nothing until you set
   one), an optional waiver with caps, and a question above them. The second factor of each login is your choice. Real phone calls ask
   every time and are off by default.
 - **Plan**: plans as graphs (actions, sensors, decisions, merges, tasks handed to you) shown in the **Plans** view; the Chat can read
-  and propose changes to them, and every change has your yes. An event filter and re-planning by the local model are optional.
-- **Run on its own schedule**: routines (a prompt, a folder, a schedule, a mode), evaluation (`python -m harness.eval`, pass^k, cost
+  and propose changes to them, read what the planner's proposals would do and approve or reject them; a change has your yes below the Automatic level, and at Automatic (and for events, with a setting on by default) only the step that involves other people, a booking or a resource you do not control waits for you. Every
+  plan has a card the incoming events are judged against; the Chat asks you only what the card lacks. A decision with no exit that holds
+  passes to you instead of skipping in silence. The event filter (local; the cloud one only with your consent) runs from the start of the
+  server, and re-planning by the local model is optional.
+- **Run on its own schedule**: routines (a prompt, a folder, a schedule; always Automatic), evaluation (`python -m harness.eval`, pass^k, cost
   and cache use), replay of a recorded session, and the energy a task used.
 
 ### The Chat's conversations
@@ -240,12 +258,11 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   the mode label at the left, and the kind of conversation, *Thinking* and *Settings* at the right.
 - **Mode, with a label**: *Plan only*, *Read only*, *Ask first* or *Automatic*. A two-line label in the top row says which is on
   (*Shift + TAB to change mode:* in grey, the mode under it in bold and in its own colour, as Claude Code does); **Shift+Tab** in the
-  message box goes to the next, with a conversation open it changes that one only, and *Automatic* asks the two confirmations of the
-  risk dialog the first time only, until the app is closed.
+  message box goes to the next, with a conversation open it changes that one only, and *Automatic* asks nothing.
 - **Thinking level** per conversation (the *Thinking* list, or `/effort`).
-- **Slash commands**: typing `/` opens a menu of 30: on the page (`/clear`, `/mode`, `/plan`, `/copy`, `/export`, `/branch`, `/rewind`,
+- **Slash commands**: typing `/` opens a menu of 31: on the page (`/clear`, `/mode`, `/plan`, `/copy`, `/export`, `/branch`, `/rewind`,
   `/stop`, `/diff`…), answered by the conversation's process (`/status`, `/context`, `/compact`, `/tools`, `/hooks`, `/mcp`,
-  `/memory`, `/permissions`), requests worded for the model (`/init`, `/review`, `/security-review`, `/research`), and every skill found
+  `/memory`, `/permissions`, `/audit`), requests worded for the model (`/init`, `/review`, `/security-review`, `/research`), and every skill found
   on the PC as `/name text`.
 - **It always knows the time.** Before each request the agent is given the person's local date, time and timezone by the harness
   itself, so it never has to call a tool to ask, and the start of the prompt is not touched (the server keeps its cache). Each message
@@ -257,10 +274,12 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   `/stop-learn-skill`), and the harness keeps what you did as a Python script with the parts that change as parameters: marked by you with
   `# a phrase #`, or found from your words and dates. Run it again from the *Skills* button or with `/skilluse`, with a form that reads dates in
   words. Most of it is plain code, so it costs no tokens; the model is used once to write it and then only where the language must be understood. A
-  skill moves to another PC as one `.pskill` file and arrives *to approve*. See the [manual](docs/harness-manual.md#17-personal-skills).
+  skill moves to another PC as one `.pskill` file and arrives ready to run. See the [manual](docs/harness-manual.md#17-personal-skills).
 - **A message while it works** is steered into the task, queued, or treated as urgent; **Stop** means stop.
 - **Branches, going back, comparing**: a tree of conversations, *Back to here* on any request (actions that stay done are listed
-  first), and two continuations of one request side by side.
+  first), and two continuations of one request side by side. Messages are shared immutable nodes, so a branch copies nothing; the
+  node view shows what switching to a branch costs the model before you switch, and *Merge and summarize* has the model write one
+  synthesis of two branches into a new conversation.
 - **A copy of its own** (not offered from the Chat page, which has no project folder to copy): in a git folder a conversation can work in its own worktree, and you apply the changes you choose as staged
   changes, never a commit.
 - **Failures are handled, not hidden**: a busy or unreachable server is retried; a process that dies is started again from its history;
@@ -269,13 +288,15 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
 ### What you control
 
 - **What it may do without asking**: the four modes; command rules (`shell_command:pytest*`, a deny always wins, and a rule never
-  covers a command that chains or redirects); the *Always allow* button in a question. In *Automatic*, an irreversible action still asks
-  once the conversation has read outside content and can reach a secret or a vault entry (the Rule of Two).
+  covers a command that chains or redirects); the *Always allow* button in a question. An answer covers that one call (the same tool with
+  the same arguments), not the whole tool, and *Always allow* is never offered as a wide rule for `python`, `powershell`, `curl` and the
+  like (only for that exact command) or for `run_code`: a rule for those is one you write yourself. In *Automatic*, an irreversible action still asks
+  once the conversation has read outside content and can reach a secret or a vault entry (the Rule of Two). The web is read freely for news; a web address, a search or a form asks only when the conversation has read outside content, touched private data (a stored credential, a file that holds keys, an attachment, your memories) and the action reaches the outside. Settings > Wallet sets how strict that is. A stored secret is never let into an address or a query, at any setting.
 - **Hooks you write** (`hooks.json`): commands or fixed blocks on tool calls, turns and the session; a hook that cannot decide blocks.
-- **Checkpoints and rewind**: the workspace is saved before the first change of a turn, outside the project and within size limits;
+- **Checkpoints and rewind**: before an action changes files, their previous content is kept outside the project (only the changed files, any folder, no size limit; off, on, or on without ever stopping the action);
   `python -m harness.rewind`, `/rewind` and *Back to here* on a message restore it. Rewinding does not undo a command it ran, and says so.
 - **An audit log**: one record per tool call (arguments hashed and masked, the decision, the outcome), in a hash chain you can verify.
-- **Time limits and Stop**: every tool has a time limit (15 minutes unless set); Stop ends a running command and everything it started.
+- **Time limits and Stop**: every tool has a time limit (one hour unless set in `limits.json`); silent work is not killed unless you set a limit; Stop ends a running command and everything it started.
 - **What it is not**: an operating-system sandbox. A command runs with your rights, with a scrubbed environment, no stdin, a time limit,
   capped output and, on Windows, a job object. Use *Automatic* only in a folder you can lose.
 
@@ -323,14 +344,14 @@ the note.
 - **Notes are stored as written, in plain text, not encrypted and not masked.** Do not ask the agent to remember a password or a key.
 - **A wrong or hostile note stays.** The agent can be talked into keeping a note by a page it read, and `remember` is a reversible
   action that asks nobody in *Ask first* or *Automatic*. It comes back later as data the model is told not to obey, which lowers the
-  risk and does not remove it. The notes added at the end by the retrieval do not set the Rule of Two flag the way `recall` does.
+  risk and does not remove it. The notes added at the end by the retrieval set the Rule of Two flag like `recall`.
 - **No page to browse or edit the notes.** `/memory` reads them (each cut at 300 characters); to remove one, ask the agent to forget
   it, or delete the file. Nothing is shared between folders, users or PCs, and there is no export.
 
 ### What is not done
 
-File and network isolation for commands (the job object limits resources only); `fs/*` and `session/load` in ACP; Basalt as an A2A
-server (it is a client only); bank accounts through an aggregator; a test of Google Pay or an embedded Stripe form on a real site;
+File and network isolation for commands (the job object limits resources only); a try of the ACP agent in a real editor (Zed, JetBrains) and
+`terminal/*`; Basalt as an A2A server (it is a client only); bank accounts through an aggregator; a test of Google Pay or an embedded Stripe form on a real site;
 and a measure of which context strategy works best (it needs the real model). No real phone call was placed in a test, and Stripe and
 Google Pay were not tried against the live services. The list with the reasons is at the end of [docs/harness.md](docs/harness.md).
 
@@ -348,6 +369,15 @@ Google Pay were not tried against the live services. The list with the reasons i
   web UI in the default browser).
 - Building: Windows in [docs/WINDOWS.md](docs/WINDOWS.md) (Visual Studio v143 tools, CUDA 13.1, CMake, Ninja), Linux
   in [Build](#build) below. The app: `dotnet publish tools\windows\desktop -c Release -o tools\windows\desktop\publish`.
+
+## Compatibility
+
+- **Basalt engine** (`.basalt` files, Qwen3.8-Flash-Next and the Qwen3.6 path): NVIDIA Blackwell only, Windows x64 and Linux x86-64.
+- **Strata engine** (second engine in the Loader, installed from a local folder): meant for the other NVIDIA generations, and for
+  AMD (HIP), Intel (SYCL) and Apple (Metal) hardware. Run and checked here only on an NVIDIA Blackwell GPU with a Qwen3.6 GGUF
+  that carries the MTP layer; the other backends are not tested. A Mac release is not built: Mac users compile from the repository.
+- **Add-ons in the setup**: Openweight Canary, Billion Context (needs Node.js), REA and Node.js; none of them needs a GPU.
+- Known limit: the Qwen3.6 path on the Basalt engine can crash with prompt chunks of 2048 tokens or more; `--chunk 512` works.
 
 ## Starting Basalt Win+GUI
 
@@ -509,7 +539,7 @@ be mixed). The model picker shows the same one-line hint for a model it knows.
 - **Uncensored** versions are marked and carry the author's warning. OrcaRouter's repository is **gated**: the panel
   explains how to get a Hugging Face account, accept the terms and make a read token, and takes the token for the
   session only (`HF_TOKEN` or the file `huggingface-cli login` writes are read too). Basalt never saves, shows or logs
-  a token, and sends it only to Hugging Face, never along a redirect to another host.
+  a token, and sends it only to Hugging Face; a redirect to any other http or https host is followed without it.
 - **A download starts only from its plan**: the files at a pinned revision with their sizes and SHA-256 as Hugging Face
   reports them, the disk and its free space, the access, and the license to accept (Qwen Community License 1.0, plus
   the Swift Open License for Swift files; the repositories that tag themselves Apache-2.0 are treated as the base
@@ -522,7 +552,7 @@ be mixed). The model picker shows the same one-line hint for a model it knows.
 
 Entries marked "Not tried in Basalt" have expert formats the engine's lists accept but have not been run through Basalt.
 The catalog was read from the repositories on 2026-10-17 (`serve/catalog.py`); sizes are read again when a download is
-planned. The routes (this PC and the server's own page only): `GET /api/models/catalog | download | hf`, `POST
+planned. The routes (this PC only): `GET /api/models/catalog | download | hf`, `POST
 /api/models/download-plan | download | download-cancel | hf-token`.
 
 ### Model converter (Models > Model converter)
@@ -661,8 +691,8 @@ listed model; it only says how to load it. Loading the asked model on request is
 
 **API key.** The server listens on 127.0.0.1 only and needs no key: clients that insist on one can send any value.
 `--api-key KEY` (command line only, never in a config file) makes `/v1/*` require it as `Authorization: Bearer KEY`
-or `x-api-key: KEY`; it is needed to listen on another address (`--host 0.0.0.0`) and to let web pages of other
-origins use the server. The scripts and the app start the server on 127.0.0.1 without a key.
+or `x-api-key: KEY`; it is needed to listen on another address (`--host 0.0.0.0`). The server answers to any `Host` name
+and any web page's `Origin`, and `/v1/*` carries `Access-Control-Allow-Origin: *`. The scripts and the app start the server on 127.0.0.1 without a key.
 
 **Streaming.** `"stream": true` streams server-sent events in each API's own format (OpenAI `chat.completion.chunk`,
 Responses events, Anthropic `message_start` / `content_block_delta` / ...), reasoning included as
@@ -787,7 +817,7 @@ Set in the Loader (each with its reason and the live prediction), saved in load 
 | **RAM budget for experts** (`engine.resident-budget-gib`, GiB) | at most this many GiB of experts copied to RAM, the most used first | empty = automatic; the plan's RAM figure is limited to it; the engine refuses a budget that leaves less than its RAM floor free |
 | **Experts in the file mapping** (`engine.mmap-experts`) | no resident RAM copy: the experts are read through a file mapping; it wins over resident experts and the RAM budget | usually slower (it depends on the OS page cache); off by default |
 | **Elastic expert cache** (`engine.vram-elastic`) | the expert cache in segments, so `POST /v1/vram` can lend VRAM to other programs between requests | off unless another program needs VRAM at times |
-| **Give back the GPU memory's commit** (`engine.release-vram-commit`, Windows) | gives back the system commit WDDM charges for the GPU memory | off; the engine can hang if another program then pushes its VRAM out |
+| **Keep the GPU memory's commit** (`engine.keep-vram-commit`, Windows) | keeps the system commit WDDM charges for the GPU memory instead of giving it back | off (the commit is given back); switch it on if another program allocates GPU memory while the engine idles, since the engine can hang if that program pushes its VRAM out |
 | **Expert profile file** (`engine.expert-profile-save`, advanced) | the file the engine saves what the adaptive cache learned to, on exit and periodically | empty = not saved; `tools/convert/convert.py --profile` reads it |
 | **Profile save interval** (`engine.expert-profile-save-every`, minutes, advanced) | how often the profile is saved; 0 = on exit only | 10 by default |
 | **Prompt checkpoints** (`engine.prompt-cache`) | conversation checkpoints kept between requests, about 118 MB of RAM each per slot; 0 reads every prompt from the start | 6 by default; the plan counts them |
@@ -980,8 +1010,8 @@ entries are dropped and the page is told how many. `GET /v1/status` reports `req
 | Endpoint | |
 |---|---|
 | `GET /api/reqlog?after=<id>&max_chars=<n>` | the events with an id above `after`, oldest first: `{"enabled", "epoch", "last", "events": [{"id", "t", "req", "kind", "data", "text"}], "skipped", "dropped": {"events", "chars"}, "capacity_chars", "held_chars"}`. With the log off: `enabled: false` and no events (HTTP 200). `kind` is `request`, `reasoning`, `content`, `attempt`, `repair`, `timing`, `finish`, `cancel`, `error`, `gpu`, `engine` or `server` |
-| `GET /api/reqlog/export?format=text\|jsonl` | the whole log as a downloaded file, `basalt-requests-YYYYmmdd-HHMMSS.log` or `.jsonl` |
-| `POST /api/reqlog/clear` | empties the log, `{"cleared": true}`; JSON from the server's own page only |
+| `GET /api/reqlog/export?format=text\|jsonl&mask=secrets\|personal&hide=words` | the whole log as a downloaded file, `basalt-requests-YYYYmmdd-HHMMSS.log` or `.jsonl`. Secrets (private keys, tokens, passwords, card numbers, the vault's values, the server's key) are always hidden in the file, never in the page; `mask=personal` also hides e-mail addresses, phone numbers, IBANs and tax codes, and `hide` lists words (comma-separated, at most 20) |
+| `POST /api/reqlog/clear` | empties the log, `{"cleared": true}` |
 
 Every setting, with its type, default and example configs: [docs/configuration.md](docs/configuration.md).
 
@@ -1022,9 +1052,16 @@ names the remedies: a smaller `--max-context`, no `--slot-full-context`, fewer `
 does not fit at all, the engine says which slot (`WARNING: --batch N: slot K's session does not fit`) and starts with
 the slots that did fit; if fewer than two fit, `--batch is off` and the server runs one request at a time.
 
+`--side-slot TOKENS` (also `"side-slot"` in the config's `server` section and the Loader's *Technical session* field; bare it is 30000,
+`0` is off and the default) adds one more slot to `--parallel`, with a context of its own, for the harness's short calls (triage,
+suggestions, summaries, judges): a request with `"cache_slot": "side"` runs there and neither waits behind a conversation nor overwrites
+its cache, and the answer says which kind of slot served it. It costs the KV cache and state of TOKENS tokens, and while it is on the
+engine runs in its batch mode, so `end_turn_bias`, `logit_bias` and relaxed drafting are unavailable. It is off until its effect on a
+conversation's speed has been measured. Details: [running](docs/running.md#the-technical-session---side-slot-tokens).
+
 - `server` holds the server's options (`python -m serve.server --help`), named as the flags without the dashes:
   strings or numbers, `true`/`false` for a switch (`lazy`, ...), a list for the repeatable ones
-  (`allowed-host`, `cors-origin`). `model` and `tokenizer` paths are relative to the file.
+  (`script`). `model` and `tokenizer` paths are relative to the file.
 - `engine` holds engine flags (`bin/basalt --help`), the same way: a string or number, `true` for a switch, `false`
   to leave it off, a list for a flag with several values (`"control-vector-layer-range": [4, 44]`). Any flag the engine accepts works, on the command line as well (`--kv int8`, `--resident-experts`).
   A name the engine does not accept stops the server at startup, as does one in the wrong section.

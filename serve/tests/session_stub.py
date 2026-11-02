@@ -46,9 +46,13 @@ starts_file.write_text(str(starts))
 data = load()
 blocked = None
 if (H / "inflight.json").exists():
-    blocked = {"reason": "interrupted_irreversible", "detail": "pay may have run", "options": ["resume", "close"], "tool": "pay"}
-    (H / "inflight.json").unlink()
-emit({"event": "ready", "session": args.session_id, "restored": len(data["messages"]), "pid": os.getpid(), "blocked": blocked, "starts": starts})
+    (H / "inflight.json").unlink()                                          # the real process only tells the model; nothing blocks
+try:
+    parked = json.loads((H / "parked.json").read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    parked = []
+emit({"event": "ready", "session": args.session_id, "restored": len(data["messages"]), "pid": os.getpid(), "blocked": blocked, "starts": starts,
+      "parked": parked})
 
 beating = threading.Event()
 beating.set()
@@ -74,6 +78,8 @@ for line in sys.stdin:
         data["messages"].append({"role": "user", "content": text})
         save(data)
         emit({"event": "accepted", "turn": cmd.get("id")})
+        if "optimize" in cmd:                                               # "Send my original instead"
+            emit({"event": "optimize_prompt", "on": cmd["optimize"], "turn": cmd.get("id")})
         busy["v"] = True
         if text == "die" and starts <= args.die_times:
             os._exit(3)
@@ -87,6 +93,14 @@ for line in sys.stdin:
             emit({"event": "ask", "id": "a1", "mode": "confirm", "kind": "plan_archive", "question": "Archive it?", "facts": {"plan": "X"},
                   "options": [{"label": "Confirm", "value": "confirm"}, {"label": "Cancel", "value": "cancel"}]})
             continue                                                       # waits for the answer
+        if text == "pending":
+            item = {"id": "p1", "turn": cmd.get("id"), "source": {"kind": "permission", "named": "people"}, "mode": "confirm", "kind": "permission",
+                    "tool": "phone_call", "question": "Call Anna?", "options": [{"label": "Call", "value": "confirm"}, {"label": "No", "value": "cancel"}]}
+            (H / "parked.json").write_text(json.dumps([item]), encoding="utf-8")
+            emit({"event": "pending", **item})
+            busy["v"] = False
+            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "went on"})
+            continue
         if text == "code":
             emit({"event": "ask", "id": "c1", "mode": "confirm", "kind": "code", "free": True, "question": "Type the code for bank.", "facts": {"who": "bank"}, "options": []})
             continue                                                       # waits for the code
@@ -99,6 +113,34 @@ for line in sys.stdin:
             busy["v"] = False
             emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "asked", "final": ""})
             continue
+        if text == "card":
+            emit({"event": "ask", "id": "k2", "mode": "question", "kind": "questions", "intro": "", "notes": [], "question": "Which database?", "options": [],
+                  "questions": [{"id": "q1", "text": "Which database?", "kind": "single", "required": True, "allow_other": True,
+                                 "options": [{"id": "o1", "label": "PostgreSQL", "recommended": True}, {"id": "o2", "label": "SQLite"}]}]})
+            busy["v"] = False
+            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "asked", "final": ""})
+            continue
+        if text == "offer":
+            busy["v"] = False
+            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "worked"})
+            emit({"event": "ask", "id": "k3", "mode": "question", "kind": "questions", "source": "next_steps", "intro": "", "notes": [], "question": "Run these checks before finishing?",
+                  "options": [], "offer": {"question": "checks", "commands": {"o1": "python -m pytest -x -q", "o2": "python -m ruff check ."}},
+                  "questions": [{"id": "checks", "text": "Run these checks before finishing?", "kind": "multi", "required": False, "allow_other": False,
+                                 "options": [{"id": "o1", "label": "python -m pytest -x -q"}, {"id": "o2", "label": "python -m ruff check ."}]}]})
+            continue
+        if text == "assume":
+            emit({"event": "auto_answered", "id": "z1", "turn": cmd.get("id"), "kind": "question", "value": "o1", "answer": "PostgreSQL", "chosen": "recommended",
+                  "available": True, "source": {"kind": "question", "named": None, "needs_data": False}, "question": "Which database?"})
+            emit({"event": "auto_answered", "id": "z2", "turn": cmd.get("id"), "kind": "question", "value": "", "answer": "(no answer)", "chosen": "parked",
+                  "available": False, "source": {"kind": "question", "named": "people", "needs_data": False}, "question": "Call the vet?"})
+            busy["v"] = False
+            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "all done"})
+            continue
+        if text == "chips":
+            busy["v"] = False
+            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "an answer"})
+            emit({"event": "suggestions", "turn": cmd.get("id"), "items": [{"prompt": "Tell me more"}]})
+            continue
         if text == "more":
             busy["v"] = False
             emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "first part", "more": True})
@@ -106,6 +148,10 @@ for line in sys.stdin:
         if text == "rule":
             emit({"event": "rule_added", "rule": "shell_command:pytest *"})
             emit({"event": "rule_added", "rule": "shell_command:pytest *"})
+        if text == "rule-global":
+            emit({"event": "rule_added", "rule": "shell_command:python *", "scope": "global"})
+        if text == "two-off":
+            emit({"event": "rule_of_two_off", "scope": "chat"})
         if text == "queue-me":
             emit({"event": "queued", "turn": cmd.get("id"), "text": text})
             continue
@@ -140,12 +186,27 @@ for line in sys.stdin:
         emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": final})
     elif name == "mode":
         emit({"event": "mode", "mode": cmd.get("mode")})
+    elif name == "role":
+        emit({"event": "role", "role": cmd.get("role")})
+    elif name == "checks":
+        emit({"event": "checks", "safe": len(cmd.get("safe", [])), "checks": len(cmd.get("checks", []))})
     elif name == "effort":
         emit({"event": "effort", "level": cmd.get("level")})
+    elif name == "intake":
+        emit({"event": "intake_mode", "mode": cmd.get("mode")})
+    elif name == "optimize":
+        emit({"event": "optimize_prompt", "on": cmd.get("on")})
+    elif name == "settings":
+        emit({"event": "settings", **{k: cmd[k] for k in ("max_turns", "end_turn_bias") if k in cmd}})
     elif name == "command":
         emit({"event": "command", "id": cmd.get("id"), "name": cmd.get("name"), "ok": True, "data": {"args": cmd.get("args")}})
     elif name in ("promote", "drop"):
         emit({"event": "routed" if name == "promote" else "dropped", "turn": cmd.get("id"), "how": "urgent"})
+    elif name == "answer" and cmd.get("id") == "p1":
+        (H / "parked.json").unlink()
+        data["messages"].append({"role": "user", "content": "[harness] answered p1: %s" % cmd.get("value")})
+        save(data)
+        emit({"event": "pending_done", "id": "p1", "value": cmd.get("value")})
     elif name == "answer":
         busy["v"] = False
         emit({"event": "done", "turn": "answered", "stop_reason": "final", "final": "answered: " + str(cmd.get("value"))})

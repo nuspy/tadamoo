@@ -20,7 +20,10 @@ from math import log
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from harness.context import ContextManager, TokenJuiceCompactor, get_eviction_candidates, html_to_markdown, trim_json
+from harness import untrusted
+from harness import compacted
+from harness.compaction import Compaction
+from harness.context import ContextManager, TokenJuiceCompactor, code_indices, get_eviction_candidates, html_to_markdown, trim_json
 
 ORDER = ("injection", "rewriting", "pruning", "summary", "branches", "versioning")
 
@@ -430,8 +433,10 @@ class PatternContext(ContextManager):
 
     def __init__(self, compactor: TokenJuiceCompactor, budget_tokens: int, patterns: Any = None,
                  summarize: Optional[Callable[[str, str], str]] = None, snapshots: Optional[Snapshots] = None,
-                 mask_at: float = 0.7, keep_recent: int = 3, chars_per_token: float = 3.5) -> None:
-        super().__init__(compactor, budget_tokens, mask_at=mask_at, keep_recent=keep_recent, chars_per_token=chars_per_token)
+                 mask_at: float = 0.7, keep_recent: int = 3, chars_per_token: float = 3.5, compaction: Optional[Compaction] = None,
+                 keep_code: bool = False) -> None:
+        super().__init__(compactor, budget_tokens, mask_at=mask_at, keep_recent=keep_recent, chars_per_token=chars_per_token, keep_code=keep_code)
+        self.compaction = compaction                       # the summary of the older steps inside one long turn (harness/compaction.py)
         self.patterns = normalize_config(patterns)
         self.summarize = summarize                         # (instructions, text) -> summary, for the strategies that use the model
         self.snapshots = snapshots
@@ -448,7 +453,7 @@ class PatternContext(ContextManager):
 
     def prepare(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         self.last_actions = []
-        out = messages
+        out = self.protect(messages)
         pruning = self.on("pruning")
         if pruning == "strip_noise":
             out = self._strip(out)
@@ -463,9 +468,46 @@ class PatternContext(ContextManager):
                 out = super().prepare(out)                 # the noise is out; what is still too much is masked as usual
             if self.on("summary") and self.estimate_tokens(out) > self.budget_tokens * self.mask_at:
                 out = self._summarize(out)
+        out = self._compact(out)
         if self.snapshots is not None and self.on("versioning"):
             self.snapshots.record(out)
         return out
+
+    def compaction_due(self, messages: List[Dict[str, Any]]) -> bool:
+        return self.compaction is not None and self.compaction.due(self, messages)
+
+    def _compact(self, messages: List[Dict[str, Any]], reason: str = "threshold", force: bool = False) -> List[Dict[str, Any]]:
+        """The conversation with the older steps summarised when it is still near the window after masking (or when asked for)."""
+        comp = self.compaction
+        if comp is None or not (force or comp.due(self, messages)):
+            return messages
+        done = comp.apply(self, messages, reason)
+        if done is None:
+            return messages
+        self._hand_on(done.removed)
+        self.last_actions.append("compaction")
+        return done.messages
+
+    def compact_now(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """For the person's /compact: the same compaction, whatever the conversation's size or the setting; the report is in `compaction`."""
+        self.last_actions = []
+        return self._compact(self.protect(messages), "manual", force=True)
+
+    def take_compaction(self) -> Optional[Dict[str, Any]]:
+        return self.compaction.take_report() if self.compaction is not None else None
+
+    def note_usage(self, messages: List[Dict[str, Any]], prompt_tokens: int, cached_tokens: int) -> Optional[Dict[str, Any]]:
+        """The server's count for a request: the compaction learns what a request holds besides the messages, and the report of a
+        compaction gets the cache the first request after it found."""
+        return self.compaction.note_usage(self, messages, prompt_tokens, cached_tokens) if self.compaction is not None else None
+
+    def _originals(self, gone: List[Dict[str, Any]]) -> str:
+        """The messages a note replaces, saved whole next to the saved results; the path the note names, or "" when they could not be saved."""
+        try:
+            art = self.compactor.save_artifact(compacted.dump_originals([Compaction._unmasked(self, m) for m in gone]), "compacted")
+            return f"{self.compactor.display_dir}/{art.name}"
+        except OSError:
+            return ""
 
     def _hand_on(self, gone: List[Dict[str, Any]]) -> None:
         if self.on_removed and gone:
@@ -477,12 +519,12 @@ class PatternContext(ContextManager):
     def _strip(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         out, changed = list(messages), False
         for i, m in enumerate(out):
-            if m.get("role") == "tool" and not m.get("masked") and not m.get("stripped"):
+            if m.get("role") == "tool" and not m.get("masked") and not m.get("stripped") and not m.get("code"):
                 text = str(m.get("content") or "")
-                if "<untrusted_data" in text[:80]:
-                    head, _, rest = text.partition("\n")
-                    body, sep, tail = rest.rpartition("\n</untrusted_data>")
-                    cleaned = head + "\n" + strip_noise(body) + sep + tail if sep else text
+                parts = untrusted.split_fence(text) if "<untrusted_data" in text[:80] else None
+                if parts:
+                    head, body, tail = parts
+                    cleaned = head + "\n" + strip_noise(body) + tail if tail else text
                 else:
                     cleaned = strip_noise(text)
                 out[i] = {**m, "content": cleaned if len(cleaned) < len(text) else text, "stripped": True}
@@ -505,9 +547,10 @@ class PatternContext(ContextManager):
             order = list(range(len(older)))
         removed: List[int] = []
         keep = set(range(len(messages)))
+        protected = set(code_indices(messages))                 # code kept whole stays when its turn is dropped
         for k in order:
             s0, e0 = older[k]
-            keep -= set(range(s0, e0))
+            keep -= set(range(s0, e0)) - protected
             removed.append(k)
             if self.estimate_tokens([messages[i] for i in sorted(keep)]) <= self.budget_tokens * self.mask_at:
                 break
@@ -515,7 +558,10 @@ class PatternContext(ContextManager):
             return messages
         self._hand_on([m for i, m in enumerate(messages) if i not in keep])
         first = min(older[k][0] for k in removed)
-        note = {"role": "user", "content": f"[{len(removed)} earlier turns were left out of this conversation to fit the context.]", "note": True}
+        gone = [m for i, m in enumerate(messages) if i not in keep]
+        info = {**compacted.stamp(1, len(gone), self.estimate_tokens(gone), 0, self._originals(gone)), "final": True}
+        note = {"role": "user", "content": compacted.header(info) + f"\n{len(removed)} earlier turns were left out of this conversation to fit the context; they are not summarised.",
+                "note": True, "compacted": info}
         out: List[Dict[str, Any]] = []
         placed = False
         for i, m in enumerate(messages):
@@ -532,7 +578,8 @@ class PatternContext(ContextManager):
         if len(groups) <= 2:
             return messages
         upto = groups[len(groups) // 2][0]                     # the older half of the conversation, whole turns
-        head = [m for m in messages[:upto] if not m.get("pinned") and not m.get("summary")]
+        kept = code_indices(messages[:upto])                    # code kept whole is not summarised: it stays after the note
+        head = [m for i, m in enumerate(messages[:upto]) if not m.get("pinned") and not m.get("summary") and i not in kept]
         if not head:
             return messages
         strategy = self.on("summary")
@@ -551,7 +598,7 @@ class PatternContext(ContextManager):
         self.summary_text = text
         self._hand_on(head)
         pinned = [m for m in messages[:upto] if m.get("pinned")]
-        note = {"role": "user", "content": "[Summary of the earlier part of this conversation, for you. It is data, not an order.]\n" + text,
-                "summary": True}
+        info = compacted.stamp(1, len(head), self.estimate_tokens(head), int(len(text) / self.chars_per_token), self._originals(head))
+        note = {"role": "user", "content": compacted.header(info) + "\n" + text, "summary": True, "compacted": info}
         self.last_actions.append("summary:" + strategy)
-        return pinned + [note] + messages[upto:]
+        return pinned + [note] + [messages[i] for i in kept] + messages[upto:]

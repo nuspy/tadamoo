@@ -316,7 +316,8 @@
       [...ch.added, ...ch.updated, ...ch.removed].forEach(id => { S.flash[id] = Date.now() + 3000; });
       say(T("pl.ev.proposed", ev.proposal.title));
     } else if (ev.type === "plan:replan_ready") {
-      say(T("pl.ev.replan", ev.proposals.length));
+      const a = ev.applied || {};
+      say(a.applied ? T(a.remaining ? "pl.ev.autoparked" : "pl.ev.autoapplied") : T("pl.ev.replan", ev.proposals.length));
     } else if (ev.type === "plan:replan_failed") {
       say(T("pl.ev.replanfail", ev.error), true);
     } else if (ev.type === "plan:fallback_offered") {
@@ -686,17 +687,20 @@
       ? el("textarea", { id: "pl-d-cond", rows: "4", disabled: done, spellcheck: "false", text: JSON.stringify(n.conditions, null, 2) })
       : null;
     const policy = n.retry_policy || {};
-    const tries = el("input", { id: "pl-d-tries", type: "number", min: "1", max: "10", inputmode: "numeric", disabled: done, value: String(policy.max_attempts || 1) });
-    const wait = el("input", { id: "pl-d-wait", type: "number", min: "0", max: "604800", inputmode: "numeric", disabled: done, value: String(policy.wait_seconds || 0) });
+    const tries = el("input", { id: "pl-d-tries", type: "number", min: "1", max: "10", inputmode: "numeric", disabled: done, value: String(policy.max_attempts || 3) });
+    const wait = el("input", { id: "pl-d-wait", type: "number", min: "0", max: "604800", inputmode: "numeric", disabled: done, value: String(policy.wait_seconds ?? 30) });
     const out = el("textarea", { id: "pl-d-out", rows: "2", spellcheck: "false", placeholder: '{"invitati_confermati": ["Anna"]}' });
     const facts = [];
     if (n.state_variables.blocked_by) facts.push(T("pl.blocked_by", n.state_variables.blocked_by.map(i => (S.snap.plan.nodes[i] || {}).title || i).join(", ")));
+    if (n.state_variables.parked_by) facts.push(T("pl.parked_by", n.state_variables.parked_by.map(i => (S.snap.plan.nodes[i] || {}).title || i).join(", ")));
+    if (n.state_variables.timed_out) facts.push(T("pl.timed_out"));
     if (n.state_variables.fallback_reason) facts.push(T("pl.fallback", n.state_variables.fallback_reason));
     if (n.state_variables.selected) facts.push(T("pl.selected", n.state_variables.selected.join(", ")));
     if (n.state_variables.outputs) facts.push(T("pl.outputs", JSON.stringify(n.state_variables.outputs)));
     if (n.state_variables.retry_at) facts.push(T("pl.fact.retry", n.state_variables.attempts || 1, new Date(n.state_variables.retry_at * 1000).toLocaleTimeString()));
     if (n.state_variables.matched) facts.push(T("pl.fact.matched", n.state_variables.matched.text));
     if (n.state_variables.sensor_error) facts.push(T("pl.fact.sensorerr", n.state_variables.sensor_error));
+    if (n.state_variables.no_route) facts.push(T("pl.fact.noroute", noRouteText(n.state_variables.no_route)));
     if (n.call_request) facts.push(T("pl.fact.call", n.call_request.number, n.call_request.reason));
     if (n.wiki_query) facts.push(T("pl.fact.wiki", n.wiki_query));
     const isReady = S.snap.ready.includes(n.id);
@@ -775,8 +779,12 @@
     if (!changes.title) { say(T("pl.f.title.required"), true); return; }
     const tries = Number(document.getElementById("pl-d-tries").value) || 1, wait = Number(document.getElementById("pl-d-wait").value) || 0;
     const old = (S.snap.plan.nodes[id] || {}).retry_policy || {};
-    changes.retry_policy = tries > 1 ? { max_attempts: tries, wait_seconds: wait, backoff: old.backoff || 1 } : null;
+    changes.retry_policy = { max_attempts: tries, wait_seconds: wait, backoff: old.backoff || 2 };
     await event({ type: "plan:update_node", node_id: id, changes }, T("pl.saved"));
+  }
+  function noRouteText(f) {
+    const exits = (f.exits || []).map(x => x.condition + " → " + (x.holds === true ? T("pl.nr.holds") : x.holds === false ? T("pl.nr.not") : T("pl.nr.unreadable", x.error || "")));
+    return exits.join("; ") + " · " + JSON.stringify(f.values || {});
   }
   async function mark(id, status, outBox) {
     let outputs;
@@ -784,7 +792,8 @@
       try { outputs = JSON.parse(outBox.value); } catch (e) { say(T("pl.badjson"), true); return; }
       if (!outputs || typeof outputs !== "object" || Array.isArray(outputs)) { say(T("pl.badjson"), true); return; }
     }
-    await event({ type: "plan:mark", node_id: id, status, ...(outputs ? { outputs } : {}) }, T("pl.marked"));
+    const r = await event({ type: "plan:mark", node_id: id, status, ...(outputs ? { outputs } : {}) }, null);
+    if (r && r.ok) say(r.data.no_route ? T("pl.noroute.say") : T("pl.marked"), !!r.data.no_route);
   }
   /* Going back does not undo what already happened outside (a call, a payment, a command): the page asks the server what would stay done,
      and when something would, lists it and waits for an explicit "Rewind anyway". */
@@ -815,8 +824,9 @@
   }
   async function userDiff(diff, title) {
     const p = await api(planPath("/events"), { type: "plan:propose_diff", title, source: "user", diff });
-    if (!p.ok) { say(errText(p.data) || T("pl.failed"), true); return; }
-    await event({ type: "plan:approve", proposal_id: p.data.proposal_id }, T("pl.ev.applied"));
+    if (!p.ok) { say(errText(p.data) || T("pl.failed"), true); return false; }
+    const r = await event({ type: "plan:approve", proposal_id: p.data.proposal_id }, T("pl.ev.applied"));
+    return !!(r && r.ok);
   }
 
   /* ---- proposals and offers ---- */
@@ -832,6 +842,7 @@
         el("button", { type: "button", class: "pl-ptitle", "aria-pressed": String(S.proposal === p.proposal_id),
           onclick: () => { S.proposal = p.proposal_id; render(); } }, el("b", { text: p.title })),
         p.rationale ? el("p", { class: "pl-prat", text: p.rationale }) : [],
+        (p.involves || []).length ? el("p", { class: "pl-prat pl-waits", text: T("pl.props.involves", p.involves.join("; ")) }) : [],
         el("div", { class: "pl-chips" }, chips),
         el("div", { class: "pl-acts" },
           el("button", { type: "button", class: "btn primary pl-btn", title: T("pl.tip.approve"), text: T("pl.approve"),
@@ -870,12 +881,32 @@
     ui.addForm.replaceChildren(
       el("label", { for: "pl-a-title", text: T("pl.f.title") }), el("input", { id: "pl-a-title", required: true, maxlength: "200", autocomplete: "off" }),
       el("label", { for: "pl-a-desc", text: T("pl.f.desc") }), el("textarea", { id: "pl-a-desc", rows: "2" }),
-      el("label", { for: "pl-a-type", text: T("pl.f.type") }), el("select", { id: "pl-a-type" }, TYPES.map(t => el("option", { value: t, text: T("pl.type." + t) }))),
+      el("label", { for: "pl-a-type", text: T("pl.f.type") }),
+      el("select", { id: "pl-a-type", onchange: () => { document.getElementById("pl-a-exits").hidden = document.getElementById("pl-a-type").value !== "decision"; } },
+        TYPES.map(t => el("option", { value: t, text: T("pl.type." + t) }))),
+      exitsBox(),
       el("label", { for: "pl-a-assignee", text: T("pl.f.assignee") }),
       el("select", { id: "pl-a-assignee" }, ["agent", "user", "third_party"].map(a => el("option", { value: a, text: T("pl.assignee." + a) }))),
       nodes.length ? el("fieldset", { class: "pl-parents" }, el("legend", { text: T("pl.f.parents") }),
         nodes.map(n => el("label", { class: "pl-check" }, el("input", { type: "checkbox", name: "parent", value: n.id }), el("span", { text: n.title })))) : [],
       el("button", { class: "btn primary pl-btn", text: T("pl.add.btn") }));
+  }
+  /* A decision is made with its exits: at least two steps, each with the condition that picks it. */
+  const MAX_EXITS = 6;
+  function exitRow(n) {
+    return el("div", { class: "pl-exit" },
+      el("label", { for: "pl-a-xt" + n, text: T("pl.dec.exit.title", n) }), el("input", { id: "pl-a-xt" + n, name: "exit-title", maxlength: "200", autocomplete: "off" }),
+      el("label", { for: "pl-a-xc" + n, text: T("pl.dec.exit.cond", n) }), el("input", { id: "pl-a-xc" + n, name: "exit-cond", maxlength: "300", autocomplete: "off", spellcheck: "false", placeholder: "len(invitati_confermati) >= 2" }));
+  }
+  function exitsBox() {
+    const box = el("fieldset", { id: "pl-a-exits", class: "pl-parents", hidden: true }, el("legend", { text: T("pl.dec.exits") }), el("p", { class: "help", text: T("pl.dec.help") }), exitRow(1), exitRow(2));
+    const more = el("button", { type: "button", class: "btn pl-btn", text: T("pl.dec.add"), onclick: () => {
+      const n = box.querySelectorAll(".pl-exit").length + 1;
+      if (n <= MAX_EXITS) box.insertBefore(exitRow(n), more);
+      more.hidden = n >= MAX_EXITS;
+    } });
+    box.append(more);
+    return box;
   }
   async function addNode(e) {
     e.preventDefault();
@@ -884,8 +915,22 @@
     if (!title) return;
     const id = "n_" + Math.random().toString(36).slice(2, 8);
     const parents = [...f.querySelectorAll("input[name=parent]:checked")].map(i => i.value);
-    await userDiff({ add_nodes: [{ id, type: f.querySelector("#pl-a-type").value, title, description: f.querySelector("#pl-a-desc").value,
-      assignee: f.querySelector("#pl-a-assignee").value, dependencies: parents, outputs: [] }] }, T("pl.add"));
+    const type = f.querySelector("#pl-a-type").value;
+    const base = { description: f.querySelector("#pl-a-desc").value, assignee: f.querySelector("#pl-a-assignee").value };
+    const add = [{ id, type, title, ...base, dependencies: parents, outputs: [] }];
+    if (type === "decision") {
+      const rows = [...f.querySelectorAll("#pl-a-exits .pl-exit")].map(r => ({ title: r.querySelector("[name=exit-title]").value.trim(), cond: r.querySelector("[name=exit-cond]").value.trim() }))
+        .filter(r => r.title || r.cond);
+      if (rows.length < 2 || rows.some(r => !r.title || !r.cond)) { say(T("pl.dec.need"), true); return; }
+      add[0].conditions = {};
+      rows.forEach((r, i) => {
+        const xid = `${id}_x${i + 1}`;
+        add[0].outputs.push(xid);
+        add[0].conditions[xid] = r.cond;
+        add.push({ id: xid, type: "action", title: r.title, description: "", assignee: "agent", dependencies: [], outputs: [] });
+      });
+    }
+    if (!(await userDiff({ add_nodes: add }, T("pl.add")))) return;
     f.reset();
     S.adding = false;
     S.selected = id;
@@ -899,7 +944,7 @@
     if (!title) return;
     const slug = title.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "plan";
     const plan_id = `${slug}_${Math.random().toString(36).slice(2, 6)}`;
-    const r = await api("api/plans", { plan: { plan_id, title, target_type: "occasional" }, card: { titolo: title } });
+    const r = await api("api/plans", { plan: { plan_id, title, target_type: "occasional" } });
     if (!r.ok) { say(errText(r.data) || T("pl.failed"), true); return; }
     document.getElementById("pl-new-title").value = "";
     ui.newForm.open = false;
@@ -1058,6 +1103,9 @@
         field("pl-m-kind", T("pl.f.kind"), el("select", { id: "pl-m-kind" },
           ["occasional", "constant"].map(k => el("option", { value: k, text: T("pl.kind." + k), selected: k === p.target_type })))),
         el("p", { class: "help", text: T("pl.kind.help") }),
+        el("p", { class: "help", text: T("pl.card.help") }),
+        ...((S.snap.card_missing || []).length ? [el("p", { class: "pl-fact", role: "status", text: T("pl.card.missing", S.snap.card_missing.map(f => T("pl.card." + f)).join(", ")) })] : []),
+        ...((S.snap.card_auto || []).length ? [el("p", { class: "help", text: T("pl.card.auto", S.snap.card_auto.map(f => T("pl.card." + f)).join(", ")) })] : []),
         field("pl-m-c-titolo", T("pl.meta.cardtitle"), el("input", { id: "pl-m-c-titolo", value: card.titolo || p.title, maxlength: "200", autocomplete: "off" })),
         field("pl-m-c-date", T("pl.card.date"), el("input", { id: "pl-m-c-date", value: card.date || "", autocomplete: "off" })),
         field("pl-m-c-dest", T("pl.card.destinazione"), el("input", { id: "pl-m-c-dest", value: card.destinazione || "", autocomplete: "off" })),
@@ -1203,7 +1251,12 @@
     const personal = s.card_fields_personal || [];
     ui.setBody.replaceChildren(
       el("p", { class: "help", text: T("pl.set.help") }),
-      el("p", { class: "pl-fact", text: s.key_present ? T("pl.set.key.yes") : T("pl.set.key.no") }),
+      el("p", { class: "pl-fact", text: s.key_present ? T("pl.set.key.yes") : s.key_saved ? T("pl.set.key.unused") : T("pl.set.key.no") }),
+      ...(s.key_saved ? [el("p", { class: "help", text: T("pl.set.key.saved") })] : []),
+      el("label", { for: "pl-s-key", text: T("pl.set.key.field") }),
+      el("input", { id: "pl-s-key", type: "password", autocomplete: "new-password", autocapitalize: "off", spellcheck: "false", "aria-describedby": "pl-s-key-h" }),
+      el("p", { class: "help", id: "pl-s-key-h", text: T("pl.set.key.field.help") }),
+      ...(s.key_saved ? [el("button", { type: "button", class: "btn pl-btn", text: T("pl.set.key.remove"), onclick: removeKey })] : []),
       el("label", { class: "pl-check" }, el("input", { type: "checkbox", id: "pl-s-cloud", checked: s.cloud_triage, disabled: !s.key_present, "aria-describedby": "pl-s-cloud-h" }), el("span", { text: T("pl.set.cloud") })),
       el("p", { class: "help", id: "pl-s-cloud-h", text: T("pl.set.cloud.help") }),
       ...(s.cloud_triage ? [riskLabel(T("pl.risk.cloud"))] : []),
@@ -1212,13 +1265,24 @@
       el("label", { for: "pl-s-gate", text: T("pl.set.gate") }),
       el("select", { id: "pl-s-gate" }, ["or", "and"].map(m => el("option", { value: m, text: T("pl.set.gate." + m), selected: (s.gate_mode || "or") === m }))),
       el("p", { class: "help", text: T("pl.set.gate.help") }),
+      el("label", { for: "pl-s-thr", text: T("pl.set.threshold") }),
+      el("input", { id: "pl-s-thr", type: "number", min: "0", max: "1", step: "0.01", inputmode: "decimal", value: String(s.blocker_threshold ?? 0.8), "aria-describedby": "pl-s-thr-h" }),
+      el("p", { class: "help", id: "pl-s-thr-h", text: T("pl.set.threshold.help") }),
+      el("label", { for: "pl-s-to", text: T("pl.set.timeout") }),
+      el("input", { id: "pl-s-to", type: "number", min: "0.1", step: "any", inputmode: "decimal", value: String(s.cloud_timeout ?? 5), "aria-describedby": "pl-s-to-h" }),
+      el("p", { class: "help", id: "pl-s-to-h", text: T("pl.set.timeout.help") }),
+      el("label", { for: "pl-s-chunk", text: T("pl.set.chunk") }),
+      el("input", { id: "pl-s-chunk", type: "number", min: "1", step: "1", inputmode: "numeric", value: String(s.max_events ?? 20), "aria-describedby": "pl-s-chunk-h" }),
+      el("p", { class: "help", id: "pl-s-chunk-h", text: T("pl.set.chunk.help") }),
       el("fieldset", { class: "pl-parents" }, el("legend", { text: T("pl.set.fields") }), el("p", { class: "help", text: T("pl.set.fields.help") }),
         FIELDS.map(f => [el("label", { class: "pl-check" }, el("input", { type: "checkbox", name: "field", value: f, checked: picked.includes(f) }), el("span", { text: T("pl.card." + f) })),
           personal.includes(f) ? el("p", { class: "help", text: T("pl.set.personal.help") }) : []]).flat()),
-      ...(s.card_fields && personal.some(f => s.card_fields.includes(f)) ? [riskLabel(T("pl.risk.personal"))] : []),
+      ...(s.cloud_triage && personal.some(f => picked.includes(f)) ? [riskLabel(T("pl.risk.personal"))] : []),
       el("label", { class: "pl-check" }, el("input", { type: "checkbox", id: "pl-s-pump", checked: !!s.event_pump }), el("span", { text: T("pl.set.pump") })),
       el("p", { class: "help", text: T("pl.set.pump.help") }),
       ...(s.event_pump && s.cloud_triage ? [riskLabel(T("pl.risk.pump"))] : []),
+      el("label", { class: "pl-check" }, el("input", { type: "checkbox", id: "pl-s-auto", checked: s.auto_apply !== false, "aria-describedby": "pl-s-auto-h" }), el("span", { text: T("pl.set.auto") })),
+      el("p", { class: "help", id: "pl-s-auto-h", text: T("pl.set.auto.help") }),
       el("label", { for: "pl-s-sources", text: T("pl.set.sources") }),
       el("textarea", { id: "pl-s-sources", rows: "6", spellcheck: "false", text: (s.sources || []).length ? JSON.stringify(s.sources, null, 1) : "" }),
       el("p", { class: "help", text: T("pl.set.sources.help") }),
@@ -1230,6 +1294,13 @@
     S.settings = r.ok ? r.data : null;
     drawSettings();
   }
+  async function removeKey() {
+    const r = await api("api/planner/settings", { clear_jev_key: true });
+    if (!r.ok) { say(errText(r.data) || T("pl.failed"), true); return; }
+    S.settings = r.data;
+    drawSettings();
+    say(T("pl.saved"));
+  }
   async function saveSettings(e) {
     e.preventDefault();
     const fields = [...ui.setBody.querySelectorAll("input[name=field]:checked")].map(i => i.value);
@@ -1238,13 +1309,20 @@
     const isStandard = fields.length === standard.length && standard.every(f => fields.includes(f));
     const body = { cloud_triage: ui.setBody.querySelector("#pl-s-cloud").checked, pseudonymize: ui.setBody.querySelector("#pl-s-pseudo").checked,
       gate_mode: ui.setBody.querySelector("#pl-s-gate").value, card_fields: isStandard ? null : fields,
-      event_pump: ui.setBody.querySelector("#pl-s-pump").checked };
+      event_pump: ui.setBody.querySelector("#pl-s-pump").checked, auto_apply: ui.setBody.querySelector("#pl-s-auto").checked,
+      blocker_threshold: Number(ui.setBody.querySelector("#pl-s-thr").value), cloud_timeout: Number(ui.setBody.querySelector("#pl-s-to").value),
+      max_events: Number(ui.setBody.querySelector("#pl-s-chunk").value) };
+    if (![body.blocker_threshold, body.cloud_timeout, body.max_events].every(Number.isFinite)) { say(T("pl.badnum"), true); return; }
+    const newKey = ui.setBody.querySelector("#pl-s-key").value.trim();
+    if (newKey) body.jev_key = newKey;
     const text = ui.setBody.querySelector("#pl-s-sources").value.trim();
     try { body.sources = text ? JSON.parse(text) : []; } catch (err) { say(T("pl.badjson"), true); return; }
-    if (body.cloud_triage && !(S.settings && S.settings.cloud_triage) && !(await riskConfirm([T("pl.risk.cloud")]))) { drawSettings(); return; }
+    const sends = fields.some(f => personal.includes(f));
+    if (body.cloud_triage && !(S.settings && S.settings.cloud_triage) && !(await riskConfirm([T("pl.risk.cloud"), ...(sends ? [T("pl.risk.personal")] : [])]))) { drawSettings(); return; }
     if (body.event_pump && body.cloud_triage && !(S.settings && S.settings.event_pump && S.settings.cloud_triage) && !(await riskConfirm([T("pl.risk.pump")]))) { drawSettings(); return; }
-    const hadPersonal = S.settings && S.settings.card_fields && personal.some(f => S.settings.card_fields.includes(f));
-    if (fields.some(f => personal.includes(f)) && !hadPersonal && !(await riskConfirm([T("pl.risk.personal")]))) { drawSettings(); return; }
+    const before = (S.settings && (S.settings.card_fields || S.settings.card_fields_default)) || [];
+    const hadPersonal = before.some(f => personal.includes(f));
+    if (body.cloud_triage && S.settings && S.settings.cloud_triage && sends && !hadPersonal && !(await riskConfirm([T("pl.risk.personal")]))) { drawSettings(); return; }
     const r = await api("api/planner/settings", body);
     if (!r.ok) { say(errText(r.data) || T("pl.failed"), true); return; }
     S.settings = r.data;

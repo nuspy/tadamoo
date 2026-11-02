@@ -56,6 +56,15 @@ class PlansPageTest(unittest.TestCase):
             self.assertIn(f'title: T(key)', JS)
             self.assertEqual(I18N.count(f'"{sym}":'), 2)
 
+    def test_a_decision_is_added_with_at_least_two_exits_each_with_a_condition(self):
+        self.assertIn('id: "pl-a-exits"', JS)
+        self.assertIn('if (rows.length < 2 || rows.some(r => !r.title || !r.cond))', JS)             # refused here, as the server refuses it
+        self.assertIn("add[0].conditions[xid] = r.cond", JS)
+        self.assertIn('document.getElementById("pl-a-exits").hidden = ', JS)                          # only a decision shows the exits
+        self.assertIn("if (!(await userDiff({ add_nodes: add }, T(\"pl.add\")))) return;", JS)          # a refused change does not reset the form
+        self.assertIn("#pl-a-exits[hidden]", CSS)
+        self.assertIn("no_route", JS)                                                                # a decision no exit of which holds is shown with its facts
+
     def test_the_page_never_writes_markup_and_the_new_texts_exist_in_both_languages(self):
         for banned in ("innerHTML", "insertAdjacentHTML", "document.write", "eval("):
             self.assertNotIn(banned, JS)
@@ -63,6 +72,16 @@ class PlansPageTest(unittest.TestCase):
         self.assertGreater(len(keys), 60)
         for key in keys:
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+
+    def test_the_settings_page_has_the_key_field_the_threshold_the_timeout_and_the_chunk_with_their_explanations(self):
+        self.assertIn('id: "pl-s-key", type: "password", autocomplete: "new-password"', JS)         # the key is typed, never filled back in
+        self.assertIn("clear_jev_key: true", JS)
+        self.assertIn("body.jev_key = newKey", JS)
+        for field in ("blocker_threshold", "cloud_timeout", "max_events"):
+            self.assertIn(field + ":", JS)
+        for key in ("pl.set.key.field", "pl.set.key.remove", "pl.set.threshold", "pl.set.timeout", "pl.set.chunk"):
+            self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+            self.assertEqual(I18N.count(f'"{key}.help":'), 2 if key != "pl.set.key.remove" else 0, key)
 
 
 if __name__ == "__main__":

@@ -19,6 +19,10 @@ ESCAPED_MARKUP = ("converter.js", "charts.js")
 # keys the scripts build at run time, as prefix + each value
 DYNAMIC = {
     "pl.type.": ["action", "sensor", "decision", "merge"],
+    "eng.tab.": ["rtx3040", "mac", "amd", "intel", "unified"],
+    "eng.desc.": ["rtx3040", "mac", "amd", "intel", "unified"],
+    "eng.why.": ["no_gpu", "family", "sm", "hardware"],
+    "eng.e.": ["not_available_yet", "unknown_engine"],
     "pl.status.": ["pending", "in_progress", "completed", "failed", "blocked", "skipped"],
     "pl.assignee.": ["agent", "user", "third_party"],
     "pl.assignee.short.": ["agent", "user", "third_party"],
@@ -30,7 +34,10 @@ DYNAMIC = {
     "pl.kind.": ["occasional", "constant"],
     "ch.state.": ["dormant", "starting", "idle", "busy", "blocked", "asking", "closed"],
     "ch.tool.": ["running", "ok", "failed"],
-    "ch.q.": ["plan_create", "plan_mark", "plan_change", "plan_archive", "permission", "code", "payment", "capability_choice"],
+    "ch.stop.": ["budget", "loop"],
+    "ch.act.": ["shell_command", "write_file", "edit_file", "read_file", "list_directory", "search_web", "browse_url", "run_code", "spawn_subagent", "browser_open", "browser",
+               "plan", "read_attachment", "write_output_file", "find_online_capability"],
+    "ch.q.": ["plan_create", "plan_mark", "plan_change", "plan_archive", "permission", "code", "payment", "capability_choice", "mcp_elicitation"],
     "ch.cap.f.": ["downloads", "released", "stars", "verified", "license"],
     "ch.cap.w.": ["stale", "few_downloads", "no_repo", "lookalike", "needs_keys", "install_scripts", "runs_program", "archived", "deprecated", "no_license",
                   "github_unchecked", "remote", "skill_files"],
@@ -45,26 +52,34 @@ DYNAMIC = {
     "wl.act.": ["payment_authorized", "payment_confirmed", "payment_refused", "waiver_granted", "waiver_revoked", "system_registered", "system_removed"],
     "wl.w.": ["1", "2", "3"],
     "ch.routed.": ["steer", "queue", "urgent", "parallel"],
+    "la.r.": ["not_found", "ambiguous", "too_short", "spans_blocks", "protected", "heading", "table", "limit", "length", "rejected", "invalid"],
     "pv.data.": ["personal", "general"],
     "pt.": ["what", "pros", "cons", "when", "cache"],
-    "cp.state.": ["pending", "approved", "off"],
+    "cp.state.": ["approved", "off"],
+    "cp.rq.status.": ["pending", "installed", "rejected", "failed"],
     "ch.fam.": ["text", "data", "document", "image", "audio", "video", "pdf", "other"],
     "cp.kind.": ["skill", "mcp", "builtin"],
+    "cd.role.": ["build", "plan", "ask", "debug", "orchestrate", "general", "build.d", "plan.d", "ask.d", "debug.d", "orchestrate.d", "general.d"],
+    "cd.kind.": ["test", "lint", "typecheck", "build"],
+    "cd.gate.mode.": ["always", "unattended"],
     "wc.": ["added", "modified", "deleted"],
-    "cp.e.": ["offline", "gone", "changed", "needs_approval", "bad_choice", "bad_node"],
+    "cp.e.": ["offline", "gone", "bad_choice", "bad_node"],
     "pv.e.": ["offline", "bad_type", "bad_cap", "gone", "not_allowed", "bad_function"],
-    "ch.blocked.": ["refused", "error", "model_unavailable", "model_not_loaded", "process_unstable", "interrupted_irreversible", "crash", "start_failed", "other"],
+    "ch.blocked.": ["refused", "error", "crash", "start_failed", "other"],
     "pl.h.": ["create", "archive", "restore", "update_node", "move", "mark", "rewind", "apply", "fallback", "update_meta", "sensor"],
     "pl.tab.": ["aims", "details", "events", "define", "aims.tip", "details.tip", "events.tip", "define.tip"],
     "ag.mode.": ["plan", "read_only", "default", "auto"],
-    "ag.add.e.": ["folder_missing", "folder_relative", "folder_not_found", "folder_drive", "folder_readonly"],
+    "ag.add.e.": ["folder_missing", "folder_relative", "folder_not_found", "folder_readonly"],
     "ch.state.": ["pending", "partial", "kept", "reverted", "superseded"],
     "br.cmp.state.": ["running", "done", "interrupted"],
     "br.side.state.": ["waiting", "running", "done", "needs_you", "ended", "timeout", "failed", "interrupted"],
-    "sl.d.": ['help', 'clear', 'model', 'effort', 'mode', 'plan', 'permissions', 'settings', 'status', 'context', 'compact', 'tools', 'hooks', 'mcp', 'memory', 'copy', 'export', 'rename', 'branch', 'branches', 'resume', 'rewind', 'stop', 'diff', 'plans', 'wallet', 'init', 'review', 'security-review', 'research'],
+    "sl.d.": ['help', 'clear', 'model', 'effort', 'mode', 'plan', 'permissions', 'settings', 'status', 'context', 'compact', 'tools', 'hooks', 'mcp', 'memory', 'copy', 'export', 'rename', 'branch', 'branches', 'resume', 'rewind', 'checkpoints', 'stop', 'diff', 'plans', 'wallet', 'init', 'review', 'security-review', 'research'],
     "sl.r.compact.": ["busy", "short", "moved", "unsupported"],
-    "tab.": ["chat", "agent", "plans", "cron", "stats", "loader", "hardware", "logs", "wallet", "settings"],
-    "cj.status.": ["done", "asked", "failed", "skipped", "cancelled", "timeout"],
+    "tab.": ["chat", "agent", "plans", "cron", "stats", "loader", "hardware", "logs", "security", "wallet", "settings"],
+    "sec.tag.": ["alibaba_cn_domain", "proxy_env", "system_proxy", "local_proxy_listener", "doh_or_tor", "no_agent_call", "disk_outside_expected", "archive_or_staging", "persistence"],
+    "sec.tagx.": ["alibaba_cn_domain", "proxy_env", "system_proxy", "local_proxy_listener", "doh_or_tor", "no_agent_call", "disk_outside_expected", "archive_or_staging", "persistence"],
+    "sec.role.": ["server", "engine", "tool", "other"],
+    "cj.status.": ["done", "parked", "failed", "cancelled", "timeout", "yielded"],
 }
 NODE = shutil.which("node")
 
@@ -307,7 +322,7 @@ class ConversationChatTest(unittest.TestCase):
 
     def test_the_questions_have_buttons_that_answer_or_send_and_the_stop_works(self):
         js = (WEB / "agentchat.js").read_text(encoding="utf-8")
-        for needle in ("`/${sid}/answer`", "`/${sid}/cancel`", "send(value)", "ch.answered"):
+        for needle in ("`/${sid}/answer`", "`/${sid}/cancel`", "answerCard", "ch.answered"):
             self.assertIn(needle, js)
         self.assertIn("agent()", (WEB / "chat.js").read_text(encoding="utf-8"))               # the composer is handed over in this mode
 

@@ -51,12 +51,13 @@ def test_checkpoints_create_and_restore(tmp_path: Path):
     (ws / "sub" / "zero.txt").write_text("", encoding="utf-8")  # 0-byte file must be preserved!
 
     cpm = CheckpointManager(ws, storage_dir=tmp_path / "cps")
-    cp_id = cpm.create("Initial state")
+    new_file = ws / "new_file.py"
+    cp_id = cpm.create("Initial state", [ws / "main.py", ws / "sub" / "zero.txt", new_file])   # a checkpoint keeps the files the action touches
 
     # Modify main.py, delete zero.txt, add new_file.py
     (ws / "main.py").write_text("print('v2')", encoding="utf-8")
     (ws / "sub" / "zero.txt").unlink()
-    (ws / "new_file.py").write_text("temp", encoding="utf-8")
+    new_file.write_text("temp", encoding="utf-8")
 
     # Restore
     assert cpm.restore(cp_id)
@@ -124,10 +125,8 @@ def test_secret_destinations_by_host():
     broker.check_destinations("curl https://api.github.com/user -H {{secret:GH}}", ["api.github.com"])
     with pytest.raises(SecretDestinationError, match="not to evil.example"):
         broker.check_destinations("x {{secret:GH}}", ["api.github.com", "evil.example"])
-    with pytest.raises(SecretDestinationError, match="local use only"):
-        broker.check_destinations("x {{secret:LOCAL}}", ["x.example"])
-    with pytest.raises(SecretDestinationError):
-        broker.check_destinations("x {{secret:LOCAL}}", [], ["curl"])
+    broker.check_destinations("x {{secret:LOCAL}}", ["x.example"])             # no site named: goes anywhere
+    broker.check_destinations("x {{secret:LOCAL}}", [], ["curl"])
     broker.check_destinations("python build.py {{secret:LOCAL}}", [])           # local use is fine
     broker.check_destinations("curl http://anything.example", ["anything.example"])   # no secret in it
 

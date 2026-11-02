@@ -21,6 +21,7 @@ FUNCTIONS: Dict[str, Dict[str, Any]] = {
     "executor": {"label": "Executor (the agent's loop)", "kind": "chat", "data": "personal", "tools": True},
     "planner": {"label": "Planner (re-plan)", "kind": "chat", "data": "personal", "tools": False},
     "compaction": {"label": "Context compaction", "kind": "chat", "data": "personal", "tools": False},
+    "technical": {"label": "Technical session (quick jobs)", "kind": "chat", "data": "personal", "tools": False},
     "eval": {"label": "Evaluation", "kind": "chat", "data": "general", "tools": True},
     "router": {"label": "Messages during a task (router)", "kind": "judge", "data": "personal"},
     "pipeline": {"label": "Checks of the answer (pipeline)", "kind": "judge", "data": "personal"},

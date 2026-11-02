@@ -57,6 +57,12 @@ def openai_chunks(svc: Service, req: dict, ids, thinking, tools, max_new, cancel
                              "prompt_tokens_details": {"cached_tokens": min(x.get("reused") or 0, len(ids))}}
             if x.get("timings"):
                 last["timings"] = x["timings"]          # llama.cpp's field: the speed its clients show
+            if x.get("repeated"):
+                last["repeated"] = True                 # a "length" that was a loop: asking it to go on would write the loop again
+            if x.get("answer_capped"):
+                last["answer_capped"] = True            # a "length" that is the request's max_answer_tokens
+            if x.get("cache_slot"):
+                last["cache_slot"] = x["cache_slot"]    # "side" or "main": the kind of slot that served a request that chose one
             yield last
 
 
@@ -104,6 +110,9 @@ def openai_collect(chunks) -> dict:
         out["timings"] = last["timings"]
     if last.get("structured_output"):
         out["structured_output"] = last["structured_output"]
+    for key in ("long_answer", "repeated", "answer_capped", "cache_slot"):
+        if last.get(key):
+            out[key] = last[key]
     return out
 
 

@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.scheduler import Scheduler, SessionRoutineRunner
+from harness.scheduler import RoutineError, Scheduler, SessionRoutineRunner
 from serve import handler
 from serve.agent_sessions import SessionManager
 from serve.approvals import ApprovalBoard
@@ -37,12 +37,16 @@ def body(ws, **kw):
 
 def test_create_list_enable_run_and_remove(api, ws):
     code, made = api("POST", "/api/routines", body(ws))
-    assert code == 200 and made["routine"]["enabled"] is False and made["routine"]["mode"] == "read_only"
+    assert code == 200 and made["routine"]["enabled"] is True and "mode" not in made["routine"]
+    assert (made["routine"]["max_turns"], made["routine"]["max_minutes"]) == (None, None)
     rid = made["routine"]["id"]
     listed = api("GET", "/api/routines")[1]
-    assert [r["id"] for r in listed["routines"]] == [rid] and listed["routines"][0]["next_run"] is None      # disabled: no next run
+    assert [r["id"] for r in listed["routines"]] == [rid] and listed["routines"][0]["next_run"] > time.time()      # born enabled
+    assert listed["running"] == [] and listed["pending"] == []
+    assert api("POST", f"/api/routines/{rid}/disable", {})[1]["routine"]["enabled"] is False
+    assert api("GET", "/api/routines")[1]["routines"][0]["next_run"] is None                                       # disabled: no next run
     enabled = api("POST", f"/api/routines/{rid}/enable", {})[1]["routine"]
-    assert enabled["enabled"] is True and api("GET", "/api/routines")[1]["routines"][0]["next_run"] > time.time()
+    assert enabled["enabled"] is True
     assert api("POST", f"/api/routines/{rid}/run", {})[0] == 200
     wait_for(lambda: api("GET", f"/api/routines/runs?id={rid}")[1]["runs"], seconds=30)
     run = api("GET", f"/api/routines/runs?id={rid}")[1]["runs"][0]
@@ -56,21 +60,36 @@ def test_create_list_enable_run_and_remove(api, ws):
 def test_mistakes_are_answered_with_a_message_and_a_code(api, ws):
     code, data = api("POST", "/api/routines", body(ws, schedule="whenever"))
     assert code == 400 and data["error"]["code"] == "bad_schedule"
-    code, data = api("POST", "/api/routines", body(ws, mode="auto"))
-    assert code == 400 and data["error"]["code"] == "auto_confirm"
+    code, data = api("POST", "/api/routines", body(ws, max_turns=0))
+    assert code == 400 and data["error"]["code"] == "bad_steps"
+    code, data = api("POST", "/api/routines", body(ws, max_minutes="soon"))
+    assert code == 400 and data["error"]["code"] == "bad_minutes"
+    code, data = api("POST", "/api/routines", body(ws, max_turns=40, max_minutes=15))
+    assert code == 200 and (data["routine"]["max_turns"], data["routine"]["max_minutes"]) == (40, 15)
     code, data = api("POST", "/api/routines/nope/enable", {})
     assert code == 404 and data["error"]["code"] == "gone"
     assert api("POST", "/api/routines/abc/explode", {})[0] == 400
     assert api("GET", "/api/routines/runs?limit=x")[0] == 400
 
 
-def test_a_form_that_is_not_json_is_refused(api, ws):
+def test_a_parked_request_is_listed_and_dismissed(api, ws, tmp_path):
+    rid = api("POST", "/api/routines", body(ws))[1]["routine"]["id"]
+    sched = handler._ROUTINES.scheduler
+    sched._park(rid, {"session": "s", "key": "k", "kind": "ask", "question": "Book the table?", "options": ["Yes", "No"]})
+    [pending] = api("GET", "/api/routines")[1]["pending"]
+    assert pending["question"] == "Book the table?" and pending["name"] == "morning" and pending["options"] == ["Yes", "No"]
+    assert api("POST", f"/api/routines/{pending['id']}/dismiss", {})[1] == {"dismissed": pending["id"]}
+    assert api("GET", "/api/routines")[1]["pending"] == []
+    assert api("POST", f"/api/routines/{pending['id']}/dismiss", {})[1]["error"]["code"] == "gone"
+
+
+def test_a_form_that_is_not_json_is_a_bad_request(api, ws):
     import urllib.error
     import urllib.request
     req = urllib.request.Request(api.url + "/api/routines", data=b"name=x", method="POST", headers={"Content-Type": "text/plain"})
     with pytest.raises(urllib.error.HTTPError) as e:
         urllib.request.urlopen(req, timeout=10)
-    assert e.value.code in (403, 415)
+    assert e.value.code == 400
 
 
 SKILL_SPEC = {"name": "Daily report", "description": "writes the report of a day",
@@ -107,15 +126,51 @@ def test_a_routine_can_run_a_personal_skill_and_the_date_in_words_is_worked_out_
     assert api("GET", "/api/routines")[1]["routines"][0]["values"]["day"] == "today"
 
 
-def test_a_skill_routine_with_a_wrong_value_a_missing_skill_or_a_skill_not_approved_is_refused_when_saved(skills_api, ws):
+def test_a_skill_routine_with_a_wrong_value_or_a_missing_skill_is_refused_when_saved(skills_api, ws):
     api, mgr = skills_api
     code, res = api("POST", "/api/routines", body(ws, skill="daily-report", values={"day": "when the moon is blue", "topic": "x"}))
     assert code == 400 and res["error"]["code"] == "bad_values" and "day" in res["error"]["message"]
     assert api("POST", "/api/routines", body(ws, skill="no-such-skill", values={}))[1]["error"]["code"] == "bad_skill"
     assert api("POST", "/api/routines", body(ws, values={"day": "today"}))[1]["error"]["code"] == "bad_values"            # values need a skill
-    mgr.skills.save({**SKILL_SPEC, "name": "Unread"}, SKILL_SCRIPT + "# changed\n", approve=False)
-    assert api("POST", "/api/routines", body(ws, skill="unread", values={"day": "today", "topic": "x"}))[1]["error"]["code"] == "needs_approval"
+    mgr.skills.save({**SKILL_SPEC, "name": "Unread"}, SKILL_SCRIPT + "# changed\n")
+    assert api("POST", "/api/routines", body(ws, skill="unread", values={"day": "today", "topic": "x"}))[0] == 200            # nothing to approve
     made = api("POST", "/api/routines", body(ws, skill="daily-report", values={"day": "tomorrow", "topic": "x"}))[1]["routine"]
     code, res = api("POST", f"/api/routines/{made['id']}/update", {"values": {"day": "nonsense", "topic": "x"}})
     assert code == 400 and res["error"]["code"] == "bad_values"
     assert api("POST", f"/api/routines/{made['id']}/update", {"skill": "", "values": {}, "prompt": "plain task"})[1]["routine"]["skill"] == ""
+
+
+def test_a_routine_can_be_improved_into_a_skill_and_the_kill_switch_is_set(tmp_path):
+    from harness.personal_skills.store import PersonalSkills
+    from harness.scheduler import Scheduler
+    from serve.routines_api import RoutinesApi
+
+    class Sessions:
+        skills = PersonalSkills(tmp_path / "skills")
+
+        def routine_skill(self, sid, name):
+            return {"name": name, "description": "d", "params": [{"name": "file", "type": "text", "default": "a.txt", "label": "File"}],
+                    "script": "from basalt_skill import tool\n\ndef main(params):\n    return tool('read_file', path=params.file)\n", "problems": [], "tool_steps": 1, "ai_calls": 0}
+
+    class Runner:
+        def run(self, routine, cancel):
+            return {"status": "done", "summary": "ok", "session": "s1"}
+
+    folder = tmp_path / "w"
+    folder.mkdir()
+    sched = Scheduler(tmp_path / "data", Runner())
+    api = RoutinesApi(tmp_path / "data", Sessions(), scheduler=sched)
+    r = sched.add("morning", "read the notes", str(folder), "every 1d")
+    with pytest.raises(RoutineError, match="no finished run"):
+        api.improve(r["id"])
+    sched.start()
+    sched.run_now(r["id"])
+    end = time.monotonic() + 10
+    while not sched.results and time.monotonic() < end:
+        time.sleep(0.05)
+    got = api.improve(r["id"])
+    assert got["ai_calls"] == 0 and got["tool_steps"] == 1 and got["from_run"]
+    applied = api.improve_apply(r["id"], got)
+    assert applied["routine"]["skill"] == applied["skill"] and applied["routine"]["values"] == {"file": "a.txt"}
+    assert api.stop({"on": True})["stopped"] and not api.stop({"on": False})["stopped"]
+    sched.shutdown()

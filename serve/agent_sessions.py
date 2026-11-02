@@ -4,14 +4,14 @@ Each conversation is `python -m harness session`, spoken to in lines of JSON (se
 list of conversations, starts and stops the processes, buffers their events for the page, and supervises them:
 
 * a process that dies or stops giving signs of life is started again from its saved history, and the turn it was in goes
-  on; a message it never confirmed is sent again; at most `restart_cap` restarts in `restart_window_s`, then the
-  conversation is blocked and waits for the person;
-* a process whose turn makes no progress for `hang_s` is ended and started again;
+  on (the model is told the call in hand may have run); a message it never confirmed is sent again; the waits between
+  restarts grow up to `RESTART_WAITS[-1]` and never end the retries: only the person stops them;
 * a conversation idle for `idle_s` has its process closed (it is dormant: the history stays, the next message wakes it);
 * a confirmation the process asks (a change to a plan, a risky action) is kept with its buttons until the person answers; the
   conversation is `asking` meanwhile and a turn waiting for the person is never taken for a stuck one;
-* when the process says it is blocked (a refusal, retries that ran out, an action that cannot be undone and was running
-  when it died), the conversation waits for the person: nothing is decided for them and nothing is run again.
+* a question that only the person can answer, in an `unattended` conversation, does not stop it: it is kept in `pending` for the
+  person to answer whenever they come back, and the process goes on with other work;
+* when the process says it is blocked (a refusal that waiting cannot change), the conversation waits for the person.
 """
 from __future__ import annotations
 
@@ -33,33 +33,61 @@ from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 from datetime import datetime
 
 from harness import context_patterns as context_patterns_mod
+from harness import questions as qs
 from harness.personal_skills.store import PersonalSkills, SkillError
 from harness.personal_skills.values import resolve as resolve_values
 from harness.vault import valid_code
+from serve.coding_prefs import project_key
+from harness.roles import GENERAL as GENERAL_ROLE, ROLE_IDS, valid as valid_role
 from harness.worktrees import WorktreeError, Worktrees
 from serve import ROOT
 from serve.api import logit_bias
-from serve.agent_runs import MAX_ALLOW, MODES, SAFE_ENV_KEYS, RunBusy, RunError
+from serve.agent_runs import MODES, RunBusy, RunError
 from serve.approvals import ApprovalBoard
+from serve.conv_nodes import NodeStore
 from serve.tasks import _write_json
+from serve.util import peer
 from serve.util.winjob import contain
 
-TEXT_CHARS = 20_000
 EVENTS_KEPT = 3000
 SESSIONS_FILE = "agent_sessions.json"
 TITLE_CHARS = 80
 PLACE_KEEP_S = 86_400           # a position older than this is no longer handed to a conversation
 OPTIONS = ("resume", "close")
-ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free", "free_prefix")
+RESTART_WAITS = (0.0, 2.0, 5.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0)       # before each new start of a process that keeps dying; the last repeats
+RESTART_RESET_S = 600.0                                                     # restarts older than this no longer lengthen the wait
+ASK_FIELDS = ("id", "mode", "kind", "question", "options", "facts", "tool", "arguments", "free", "free_prefix", "explain", "intro", "questions", "notes", "source", "offer")
 COMPARES_FILE = "compares.json"
+NODES_FILE = "nodes.jsonl"
+NODES_MIGRATED = "nodes.migrated"
+MERGE_BRANCH_CHARS = 10_000                                                 # how much of each branch the model reads when two are merged
+MERGE_SHARED_CHARS = 3_000
+MERGE_PART_CHARS = 1_500
+MERGE_TOKENS = 1_500
 COMPARE_SETTINGS = ("mode", "max_turns", "ask_only", "end_turn_bias")      # what the two sides of a comparison may differ in
 EFFECTS_FILE = "tool_effects.json"                                          # the effect class of each tool this conversation has used
 SNIPPET_CHARS = 80
-MAX_SAVED_FILE = 200 * 1024 * 1024                                          # the largest file of the folder the page offers to save
 LEVELS = ("", "very_low", "low", "normal", "high", "very_high", "highest")     # how much of pictures or diagrams the person wants; empty is none
 EFFORTS = ("", "none", "low", "medium", "high")                             # how long the model thinks; empty is its own default
-SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact")     # harness/commands.py
+SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact", "audit")     # harness/commands.py
 FILE_DIFF_BYTES = 200_000
+UNLIMITED_STEPS = -1                                                        # `max_turns` for no limit on the steps of an answer
+
+
+def check_steps(value: Any) -> int:
+    """The most model steps one answer may take: -1 for no limit, or 1 and more."""
+    if not isinstance(value, int) or isinstance(value, bool) or not (value == UNLIMITED_STEPS or value >= 1):
+        raise RunError("The number of steps is -1 for no limit, or a whole number from 1.", "bad_steps")
+    return value
+
+
+def check_end_turn_bias(value: Any) -> float:
+    """The end-of-turn bias: a number from the API's minimum to 0 (empty and 0 are off)."""
+    try:
+        logit_bias.add_end_turn({"end_turn_bias": value}, [0])
+    except ValueError as e:
+        raise RunError(str(e), "bad_policy") from None
+    return float(value or 0)
 
 
 class Live:
@@ -69,8 +97,8 @@ class Live:
         self.proc = proc
         self.wlock = threading.Lock()
         self.ready = threading.Event()
+        self.pid = 0                                # the agent's own process id, as it reported it (a launcher may stand between)
         self.last_seen = time.monotonic()           # any line from the process
-        self.idle_s = 0.0                           # how long its turn has gone without news, from its heartbeat
         self.ending = False                         # the manager is ending it on purpose
         self.after_ready: List[Dict[str, Any]] = []   # commands to give it as soon as it says ready
 
@@ -78,15 +106,20 @@ class Live:
 class SessionManager:
     def __init__(self, directory: str | Path, endpoint: str, api_key: str = "", board: Optional[ApprovalBoard] = None,
                  python: Optional[str] = None, root: Path = ROOT, command: Optional[Callable[[str, Dict[str, Any], Path], List[str]]] = None,
-                 idle_s: float = 1800.0, hang_s: float = 1200.0, beat_timeout_s: float = 45.0, restart_cap: int = 3,
-                 restart_window_s: float = 600.0, tick_s: float = 1.0, start_wait_s: float = 60.0,
+                 idle_s: Optional[float] = None, beat_timeout_s: Optional[float] = None,
+                 restart_waits: Tuple[float, ...] = RESTART_WAITS, tick_s: float = 1.0, start_wait_s: float = 60.0,
                  default_workspace: Optional[Path] = None, router: str = "model", pipeline: str = "full",
                  attachments_dir: Optional[Path] = None, outputs_dir: Optional[Path] = None, worktrees: Optional[Worktrees] = None,
                  vault_dir: Optional[Path] = None, payments_dir: Optional[Path] = None,
                  browser_prefs: Optional[Callable[[], Dict[str, bool]]] = None, browser_profile: Optional[Path] = None,
-                 plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: float = 1800.0,
+                 plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: Optional[float] = None,
                  skills_dir: Optional[Path] = None, projects: Any = None, personal_dir: Optional[Path] = None, personal_keys: Optional[Path] = None,
-                 learn: Optional[Callable[[Dict[str, Any]], Any]] = None) -> None:
+                 learn: Optional[Callable[[Dict[str, Any]], Any]] = None, knowledge_flags: Optional[Callable[[], List[str]]] = None,
+                 rule_of_two: Optional[Callable[[], str]] = None, allow_rules: Any = None, rule_of_two_prefs: Any = None,
+                 intake_flags: Optional[Callable[[], List[str]]] = None,
+                 gate_flags: Optional[Callable[[], List[str]]] = None, coding: Any = None,
+                 compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None, exec_level_file: Optional[Path] = None, persistence_file: Optional[Path] = None, lessons_dir: Optional[Path] = None, next_steps_file: Optional[Path] = None,
+                 forgetter: Any = None, cards: Any = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -98,10 +131,26 @@ class SessionManager:
         self.learn = learn                                      # told what the person wrote and what was searched for it, when a turn ends, to learn from
         self._said: Dict[str, Dict[str, Any]] = {}              # per conversation, until its turn ends: what the person wrote and what was searched
         self._no_learning: set = set()                          # conversations that are not the person's talking (a routine's)
+        self.next_steps_file = next_steps_file                  # the choice for the card of next steps after a task: one file, read again by each conversation
+        self.lessons_dir = lessons_dir                          # the global lessons: one folder; the project's own are in its .basalt folder
+        self.persistence_file = persistence_file                # the choice for "work until done": one file, read again by each conversation when it changes
+        self.exec_level_file = exec_level_file                  # how freely the code the model writes runs: one file, read again by each conversation when it changes
+        self.past = past                                        # the index of earlier conversations (harness/past.py); each conversation is added to it when a turn ends
+        self.cards = cards                                      # told when a conversation's turn ended, to write its card once it is quiet (serve/card_worker.py)
+        self.forgetter = forgetter                              # takes a conversation back out of the index and the memories (harness/forget.py)
+        self._routine_runs: Dict[str, str] = {}                 # a routine's conversation -> the routine's name, when the person switched its indexing on
         self._place: Optional[Dict[str, Any]] = None            # where the person's phone last said they were: held in memory only
         self._place_sent: Dict[str, float] = {}                 # per conversation process: the receipt time of the position it was given
         self.browser_profile = browser_profile                  # where the browser keeps its sign-ins when the person chose that
         self.browser_prefs = browser_prefs                      # whether the conversations have a browser, and whether it shows a window
+        self.knowledge_flags = knowledge_flags                  # the options for the project notes, the wiki and the reference documents (Settings, Memories)
+        self.intake_flags = intake_flags                        # the options for the look at a request, the questions and the suggestions (Settings, General)
+        self.coding = coding                                    # what the person accepted for each folder (serve/coding_prefs.py)
+        self.compaction_flags = compaction_flags                # the options for the summary of older steps inside a long turn (Settings, General)
+        self.gate_flags = gate_flags                            # the options for the verify gate, the budget's last report and the model-error proposal (Settings, Gate)
+        self.allow_rules = allow_rules                          # the rules the person allowed for every conversation (serve/allow_rules.py)
+        self.rule_of_two_prefs = rule_of_two_prefs              # where "always" is written when the person stops the Rule of Two's question for good
+        self.rule_of_two = rule_of_two                          # how strict the Rule of Two is for a conversation that starts now (harness/rule_of_two.py)
         self.payments_dir = payments_dir                        # the person's payment systems and limits, for the agent's request_payment
         self.vault_dir = vault_dir                              # the person's vault: the conversation's process fills placeholders from it
         self.pipeline = pipeline                                # the check of an answer against its request: "off", "light" or "full"
@@ -109,8 +158,9 @@ class SessionManager:
         self.default_workspace = Path(default_workspace) if default_workspace else None     # where a conversation works when none is named
         self.python, self.root = python or sys.executable, Path(root)
         self.command = command or self._command
-        self.idle_s, self.hang_s, self.beat_timeout_s = idle_s, hang_s, beat_timeout_s
-        self.restart_cap, self.restart_window_s, self.tick_s, self.start_wait_s = restart_cap, restart_window_s, tick_s, start_wait_s
+        self._limits = {"idle_s": idle_s, "beat_timeout_s": beat_timeout_s, "compare_wait_s": compare_wait_s}   # given: fixed (0: no limit); None: the person's limits.json
+        self.restart_waits, self.tick_s, self.start_wait_s = restart_waits, tick_s, start_wait_s
+        self._restart_token: Dict[str, object] = {}            # a restart waiting for its time; dropping the token cancels it
         self._lock = threading.RLock()
         self._live: Dict[str, Live] = {}
         self._events: Dict[str, Deque[Dict[str, Any]]] = {}
@@ -121,13 +171,40 @@ class SessionManager:
         self._step: Dict[str, Tuple[Any, Any]] = {}            # the plan step each conversation is working on, from its own tool calls
         self._calls: Dict[str, Dict[str, Tuple[str, Dict[str, Any], Any]]] = {}      # tool calls started and not yet ended
         self._learned: Dict[str, Dict[str, str]] = {}
-        self.compare_wait_s = compare_wait_s
         self._compare_lock = threading.Lock()                   # the two sides of a comparison, and two comparisons, run one after the other
         self.compares: List[Dict[str, Any]] = self._load_compares()
         self.records: List[Dict[str, Any]] = self._load()
+        self.nodes = NodeStore(self.directory / NODES_FILE)         # every conversation's messages as shared immutable nodes
+        self._migrate_nodes()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._supervise, name="session-supervisor", daemon=True)
         self._thread.start()
+        peer.add_provider(self.agent_pids)
+
+    def agent_pids(self) -> List[int]:
+        """The process ids of the agents running now: whatever a connection from below one of them runs is the agent's own code."""
+        with self._lock:
+            return [live.pid for live in self._live.values() if live.pid and live.proc.poll() is None]
+
+    def _limit(self, name: str) -> Optional[float]:
+        """A time limit in seconds, None for no limit: the value given to this manager, else the person's (serve/limits.py)."""
+        given = self._limits.get(name)
+        if given is None:
+            from serve import limits
+            return limits.get(name)
+        return given if given > 0 else None
+
+    @property
+    def idle_s(self) -> Optional[float]:
+        return self._limit("idle_s")
+
+    @property
+    def beat_timeout_s(self) -> Optional[float]:
+        return self._limit("beat_timeout_s")
+
+    @property
+    def compare_wait_s(self) -> Optional[float]:
+        return self._limit("compare_wait_s")
 
     # -- the list of conversations -----------------------------------------------------------------------
 
@@ -166,7 +243,7 @@ class SessionManager:
 
     def workspace_file(self, sid: str, path: Any) -> Tuple[Path, str]:
         """A file in the folder the conversation works in (its own copy when it has one), for the person to save: only a regular file inside that folder,
-        never in the agent's own `.basalt` or in `.git`, and not a huge one."""
+        never in the agent's own `.basalt` or in `.git`."""
         rec = self.get(sid)
         root = Path(rec.get("workdir") or rec["workspace"]).resolve()
         text = str(path or "").replace("\\", "/").strip("/")
@@ -179,8 +256,6 @@ class SessionManager:
             raise RunError("That file is not inside the folder this conversation works in.", "bad_path") from None
         if any(part in (".basalt", ".git") for part in inside.parts) or not target.is_file():
             raise RunError("That file is not there, or it is one the agent keeps for itself.", "no_file")
-        if target.stat().st_size > MAX_SAVED_FILE:
-            raise RunError("That file is too large to save from here.", "too_large")
         return target, target.name
 
     def view(self) -> Dict[str, Any]:
@@ -211,15 +286,23 @@ class SessionManager:
             return {"messages": [], "turns": 0, "session": dict(rec)}
         shown = []
         for m in self._transcript(sid, data):
-            shown.append({k: (v[:TEXT_CHARS] if isinstance(v, str) else v) for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts", "raw")})
+            shown.append({k: v for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts", "raw", "opt", "explain", "skipped")})
         return {"messages": shown, "turns": data.get("turns", 0), "session": dict(rec)}
 
     def _read_history(self, sid: str) -> Optional[Dict[str, Any]]:
         try:
             data = json.loads((self.history_dir(sid) / "history.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return None
+            return self._history_from_nodes(sid)
         return data if isinstance(data, dict) else None
+
+    def _history_from_nodes(self, sid: str) -> Optional[Dict[str, Any]]:
+        """The history of a conversation that has no file of its own yet (a fork): its chain of nodes."""
+        with self._lock:
+            rec = next((r for r in self.records if r["id"] == sid), None)
+        if not rec or not rec.get("node") or self.nodes.get(rec["node"]) is None:
+            return None
+        return {"session": sid, "turns": rec.get("turns", 0), "saved": time.time(), "messages": self.nodes.chain(rec["node"]), "pending": []}
 
     def _transcript(self, sid: str, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """What the person said and was answered, whole: the turns pruned or summarized away for the model come back first,
@@ -263,6 +346,12 @@ class SessionManager:
             kept.append({k: v for k, v in m.items() if k not in ("masked", "stripped")})
         if users < turn:
             raise RunError(f"That conversation has only {users} requests.", "bad_turn")
+        leaf = self.nodes.ingest(kept)
+        return self._new_child(rec, sid, "(branch)", leaf, turn, {"session": sid, "turn": turn})
+
+    def _new_child(self, rec: Dict[str, Any], sid: str, suffix: str, leaf: Optional[str], turns: int, branched_from: Dict[str, Any],
+                   **more: Any) -> Dict[str, Any]:
+        """A conversation with `rec`'s settings whose history is the chain ending at node `leaf`: no file is written until it runs."""
         new = secrets.token_hex(4)
         copy = None
         if rec.get("worktree"):
@@ -270,14 +359,12 @@ class SessionManager:
                 copy = self.worktrees.create(new, rec["workspace"])
             except WorktreeError as e:
                 raise RunError(f"The branch needs its own copy of the folder: {e}", "no_copy") from None
-        child = {**{k: v for k, v in rec.items() if k not in ("worktree", "workdir")}, "id": new, "title": ((rec.get("title") or "") + " (branch)").strip()[:TITLE_CHARS], "branched_from": {"session": sid, "turn": turn},
-                 "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": turn}
+        child = {**{k: v for k, v in rec.items() if k not in ("worktree", "workdir", "rewinds", "compare", "merged_from")}, "id": new,
+                 "title": ((rec.get("title") or "") + " " + suffix).strip()[:TITLE_CHARS], "branched_from": branched_from, "node": leaf,
+                 "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": turns, **more}
         if copy:
             child["worktree"], child["workdir"] = copy, copy["workdir"]
         with self._lock:
-            target = self.history_dir(new)
-            target.mkdir(parents=True, exist_ok=True)
-            _write_json(target / "history.json", {"session": new, "turns": turn, "saved": time.time(), "messages": kept, "pending": []})
             self.records.append(child)
             self._events[new], self._seq[new] = collections.deque(maxlen=EVENTS_KEPT), 0
             self._save()
@@ -343,18 +430,14 @@ class SessionManager:
         return {"turn": turn, "removes": {"requests": sum(1 for m in dropped if m.get("role") == "user"), "messages": len(dropped)},
                 "reversible": found["reversible"], "not_undone": found["not_undone"], "needs_yes": bool(found["not_undone"])}
 
-    def go_back(self, sid: str, turn: Any, accept_irreversible: bool = False) -> Dict[str, Any]:
+    def go_back(self, sid: str, turn: Any) -> Dict[str, Any]:
         """The conversation goes back to the end of the person's `turn`-th request: what came after is taken off (a copy is kept in the
         conversation's folder). It is the conversation only: files the agent changed are put back from the Changes panel, not from here,
-        and an action that cannot be undone stays done: going back over one needs `accept_irreversible`."""
+        and an action that cannot be undone stays done (it is listed in the `rewinds` mark). A run in progress is stopped by it."""
         self._check_turn(turn)
         with self._lock:
             rec = self._record(sid)
-            if rec["state"] in ("busy", "starting", "asking"):
-                raise RunError("Wait for the agent to finish, or stop it, before going back.", "busy")
         impact = self.back_impact(sid, turn)
-        if impact["not_undone"] and accept_irreversible is not True:
-            raise RunError("Some of the actions after that point cannot be undone by going back.", "needs_yes")
         with self._lock:
             live = self._live.get(sid)
             if live is not None:
@@ -425,6 +508,155 @@ class SessionManager:
 
         return {"roots": [build(r) for r in sorted(roots, key=lambda r: -(r.get("updated") or 0))], "count": len(records)}
 
+    # -- the messages as nodes: where a conversation stands, what changing to it costs, merging two ---------------------
+
+    def sync_node(self, sid: str) -> Optional[str]:
+        """Puts the conversation's messages in the node store (those it shares with others are found, not added) and notes its leaf."""
+        with self._lock:
+            rec = self._record(sid)
+        data = self._read_history(sid)
+        if data is None:
+            return rec.get("node")
+        leaf = self.nodes.ingest({k: v for k, v in m.items() if k not in ("masked", "stripped")} for m in self._transcript(sid, data))
+        if leaf != rec.get("node"):
+            with self._lock:
+                rec["node"] = leaf
+                self._save()
+        return leaf
+
+    def _migrate_nodes(self) -> None:
+        """Once: every conversation that exists is put in the store, and a branch's file that holds nothing the store does not is dropped
+        (it is rebuilt from the nodes when needed). The ids come from the content, so the result does not depend on the order."""
+        marker = self.directory / NODES_MIGRATED
+        if marker.exists():
+            return
+        try:
+            for rec in sorted(self.records, key=lambda r: (r.get("created") or 0, r["id"])):
+                leaf = self.sync_node(rec["id"])
+                if rec.get("branched_from") and rec.get("state") in ("dormant", "closed"):
+                    self._drop_copy(rec, leaf)
+            marker.write_text("1", encoding="utf-8")
+        except (OSError, KeyError, ValueError):
+            pass                                                # tried again at the next start
+
+    def _drop_copy(self, rec: Dict[str, Any], leaf: Optional[str]) -> None:
+        folder = self.history_dir(rec["id"])
+        data = self._read_history(rec["id"])
+        if not leaf or data is None or not (folder / "history.json").exists() or (folder / "archive.jsonl").exists() or (folder / "inflight.json").exists():
+            return
+        extra = set(data) - {"session", "turns", "saved", "messages", "pending"}
+        plain = [{k: v for k, v in m.items() if k not in ("masked", "stripped")} for m in data.get("messages", []) if isinstance(m, dict)]
+        if not extra and not data.get("pending") and data.get("turns") == rec.get("turns") and plain == self.nodes.chain(leaf):
+            (folder / "history.json").unlink(missing_ok=True)
+
+    def switch_cost(self, sid: str, current: Any = None) -> Dict[str, Any]:
+        """What changing to conversation `sid` would ask of the model: the tokens of its history that have to be read again if the server no
+        longer holds them, and how many of those the conversation `current` (the one last run) shares with it, which the server probably does."""
+        leaf = self.sync_node(sid)
+        other = None
+        if current:
+            with self._lock:
+                self._record(str(current))
+            other = self.sync_node(str(current))
+        total = self.nodes.tokens(leaf)
+        shared = self.nodes.tokens(self.nodes.common_ancestor(leaf, other)) if other else 0
+        return {"session": sid, "messages": len(self.nodes.path_to(leaf)), "tokens": total, "shared_with_current": shared,
+                "if_cache_cold": total, "if_cache_warm": total - shared, "excludes": "system prompt and tool list"}
+
+    @staticmethod
+    def _digest(messages: List[Dict[str, Any]], limit: int) -> str:
+        lines = []
+        for m in messages:
+            text = " ".join(str(m.get("content") or "").split())
+            if m.get("role") in ("user", "assistant") and text:
+                lines.append(f"{'Person' if m['role'] == 'user' else 'Assistant'}: {text[:MERGE_PART_CHARS]}")
+            elif m.get("role") == "assistant" and m.get("tool_calls"):
+                names = ", ".join(str((c.get("function") or {}).get("name") or "?") for c in m["tool_calls"] if isinstance(c, dict))
+                lines.append(f"Assistant used: {names}")
+        out = "\n".join(lines)
+        return out if len(out) <= limit else "...\n" + out[-limit:]
+
+    def merge(self, sid_a: Any, sid_b: Any, instruction: Any = "") -> Dict[str, Any]:
+        """A new conversation that continues the first and ends with a synthesis the model writes, at the person's request, of what the two
+        branches did after the point where they parted. Both are read, neither is changed."""
+        from harness.client import BasaltError, extract_reasoning_and_content
+        if not isinstance(sid_a, str) or not isinstance(sid_b, str) or sid_a == sid_b:
+            raise RunError("Choose two different conversations to merge.", "bad_merge")
+        text = str(instruction or "").strip()
+        recs = []
+        for sid in (sid_a, sid_b):
+            with self._lock:
+                rec = self._record(sid)
+                if rec["state"] in ("busy", "starting", "asking"):
+                    raise RunError("Wait for the agent to finish, or stop it, before merging.", "busy")
+                recs.append(dict(rec))
+        leaves = [self.sync_node(sid_a), self.sync_node(sid_b)]
+        if not all(leaves):
+            raise RunError("Both conversations need some messages to be merged.", "empty")
+        base = self.nodes.common_ancestor(*leaves)
+        shared = len(self.nodes.path_to(base))
+        branches = [self.nodes.chain(leaf)[shared:] for leaf in leaves]
+        if not any(branches):
+            raise RunError("The two conversations end at the same message: there is nothing to merge.", "bad_merge")
+        titles = [r.get("title") or r["id"] for r in recs]
+        system = ("Two branches of one conversation continued from the same point. Write one answer that combines what both found, says where they "
+                  "disagree and which is better supported, and what to do next. Use the language of the conversation. Add nothing that is in neither branch.")
+        asked = ("The person asks: " + text) if text else "The person asks for the two branches to be merged and summarized."
+        user = (f"The conversation up to where the branches part:\n{self._digest(self.nodes.chain(base), MERGE_SHARED_CHARS) or '(nothing)'}\n\n"
+                f"Branch A, \"{titles[0]}\":\n{self._digest(branches[0], MERGE_BRANCH_CHARS) or '(nothing after that point)'}\n\n"
+                f"Branch B, \"{titles[1]}\":\n{self._digest(branches[1], MERGE_BRANCH_CHARS) or '(nothing after that point)'}\n\n{asked}")
+        try:
+            resp = self._skill_client().chat_completion(messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                                                        temperature=0.2, max_tokens=MERGE_TOKENS, extra={"reasoning_effort": "none"}, timeout=600.0)
+        except BasaltError as exc:
+            raise RunError(f"The model could not be reached: {exc}", "model") from None
+        _, answer = extract_reasoning_and_content((resp.get("choices") or [{}])[0].get("message") or {})
+        if not answer:
+            raise RunError("The model gave no synthesis.", "model")
+        ask = text or f"Merge the branches \"{titles[0]}\" and \"{titles[1]}\" into one."
+        ask_node = self.nodes.add({"role": "user", "content": ask, "ts": time.time()}, leaves)
+        leaf = self.nodes.add({"role": "assistant", "content": answer, "ts": time.time()}, [ask_node])
+        turns = sum(1 for m in self.nodes.chain(leaf) if m.get("role") == "user")
+        return self._new_child(recs[0], sid_a, "(merge)", leaf, turns, {"session": sid_a, "turn": recs[0].get("turns", 0)}, merged_from=[sid_a, sid_b])
+
+    def node_tree(self) -> Dict[str, Any]:
+        """Every message node, in runs: messages that nothing branches from are one entry, and a fork, a merge or a conversation's current
+        leaf ends a run. Runs no conversation reaches any more (what going back took off) are shown too, with no conversation."""
+        with self._lock:
+            ids = [r["id"] for r in self.records]
+        for sid in ids:
+            try:
+                self.sync_node(sid)
+            except (RunError, OSError):
+                pass
+        with self._lock:
+            records = [dict(r) for r in self.records]
+        nodes = {n["id"]: n for n in self.nodes.all()}
+        kids: Dict[str, List[str]] = {}
+        roots: List[str] = []
+        for n in nodes.values():
+            (kids.setdefault(n["parents"][0], []) if n["parents"] and n["parents"][0] in nodes else roots).append(n["id"])
+        at: Dict[str, List[Dict[str, Any]]] = {}
+        for r in records:
+            if r.get("node") in nodes:
+                at.setdefault(r["node"], []).append({"id": r["id"], "title": r.get("title") or r["id"], "state": r.get("state"), "turns": r.get("turns", 0)})
+        merges = {n["id"]: n["parents"][1:] for n in nodes.values() if len(n["parents"]) > 1}
+
+        def request(nid: str) -> str:
+            m = nodes[nid]["message"]
+            return " ".join(str(m.get("content") or "").split())[:SNIPPET_CHARS] if m.get("role") == "user" else ""
+
+        def run(start: str) -> Dict[str, Any]:
+            run_ids, cur = [start], start
+            while len(kids.get(cur, [])) == 1 and cur not in at and kids[cur][0] not in merges:
+                cur = kids[cur][0]
+                run_ids.append(cur)
+            return {"id": start, "last": cur, "messages": len(run_ids), "request": next((request(i) for i in run_ids if request(i)), ""),
+                    "sessions": at.get(cur, []), "merges": [{"node": m, "sessions": at.get(m, [])} for m in merges.get(start, [])],
+                    "children": [run(c) for c in kids.get(cur, [])]}
+
+        return {"nodes": len(nodes), "roots": [run(r) for r in roots]}
+
     def snapshots(self, sid: str) -> Dict[str, Any]:
         with self._lock:
             self._record(sid)
@@ -476,13 +708,13 @@ class SessionManager:
         sides = []
         for v in variants:
             text = v.get("text")
-            if not isinstance(text, str) or not text.strip() or len(text) > TEXT_CHARS:
-                raise RunError(f"Each continuation needs a message of at most {TEXT_CHARS} characters.", "text_missing")
+            if not isinstance(text, str) or not text.strip():
+                raise RunError("Each continuation needs a message.", "text_missing")
             settings = {k: v[k] for k in COMPARE_SETTINGS if k in v}
-            if settings.get("mode") not in (None, *[m for m in MODES if m != "auto"]):
-                raise RunError("A comparison runs in default, plan or read-only mode: automatic mode is not offered here.", "bad_mode")
-            if "max_turns" in settings and (not isinstance(settings["max_turns"], int) or isinstance(settings["max_turns"], bool) or not 1 <= settings["max_turns"] <= 50):
-                raise RunError("The number of steps must be between 1 and 50.", "bad_steps")
+            if settings.get("mode") not in (None, *MODES):
+                raise RunError("Say a mode that exists: " + ", ".join(MODES) + ".", "bad_mode")
+            if "max_turns" in settings:
+                check_steps(settings["max_turns"])
             if "ask_only" in settings and not isinstance(settings["ask_only"], bool):
                 raise RunError("Question-only is true or false.", "bad_policy")
             if "end_turn_bias" in settings:
@@ -513,7 +745,8 @@ class SessionManager:
                       **{k: v for k, v in side["settings"].items()})
 
     def _wait_side(self, sid: str) -> str:
-        end = time.monotonic() + self.compare_wait_s
+        wait = self.compare_wait_s                                  # None: as long as the side works
+        end = time.monotonic() + wait if wait else float("inf")
         while not self._stop.is_set() and time.monotonic() < end:
             state = self.get(sid)["state"]
             if state == "idle":
@@ -569,7 +802,7 @@ class SessionManager:
         data = self._read_history(sid)
         for m in reversed(self._transcript(sid, data) if data else []):
             if m.get("role") == "assistant" and isinstance(m.get("content"), str) and m["content"].strip():
-                return m["content"][:TEXT_CHARS]
+                return m["content"]
         return ""
 
     def _side_files(self, sid: Optional[str]) -> Optional[Dict[str, str]]:
@@ -648,7 +881,7 @@ class SessionManager:
             if tool == "plan_step_start" and " started" in str(data.get("output") or "")[:300]:
                 self._step[sid] = (args.get("plan_id"), args.get("node_id"))
             elif tool == "plan_mark":
-                if step == (args.get("plan_id"), args.get("node_id")) and args.get("status") in ("completed", "failed", "skipped"):
+                if step == (args.get("plan_id"), args.get("node_id")) and args.get("status") in ("completed", "failed", "skipped", "timed_out"):
                     self._step.pop(sid, None)
             elif step and effect in ("reversible", "irreversible") and not tool.startswith("plan_") and self.plan_effect is not None:
                 from harness.rewind import describe_call
@@ -660,9 +893,9 @@ class SessionManager:
     # -- creating ----------------------------------------------------------------------------------------
 
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
-               confirm_auto: bool = False, max_turns: Any = 15, context_patterns: Any = None,
+               max_turns: Any = UNLIMITED_STEPS, context_patterns: Any = None,
                context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
-               images: Any = "", charts: Any = "") -> Dict[str, Any]:
+               images: Any = "", charts: Any = "", unattended: bool = False, role: Any = GENERAL_ROLE, private: bool = False) -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         if (workspace is None or workspace == "") and self.default_workspace is not None:
             self.default_workspace.mkdir(parents=True, exist_ok=True)
@@ -670,27 +903,23 @@ class SessionManager:
         path = AgentRunner.check_workspace(workspace)
         if mode not in MODES:
             raise RunError("The mode must be one of: " + ", ".join(MODES) + ".", "bad_mode")
-        if mode == "auto" and confirm_auto is not True:
-            raise RunError("Automatic mode runs commands without asking. Confirm that you want that, in a folder you can lose.", "auto_confirm")
         for name, level in (("images", images), ("charts", charts)):
             if level not in LEVELS:
                 raise RunError(f"How much {name} are wanted is one of: off, " + ", ".join(LEVELS[1:]) + ".", "bad_visuals")
         if effort not in EFFORTS:
             raise RunError("The thinking level is none, low, medium or high; empty is the model's own.", "bad_effort")
+        if not valid_role(role):
+            raise RunError("The role must be one of: " + ", ".join(ROLE_IDS) + ".", "bad_role")
         rules = allow if isinstance(allow, list) else []
-        if len(rules) > MAX_ALLOW or any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
-            raise RunError(f"Allow rules are lines of text, at most {MAX_ALLOW}.", "bad_rules")
-        if not isinstance(max_turns, int) or isinstance(max_turns, bool) or not 1 <= max_turns <= 50:
-            raise RunError("The number of steps must be between 1 and 50.", "bad_steps")
+        if any(not isinstance(r, str) or not r.strip() or len(r) > 200 or "\n" in r for r in rules):
+            raise RunError("Allow rules are lines of text.", "bad_rules")
+        check_steps(max_turns)
         if context_policy not in ("stop", "rolling", "compact"):
             raise RunError("The policy for a full context is stop, rolling or compact.", "bad_policy")
         if isinstance(context_threshold, bool) or not isinstance(context_threshold, (int, float)) or not 0.3 <= context_threshold <= 1.0:
             raise RunError("The threshold is a share of the context window from 0.3 to 1.", "bad_policy")
-        try:
-            logit_bias.add_end_turn({"end_turn_bias": end_turn_bias}, [0])
-        except ValueError as e:
-            raise RunError(str(e), "bad_policy") from None
-        patterns = context_patterns_mod.check_config(context_patterns) if context_patterns else {}
+        check_end_turn_bias(end_turn_bias)
+        patterns =context_patterns_mod.check_config(context_patterns) if context_patterns else {}
         if context_policy != "stop":
             patterns = context_patterns_mod.with_policy(context_patterns or {}, context_policy)
         if worktree is True:
@@ -701,11 +930,13 @@ class SessionManager:
             raise RunError("The copy of the folder is off, auto or always.", "bad_worktree")
         sid = secrets.token_hex(4)
         copy = self._copy_for(sid, path, worktree)
-        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "effort": effort, "images": images, "charts": charts,
-               "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns,
+        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "role": role, "effort": effort, "images": images, "charts": charts,
+               "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns, "unattended": unattended is True,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         if copy:
             rec["worktree"], rec["workdir"] = copy, copy["workdir"]
+        if private is True:
+            rec["private"] = True                                  # left out of the index of earlier conversations and of what is learned about the person
         with self._lock:
             self.records.append(rec)
             self._events[sid], self._seq[sid] = collections.deque(maxlen=EVENTS_KEPT), 0
@@ -736,14 +967,34 @@ class SessionManager:
 
     def _command(self, sid: str, rec: Dict[str, Any], history: Path) -> List[str]:
         cmd = [self.python, "-m", "harness", "session", "--session-id", sid, "--history-dir", str(history), "--workspace", rec.get("workdir") or rec["workspace"],
-               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", 15)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp", "--report-changes", "--page-files"]
-        for rule in rec.get("allow", []):
+               "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", UNLIMITED_STEPS)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp", "--report-changes", "--page-files"]
+        if rec.get("unattended"):
+            cmd.append("--unattended")
+        if rec.get("role") and rec["role"] != GENERAL_ROLE and not rec.get("ask_only"):
+            cmd += ["--role", rec["role"]]
+        if self.coding is not None and not rec.get("ask_only"):
+            cmd += self.coding.flags(rec["workspace"])
+        rules = list(rec.get("allow", []))
+        rules += [r for r in (self.allow_rules.read() if self.allow_rules else []) if r not in rules]
+        for rule in rules:
             cmd += ["--allow", rule]
         if rec.get("effort"):
             cmd += ["--effort", rec["effort"]]
         for flag in ("images", "charts"):
             if rec.get(flag):
                 cmd += [f"--{flag}", rec[flag]]
+        if self.past is not None:
+            cmd += ["--past-index", str(self.past.path)]
+        if self.skills is not None:
+            cmd += ["--personal-skills-dir", str(self.skills.dir)]
+        if self.exec_level_file:
+            cmd += ["--exec-level-file", str(self.exec_level_file)]
+        if self.persistence_file:
+            cmd += ["--persistence-file", str(self.persistence_file)]
+        if self.lessons_dir:
+            cmd += ["--lessons-dir", str(self.lessons_dir)]
+        if self.next_steps_file:
+            cmd += ["--next-steps-file", str(self.next_steps_file)]
         if self.personal_dir:
             cmd += ["--personal-memory", str(self.personal_dir)] + (["--personal-memory-keys", str(self.personal_keys)] if self.personal_keys else [])
         if rec.get("ask_only"):
@@ -752,9 +1003,20 @@ class SessionManager:
             cmd += ["--vault-dir", str(self.vault_dir)]
         if not rec.get("ask_only") and self.payments_dir:
             cmd += ["--payments-dir", str(self.payments_dir)]
+        if self.rule_of_two:
+            cmd += ["--rule-of-two", rec.get("rule_of_two") or self.rule_of_two()]
         prefs = self.browser_prefs() if self.browser_prefs else {}
         if not rec.get("ask_only") and prefs.get("enabled"):
             cmd += ["--browser"] + (["--browser-headless"] if prefs.get("headless") else []) + (["--browser-private"] if prefs.get("private") else [])                    + (["--browser-profile", str(self.browser_profile)] if prefs.get("persistent") and self.browser_profile else [])
+            cmd += ["--browser-consent", str(prefs.get("consent", "follow")), "--browser-permissions", str(prefs.get("permissions", "follow"))]
+        if self.knowledge_flags:
+            cmd += self.knowledge_flags()
+        if self.intake_flags:
+            cmd += self.intake_flags()
+        if self.gate_flags and not rec.get("ask_only"):
+            cmd += self.gate_flags()
+        if self.compaction_flags:
+            cmd += self.compaction_flags()
         if rec.get("context_patterns"):
             cmd += ["--context-patterns", json.dumps(rec["context_patterns"])]
         if rec.get("context_threshold"):
@@ -776,8 +1038,12 @@ class SessionManager:
                 raise RunError(f"The copy of the folder for this conversation could not be brought back: {e}", "no_copy") from None
         history = self.history_dir(sid)
         history.mkdir(parents=True, exist_ok=True)
-        env = {k: v for k, v in os.environ.items() if k.upper() in SAFE_ENV_KEYS}
-        env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root)})
+        if not (history / "history.json").exists():
+            made = self._history_from_nodes(sid)                  # a fork gets its file when it first runs
+            if made is not None:
+                _write_json(history / "history.json", made)
+        env = dict(os.environ)
+        env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root), "BASALT_COMPRESS": "1"})
         if self.api_key:
             env["BASALT_API_KEY"] = self.api_key
         flags = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW) if os.name == "nt" else 0
@@ -833,33 +1099,53 @@ class SessionManager:
             if rec is None or self._live.get(sid) is not live:
                 return
             if kind == "heartbeat":
-                live.idle_s = float(event.get("idle_s") or 0.0)
                 waiting, aside = int(event.get("waiting_requests") or 0), int(event.get("put_aside") or 0)
                 if (rec.get("waiting_requests", 0), rec.get("put_aside", 0)) != (waiting, aside):
                     self._set(rec, waiting_requests=waiting, put_aside=aside)       # what waits behind the task in hand
                 return
             if kind == "ready":
+                live.pid = int(event.get("pid") or 0)
                 blocked = event.get("blocked")
                 pending, live.after_ready = live.after_ready, []
-                self._set(rec, state="blocked" if blocked else "busy" if pending else "idle", blocked=blocked)
+                self._set(rec, state="blocked" if blocked else "busy" if any(c.get("cmd") != "answer" for c in pending) else "idle", blocked=blocked,
+                          pending=[self._pending_view(i) for i in event.get("parked") or [] if isinstance(i, dict)])
                 live.ready.set()
                 if not blocked:                              # a block is the person's to lift, so nothing is given on
                     for cmd in pending:
                         self._write(sid, live, cmd)
             elif kind in ("accepted", "woke"):                        # a message of the person, or a note of the planner
                 self._unconfirmed.pop(sid, None)
-                self._set(rec, state="busy", blocked=None, ask=None, question=None)
+                self._set(rec, state="busy", blocked=None, ask=None, question=None, suggestions=None)
+            elif kind == "suggestions":
+                self._set(rec, suggestions=event.get("items") if isinstance(event.get("items"), list) else None)
             elif kind == "ask":
                 shown = {k: event.get(k) for k in ASK_FIELDS}
                 if event.get("mode") == "confirm":
                     self._set(rec, state="asking", ask=shown)
                 else:
                     self._set(rec, question=shown)
+                    if shown.get("offer") and self.coding is not None:
+                        self.coding.mark_offered(rec["workspace"])              # the card that offers the folder's own checks is shown once
+            elif kind == "pending":                                   # a question for the person that does not stop the process
+                shown = {k: event.get(k) for k in ASK_FIELDS if k != "mode"}
+                self._set(rec, pending=[i for i in rec.get("pending", []) if i.get("id") != shown["id"]] + [{**shown, "source": event.get("source"), "turn": event.get("turn"), "at": event.get("t") or time.time()}])
+            elif kind == "pending_done":
+                self._set(rec, pending=[i for i in rec.get("pending", []) if i.get("id") != event.get("id")])
             elif kind == "rule_added":
                 rule = str(event.get("rule") or "").strip()
                 rules = list(rec.get("allow", []))
-                if rule and len(rule) <= 200 and "\n" not in rule and rule not in rules and len(rules) < MAX_ALLOW:
+                if event.get("scope") == "global" and self.allow_rules is not None:
+                    try:
+                        self.allow_rules.add(rule)                   # "always": every conversation from now on
+                    except ValueError:
+                        pass
+                elif rule and len(rule) <= 200 and "\n" not in rule and rule not in rules:
                     self._set(rec, allow=rules + [rule])             # a rule the person chose in the question stays for this conversation's next starts
+            elif kind == "rule_of_two_off":
+                if event.get("scope") == "global" and self.rule_of_two_prefs is not None:
+                    self.rule_of_two_prefs.write("off")
+                else:
+                    self._set(rec, rule_of_two="off")
             elif kind == "queued":
                 self._unconfirmed.pop(sid, None)                     # the process has the message; it will look at it before its next model call
             elif kind in ("started", "resumed"):
@@ -868,6 +1154,7 @@ class SessionManager:
             elif kind == "done":
                 if not event.get("more"):
                     threading.Thread(target=self._flush_heard, args=(sid,), name="learn-flush", daemon=True).start()
+                    threading.Thread(target=self._index_and_card, args=(sid,), name="past-index", daemon=True).start()
                 asked = event.get("stop_reason") == "asked"
                 state = "busy" if event.get("more") else "idle"      # other requests are still waiting: the conversation is still at work
                 self._set(rec, state=state, blocked=None, ask=None, turns=rec.get("turns", 0) + 1, **({} if asked else {"question": None}),
@@ -906,27 +1193,49 @@ class SessionManager:
             if rec["state"] == "blocked" or not was_busy:   # waiting for the person, or nothing running: it starts at the next message
                 self._set(rec, state="dormant")
                 return
-            now = time.monotonic()
-            recent = [t for t in self._restarts.get(sid, []) if now - t < self.restart_window_s]
-            if len(recent) >= self.restart_cap:
-                self._restarts[sid] = recent
-                blocked = {"reason": "process_unstable", "detail": f"{why}; it was started again {len(recent)} times in "
-                           f"{int(self.restart_window_s // 60)} minutes", "options": list(OPTIONS)}
-                self._set(rec, state="blocked", blocked=blocked)
-                self._push(sid, {"event": "blocked", **blocked})
+            self._set(rec, state="starting")
+            self._schedule_restart(sid, rec, why)
+
+    def _schedule_restart(self, sid: str, rec: Dict[str, Any], why: str) -> None:
+        """Starts the process again after a wait that grows with the restarts of the last minutes and never ends the retries; the
+        person stops them by stopping or closing the conversation. Called with the lock held."""
+        now = time.monotonic()
+        recent = [t for t in self._restarts.get(sid, []) if now - t < RESTART_RESET_S]
+        self._restarts[sid] = recent + [now]
+        wait = self.restart_waits[min(len(recent), len(self.restart_waits) - 1)]
+        token = object()
+        self._restart_token[sid] = token
+        self._push(sid, {"event": "restarting", "why": why, "attempt": len(recent) + 1, "wait_s": wait})
+        threading.Thread(target=self._restart_after, args=(sid, token, wait, why), name=f"restart-{sid}", daemon=True).start()
+
+    def _restart_after(self, sid: str, token: object, wait: float, why: str) -> None:
+        if wait > 0 and self._stop.wait(wait):
+            return
+        with self._lock:
+            if self._restart_token.get(sid) is not token or self._stop.is_set():
+                return                                                  # stopped, closed, or started by a new message meanwhile
+            self._restart_token.pop(sid, None)
+            rec = next((r for r in self.records if r["id"] == sid), None)
+            if rec is None or rec["state"] != "starting" or self._live.get(sid) is not None:
                 return
-            self._restarts[sid] = recent + [now]
-            self._push(sid, {"event": "restarting", "why": why, "attempt": len(recent) + 1, "of": self.restart_cap})
             unconfirmed = self._unconfirmed.get(sid)
             try:
                 live = self._spawn(sid)
-            except RunError as exc:
-                blocked = {"reason": "start_failed", "detail": str(exc), "options": list(OPTIONS)}
-                self._set(rec, state="blocked", blocked=blocked)
-                self._push(sid, {"event": "blocked", **blocked})
+            except RunError as exc:                                     # it could not even start: try again later, the same way
+                self._schedule_restart(sid, rec, str(exc))
                 return
-            self._set(rec, state="starting")
             live.after_ready = [dict(unconfirmed)] if unconfirmed else [{"cmd": "resume"}]
+
+    def _stop_restart(self, sid: str) -> bool:
+        """The person stopped a conversation that was waiting to be started again."""
+        with self._lock:
+            return self._restart_token.pop(sid, None) is not None
+
+    @staticmethod
+    def _pending_view(item: Dict[str, Any]) -> Dict[str, Any]:
+        payload = item.get("payload") if isinstance(item.get("payload"), dict) else item
+        return {**{k: payload.get(k) for k in ASK_FIELDS if k != "mode"}, "id": item.get("id"), "source": item.get("source"),
+                "turn": item.get("turn"), "at": item.get("at")}
 
     def _write(self, sid: str, live: Live, cmd: Dict[str, Any]) -> bool:
         try:
@@ -943,8 +1252,8 @@ class SessionManager:
         """The cards of the files a message names; each must be attached to this conversation."""
         if not ids:
             return []
-        if not isinstance(ids, list) or len(ids) > 20 or any(not isinstance(i, str) for i in ids) or self.attachments_dir is None:
-            raise RunError("Attach up to 20 files that were uploaded to this conversation.", "bad_attachments")
+        if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids) or self.attachments_dir is None:
+            raise RunError("Attach files that were uploaded to this conversation.", "bad_attachments")
         from harness.attachments import AttachmentStore
         store = AttachmentStore(self.attachments_dir)
         try:
@@ -973,31 +1282,24 @@ class SessionManager:
             self._place_sent[sid] = held["got"]
             return held
 
-    def send(self, sid: str, text: Any, attachments: Any = None, place: Any = None) -> Dict[str, Any]:
+    def send(self, sid: str, text: Any, attachments: Any = None, place: Any = None, optimize: Any = None) -> Dict[str, Any]:
         if not isinstance(text, str) or not text.strip():
             raise RunError("Write a message.", "text_missing")
         cards = self._check_attachments(sid, attachments)
-        if len(text) > TEXT_CHARS:
-            raise RunError(f"The message is too long ({len(text)} characters; at most {TEXT_CHARS}).", "text_long")
         with self._lock:
             rec = self._record(sid)
             if rec["state"] == "closed":
                 raise RunError("That conversation is closed.", "closed")
-            if rec["state"] not in ("busy", "asking", "starting") and not rec.get("worktree"):
-                other = next((r for r in self.records if r["id"] != sid and r.get("workspace") == rec["workspace"] and not r.get("worktree")
-                              and r["state"] in ("busy", "asking", "starting")), None)
-                if other is not None:
-                    raise RunError("Another conversation is working in this folder. Wait for it, or start this one in a folder under git: "
-                                   "it then works in its own copy.", "folder_busy")
             turn = secrets.token_hex(3)              # a message that comes while the agent works is looked at by the agent itself
             live = self._ensure(sid)
             held = self._place_for(sid, place)
-            cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {}), **({"place": held} if held else {})}
+            cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {}), **({"place": held} if held else {}),
+                   **({"optimize": False} if optimize is False else {})}      # "Send my original instead": this message is not rewritten
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
                 rec["title"] = " ".join(text.split())[:TITLE_CHARS]
             keep = rec["state"] in ("busy", "asking") and live.ready.is_set()       # a task is under way: its state is not changed
-            self._set(rec, blocked=None, question=None, **({} if keep else {"state": "starting" if not live.ready.is_set() else "busy"}))
+            self._set(rec, blocked=None, question=None, suggestions=None, **({} if keep else {"state": "starting" if not live.ready.is_set() else "busy"}))
             if not live.ready.is_set():
                 live.after_ready.append(cmd)
             elif not self._write(sid, live, cmd):
@@ -1013,8 +1315,57 @@ class SessionManager:
         with self._lock:
             self._no_learning.add(sid)
 
+    # -- the index of earlier conversations ------------------------------------------------------------
+
+    def routine_run(self, sid: str, name: str, indexed: bool) -> None:
+        """A routine's conversation: it goes into the index of earlier conversations only when the person switched that on for the routine."""
+        with self._lock:
+            if indexed:
+                self._routine_runs[sid] = name
+
+    def index_past(self, sid: str) -> bool:
+        """Adds what was said in a conversation to the index of earlier conversations (replacing what the index had of it); false when it is left out or fails."""
+        if self.past is None:
+            return False
+        try:
+            with self._lock:
+                rec = dict(self._record(sid))
+                routine = self._routine_runs.get(sid, "")
+                if (sid in self._no_learning or rec.get("unattended")) and not routine:
+                    return False
+                if rec.get("private"):
+                    return False
+            workspace = str(rec.get("workspace") or "")
+            chat = not workspace or (self.default_workspace is not None and Path(workspace) == self.default_workspace)
+            messages = self.history(sid)["messages"]
+            self.past.add_session(sid, messages, title=rec.get("title") or "", project="" if chat else Path(workspace).name,
+                                  kind="routine" if routine else "chat" if chat else "agent", routine=routine, at=rec.get("updated") or time.time())
+            with self._lock:
+                if self._record(sid).get("private"):          # marked private while it was being indexed
+                    self.past.drop(sid)
+                    return False
+            return True
+        except Exception:
+            return False                                        # the index never gets in the way of the conversation
+
+    def _index_and_card(self, sid: str) -> None:
+        if self.index_past(sid) and self.cards is not None:
+            try:
+                self.cards.touch(sid)
+            except Exception:
+                pass                                          # the card is never the conversation's concern
+
+    def index_all_past(self) -> int:
+        """Adds the conversations saved before the index existed, or changed since, to the index; returns how many it indexed."""
+        if self.past is None:
+            return 0
+        kept = {s["session"]: s["at"] for s in self.past.sessions()}
+        with self._lock:
+            todo = [r["id"] for r in self.records if (r.get("updated") or 0) > kept.get(r["id"], -1) + 1e-6 and r["id"] not in self._no_learning and not r.get("unattended") and not r.get("private")]
+        return sum(1 for sid in todo if self.index_past(sid))
+
     def _hear(self, sid: str, rec: Dict[str, Any], text: str) -> None:
-        if self.learn is None or sid in self._no_learning:
+        if self.learn is None or sid in self._no_learning or rec.get("private"):
             return
         workspace = str(rec.get("workspace") or "")
         project = "" if not workspace or (self.default_workspace and Path(workspace) == self.default_workspace) else Path(workspace).name
@@ -1032,7 +1383,7 @@ class SessionManager:
         for n, text in enumerate(heard["texts"]):
             last = n == len(heard["texts"]) - 1
             try:
-                self.learn({"text": text, "project": heard["project"], "searches": heard["searches"] if last else []})
+                self.learn({"text": text, "project": heard["project"], "conversation": sid, "searches": heard["searches"] if last else []})
             except Exception:
                 pass                                          # learning never gets in the way of the conversation
 
@@ -1072,6 +1423,23 @@ class SessionManager:
         return {**proposal, "requests": [{"n": r["n"], "raw": r["raw"]} for r in chosen],
                 "steps": [{"kind": s["kind"], "turn": s["turn"], **({"name": s["name"], "ok": s["ok"]} if s["kind"] == "tool" else {})} for s in steps]}
 
+    def routine_skill(self, sid: str, name: str) -> Dict[str, Any]:
+        """A script that repeats what a routine's run did, written from its recorded steps with every value the model proposed kept as a
+        parameter. The person reads it before anything changes; `ai_calls` counts the places left to the language model."""
+        from harness.client import BasaltError
+        from harness.personal_skills import distill
+        chosen, steps = self._skill_source(sid, [1])
+        try:
+            proposal = distill.propose(self._skill_client(), chosen, steps)
+            description = str(proposal.get("description") or name)[:500]
+            params = proposal.get("params") or []
+            written = distill.write_script(self._skill_client(), name[:60], description, params, chosen, steps)
+        except BasaltError as exc:
+            raise RunError(f"The model could not be reached: {exc}", "model") from None
+        script = written.get("script") or ""
+        return {"name": name[:60], "description": description, "params": params, "script": script, "problems": written.get("problems") or [],
+                "tool_steps": sum(1 for st in steps if st["kind"] == "tool"), "ai_calls": len(re.findall(r"(?<![\w.])ai\(", script))}
+
     def skill_script(self, sid: str, turns: Any, name: Any, description: Any, params: Any) -> Dict[str, Any]:
         """The second step: the Python script, written from the requests, the recorded steps and the parameters the person kept."""
         from harness.client import BasaltError
@@ -1089,12 +1457,13 @@ class SessionManager:
         except BasaltError as exc:
             raise RunError(f"The model could not be reached: {exc}", "model") from None
         keep = ("name", "label", "explanation", "type", "default", "required", "choices", "item_type", "format")
-        return {**written, "skill": {"name": str(name or "")[:60], "description": str(description or "")[:500], "mode": "restricted",
+        return {**written, "skill": {"name": str(name or "")[:60], "description": str(description or "")[:500],
                                      "params": [{k: p[k] for k in keep if k in p} for p in params], "source": {"conversation": sid, "requests": sorted(set(turns))}}}
 
     def run_skill(self, sid: str, slug: Any, values: Any = None) -> Dict[str, Any]:
-        """Runs one of the person's skills in this conversation with the values they gave (a date in words is worked out now). The skill must
-        be approved: the person has read it. The process runs the script; its tool calls are decided by the conversation's own rules."""
+        """Runs one of the person's skills in this conversation with the values they gave (a date in words is worked out now; a value left out is the
+        default, else the last one used, else it is told to the model as missing). Nothing asks before it runs: its tool calls are
+        decided by the conversation's own rules."""
         from serve.personal_skills_api import describe
         if self.skills is None or not isinstance(slug, str) or (values is not None and not isinstance(values, dict)):
             raise RunError("Choose a skill and give its values.", "bad_skill")
@@ -1102,9 +1471,7 @@ class SessionManager:
             skill = self.skills.get(slug)
         except SkillError as exc:
             raise RunError(str(exc), "no_skill") from None
-        if skill["status"] != "approved":
-            raise RunError("Read the skill and approve it first: it has not been approved on this PC.", "needs_approval")
-        typed, errors = resolve_values(skill.get("params") or [], values or {}, datetime.now())
+        typed, errors = resolve_values(skill.get("params") or [], values or {}, datetime.now(), self.skills.last_values(slug))
         if errors:
             raise RunError("; ".join(f"{k}: {v}" for k, v in errors.items()), "bad_values")
         text = describe(skill, typed)
@@ -1114,14 +1481,9 @@ class SessionManager:
                 raise RunError("That conversation is closed.", "closed")
             if rec["state"] in ("busy", "asking", "starting"):
                 raise RunError("Wait for the agent to finish, or stop it, before running a skill.", "busy")
-            if not rec.get("worktree"):
-                other = next((r for r in self.records if r["id"] != sid and r.get("workspace") == rec["workspace"] and not r.get("worktree")
-                              and r["state"] in ("busy", "asking", "starting")), None)
-                if other is not None:
-                    raise RunError("Another conversation is working in this folder. Wait for it.", "folder_busy")
             turn = secrets.token_hex(3)
             live = self._ensure(sid)
-            cmd = {"cmd": "skill", "id": turn, "name": skill["name"], "display": text, "script": skill["script"], "mode": skill.get("mode", "restricted"),
+            cmd = {"cmd": "skill", "id": turn, "name": skill["name"], "display": text, "script": skill["script"],
                    "values": typed, "timeout": skill.get("timeout", 1800), "cache_dir": str(self.skills.dir / slug / ".cache")}
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
@@ -1131,16 +1493,51 @@ class SessionManager:
                 live.after_ready.append(cmd)
             elif not self._write(sid, live, cmd):
                 raise RunError("The agent process did not take the skill; try again.", "write_failed")
-        self.skills.note_run(slug)
+        self.skills.note_run(slug, typed)
         self._push(sid, {"event": "user", "turn": turn, "text": text})
         return {"turn": turn, "session": self.get(sid)}
 
+    def _answer_card(self, sid: str, rec: Dict[str, Any], card: Dict[str, Any], value: Any) -> Optional[str]:
+        """The answer to a card of questions (the lock is held), checked against the card this server stored, not against what the page says
+        it showed. Returns the message the model reads, or None when the person chose to answer in the chat."""
+        try:
+            checked = qs.check_answer(card, qs.parse_answer(value))
+        except qs.QuestionError as e:
+            raise RunError(str(e), "bad_answer") from None
+        if checked["status"] == "chat":
+            self._set(rec, question=None)
+            return None
+        offer = card.get("offer")
+        if checked["status"] == "submitted" and isinstance(offer, dict) and self.coding is not None:      # the checks the person ticked are accepted for this folder
+            picked = (checked["answers"].get(offer.get("question")) or {}).get("picked") or []
+            self.coding.settle_offer(rec["workspace"], [cmd for oid, cmd in (offer.get("commands") or {}).items() if oid in picked])
+        return qs.format_answer(card, checked)
+
     def answer(self, sid: str, ask_id: Any, value: Any) -> Dict[str, Any]:
-        """The person's answer to a confirmation: it must be one of the buttons of the question that is waiting."""
+        """The person's answer to a confirmation: it must be one of the buttons of the question that is waiting. The answer to a card of
+        questions is put in words here and sent as the person's next message."""
+        text: Optional[str] = None
+        with self._lock:
+            rec = self._record(sid)
+            card = rec.get("question")
+            if isinstance(card, dict) and card.get("questions") and card.get("id") == ask_id and not rec.get("ask"):
+                text = self._answer_card(sid, rec, card, value)
+                if text is None:                                       # the person answers in the chat: their next message is the answer
+                    self._push(sid, {"event": "answered", "ask": ask_id, "value": "chat"})
+                    return self.get(sid)
+                offered, workspace = isinstance(card.get("offer"), dict), rec["workspace"]
+        if text is not None:
+            if offered:
+                self.update_checks(workspace)                          # what the person accepted reaches the conversations of this folder now
+            self._push(sid, {"event": "answered", "ask": ask_id, "value": "answered"})
+            return self.send(sid, text)["session"]
         with self._lock:
             rec = self._record(sid)
             ask = rec.get("ask")
             live = self._live.get(sid)
+            parked = next((i for i in rec.get("pending", []) if i.get("id") == ask_id), None)
+            if parked is not None:                                  # a question left for the person: answered whenever, the process applies it
+                return self._answer_pending(sid, rec, live, parked, value)
             if not ask or live is None or ask.get("id") != ask_id:
                 raise RunError("That question is not waiting for an answer any more.", "not_asking")
             free = bool(ask.get("free"))
@@ -1155,6 +1552,26 @@ class SessionManager:
                 raise RunError("The agent process did not take the answer; try again.", "write_failed")
         self._push(sid, {"event": "answered", "ask": ask_id, "value": "" if free else value})        # a code is not kept in the conversation
         return self.get(sid)
+
+    def _answer_pending(self, sid: str, rec: Dict[str, Any], live: Optional[Live], item: Dict[str, Any], value: Any) -> Dict[str, Any]:
+        """The answer to a pending question (the lock is held): checked like any other, then handed to the process, which starts first when
+        the conversation is dormant. The conversation's state does not change here: the process says what it does with it."""
+        if item.get("free"):
+            if not valid_code(value):
+                raise RunError("A code is up to 32 letters, digits, spaces or dashes.", "bad_answer")
+        elif value not in [o.get("value") for o in item.get("options") or []] and not (
+                item.get("free_prefix") and isinstance(value, str) and value.startswith(item["free_prefix"]) and len(value) <= len(item["free_prefix"]) + 500):
+            raise RunError("That is not one of the answers.", "bad_answer")
+        cmd = {"cmd": "answer", "id": item["id"], "value": value}
+        if live is not None and live.ready.is_set() and live.proc.poll() is None and not live.ending:
+            if not self._write(sid, live, cmd):
+                raise RunError("The agent process did not take the answer; try again.", "write_failed")
+        else:
+            live = self._ensure(sid)
+            self._set(rec, state="starting")
+            live.after_ready = live.after_ready + [cmd]
+        self._push(sid, {"event": "answered", "ask": item["id"], "value": "" if item.get("free") else value})
+        return dict(rec)
 
     def promote(self, sid: str, turn: Any) -> Dict[str, Any]:
         """A request that waits behind the task in hand becomes urgent: the task is put aside at its next safe point."""
@@ -1175,9 +1592,13 @@ class SessionManager:
 
     def cancel(self, sid: str) -> Dict[str, Any]:
         with self._lock:
-            self._record(sid)
+            rec = self._record(sid)
             live = self._live.get(sid)
             if live is None:
+                if self._restart_token.pop(sid, None) is not None:       # waiting to be started again: stop that
+                    self._set(rec, state="dormant")
+                    self._push(sid, {"event": "restart_stopped"})
+                    return dict(rec)
                 raise RunError("That conversation is not running.", "not_running")
             self._write(sid, live, {"cmd": "cancel"})
         return self.get(sid)
@@ -1187,12 +1608,10 @@ class SessionManager:
         live = self._live.get(sid)
         return bool(live is not None and live.ready.is_set() and live.proc.poll() is None and not live.ending and self._write(sid, live, cmd))
 
-    def set_mode(self, sid: str, mode: Any, confirm_auto: bool = False) -> Dict[str, Any]:
-        """Changes what the conversation may do without asking, from its next action on. Automatic needs the person's confirmation, as at the start."""
+    def set_mode(self, sid: str, mode: Any) -> Dict[str, Any]:
+        """Changes what the conversation may do without asking, from its next action on."""
         if mode not in MODES:
             raise RunError("The mode must be one of: " + ", ".join(MODES) + ".", "bad_mode")
-        if mode == "auto" and confirm_auto is not True:
-            raise RunError("Automatic mode runs commands without asking. Confirm that you want that, in a folder you can lose.", "auto_confirm")
         with self._lock:
             rec = self._record(sid)
             if rec["state"] == "closed":
@@ -1204,6 +1623,43 @@ class SessionManager:
         if not told:
             self._push(sid, {"event": "mode", "mode": mode})
         return self.get(sid)
+
+    def set_role(self, sid: str, role: Any) -> Dict[str, Any]:
+        """Changes what the conversation's agent is for, from its next model call on. The tool list the model receives stays the same."""
+        if not valid_role(role):
+            raise RunError("The role must be one of: " + ", ".join(ROLE_IDS) + ".", "bad_role")
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            if rec.get("ask_only"):
+                raise RunError("A conversation without tools has no role to change.", "bad_role")
+            self._set(rec, role=role)
+            told = self._tell_if_running(sid, {"cmd": "role", "role": role})
+        if not told:
+            self._push(sid, {"event": "role", "role": role})
+        return self.get(sid)
+
+    def update_checks(self, workspace: Any) -> int:
+        """Tells the running conversations of a folder what the person accepted for it now. Returns how many were told."""
+        if self.coding is None:
+            return 0
+        got = self.coding.effective(workspace)
+        with self._lock:
+            sids = [r["id"] for r in self.records if project_key(r.get("workspace", "")) == project_key(workspace) and r["state"] != "closed" and not r.get("ask_only")]
+            return sum(1 for sid in sids if self._tell_if_running(sid, {"cmd": "checks", "safe": got["safe"], "checks": got["checks"]}))
+
+    def update_intake(self, mode: Any) -> int:
+        """Tells the running conversations how a request is looked at now; one started later takes it from the saved choice. Returns how many were told."""
+        with self._lock:
+            sids = [r["id"] for r in self.records if r["state"] != "closed"]
+            return sum(1 for sid in sids if self._tell_if_running(sid, {"cmd": "intake", "mode": mode}))
+
+    def update_optimize(self, on: bool) -> int:
+        """Tells the running conversations whether Optimize prompt is on now; one started later takes it from the saved choice. Returns how many were told."""
+        with self._lock:
+            sids = [r["id"] for r in self.records if r["state"] != "closed"]
+            return sum(1 for sid in sids if self._tell_if_running(sid, {"cmd": "optimize", "on": bool(on)}))
 
     def set_effort(self, sid: str, level: Any) -> Dict[str, Any]:
         """How long the model thinks in this conversation, from its next model call on."""
@@ -1217,6 +1673,25 @@ class SessionManager:
             told = self._tell_if_running(sid, {"cmd": "effort", "level": level})
         if not told:
             self._push(sid, {"event": "effort", "level": level})
+        return self.get(sid)
+
+    def set_settings(self, sid: str, max_turns: Any = None, end_turn_bias: Any = None) -> Dict[str, Any]:
+        """Changes the steps one answer may take and the end-of-turn bias of a conversation, from its next run on; what is not given stays."""
+        changes: Dict[str, Any] = {}
+        if max_turns is not None:
+            changes["max_turns"] = check_steps(max_turns)
+        if end_turn_bias is not None:
+            changes["end_turn_bias"] = check_end_turn_bias(end_turn_bias)
+        if not changes:
+            raise RunError("Say the number of steps or the end-of-turn bias.", "bad_steps")
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            self._set(rec, **changes)
+            told = self._tell_if_running(sid, {"cmd": "settings", **changes})
+        if not told:
+            self._push(sid, {"event": "settings", **changes})
         return self.get(sid)
 
     def rename(self, sid: str, title: Any) -> Dict[str, Any]:
@@ -1239,6 +1714,39 @@ class SessionManager:
             self._save()
         return self.get(sid)
 
+    def set_private(self, sid: str, value: Any) -> Dict[str, Any]:
+        """Marks a conversation as private (or not): it is then left out of the index of earlier conversations and nothing is learned from it for
+        the person's memories. Turning it on also takes it out of the index and drops what waited to be learned; notes already made stay until it is forgotten."""
+        if not isinstance(value, bool):
+            raise RunError("Say whether it is private: true or false.", "bad_private")
+        with self._lock:
+            rec = self._record(sid)
+            rec["private"] = value
+            self._save()
+            if value:
+                self._said.pop(sid, None)
+        if value:
+            try:
+                if self.forgetter is not None:
+                    self.forgetter.keep_out(sid)
+                elif self.past is not None:
+                    self.past.drop(sid)
+            except Exception:
+                pass                                          # the mark holds either way: nothing new is taken
+        else:
+            threading.Thread(target=self.index_past, args=(sid,), name="past-index", daemon=True).start()
+        return self.get(sid)
+
+    def forget(self, sid: str) -> Dict[str, Any]:
+        """Removes everything taken from a conversation: its pieces in the index of earlier conversations and the memories learned from it. The
+        conversation itself stays; what is said in it later is taken again unless it is marked private."""
+        with self._lock:
+            self._record(sid)
+            self._said.pop(sid, None)
+        if self.forgetter is None:
+            raise RunError("The memories are not available here.", "no_memory")
+        return {"forgotten": self.forgetter.forget(sid)}
+
     def delete(self, sid: str) -> Dict[str, Any]:
         """Takes a conversation away for good: its process, its saved messages, the files attached to it and made in it, and its own copy
         of the folder with whatever was not applied. The branches made from it stay, as conversations of their own."""
@@ -1247,6 +1755,7 @@ class SessionManager:
         with self._lock:
             rec = self._record(sid)
             live = self._live.get(sid)
+            self._restart_token.pop(sid, None)
             if live is not None:
                 live.ending = True
                 self._write(sid, live, {"cmd": "close"})
@@ -1265,8 +1774,10 @@ class SessionManager:
             for table in (self._live, self._events, self._seq, self._restarts, self._unconfirmed, self._step, self._calls, self._learned):
                 table.pop(sid, None)
             self._save()
+            leaves = [r["node"] for r in self.records if r.get("node")]
         for folder in folders:
             shutil.rmtree(folder, ignore_errors=True)
+        self.nodes.keep(leaves)                                 # the messages only this conversation had go with it
         self._registry(rec.get("workspace"))
         return {"deleted": sid}
 
@@ -1360,6 +1871,7 @@ class SessionManager:
             if live is not None:
                 live.ending = True
                 self._write(sid, live, {"cmd": "close"})
+            self._restart_token.pop(sid, None)
             self._set(rec, state="closed", blocked=None)
         if live is not None:
             self._end(live)
@@ -1373,6 +1885,12 @@ class SessionManager:
         except subprocess.TimeoutExpired:
             from serve.agent_runs import _kill_tree
             _kill_tree(live.proc)
+
+    def note(self, sid: str, event: Dict[str, Any]) -> None:
+        """Puts an event of the server's own (not the process's) in the conversation's stream, for the page to show."""
+        with self._lock:
+            self._record(sid)
+        self._push(sid, event)
 
     def events(self, sid: str, after: int = 0) -> Dict[str, Any]:
         with self._lock:
@@ -1401,12 +1919,11 @@ class SessionManager:
             if rec is None or live.ending or live.proc.poll() is not None:
                 continue
             silent = now - live.last_seen
-            hung = rec["state"] == "busy" and live.idle_s >= self.hang_s
-            if silent >= self.beat_timeout_s or hung:
-                self._push(sid, {"event": "stalled", "why": "no sign of life for %d s" % silent if silent >= self.beat_timeout_s
-                                 else f"the turn made no progress for {int(live.idle_s)} s"})
+            beat, idle = self.beat_timeout_s, self.idle_s        # None: no limit
+            if beat and silent >= beat:
+                self._push(sid, {"event": "stalled", "why": "no sign of life for %d s" % silent})
                 _kill_tree(live.proc)                            # the reader sees the end and starts it again
-            elif rec["state"] == "idle" and time.time() - rec.get("updated", 0) >= self.idle_s:
+            elif idle and rec["state"] == "idle" and time.time() - rec.get("updated", 0) >= idle:
                 with self._lock:
                     live.ending = True
                     self._write(sid, live, {"cmd": "close"})

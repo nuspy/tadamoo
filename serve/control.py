@@ -1,4 +1,4 @@
-"""The secret of the control routes (/api/control/*): the server writes it to the user's data folder at start, and the
+"""The secret of the control routes (/api/control/*), asked for with --control-secret: the server writes it to the user's data folder at start, and the
 scripts that stop the server read it from there. An application that only knows the API key cannot unload the model."""
 from __future__ import annotations
 
@@ -15,8 +15,9 @@ def token_path(port: int) -> Path:
     return userdata.path(f"control-{port}.token")
 
 
-def write_control_token(port: int) -> str:
-    token = secrets.token_hex(24)
+def write_control_token(port: int, chosen: str = "") -> str:
+    """The secret of this server: the text the person chose, or a random one."""
+    token = chosen or secrets.token_hex(24)
     try:
         path = token_path(port)
         path.parent.mkdir(parents=True, exist_ok=True)

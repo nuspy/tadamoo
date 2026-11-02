@@ -5,9 +5,11 @@ The three dialogs of a waiver are the ones the dossier records; the declaration 
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from harness.browser import BrowserError, BrowserPrefs, find_browser, forget_signins, open_signin_window
+from harness.browser_consent import CONSENT_POLICIES, PERMISSION_POLICIES
+from harness.rule_of_two import LEVELS as RULE_OF_TWO_LEVELS, RuleOfTwoPrefs
 from harness.payments_broker import PaymentsBroker
 from harness.vault import CARD_KINDS, KINDS, SECOND_FACTORS, Vault, VaultError
 from harness.vault_import import parse_logins
@@ -16,13 +18,28 @@ from harness.waiver.cards import CREDENTIAL_KINDS, VAULT_KINDS
 from harness.waiver.dossier import DossierUnavailable
 
 
+def _days(value: Any) -> Optional[float]:
+    """The length of a waiver in days; a blank or zero value is none (no end)."""
+    if value is None or value == "" or value is False:
+        return None
+    try:
+        days = float(value)
+    except (TypeError, ValueError):
+        raise WalletError("the length of the waiver must be a number of days, or empty for none") from None
+    return days or None
+
+
 class WalletError(ValueError):
     pass
 
 
 class WalletApi:
-    def __init__(self, vault: Callable[[], Vault], payments: Callable[[], PaymentsBroker], browser: BrowserPrefs, profile: Any = None) -> None:
+    def __init__(self, vault: Callable[[], Vault], payments: Callable[[], PaymentsBroker], browser: BrowserPrefs, profile: Any = None,
+                 rule_of_two: Optional[RuleOfTwoPrefs] = None, allow_rules: Any = None, exec_prefs: Any = None) -> None:
         self._vault, self._payments, self._browser, self._profile = vault, payments, browser, profile
+        self._allow = allow_rules                       # the rules allowed for every conversation (serve/allow_rules.py)
+        self._exec = exec_prefs                         # how freely the code the model writes runs (harness/exec_level.py)
+        self._two = rule_of_two                         # how strict the Rule of Two is for the conversations started from now on
 
     # -- what the page shows ---------------------------------------------------------------------
 
@@ -30,6 +47,12 @@ class WalletApi:
         out: Dict[str, Any] = {"kinds": KINDS, "second_factors": list(SECOND_FACTORS), "card_kinds": list(CARD_KINDS),
                                "credential_kinds": sorted(CREDENTIAL_KINDS), "texts": DIALOG_TEXTS, "entries": [], "systems": [], "ledger": [],
                                "problems": [], "browser": {"found": bool(find_browser()), **self._browser.read()}}
+        if self._two is not None:
+            out["rule_of_two"] = {"level": self._two.read(), "levels": list(RULE_OF_TWO_LEVELS)}
+        if self._exec is not None:
+            out["exec_level"] = self._exec_view()
+        if self._allow is not None:
+            out["allow_rules"] = self._allow.read()
         try:
             out["entries"] = self._vault().entries()
         except VaultError as e:
@@ -48,7 +71,42 @@ class WalletApi:
         if (not isinstance(req.get("enabled"), bool) or not isinstance(req.get("headless"), bool) or not isinstance(req.get("private", False), bool)
                 or not isinstance(req.get("persistent", False), bool)):
             raise WalletError("send enabled and headless as true or false")
-        return {"browser": {"found": bool(find_browser()), **self._browser.write(req["enabled"], req["headless"], req.get("private", False), req.get("persistent", False))}}
+        for key, allowed in (("consent", CONSENT_POLICIES), ("permissions", PERMISSION_POLICIES)):
+            if req.get(key) is not None and req[key] not in allowed:
+                raise WalletError(f"{key} is one of: {', '.join(allowed)}")
+        return {"browser": {"found": bool(find_browser()), **self._browser.write(req["enabled"], req["headless"], req.get("private", False), req.get("persistent", False),
+                                                                                 req.get("consent"), req.get("permissions"))}}
+
+    def _exec_view(self) -> Dict[str, Any]:
+        from harness import exec_level
+        return {"level": self._exec.read(), "levels": list(exec_level.LEVELS), "elevated": exec_level.is_elevated()}
+
+    def set_exec_level(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """How freely the code the model writes runs, in every conversation: a running one reads the choice again at its next command."""
+        from harness import exec_level
+        if self._exec is None:
+            raise WalletError("the code setting is not available here")
+        if req.get("level") not in exec_level.LEVELS:
+            raise WalletError(f"level is one of: {', '.join(exec_level.LEVELS)}")
+        self._exec.write(req["level"])
+        return {"exec_level": self._exec_view()}
+
+    def set_rule_of_two(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """How strict the Rule of Two is in the conversations the person starts from now on."""
+        if self._two is None:
+            raise WalletError("the Rule of Two setting is not available here")
+        if req.get("level") not in RULE_OF_TWO_LEVELS:
+            raise WalletError(f"level is one of: {', '.join(RULE_OF_TWO_LEVELS)}")
+        return {"rule_of_two": {"level": self._two.write(req["level"]), "levels": list(RULE_OF_TWO_LEVELS)}}
+
+    def set_allow_rules(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """Add or take away a rule that lets a kind of call run without asking, in every conversation started from now on."""
+        if self._allow is None:
+            raise WalletError("the allowed rules are not available here")
+        if req.get("action") not in ("add", "remove"):
+            raise WalletError("action is add or remove")
+        rules = self._allow.add(req.get("rule")) if req["action"] == "add" else self._allow.remove(req.get("rule"))
+        return {"allow_rules": rules}
 
     def signin_window(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """The browser that keeps sign-ins, in a window, for the person to sign in to an account (Google, a bank, a shop) themselves."""
@@ -183,9 +241,9 @@ class WalletApi:
                 per_payment=str(req.get("per_payment") or ""), cumulative=str(req.get("cumulative") or ""),
                 read_to_end=req.get("read_to_end") is True, release_ack=req.get("release_ack") is True,
                 retyped_names={str(k): str(v) for k, v in names.items()}, pasted=req.get("pasted") is True,
-                ttl_days=float(req.get("ttl_days") or 30), lang=req.get("lang") if req.get("lang") in ("it", "en") else "it",
+                ttl_days=_days(req.get("ttl_days")), lang=req.get("lang") if req.get("lang") in ("it", "en") else "it",
                 typing_intervals_ms=[int(x) for x in intervals][:2000] if isinstance(intervals, list) else None,
-                sites=[str(x) for x in req["sites"]][:50] if isinstance(req.get("sites"), list) else None)
+                sites=[str(x) for x in req["sites"]] if isinstance(req.get("sites"), list) else None)
         except DossierUnavailable as e:
             raise WalletError(str(e)) from None
         except ValueError as e:

@@ -94,10 +94,6 @@ class ApiTasksTest(_Server):
         self.assertEqual(code, 400)
         code, _ = self.call("POST", "/api/tasks", {"status": "running"})
         self.assertEqual(code, 400)
-        code, _ = self.call("POST", "/api/tasks", {"id": "x"}, headers={"Content-Type": "text/plain"})
-        self.assertEqual(code, 415)
-        code, _ = self.call("POST", "/api/tasks", {"id": "x"}, headers={"Origin": "http://evil.example"})
-        self.assertEqual(code, 403)
         code, data = self.call("GET", "/api/tasks")
         self.assertNotIn("x", [t["id"] for t in data["tasks"]])
 

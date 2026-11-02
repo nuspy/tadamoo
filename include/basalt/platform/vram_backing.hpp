@@ -4,7 +4,7 @@
 // memory manager keeps committed, write-combined private regions to evict the allocation into, and leaves them
 // untouched while the allocation stays in VRAM.  Decommitting them frees that much of the commit limit (RAM + page
 // file).  The price: an allocation evicted afterwards (another program's GPU allocation while the engine idles, a
-// sleep) has nowhere to go, and the engine can hang.  Opt-in (--release-vram-commit); nothing happens off Windows.
+// sleep) has nowhere to go, and the engine can hang.  On by default; --keep-vram-commit turns it off; nothing happens off Windows.
 #pragma once
 
 #include <cstdint>
