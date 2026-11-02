@@ -27,6 +27,8 @@ class PastChatRoute(unittest.TestCase):
         cls.past = PastIndex(Path(cls.tmp.name) / "past.db")
         cls.patch = mock.patch.object(handler, "_PAST", cls.past)
         cls.patch.start()
+        cls.cards = mock.patch.object(handler, "_CARDS", mock.Mock())          # no card is written into the index while the test counts its hits
+        cls.cards.start()
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
 
@@ -34,6 +36,7 @@ class PastChatRoute(unittest.TestCase):
     def tearDownClass(cls):
         cls.httpd.shutdown()
         cls.httpd.server_close()
+        cls.cards.stop()
         cls.patch.stop()
         cls.past.close()
         cls.tmp.cleanup()
