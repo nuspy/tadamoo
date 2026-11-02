@@ -13,11 +13,9 @@ The chat template turns `reasoning_effort` into three different prompts:
 
 So the level is an instruction that shapes *how* the model reasons (depth, checking, alternatives), not only how long it reasons.
 
-## Level and thinking budget are different knobs
+## The thinking has no cap
 
-`reasoning_budget_tokens` stops the thinking at N tokens and starts the answer. It does not change how the model reasons before the cut: a thought cut in the middle is not the same as a short thought chosen from the start. A budget cannot stand in for a level. Both have to be measured, alone and together, and a budget is only useful if a cut thought is no worse than a brief one.
-
-The budget does keep the prompt identical, which matters for the cache (next section).
+The harness never limits how long the model thinks: no token budget, no forced end of the thinking. Reasoning needs its own room, and a thought closed early can give a worse result than no thinking at all. The only lever is the level, which changes how the model reasons from the start and lets it finish. The server's `reasoning_budget_tokens` stays at its default of none and the harness does not set it.
 
 ## The cache
 
@@ -25,9 +23,8 @@ The prefix cache is valid only as far as the prompt is unchanged.
 
 - **none and medium** share the whole prompt except its last tokens: switching between them keeps the cache.
 - **low and high** change the first line of the prompt: switching to or from them invalidates the whole cache, and the context is processed again.
-- A thinking budget changes nothing in the prompt.
 
-Two ways to switch levels without losing the cache: move the level sentence from the head of the system message to a trailing note that is not kept (the harness already has such notes for roles), or use only none, medium and a budget. Whether the model follows a trailing level sentence as well as the head one is not known and has to be measured.
+Two ways to switch levels without losing the cache: move the level sentence from the head of the system message to a trailing note that is not kept (the harness already has such notes for roles), or switch only between none and medium. Whether the model follows a trailing level sentence as well as the head one is not known and has to be measured.
 
 ## A level is not a capability
 
@@ -51,7 +48,7 @@ Keep the failed-attempts limit and the other settings equal across levels and wr
 
 ## Choosing the level for each step
 
-The unit is the step, not the whole prompt: planning and surprises need more thought than a routine command. Pass or fail belongs to the whole task, so there are no per-step labels. Compare whole policies on the same tasks instead: fixed none, fixed medium, fixed high, and an adaptive one. The adaptive policy wins if it passes at least as often for less cost.
+The unit is the step, not the whole prompt: planning and surprises need more thought than a routine command. Pass or fail belongs to the whole task, so there are no per-step labels. Compare whole policies on the same tasks instead: fixed none, fixed medium, fixed high, and an adaptive one that picks the level of each step. The adaptive policy wins if it passes at least as often for less cost.
 
 The deciders, from the cheapest:
 
@@ -68,6 +65,5 @@ From the groups of tasks and steps that each level solves, write down the featur
 ## Open questions
 
 - Does a trailing level note work as well as the head sentence?
-- Is a thought cut by a budget worse than a brief one?
 - Is the technical session enough as a decider, or does a small model add accuracy?
 - Which signals separate the steps that need more thought, and do they carry over to other benchmarks?
