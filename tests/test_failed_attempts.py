@@ -58,3 +58,25 @@ def test_a_fork_keeps_the_limit(tmp_path):
 
 def test_a_trial_stopped_for_it_has_its_own_class_in_the_analysis():
     assert "gave_up" in analysis.CLASSES and analysis.CLASSES["gave_up"][0] == "Too many failed attempts"
+
+
+def test_the_reasoning_level_of_the_config_is_sent_with_every_request(tmp_path):
+    from harness.stack import AgentConfig, build_agent
+
+    class Said:
+        def __init__(self):
+            self.kwargs = []
+
+        def chat_completion(self, messages, tools=None, **kwargs):
+            self.kwargs.append(kwargs)
+            return {"choices": [{"message": {"role": "assistant", "content": "done"}}]}
+
+    for level, expected in (("medium", "medium"), ("", None)):
+        client = Said()
+        (tmp_path / "w").mkdir(exist_ok=True)
+        built = build_agent(AgentConfig(workspace=str(tmp_path / "w"), data_dir=str(tmp_path / "d"), use_checkpoints=False, reasoning_effort=level), client=client)
+        try:
+            built.agent.run("hi")
+        finally:
+            built.close()
+        assert client.kwargs and all((k.get("extra") or {}).get("reasoning_effort") == expected for k in client.kwargs)

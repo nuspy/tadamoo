@@ -96,6 +96,14 @@ def test_report_counts_classes_cost_and_divergence(tmp_path):
     assert rep["power_limit_w"] == 400 and rep["benchmark_commit"] == "c0ffee"
 
 
+def test_the_report_names_the_reasoning_level_of_the_run(tmp_path):
+    run = BenchRun(tmp_path / "b", make_spec("x"), {"trials": 1, "tasks": ["ok1"], "reasoning": "medium"}, adapter=FakeAdapter(outcomes={}), model=MODEL, power_limit_w=400, imported_commit="c0ffee")
+    run.execute()
+    rep = analysis.report(run.dir)
+    assert rep["reasoning"] == "medium" and "reasoning level medium" in analysis.markdown(rep)
+    assert "reasoning level default" in analysis.markdown(analysis.report(scenario(tmp_path / "other").dir))
+
+
 def test_the_markdown_report_is_written(tmp_path):
     run = scenario(tmp_path)
     rep = analysis.write_report(run)

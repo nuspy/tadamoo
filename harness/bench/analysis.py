@@ -233,6 +233,7 @@ def report(run: Any, adapter: Any = None) -> Dict[str, Any]:
     n_trials = len(trials)
     return {"run_id": record.get("run_id", run_dir.name), "benchmark": record.get("benchmark"), "benchmark_commit": record.get("benchmark_commit"),
             "power_limit_w": record.get("power_limit_w"), "model": record.get("model"), "harness": record.get("harness"),
+            "reasoning": (record.get("settings") or {}).get("reasoning") or "",
             "metrics": results_file.get("metrics", {}), "provisional": record.get("provisional", False), "provisional_label": record.get("provisional_label", ""),
             "trials": n_trials, "passed": passed, "failed": failed, "invalid": invalid,
             "classes": {c: classes.get(c, 0) for c in CLASS_ORDER if classes.get(c)}, "failures": failures,
@@ -246,7 +247,8 @@ def markdown(rep: Mapping[str, Any]) -> str:
     L = [f"# Benchmark report: {rep['benchmark']} ({rep['run_id']})", ""]
     if rep.get("provisional"):
         L += [f"**Provisional score: {rep['provisional_label']}.**", ""]
-    L += [f"Benchmark commit `{rep['benchmark_commit']}`; GPU power limit {rep['power_limit_w']} W; model {(rep.get('model') or {}).get('name', '?')}.", "",
+    L += [f"Benchmark commit `{rep['benchmark_commit']}`; GPU power limit {rep['power_limit_w']} W; model {(rep.get('model') or {}).get('name', '?')}; "
+          f"reasoning level {rep.get('reasoning') or 'default'}.", "",
           "## Result", "", f"Trials {rep['trials']}: {rep['passed']} passed, {rep['failed']} failed ({rep['invalid']} could not be judged).", ""]
     L += [f"- {k}: {v}" for k, v in (rep.get("metrics") or {}).items()] + [""]
     L += ["## Why trials failed", ""]

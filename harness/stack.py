@@ -268,6 +268,7 @@ class AgentConfig:
     api_key: Optional[str] = None
     max_turns: int = -1                 # below 1: no limit on the steps of an answer
     max_failed_attempts: int = 0        # failed calls and failed checks of one request before it is stopped as failed; 0: no limit
+    reasoning_effort: str = ""          # how long the model thinks (low, medium, high); empty: the model's own default
     permission_mode: str = "default"
     allow: List[str] = field(default_factory=list)
     deny: List[str] = field(default_factory=list)
@@ -879,7 +880,8 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         max_total_tokens=cfg.max_total_tokens,
         max_seconds=cfg.max_seconds,
         cancel=cancel,
-        sampling={**({"end_turn_bias": cfg.end_turn_bias} if cfg.end_turn_bias else {}), **({"temperature": cfg.temperature} if cfg.temperature is not None else {})} or None,
+        sampling={**({"end_turn_bias": cfg.end_turn_bias} if cfg.end_turn_bias else {}), **({"temperature": cfg.temperature} if cfg.temperature is not None else {}),
+                  **({"reasoning_effort": cfg.reasoning_effort} if cfg.reasoning_effort else {})} or None,
         clock=local_now,
         max_tokens=cfg.max_tokens,
     )
