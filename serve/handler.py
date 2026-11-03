@@ -620,7 +620,7 @@ def make_handler(svc: Service, remote: bool = False):
                                  # a test server (--mock-engine): the scripts and the app never take it for TaDaMoo
                                  "mock": type(svc.engine).__name__ == "MockEngine"
                                  or bool(getattr(getattr(svc, "supervisor", None), "mock", False)),
-                                 "service": "basalt"})
+                                 "service": "tadamoo"})
             elif path == "/status":
                 if not self._authorized():                  # it shows the last answer's tail
                     return

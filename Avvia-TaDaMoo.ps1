@@ -257,7 +257,7 @@ function Get-ServerAccesi {
     $accesi = @()
     foreach ($porta in ($porte | Sort-Object -Unique)) {
         $h = Get-Json "http://127.0.0.1:$porta/health"
-        if ($h -and $h.service -eq 'basalt') {
+        if ($h -and $h.service -eq 'tadamoo') {
             if ($env:TADAMOO_SCAN_MOCK -ne '1' -and $h.PSObject.Properties['mock'] -and $h.mock) { continue }   # un server di prova
             $accesi += [pscustomobject]@{ Porta = $porta; Salute = $h }
         }

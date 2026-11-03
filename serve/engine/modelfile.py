@@ -138,7 +138,7 @@ def model_config(path: str, engine_bin: str, vision: bool | str = False, engine_
     args += words
     cdir = cache_dir(mf)
     cdir.mkdir(parents=True, exist_ok=True)
-    cfg = {"engine_bin": os.path.abspath(engine_bin), "args": args, "model_name": meta.get("name") or "basalt",
+    cfg = {"engine_bin": os.path.abspath(engine_bin), "args": args, "model_name": meta.get("name") or "tadamoo",
            "sampling": meta_sampling(meta)[0], "log": str(cdir / "engine.log"),
            "tokenizer": str(extract_tokenizer(mf))}
     v = vision_config(mf, engine_bin, sidecar=vision != "dynamic", projector=projector) if vision else None

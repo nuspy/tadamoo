@@ -51,7 +51,7 @@ static class Program
     static void Fail(Options o, string message)
     {
         if (o.NoUi || o.DryRun) Console.Error.WriteLine(message);
-        else MessageBox.Show(message, Tr.T("Basalt Win+GUI - configurazione", "Basalt Win+GUI - setup"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+        else MessageBox.Show(message, Tr.T("TaDaMoo Win+GUI - configurazione", "TaDaMoo Win+GUI - setup"), MessageBoxButtons.OK, MessageBoxIcon.Error);
     }
 }
 
@@ -81,7 +81,7 @@ sealed class Options
         }
         if (o.Root == null) o.Root = FindRoot(AppContext.BaseDirectory);
         if (o.Error == null && (o.Root == null || !File.Exists(Path.Combine(o.Root, "Avvia-TaDaMoo.ps1")) || !Directory.Exists(Path.Combine(o.Root, "serve"))))
-            o.Error = Tr.T("Cartella di Basalt non trovata (serve Avvia-TaDaMoo.ps1 e serve\\): ", "Basalt folder not found (Avvia-TaDaMoo.ps1 and serve\\ are needed): ") + o.Root;
+            o.Error = Tr.T("Cartella di TaDaMoo non trovata (serve Avvia-TaDaMoo.ps1 e serve\\): ", "TaDaMoo folder not found (Avvia-TaDaMoo.ps1 and serve\\ are needed): ") + o.Root;
         return o;
     }
 
@@ -136,12 +136,12 @@ sealed class ProgressForm : Form
 
     public ProgressForm()
     {
-        Text = Tr.T("Basalt Win+GUI - preparazione", "Basalt Win+GUI - setup");
+        Text = Tr.T("TaDaMoo Win+GUI - preparazione", "TaDaMoo Win+GUI - setup");
         Size = new Size(640, 420);
         MinimumSize = new Size(420, 320);
         StartPosition = FormStartPosition.CenterScreen;
         ControlBox = false;
-        step.Text = Tr.T("Preparazione di Basalt…", "Preparing Basalt…");
+        step.Text = Tr.T("Preparazione di TaDaMoo…", "Preparing TaDaMoo…");
         Controls.Add(box); Controls.Add(close); Controls.Add(bar); Controls.Add(step);
         close.Click += (_, _) => Close();
     }
@@ -154,14 +154,14 @@ sealed class ProgressForm : Form
         bar.Style = ProgressBarStyle.Continuous;
         bar.Value = ok ? 100 : 0;
         step.ForeColor = ok ? Color.FromArgb(0, 110, 40) : Color.FromArgb(180, 20, 20);
-        step.Text = ok ? Tr.T("Basalt è pronto.", "Basalt is ready.")
+        step.Text = ok ? Tr.T("TaDaMoo è pronto.", "TaDaMoo is ready.")
                        : Tr.T("Preparazione non riuscita. Il dettaglio è in ", "Setup did not finish. The details are in ") + logPath;
         if (ok) { var t = new System.Windows.Forms.Timer { Interval = 1500 }; t.Tick += (_, _) => Close(); t.Start(); }
         else { close.Visible = true; ControlBox = true; }
     }
 }
 
-/// <summary>What the setup does, in order. Run() logs every decision and returns whether Basalt is ready.</summary>
+/// <summary>What the setup does, in order. Run() logs every decision and returns whether TaDaMoo is ready.</summary>
 sealed class Installer
 {
     // The Python versions the pinned packages (requirements.txt) have wheels for.
@@ -181,7 +181,7 @@ sealed class Installer
     {
         try
         {
-            log.Line($"Basalt Win+GUI setup{(o.DryRun ? " (dry run)" : "")} - {o.Root}");
+            log.Line($"TaDaMoo Win+GUI setup{(o.DryRun ? " (dry run)" : "")} - {o.Root}");
             Preflight();
 
             Step(Tr.T("Cerco Python…", "Looking for Python…"));
@@ -231,7 +231,7 @@ sealed class Installer
     {
         if (!Environment.Is64BitOperatingSystem) throw new Exception(Tr.T("Serve Windows a 64 bit.", "A 64-bit Windows is required."));
         foreach (var f in new[] { "requirements.txt", "bin\\basalt.exe" })
-            if (!File.Exists(Path.Combine(o.Root, f))) throw new Exception(Tr.T($"Manca {f} nella cartella di Basalt.", $"{f} is missing from the Basalt folder."));
+            if (!File.Exists(Path.Combine(o.Root, f))) throw new Exception(Tr.T($"Manca {f} nella cartella di TaDaMoo.", $"{f} is missing from the TaDaMoo folder."));
         try
         {
             var drive = new DriveInfo(Path.GetPathRoot(o.Root));
@@ -327,7 +327,7 @@ sealed class Installer
         if (!File.Exists(exe)) throw new Exception($"{exe} ?");
         string have = Sha256(exe);
         if (!string.Equals(have, b.Sha256, StringComparison.OrdinalIgnoreCase)) throw new Exception(Tr.T("Il programma di installazione di Python non corrisponde all'impronta attesa.", "The Python installer does not match its expected hash."));
-        // For all users, no PATH change, no py launcher, nothing that Basalt does not use.
+        // For all users, no PATH change, no py launcher, nothing that TaDaMoo does not use.
         int code = Run(exe, "/quiet InstallAllUsers=1 PrependPath=0 Include_launcher=0 Include_test=0 Include_doc=0 Include_dev=0 Include_tcltk=0 Include_pip=1 Shortcuts=0 AssociateFiles=0 CompileAll=0", o.Root, 1800000);
         if (code != 0 && code != 3010) throw new Exception(Tr.T($"L'installazione di Python è terminata con il codice {code}.", $"The Python installation ended with code {code}."));
     }

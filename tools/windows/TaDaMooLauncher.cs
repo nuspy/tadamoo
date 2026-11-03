@@ -1,4 +1,4 @@
-// Starts `basalt serve` for Avvia-Basalt.ps1 (Windows PowerShell 5.1 compiles it with Add-Type, so C# 5 only).
+// Starts `basalt serve` for Avvia-TaDaMoo.ps1 (Windows PowerShell 5.1 compiles it with Add-Type, so C# 5 only).
 //
 // Tied (the default): the server shares the script's console, so Ctrl+C reaches it, and it runs in a job object
 // with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE whose only handle belongs to the PowerShell process. However PowerShell
@@ -7,7 +7,7 @@
 // The process starts suspended and enters the job before its first instruction, so nothing it starts escapes.
 //
 // Detached (-Sfondo): a hidden console of its own, no job of ours (breaking away from one PowerShell may be in),
-// so the server outlives the script; Ferma-Basalt.ps1 stops it.
+// so the server outlives the script; Ferma-TaDaMoo.ps1 stops it.
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;

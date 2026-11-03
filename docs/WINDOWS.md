@@ -176,7 +176,7 @@ option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and 
   with the reason. `--vram-libera GB` (or `--vram-reserve-mib N`) overrides the profile's VRAM reserve.
   `python -m serve.loader check` exits 4 on a GPU the engine is not built for (not Blackwell): the start is refused.
 * **A server already running** (the listening `serve.server` processes of this repository and `tadamoo.pid`, confirmed
-  by `/health` answering `"service": "basalt"`, on any port): `-gui` opens the app, which asks "Connect to the running
+  by `/health` answering `"service": "tadamoo"`, on any port): `-gui` opens the app, which asks "Connect to the running
   server" or "Change model"; `-browser` opens the browser on it. `-server` resolves the parameters asked for as for a
   new start and compares them with the running server's (`python -m serve.profiles compare --url URL [--profile P]
   [--model F] [--vram-reserve-mib N] [--port N] --config FILE`: exit 0 the same, 3 different, 2 error; the running

@@ -7,14 +7,14 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>TaDaMooSetup</AssemblyName>
-    <AssemblyTitle>Basalt Win+GUI Setup</AssemblyTitle>
+    <AssemblyTitle>TaDaMoo Win+GUI Setup</AssemblyTitle>
     <RootNamespace>TaDaMooSetup</RootNamespace>
     <ApplicationIcon>..\desktop\tadamoo.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <SelfContained>false</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <Product>Basalt Win+GUI</Product>
-    <Description>Basalt Win+GUI: the step the installer runs after copying the files (Python, virtual environment, packages, permissions)</Description>
+    <Product>TaDaMoo Win+GUI</Product>
+    <Description>TaDaMoo Win+GUI: the step the installer runs after copying the files (Python, virtual environment, packages, permissions)</Description>
   </PropertyGroup>
 
 </Project>

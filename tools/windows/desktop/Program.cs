@@ -1,4 +1,4 @@
-// TaDaMoo.exe ("Basalt Win+GUI"): the desktop window of the local Basalt server. One instance per user session:
+// TaDaMoo.exe ("TaDaMoo Win+GUI"): the desktop window of the local TaDaMoo server. One instance per user session:
 // a second start brings the running window to the front.
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -8,7 +8,7 @@ namespace TaDaMooDesktop;
 
 static class Program
 {
-    public const string AppName = "Basalt Win+GUI";       // the name the window, the tray and the dialogs show
+    public const string AppName = "TaDaMoo Win+GUI";       // the name the window, the tray and the dialogs show
     /// <summary>The release this build is, as compile_and_package.ps1 wrote it (name_(v_version_subversion)); empty when built by hand.</summary>
     public static readonly string Release = System.Reflection.Assembly.GetExecutingAssembly()
         .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
@@ -49,7 +49,7 @@ static class Program
     }
 }
 
-/// <summary>The command line (the same names as Avvia-Basalt.ps1, one or two dashes): --config "profile", --model
+/// <summary>The command line (the same names as Avvia-TaDaMoo.ps1, one or two dashes): --config "profile", --model
 /// FILE.basalt, --port N, --vram-libera GB, --file CONFIG.json, --repo DIR; hidden test options --test-mock,
 /// --test-screenshot FILE, --test-exit, --test-no-wizard, --test-fallback (the web server cannot start: the native
 /// panel), --test-folder-prompt (with --test-fallback: the models folders unset, the prompt, then --test-models-dir
@@ -104,22 +104,22 @@ sealed class Options
         }
         o.Repo ??= FindRepo(AppContext.BaseDirectory);
         if (o.Repo == null && o.Error == null)
-            o.Error = "Basalt Win+GUI: bin\\basalt.exe + Avvia-Basalt.ps1 ? " + AppContext.BaseDirectory + " (--repo <folder>)";
+            o.Error = "TaDaMoo Win+GUI: bin\\basalt.exe + Avvia-TaDaMoo.ps1 ? " + AppContext.BaseDirectory + " (--repo <folder>)";
         return o;
     }
 
     static string FindRepo(string from)
     {
         for (var d = new DirectoryInfo(from); d != null; d = d.Parent)
-            if (File.Exists(Path.Combine(d.FullName, "Avvia-Basalt.ps1")) && Directory.Exists(Path.Combine(d.FullName, "serve")))
+            if (File.Exists(Path.Combine(d.FullName, "Avvia-TaDaMoo.ps1")) && Directory.Exists(Path.Combine(d.FullName, "serve")))
                 return d.FullName;
         return null;
     }
 }
 
-/// <summary>The language of the app's texts, Italian or English: --lang, else BASALT_LANG, else the user's choice in
+/// <summary>The language of the app's texts, Italian or English: --lang, else TADAMOO_LANG, else the user's choice in
 /// prefs.json (the web page's Settings; serve/lang.py), else English. Children (the server, the scripts) get
-/// BASALT_LANG when --lang is given.</summary>
+/// TADAMOO_LANG when --lang is given.</summary>
 static class Tr
 {
     public static string Code = "en";
@@ -127,13 +127,13 @@ static class Tr
     public static void Init(string arg)
     {
         string Valid(string v) => v != null && (v.ToLowerInvariant() == "it" || v.ToLowerInvariant() == "en") ? v.ToLowerInvariant() : null;
-        string chosen = Valid(arg) ?? Valid(Environment.GetEnvironmentVariable("BASALT_LANG"));
+        string chosen = Valid(arg) ?? Valid(Environment.GetEnvironmentVariable("TADAMOO_LANG"));
         if (chosen == null)
         {
             try
             {
-                string data = Environment.GetEnvironmentVariable("BASALT_DATA");
-                if (string.IsNullOrEmpty(data)) data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello");
+                string data = Environment.GetEnvironmentVariable("TADAMOO_DATA");
+                if (string.IsNullOrEmpty(data)) data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaDaMoo");
                 string prefs = Path.Combine(data, "prefs.json");
                 if (File.Exists(prefs) && JsonDocument.Parse(File.ReadAllText(prefs)).RootElement.TryGetProperty("lang", out var l) &&
                     l.ValueKind == JsonValueKind.String) chosen = Valid(l.GetString());
@@ -141,7 +141,7 @@ static class Tr
             catch { }
         }
         Code = chosen ?? "en";
-        if (Valid(arg) != null) Environment.SetEnvironmentVariable("BASALT_LANG", Code);
+        if (Valid(arg) != null) Environment.SetEnvironmentVariable("TADAMOO_LANG", Code);
     }
 
     public static string T(string it, string en) => Code == "it" ? it : en;
@@ -221,24 +221,24 @@ static class Native
     {
         try
         {
-            string data = Environment.GetEnvironmentVariable("BASALT_DATA");
-            string dir = string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello") : data;
+            string data = Environment.GetEnvironmentVariable("TADAMOO_DATA");
+            string dir = string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaDaMoo") : data;
             string file = Path.Combine(dir, $"control-{port}.token");
             string secret = File.Exists(file) ? File.ReadAllText(file).Trim() : "";
             using var c = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(90) };
             using var req = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{port}/api/control/unload") { Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json") };
-            if (secret.Length > 0) req.Headers.Add("X-Basalt-Control", secret);
+            if (secret.Length > 0) req.Headers.Add("X-Tadamoo-Control", secret);
             using var r = c.SendAsync(req).GetAwaiter().GetResult();
             return r.IsSuccessStatusCode;
         }
         catch { return false; }
     }
 
-    /// <summary>The ports where a Basalt server answers /health (python or basalt processes only). A test server
-    /// (/health "mock": true) is not Basalt running, unless BASALT_SCAN_MOCK=1 asks for it.</summary>
+    /// <summary>The ports where a TaDaMoo server answers /health (python or basalt processes only). A test server
+    /// (/health "mock": true) is not TaDaMoo running, unless TADAMOO_SCAN_MOCK=1 asks for it.</summary>
     public static List<(int port, JsonElement health)> RunningServers()
     {
-        bool mocks = Environment.GetEnvironmentVariable("BASALT_SCAN_MOCK") == "1";
+        bool mocks = Environment.GetEnvironmentVariable("TADAMOO_SCAN_MOCK") == "1";
         var found = new List<(int, JsonElement)>();
         foreach (var (port, pid) in Listeners().DistinctBy(x => x.port))
         {
@@ -256,7 +256,7 @@ static class Native
     }
 }
 
-/// <summary>The first window of a start: whether Basalt runs with administrator privileges. A yes starts it again through the Windows
+/// <summary>The first window of a start: whether TaDaMoo runs with administrator privileges. A yes starts it again through the Windows
 /// consent (UAC); a no goes on as it is. The answer is kept in admin-choice.json when the box is ticked, and then the question is not
 /// asked again. A start that is already elevated is not asked.</summary>
 static class AdminChoice
@@ -265,8 +265,8 @@ static class AdminChoice
 
     static string DataDir()
     {
-        string data = Environment.GetEnvironmentVariable("BASALT_DATA");
-        return string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello") : data;
+        string data = Environment.GetEnvironmentVariable("TADAMOO_DATA");
+        return string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaDaMoo") : data;
     }
 
     public static bool IsElevated()
@@ -325,7 +325,7 @@ sealed class AdminDialog : Form
         remember.Text = Tr.T("Ricorda la scelta", "Remember my choice");
         var label = new Label
         {
-            Text = Tr.T("Basalt deve funzionare con i privilegi di amministratore?", "Should Basalt run with administrator privileges?") + "\r\n\r\n" +
+            Text = Tr.T("TaDaMoo deve funzionare con i privilegi di amministratore?", "Should TaDaMoo run with administrator privileges?") + "\r\n\r\n" +
                    Tr.T("Con i privilegi, il codice che l'agente esegue può fare quello che fa un amministratore di questo PC. Windows ti chiederà il consenso.",
                         "With them, the code the agent runs can do what an administrator of this PC can do. Windows will ask for your consent."),
             Left = 16, Top = 14, Width = 428, Height = 90,
