@@ -1,6 +1,6 @@
-"""Basalt's own registry of providers (llmswitch), with the keys kept apart, the consent for the cloud and the caps.
+"""TaDaMoo's own registry of providers (llmswitch), with the keys kept apart, the consent for the cloud and the caps.
 
-* The file is **dedicated to Basalt** (in the user data folder) and can **once** take what another program's registry holds
+* The file is **dedicated to TaDaMoo** (in the user data folder) and can **once** take what another program's registry holds
   (`import_shared`: a copy, never a reference).
 * The keys and tokens are in the credential manager, never in the JSON: the file holds only a reference.
 * A function that handles personal data cannot be pointed at a provider outside this PC without the person's yes for that
@@ -23,10 +23,10 @@ from tadamoo.llmswitch.providers import TYPES, Registry
 from tadamoo.llm import functions
 from tadamoo.llm.credentials import CredentialStore, default_store
 
-# Two types Basalt adds to llmswitch's own: the model loaded in this server, and Jev, which judges but does not chat.
+# Two types TaDaMoo adds to llmswitch's own: the model loaded in this server, and Jev, which judges but does not chat.
 TYPES.setdefault("basalt", {
-    "label": "Basalt (this server)", "auth": "none", "api": "openai", "local": True, "this_server": True, "base_url": "",
-    "note": "The model loaded in this Basalt. It is used as it is: nothing is loaded or unloaded for it from here.",
+    "label": "TaDaMoo (this server)", "auth": "none", "api": "openai", "local": True, "this_server": True, "base_url": "",
+    "note": "The model loaded in this TaDaMoo. It is used as it is: nothing is loaded or unloaded for it from here.",
 })
 TYPES.setdefault("jev", {
     "label": "Jev (TypeSafe AI)", "auth": "api_key", "api": "judge", "local": False, "base_url": "https://api.typesafe.ai/v1",
@@ -77,7 +77,7 @@ def runs_here(prov: Optional[Dict[str, Any]], local_hosts: tuple = LOOPBACK) -> 
 
 
 class SecureRegistry(Registry):
-    """llmswitch's registry with the keys moved to a credential store, and the extra data Basalt keeps next to it."""
+    """llmswitch's registry with the keys moved to a credential store, and the extra data TaDaMoo keeps next to it."""
 
     def __init__(self, path: str | Path | None = None, credentials: Optional[CredentialStore] = None, **kw: Any) -> None:
         path = Path(path) if path else data_dir() / "llm_providers.json"
@@ -183,7 +183,7 @@ class SecureRegistry(Registry):
             self.save(data)
             return prov
 
-    # -- what Basalt keeps next to the providers ---------------------------------------------------------
+    # -- what TaDaMoo keeps next to the providers ---------------------------------------------------------
 
     def _extra(self, key: str, default: Any) -> Any:
         return self.load().get(key, default)

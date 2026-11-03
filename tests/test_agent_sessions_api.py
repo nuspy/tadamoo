@@ -40,7 +40,7 @@ def events(api, sid, after=0):
 
 
 def test_two_messages_through_the_api_the_second_sees_the_first(setup, ws):
-    s = setup([answer("Mi chiamo Basalt."), answer("Me lo hai appena chiesto.")])
+    s = setup([answer("Mi chiamo TaDaMoo."), answer("Me lo hai appena chiesto.")])
     api = s["api"]
     code, body = api("POST", "/api/agent/sessions", {"workspace": str(ws), "mode": "read_only", "ask_only": True})
     assert code == 200

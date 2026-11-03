@@ -66,7 +66,7 @@ def test_a_pull_request_package_is_a_results_row(tmp_path):
     pkg = publish.prepare_package(run, "csv_pr", specs)
     assert {f["name"] for f in pkg["files"]} == {"entry.json", "results_row.csv"}
     text = (Path(pkg["folder"]) / "results_row.csv").read_text()
-    assert text.splitlines()[0].startswith("model,harness,resolution_rate") and "Basalt" in text
+    assert text.splitlines()[0].startswith("model,harness,resolution_rate") and "TaDaMoo" in text
 
 
 def test_trajectories_leave_only_when_asked(tmp_path):

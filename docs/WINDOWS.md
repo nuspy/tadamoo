@@ -1,6 +1,6 @@
-# Basalt on Windows
+# Basalt-Plus on Windows
 
-Basalt builds and runs natively on Windows 10/11 x64 with an NVIDIA Blackwell GPU (compute capability 12.0) under
+Basalt-Plus builds and runs natively on Windows 10/11 x64 with an NVIDIA Blackwell GPU (compute capability 12.0) under
 the WDDM driver.  This page lists what is needed, the exact build commands, and what differs from Linux.
 
 ## What is needed
@@ -111,7 +111,7 @@ The Linux code paths are unchanged; the Windows ones sit behind `_WIN32` / `MSVC
   stream (`cudaStreamSynchronize(cudaStreamLegacy)`, as `generate.cpp`'s residency table already did).
 * **TDR.**  Windows resets a GPU that does not answer a preemption request within `TdrDelay` (2 s).  The decode path's
   kernels spin on flags the CPU pool writes; with compute preemption a spinning kernel is preemptible, so this is not
-  expected to trigger, but it is not verified with a model yet.  Basalt changes no Windows setting.
+  expected to trigger, but it is not verified with a model yet.  TaDaMoo changes no Windows setting.
 
 ## The commit of the GPU memory
 
@@ -131,7 +131,7 @@ resume.  The startup log says how much was given back.
 What it risks: an allocation can only be evicted into its backing.  Programs that keep to their video memory budget
 (Direct3D 12) page themselves and leave the engine alone, but a CUDA allocation from another program while the
 engine idles evicts the engine's memory, and with the backing released the engine can then hang until it is
-stopped.  Pass `--keep-vram-commit` when another program allocates GPU memory with CUDA while Basalt runs.
+stopped.  Pass `--keep-vram-commit` when another program allocates GPU memory with CUDA while Basalt-Plus runs.
 
 ## Tests
 
@@ -149,12 +149,12 @@ whose fixtures assume POSIX (an absolute `/x` path, `/`-joined expected paths, a
 
 The CPU topology the pool sees on the 14900K: hybrid, 8 P-cores (16 threads) + 16 E-cores; the host takes P-core 0
 and the default pool (`All`) is the other 7 P-cores, then the 16 E-cores (23 workers).  Strata measured 15 workers
-best on this CPU (`--pool-workers 15`: the 7 P-cores and the first 8 E-cores); not yet measured with Basalt.
+best on this CPU (`--pool-workers 15`: the 7 P-cores and the first 8 E-cores); not yet measured with Basalt-Plus.
 
 ## Starting and stopping with the PowerShell scripts
 
 `Avvia-TaDaMoo.ps1` and `Ferma-TaDaMoo.ps1` (repository root; messages in English, or Italian with `--lang it`,
-`TADAMOO_LANG=it` or the language chosen in the web page's Settings, see `serve/lang.py`) start and stop Basalt Win+GUI with
+`TADAMOO_LANG=it` or the language chosen in the web page's Settings, see `serve/lang.py`) start and stop TaDaMoo Win+GUI with
 `tadamoo_config.json` beside them (machine-specific and not tracked; `tools/windows/basalt_config.example.json` shows
 its shape for a 3-bit file on a 32 GB card). Paths are relative to the scripts' folder, so they work from any
 directory and from Explorer (right click, "Run with PowerShell"), with Windows PowerShell 5.1 or PowerShell 7. Both
@@ -268,7 +268,7 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
   "Machine Default". Every real load also records the RAM and commit it really took against its plan, per model
   (`calibration\<model>.json`), and later plans add what was above.
 * **The desktop app** `tools\windows\desktop` (`dotnet publish -c Release -o publish`, .NET 8, WebView2) builds
-  `BasaltWinGUI.exe` (window title, tray and dialogs "Basalt Win+GUI"; the file name differs from the engine's
+  `BasaltWinGUI.exe` (window title, tray and dialogs "TaDaMoo Win+GUI"; the file name differs from the engine's
   `basalt.exe` on purpose; the icon `basalt.ico` is also the web page's favicon; options
   `--config`, `--model`, `--port`, `--vram-libera`, `--file`, `--lang it|en`, as the script; its texts and WebView2's
   language follow `--lang` > `TADAMOO_LANG` > `prefs.json` > English, never the Windows display language). It starts `bin\basalt.exe serve --config
@@ -284,7 +284,7 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
   window hides it to the notification area (the window's place and size, and whether it was maximized, are kept in
   `desktop.json` and used at the next start; a place that no screen shows any more falls back to the centre); the icon's menu has Open, Reload with other settings… (the Loader), Start
   the server alone (for agents)… and Turn off (unload, end the job, report the RAM freed). A second start brings the
-  first window to the front; when a Basalt server already runs it offers "Connect to the running server" or "Change
+  first window to the front; when a TaDaMoo server already runs it offers "Connect to the running server" or "Change
   model" (stops only that server's tree with `Ferma-TaDaMoo.ps1 --port N`, then opens the Loader). Hidden test
   options: `--test-mock` (the mock engine on port 7288), `--test-screenshot FILE`, `--test-exit`, `--test-no-wizard`,
   `--test-fallback`, `--test-folder-prompt [--test-models-dir DIR]`, `--test-no-webview`, `--test-window` (with `--test-mock`: keep

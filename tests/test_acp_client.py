@@ -1,4 +1,4 @@
-"""Basalt as an ACP client: a fake agent in a subprocess, and Basalt's own ACP agent driven over real stdio."""
+"""TaDaMoo as an ACP client: a fake agent in a subprocess, and TaDaMoo's own ACP agent driven over real stdio."""
 import sys
 import threading
 import time
@@ -83,7 +83,7 @@ def test_basalts_own_agent_asks_through_us_and_runs_the_command_after_a_yes(ws, 
     asked = []
     out = run_task(TADAMOO_AGENT + [str(ws), str(tmp_path / "data")], ws, "run it",
                    ask=lambda title, details: asked.append(title) or True, timeout=60)
-    assert out["agent"] == "Basalt Agent" and out["stop_reason"] == "end_turn"
+    assert out["agent"] == "TaDaMoo Agent" and out["stop_reason"] == "end_turn"
     assert out["text"].endswith("Done: the command was run.")
     assert len(asked) == 1 and "shell_command" in asked[0]
     assert any("shell_command" in c and "completed" in c for c in out["tool_calls"])

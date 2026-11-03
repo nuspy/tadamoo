@@ -1,6 +1,6 @@
 """Whether an address is inside the person's own network: this PC, the home or office network, a Tailscale-style private overlay.
 
-Agents that give Basalt work or answers are accepted only from there. A name is looked up and every address it has must be private."""
+Agents that give TaDaMoo work or answers are accepted only from there. A name is looked up and every address it has must be private."""
 from __future__ import annotations
 
 import ipaddress

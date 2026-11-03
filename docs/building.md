@@ -34,7 +34,7 @@ adds `--big FILE...` to the corpus). `tokenizer_bench DIR FILE...` times a cold 
 three decode prompts and a prefill filler); run it from the repository root or pass `--fixtures DIR`. `basalt-bench
 --help` says how the files are made.
 
-The build needs nothing outside this repository and fetches nothing. The parts of ggml and llama.cpp that Basalt uses
+The build needs nothing outside this repository and fetches nothing. The parts of ggml and llama.cpp that Basalt-Plus uses
 (quantization formats, CPU dot products, the prompt path's MMQ kernels) are extracted into `src/` and `include/basalt/ggml/`,
 with their MIT licence in `THIRD_PARTY_LICENSES`.
 

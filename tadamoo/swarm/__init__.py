@@ -1,4 +1,4 @@
-"""Multi-agent Swarm Orchestrator package for Basalt Harness.
+"""Multi-agent Swarm Orchestrator package for TaDaMoo Harness.
 
 Implements fan-out with shared prefix caching and role-based execution.
 """

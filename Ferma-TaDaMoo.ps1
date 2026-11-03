@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Ferma Basalt Win+GUI (server e motore) e controlla che la RAM sia tornata libera.
+    Ferma TaDaMoo Win+GUI (server e motore) e controlla che la RAM sia tornata libera.
 
 .DESCRIPTION
     Funziona con ogni modo di Avvia-TaDaMoo.ps1: il solo server (-server), quello legato a una finestra (-browser, che
@@ -10,7 +10,7 @@
     motore) e verifica che non resti nulla. Le opzioni si scrivono con uno o due trattini, come in Avvia-TaDaMoo.ps1.
 
 .PARAMETER Port
-    Ferma solo il server su questa porta (--port N): gli altri server Basalt Win+GUI restano accesi.
+    Ferma solo il server su questa porta (--port N): gli altri server TaDaMoo Win+GUI restano accesi.
 
 .PARAMETER File
     Il file di configurazione da cui leggere la porta (predefinito: tadamoo_config.json accanto allo script).
@@ -116,7 +116,7 @@ if (-not $capo) {
             $padre = Get-CimInstance Win32_Process -Filter "ProcessId=$($srvProc.ParentProcessId)"
             $capo = if ($padre -and $padre.Name -eq 'basalt.exe') { $padre.ProcessId } else { $srvProc.ProcessId }
         } elseif ($srvProc) {
-            Scrivi (T "Sulla porta $porta ascolta $($srvProc.Name) (PID $($srvProc.ProcessId)), che non è Basalt Win+GUI: non lo tocco." "Port $porta is held by $($srvProc.Name) (PID $($srvProc.ProcessId)), which is not Basalt Win+GUI: left alone.") Yellow
+            Scrivi (T "Sulla porta $porta ascolta $($srvProc.Name) (PID $($srvProc.ProcessId)), che non è TaDaMoo Win+GUI: non lo tocco." "Port $porta is held by $($srvProc.Name) (PID $($srvProc.ProcessId)), which is not TaDaMoo Win+GUI: left alone.") Yellow
         }
     }
 }
@@ -131,20 +131,20 @@ function Get-Albero([int]$Capo) {
     $elenco | Where-Object { $ids -contains [int]$_.ProcessId }
 }
 if ($Port) {                                    # solo il server di questa porta e i suoi processi
-    if (-not $capo) { Scrivi (T "Nessun server Basalt Win+GUI sulla porta $Port." "No Basalt Win+GUI server on port $Port.") Green; Esci 0 }
+    if (-not $capo) { Scrivi (T "Nessun server TaDaMoo Win+GUI sulla porta $Port." "No TaDaMoo Win+GUI server on port $Port.") Green; Esci 0 }
     $albero = @(Get-Albero $capo | ForEach-Object { [int]$_.ProcessId })
     function Get-ProcessiTaDaMoo { Get-CimInstance Win32_Process | Where-Object { $albero -contains [int]$_.ProcessId } }
 }
 $tutti = @(Get-ProcessiTaDaMoo)
 if (-not $capo -and $tutti.Count -eq 0) {
-    Scrivi (T 'Basalt Win+GUI non è in esecuzione.' 'Basalt Win+GUI is not running.') Green
+    Scrivi (T 'TaDaMoo Win+GUI non è in esecuzione.' 'TaDaMoo Win+GUI is not running.') Green
     Remove-Item $pidFile -ErrorAction SilentlyContinue
     Esci 0
 }
 
 $prima = Disponibile
 $chi = if ($capo) { " (PID $capo$(if ($modo) { ", $(T 'avviato' 'started') $modo" }))" } else { '' }
-Scrivi (T "Fermo Basalt Win+GUI$chi. RAM disponibile ora: $(GiB $prima)." "Stopping Basalt Win+GUI$chi. RAM available now: $(GiB $prima).") Cyan
+Scrivi (T "Fermo TaDaMoo Win+GUI$chi. RAM disponibile ora: $(GiB $prima)." "Stopping TaDaMoo Win+GUI$chi. RAM available now: $(GiB $prima).") Cyan
 
 # ------------------------------------------------------------------ 1. il motore esce in modo pulito
 try {
@@ -180,7 +180,7 @@ do {
 
 $resto = @(Get-ProcessiTaDaMoo)
 if ($resto.Count -gt 0) {
-    Scrivi (T 'Restano processi di Basalt Win+GUI:' 'Basalt Win+GUI processes are left:') Red
+    Scrivi (T 'Restano processi di TaDaMoo Win+GUI:' 'TaDaMoo Win+GUI processes are left:') Red
     $resto | ForEach-Object { Scrivi "  PID $($_.ProcessId) $($_.Name)" Red }
     Esci 1
 }
@@ -191,5 +191,5 @@ $dopo = Disponibile
 $limite = (Get-Date).AddSeconds(15)
 while ($dopo - $prima -lt 1GB -and (Get-Date) -lt $limite) { Start-Sleep -Seconds 1; $dopo = Disponibile }
 $liberati = GiB ([math]::Max([double]0, $dopo - $prima))
-Scrivi (T "Basalt Win+GUI fermato: nessun processo rimasto. RAM disponibile: $(GiB $dopo) (prima $(GiB $prima), liberati $liberati)." "Basalt Win+GUI stopped: no process left. RAM available: $(GiB $dopo) (before $(GiB $prima), freed $liberati).") Green
+Scrivi (T "TaDaMoo Win+GUI fermato: nessun processo rimasto. RAM disponibile: $(GiB $dopo) (prima $(GiB $prima), liberati $liberati)." "TaDaMoo Win+GUI stopped: no process left. RAM available: $(GiB $dopo) (before $(GiB $prima), freed $liberati).") Green
 Esci 0

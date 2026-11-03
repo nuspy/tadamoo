@@ -35,7 +35,7 @@ segments. Paths are relative to the repository root. Facts marked (measured) com
    Continue only for `max_turns`; the Android app shows nothing. Billion Context (proxy that compresses long conversations
    above 90% of the window) must be checked so it never compresses the text being translated or rewritten (risk, not proven).
 
-Basalt's own prompts do not ask for brevity (grep of `harness/`, `serve/`, the template and the web files).
+TaDaMoo's own prompts do not ask for brevity (grep of `harness/`, `serve/`, the template and the web files).
 
 ## 2. Cheap fixes, in order
 

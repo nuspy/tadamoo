@@ -168,7 +168,7 @@ def test_a_progress_line_is_due_every_few_steps_and_is_written_from_the_newest_o
 # -- suggestions -------------------------------------------------------------------------------------------------------
 
 def test_the_compact_view_has_no_system_prompt_no_tools_and_only_the_newest_turns():
-    history = [{"role": "system", "content": "You are Basalt " + "x" * 5000}]
+    history = [{"role": "system", "content": "You are TaDaMoo " + "x" * 5000}]
     for i in range(1, 8):
         history += [{"role": "user", "content": f"question {i}"}, {"role": "assistant", "content": "", "tool_calls": [{"id": "t"}]},
                     {"role": "tool", "content": "tool output"}, {"role": "assistant", "content": f"answer {i} " + "y" * 3000}]
@@ -176,7 +176,7 @@ def test_the_compact_view_has_no_system_prompt_no_tools_and_only_the_newest_turn
     assert out[0] == {"role": "system", "content": suggestions.SYSTEM}
     assert [m["role"] for m in out[1:]] == ["user", "assistant", "user", "assistant"]
     assert out[1]["content"] == "question 6" and out[3]["content"] == "question 7"
-    assert all(len(m["content"]) <= suggestions.TURN_CHARS + 20 for m in out[1:]) and "You are Basalt" not in json.dumps(out)
+    assert all(len(m["content"]) <= suggestions.TURN_CHARS + 20 for m in out[1:]) and "You are TaDaMoo" not in json.dumps(out)
 
 
 def test_with_a_session_the_suggestions_read_only_the_last_turns_and_a_long_conversation_is_no_reason_to_skip():

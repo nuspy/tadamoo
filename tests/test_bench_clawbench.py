@@ -417,7 +417,7 @@ def test_the_driver_ends_the_trajectory_when_the_harness_fails_or_is_stopped(mon
     monkeypatch.setenv("BASE_URL", "http://h:1/v1")
 
     def boom(cfg, prompt, client=None, on_event=None):
-        raise RuntimeError("cannot reach the Basalt server")
+        raise RuntimeError("cannot reach the TaDaMoo server")
 
     monkeypatch.setattr(headless, "run_headless", boom)
     assert d.main() == 1

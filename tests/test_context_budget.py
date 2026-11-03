@@ -33,7 +33,7 @@ def build(tmp_path, client, **kw):
 
 
 def unreachable():
-    return TadamooError(0, "cannot reach the Basalt server at http://127.0.0.1:7232")
+    return TadamooError(0, "cannot reach the TaDaMoo server at http://127.0.0.1:7232")
 
 
 # -- the client ------------------------------------------------------------------------------------

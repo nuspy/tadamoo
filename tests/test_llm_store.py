@@ -1,4 +1,4 @@
-"""Basalt's registry of providers: keys apart from the file, consent for the cloud, a copy of another registry, daily caps."""
+"""TaDaMoo's registry of providers: keys apart from the file, consent for the cloud, a copy of another registry, daily caps."""
 import json
 import sys
 from pathlib import Path
@@ -91,7 +91,7 @@ def test_another_registry_is_copied_once_and_nothing_stays_linked(reg, tmp_path)
     assert reg.import_shared(other) == {"imported": 1, "already": False}
     assert reg.import_shared(other) == {"imported": 0, "already": True}                # once
     loaded = reg.load()
-    assert [p["id"] for p in loaded["providers"]] == ["zai"] and loaded["assignments"] == {"chat": "zai"}   # a consumer Basalt has not is left out
+    assert [p["id"] for p in loaded["providers"]] == ["zai"] and loaded["assignments"] == {"chat": "zai"}   # a consumer TaDaMoo has not is left out
     assert "zz-key" not in (tmp_path / "llm_providers.json").read_text(encoding="utf-8")               # the copied key went to the store
     other.write_text("{}", encoding="utf-8")
     assert reg.load()["providers"][0]["api_key"] == "zz-key-123456"                    # the source can change or go

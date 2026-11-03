@@ -39,7 +39,7 @@ def test_service_reachable_and_authenticated(client):
 
 
 def test_single_call_with_ai_disclosure_and_hangup(client, number):
-    call_id = _place(client, number, "Questa è una chiamata di prova del sistema Basalt.")
+    call_id = _place(client, number, "Questa è una chiamata di prova del sistema TaDaMoo.")
     try:
         time.sleep(5)
         assert "assistant:" in (client.get_call_transcript(call_id) or "")

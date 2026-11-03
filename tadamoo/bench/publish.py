@@ -108,7 +108,7 @@ def prepare_package(run: Any, destination_kind: Union[str, Mapping[str, Any]], s
     files: Dict[str, str] = {"entry.json": json.dumps(entry, indent=2, ensure_ascii=False)}
     if dest["kind"] == "csv_pr":
         buf = io.StringIO()
-        row = {"model": model.get("name"), "harness": "Basalt", **(results.get("metrics") or {}), "gpu_power_limit_w": record.get("power_limit_w")}
+        row = {"model": model.get("name"), "harness": "TaDaMoo", **(results.get("metrics") or {}), "gpu_power_limit_w": record.get("power_limit_w")}
         w = csv.DictWriter(buf, fieldnames=list(row), lineterminator="\n")
         w.writeheader()
         w.writerow(row)
@@ -116,7 +116,7 @@ def prepare_package(run: Any, destination_kind: Union[str, Mapping[str, Any]], s
     else:
         files["trials_summary.json"] = json.dumps([{"key": f["key"], "class": f["class"]} for f in rep["failures"]] + [{"passed": rep["passed"], "of": rep["trials"]}], indent=2)
         files["report.md"] = analysis.markdown(rep)
-        files["message.txt"] = (f"Result of {spec.title} with Basalt.\nMetrics: {json.dumps(results.get('metrics'))}\nGPU power limit: {record.get('power_limit_w')} W\n"
+        files["message.txt"] = (f"Result of {spec.title} with TaDaMoo.\nMetrics: {json.dumps(results.get('metrics'))}\nGPU power limit: {record.get('power_limit_w')} W\n"
                                 + (f"Note: {record['provisional_label']}\n" if record.get("provisional") else ""))
     for name, text in files.items():
         (folder / name).write_text(text, encoding="utf-8")

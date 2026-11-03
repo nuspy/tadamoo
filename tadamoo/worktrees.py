@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-IDENTITY = ["-c", "user.name=Basalt", "-c", "user.email=basalt@localhost", "-c", "commit.gpgsign=false"]
+IDENTITY = ["-c", "user.name=TaDaMoo", "-c", "user.email=basalt@localhost", "-c", "commit.gpgsign=false"]
 TIMEOUT_S = 120
 BRANCH = "basalt/"
 HIDDEN = (".basalt/",)                    # what the agent keeps for itself is not a change of the task

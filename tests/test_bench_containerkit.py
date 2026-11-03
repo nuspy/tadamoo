@@ -183,7 +183,7 @@ def test_the_local_engine_is_the_only_model_address():
 
 
 def test_server_faults_are_told_from_the_agent_failing():
-    assert ck.is_server_fault(AgentOutcome(stop_reason="error", error="cannot reach the Basalt server at http://127.0.0.1:7232: refused"))
+    assert ck.is_server_fault(AgentOutcome(stop_reason="error", error="cannot reach the TaDaMoo server at http://127.0.0.1:7232: refused"))
     assert not ck.is_server_fault(AgentOutcome(stop_reason="error", error="maximum context length exceeded"))
     assert not ck.is_server_fault(AgentOutcome(stop_reason="final"))
 
@@ -307,7 +307,7 @@ def test_the_baseline_has_a_step_limit_a_time_limit_and_reports_a_server_fault(t
     traj = TrajectoryRecorder(tmp_path / "trajectory.jsonl")
     out = ck.run_bash_baseline("t", local_exec(root), client=forever, trajectory=traj, max_steps=3)
     assert out.stop_reason == "max_turns" and out.turns == 3
-    broken = Counting(RuntimeError("cannot reach the Basalt server at http://127.0.0.1:7232"))
+    broken = Counting(RuntimeError("cannot reach the TaDaMoo server at http://127.0.0.1:7232"))
     out2 = ck.run_bash_baseline("t", local_exec(root), client=broken, trajectory=traj, max_steps=3)
     traj.close()
     assert out2.stop_reason == "error" and ck.is_server_fault(out2)

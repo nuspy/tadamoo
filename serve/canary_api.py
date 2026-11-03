@@ -230,7 +230,7 @@ def save_settings(patch: Any) -> Dict[str, Any]:
 
 # ---- the config the test runs with ----
 def effective(s: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
-    """The model and endpoint the test will use: what the form says, else Basalt's own."""
+    """The model and endpoint the test will use: what the form says, else TaDaMoo's own."""
     ours = s["runtime"] == "basalt"
     model = s["model"] or (ctx.model if ours else "")
     base = s["base_url"] or (f"http://127.0.0.1:{ctx.port}/v1" if ours and ctx.port else "")
@@ -240,7 +240,7 @@ def effective(s: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
 def build_config(s: Dict[str, Any], ctx: Context, state_dir: Path) -> Dict[str, Any]:
     eff = effective(s, ctx)
     if not eff["model"]:
-        raise CanaryError("No model: load one in Basalt, or type the model name the endpoint serves.", "no_model")
+        raise CanaryError("No model: load one in TaDaMoo, or type the model name the endpoint serves.", "no_model")
     cat = _catalog()
     if s["runtime"] not in cat.runtimes:
         raise CanaryError(f"Unknown engine '{s['runtime']}'.")
@@ -251,7 +251,7 @@ def build_config(s: Dict[str, Any], ctx: Context, state_dir: Path) -> Dict[str, 
     cfg.pop("_reviewer_example", None)
     if eff["ours"]:
         if not eff["base_url"]:
-            raise CanaryError("Basalt's own address is not known yet; try again in a moment.")
+            raise CanaryError("TaDaMoo's own address is not known yet; try again in a moment.")
         key = f"env:{KEY_ENV}" if ctx.api_key else ""
         cfg["target"]["api_key"] = key
         cfg["monitor"] = {"base_url": f"http://127.0.0.1:{ctx.port}", "api_key": key}

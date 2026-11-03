@@ -17,7 +17,7 @@ _registry: Optional[SecureRegistry] = None
 
 
 def registry(path: Optional[str] = None) -> SecureRegistry:
-    """Basalt's registry of providers (one per process unless a path is given: tests and the server)."""
+    """TaDaMoo's registry of providers (one per process unless a path is given: tests and the server)."""
     global _registry
     if path is not None:
         return SecureRegistry(path)

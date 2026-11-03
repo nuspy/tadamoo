@@ -1,4 +1,4 @@
-"""E9: what the agent can still answer about the part of a long conversation that was folded, with Basalt's compaction on or off.
+"""E9: what the agent can still answer about the part of a long conversation that was folded, with TaDaMoo's compaction on or off.
 
 Question: after a compaction written from the originals (docs/context-layers.md), does the agent still know what it saw in the folded part (the name of a
 function, a value, a count, the standing rules), where masking alone does not, and what does it cost in tokens read again?
@@ -7,7 +7,7 @@ Arm `N` is compaction off (masking only), arm `A` is compaction on (`--compactio
 as in E5, so the job outgrows it. The fixture is E5's generated repository (`fixtures/long_turn_repo.py`) plus fourteen probes (`fixtures/context_probes.py`) put to
 the same conversation after the job, with the tools taken away, about the first modules of the job: eight the job needed later (a ledger count, whether a module had the
 misspelling, the standing rules) and six it did not (a name, a value). The rule decides on the first group. The proxy arms of the design (the proxy folding
-old turns itself, alone or stacked with Basalt's compaction) need the proxy in the loop and are not built here; the Chat's short record is not measured here either.
+old turns itself, alone or stacked with TaDaMoo's compaction) need the proxy in the loop and are not built here; the Chat's short record is not measured here either.
 
 `--only long200` runs the large job instead: 200 modules, one at a time with read_file and edit_file and no scripts, about 2.6 times the prompt budget of a 65,536
 window (`--window 65536`). It runs only when named. Extra columns: `summary_cut` (summary calls that ended cut off), `carry` (share of the first twelve modules whose
@@ -145,4 +145,4 @@ def experiment() -> Experiment:
     return Experiment(
         id="e9", title="What the agent still knows after a fold: compaction off or on", arms=ARMS, rule=RULE, columns=COLUMNS, tasks=variants, run_trial=run_trial,
         task_id=lambda v: v["id"], default_k=5, opt_in=OPT_IN,
-        question="After a long job outgrew the context, does the agent still answer about the folded part, with Basalt's compaction on where masking alone loses it?")
+        question="After a long job outgrew the context, does the agent still answer about the folded part, with TaDaMoo's compaction on where masking alone loses it?")

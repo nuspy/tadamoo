@@ -37,7 +37,7 @@ TEXT: Dict[str, str] = {
     "verified": "verified publisher", "license": "licence {0}",
     "stale": "not updated for {0} days", "few_downloads": "few downloads ({0} a week)", "no_repo": "no source repository listed",
     "lookalike": "its name is almost the same as the well known {0}: it may be an imitation",
-    "needs_keys": "asks for keys or settings: {0}", "install_scripts": "has install scripts, which Basalt does not run: it may not work",
+    "needs_keys": "asks for keys or settings: {0}", "install_scripts": "has install scripts, which TaDaMoo does not run: it may not work",
     "runs_program": "it is a program that runs on this PC with your rights", "archived": "the repository is archived: nobody maintains it",
     "deprecated": "the registry marks it as deprecated", "no_license": "no licence declared",
     "github_unchecked": "GitHub could not be asked ({0}): stars and activity are not counted",

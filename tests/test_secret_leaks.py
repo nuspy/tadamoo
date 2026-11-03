@@ -104,7 +104,7 @@ class ProtectedPlaces(unittest.TestCase):
             b = SecretsBroker()
             b.protect(Path(d) / "vault", Path(d) / "payments")
             for command in (f'type "{Path(d) / "vault" / "x"}"', "cat " + str(Path(d) / "payments").replace("\\", "/") + "/state", "type vault.bin",
-                            r"type %APPDATA%\Basalt\control-8080.token", "copy browser-profile/Default/Cookies ."):
+                            r"type %APPDATA%\TaDaMoo\control-8080.token", "copy browser-profile/Default/Cookies ."):
                 res = execute_shell_command(command, w, secrets=b)
                 self.assertTrue(res["blocked"], command)
             self.assertFalse(execute_shell_command("echo fine", w, secrets=b)["blocked"])

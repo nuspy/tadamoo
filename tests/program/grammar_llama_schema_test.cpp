@@ -1,4 +1,4 @@
-// tests/program/grammar_llama_schema_test.cpp - llama.cpp's tests/test-json-schema-to-grammar.cpp run against Basalt's
+// tests/program/grammar_llama_schema_test.cpp - llama.cpp's tests/test-json-schema-to-grammar.cpp run against Basalt-Plus's
 // schema converter: every case's grammar text must equal llama.cpp's expected text (up to the whitespace its own
 // trim() ignores). Cases are copied from llama.cpp (MIT, see THIRD_PARTY_LICENSES).
 #ifdef NDEBUG

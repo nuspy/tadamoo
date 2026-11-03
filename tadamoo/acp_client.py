@@ -1,4 +1,4 @@
-"""Agent Client Protocol client over stdio: Basalt drives another ACP agent (protocol version 1).
+"""Agent Client Protocol client over stdio: TaDaMoo drives another ACP agent (protocol version 1).
 
 The agent is started as a subprocess and spoken to in lines of JSON-RPC. `AcpClient` sends `initialize`, `session/new`
 and `session/prompt`, collects the `session/update` notifications of a prompt (message text, tool calls) and answers the
@@ -199,7 +199,7 @@ class AcpClient:
         result = self.request("initialize", {
             "protocolVersion": PROTOCOL_VERSION,
             "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False},
-            "clientInfo": {"name": "basalt", "title": "Basalt", "version": "1.0"}})
+            "clientInfo": {"name": "basalt", "title": "TaDaMoo", "version": "1.0"}})
         version = result.get("protocolVersion")
         if not isinstance(version, int) or version < 1 or version > PROTOCOL_VERSION:
             raise AcpError(f"The agent speaks ACP protocol version {version!r}; this client speaks {PROTOCOL_VERSION}.")

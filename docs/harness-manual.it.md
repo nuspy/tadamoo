@@ -28,7 +28,7 @@ cosa non è fatto. Il motore non ha bisogno di un manuale e qui non ne ha.
 ## 1. Cos'è
 
 L'harness è un agente: gli dici cosa vuoi, e lui legge i file, li modifica, esegue comandi, cerca sul web e ti racconta cosa ha
-fatto. Usa il modello caricato in Basalt, quindi tutto resta sul tuo PC, a meno che tu scelga un provider cloud per una funzione. È un
+fatto. Usa il modello caricato in TaDaMoo, quindi tutto resta sul tuo PC, a meno che tu scelga un provider cloud per una funzione. È un
 processo Python separato che parla col server tramite la sua API pubblica.
 
 Quattro modi di usarlo, tutti con le stesse capacità:
@@ -291,7 +291,7 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
 
 ## 10. Skill, plugin e server MCP
 
-- **Da dove vengono.** Basalt legge, e non esegue mai, le skill, i plugin e i server MCP installati per altri strumenti su questo PC
+- **Da dove vengono.** TaDaMoo legge, e non esegue mai, le skill, i plugin e i server MCP installati per altri strumenti su questo PC
   (`~/.claude/skills`, il `.claude/skills` del progetto, i plugin, `.mcp.json` e simili).
 - **Ciò che si trova è utilizzabile.** Non c'è un passaggio di approvazione: una voce su questo PC funziona a meno che tu non la spenga in
   *Impostazioni → Capacità*, dove *Vedi il testo* mostra ciò che l'agente legge (una skill) o esegue (un server). Modificare un file non
@@ -329,13 +329,13 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
   momento e mascherato in ciò che torna. **Il vault** (Portafoglio) tiene cifrati carte, dati personali e accessi; l'agente scrive
   `{{vault:VOCE.CAMPO}}`, e il valore va solo verso i siti che la voce indica.
 - **Il secondo fattore** di ogni accesso lo scegli tu: nessuno, un codice digitato ogni volta (la conversazione si ferma e chiede),
-  oppure il segreto TOTP, così Basalt fa il codice da sé. L'ultimo permette l'accesso a chiunque possa usare Basalt su questo PC; te
+  oppure il segreto TOTP, così TaDaMoo fa il codice da sé. L'ultimo permette l'accesso a chiunque possa usare TaDaMoo su questo PC; te
   lo dice una volta.
 - **Pagamenti.** Il limite lo imposti tu, a qualunque importo; finché non lo imposti, ogni pagamento ti chiede. Una **rinuncia** lascia
   che l'agente paghi da solo fino a un massimale per pagamento e, se lo imposti, a uno cumulativo, finché non finisce (nessuna scadenza se non la imposti), dopo una dichiarazione dettata e due
   finestre con il tuo nome riscritto; oltre i massimali chiede di nuovo. Un pagamento si può fermare dal Portafoglio in ogni momento, e
   da allora i campi della carta non vengono più rilasciati. Ciò che poi addebita il modulo di un commerciante è limitato dal limite
-  della carta stessa, non da Basalt.
+  della carta stessa, non da TaDaMoo.
 - **Telefonate.** Sono spente di default e, una volta accese, ti chiedono conferma sotto *Automatico* (questa volta, in questa conversazione o sempre); in *Automatico* non si chiede nulla. La chiamata si apre
   dicendo che un assistente IA telefona per tuo conto. Nessuna telefonata vera è stata fatta in un test.
 - **Da cosa non protegge.** L'agente gira come il tuo stesso utente. Un programma che gira come te può raggiungere più di quanto il
@@ -383,7 +383,7 @@ deployment e interazioni come diagrammi che la pagina disegna; *Sorgente del dia
 
 ## 12c. Telefoni
 
-*Impostazioni > Telefoni* prepara l'app Basalt per un telefono. 1) **Tailscale** su questo PC: la pagina lo installa (con winget), lo collega e mostra l'indirizzo che questo PC ha nella tua rete privata. 2) **Lascia
+*Impostazioni > Telefoni* prepara l'app TaDaMoo per un telefono. 1) **Tailscale** su questo PC: la pagina lo installa (con winget), lo collega e mostra l'indirizzo che questo PC ha nella tua rete privata. 2) **Lascia
 collegare i telefoni**: il server ascolta anche per loro, di norma solo sull'indirizzo Tailscale, mai su internet; *Ascolta su* lo cambia in tutte le interfacce di rete (0.0.0.0) o in un solo indirizzo IPv4 che scrivi, per un telefono che raggiunge questo PC sulla rete di casa senza Tailscale (il collegamento è HTTP semplice: usalo solo su una rete di cui ti fidi). 3) **Una chiave per ogni telefono**: dai un nome al telefono, premi *Crea una chiave* e inquadra il
 codice QR con l'app (o copia la chiave). La chiave resta su questo PC, cifrata, quindi *Mostra il codice* nell'elenco ne rimostra il QR (per esempio dopo aver reinstallato l'app); il telefono tiene le sue impostazioni negli aggiornamenti, e il backup di Android le ripristina dopo una disinstallazione e una reinstallazione se il backup del telefono è attivo. Per fermare un telefono, togli la sua chiave. Sul telefono installa Tailscale dal Play Store e accedi con lo stesso account. Un telefono con la sua chiave può
 usare il modello, le conversazioni, qualunque file o cartella di questo PC, le routine e i piani, e il resto che risponde a un client con una chiave; ciò che risponde solo a questo PC stesso (portafoglio, cassaforte, impostazioni, caricamento dei modelli) resta su questo PC, e un telefono lavora in qualunque cartella.
@@ -531,7 +531,7 @@ o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job
 ## 19. Cosa non fa
 
 - Non isola file e rete per i comandi: *Automatico* va in una cartella che puoi perdere.
-- Basalt è solo un **client** A2A; non riceve compiti da altri agenti. L'agente ACP non ha `terminal/*` e non è stato provato in un editor vero; ha invece `session/load`, `authenticate` e `fs/*`.
+- TaDaMoo è solo un **client** A2A; non riceve compiti da altri agenti. L'agente ACP non ha `terminal/*` e non è stato provato in un editor vero; ha invece `session/load`, `authenticate` e `fs/*`.
 - Non legge i conti bancari tramite un aggregatore, e i pagamenti con Stripe e Google Pay non sono stati provati su servizi reali.
 - Audio e video richiedono il servizio callAPIcall; senza, il file viene conservato e l'agente lo dice.
 - Nulla qui misura quale strategia di contesto sia la migliore; serve il modello vero.

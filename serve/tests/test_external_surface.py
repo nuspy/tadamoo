@@ -1,4 +1,4 @@
-"""What another application can reach under /v1: the OpenAI and Anthropic interfaces of the model Basalt has loaded.
+"""What another application can reach under /v1: the OpenAI and Anthropic interfaces of the model TaDaMoo has loaded.
 
 A route added by accident (a provider relay, an embeddings or files endpoint, a key store) fails here, so widening
 the external surface is always a deliberate change to the lists below."""

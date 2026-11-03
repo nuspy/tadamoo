@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Run-time script of the Basalt harness: waits for the browser, runs the harness against it, watches the time and the interceptor, and leaves the files
+# Run-time script of the TaDaMoo harness: waits for the browser, runs the harness against it, watches the time and the interceptor, and leaves the files
 # ClawBench collects (/data/agent-messages.jsonl, /data/usage.jsonl, /data/.stop-reason).
 /setup-tadamoo.sh || { mkdir -p /data; echo "basalt_failed" > /data/.stop-reason; exit 1; }
 
@@ -28,7 +28,7 @@ python3 /tadamoo_driver.py > /tmp/basalt-stdout.log 2> /tmp/basalt-stderr.log &
 AGENT_PID=$!
 sleep 3
 if ! kill -0 $AGENT_PID 2>/dev/null && [ ! -s /data/usage.jsonl ] && ! grep -q '"type": "stop"' /data/agent-messages.jsonl 2>/dev/null; then
-  echo "Basalt driver died on startup."
+  echo "TaDaMoo driver died on startup."
   echo "basalt_failed" > /data/.stop-reason
 fi
 

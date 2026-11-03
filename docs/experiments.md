@@ -318,9 +318,9 @@ content, which the rule does not weigh.
 
 ## E9. Context layers: what the agent still knows after a fold
 
-**Question.** When a long agent conversation outgrows the context, what the agent can still answer about the folded part depends on who summarises. Basalt's compaction, written from
+**Question.** When a long agent conversation outgrows the context, what the agent can still answer about the folded part depends on who summarises. TaDaMoo's compaction, written from
 the originals in the technical session ([context-layers](context-layers.md)), against masking alone. The design also compares the proxy folding old turns by itself, alone and stacked
-with Basalt's compaction; those arms need the proxy in the loop and are not built, so this case answers the first half.
+with TaDaMoo's compaction; those arms need the proxy in the loop and are not built, so this case answers the first half.
 
 | Arm | Setting | Selected by |
 |---|---|---|

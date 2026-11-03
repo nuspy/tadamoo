@@ -1,6 +1,6 @@
 FROM clawbench-base
 
-# The Basalt harness: standard library only, apart from `cryptography`. `payload/` holds the harness package and the few modules of the server it imports;
+# The TaDaMoo harness: standard library only, apart from `cryptography`. `payload/` holds the harness package and the few modules of the server it imports;
 # the adapter copies both there before the image is built. The model is reached over the network (BASE_URL), so nothing of it is in the image.
 RUN pip install --no-cache-dir --break-system-packages "cryptography>=44" || pip install --no-cache-dir "cryptography>=44"
 COPY harnesses/basalt/payload /opt/basalt

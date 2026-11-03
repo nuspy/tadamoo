@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 SYSTEM_ID = re.compile(r"^[a-z0-9][a-z0-9_\-]{1,40}$")
-# what Basalt pays with. The first three are credentials a provider issued with limits of their own; the last two are the person's own
+# what TaDaMoo pays with. The first three are credentials a provider issued with limits of their own; the last two are the person's own
 # entries in the vault (a card of any kind, or a login with the second factor the person chose there), which carry no limit but the cap.
 CREDENTIAL_KINDS = {"delegated_card", "delegated_token", "mandate", "vault_card", "vault_login"}
 VAULT_KINDS = {"vault_card", "vault_login"}
@@ -20,7 +20,7 @@ class PaymentSystem:
     system_id: str
     name: str
     kind: str                         # e.g. virtual card, wallet, marketplace account
-    credential_kind: str              # what Basalt pays with: one of CREDENTIAL_KINDS
+    credential_kind: str              # what TaDaMoo pays with: one of CREDENTIAL_KINDS
     currency: str
     provider_terms_url: str = ""
     provider_terms_checked_on: str = ""   # date the user checked that the provider allows automatic agents
@@ -35,7 +35,7 @@ class PaymentSystem:
         if not self.name.strip():
             out.append("the system needs a name")
         if self.credential_kind not in CREDENTIAL_KINDS:
-            out.append("choose what Basalt pays with: " + ", ".join(sorted(CREDENTIAL_KINDS)))
+            out.append("choose what TaDaMoo pays with: " + ", ".join(sorted(CREDENTIAL_KINDS)))
         elif self.credential_kind in VAULT_KINDS and not self.vault_entry.strip():
             out.append("name the vault entry that holds the card or the login")
         if not re.fullmatch(r"[A-Za-z]{3}", self.currency):

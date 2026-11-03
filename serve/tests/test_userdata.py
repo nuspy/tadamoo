@@ -19,9 +19,9 @@ class Where(unittest.TestCase):
         self.assertEqual(Path(d("nt", "win32", {"APPDATA": "C:/Users/u/AppData/Roaming"}, "C:/Users/u")),
                          Path("C:/Users/u/AppData/Roaming/TaDaMoo"))
         self.assertEqual(Path(d("nt", "win32", {}, "C:/Users/u")), Path("C:/Users/u/AppData/Roaming/TaDaMoo"))
-        self.assertEqual(d("posix", "linux", {}, "/home/u"), "/home/u/.local/share/basalt")
+        self.assertEqual(d("posix", "linux", {}, "/home/u"), "/home/u/.local/share/tadamoo")
         self.assertEqual(d("posix", "linux", {"XDG_DATA_HOME": "/xdg"}, "/home/u"), "/xdg/basalt")
-        self.assertEqual(d("posix", "darwin", {}, "/Users/u"), "/Users/u/Library/Application Support/Basalt")
+        self.assertEqual(d("posix", "darwin", {}, "/Users/u"), "/Users/u/Library/Application Support/TaDaMoo")
         self.assertEqual(d("nt", "win32", {"TADAMOO_DATA": "D:/b", "APPDATA": "C:/x"}, "C:/Users/u"), "D:/b")
 
     def test_no_machine_path_in_the_code(self):

@@ -34,7 +34,7 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
         budgets.append(f"{int(max_seconds)} seconds")
     lines = [
         "Written by the harness around you; the numbers are fixed for this session, `self_status` gives the live ones:",
-        f"- You are {model or 'the loaded model'}, run by Basalt on this PC.",
+        f"- You are {model or 'the loaded model'}, run by TaDaMoo on this PC.",
         f"- You have about {window} tokens of room for the conversation. Old tool results are replaced by a marker that names the file where the full text is saved (from "
         f"{int(mask_at * 100)}% of the window), and " + (f"the older conversation is folded into a record from {int(compaction_at * 100)}%; the originals stay on disk and can be read again."
                                                          if compaction else "the conversation is not folded.")

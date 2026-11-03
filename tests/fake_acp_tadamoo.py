@@ -1,4 +1,4 @@
-"""Basalt's own ACP agent on stdio with a scripted model: one shell command, then an answer. Arguments: workspace, data folder."""
+"""TaDaMoo's own ACP agent on stdio with a scripted model: one shell command, then an answer. Arguments: workspace, data folder."""
 import sys
 from pathlib import Path
 

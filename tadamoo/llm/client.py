@@ -1,7 +1,7 @@
 """A client for each function: it asks the provider the function is pointed at, and falls back only to a route as local or more.
 
 `RoutedClient` has the same `chat_completion` as `TadamooClient`, so the agent's loop, the summaries and the judges use it
-without knowing where the words come from. With nothing assigned it IS the loaded model of this Basalt. With a provider
+without knowing where the words come from. With nothing assigned it IS the loaded model of this TaDaMoo. With a provider
 assigned it speaks that provider's dialect (OpenAI-compatible, Anthropic, a command-line agent for text), translates the
 reasoning level, counts the tokens against the provider's daily cap and refuses, with the reason, what the registry's rules
 do not allow. Errors are the same `TadamooError`s the loop already knows how to retry.
@@ -233,7 +233,7 @@ class RoutedClient:
         return all(not pid or runs_here(self.registry._find(data, pid), self.registry.local_hosts) for pid in self.registry.fallback_chain(self.function))
 
     def stays_local(self) -> bool:
-        """Whether every route this function may take is the model loaded in this Basalt (nothing goes to another provider)."""
+        """Whether every route this function may take is the model loaded in this TaDaMoo (nothing goes to another provider)."""
         data = self.registry.load()
         for pid in self.registry.fallback_chain(self.function):
             if pid and not TYPES.get((self.registry._find(data, pid) or {}).get("type") or "", {}).get("this_server"):
@@ -256,7 +256,7 @@ class RoutedClient:
         failure: Optional[TadamooError] = None
         for n, pid in enumerate(chain):
             if pid and TYPES.get((self.registry._find(self.registry.load(), pid) or {}).get("type") or "", {}).get("this_server"):
-                pid = None                                   # "Basalt (this server)" is the loaded model, whatever the way it is named
+                pid = None                                   # "TaDaMoo (this server)" is the loaded model, whatever the way it is named
             ok, why = self.registry.check(self.function, pid)
             if not ok:
                 failure = NotAllowed(why)

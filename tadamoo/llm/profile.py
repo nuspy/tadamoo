@@ -1,6 +1,6 @@
 """What a route can do: read from the provider's type and the person's own record of it, and used by the client when it shapes a request.
 
-A route to the model loaded in this Basalt (or to any local type) has no profile of its own: nothing about its requests changes. A
+A route to the model loaded in this TaDaMoo (or to any local type) has no profile of its own: nothing about its requests changes. A
 cloud route carries:
 
 * `cache_control`: the request marks the stable start of the prompt (the tools and the system text) for the provider's cache. On for

@@ -1,7 +1,7 @@
-"""Where a user's own Basalt settings live, apart from the caches.
+"""Where a user's own TaDaMoo settings live, apart from the caches.
 
-    user_data_dir()   $TADAMOO_DATA, else %APPDATA%\\TaDaMoo (Windows), ~/Library/Application Support/Basalt
-                      (macOS), $XDG_DATA_HOME/basalt (elsewhere; ~/.local/share/basalt without it)
+    user_data_dir()   $TADAMOO_DATA, else %APPDATA%\\TaDaMoo (Windows), ~/Library/Application Support/TaDaMoo
+                      (macOS), $XDG_DATA_HOME/tadamoo (elsewhere; ~/.local/share/tadamoo without it)
 
 It holds what the user chose and must not be lost when a cache is cleared: the load profiles and inference presets
 (profiles.json), the models folders and the default server model (models.json), this PC's own settings from the
@@ -39,8 +39,8 @@ def default_dir(osname: str, platform: str, env, home: str) -> str:
     if osname == "nt":
         return os.path.join(env.get("APPDATA") or os.path.join(home, "AppData", "Roaming"), APP_DIR)
     if platform == "darwin":
-        return f"{home}/Library/Application Support/Basalt"
-    return f"{env.get('XDG_DATA_HOME') or home + '/.local/share'}/basalt"
+        return f"{home}/Library/Application Support/TaDaMoo"
+    return f"{env.get('XDG_DATA_HOME') or home + '/.local/share'}/tadamoo"
 
 
 def calibration_file(meta_hash: str) -> Path:

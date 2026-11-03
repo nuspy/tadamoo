@@ -1,15 +1,15 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/basalt-lockup-dark.png">
-    <img src="assets/basalt-lockup-light.png" alt="Basalt" width="480">
+    <img src="assets/basalt-lockup-light.png" alt="TaDaMoo" width="480">
   </picture>
 </p>
 
-# Basalt Win+GUI: questo fork
+# TaDaMoo Win+GUI: questo fork
 
 [English](README.md) · *Italiano*
 
-**Basalt Win+GUI** è un fork di **[Basalt](https://github.com/jesdga95/basalt)** di jesdga95 (licenza MIT), che a sua
+**TaDaMoo Win+GUI** è un fork di **[Basalt](https://github.com/jesdga95/basalt)** di jesdga95 (licenza MIT), che a sua
 volta è un fork di **[Strata](https://github.com/Niko1221/Strata)** di Niko1221 (licenza MIT). Il motore, il formato
 `.basalt`, il convertitore e il server vengono da Basalt; le note di copyright dei due progetti e del codice che
 includono (ggml, llama.cpp e altri) sono in [LICENSE](LICENSE) e [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES). I file
@@ -45,7 +45,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   passano; l'altro richiede una CPU con AVX-512).
 
 **2. Un'interfaccia grafica avanzata (la base aveva solo le pagine Monitor e Hardware)**
-- **Basalt Win+GUI** (`BasaltWinGUI.exe`): un'app desktop (finestra WebView2, icona nell'area di notifica, istanza
+- **TaDaMoo Win+GUI** (`BasaltWinGUI.exe`): un'app desktop (finestra WebView2, icona nell'area di notifica, istanza
   unica) che avvia il server e apre l'interfaccia web; la stessa interfaccia funziona in qualunque browser, in inglese o
   italiano, anche sul telefono.
 - **Chat** con i valori di campionamento del modello, preset, un indicatore del contesto e politiche di contesto
@@ -119,7 +119,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
 
 ## Come funziona
 
-- **Un modello.** Basalt esegue Qwen3.8-Flash-Next (architettura GGUF `qwen4exp`): 48 strati, 512 esperti per strato,
+- **Un modello.** Basalt-Plus esegue Qwen3.8-Flash-Next (architettura GGUF `qwen4exp`): 48 strati, 512 esperti per strato,
   10 attivi per token. A 3 bit i soli esperti occupano circa 50 GiB, più di quanti ne tenga una GPU da 32 GB.
 - **Esperti su tre livelli.** Una **cache degli esperti in VRAM** ne tiene quanti ne entrano (`--expert-cache auto`:
   tutta la VRAM che resta dopo la riserva), riempita secondo un profilo d'uso, così i più usati stanno sulla GPU; una
@@ -144,9 +144,9 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   bloccate secondo il budget di memoria condivisa di WDDM, letture non bufferizzate con una I/O completion port, la
   topologia della CPU con i core performance per primi sui processori ibridi, `basalt serve` in un job object che si
   chiude con lui. `--no-pdl` lancia ogni kernel senza il lancio dipendente programmatico, se un driver si comporta male.
-- **L'app, BasaltWinGUI.exe («Basalt Win+GUI»), è l'interfaccia principale.** Avvia il server senza caricare un
+- **L'app, BasaltWinGUI.exe («TaDaMoo Win+GUI»), è l'interfaccia principale.** Avvia il server senza caricare un
   modello e si apre sul Loader web nella sua finestra (WebView2): app e browser hanno esattamente le stesse
-  impostazioni; un'icona vicino all'orologio tiene acceso Basalt Win+GUI quando la finestra è chiusa.
+  impostazioni; un'icona vicino all'orologio tiene acceso TaDaMoo Win+GUI quando la finestra è chiusa.
 - **Interfaccia web** (`/`, in inglese o in italiano, vedi [Lingua](#lingua)): Chat, Monitor, Hardware, **Carica
   modello** (il Loader) e Impostazioni. Ogni impostazione sta in una sola scheda:
   - **Loader**: tutto ciò che si decide al caricamento del modello (il modello, contesto massimo, cache KV, lettura del
@@ -201,7 +201,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   successivi.
 - **Cartelle dei dati**: le impostazioni in `%APPDATA%\TaDaMoo\` (copiate una volta da `~\.cache\tadamoo`, mai
   spostate).
-- **Nome**: l'app si chiama **Basalt Win+GUI** (`BasaltWinGUI.exe`, icona nuova); motore, API, file e script tengono i
+- **Nome**: l'app si chiama **TaDaMoo Win+GUI** (`BasaltWinGUI.exe`, icona nuova); motore, API, file e script tengono i
   loro nomi.
 - **`-server` con un server già acceso** chiede se riusarlo o riavviarlo (`-riusa`, `-riavvia`, 60 s, senza risposta
   si riusa).
@@ -210,7 +210,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
 
 ## L'harness per agenti
 
-L'**harness** (`harness/`) è un agente che lavora sui tuoi file con il modello caricato in Basalt. Legge e modifica un progetto,
+L'**harness** (`harness/`) è un agente che lavora sui tuoi file con il modello caricato in TaDaMoo. Legge e modifica un progetto,
 esegue comandi, cerca sul web, compila moduli, tiene appunti su ciò che impara e ti chiede prima di tutto ciò che non si può
 disfare. È un processo Python separato: parla col server in esecuzione tramite l'API pubblica compatibile OpenAI e non importa nulla
 dal motore, quindi non ha bisogno di una GPU sua. Ciò che conserva (conversazioni, memoria, registro di audit, checkpoint,
@@ -376,7 +376,7 @@ nell'appunto.
 ### Cosa non è fatto
 
 Isolamento di file e rete per i comandi (il job object limita solo le risorse); una prova dell'agente ACP in un editor vero (Zed, JetBrains)
-e `terminal/*`; Basalt come server A2A (è solo un client); i conti bancari tramite un aggregatore; una prova di Google Pay o di un modulo Stripe incorporato su un sito vero;
+e `terminal/*`; TaDaMoo come server A2A (è solo un client); i conti bancari tramite un aggregatore; una prova di Google Pay o di un modulo Stripe incorporato su un sito vero;
 e una misura di quale strategia di contesto funzioni meglio (serve il modello vero). Nessuna telefonata vera è stata fatta in un test,
 e Stripe e Google Pay non sono stati provati sui servizi reali. L'elenco con i motivi è in fondo a
 [docs/harness.md](docs/harness.md).
@@ -397,7 +397,7 @@ e Stripe e Google Pay non sono stati provati sui servizi reali. L'elenco con i m
   Linux nel README originale ([Build](README.md#build)). L'app: `dotnet publish tools\windows\desktop -c Release -o
   tools\windows\desktop\publish`.
 
-## Avviare Basalt Win+GUI
+## Avviare TaDaMoo Win+GUI
 
 ```powershell
 .\Avvia-TaDaMoo.ps1                                             # l'app (-gui): prima il Loader, nulla caricato
@@ -461,7 +461,7 @@ Linux; ogni opzione è nel README originale, [Settings](README.md#settings---con
 
 ### L'app
 
-`tools\windows\desktop\publish\BasaltWinGUI.exe` (finestra e icona: «Basalt Win+GUI»; il nome del file è diverso da
+`tools\windows\desktop\publish\BasaltWinGUI.exe` (finestra e icona: «TaDaMoo Win+GUI»; il nome del file è diverso da
 quello del motore, `basalt.exe`, di proposito; le stesse opzioni dello script: `--config`, `--model`, `--port`,
 `--vram-libera`, `--file`, `--lang`). All'apertura avvia il server nel suo job (finisce con l'app) **senza caricare un
 modello** e mostra il **Loader** web:
@@ -489,7 +489,7 @@ velocità su un PC grande o non si caricherebbero su uno piccolo (o farebbero cr
 configurazione guidata calcola ogni valore da quello che rileva, dice perché, e può verificarlo con una misura vera.
 
 1. **Questo PC**: RAM, limite di commit e quanto è usato, file di paging (quelli gestiti da Windows possono crescere:
-   Basalt Win+GUI non li fa mai crescere), core performance ed efficienza, la GPU NVIDIA, e le schede video con quella
+   TaDaMoo Win+GUI non li fa mai crescere), core performance ed efficienza, la GPU NVIDIA, e le schede video con quella
    che mostra il **monitor principale**. Un PC può comandare il monitor da un'altra scheda (una GPU integrata, per
    esempio) e tenere la GPU NVIDIA per il calcolo; la GPU può avere anche un monitor **secondario**, acceso o spento.
    La configurazione mostra cosa ha rilevato e chiede di confermarlo o correggerlo.
@@ -549,10 +549,10 @@ resolve [--model FILE] [--profile NOME] | convert --model GGUF [--out DIR]`.
 
 ### Download dei modelli
 
-Il pannello **Scarica modelli** del Loader offre Qwen3.8-Flash-Next nelle versioni che girano su Basalt: 23 file da
+Il pannello **Scarica modelli** del Loader offre Qwen3.8-Flash-Next nelle versioni che girano su Basalt-Plus: 23 file da
 Hugging Face (e altri 6 mostrati come non compatibili, con il motivo). Ogni scheda dice che cos'è il file e in cosa
 differisce dal modello base, la dimensione, la quantizzazione e quanto è vicino al modello pieno con la **fonte di
-quella misura** (la misura di Basalt contro Q8_0, quella degli autori, quella di Strata o nessuna: i riferimenti
+quella misura** (la misura di Basalt-Plus contro Q8_0, quella degli autori, quella di Strata o nessuna: i riferimenti
 sono diversi e non vanno mescolati). Il selettore dei modelli mostra lo stesso suggerimento di una riga per un modello
 che conosce.
 
@@ -564,7 +564,7 @@ che conosce.
 - Le versioni **uncensored** sono segnalate e portano l'avviso dell'autore. Il repository di OrcaRouter è **ad accesso
   controllato**: il pannello spiega come avere un account Hugging Face, accettare i termini e creare un token di sola
   lettura, e prende il token solo per la sessione (si leggono anche `HF_TOKEN` e il file scritto da
-  `huggingface-cli login`). Basalt non salva, non mostra e non registra mai un token, e lo invia solo a Hugging Face,
+  `huggingface-cli login`). TaDaMoo non salva, non mostra e non registra mai un token, e lo invia solo a Hugging Face,
   mai lungo un redirect verso un altro host.
 - **Un download parte solo dal suo piano**: i file a una revisione fissata con dimensioni e SHA-256 come li dà
   Hugging Face, il disco e il suo spazio libero, l'accesso e la licenza da accettare (Qwen Community License 1.0, più
@@ -572,12 +572,12 @@ che conosce.
   modello base). I file sono scritti come `.part` e rinominati solo quando lo SHA-256 corrisponde; un download
   interrotto o fermato riprende da dove si era fermato.
 - **Non offerti**: Unsloth UD-Q5_K_XL, UD-Q6_K_XL e UD-IQ1_S, e gli IQ2_XXS e Q2_K/Q3_K di OrcaRouter, perché i loro
-  formati degli esperti non hanno un kernel in Basalt; e `Qwen3.8-35B-A3B`, che non è un modello Qwen ufficiale ma una
+  formati degli esperti non hanno un kernel in Basalt-Plus; e `Qwen3.8-35B-A3B`, che non è un modello Qwen ufficiale ma una
   distillazione della community in un'altra architettura (Qwen3.6-35B-A3B: 40 strati, dimensione 2048, 256 esperti)
   che il motore, scritto per le forme di Flash-Next, non può eseguire.
 
-Le voci "Non provato con Basalt" hanno formati degli esperti che gli elenchi del motore accettano ma che non sono mai
-stati eseguiti con Basalt. Il catalogo è stato letto dai repository il 17/10/2026 (`serve/catalog.py`); le dimensioni
+Le voci "Non provato con Basalt-Plus" hanno formati degli esperti che gli elenchi del motore accettano ma che non sono mai
+stati eseguiti con Basalt-Plus. Il catalogo è stato letto dai repository il 17/10/2026 (`serve/catalog.py`); le dimensioni
 si rileggono quando si prepara un download. Le rotte (solo da questo PC e dalla pagina del server): `GET
 /api/models/catalog | download | hf`, `POST /api/models/download-plan | download | download-cancel | hf-token`.
 
@@ -636,7 +636,7 @@ CPU, immagini dynamic.
 ### Dove stanno le impostazioni
 
 Per utente, mai nel repository, nella **cartella dei dati dell'utente**: `%APPDATA%\TaDaMoo\` su Windows,
-`~/Library/Application Support/Basalt/` su macOS, `$XDG_DATA_HOME/basalt/` (`~/.local/share/basalt/`) altrove, oppure
+`~/Library/Application Support/TaDaMoo/` su macOS, `$XDG_DATA_HOME/tadamoo/` (`~/.local/share/tadamoo/`) altrove, oppure
 `TADAMOO_DATA`. Contiene `profiles.json` (profili di caricamento, preset di inferenza, il profilo predefinito),
 `models.json` (le cartelle dei modelli, il modello predefinito del server, l'ultima cartella di uscita), `machine.json`
 (le risposte della configurazione guidata: quota di RAM e commit, VRAM da lasciare libera, dov'è il monitor),
@@ -672,7 +672,7 @@ nome che `GET /v1/models` elenca come un altro modello, non caricato, viene rifi
 
 **L'elenco dei modelli.** `GET /v1/models` elenca per primo il modello servito (`"status": {"value": "loaded"}`, o
 `"unloaded"` mentre si carica alla prima richiesta), poi ogni file `.basalt` delle cartelle dei modelli che il Loader
-mostra come **pronto** (un GGUF da convertire o un file che Basalt non può eseguire non è elencato), ciascuno con
+mostra come **pronto** (un GGUF da convertire o un file che Basalt-Plus non può eseguire non è elencato), ciascuno con
 `"status": {"value": "unloaded"}`. L'id di un modello così è il nome del file senza `.basalt` (con un breve hash in
 coda quando due cartelle hanno lo stesso nome di file): il nome da scegliere in un client. Ogni voce ha `created` (la
 data del file), `owned_by`, `display_name`, la lunghezza del contesto quando il file la dice (`context_length`; per il
@@ -973,4 +973,4 @@ ordine di grandezza.
 
 ## Licenza
 
-Il codice nuovo e modificato di questo fork è rilasciato sotto la **Basalt Win+GUI Community and Commercial License** (vedi [LICENSE](LICENSE)): uso gratuito per privati e per aziende con fatturato lordo annuo consolidato inferiore a 10 milioni di dollari USD (licenza commerciale enterprise richiesta a partire da $10M). Il codice preesistente upstream (Strata, Basalt originale, ggml) rimane sotto le rispettive licenze MIT (vedi [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES)).
+Il codice nuovo e modificato di questo fork è rilasciato sotto la **TaDaMoo Win+GUI Community and Commercial License** (vedi [LICENSE](LICENSE)): uso gratuito per privati e per aziende con fatturato lordo annuo consolidato inferiore a 10 milioni di dollari USD (licenza commerciale enterprise richiesta a partire da $10M). Il codice preesistente upstream (Strata, Basalt originale, ggml) rimane sotto le rispettive licenze MIT (vedi [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES)).

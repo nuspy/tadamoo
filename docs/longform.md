@@ -1,6 +1,6 @@
 # Long answers
 
-A model asked for a long final text ends its turn early, well short of the length asked, however large the output limit is. This page describes what Basalt does about it. The reasons and the design are in
+A model asked for a long final text ends its turn early, well short of the length asked, however large the output limit is. This page describes what TaDaMoo does about it. The reasons and the design are in
 [harness-study/long-answers.md](harness-study/long-answers.md). Code: `serve/longform.py` (the engine of the mode: pure functions and
 `LongAnswer`), `serve/longflow.py` (the flow the harness drives: estimate, plan, parts, check), `serve/api/longform.py` (the `long_answer`
 field), `serve/web/longform.js` and `longform.css` (the control), `tadamoo/session.py` (`_long_step`, `_long_run`), and the guards in

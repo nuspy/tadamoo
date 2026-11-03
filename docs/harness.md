@@ -1,7 +1,7 @@
 # The agent harness, the planner and the interface shell
 
 This page describes `harness/` (the agent), the planner, the changes to the web pages and how to check all of it. The
-harness is a separate process: it talks to a running Basalt server over the public OpenAI-compatible API and imports
+harness is a separate process: it talks to a running TaDaMoo server over the public OpenAI-compatible API and imports
 nothing from the engine. `python -m pytest tests` runs its tests without a GPU, against the server with the scripted mock engine.
 
 - [Running the agent](#running-the-agent)
@@ -150,7 +150,7 @@ is the conversation's too: a new one starts with its value, a change reaches the
 
 A message that begins with `/` and a word is a command (a message that begins with a space is sent as it is; an unknown command stays in
 the box). Typing `/` opens a menu: arrows or Tab choose, Enter runs a command that takes no argument. They are the commands of Claude
-Code that make sense here, plus Basalt's own:
+Code that make sense here, plus TaDaMoo's own:
 
 * **on the page**: `/help`, `/clear` (`/new`, `/reset`), `/model`, `/effort [none|low|medium|high|auto]`, `/mode [plan|read|ask|auto]`, `/plan [what]`
   (plan mode, then the request), `/permissions` and `/settings` (open the Chat settings), `/copy [n]`, `/export` (a text file), `/rename name`,
@@ -285,7 +285,7 @@ secret, a vault secret field, or a secret read from a file during the conversati
 hex or base64; a value under eight characters only as a whole word); a match asks the person before anything is sent (the question names the
 secret and the sites it would reach, never the value; it can be answered for the call, the conversation or for good), and with `off` nothing is asked.
 
-**How freely code runs (`tadamoo/exec_level.py`).** The person chooses, in the Wallet page ("Code the agent writes and runs"), one of three levels for every conversation. It is one file (`exec-level.json` in the user data folder) that a running conversation reads again at its next command. The default is `free`; a process nobody configured (a library caller, a test) is `contained`. What follows describes `contained`. With `free` a command or a `run_code` program runs with the person's own rights: no memory or process cap, no time limit unless the model sets one, the whole environment of Basalt plus the vault's values and the broker's secrets as `TADAMOO_VAULT_<entry>_<field>` and `TADAMOO_SECRET_<name>`, no deny list, no refusal for the person's secret places, no audit hook. The permission level in front of the tool is the only gate, and output is still masked of the values it holds. A time limit of the person's own (`tool_timeout_s`) still applies. `admin` is `free` for a Basalt that runs as administrator: the page says whether it does, and the programs inherit the rights of the process; nothing here elevates by itself.
+**How freely code runs (`tadamoo/exec_level.py`).** The person chooses, in the Wallet page ("Code the agent writes and runs"), one of three levels for every conversation. It is one file (`exec-level.json` in the user data folder) that a running conversation reads again at its next command. The default is `free`; a process nobody configured (a library caller, a test) is `contained`. What follows describes `contained`. With `free` a command or a `run_code` program runs with the person's own rights: no memory or process cap, no time limit unless the model sets one, the whole environment of TaDaMoo plus the vault's values and the broker's secrets as `TADAMOO_VAULT_<entry>_<field>` and `TADAMOO_SECRET_<name>`, no deny list, no refusal for the person's secret places, no audit hook. The permission level in front of the tool is the only gate, and output is still masked of the values it holds. A time limit of the person's own (`tool_timeout_s`) still applies. `admin` is `free` for a TaDaMoo that runs as administrator: the page says whether it does, and the programs inherit the rights of the process; nothing here elevates by itself.
 
 What this is **not**: an OS sandbox. A command runs with your files and network rights, with a scrubbed environment, no
 stdin, a time limit and capped output. On Windows each command also runs in its own job object, created before the command
@@ -479,7 +479,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   another PC; making one and reading a value (`vault_revealed`, by name) are written to the payment ledger.
 - **The second factor** is the person's choice for each login: none; a code typed each time (the conversation stops and asks in
   a box whose answer reaches the tool and is kept in neither the conversation nor the history); or the TOTP secret, so that
-  Basalt makes the code (RFC 6238) with nobody asked. The last one lets anyone who can use Basalt on this PC sign in: it is
+  TaDaMoo makes the code (RFC 6238) with nobody asked. The last one lets anyone who can use TaDaMoo on this PC sign in: it is
   offered, with that said once, and not refused.
 - **Payments**: a payment system is held by a card or a login of the vault (or by a provider's own virtual card, token or
   mandate). The broker (`payments_broker.py`) keeps a state file signed with the device key and a hash-chained ledger under a
@@ -643,10 +643,10 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   folder the agent was started in); `session/load` takes the id, replays the conversation as `user_message_chunk`, thought, message,
   `tool_call` and `tool_call_update` updates, and the next prompt goes on from it. When the editor says it offers `fs`, the file tools read
   through it (so unsaved text is seen) and write through it (a write the editor refuses is an error for the model); every edit is still
-  reported as a diff. When the Basalt server refuses requests without a key and the agent has none, `initialize` lists the method
+  reported as a diff. When the TaDaMoo server refuses requests without a key and the agent has none, `initialize` lists the method
   `tadamoo_api_key` and `session/new` and `session/load` answer -32000 with `data.authRequired` until `authenticate` finds the key accepted;
   the key itself can only be given at launch (`TADAMOO_API_KEY` or `--api-key`), so `authenticate` checks it and does not receive it. It
-  reads text only and has no `terminal/*`. It was tested against a scripted editor over in-memory pipes and against Basalt's own ACP client,
+  reads text only and has no `terminal/*`. It was tested against a scripted editor over in-memory pipes and against TaDaMoo's own ACP client,
   never in Zed or JetBrains. It is built like the command line's agent and takes the same options
   (`python -m tadamoo acp --capabilities --lsp --vault-dir ...`), and the `mcpServers` the editor sends with `session/new` (a program to
   start, or a Streamable HTTP address; SSE is refused) are connected for that session: their tools are always irreversible and untrusted,
@@ -885,15 +885,15 @@ Capabilities, *Search online*, and in `discovery.json`.
   --only-binary=:all:` into its own folder, so no build script runs. Its dependencies come from the index without a hash check of
   their own. Without pip the hash is not checked and the record says so. A package with no wheel is not installed.
 - *A remote server*: nothing is downloaded; the address is recorded. A remote server that needs a key in a header is not offered
-  (Basalt signs in to remote servers with OAuth, in Settings).
+  (TaDaMoo signs in to remote servers with OAuth, in Settings).
 - *A skill*: only its folder, from the commit that was shown (up to 100 files and 5 MB), file by file; each file's git hash is
   compared with the one in the commit's tree. A skill's text is instructions for the model; the scripts in its folder are files, which
   the model could later run only through the shell tool under the usual permissions. From a plugin marketplace only skill folders are
   taken, not the plugin's commands, hooks or servers.
-- Candidates that would need an argument Basalt cannot fill, another kind of package (OCI, NuGet, MCPB) or a missing `npm`, `uv` or
+- Candidates that would need an argument TaDaMoo cannot fill, another kind of package (OCI, NuGet, MCPB) or a missing `npm`, `uv` or
   `pip` are not offered, and the answer names what is missing.
 
-**Registration.** The entry is written to `installed.json` as installed by Basalt (origin `basalt`); its hash is checked to be that of
+**Registration.** The entry is written to `installed.json` as installed by TaDaMoo (origin `basalt`); its hash is checked to be that of
 exactly what was shown: the start command or the address, or the text of `SKILL.md`. It shows in Settings, Capabilities, can be turned
 off or moved like any other, and `find_capability` finds it at once. Using it is still a `call_capability`, which asks like any
 action that cannot be undone.
@@ -1014,11 +1014,11 @@ the mode is meant to be compared on the same tasks with `tadamoo.eval` before it
 
 ## Providers: which model each function uses
 
-Basalt's own functions (the Chat, the agent's loop, the planner, the judges) can each use a different model: the one loaded in
-this Basalt, another one on this PC, a cloud service, a command-line agent, or Jev for judging. The choice is made on the
+TaDaMoo's own functions (the Chat, the agent's loop, the planner, the judges) can each use a different model: the one loaded in
+this TaDaMoo, another one on this PC, a cloud service, a command-line agent, or Jev for judging. The choice is made on the
 Models page, sub-tab Providers; other programs that use this server still see only the loaded model.
 
-- `tadamoo/llmswitch/` is the vendored llmswitch package (see its `UPSTREAM.md`); `tadamoo/llm/` is Basalt's layer over it.
+- `tadamoo/llmswitch/` is the vendored llmswitch package (see its `UPSTREAM.md`); `tadamoo/llm/` is TaDaMoo's layer over it.
 - Keys and tokens are kept in the Windows credential manager (the registry file holds only a reference). The page can send
   a key but is never told it back.
 - A function that handles personal data (`tadamoo/llm/functions.py`) cannot be pointed at a provider outside this PC unless
@@ -1181,7 +1181,7 @@ each answers the others, and a local model has one GPU. An adviser that fails is
 debate ends. What the advisers wrote is untrusted text for the others, the moderator and the agent. The cost is worked out before it runs (calls, tokens read
 and written, calls that go outside this PC) and is shown on the Providers page and in the tool's description; it is meant for a decision that is worth it.
 
-The tool exists only when the person pointed at least one of those functions somewhere (a provider, or "Basalt (this server)" for the loaded model in
+The tool exists only when the person pointed at least one of those functions somewhere (a provider, or "TaDaMoo (this server)" for the loaded model in
 several roles); with nothing chosen it is not offered, and what leaves this PC follows the rules of any other function (personal data to a cloud provider only
 where the person said yes for that function, daily caps, fallback only to a route that is as local or more).
 
@@ -1240,7 +1240,7 @@ wide, not for phones.
 - **Agent**: the conversation page of the Chat, working in a **folder** you add. The column at the left lists the folders, each with the
   conversations held in it (*New conversation in this folder*, a cross takes the folder off the list and keeps its files and conversations).
   *Add folder* asks for the full path (the Windows dialog inside the app, a typed path in a browser) and checks that the agent can work there:
-  Basalt can write in it. Adding it makes `<folder>/.tadamoo/project.json`, the folder's own registry
+  TaDaMoo can write in it. Adding it makes `<folder>/.tadamoo/project.json`, the folder's own registry
   (its name and the conversations held in it, kept up to date as they are made, renamed and deleted), and `<folder>/.tadamoo/.gitignore`
   (the agent's `artifacts/`). The list of folders is in `journal/projects.json` of the user data folder; `GET/POST /api/agent/projects` and
   `/api/agent/projects/remove` serve it. A conversation of a folder is created with that folder as its `workspace`: its file tools stay inside it
@@ -1374,7 +1374,7 @@ records. The ledger belongs to the folder, not to one conversation.
 
 ## Running code
 
-`run_code` (`tadamoo/tools/execute.py`) runs a snippet in a separate process: Python with the interpreter of Basalt's own
+`run_code` (`tadamoo/tools/execute.py`) runs a snippet in a separate process: Python with the interpreter of TaDaMoo's own
 environment in isolated mode (`-I`), and JavaScript or TypeScript when `deno` is on the PATH (all three languages) or
 JavaScript when only `node` is. Each run gets a new working folder under `.tadamoo/run/` in the workspace, the workspace's path
 in `TADAMOO_WORKSPACE`, and the same scrubbed environment as the shell. On Windows it runs in a job object (2 GiB of memory, 64
@@ -1442,7 +1442,7 @@ for the app. All these routes work only from this PC. The phone needs Tailscale 
 `GET /api/remote/peers` (the other devices Tailscale sees, for *+ > Documents/Files > Network*). The conversation page is a port of the web page's: the same events (`user`, `delta`, `agent`,
 `ask`, `done`, ...) followed with `GET /api/agent/sessions/<id>/events?after=N`, the same buttons for questions and modes, copy, read aloud and *Branch from here*, files as buttons, pictures
 the agent kept and diagrams as their source. The **+** menu: *Image* (the phone's photo picker), *Photo* (the Camera app), *Documents/Files* with *Local* (the phone's document window),
-*Server* (the same window opened on the entry "Basalt - PC", which `BasaltDocumentsProvider.kt` fills from `/api/files/*`) and *Network* (SMB, from the devices Tailscale lists or an
+*Server* (the same window opened on the entry "TaDaMoo - PC", which `BasaltDocumentsProvider.kt` fills from `/api/files/*`) and *Network* (SMB, from the devices Tailscale lists or an
 address typed). Speech to text and text to speech are the phone's own. A phone may start conversations and routines only in folders already added on the PC.
 
 ## Where the person is
@@ -1530,16 +1530,16 @@ loaded model (a plain request to `/v1/chat/completions`, no tools): it is given 
 
 ## Other agents: ACP client and A2A
 
-`delegate_to_acp_agent` (`tadamoo/acp_client.py`) lets Basalt drive another Agent Client Protocol agent (version 1, stdio):
+`delegate_to_acp_agent` (`tadamoo/acp_client.py`) lets TaDaMoo drive another Agent Client Protocol agent (version 1, stdio):
 `initialize`, `session/new`, `session/prompt`, the agent's `session/update` notifications (message text and a list of its tool
 calls come back), its `session/request_permission` and `session/cancel` when the run is cancelled. The permission requests
-are put to the person through the same permission manager as Basalt's own tools, as `acp_permission:<agent>:<title>`: the
+are put to the person through the same permission manager as TaDaMoo's own tools, as `acp_permission:<agent>:<title>`: the
 person's answer becomes `allow_once` or `reject_once`, and with nobody to ask the request is rejected. The client declares no
 `fs` or `terminal` capability, so the other agent works on the folder itself (its edits are recorded like a shell command's),
 and it does no authentication. The tool exists only for agents written in `acp_agents.json` in the user data folder
 (`{"agents": {"name": {"command": ["program", "arg"], "env": ["VARIABLE_TO_PASS"], "description": "..."}}}`); the model can name
 an agent but never a command. The agent starts with the scrubbed environment plus the variables listed in `env`. Its answer is
-untrusted text. It is tested against a fake agent and against Basalt's own ACP agent over real pipes, not against a third-party
+untrusted text. It is tested against a fake agent and against TaDaMoo's own ACP agent over real pipes, not against a third-party
 agent.
 
 `ask_a2a_agent` (`tadamoo/a2a.py`) is a client for Agent2Agent 1.x over the HTTP+JSON binding: it reads the Agent Card from
@@ -1548,7 +1548,7 @@ agent.
 cancel or after the wait). The agents are listed in `a2a_agents.json` (`{"agents": {"name": {"url": "...", "token_env":
 "VARIABLE_WITH_A_BEARER_TOKEN"}}}`). A task that asks for input or authentication is reported as it stands; streaming, push
 notifications, files and the extended card are not done. It was written from the specification at a2a-protocol.org (version
-1.0.0) and tested against a local fake, never against a real agent; the exact error bodies are read leniently. **Basalt does not
+1.0.0) and tested against a local fake, never against a real agent; the exact error bodies are read leniently. **TaDaMoo does not
 serve an Agent Card or receive A2A tasks**: a card must list an endpoint that accepts tasks, and receiving a task means running
 the agent for a remote caller, which needs a decision about who may call it. Both tools are irreversible and untrusted. An A2A agent is reached only when its address, and every address its name resolves to, is in the person's own network (`tadamoo/netscope.py`: this PC, 10/8, 172.16/12, 192.168/16, link-local, the shared 100.64/10 space of private overlays); an ACP agent is a local program over stdio. Any listener that takes instructions from agents has to call `netscope.require_private` first.
 

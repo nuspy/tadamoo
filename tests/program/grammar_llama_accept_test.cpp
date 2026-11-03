@@ -1,4 +1,4 @@
-// tests/program/grammar_llama_accept_test.cpp - llama.cpp's tests/test-grammar-integration.cpp against Basalt's
+// tests/program/grammar_llama_accept_test.cpp - llama.cpp's tests/test-grammar-integration.cpp against Basalt-Plus's
 // grammar state: every grammar (and every grammar generated from a JSON schema) must accept its passing strings and
 // reject its failing ones, with <[id]> token references fed as token ids and text fed as UTF-8 pieces. Cases are
 // copied from llama.cpp (MIT, see THIRD_PARTY_LICENSES).

@@ -110,4 +110,4 @@ class ProjectStore:
                     for s in sorted(sessions, key=lambda s: s.get("created", 0))]
             _write_json(registry, {"basalt_project": REGISTRY_VERSION, "name": folder.name or str(folder), "created": created, "conversations": rows})
         except OSError as exc:
-            raise RunError(f"Basalt cannot write in that folder, so it cannot keep its registry there: {exc}", "folder_readonly") from None
+            raise RunError(f"TaDaMoo cannot write in that folder, so it cannot keep its registry there: {exc}", "folder_readonly") from None

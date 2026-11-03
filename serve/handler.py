@@ -485,7 +485,7 @@ def make_handler(svc: Service, remote: bool = False):
                     self._fs_get(path)
             elif path == "/api/remote/hello":
                 if self._authorized():
-                    self._json(200, {"name": "Basalt", "ok": True, "device": (self._key_row or {}).get("label", ""), "loaded": bool(svc.loaded())})
+                    self._json(200, {"name": "TaDaMoo", "ok": True, "device": (self._key_row or {}).get("label", ""), "loaded": bool(svc.loaded())})
             elif path == "/api/remote/peers":
                 if self._authorized():
                     self._json(200, {"peers": tailscale_peers()})
@@ -617,7 +617,7 @@ def make_handler(svc: Service, remote: bool = False):
                 self._json(200, {"status": "ok", "max_context": svc.engine.max_context, "model": svc.model,
                                  "images": svc.vision is not None, "api_key": bool(svc.api_key),
                                  "loaded": svc.loaded(), "standby": bool(getattr(svc, "standby", False)),
-                                 # a test server (--mock-engine): the scripts and the app never take it for Basalt
+                                 # a test server (--mock-engine): the scripts and the app never take it for TaDaMoo
                                  "mock": type(svc.engine).__name__ == "MockEngine"
                                  or bool(getattr(getattr(svc, "supervisor", None), "mock", False)),
                                  "service": "basalt"})
@@ -1294,7 +1294,7 @@ def make_handler(svc: Service, remote: bool = False):
                     self._json(200, loader_api.evaluate(svc, loader_api.clean((req or {}).get("values", {})),
                                                         model=model or None))
                 elif what == "load":
-                    engine_host.HOST.stop()                  # Basalt's engine takes the GPU back from another one
+                    engine_host.HOST.stop()                  # Basalt-Plus's engine takes the GPU back from another one
                     out = loader_api.load(svc, req)
                     self._json(200 if out.get("status") == "saved" else 202, out)
                 else:

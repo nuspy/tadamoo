@@ -537,7 +537,7 @@ class _Flaky(ScriptedClient):
         self.calls += 1
         if self.calls > 1 and self.down > 0:
             self.down -= 1
-            raise TadamooError(0, "cannot reach the Basalt server")
+            raise TadamooError(0, "cannot reach the TaDaMoo server")
         return super().chat_completion(*a, **kw)
 
 
@@ -556,7 +556,7 @@ def test_a_lost_connection_is_waited_out_and_the_run_goes_on(ws, monkeypatch):
 def test_a_server_that_never_answered_is_reported_at_once(ws):
     class Down:
         def chat_completion(self, *a, **kw):
-            raise TadamooError(0, "cannot reach the Basalt server")
+            raise TadamooError(0, "cannot reach the TaDaMoo server")
     agent, _ = make(ws, Down())
     agent.run("hi")
     assert agent.error_status == 0

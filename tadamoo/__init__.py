@@ -1,4 +1,4 @@
-"""Basalt Autonomous Agentic Harness.
+"""TaDaMoo Autonomous Agentic Harness.
 
 Designed for Qwen3.8-Flash-Next on NVIDIA Blackwell sm_120.
 """

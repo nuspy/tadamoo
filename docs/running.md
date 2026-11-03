@@ -180,7 +180,7 @@ per slot, `gpus` with `util`, `power` and `temp` per card) and the fastest reque
 
 ## Memory floors
 
-Basalt refuses settings that would leave the machine without memory, and never shrinks what you asked for:
+Basalt-Plus refuses settings that would leave the machine without memory, and never shrinks what you asked for:
 
 - `--vram-reserve-mib` below 256 is refused at startup: with less VRAM free once everything is loaded, a later
   allocation can make the driver page GPU memory and requests stall.
@@ -204,7 +204,7 @@ Basalt refuses settings that would leave the machine without memory, and never s
 ## Vision: `--vision`
 
 Image input is one server option, `--vision off | dynamic | cpu | <GPU number>` (config: `"vision": 1` in the
-`server` section). It is `off` by default. The encoder is Basalt's own and shares its kernels in every mode, so all
+`server` section). It is `off` by default. The encoder is Basalt-Plus's own and shares its kernels in every mode, so all
 of them give bitwise identical embeddings.
 
 | mode | where the encoder runs | VRAM cost | fresh-image latency (IQ3_S, 400 W, earlier build) |
@@ -230,7 +230,7 @@ works, whether or not it runs the engine, and the startup line names it.
 A GPU number uses the sidecar, which the main build also produces (`tools/vision` also builds on its own); the
 server looks for it next to `bin/basalt`. `dynamic` needs no sidecar.
 
-The image encoder is Basalt's own, written for this model's vision tower (no llama.cpp or ggml): bf16 tensor-core
+The image encoder is Basalt-Plus's own, written for this model's vision tower (no llama.cpp or ggml): bf16 tensor-core
 products and flash attention with fp32 accumulation on the GPU, AVX-512/AVX2 on the CPU. It replaces llama.cpp's
 mtmd encoder as a drop-in, is faster than it at every image size, and stays closer to an fp32 reference: mtmd's fp16
 attention drifts on large images, ours does not.

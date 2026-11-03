@@ -451,7 +451,7 @@ class ContextBuilder:
     Order: system_core, environment, project_rules, knowledge, user_profile, active_skills, capabilities. Retrieved memories are not part of
     it: they are rendered as a separate message appended after the conversation so far."""
 
-    def __init__(self, system_core: str = "You are Basalt, an autonomous coding agent.") -> None:
+    def __init__(self, system_core: str = "You are TaDaMoo, an autonomous coding agent.") -> None:
         self.blocks: Dict[str, str] = {"system_core": system_core.strip()}
         self.memories: List[str] = []
 

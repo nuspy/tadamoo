@@ -24,14 +24,14 @@ def _no_backends():
 def test_unconnected_provider_is_an_error_not_fake_data(monkeypatch):
     monkeypatch.setenv("TAVILY_API_KEY", "k")
     with pytest.raises(ProviderUnavailable, match="not connected"):
-        search_web("Basalt Blackwell", provider="tavily")
+        search_web("Basalt-Plus Blackwell", provider="tavily")
     with pytest.raises(ProviderUnavailable, match="unknown provider"):
         search_web("x", provider="nope")
 
 
 def test_connected_backend_results_are_marked_untrusted(monkeypatch):
     register_backend("local_mock", search=lambda q, n: [{"title": q, "snippet": "s"}])
-    results = search_web("Basalt Blackwell sm_120", provider="local_mock")
+    results = search_web("Basalt-Plus Blackwell sm_120", provider="local_mock")
     assert results[0]["untrusted"] is True and results[0]["source"] == "local_mock"
 
     monkeypatch.delenv("EXA_API_KEY", raising=False)

@@ -1742,7 +1742,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     from tadamoo.client import TadamooClient
     from tadamoo.llm import client_for, judge_for
     from tadamoo.llm.judge import router_judge
-    here = TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key)          # the model loaded in this Basalt
+    here = TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key)          # the model loaded in this TaDaMoo
     try:
         built = build_agent(cfg, client=client_for("executor", here), summarizer=client_for("compaction", here), technical=client_for("technical", here))
     except Exception as exc:

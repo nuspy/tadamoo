@@ -7,12 +7,12 @@ if [ -z "$BASE_URL" ] || [ -z "$MODEL_NAME" ]; then
   exit 1
 fi
 if [ -n "$TEMPERATURE" ]; then
-  echo "WARN: the Basalt harness uses the sampling of the model server; TEMPERATURE='$TEMPERATURE' is ignored."
+  echo "WARN: the TaDaMoo harness uses the sampling of the model server; TEMPERATURE='$TEMPERATURE' is ignored."
 fi
 
 # The harness must import before the browser time is spent on it.
 PYTHONPATH=/opt/basalt python3 -c "import tadamoo.headless, tadamoo.bench.adapters.containerkit" || {
-  echo "ERROR: the Basalt harness does not import"
+  echo "ERROR: the TaDaMoo harness does not import"
   exit 1
 }
-echo "Basalt harness ready (model=${MODEL_NAME}, server=${BASE_URL})"
+echo "TaDaMoo harness ready (model=${MODEL_NAME}, server=${BASE_URL})"

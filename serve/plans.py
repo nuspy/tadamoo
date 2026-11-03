@@ -146,7 +146,7 @@ class PlanService:
             self.sync_events()
         return self.settings()
 
-    registry = None                                        # Basalt's providers (tadamoo.llm): set by the server
+    registry = None                                        # TaDaMoo's providers (tadamoo.llm): set by the server
 
     def gatekeeper(self):
         """The process's gatekeeper, set to the settings and the key as they are now. It is the same object every time, so

@@ -28,7 +28,7 @@ done. The engine needs no manual and has none here.
 ## 1. What it is
 
 The harness is an agent: you tell it what you want, and it reads files, changes them, runs commands, searches the web and tells you
-what it did. It uses the model that is loaded in Basalt, so everything stays on your PC unless you choose a cloud provider for a
+what it did. It uses the model that is loaded in TaDaMoo, so everything stays on your PC unless you choose a cloud provider for a
 function. It is a separate Python process that talks to the server through its public API.
 
 Four ways to use it, all with the same abilities:
@@ -279,7 +279,7 @@ you the address and the number to call.
 
 ## 10. Skills, plugins and MCP servers
 
-- **Where they come from.** Basalt reads, and never runs, the skills, plugins and MCP servers installed for other tools on this PC
+- **Where they come from.** TaDaMoo reads, and never runs, the skills, plugins and MCP servers installed for other tools on this PC
   (`~/.claude/skills`, the project's `.claude/skills`, plugins, `.mcp.json` and the like).
 - **What is found is usable.** There is no approval step: an entry on this PC works unless you turn it off in *Settings → Capabilities*,
   where *View text* shows what the agent reads (a skill) or runs (a server). Editing a file never withdraws anything.
@@ -315,11 +315,11 @@ you the address and the number to call.
   moment and masked in what comes back. **The vault** (Wallet) holds cards, personal data and logins encrypted; the agent writes
   `{{vault:ENTRY.FIELD}}`, and the value goes only toward the sites the entry names.
 - **The second factor** of each login is your choice: none, a code you type each time (the conversation stops and asks), or the TOTP
-  secret so Basalt makes the code itself. The last lets anyone who can use Basalt on this PC sign in; you are told once.
+  secret so TaDaMoo makes the code itself. The last lets anyone who can use TaDaMoo on this PC sign in; you are told once.
 - **Payments.** The limit is yours to set, to any amount; until you set it, every payment asks you. A **waiver** lets the agent pay by
   itself up to a cap per payment and, if you set one, a cumulative cap, until it ends (no end date unless you set one), after a dictated declaration and two dialogs with your name
   typed again; above the caps it asks again. A payment can be stopped from the Wallet at any moment, and then the card's fields are no
-  longer released. Whatever a merchant's form then charges is bounded by the card's own limit, not by Basalt.
+  longer released. Whatever a merchant's form then charges is bounded by the card's own limit, not by TaDaMoo.
 - **Phone calls** are off by default and, once on, ask you below *Automatic* (this call, this conversation or always); in *Automatic* nothing is asked. The call opens by saying an AI
   assistant is calling on your behalf. No real call has been placed in a test.
 - **What this does not protect from.** The agent runs as your own user. A program running as you can reach more than the vault can
@@ -364,7 +364,7 @@ interactions as diagrams that the page draws; *Source of the diagram* shows the 
 
 ## 12c. Phones
 
-*Settings > Phones* sets up the Basalt app for a phone. 1) **Tailscale** on this PC: the page installs it (with winget) and connects it, and shows the address this PC has on your private network. 2) **Let phones connect**:
+*Settings > Phones* sets up the TaDaMoo app for a phone. 1) **Tailscale** on this PC: the page installs it (with winget) and connects it, and shows the address this PC has on your private network. 2) **Let phones connect**:
 the server then also listens for them, by default only on the Tailscale address, never on the internet; *Listen on* changes that to every network interface (0.0.0.0) or to one IPv4 address you type, for a phone that reaches this PC on your home network without Tailscale (the link is plain HTTP, so use it only on a network you trust). 3) **A key for each phone**: give the phone a name, press *Make a key*, and scan the QR code with the app
 (or copy the key). The key stays on this PC, encrypted, so *Show code* in the list shows its QR code again (for example after reinstalling the app); the phone also keeps its settings through an update, and Android's backup restores them after an uninstall and reinstall when the phone's backup is on. To stop a phone, take its key away. On the phone, install Tailscale from the Play Store and sign in with the same account. A phone with its key can use the model, the
 conversations, any file or folder of this PC, the routines and the plans, and the rest that answers to a client with a key; what answers only to this PC itself (the wallet, the vault, the settings, the loading of models) stays on this PC, and a phone works in any folder.
@@ -506,7 +506,7 @@ its time unless you set a *time limit* in seconds in the editor. Read the script
 ## 19. What it does not do
 
 - It does not isolate files and network for commands: *Automatic* belongs in a folder you can lose.
-- Basalt is an A2A **client** only; it does not receive tasks from other agents. The ACP agent has no `terminal/*` and was not tried in a real editor; it does have `session/load`, `authenticate` and `fs/*`.
+- TaDaMoo is an A2A **client** only; it does not receive tasks from other agents. The ACP agent has no `terminal/*` and was not tried in a real editor; it does have `session/load`, `authenticate` and `fs/*`.
 - It does not read bank accounts through an aggregator, and Stripe and Google Pay checkouts were not tried on live services.
 - Audio and video need the callAPIcall service; without it the file is kept and the agent says so.
 - Nothing here measures which context strategy is best; that needs the real model.

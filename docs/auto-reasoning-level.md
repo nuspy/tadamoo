@@ -54,7 +54,7 @@ The deciders, from the cheapest:
 
 1. **Signals, no model.** The last result has an error, failed attempts went up, the step is the first one, the step is routine, the task was retried. The harness already counts failed attempts. After repeated failures the level may change in either direction: a different approach is worth more than insisting.
 2. **The technical session**: the main model at no reasoning, a small context (the goal and the last result), a one-word answer.
-3. **A small separate model**, only if the first two are not enough. Basalt runs only Qwen3.8-Flash-Next, so a small model needs another runtime and is a new dependency.
+3. **A small separate model**, only if the first two are not enough. Basalt-Plus runs only Qwen3.8-Flash-Next, so a small model needs another runtime and is a new dependency.
 
 A cloud service is never used in a benchmark. For normal use it needs the person's consent, because the prompt leaves the PC.
 

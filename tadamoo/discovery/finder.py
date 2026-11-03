@@ -53,7 +53,7 @@ class SearchResult:
     candidates: List[Candidate] = field(default_factory=list)
     errors: Dict[str, str] = field(default_factory=dict)
     asked: List[str] = field(default_factory=list)
-    skipped: int = 0                      # found but not offered: they need something Basalt cannot give (arguments, a key in a header, another kind of package)
+    skipped: int = 0                      # found but not offered: they need something TaDaMoo cannot give (arguments, a key in a header, another kind of package)
 
 
 class Finder:
@@ -174,7 +174,7 @@ class Finder:
             if not isinstance(remote, dict) or remote.get("type") not in ("streamable-http", "sse") or not remote.get("url"):
                 continue
             if any(isinstance(h, dict) and h.get("isRequired") for h in remote.get("headers") or []):
-                continue                                                      # a key in a header: Basalt signs in to remote servers with OAuth only
+                continue                                                      # a key in a header: TaDaMoo signs in to remote servers with OAuth only
             m.remote = True
             return Candidate(kind="mcp", name=slugify(name), source="registry", route="remote", url=str(remote["url"]), version=str(server.get("version") or ""),
                              transport=str(remote["type"]), **base)
@@ -190,7 +190,7 @@ class Finder:
 
     @staticmethod
     def _fixed_args(spec: Any) -> Optional[List[str]]:
-        """The arguments the registry fixes for a server; None when one is required and has no value Basalt could give."""
+        """The arguments the registry fixes for a server; None when one is required and has no value TaDaMoo could give."""
         out: List[str] = []
         for a in spec or []:
             if not isinstance(a, dict):

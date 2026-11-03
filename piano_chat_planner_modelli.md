@@ -43,11 +43,11 @@ Le dimensioni sono taglie relative (S/M/L/XL), senza date: come in §8 delle spe
 
 | # | Decisione | Conseguenza |
 |---|---|---|
-| A | Il server LLM per le app esterne offre **solo** le interfacce OpenAI (Chat Completions e Responses) e Anthropic, per il **modello caricato da Basalt**, come ora, e nient'altro. | Nessun proxy verso altri provider, nessuna chiave per app, nessun instradamento tramite il campo `model`. Un test di contratto blocca la superficie (Fase 0). |
+| A | Il server LLM per le app esterne offre **solo** le interfacce OpenAI (Chat Completions e Responses) e Anthropic, per il **modello caricato da TaDaMoo**, come ora, e nient'altro. | Nessun proxy verso altri provider, nessuna chiave per app, nessun instradamento tramite il campo `model`. Un test di contratto blocca la superficie (Fase 0). |
 | B | La **Chat** è l'interfaccia principale con l'harness: conosce gli scopi, crea, modifica e cancella piani in autonomia interfacciandosi al planner. | La Chat diventa una conversazione a più turni sopra il ciclo dell'agente, con gli strumenti del planner (Fasi 2–4). |
 | C | La vista **Piani** è solo l'interfaccia specializzata per la gestione manuale (CRUD) dei piani, non l'ingresso principale. | Chat e vista Piani lavorano sullo stesso archivio (Fase 1). |
 | D | Il **loader di Qwen3.8-Flash-Next** resta attivo e a sé stante: da lì si caricano e si avviano i pesi; ogni componente sceglie quale modello usa. | Scheda **Modelli** con due sottoschede (Providers, Qwen Loader) e una tabella delle funzioni (Fase 6). |
-| E | **llmswitch** entra in Basalt come libreria con queste scelte: dipendenza `requests` aggiunta; registro **dedicato a Basalt** con importazione una tantum da quello condiviso; **abbonamenti nel primo rilascio**; **Jev** (TypeSafe AI) come tipo di provider, accanto a quelli di chat. | Fase 6. Restano da definire i dettagli elencati in §7. |
+| E | **llmswitch** entra in TaDaMoo come libreria con queste scelte: dipendenza `requests` aggiunta; registro **dedicato a TaDaMoo** con importazione una tantum da quello condiviso; **abbonamenti nel primo rilascio**; **Jev** (TypeSafe AI) come tipo di provider, accanto a quelli di chat. | Fase 6. Restano da definire i dettagli elencati in §7. |
 | F | Regole permanenti: nessuna chiamata reale senza consenso, nessun push o pubblicazione, decisioni di rilascio (licenza, contenuti, nomi, versioni, pacchetti) chieste prima. | I test con modello vero e con telefonate restano nelle code `tests/QUEUE_daytime.md` e `tests/QUEUE_live_calls.md`. |
 | G | **Ogni** operazione del planner chiesta dalla Chat (creare, modificare, segnare, archiviare) va confermata dall'utente: con una sua dichiarazione diretta oppure con una domanda dell'harness. | Fase 3. |
 | H | **Pulsanti in linea nella Chat** per le domande (conferme del planner e domande a scelta multipla, come in Claude Code), insieme alla risposta libera: l'utente preme o scrive. Il pulsante ha come `value` la risposta e, premuto, la invia subito alla chat. | Fasi 3 e 4. |
@@ -70,7 +70,7 @@ riesame System 2) e l'**Esecutore** (il ciclo con gli strumenti: file, shell, ri
 ## 2. Architettura target
 
 ```
- Pagina (WebView2)                    Server di Basalt (127.0.0.1)                 Processi
+ Pagina (WebView2)                    Server di TaDaMoo (127.0.0.1)                 Processi
  ─────────────────                    ────────────────────────────                 ────────
  Chat  ──── /api/agent/sessions ───►  sessioni di conversazione  ──────────────►   harness (Python, separato)
  (ingresso principale)                  │ storia, approvazioni, corse                │  ciclo dell'agente
@@ -276,7 +276,7 @@ Dalla lista dei cinque livelli (P). Oggi un turno è **una sola inferenza** che 
 Oggi la Chat accetta solo immagini (`chat.js`, `attachments`).
 
 **Decisioni dell'utente**
-- **Primo rilascio: testi, dati e immagini.** Audio e video passano da **callAPIcall**, che li gestisce già: Basalt non porta dentro trascrizione né elaborazione video; si **estende il client esistente** (`tadamoo/integrations/call_api_client.py`).
+- **Primo rilascio: testi, dati e immagini.** Audio e video passano da **callAPIcall**, che li gestisce già: TaDaMoo non porta dentro trascrizione né elaborazione video; si **estende il client esistente** (`tadamoo/integrations/call_api_client.py`).
 - **Tetti**: nessun tetto proprio degli allegati. Valgono quelli delle **impostazioni di inferenza**: finestra di contesto, politica di superamento (ferma, finestra scorrevole, compatta) e token massimi in uscita. Ciò che non entra nel contesto si legge a pezzi con gli strumenti.
 - Un risultato che è un file ha un **pulsante in linea per scaricarlo e salvarlo in locale** (finestra di salvataggio di sistema come predefinito). Un formato che serve una skill non installata: la Chat **propone di installarla**.
 - *Supposizione da confermare*: per testi, dati e immagini l'estrazione è **locale**; nulla dell'utente va a servizi esterni.
@@ -321,9 +321,9 @@ Oggi la Chat accetta solo immagini (`chat.js`, `attachments`).
 
 ### Fase 6 — Modelli, Providers e Qwen Loader (XL) · *decisioni principali prese (E, K); parte in parallelo alle Fasi 2–4*
 
-**Avanzamento (2026-10-24).** Fatto: llmswitch copiato in `tadamoo/llmswitch/` (con `UPSTREAM.md`); `tadamoo/llm/` con registro sicuro (chiavi nel gestore credenziali di Windows), funzioni, consenso per i dati personali, ripiego solo verso rotte altrettanto o più locali, tetti giornalieri, client instradato, **giudice** (modello caricato o Jev, con estratto breve e solo https), router e triage che prendono la rotta da qui, rotte `/api/llm/*` e sottoschede **Providers / Qwen Loader** (prova su Edge: tabella, aggiunta, rifiuto senza il sì, chiave mai nella pagina). Fatto dopo: caricamento di Qwen per rotta (`tadamoo/llm/qwen_loader.py`: usa il modello com'è, aspetta, carica col profilo della rotta, il rifiuto del Loader è la risposta; un server con caricamento automatico non viene scavalcato), campo «Profilo di caricamento» nel form del provider, tabella dei livelli di ragionamento (il server di Basalt li traduce tutti e sette). Resta: ricarica con un altro profilo a motore inattivo (il server non dice ancora quando lo è), rapporto di spesa per funzione, abbonamenti con le loro cautele (9) nella pagina.
+**Avanzamento (2026-10-24).** Fatto: llmswitch copiato in `tadamoo/llmswitch/` (con `UPSTREAM.md`); `tadamoo/llm/` con registro sicuro (chiavi nel gestore credenziali di Windows), funzioni, consenso per i dati personali, ripiego solo verso rotte altrettanto o più locali, tetti giornalieri, client instradato, **giudice** (modello caricato o Jev, con estratto breve e solo https), router e triage che prendono la rotta da qui, rotte `/api/llm/*` e sottoschede **Providers / Qwen Loader** (prova su Edge: tabella, aggiunta, rifiuto senza il sì, chiave mai nella pagina). Fatto dopo: caricamento di Qwen per rotta (`tadamoo/llm/qwen_loader.py`: usa il modello com'è, aspetta, carica col profilo della rotta, il rifiuto del Loader è la risposta; un server con caricamento automatico non viene scavalcato), campo «Profilo di caricamento» nel form del provider, tabella dei livelli di ragionamento (il server di TaDaMoo li traduce tutti e sette). Resta: ricarica con un altro profilo a motore inattivo (il server non dice ancora quando lo è), rapporto di spesa per funzione, abbonamenti con le loro cautele (9) nella pagina.
 
-**Perimetro (vincolo A):** riguarda solo le funzioni **interne** di Basalt. Le app esterne vedono solo il modello caricato; per loro esiste al più il **preset di inferenza di default**, che una richiesta può comunque sovrascrivere.
+**Perimetro (vincolo A):** riguarda solo le funzioni **interne** di TaDaMoo. Le app esterne vedono solo il modello caricato; per loro esiste al più il **preset di inferenza di default**, che una richiesta può comunque sovrascrivere.
 
 1. **Scheda Modelli** con due sottoschede (decisione K): **Providers** (in alto la tabella delle funzioni, sotto i provider e i modelli, con una striscia di stato comune: che cosa è caricato, VRAM, chi lo usa) e **Qwen Loader** (la scheda Loader attuale, spostata).
 2. **Funzioni**: Chat, Esecutore, Planner (riesame), filtro Jev, compattazione del contesto, valutazione, App esterne (solo preset; rotta bloccata sul modello caricato). Ognuna ha rotta, preset (ragionamento, budget, `max_tokens`, comportamento a contesto pieno, schemi di contesto della Fase 2b), classe di dati e priorità. Precedenza: richiesta, funzione, provider, modello.
@@ -348,12 +348,12 @@ Oggi la Chat accetta solo immagini (`chat.js`, `attachments`).
 5. **Livelli di ragionamento**: tabella di traduzione tra i 7 livelli di llmswitch e `effort` (nessuno, basso, medio, alto) più `reasoning_budget_tokens`.
 6. **Guardia sui dati**: una funzione che tratta dati personali (planner, memoria) non può avere una rotta cloud senza consenso esplicito, come già per il filtro Jev; i ripiegamenti vanno solo verso rotte altrettanto o più locali.
 7. **Tetto di spesa** per provider a pagamento (l'utente ha già confermato il tetto per pagamento e la soglia Jev 0,80), applicato dal chiamante interno.
-8. **Chiavi** nel gestore credenziali di Windows e non in un JSON in chiaro. Il **registro è dedicato a Basalt** (decisione E): llmswitch viene puntato a un file nella cartella dei dati utente di Basalt, con scrittura atomica; si può **importare una volta** dal registro condiviso (copia, non riferimento). Le scelte delle funzioni rimandano ai provider per nome.
+8. **Chiavi** nel gestore credenziali di Windows e non in un JSON in chiaro. Il **registro è dedicato a TaDaMoo** (decisione E): llmswitch viene puntato a un file nella cartella dei dati utente di TaDaMoo, con scrittura atomica; si può **importare una volta** dal registro condiviso (copia, non riferimento). Le scelte delle funzioni rimandano ai provider per nome.
 9. **Abbonamenti e provider a riga di comando nel primo rilascio** (decisione E), con tre cautele:
    - **una porta per fornitore**: si abilita solo dopo che l'utente ha letto le condizioni, come i connettori di pagamento, con un avviso nella pagina; il README di llmswitch segnala il rischio con i termini di servizio e il testo di licenza va visto con l'avvocato (Fase 8);
    - **capacità dichiarate**: un provider a riga di comando (Codex, Claude Code) è un agente, non un completamento: serve alle funzioni di testo (riassunti, compattazione) e non al ciclo dell'Esecutore;
    - i token di accesso stanno nel gestore credenziali, mai nei log.
-9b. **Dipendenza `requests`** aggiunta a Basalt (decisione E), con le sue note di licenza in `THIRD_PARTY_LICENSES`; compare nel pacchetto di installazione (Fase 8).
+9b. **Dipendenza `requests`** aggiunta a TaDaMoo (decisione E), con le sue note di licenza in `THIRD_PARTY_LICENSES`; compare nel pacchetto di installazione (Fase 8).
 10. **Confronto con dati**: `tadamoo.eval` esegue lo stesso insieme di compiti su due rotte e dice quale conviene (pass^k, costo, cache).
 - *Test*: ogni riga della tabella di caricamento; il contratto della Fase 0 invariato; chiave mai nei log né nella pagina; precedenza dei parametri.
 - *Accettazione*: cambiando la rotta di una funzione da una sola tabella cambia il modello che quella funzione usa, e le app esterne continuano a vedere solo il modello caricato.
@@ -374,7 +374,7 @@ Sezione **Giudici** nelle impostazioni: una riga per caso d'uso con un elenco *S
 | 7c | **MCP**: OAuth e `subscriptions/listen` | M | codice (OAuth, prima verifica delle specifiche) |
 | 7d | **LSP e diagnostica**; **worktree paralleli**; fork e ripresa della sessione; time-travel della conversazione (distinto dal rewind dei file) | L | codice |
 | 7e | **Canvas a nodi con ramificazioni**, council con misura A/B, Mermaid: **si fanno** (decisione J), ultimi nell'ordine, con alternativa lineare accessibile e misura A/B del council prima di dichiararlo utile | L | codice, poi prova dal vivo |
-| 7f | **Misure vere**: sottoinsieme di SWE-bench Pro o Terminal-Bench, BFCL, baseline con altri harness (Claude Code, OpenCode, Goose) sul server di Basalt, metriche di cache e TTFT dal registro delle richieste | XL | utente al PC con GPU libera |
+| 7f | **Misure vere**: sottoinsieme di SWE-bench Pro o Terminal-Bench, BFCL, baseline con altri harness (Claude Code, OpenCode, Goose) sul server di TaDaMoo, metriche di cache e TTFT dal registro delle richieste | XL | utente al PC con GPU libera |
 | 7g | **Isolamento reale di file e rete (D5)**: utente Windows dedicato e regole del firewall | L | utente (amministratore, installatore) |
 | 7h | **Connettori di pagamento reali**, uno alla volta dopo la lettura delle condizioni del fornitore; documentare i limiti noti del livello 4 | L | utente, legale |
 | 7i | Prodotti separati (assistente, accesso remoto, servizio di sistema) | XL | decisione D7 già presa: dopo l'harness |

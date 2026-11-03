@@ -18,7 +18,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-USER_AGENT = "tadamoo-capability-search/1.0 (+https://github.com/nuspy/basalt_win-GUI)"
+USER_AGENT = "tadamoo-capability-search/1.0 (+https://github.com/nuspy/tadamoo)"
 DEFAULT_BASES: Dict[str, str] = {
     "registry": "https://registry.modelcontextprotocol.io",
     "npm": "https://registry.npmjs.org",

@@ -119,7 +119,7 @@ def _read() -> Dict[str, Any]:
 
 
 def external_on() -> bool:
-    """Whether the technical session may run on a provider outside this Basalt (a route the person chose for the function `technical`). Off
+    """Whether the technical session may run on a provider outside this TaDaMoo (a route the person chose for the function `technical`). Off
     until the person switches it on: each job is a call that costs money or leaves the PC."""
     entry = _read().get("_external")
     return isinstance(entry, dict) and entry.get("on") is True

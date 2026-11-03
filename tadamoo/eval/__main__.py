@@ -30,7 +30,7 @@ def _temperature(text: str) -> Optional[float]:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser(prog="python -m tadamoo.eval", description="Runs a task set against a Basalt server and reports pass^k, cost and cache use")
+    p = argparse.ArgumentParser(prog="python -m tadamoo.eval", description="Runs a task set against a TaDaMoo server and reports pass^k, cost and cache use")
     p.add_argument("--set", default="core", help="a set name (core, toolcalls) or the path of a JSON file")
     p.add_argument("--k", type=int, default=5, help="repetitions per task (5 or more for a meaningful pass^k)")
     p.add_argument("--endpoint", default="http://127.0.0.1:7232")

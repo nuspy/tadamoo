@@ -1,4 +1,4 @@
-"""The capabilities Basalt installed on the person's choice: one record each in installed.json, and the keys they ask for.
+"""The capabilities TaDaMoo installed on the person's choice: one record each in installed.json, and the keys they ask for.
 
 A server's keys stay in the vault. When the server is started, the one variable it asks for is read from the vault entry the
 record names, handed to the new process and forgotten: it is never written to a file and never goes to the model.

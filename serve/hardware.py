@@ -241,16 +241,16 @@ def gpu_name(index) -> str | None:
 def gpu_warning(g: dict, lang: str = "it") -> str | None:
     """A sentence when the GPU cannot run the engine (not NVIDIA, or not Blackwell); None when it can or is unknown."""
     if g.get("name") is None and g.get("cc") is None:
-        return ("Nessuna GPU NVIDIA leggibile (driver NVIDIA e NVML): il motore di Basalt gira solo su GPU NVIDIA "
+        return ("Nessuna GPU NVIDIA leggibile (driver NVIDIA e NVML): il motore di Basalt-Plus gira solo su GPU NVIDIA "
                 "Blackwell (RTX 50, RTX PRO 6000, B200)." if lang == "it" else
-                "No NVIDIA GPU could be read (NVIDIA driver and NVML): the Basalt engine runs only on NVIDIA Blackwell "
+                "No NVIDIA GPU could be read (NVIDIA driver and NVML): the Basalt-Plus engine runs only on NVIDIA Blackwell "
                 "GPUs (RTX 50 series, RTX PRO 6000, B200).")
     if g.get("blackwell") is False:
         cc = ".".join(str(x) for x in g["cc"])
-        return (f"La GPU {g.get('name')} (compute capability {cc}) non è supportata: il motore di Basalt è compilato "
+        return (f"La GPU {g.get('name')} (compute capability {cc}) non è supportata: il motore di Basalt-Plus è compilato "
                 "solo per GPU NVIDIA Blackwell (compute capability 10.x o 12.x: RTX 50, RTX PRO 6000, B200)."
                 if lang == "it" else
-                f"The GPU {g.get('name')} (compute capability {cc}) is not supported: the Basalt engine is built only "
+                f"The GPU {g.get('name')} (compute capability {cc}) is not supported: the Basalt-Plus engine is built only "
                 "for NVIDIA Blackwell GPUs (compute capability 10.x or 12.x: RTX 50 series, RTX PRO 6000, B200).")
     return None
 

@@ -22,7 +22,7 @@ EXIT_CODES = {al.FINAL: 0, al.ERROR: 1, al.MAX_TURNS: 3, al.BUDGET: 4, al.LOOP: 
 
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="python -m tadamoo", description="Basalt autonomous agent, headless")
+    parser = argparse.ArgumentParser(prog="python -m tadamoo", description="TaDaMoo autonomous agent, headless")
     parser.add_argument("-p", "--prompt", required=True, help="goal for the agent")
     add_agent_arguments(parser, permission_mode="")
     parser.add_argument("--max-tokens-budget", type=int, default=None, help="stop after this many prompt+completion tokens")

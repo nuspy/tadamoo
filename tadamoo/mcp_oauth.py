@@ -168,7 +168,7 @@ class McpOAuth:
     """The sign-in of one remote MCP server."""
 
     def __init__(self, resource: str, store: OAuthStore, redirect_uri: str = "", http: Optional[Http] = None,
-                 clock: Callable[[], float] = time.time, client_name: str = "Basalt", timeout: float = 15.0) -> None:
+                 clock: Callable[[], float] = time.time, client_name: str = "TaDaMoo", timeout: float = 15.0) -> None:
         self.resource = canonical(resource)
         self.store, self.redirect_uri, self.http, self.clock = store, redirect_uri, http or default_http, clock
         self.client_name, self.timeout = client_name, timeout

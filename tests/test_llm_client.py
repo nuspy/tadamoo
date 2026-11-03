@@ -67,7 +67,7 @@ class Cloud:
 
 
 class Local:
-    """The loaded model of this Basalt: what a function without a provider uses."""
+    """The loaded model of this TaDaMoo: what a function without a provider uses."""
 
     def __init__(self):
         self.calls = []
@@ -89,7 +89,7 @@ def world(tmp_path):
     cloud.close()
 
 
-MSG = [{"role": "system", "content": "Sei Basalt."}, {"role": "user", "content": "ciao"}]
+MSG = [{"role": "system", "content": "Sei TaDaMoo."}, {"role": "user", "content": "ciao"}]
 
 
 def test_with_nothing_assigned_the_loaded_model_answers(world):
@@ -143,7 +143,7 @@ def test_anthropic_gets_its_own_shape_and_answers_come_back_in_the_openai_one(wo
     out = RoutedClient("eval", reg, local, ledger).chat_completion(history, tools=tools, max_tokens=100)
     req = cloud.requests[0]
     assert req["path"] == "/v1/messages" and req["headers"]["x-api-key"] == "sk-ant-abcdef" and "anthropic-version" in req["headers"]
-    assert req["body"]["system"] == [{"type": "text", "text": "Sei Basalt.", "cache_control": {"type": "ephemeral"}}]       # the stable start is marked for the cache
+    assert req["body"]["system"] == [{"type": "text", "text": "Sei TaDaMoo.", "cache_control": {"type": "ephemeral"}}]       # the stable start is marked for the cache
     assert req["body"]["tools"][0]["input_schema"] == {"type": "object", "properties": {}} and req["body"]["tools"][-1]["cache_control"] == {"type": "ephemeral"}
     assert req["body"]["messages"][-1] == {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c0", "content": "nessun piano"}]}
     assert req["body"]["messages"][1]["content"][0]["type"] == "tool_use"

@@ -59,5 +59,5 @@ first), the full recursion as a default (cost), POSIX-only paths, parallel rollo
 
 Apache 2.0 code may live in an MIT project but keeps Apache terms: licence copy, notices of modification, upstream headers
 kept. Re-implementing ideas needs no notice; if anything is copied, add to `THIRD_PARTY_LICENSES`: "Harness² (github.com/
-google-research/harness2, commit above), Copyright 2026 Google LLC, Apache 2.0, modified by the Basalt authors (files)" and put
+google-research/harness2, commit above), Copyright 2026 Google LLC, Apache 2.0, modified by the TaDaMoo authors (files)" and put
 the same line in each file header. Do not use the name Harness² or Google marks beyond describing the origin.
