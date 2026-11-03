@@ -122,7 +122,7 @@ def read(path: Path) -> Optional[str]:
 
 def write(path: Path, text: str) -> None:
     """Replaces the file through a temporary one; the text is written as it is, newlines included."""
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".basalt-", suffix=".tmp")
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tadamoo-", suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(text.encode("utf-8"))

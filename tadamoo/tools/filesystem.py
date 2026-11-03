@@ -134,7 +134,7 @@ class WorkspaceSandbox:
     def _write_text(path: Path, content: str) -> None:
         """Writes through a temporary file so a failure never leaves a half-written file; newlines are kept."""
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".basalt-", suffix=".tmp")
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tadamoo-", suffix=".tmp")
         try:
             with os.fdopen(fd, "wb") as f:
                 f.write(content.encode("utf-8"))
@@ -467,7 +467,7 @@ class WorkspaceSandbox:
         for folder, dirs, names in os.walk(self.root):
             dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not os.path.islink(os.path.join(folder, d))]
             for name in names:
-                if name.startswith(".basalt-") and name.endswith(".tmp"):
+                if name.startswith(".tadamoo-") and name.endswith(".tmp"):
                     continue
                 full = os.path.join(folder, name)
                 try:

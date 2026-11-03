@@ -20,7 +20,7 @@ from tadamoo import identifiers
 from tadamoo.markdown_chunks import split_markdown
 from tadamoo.transcript import clip
 
-log = logging.getLogger("basalt.digest")
+log = logging.getLogger("tadamoo.digest")
 
 CHARS_PER_TOKEN = 2.5            # code and JSON take more tokens per character than prose: cut for the worse case
 ANSWER_TOKENS = 900              # what one part's notes may take

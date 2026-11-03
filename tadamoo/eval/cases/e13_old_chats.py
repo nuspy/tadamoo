@@ -73,7 +73,7 @@ def conversations_of(hits: List[Dict[str, Any]]) -> List[str]:
 def run_trial(arm: Arm, question: Dict[str, str], rep: int, ctx: Context) -> CaseTrial:
     t0 = time.monotonic()
     trial = CaseTrial(arm.name, question["id"], rep)
-    with tempfile.TemporaryDirectory(prefix="basalt-e13-") as root:
+    with tempfile.TemporaryDirectory(prefix="tadamoo-e13-") as root:
         index = build_index(Path(root) / "past.db", str(arm.settings["cards"]))
         try:
             registry = ToolRegistry()

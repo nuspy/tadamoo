@@ -58,7 +58,7 @@ def fill(store: LessonStore) -> None:
 
 def run_trial(arm: Arm, task: Dict[str, Any], rep: int, ctx: Context) -> CaseTrial:
     t0 = time.monotonic()
-    root = Path(tempfile.mkdtemp(prefix=f"basalt-e10-{task['id']}-"))
+    root = Path(tempfile.mkdtemp(prefix=f"tadamoo-e10-{task['id']}-"))
     trial = CaseTrial(arm.name, task["id"], rep)
     client = CountingClient(ctx.client)
     built = None

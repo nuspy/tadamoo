@@ -82,7 +82,7 @@ class SecureRegistry(Registry):
     def __init__(self, path: str | Path | None = None, credentials: Optional[CredentialStore] = None, **kw: Any) -> None:
         path = Path(path) if path else data_dir() / "llm_providers.json"
         kw.setdefault("consumers", functions.names())
-        super().__init__(path, app_name="basalt", **kw)
+        super().__init__(path, app_name="tadamoo", **kw)
         self.credentials = credentials or default_store(self.path.parent)
         self._io = threading.RLock()
         self.local_hosts = LOOPBACK                   # the addresses that are this PC (tests can say there are none)

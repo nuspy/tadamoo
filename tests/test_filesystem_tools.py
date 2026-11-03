@@ -50,7 +50,7 @@ def test_a_failed_write_leaves_the_old_file_and_no_temp_files(sb, monkeypatch):
         sb.write_file("keep.txt", "new")
     monkeypatch.undo()
     assert (sb.root / "keep.txt").read_text(encoding="utf-8") == "original"
-    assert not list(sb.root.glob(".basalt-*"))
+    assert not list(sb.root.glob(".tadamoo-*"))
 
 
 def test_changes_keep_the_text_before_and_after_for_diff_views(sb):

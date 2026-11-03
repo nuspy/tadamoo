@@ -85,7 +85,7 @@ def test_an_npm_package_is_installed_with_the_fixed_command_checked(env):
     shim = folder / "node_modules" / ".bin" / ("search-mcp" + (".cmd" if WIN else ""))
     assert record["command"] == [str(shim), "--mode", "fast"] and "npx" not in json.dumps(record["command"])
     entry = env.index.get("mcp:search-mcp")
-    assert entry["origin"] == "basalt" and entry["state"] == "approved" and entry["sha"] == record["sha"]
+    assert entry["origin"] == "tadamoo" and entry["state"] == "approved" and entry["sha"] == record["sha"]
     assert env.index.target("mcp:search-mcp") == [str(shim), "--mode", "fast"]
     assert [h["id"] for h in env.index.search("web search")] == ["mcp:search-mcp"]
     stored = json.loads((env.caps / "installed.json").read_text(encoding="utf-8"))["items"]["mcp:search-mcp"]
@@ -235,9 +235,9 @@ def test_a_skill_is_downloaded_folder_only_file_by_file_at_the_pinned_commit(env
     folder = env.caps / "skills" / "pdf-tables"
     assert (folder / "SKILL.md").is_file() and (folder / "scripts" / "x.py").read_bytes() == b"print('hi')\n" and not (folder / "link").exists()
     assert not (folder / "other").exists() and record["id"] == "skill:pdf-tables" and record["commit"] == SHA
-    assert json.loads((folder / ".basalt-source.json").read_text())["commit"] == SHA
+    assert json.loads((folder / ".tadamoo-source.json").read_text())["commit"] == SHA
     entry = env.index.get("skill:pdf-tables")
-    assert entry["origin"] == "basalt" and entry["state"] == "approved"
+    assert entry["origin"] == "tadamoo" and entry["state"] == "approved"
     assert "Read the file" in env.index.body("skill:pdf-tables")
     assert not any(p.startswith("/raw/acme/skills/" + SHA + "/skills/other") for p, _ in skills.world.requests)
 

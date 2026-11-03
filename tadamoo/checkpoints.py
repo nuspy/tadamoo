@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
-log = logging.getLogger("basalt.checkpoints")
+log = logging.getLogger("tadamoo.checkpoints")
 
 MODES = ("on", "soft", "off")
 _CHECKPOINT_ID = re.compile(r"^cp_\d+_\d+$")
@@ -45,7 +45,7 @@ def _data_root() -> Path:
         from serve.userdata import user_data_dir
         return user_data_dir()
     except Exception:  # the harness also runs without the server package
-        return Path(tempfile.gettempdir()) / "basalt"
+        return Path(tempfile.gettempdir()) / "tadamoo"
 
 
 def default_storage(workspace: Path) -> Path:

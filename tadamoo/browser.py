@@ -397,7 +397,7 @@ class ProfileLock:
     """One browser at a time on a profile that keeps sign-ins: a browser cannot share its profile folder, and two would overwrite each other's sign-ins."""
 
     def __init__(self, directory: str | Path) -> None:
-        self.path = Path(directory) / "basalt.lock"
+        self.path = Path(directory) / "tadamoo.lock"
         self.handle: Any = None
 
     def acquire(self) -> bool:
@@ -471,7 +471,7 @@ def forget_signins(profile_dir: str | Path) -> None:
         raise BrowserError("the browser that keeps sign-ins is in use: finish the conversation that uses it, or close its window, first")
     try:
         for child in Path(profile_dir).iterdir():
-            if child.name != "basalt.lock":                       # the lock file stays while it is held
+            if child.name != "tadamoo.lock":                       # the lock file stays while it is held
                 shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink(missing_ok=True)
     finally:
         lock.release()
@@ -488,7 +488,7 @@ class Browser:
         self.cdp_host, self.port = ("127.0.0.1", 0) if not self.cdp_url else external_endpoint(self.cdp_url)
         persistent = persistent and not self.cdp_url
         self.persistent = bool(persistent and profile_dir)             # the profile is kept, and its sign-ins with it
-        self.profile_dir = Path(profile_dir) if profile_dir and not self.cdp_url else Path(tempfile.mkdtemp(prefix="basalt-browser-"))
+        self.profile_dir = Path(profile_dir) if profile_dir and not self.cdp_url else Path(tempfile.mkdtemp(prefix="tadamoo-browser-"))
         self.keep_profile = self.persistent
         self.headless, self.executable, self.allow_private = headless, executable, allow_private or bool(self.cdp_url)
         self.mask = mask or (lambda t: t)
@@ -532,7 +532,7 @@ class Browser:
             self.lock = ProfileLock(self.profile_dir)
             if not self.lock.acquire():                               # another conversation, or the window the person signs in with, has it
                 self.lock, self.keep_profile = None, False
-                self.profile_dir = Path(tempfile.mkdtemp(prefix="basalt-browser-"))
+                self.profile_dir = Path(tempfile.mkdtemp(prefix="tadamoo-browser-"))
                 self.notice = ("The browser that keeps the person's sign-ins is in use by another conversation or window, so this one started without "
                                "any sign-in. Sign in here again if you must, or tell the person.")
         with socket.socket() as s:
@@ -1240,7 +1240,7 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
         b._record("browser_screenshot", {"site": b.page_url[:100], "file": card.get("name", ""), "bytes": len(data), "full_page": bool(full_page)})
         where = f" Path: {card['path']}." if card.get("path") else ""
         return (f"Screenshot of {b.page_url[:100]} kept as [file:{card['id']}:{card['name']}] ({len(data) // 1000} kB).{where} Look at it with analyze_image "
-                f"(path output:{card['id']}); show it in your answer with ![caption](basalt-file:{card['id']}).")
+                f"(path output:{card['id']}); show it in your answer with ![caption](tadamoo-file:{card['id']}).")
 
     def with_shot(fn: Callable[..., Any]) -> Callable[..., Any]:
         """The action, and when `screenshot` is true the picture of the page it led to."""

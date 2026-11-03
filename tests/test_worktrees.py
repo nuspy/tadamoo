@@ -33,9 +33,9 @@ def test_a_copy_starts_from_the_folder_as_it_is_now(repo, wt):
     (repo / "a.txt").write_text("one\ntwo\nthree\n", encoding="utf-8")                  # changed, not committed
     info = wt.create("t1", repo)
     assert (Path(info["dir"]) / "a.txt").read_text(encoding="utf-8") == "one\ntwo\nthree\n"
-    assert info["branch"] == "basalt/t1" and Path(info["workdir"]) == Path(info["dir"])
+    assert info["branch"] == "tadamoo/t1" and Path(info["workdir"]) == Path(info["dir"])
     assert wt.changes(info) == []                                                         # what was already there is not the task's change
-    assert (repo / "a.txt").read_text(encoding="utf-8") == "one\ntwo\nthree\n" and "basalt/t1" in git(repo, "branch")
+    assert (repo / "a.txt").read_text(encoding="utf-8") == "one\ntwo\nthree\n" and "tadamoo/t1" in git(repo, "branch")
 
 
 def test_a_folder_inside_the_repository_gets_the_same_folder_in_the_copy(repo, wt):
@@ -102,7 +102,7 @@ def test_throwing_a_copy_away_removes_its_folder_and_branch_and_the_persons_fold
     info = wt.create("t7", repo)
     (Path(info["dir"]) / "a.txt").write_text("x\n", encoding="utf-8")
     wt.discard(info)
-    assert not Path(info["dir"]).exists() and "basalt/t7" not in git(repo, "branch")
+    assert not Path(info["dir"]).exists() and "tadamoo/t7" not in git(repo, "branch")
     assert (repo / "a.txt").read_text(encoding="utf-8") == "one\ntwo\n" and "t7" not in git(repo, "worktree", "list")
     wt.discard(info)                                                                      # twice is harmless
 

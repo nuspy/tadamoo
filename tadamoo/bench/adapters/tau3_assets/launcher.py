@@ -29,7 +29,7 @@ def load_repair(repo: str):
     path = os.path.join(repo, "tadamoo", "tools", "repair.py") if repo else ""
     if not path or not os.path.isfile(path):
         return None
-    spec = importlib.util.spec_from_file_location("basalt_tool_repair", path)
+    spec = importlib.util.spec_from_file_location("tadamoo_tool_repair", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

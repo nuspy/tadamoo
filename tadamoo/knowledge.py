@@ -58,7 +58,7 @@ class LocalKnowledge:
     """A small searchable copy of a document set, in SQLite full-text search, for RAG without any service."""
 
     def __init__(self, docs: Dict[str, str], chunk_chars: int = 900) -> None:
-        self._dir = tempfile.TemporaryDirectory(prefix="basalt-kb-", ignore_cleanup_errors=True)
+        self._dir = tempfile.TemporaryDirectory(prefix="tadamoo-kb-", ignore_cleanup_errors=True)
         self.store = MemoryStore(Path(self._dir.name) / "kb.db")
         for path, text in sorted(docs.items()):
             for i, chunk in enumerate(self._chunks(text, chunk_chars)):

@@ -1,7 +1,7 @@
 """Pictures and diagrams for an answer.
 
 Pictures: `page_images` lists what an article shows (its own headline picture first) and `show_image` fetches one into the conversation's
-files, through the same address checks as `browse_url`. The page shows only pictures held there (`![caption](basalt-file:ID)`), so a
+files, through the same address checks as `browse_url`. The page shows only pictures held there (`![caption](tadamoo-file:ID)`), so a
 picture address written in an answer can never make the page call out, and a hidden instruction in a page cannot send anything out in one.
 
 Diagrams: the model writes them as ```mermaid blocks, which the page draws. `guidance` tells it when and how, by how much the person wants
@@ -197,7 +197,7 @@ def register_visual_tools(registry: Any, outputs: Any, session: str, allow_priva
             return f"Could not get that picture: {exc}. Try another one from the page, or go on without a picture."
         base = re.sub(r"[^A-Za-z0-9_-]+", "_", str(caption or urlparse(final).path.rsplit("/", 1)[-1].rsplit(".", 1)[0] or "picture")).strip("_")[:40] or "picture"
         meta = outputs.save(session, clean_name(f"{base}.{kind}"), data)
-        return (f"[file:{meta['id']}:{meta['name']}] Picture kept from {final}. Show it in your answer with ![short caption](basalt-file:{meta['id']}) "
+        return (f"[file:{meta['id']}:{meta['name']}] Picture kept from {final}. Show it in your answer with ![short caption](tadamoo-file:{meta['id']}) "
                 f"and name the page it came from ({urlparse(final).hostname}) as the source.")
 
     def obj(props: Dict[str, Any], required: List[str]) -> Dict[str, Any]:
@@ -230,7 +230,7 @@ CHART_RULES = {
 
 FILES_GUIDANCE = (
     "The person reads you in a page that turns a link to a file into a button that saves it. To offer a file you made with write_output_file or publish_output_file, "
-    "write [name](basalt-file:ID) with the ID from its [file:ID:name] line. To point to a file in the folder, write [name](basalt-path:relative/path), with the path "
+    "write [name](tadamoo-file:ID) with the ID from its [file:ID:name] line. To point to a file in the folder, write [name](tadamoo-path:relative/path), with the path "
     "relative to the folder and only for a file that exists. Offer a file when the person asks for a file or would want to keep one; when the person asks to see "
     "a text on screen, the text goes in the answer.")
 
@@ -241,7 +241,7 @@ def guidance(images: str, charts: str) -> str:
     if images in IMAGE_RULES:
         parts.append(
             f"Pictures from the web: {IMAGE_RULES[images]} Take them from the page of the article you cite when it has a fitting one: read the article, call page_images "
-            "on it, choose the picture that shows what it reports, fetch it with show_image and write ![short caption](basalt-file:ID) where it belongs, "
+            "on it, choose the picture that shows what it reports, fetch it with show_image and write ![short caption](tadamoo-file:ID) where it belongs, "
             "then name the source page. If that page has none, look for one on another reliable page about the same fact. Never write a picture address "
             "yourself, never show a picture you did not fetch, and never show one that has nothing to do with the point.")
     if charts in CHART_RULES:

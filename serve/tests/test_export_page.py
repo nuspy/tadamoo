@@ -140,7 +140,7 @@ SNAP = {
         {"kind": "reasoning", "turn": 1, "text": "REASON-MARK"},
         {"kind": "action", "turn": 1, "name": "browse_url", "description": "DESC-MARK", "arguments": {"url": "ARG-MARK"},
          "result": "[file:0123456789ab:guide.pdf] RESULT-MARK", "sources": [{"url": "https://example.com/", "host": "example.com"}]},
-        {"kind": "answer", "turn": 1, "text": "ANSWER-MARK\n\n![map](basalt-file:0123456789ab)\n\n```mermaid\ngraph TD; A-->B\n```\n"},
+        {"kind": "answer", "turn": 1, "text": "ANSWER-MARK\n\n![map](tadamoo-file:0123456789ab)\n\n```mermaid\ngraph TD; A-->B\n```\n"},
     ],
 }
 

@@ -87,7 +87,7 @@ def notes_of(s: Dict[str, float]) -> List[str]:
 
 def run_long(arm: Arm, variant: Dict[str, Any], rep: int, ctx: Context) -> CaseTrial:
     t0 = time.monotonic()
-    root = Path(tempfile.mkdtemp(prefix=f"basalt-e5-{variant['id']}-"))
+    root = Path(tempfile.mkdtemp(prefix=f"tadamoo-e5-{variant['id']}-"))
     trial = CaseTrial(arm.name, variant["id"], rep)
     client = CountingClient(ctx.client)
     built = None

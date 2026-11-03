@@ -198,12 +198,12 @@ def installed_entries(root: Path) -> List[Found]:
         else:
             continue
         what = " ".join(str(rec.get("description") or "").split())[:DESC_CHARS - 40]
-        out.append(Found(id=f"mcp:{rec['name']}", name=rec["name"], kind="mcp", origin="basalt", description=f"{what} (MCP server: {shown})"[:DESC_CHARS], tags=["mcp"],
+        out.append(Found(id=f"mcp:{rec['name']}", name=rec["name"], kind="mcp", origin="tadamoo", description=f"{what} (MCP server: {shown})"[:DESC_CHARS], tags=["mcp"],
                          path=str(root / "installed.json"), sha=sha, command=shown, raw_command=command, url="" if command else shown))
     skills = root / "skills"
     if skills.is_dir():
         for f in sorted(skills.rglob("SKILL.md")):
-            if entry := _read_skill(f, "basalt"):
+            if entry := _read_skill(f, "tadamoo"):
                 out.append(entry)
     return out
 
@@ -511,7 +511,7 @@ class CapabilityIndex:
             return url
         launch = Launch(command)
         e = self.get(entry_id)
-        if e is not None and e["origin"] == "basalt":
+        if e is not None and e["origin"] == "tadamoo":
             from tadamoo.discovery.installed import InstalledStore, launch_env
             record = InstalledStore(self.dir).get(entry_id)
             if record and record.get("env"):

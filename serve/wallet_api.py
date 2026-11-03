@@ -165,7 +165,7 @@ class WalletApi:
             self._payments().note("user", "vault_backup", {"entries": len(self._vault().entries())})
         except (PermissionError, OSError):
             pass
-        return {"file": base64.b64encode(blob).decode("ascii"), "name": time.strftime("basalt-vault-%Y%m%d.bvb")}
+        return {"file": base64.b64encode(blob).decode("ascii"), "name": time.strftime("tadamoo-vault-%Y%m%d.bvb")}
 
     def restore(self, req: Dict[str, Any]) -> Dict[str, Any]:
         import base64

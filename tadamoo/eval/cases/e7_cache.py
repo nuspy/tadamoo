@@ -24,7 +24,7 @@ from .core import Arm, CaseTrial, Context, Experiment, Rule, by_arm, mean_of, wi
 
 COLUMNS = ("cached_share", "ttft_s", "prompt_tokens", "cached_tokens", "seconds")
 PREFIX_WORDS = (2000, 6000)
-WORDS = ("granite basalt obsidian pumice tuff scoria dolerite gabbro rhyolite andesite diorite peridotite komatiite phonolite trachyte "
+WORDS = ("granite gneiss obsidian pumice tuff scoria dolerite gabbro rhyolite andesite diorite peridotite komatiite phonolite trachyte "
          "kimberlite lamprophyre carbonatite ignimbrite").split()
 
 ARMS = with_control([

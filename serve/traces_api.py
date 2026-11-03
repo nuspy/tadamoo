@@ -60,7 +60,7 @@ def export(sessions: Any, sid: str) -> Tuple[bytes, str]:
     folder = _checked(sessions, sid)
     rec = _record(sessions, sid)
     text = replay_mod.export_history(folder, meta={"session": sid, "title": rec.get("title", ""), "mode": rec.get("mode", "")})
-    return text.encode("utf-8"), f"basalt-trace-{sid}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
+    return text.encode("utf-8"), f"tadamoo-trace-{sid}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
 
 
 def replay(sessions: Any, sid: str, mode: Any = "default", compare_results: bool = False) -> Dict[str, Any]:

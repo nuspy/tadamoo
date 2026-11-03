@@ -79,7 +79,7 @@ segments under 50%, repeated-segment detector, client disconnect or stop) -> ass
 
 **Rich content across chunks.** Protected units are found before any model call and never split: fenced code, mermaid,
 tables, `$$` math, HTML blocks, front matter, list items with continuation, footnote definitions, block quotes, headings.
-Opaque tokens replace images, URLs, link targets, `basalt-file:` ids, artifact references, citation keys, footnote refs,
+Opaque tokens replace images, URLs, link targets, `tadamoo-file:` ids, artifact references, citation keys, footnote refs,
 inline and block code (`⟦IMG3⟧`, `⟦URL12⟧`, `⟦CODE4⟧`); the model copies them, the server restores the originals byte for
 byte. Mermaid in translation: labels out as JSON, translated, block rebuilt deterministically. Tables are atomic; one cut by
 the cap is discarded back to its start and regenerated. Footnotes and numbering belong to the orchestrator (segment-local

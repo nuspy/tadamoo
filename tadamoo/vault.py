@@ -29,7 +29,7 @@ from tadamoo.waiver.keystore import load_or_create_key
 MAGIC = b"BVL1"
 BACKUP_MAGIC = b"BVB1"                            # a backup: the entries under a key made from the person's own passphrase, so they open on any PC
 SCRYPT = dict(n=2 ** 15, r=8, p=1, maxmem=96 << 20, dklen=32)
-AAD = b"basalt-vault"
+AAD = b"tadamoo-vault"
 ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-]{0,39}$")
 FIELD = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 PLACEHOLDER = re.compile(r"\{\{vault:([A-Za-z0-9][A-Za-z0-9_\-]{0,39})\.([a-z][a-z0-9_]{0,31})\}\}")

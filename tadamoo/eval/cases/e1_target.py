@@ -69,7 +69,7 @@ class _Registry:
 
 def run_goal(arm: Arm, goal: Dict[str, Any], rep: int, ctx: Context) -> CaseTrial:
     t0 = time.monotonic()
-    root = Path(tempfile.mkdtemp(prefix=f"basalt-e1-{goal['id']}-"))
+    root = Path(tempfile.mkdtemp(prefix=f"tadamoo-e1-{goal['id']}-"))
     trial = CaseTrial(arm.name, goal["id"], rep)
     client = CountingClient(ctx.client)
     built = None
