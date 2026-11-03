@@ -74,6 +74,7 @@ Stato (1 novembre, sera): committati il blocco «cosa sei» con `self_status` (`
 - Compiti già annunciati: riesame delle ispirazioni da altri strumenti, confronto delle memorie (Claude-Mem, nostro sistema, Obsidian).
 
 ## In coda, senza GPU
+- Livello di ragionamento valutato in automatico per ogni passo dell'agente (oggi è uno per sessione). Si progetta dopo la prima misura dei benchmark con livello fisso, per avere un riferimento. (3 novembre)
 
 - Livello di ragionamento automatico: discussione scritta in `docs/auto-reasoning-level.md` (nessun tetto al pensiero, tua decisione del 2 novembre: solo il livello;
   la cache, calibrazione per politiche, decisione per passo). Niente costruito: attende la fine della corsa e le tue risposte.
