@@ -66,6 +66,9 @@ TODO_NOTE = ("[harness] Your checklist still has unfinished items:\n{items}\nFin
              "apply, then answer again.")
 UNREACHABLE_WAIT_FIRST = 2.0   # seconds before the first new try when the server cannot be reached; it doubles up to the cap
 UNREACHABLE_WAIT_MAX = 60.0
+ENGINE_FAULT = re.compile(r"layer \d+ never rang|illegal memory access|engine (?:stopped|reported)", re.IGNORECASE)
+ENGINE_FAULT_TRIES = 3         # times a request is asked again after the engine failed under it; the server starts the engine again meanwhile
+ENGINE_FAULT_WAIT_FIRST = 15.0 # seconds before the first new try; it doubles up to UNREACHABLE_WAIT_MAX
 MAX_CONTINUATIONS = 2          # times a reply cut by the output limit is asked to go on, per request
 MAX_CUT_RETRIES = 3            # times a tool call cut by the output limit is asked for again, each with twice the room
 RETRY_TOKENS = 8192            # the room a cut tool call is asked again with when neither the setting nor the answer says how much it had
@@ -1111,19 +1114,29 @@ class AgentLoop:
 
     def _complete_waiting(self, started: float) -> "_Completion":
         """`_complete`, asked again while the server cannot be reached after it has answered once: the wait grows between tries, with no limit on
-        the tries. Only the request's own budget or a cancel ends it (a cancel as the person stopping the answer; the budget as the unreachable error)."""
-        waits = 0
+        the tries. Only the request's own budget or a cancel ends it (a cancel as the person stopping the answer; the budget as the unreachable error).
+        A reply that the engine failed under (it stopped mid-answer) is asked again too, ENGINE_FAULT_TRIES times: nothing of it was kept."""
+        waits = faults = 0
         while True:
             try:
                 done = self._complete()
                 self._reached = True
                 return done
             except BasaltError as exc:
-                if exc.status != 0 or not self._reached or self._out_of_budget(started):
+                fault = exc.status != 0 and bool(ENGINE_FAULT.search(str(exc)))
+                if not (fault or (exc.status == 0 and self._reached)) or self._out_of_budget(started):
                     raise
-                wait = min(UNREACHABLE_WAIT_MAX, UNREACHABLE_WAIT_FIRST * 2 ** waits)
-                waits += 1
-                self._emit({"type": "server_unreachable", "attempt": waits, "wait_s": wait})
+                if fault:
+                    faults += 1
+                    if faults > ENGINE_FAULT_TRIES:
+                        raise
+                    wait = min(UNREACHABLE_WAIT_MAX, ENGINE_FAULT_WAIT_FIRST * 2 ** (faults - 1))
+                    self._emit({"type": "engine_fault_retry", "attempt": faults, "of": ENGINE_FAULT_TRIES, "wait_s": wait, "message": str(exc)[:200]})
+                    self._audit("engine_fault_retry", {"attempt": faults, "message": str(exc)[:200]})
+                else:
+                    wait = min(UNREACHABLE_WAIT_MAX, UNREACHABLE_WAIT_FIRST * 2 ** waits)
+                    waits += 1
+                    self._emit({"type": "server_unreachable", "attempt": waits, "wait_s": wait})
                 if self.cancel.wait(wait):
                     raise StreamCancelled() from None
 
