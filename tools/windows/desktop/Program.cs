@@ -1,10 +1,10 @@
-// BasaltWinGUI.exe ("Basalt Win+GUI"): the desktop window of the local Basalt server. One instance per user session:
+// TaDaMoo.exe ("Basalt Win+GUI"): the desktop window of the local Basalt server. One instance per user session:
 // a second start brings the running window to the front.
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 
-namespace BasaltDesktop;
+namespace TaDaMooDesktop;
 
 static class Program
 {
@@ -14,8 +14,8 @@ static class Program
         .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
         .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "";
     public static string TitleWithRelease => Release.Length == 0 || Release.StartsWith("1.0.0") ? AppName : AppName + " " + Release;
-    const string MutexName = @"Local\BasaltWinGUI.Desktop";
-    public const string ShowEventName = @"Local\BasaltWinGUI.Desktop.Show";
+    const string MutexName = @"Local\TaDaMoo.Desktop";
+    public const string ShowEventName = @"Local\TaDaMoo.Desktop.Show";
 
     [STAThread]
     static int Main(string[] args)
@@ -99,7 +99,7 @@ sealed class Options
                 case "--test-window": o.TestWindow = true; break;
                 case "--test-screenshot": o.Screenshot = Next(); break;
                 case "--test-exit": o.TestExit = true; break;
-                default: o.Error = $"? {args[i]}\nBasaltWinGUI.exe [--config \"<profile>\"] [--model \"<file .basalt>\"] [--port N] [--vram-libera GB] [--file <config>] [--lang it|en]"; break;
+                default: o.Error = $"? {args[i]}\nTaDaMoo.exe [--config \"<profile>\"] [--model \"<file .basalt>\"] [--port N] [--vram-libera GB] [--file <config>] [--lang it|en]"; break;
             }
         }
         o.Repo ??= FindRepo(AppContext.BaseDirectory);

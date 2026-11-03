@@ -5,8 +5,8 @@ import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
-_DEV = _ROOT / "dist" / "stage" / "BasaltWinGUI" / "addons"
-_MAIN_DEV = Path(r"E:\Projects\basalt\dist\stage\BasaltWinGUI\addons")
+_DEV = _ROOT / "dist" / "stage" / "TaDaMoo" / "addons"
+_MAIN_DEV = Path(r"E:\Projects\basalt\dist\stage\TaDaMoo\addons")
 
 
 def addons_dir() -> Path | None:
