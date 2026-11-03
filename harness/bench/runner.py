@@ -188,9 +188,12 @@ class BenchRun:
         else:
             self.dir.mkdir(parents=True, exist_ok=True)
             provisional = not spec.comparable_with_board
+            label = PROVISIONAL_LABEL if provisional else ""
+            if float(settings.get("time_scale") or 1.0) > 1.0:           # more time than the task allows: not the board's rule
+                provisional, label = True, f"time limit relaxed x{float(settings['time_scale']):g}: not comparable with the board"
             self.record = {"run_id": self.run_id, "benchmark": spec.id, "benchmark_commit": imported_commit, "model": dict(model or {}),
                            "power_limit_w": power_limit_w, "settings": dict(settings), "harness": resume.git_state(root or Path(__file__).resolve().parents[2]),
-                           "provisional": provisional, "provisional_label": PROVISIONAL_LABEL if provisional else "",
+                           "provisional": provisional, "provisional_label": label,
                            "created": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(clock()))}
             write_json(self.dir / SETTINGS, self.record)
             self._state(status="queued", done=0, total=0, passed=0, failed=0, invalid=0, tokens=0, seconds=0.0, current="", error="")
